@@ -1,0 +1,51 @@
+# Byte-compiled / optimized / DLL files
+## compiled bytecode of a python-module
+__pycache__/
+## compiled python-code
+*.py[cod]
+## caches
+.cache/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+
+# idea/environment folders
+## local UV environment
+.venv
+## Visual Studio attributes
+.vscode
+*.sln
+## IntelliJ attributes
+.idea
+*.iml
+## MAC OS folder attributes
+*.DS_Store
+## meta data of installed python packages
+*.egg-info
+
+# env-files
+## local .env-files overwriting env-variables
+.env.local
+
+# Support folder during dev
+## stored models, artifacs and data
+models/*
+artifacts/*
+data/*
+## python notebooks
+notebooks/*.ipynb
+.ipynb_checkpoints/*
+
+# Build artifacts
+.build/
+build/
+site/
+scripts/
+.confluence-build/
+tasks/
+
+# Terraform
+infra/.terraform/
+infra/*.auto.tfvars
+infra/.terraform.lock.hcl

@@ -1,0 +1,140 @@
+/* Custom header/banner color */
+.md-header {
+  background-color: #8FC47E !important; /* Change this to your desired color */
+}
+
+/* Hide site name text, show only logo */
+.md-header__title {
+  display: none;
+}
+
+/* Keep search bar and other elements grouped on the right */
+.md-header__option {
+  margin-left: auto;
+}
+
+/* Show full GitHub repository name without truncation */
+.md-source__repository {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* Custom text selection highlight color for light mode */
+[data-md-color-scheme="default"] ::selection {
+  background-color: #326273;
+  color: white;
+}
+
+/* Custom text selection highlight color for dark mode */
+[data-md-color-scheme="slate"] ::selection {
+  background-color: #E39774;
+  color: white;
+}
+
+/* Custom link colors for light mode */
+[data-md-color-scheme="default"] a {
+  color: #326273 !important;
+}
+
+[data-md-color-scheme="default"] a:hover {
+  color: #326273 !important;
+}
+
+/* Custom link colors for dark mode */
+[data-md-color-scheme="slate"] a {
+  color: #E39774 !important;
+}
+
+[data-md-color-scheme="slate"] a:hover {
+  color: #d17f5a !important;
+}
+
+/* Keep header GitHub link white */
+.md-header a {
+  color: white !important;
+}
+
+.md-header a:hover {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Custom background color for light mode */
+[data-md-color-scheme="default"] {
+  --md-default-bg-color: #E8F3EA; /* Change this to your desired light background */
+}
+
+/* Custom background color for dark mode */
+[data-md-color-scheme="slate"] {
+  --md-hue: 230;
+  --md-default-bg-color: #313D34; /* Change this to your desired dark background */
+}
+
+.hide {
+  display: none;
+}
+
+/* Custom green border for note admonitions */
+.admonition.note {
+  border-color: #A8C890 !important;
+}
+
+.text-center {
+  text-align: center;
+}
+
+img.index-header {
+  width: 70%;
+  max-width: 500px;
+}
+
+.tea-green{
+  color: #C4D4A0;
+}
+
+.muted-olivce {
+  color: #A8C890;
+}
+
+.evergreen {
+  color: #2A3828;
+}
+
+.text-emphasis {
+  font-size: 1rem;
+  font-weight: 300;
+  font-style: italic;
+}
+
+.pink-emphasis {
+  color: #F76690;
+}
+
+.filename a:hover {
+  text-decoration: underline;
+}
+
+#version-notice {
+  margin-bottom: 10px;
+}
+
+.mermaid {
+  text-align: center;
+}
+
+.md-search__input::-webkit-search-decoration,
+.md-search__input::-webkit-search-cancel-button,
+.md-search__input::-webkit-search-results-button,
+.md-search__input::-webkit-search-results-decoration {
+  -webkit-appearance:none;
+}
+
+.md-search-result__article {
+  padding-bottom: .55em;
+}
+
+.ais-SearchBox-form {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+}
