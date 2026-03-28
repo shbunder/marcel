@@ -16,27 +16,24 @@ extra:
 
 theme:
   name: "material"
+  # Brand colors are applied via docs/extra/tweaks.css using CSS custom properties.
+  # 'pink' is the closest Material named color to Blush Rose (#cc5e76) and serves
+  # as the fallback before the stylesheet loads.
   palette:
-    - media: "(prefers-color-scheme)"
-      primary: light green
-      accent: light green
-      toggle:
-        icon: material/brightness-auto
-        name: "Switch to light mode"
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: light green
-      accent: light green
+      primary: pink
+      accent: teal
       toggle:
         icon: material/brightness-7
         name: "Switch to dark mode"
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: light green
-      accent: light green
+      primary: pink
+      accent: teal
       toggle:
         icon: material/brightness-4
-        name: "Switch to system preference"
+        name: "Switch to light mode"
   features:
     - search.suggest
     - search.highlight

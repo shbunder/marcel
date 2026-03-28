@@ -1,0 +1,44 @@
+{
+  "colors": [
+    {
+      "name": "Blush Rose",
+      "role": "primary",
+      "note": "Main brand color — use like Claude's orange. Buttons, active states, links, header.",
+      "hex": "#cc5e76",
+      "rgb": [204, 94, 118],
+      "hsl": [347, 52, 58]
+    },
+    {
+      "name": "Snow",
+      "role": "light-background",
+      "note": "Light mode background for apps and docs.",
+      "hex": "#faf5f8",
+      "rgb": [250, 245, 248],
+      "hsl": [324, 33, 97]
+    },
+    {
+      "name": "Shadow Grey",
+      "role": "dark-background",
+      "note": "Dark mode background for apps and docs.",
+      "hex": "#262425",
+      "rgb": [38, 36, 37],
+      "hsl": [330, 3, 15]
+    },
+    {
+      "name": "Deep Teal",
+      "role": "secondary",
+      "note": "Secondary accent — use sparingly. Subtle highlights, secondary actions, borders.",
+      "hex": "#5e807f",
+      "rgb": [94, 128, 127],
+      "hsl": [178, 15, 44]
+    },
+    {
+      "name": "Orange",
+      "role": "secondary",
+      "note": "Secondary accent — use sparingly. Warnings, energy, call-to-action highlights.",
+      "hex": "#f6aa1c",
+      "rgb": [246, 170, 28],
+      "hsl": [39, 92, 54]
+    }
+  ]
+}
