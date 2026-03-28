@@ -33,6 +33,11 @@ __pycache__/
 models/*
 artifacts/*
 data/*
+## Allow seed data for the developer user
+!data/.gitkeep
+!data/users/
+!data/users/shaun/
+!data/users/shaun/**
 ## python notebooks
 notebooks/*.ipynb
 .ipynb_checkpoints/*

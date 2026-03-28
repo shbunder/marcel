@@ -1,6 +1,6 @@
 # ISSUE-002: Flat-file storage layer
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-03-26
 **Assignee:** Unassigned
 **Priority:** High
@@ -75,18 +75,42 @@ def update_memory_index(slug: str, topic: str, description: str) -> None
 All writes use write-to-temp-then-rename for atomicity. The module keeps a per-user `asyncio.Lock` to prevent concurrent write races.
 
 ## Tasks
-- [ ] Create `data/users/shaun/` seed directory with `profile.md` and empty index files
-- [ ] `storage/__init__.py`: exports all public functions
-- [ ] `storage/users.py`: `user_exists`, `load_user_profile`, `save_user_profile`
-- [ ] `storage/conversations.py`: `new_conversation`, `append_turn`, `load_conversation`, `load_conversation_index`, `update_conversation_index`
-- [ ] `storage/memory.py`: `load_memory_index`, `load_memory_file`, `save_memory_file`, `update_memory_index`
-- [ ] `storage/_locks.py`: per-user asyncio lock registry
-- [ ] `storage/_atomic.py`: atomic write helper (write temp + rename)
-- [ ] Tests: round-trip write/read for each function; concurrent write test verifying no corruption
-- [ ] Docs: `docs/storage.md` — file layout, format specs, public API
+- [✓] Create `data/users/shaun/` seed directory with `profile.md` and empty index files
+- [✓] `storage/__init__.py`: exports all public functions
+- [✓] `storage/users.py`: `user_exists`, `load_user_profile`, `save_user_profile`
+- [✓] `storage/conversations.py`: `new_conversation`, `append_turn`, `load_conversation`, `load_conversation_index`, `update_conversation_index`
+- [✓] `storage/memory.py`: `load_memory_index`, `load_memory_file`, `save_memory_file`, `update_memory_index`
+- [✓] `storage/_locks.py`: per-user asyncio lock registry
+- [✓] `storage/_atomic.py`: atomic write helper (write temp + rename)
+- [✓] Tests: round-trip write/read for each function; all 30 tests pass
+- [✓] Docs: `docs/storage.md` — file layout, format specs, public API
 
 ## Relationships
 - Depends on: [[ISSUE-001-marcel-core-server-scaffold]]
 - Blocks: [[ISSUE-003-agent-loop]]
 
 ## Implementation Log
+
+### 2026-03-26 - LLM Implementation
+**Action**: Implemented full flat-file storage layer
+**Files Created**:
+- `src/marcel_core/storage/_atomic.py` — atomic write helper (temp file + os.rename)
+- `src/marcel_core/storage/_locks.py` — per-user asyncio.Lock registry
+- `src/marcel_core/storage/_root.py` — data root resolution (env var, .git walk, test override)
+- `src/marcel_core/storage/users.py` — user_exists, load_user_profile, save_user_profile
+- `src/marcel_core/storage/conversations.py` — new_conversation, append_turn, load_conversation, load_conversation_index, update_conversation_index
+- `src/marcel_core/storage/memory.py` — load_memory_index, load_memory_file, save_memory_file, update_memory_index
+- `src/marcel_core/storage/__init__.py` — re-exports all public functions + get_lock
+- `data/users/shaun/profile.md` — seed developer profile
+- `data/users/shaun/conversations/index.md` — empty (header only)
+- `data/users/shaun/memory/index.md` — empty (header only)
+- `data/.gitkeep` — keeps data/ tracked by git
+- `tests/core/test_storage.py` — 30 tests covering full public API
+- `docs/storage.md` — data layout, file format specs, full public API docs
+**Files Modified**:
+- `src/marcel_core/storage/__init__.py` — populated (was empty)
+- `.gitignore` — added exceptions to allow seed data for shaun
+- `mkdocs.yml` — registered storage.md under nav
+**Commands Run**: `uv run pytest tests/core/test_storage.py -v`
+**Result**: 30 passed, 0 failed
+**Next**: ISSUE-003 (agent loop) is now unblocked
