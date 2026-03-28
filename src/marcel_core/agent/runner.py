@@ -18,6 +18,7 @@ async def stream_response(
     channel: str,
     user_text: str,
     conversation_id: str | None = None,
+    model: str | None = None,
 ) -> AsyncIterator[str]:
     """Stream response tokens from Claude for one conversation turn.
 
@@ -42,6 +43,7 @@ async def stream_response(
         allowed_tools=['cmd'],
         permission_mode='default',
         max_turns=1,
+        model=model,
     )
 
     got_stream_events = False

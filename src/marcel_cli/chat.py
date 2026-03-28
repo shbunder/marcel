@@ -27,10 +27,11 @@ class ChatClient:
         token: Auth token (sent as query param; not validated in Phase 1).
     """
 
-    def __init__(self, ws_url: str, user: str, token: str = '') -> None:
+    def __init__(self, ws_url: str, user: str, token: str = '', model: str = '') -> None:
         self._ws_url = ws_url
         self._user = user
         self._token = token
+        self._model = model
         self._conn: ClientConnection | None = None
         self._conversation_id: str | None = None
         self.state = ConnectionState.DISCONNECTED
@@ -68,6 +69,7 @@ class ChatClient:
             'text': text,
             'user': self._user,
             'conversation': self._conversation_id,
+            'model': self._model or None,
         }
         await self._conn.send(json.dumps(payload))
         return self._receive_tokens()

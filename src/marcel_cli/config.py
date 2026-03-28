@@ -21,6 +21,7 @@ _DEFAULTS: dict = {
     'port': 8000,
     'user': 'shaun',
     'token': '',
+    'model': 'claude-sonnet-4-6',
 }
 
 
@@ -39,6 +40,7 @@ class Config:
     port: int
     user: str
     token: str
+    model: str
 
     @property
     def ws_url(self) -> str:
@@ -50,6 +52,7 @@ def load_config(
     host: str | None = None,
     port: int | None = None,
     user: str | None = None,
+    model: str | None = None,
 ) -> Config:
     """Load config from ``~/.marcel/config.toml``, then apply overrides.
 
@@ -77,25 +80,29 @@ def load_config(
         raw['port'] = port
     if user is not None:
         raw['user'] = user
+    if model is not None:
+        raw['model'] = model
 
     return Config(
         host=str(raw.get('host', _DEFAULTS['host'])),
         port=int(raw.get('port', _DEFAULTS['port'])),
         user=str(raw.get('user', _DEFAULTS['user'])),
         token=str(raw.get('token', _DEFAULTS['token'])),
+        model=str(raw.get('model', _DEFAULTS['model'])),
     )
 
 
 def _write_default_config() -> None:
     _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     _CONFIG_PATH.write_text(
-        '[Marcel CLI config]\n'
         '# Marcel server address\n'
         'host = "localhost"\n'
         'port = 8000\n\n'
         '# Your user slug\n'
         'user = "shaun"\n\n'
         '# Long-lived developer token (auth not yet enforced in Phase 1)\n'
-        'token = ""\n',
+        'token = ""\n\n'
+        '# Claude model to use\n'
+        'model = "claude-sonnet-4-6"\n',
         encoding='utf-8',
     )

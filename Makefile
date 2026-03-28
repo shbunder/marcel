@@ -56,10 +56,14 @@ test-cov: ## Run tests with coverage report
 	echo -e "$(INFO) Running all tests with coverage..."
 	uv run pytest tests/ --cov=execution_garden_core --cov-report=term-missing
 
+.PHONY: cli
+cli: ## Start the Marcel CLI (TUI)
+	uv run marcel --host $(MARCEL_HOST) --port $(MARCEL_PORT)
+
 .PHONY: serve
 serve: ## Start marcel-core development server (uvicorn with reload)
-	echo -e "$(INFO) Starting marcel-core on http://0.0.0.0:8000 ..."
-	uv run uvicorn marcel_core.main:app --host 0.0.0.0 --port 8000 --reload
+	echo -e "$(INFO) Starting marcel-core on http://0.0.0.0:$(MARCEL_PORT) ..."
+	uv run uvicorn marcel_core.main:app --host 0.0.0.0 --port $(MARCEL_PORT) --reload
 
 .PHONY: check
 check: format lint typecheck test-cov ## Run format, lint, typecheck, and tests

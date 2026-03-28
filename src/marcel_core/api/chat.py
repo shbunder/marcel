@@ -36,6 +36,7 @@ async def chat(websocket: WebSocket) -> None:
             user_slug: str = data.get('user', 'shaun')
             conversation_id: str | None = data.get('conversation')
             channel: str = data.get('channel', 'cli')
+            model: str | None = data.get('model') or None
 
             if not user_text:
                 await websocket.send_text(json.dumps({'type': 'error', 'message': 'Empty message'}))
@@ -52,7 +53,7 @@ async def chat(websocket: WebSocket) -> None:
             # Stream the agent response token by token
             response_parts: list[str] = []
             try:
-                async for token in stream_response(user_slug, channel, user_text, conversation_id):
+                async for token in stream_response(user_slug, channel, user_text, conversation_id, model=model):
                     response_parts.append(token)
                     await websocket.send_text(json.dumps({'type': 'token', 'text': token}))
             except Exception as exc:
