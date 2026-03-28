@@ -18,7 +18,7 @@ _CONFIG_PATH = Path.home() / '.marcel' / 'config.toml'
 
 _DEFAULTS: dict = {
     'host': 'localhost',
-    'port': 8000,
+    'port': 7420,
     'user': 'shaun',
     'token': '',
     'model': 'claude-sonnet-4-6',
@@ -97,7 +97,7 @@ def _write_default_config() -> None:
     _CONFIG_PATH.write_text(
         '# Marcel server address\n'
         'host = "localhost"\n'
-        'port = 8000\n\n'
+        'port = 7420\n\n'
         '# Your user slug\n'
         'user = "shaun"\n\n'
         '# Long-lived developer token (auth not yet enforced in Phase 1)\n'

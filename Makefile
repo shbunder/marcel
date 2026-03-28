@@ -56,6 +56,10 @@ test-cov: ## Run tests with coverage report
 	echo -e "$(INFO) Running all tests with coverage..."
 	uv run pytest tests/ --cov=execution_garden_core --cov-report=term-missing
 
+.PHONY: install-cli
+install-cli: ## Install the Marcel CLI as a standalone uv tool (for use on a remote machine)
+	bash install.sh
+
 .PHONY: cli
 cli: ## Start the Marcel CLI (TUI)
 	uv run marcel --host $(MARCEL_HOST) --port $(MARCEL_PORT)

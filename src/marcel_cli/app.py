@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 
-import marcel_core
+import httpx
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import FormattedText
@@ -13,6 +13,7 @@ from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.text import Text
 
+from . import __version__ as _CLI_VERSION
 from .chat import ChatClient, ConnectionState
 from .config import Config
 from .mascot import BLUSH_ROSE, _art
@@ -58,14 +59,25 @@ class _SlashCompleter(Completer):
                 )
 
 
-def _print_header(config: Config) -> None:
+async def _fetch_server_version(config: Config) -> str:
+    """Fetch the backend version from /health. Returns 'offline' on failure."""
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            r = await client.get(f'http://{config.host}:{config.port}/health')
+            return r.json().get('version', '?')
+    except Exception:
+        return 'offline'
+
+
+def _print_header(config: Config, server_version: str) -> None:
     art = _art().splitlines()
     pad = '   '
+    srv_color = '#ff6b6b' if server_version == 'offline' else '#888888'
     info: list[tuple[str, str]] = [
-        ('Marcel v' + marcel_core.__version__, 'bold white'),
-        (config.model,                         '#888888'),
-        (config.user,                          '#888888'),
-        (f'{config.host}:{config.port}',       '#555555'),
+        (f'CLI v{_CLI_VERSION}',          'bold white'),
+        (f'Server v{server_version}',     srv_color),
+        (config.model,                    '#888888'),
+        (config.user,                     BLUSH_ROSE),
     ]
     info_offset = 1
     width = console.width or 60
@@ -83,7 +95,7 @@ def _print_header(config: Config) -> None:
     console.print()
 
 
-def _handle_command(text: str, config: Config, client: ChatClient) -> bool:
+def _handle_command(text: str, config: Config, client: ChatClient, server_version: str) -> bool:
     """Handle a local /command. Returns True if the REPL should exit."""
     cmd = text.split()[0].lower()
 
@@ -92,7 +104,7 @@ def _handle_command(text: str, config: Config, client: ChatClient) -> bool:
 
     if cmd == '/clear':
         os.system('clear')
-        _print_header(config)
+        _print_header(config, server_version)
 
     elif cmd == '/model':
         args = text.split()[1:]
@@ -107,8 +119,11 @@ def _handle_command(text: str, config: Config, client: ChatClient) -> bool:
     elif cmd == '/status':
         state = client.state.name.lower()
         color = '#888888' if client.state == ConnectionState.CONNECTED else '#ff6b6b'
+        srv_color = '#ff6b6b' if server_version == 'offline' else '#555555'
         console.print(Text(f'  server:  {config.host}:{config.port}', style='#555555'))
         console.print(Text(f'  status:  {state}', style=color))
+        console.print(Text(f'  cli:     v{_CLI_VERSION}', style='#555555'))
+        console.print(Text(f'  backend: v{server_version}', style=srv_color))
         console.print(Text(f'  model:   {config.model}', style='#555555'))
         console.print(Text(f'  user:    {config.user}', style='#555555'))
         console.print()
@@ -139,7 +154,8 @@ def _handle_command(text: str, config: Config, client: ChatClient) -> bool:
 
 async def run(config: Config) -> None:
     """Main REPL loop."""
-    _print_header(config)
+    server_version = await _fetch_server_version(config)
+    _print_header(config, server_version)
 
     client = ChatClient(ws_url=config.ws_url, user=config.user, token=config.token, model=config.model)
 
@@ -183,7 +199,7 @@ async def run(config: Config) -> None:
                     console.print()
                     continue
 
-                should_exit = _handle_command(text, config, client)
+                should_exit = _handle_command(text, config, client, server_version)
                 if should_exit:
                     break
 

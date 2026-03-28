@@ -85,6 +85,8 @@ Run `make check` — this runs format, lint, typecheck, and tests with coverage.
 make check
 ```
 
+**Bump the version.** Every change that affects behaviour must increment a version segment. See [VERSIONING.md](./VERSIONING.md) to decide which segment (PROUD / DEFAULT / SHAME) and which files to update.
+
 Update or add documentation in `docs/` per [docs/CLAUDE.md](../docs/CLAUDE.md). Documentation ships in the same change as the code.
 
 Log implementation work in the issue file and close or update it per [./issues/CLAUDE.md](./issues/CLAUDE.md).
