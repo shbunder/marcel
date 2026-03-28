@@ -8,6 +8,8 @@ repo_url: https://github.com/shbunder/marcel
 nav:
   - index.md
   - Architecture: architecture.md
+  - Storage: storage.md
+  - Self-Modification: self-modification.md
 
 extra:
   generator: false
