@@ -10,6 +10,8 @@ nav:
   - Architecture: architecture.md
   - Storage: storage.md
   - Self-Modification: self-modification.md
+  - Skills: skills.md
+  - CLI: cli.md
 
 extra:
   generator: false

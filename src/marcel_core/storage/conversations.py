@@ -20,7 +20,8 @@ def _index_path(slug: str) -> pathlib.Path:
 
 
 def new_conversation(slug: str, channel: str) -> str:
-    """Create a new conversation file and return its filename stem.
+    """
+    Create a new conversation file and return its filename stem.
 
     The filename stem uses the format ``YYYY-MM-DDTHH-MM`` (colons replaced
     with dashes for filesystem safety).  The file header uses the display
@@ -43,7 +44,8 @@ def new_conversation(slug: str, channel: str) -> str:
 
 
 def append_turn(slug: str, filename: str, role: str, text: str) -> None:
-    """Append a single turn to an existing conversation file.
+    """
+    Append a single turn to an existing conversation file.
 
     Args:
         slug: The user's short identifier.
@@ -62,7 +64,8 @@ def append_turn(slug: str, filename: str, role: str, text: str) -> None:
 
 
 def load_conversation(slug: str, filename: str) -> str:
-    """Return the raw markdown content of a conversation file.
+    """
+    Return the raw markdown content of a conversation file.
 
     Args:
         slug: The user's short identifier.
@@ -78,7 +81,8 @@ def load_conversation(slug: str, filename: str) -> str:
 
 
 def load_conversation_index(slug: str) -> str:
-    """Return the raw markdown content of the conversation index.
+    """
+    Return the raw markdown content of the conversation index.
 
     Args:
         slug: The user's short identifier.
@@ -94,7 +98,8 @@ def load_conversation_index(slug: str) -> str:
 
 
 def update_conversation_index(slug: str, filename: str, description: str) -> None:
-    """Append a new entry to the conversation index.
+    """
+    Append a new entry to the conversation index.
 
     Creates the index file if it does not already exist.
 

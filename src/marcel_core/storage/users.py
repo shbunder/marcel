@@ -11,7 +11,8 @@ def _user_dir(slug: str) -> pathlib.Path:
 
 
 def user_exists(slug: str) -> bool:
-    """Return True if the user directory exists.
+    """
+    Return True if the user directory exists.
 
     Args:
         slug: The user's short identifier (e.g. ``"shaun"``).
@@ -23,7 +24,8 @@ def user_exists(slug: str) -> bool:
 
 
 def load_user_profile(slug: str) -> str:
-    """Load the user's profile markdown.
+    """
+    Load the user's profile markdown.
 
     Args:
         slug: The user's short identifier.
@@ -39,7 +41,8 @@ def load_user_profile(slug: str) -> str:
 
 
 def save_user_profile(slug: str, content: str) -> None:
-    """Persist the user's profile markdown.
+    """
+    Persist the user's profile markdown.
 
     Creates the user directory if it does not already exist.
 

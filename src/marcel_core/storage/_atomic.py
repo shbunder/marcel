@@ -6,7 +6,8 @@ import tempfile
 
 
 def atomic_write(path: pathlib.Path, content: str) -> None:
-    """Write content to path atomically using a temp file + rename.
+    """
+    Write content to path atomically using a temp file + rename.
 
     Creates parent directories as needed. Guarantees that either the full
     content is written or the original file is left untouched — a partial

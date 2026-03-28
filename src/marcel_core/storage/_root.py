@@ -1,4 +1,5 @@
-"""Data root directory resolution.
+"""
+Data root directory resolution.
 
 The data root is determined in this order:
 1. ``_DATA_ROOT`` module-level override (used in tests).
@@ -27,7 +28,8 @@ def _find_repo_root() -> pathlib.Path:
 
 
 def data_root() -> pathlib.Path:
-    """Return the resolved data root directory.
+    """
+    Return the resolved data root directory.
 
     Returns:
         An absolute ``pathlib.Path`` pointing at the data directory.

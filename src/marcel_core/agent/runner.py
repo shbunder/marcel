@@ -10,6 +10,7 @@ import claude_agent_sdk
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, StreamEvent, TextBlock
 
 from marcel_core.agent.context import build_system_prompt
+from marcel_core.skills import build_skills_mcp_server
 
 
 async def stream_response(
@@ -37,7 +38,8 @@ async def stream_response(
 
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
-        tools=[],  # No tools in Phase 1 — cmd tool MCP server added in Phase 4
+        mcp_servers={'skills': build_skills_mcp_server(user_slug)},
+        allowed_tools=['cmd'],
         permission_mode='default',
         max_turns=1,
     )

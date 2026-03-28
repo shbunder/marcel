@@ -11,7 +11,8 @@ def _memory_dir(slug: str) -> pathlib.Path:
 
 
 def _memory_path(slug: str, topic: str) -> pathlib.Path:
-    """Return the path for a memory topic file.
+    """
+    Return the path for a memory topic file.
 
     ``topic`` is the filename without ``.md``, e.g. ``"calendar"``.
     """
@@ -24,7 +25,8 @@ def _index_path(slug: str) -> pathlib.Path:
 
 
 def load_memory_index(slug: str) -> str:
-    """Return the raw markdown content of the memory index.
+    """
+    Return the raw markdown content of the memory index.
 
     Args:
         slug: The user's short identifier.
@@ -40,7 +42,8 @@ def load_memory_index(slug: str) -> str:
 
 
 def load_memory_file(slug: str, topic: str) -> str:
-    """Return the raw markdown content of a memory topic file.
+    """
+    Return the raw markdown content of a memory topic file.
 
     Args:
         slug: The user's short identifier.
@@ -56,7 +59,8 @@ def load_memory_file(slug: str, topic: str) -> str:
 
 
 def save_memory_file(slug: str, topic: str, content: str) -> None:
-    """Persist a memory topic file.
+    """
+    Persist a memory topic file.
 
     Creates the memory directory if it does not already exist.
 
@@ -70,7 +74,8 @@ def save_memory_file(slug: str, topic: str, content: str) -> None:
 
 
 def update_memory_index(slug: str, topic: str, description: str) -> None:
-    """Add a topic entry to the memory index if not already present.
+    """
+    Add a topic entry to the memory index if not already present.
 
     Creates the index file if it does not already exist.  Does nothing if an
     entry for ``topic`` already appears in the index.
