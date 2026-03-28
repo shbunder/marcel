@@ -16,7 +16,9 @@ classifiers = [
 ]
 
 dependencies = [
-    "claude-agent-sdk"
+    "claude-agent-sdk",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
 ]
 
 # Local package sources for editable installation

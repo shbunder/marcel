@@ -1,20 +1,19 @@
 site_name: Marcel
-site_description: A self-adapting agent build on top of claude-code that can rewrite itself.
-strict: true
+site_description: A self-adapting personal agent built on Claude.
+strict: false
 
-repo_name: kbcgroup/eas_src_execution_garden_experiments
-repo_url: https://github.com/kbcgroup/eas_src_execution_garden_experiments
+repo_name: shbunder/marcel
+repo_url: https://github.com/shbunder/marcel
 
 nav:
   - index.md
+  - Architecture: architecture.md
 
 extra:
-  # hide the "Made with Material for MkDocs" message
   generator: false
-  
+
 theme:
   name: "material"
-  custom_dir: docs/.overrides
   palette:
     - media: "(prefers-color-scheme)"
       primary: light green
@@ -48,15 +47,12 @@ theme:
     - navigation.sections
     - navigation.tracking
     - toc.follow
-    - announce.dismiss
-  logo: "img/name-logo-long-monotone-white.png"
-  favicon: "favicon.ico"
 
 extra_css:
   - "extra/tweaks.css"
 
 watch:
-  - packages/execution_garden_core
+  - src/marcel_core
 
 markdown_extensions:
   - attr_list
@@ -68,7 +64,7 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          paths: [packages/execution_garden_core/src]
+          paths: [src]
           options:
             relative_crossrefs: true
             members_order: source
@@ -80,19 +76,8 @@ plugins:
             show_root_heading: true
             show_symbol_type_heading: true
             show_symbol_type_toc: true
-            # 3 because docs are in pages with an H2 just above them
             heading_level: 3
             docstring_style: google
             docstring_section_style: table
             merge_init_into_class: true
             show_if_no_docstring: false
-  - mkdocs-to-confluence:
-      host_url: https://aconfluence.kbc.be:6081/confluence/rest/api/content
-      space: DPMI
-      parent_page_name: "Developer Docs"
-      auth_type: bearer  # Use Bearer authentication for Personal Access Token (PAT)
-      cleanup_orphaned_pages: true  # Clean up old pages that are no longer in nav
-      enabled_if_env: MKDOCS_PUBLISH_TO_CONFLUENCE
-      # Note: Image attachments are not uploading automatically (plugin v0.6.0 bug)
-      # Workaround: Manually upload images to Confluence pages
-      # api_token will be read from CONFLUENCE_API_TOKEN env var automatically
