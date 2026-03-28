@@ -1,6 +1,6 @@
 # ISSUE-006: marcel-cli TUI
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-03-26
 **Assignee:** Unassigned
 **Priority:** High
@@ -88,16 +88,31 @@ marcel = "marcel_cli.main:main"
 ```
 
 ## Tasks
-- [ ] Add `textual`, `websockets`, `tomllib` (stdlib 3.11+) to dependencies
-- [ ] `config.py`: load `~/.marcel/config.toml`, create default if missing, apply flag overrides
-- [ ] `chat.py`: async WebSocket client — connect, send message, yield tokens as they arrive
-- [ ] `app.py`: Textual App with conversation panel + input bar + status indicator
-- [ ] `main.py`: parse `--host`/`--port` flags, load config, launch app
-- [ ] Add `[project.scripts]` entry in `pyproject.toml`
-- [ ] Tests: config loading with overrides; WebSocket client message parsing (mock server)
-- [ ] Docs: `docs/cli.md` — installation, config file, usage
+- [✓] Add `textual`, `websockets`, `tomllib` (stdlib 3.11+) to dependencies
+- [✓] `config.py`: load `~/.marcel/config.toml`, create default if missing, apply flag overrides
+- [✓] `chat.py`: async WebSocket client — connect, send message, yield tokens as they arrive
+- [✓] `app.py`: Textual App with conversation panel + input bar + status indicator
+- [✓] `main.py`: parse `--host`/`--port` flags, load config, launch app
+- [✓] Add `[project.scripts]` entry in `pyproject.toml`
+- [✓] Tests: config loading with overrides; WebSocket client message parsing (mock server)
+- [✓] Docs: `docs/cli.md` — installation, config file, usage
 
 ## Relationships
 - Depends on: [[ISSUE-003-agent-loop]]
 
 ## Implementation Log
+
+### 2026-03-28 - LLM Implementation
+**Action**: Implemented Marcel CLI TUI (ISSUE-006) in full
+**Files Modified**:
+- `pyproject.toml` — added `textual>=0.70.0`, `websockets>=12.0` to dependencies; added `[project.scripts]` section with `marcel = "marcel_cli.main:main"`
+- `src/marcel_cli/config.py` — created: loads `~/.marcel/config.toml`, writes default on first run, applies CLI flag overrides, exposes `Config` dataclass with `ws_url` property
+- `src/marcel_cli/chat.py` — created: async `ChatClient` with `connect`/`disconnect`/`send`/`_receive_tokens`; tracks `conversation_id` across calls; `ConnectionState` enum
+- `src/marcel_cli/app.py` — created: `MarcelApp(App)` with `RichLog` conversation panel, `Input` bar, `Static` status bar, and `Header`/`Footer`; collects full response before rendering (reliable across Textual versions); shows mascot on connect
+- `src/marcel_cli/main.py` — created: argparse entrypoint, late-imports `MarcelApp` to keep tests lightweight
+- `tests/cli/__init__.py` — created (empty)
+- `tests/cli/conftest.py` — created (empty)
+- `tests/cli/test_cli.py` — created: 5 config tests + 3 async ChatClient parsing tests using mock connections
+- `docs/cli.md` — created: installation, config file format, CLI flags, usage, key bindings
+- `mkdocs.yml` — added `- CLI: cli.md` to nav
+**Result**: All files created; implementation matches ISSUE-006 specification
