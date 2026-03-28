@@ -1,7 +1,10 @@
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
+
+load_dotenv()  # loads ANTHROPIC_API_KEY and other vars from .env into the process env
 
 from marcel_core.api.chat import router as chat_router
 from marcel_core.api.health import router as health_router

@@ -10,7 +10,10 @@ src/marcel_core/
   api/
     health.py      # GET /health
     chat.py        # WebSocket /ws/chat
-  agent/           # claude_agent_sdk agent loop (ISSUE-003)
+  agent/
+    context.py     # build_system_prompt — loads profile, memory, conversation history
+    runner.py      # stream_response — calls claude_agent_sdk, yields text tokens
+    memory_extract.py  # background fact extraction after each turn
   storage/         # Flat-file read/write helpers (ISSUE-002)
   skills/          # cmd-tool dispatcher and skills.json registry (ISSUE-004)
   auth/            # JWT and user identity (Phase 2)
@@ -48,6 +51,26 @@ On error:
 ```json
 {"type": "error", "message": "..."}
 ```
+
+## Agent loop sequence
+
+For each conversation turn:
+
+```
+1. Client sends {"text": "...", "user": "shaun", "conversation": null | "id"}
+2. If conversation is null → storage.new_conversation() → send {"type":"started","conversation":"id"}
+3. agent/context.py: load profile + all memory files + recent conversation history
+4. Build system prompt, call claude_agent_sdk.query(prompt=user_text, options=...)
+5. For each StreamEvent with type=content_block_delta:
+     → yield text token → send {"type":"token","text":"..."}
+6. After stream: append both turns to conversation file (storage.append_turn)
+7. Fire-and-forget: memory_extract.extract_and_save_memories() as asyncio background task
+8. Send {"type":"done"}
+```
+
+Memory extraction runs after every turn without blocking the response. It calls Claude with a
+structured prompt, parses `TOPIC: / CONTENT:` blocks, and appends new facts to the relevant
+`data/users/{slug}/memory/{topic}.md` files.
 
 ## Running locally
 

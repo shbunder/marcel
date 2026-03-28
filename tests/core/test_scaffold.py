@@ -1,8 +1,11 @@
-"""Tests for ISSUE-001: marcel-core server scaffold."""
+"""Tests for ISSUE-001: marcel-core server scaffold.
+
+WebSocket protocol tests have moved to test_agent.py now that the echo
+stub has been replaced with the real agent endpoint (ISSUE-003).
+"""
 
 import json
 
-import pytest
 from fastapi.testclient import TestClient
 
 from marcel_core import __version__
@@ -21,24 +24,3 @@ def test_health_body() -> None:
     body = response.json()
     assert body['status'] == 'ok'
     assert body['version'] == __version__
-
-
-def test_websocket_echo() -> None:
-    with client.websocket_connect('/ws/chat') as ws:
-        ws.send_text(json.dumps({'text': 'hello'}))
-
-        token_msg = json.loads(ws.receive_text())
-        assert token_msg['type'] == 'token'
-        assert token_msg['text'] == 'echo: hello'
-
-        done_msg = json.loads(ws.receive_text())
-        assert done_msg['type'] == 'done'
-
-
-def test_websocket_empty_text() -> None:
-    with client.websocket_connect('/ws/chat') as ws:
-        ws.send_text(json.dumps({'text': ''}))
-
-        token_msg = json.loads(ws.receive_text())
-        assert token_msg['type'] == 'token'
-        assert token_msg['text'] == 'echo: '
