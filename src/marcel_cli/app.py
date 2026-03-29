@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import random
+import signal
 import subprocess
 
 import httpx
@@ -230,6 +231,15 @@ def _handle_command(text: str, config: Config, client: ChatClient, server_versio
     return False
 
 
+def _layout_tier(width: int) -> int:
+    """Return the current layout tier based on terminal width (3 / 2 / 1 columns)."""
+    if width >= 88:
+        return 3
+    if width >= 60:
+        return 2
+    return 1
+
+
 async def run(config: Config) -> None:
     """Main REPL loop."""
     server_version = await _fetch_server_version(config)
@@ -244,6 +254,19 @@ async def run(config: Config) -> None:
         console.print()
 
     _print_header(config, server_version, connected=client.state == ConnectionState.CONNECTED)
+
+    current_tier = _layout_tier(console.width or 80)
+
+    def _on_resize() -> None:
+        nonlocal current_tier
+        new_tier = _layout_tier(console.width or 80)
+        if new_tier != current_tier:
+            current_tier = new_tier
+            os.system('clear')
+            _print_header(config, server_version, connected=client.state == ConnectionState.CONNECTED)
+
+    loop = asyncio.get_event_loop()
+    loop.add_signal_handler(signal.SIGWINCH, _on_resize)
 
     session: PromptSession = PromptSession(
         completer=_SlashCompleter(),
@@ -322,4 +345,5 @@ async def run(config: Config) -> None:
 
             console.print()
 
+    loop.remove_signal_handler(signal.SIGWINCH)
     await client.disconnect()
