@@ -129,3 +129,35 @@ New integrations follow this pattern:
 3. A **JSON config entry** that configures the underlying request/behavior (endpoint, auth, params)
 
 Integrations must be self-contained — they should not require changes to core Marcel code. When adding an integration, verify the pattern works end-to-end before committing.
+
+## Telegram-Initiated Changes
+
+When a user requests a code change or feature **via Telegram**, the following rules apply without exception:
+
+1. **Create an issue first** — open an issue in `./project/issues/open/` before writing any code, following the full lifecycle in [./issues/CLAUDE.md](./issues/CLAUDE.md). Move it to `wip/` when work begins.
+2. **Follow the full Feature Development Procedure** — capture, requirements, issue, implement, ship. No shortcuts because the request came through chat.
+3. **Respond via Telegram when done** — after committing, send the user a Telegram message containing:
+   - The exact `git log --oneline -1` output (commit hash + message)
+   - A brief summary of the Implementation Log from the issue file (what changed and why)
+
+   Use the `notify` tool or the Telegram bot directly to deliver this. The user should not need to check git to know what happened.
+
+This rule exists so that all work is traceable, the project history is readable, and the user always knows what changed in response to their request.
+
+## User Data Rule
+
+**User-specific information always goes in `data/users/{slug}/`, never in `.env` or `.env.local`.**
+
+This applies to:
+- Integration credentials tied to a specific user (Apple ID, OAuth tokens, app-specific passwords)
+- Per-user preferences, facts, and context
+- Any data that would differ across users
+
+The `.env` / `.env.local` files are for **system-wide** config only (API keys for shared services, port numbers, feature flags). Mixing user data into the environment makes multi-user support impossible and leaks one user's data into another's context.
+
+When a user provides personal credentials or preferences:
+1. Store them in `data/users/{slug}/memory/{topic}.md` (or `profile.md` for core identity info)
+2. Update `data/users/{slug}/memory/index.md` with a one-liner
+3. If the runtime needs the value at startup (e.g. an iCloud password), write it to `.env.local` **and** record the fact that it lives there in the memory file — never store the secret value itself in memory
+
+See [docs/storage.md](../docs/storage.md) for the full storage API and file format.
