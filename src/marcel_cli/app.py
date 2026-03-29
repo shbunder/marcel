@@ -255,15 +255,18 @@ async def run(config: Config) -> None:
 
     _print_header(config, server_version, connected=client.state == ConnectionState.CONNECTED)
 
-    current_tier = _layout_tier(console.width or 80)
+    _resize_task: asyncio.Task | None = None
+
+    async def _redraw_after_delay() -> None:
+        await asyncio.sleep(0.12)  # debounce: wait for resize to settle
+        os.system('clear')
+        _print_header(config, server_version, connected=client.state == ConnectionState.CONNECTED)
 
     def _on_resize() -> None:
-        nonlocal current_tier
-        new_tier = _layout_tier(console.width or 80)
-        if new_tier != current_tier:
-            current_tier = new_tier
-            os.system('clear')
-            _print_header(config, server_version, connected=client.state == ConnectionState.CONNECTED)
+        nonlocal _resize_task
+        if _resize_task and not _resize_task.done():
+            _resize_task.cancel()
+        _resize_task = asyncio.get_event_loop().create_task(_redraw_after_delay())
 
     loop = asyncio.get_event_loop()
     loop.add_signal_handler(signal.SIGWINCH, _on_resize)
