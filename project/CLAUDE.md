@@ -91,7 +91,15 @@ Update or add documentation in `docs/` per [docs/CLAUDE.md](../docs/CLAUDE.md). 
 
 Log implementation work in the issue file and close or update it per [./issues/CLAUDE.md](./issues/CLAUDE.md).
 
-**Trigger a restart.** After committing, signal the watchdog to restart Marcel with the new code:
+**Push to the user branch.** After committing, push the changes to a remote branch named after the requesting user. This lets the user review and merge to `main` at their own pace:
+
+```bash
+git push origin HEAD:shaun
+```
+
+Replace `shaun` with the slug of the user who requested the feature. The branch is created if it doesn't exist. Do **not** force-push — append only, so the review history is preserved.
+
+**Trigger a restart.** After pushing, signal the watchdog to restart Marcel with the new code:
 
 ```python
 from marcel_core.watchdog.flags import request_restart

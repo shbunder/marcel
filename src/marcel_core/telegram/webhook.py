@@ -52,13 +52,20 @@ async def _process_message(chat_id: int, user_slug: str, text: str) -> None:
 
     full_response = ''.join(response_parts)
 
+    if not full_response.strip():
+        await _reply(chat_id, 'Sorry, I received your message but produced an empty response. Please try again or rephrase your question.')
+        return
+
     async with storage.get_lock(user_slug):
         storage.append_turn(user_slug, conversation_id, 'user', text)
         storage.append_turn(user_slug, conversation_id, 'assistant', full_response)
 
     asyncio.create_task(extract_and_save_memories(user_slug, text, full_response, conversation_id))
 
-    await bot.send_message(chat_id, full_response)
+    try:
+        await bot.send_message(chat_id, full_response)
+    except Exception as exc:
+        await _reply(chat_id, f'I have a response but failed to send it: {exc}')
 
 
 @router.post('/telegram/webhook')

@@ -69,6 +69,14 @@ def run() -> None:
     repo = _repo_root()
     proc = _start_uvicorn()
 
+    def _handle_signal(signum: int, frame: object) -> None:
+        log.info('Watchdog received signal %d — stopping uvicorn and exiting', signum)
+        _stop(proc)
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+
     # Initial startup health check — no rollback on first boot.
     if not health.poll_health(PORT, HEALTH_TIMEOUT, POLL_INTERVAL):
         log.error('Marcel failed to start. Exiting.')

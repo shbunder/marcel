@@ -41,8 +41,8 @@ async def stream_response(
         system_prompt=system_prompt,
         mcp_servers={'skills': build_skills_mcp_server(user_slug)},
         allowed_tools=['cmd'],
-        permission_mode='default',
-        max_turns=1,
+        permission_mode='bypassPermissions',
+        max_turns=10,
         model=model,
     )
 

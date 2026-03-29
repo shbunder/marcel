@@ -59,7 +59,9 @@ async def send_message(chat_id: int | str, text: str) -> None:
             return
 
         # MarkdownV2 rejected — retry as plain text so the user isn't left hanging
-        await client.post(url, json={'chat_id': chat_id, 'text': text})
+        plain_resp = await client.post(url, json={'chat_id': chat_id, 'text': text})
+        if not plain_resp.is_success:
+            raise RuntimeError(f'Telegram sendMessage failed: {plain_resp.status_code} {plain_resp.text}')
 
 
 async def set_webhook(url: str, *, secret: str = '') -> dict:
