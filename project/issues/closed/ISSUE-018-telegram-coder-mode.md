@@ -1,6 +1,6 @@
 # ISSUE-018: Telegram Coder Mode — Self-Modification via Claude Code SDK
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-03-29
 **Assignee:** Marcel
 **Priority:** Medium
@@ -31,12 +31,12 @@ The fix: an explicit `/code` command routes to a coder agent spawned with the `c
 Additionally, Telegram sessions get `/new` (fresh conversation) and auto-new on inactivity (6h) to prevent stale context accumulation.
 
 ## Tasks
-- [ ] ISSUE-018-a: Update session state — add `mode`, `coder_session_id`, `last_message_at` fields to sessions.json
-- [ ] ISSUE-018-b: Create coder agent runner (`src/marcel_core/agent/coder.py`) — `run_coder_task()` with `claude_code` preset, `can_use_tool` callback for restricted files, global `asyncio.Lock`, session_id capture from StreamEvent
-- [ ] ISSUE-018-c: Update webhook (`src/marcel_core/telegram/webhook.py`) — add `/code`, `/done`, `/new` commands; route coder-mode messages to `run_coder_task`; auto-new on 6h inactivity; 600s timeout for coder tasks
-- [ ] ISSUE-018-d: Export new functions from `src/marcel_core/agent/__init__.py`
-- [ ] ISSUE-018-e: Write tests (`tests/core/test_coder.py` + additions to `tests/core/test_telegram.py`)
-- [ ] ISSUE-018-f: Run `make check`, update docs, version bump
+- [✓] ISSUE-018-a: Update session state — add `mode`, `coder_session_id`, `last_message_at` fields to sessions.json
+- [✓] ISSUE-018-b: Create coder agent runner (`src/marcel_core/agent/coder.py`) — `run_coder_task()` with `claude_code` preset, `can_use_tool` callback for restricted files, global `asyncio.Lock`, session_id capture from StreamEvent
+- [✓] ISSUE-018-c: Update webhook (`src/marcel_core/telegram/webhook.py`) — add `/code`, `/done`, `/new` commands; route coder-mode messages to `run_coder_task`; auto-new on 6h inactivity; 600s timeout for coder tasks
+- [✓] ISSUE-018-d: Export new functions from `src/marcel_core/agent/__init__.py`
+- [✓] ISSUE-018-e: Write tests (`tests/core/test_coder.py` + additions to `tests/core/test_telegram.py`)
+- [✓] ISSUE-018-f: Run `make check`, update docs, version bump
 
 ## Relationships
 - Related to: [[ISSUE-013-fix-telegram-agent-hang]] (same root cause — Telegram agent limitations)
