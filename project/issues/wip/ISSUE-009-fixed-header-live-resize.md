@@ -53,16 +53,29 @@ The previous SIGWINCH-based resize handler fought with prompt_toolkit's own SIGW
 **Action:** Rewrote CLI screen management — alternate screen buffer, scroll regions, in-place header redraw
 
 **Files Modified:**
-- `src/marcel_cli/app.py` — full rewrite of screen management:
-  - Added `_enter_alt_screen()` / `_leave_alt_screen()` using `\033[?1049h` / `\033[?1049l`
-  - Added `_write_header_lines()` — writes header line-by-line with absolute cursor addressing (`\033[{row};1H\033[2K`), never touches scroll region content
-  - Added `_setup_screen()` — initial setup: draws header + sets scroll region + positions cursor
-  - Added `_refresh_header()` — resize-safe: redraws header in-place, updates scroll region bounds only
-  - Added `_full_redraw()` — for `/clear`, `/reconnect`, `/config`: clears everything and rebuilds
-  - Removed old `_draw_header()` and `_clear_screen()` which used `\033[J` (clear-to-end, wiping chat)
-  - `_render_header()` refactored to return ANSI string via `StringIO` + `force_terminal=True`
-  - `run()` wrapped in `try/finally` to guarantee `_leave_alt_screen()` on any exit path
-  - Resize monitor uses `_refresh_header()` instead of `_draw_header()` — chat history preserved
-  - `session.app.handle_sigwinch = False` prevents prompt_toolkit from duplicating ❯ on resize
-  - Removed unused `os` and `signal` imports
-- `docs/cli.md` — full rewrite: updated from Textual TUI docs to current prompt_toolkit + alt screen architecture, added Terminal Resize section and Architecture Notes
+- `src/marcel_cli/app.py` — alt screen + scroll region approach
+- `docs/cli.md` — updated docs
+
+---
+
+### 2026-03-29 - Claude
+
+**Action:** Complete overhaul — removed alternate screen + scroll regions (broken with prompt_toolkit), replaced with simple scrolling REPL
+
+The alternate screen buffer and ANSI scroll regions fundamentally conflict with prompt_toolkit's rendering model:
+- DECSTBM (set scroll region) resets cursor to (1,1), breaking prompt_toolkit cursor positioning
+- Scroll regions confuse patch_stdout's coordination of output above the prompt
+- Alternate screen has no scrollback, so chat history is lost entirely
+
+**New approach:** pure scrolling REPL, no alternate screen, no scroll regions. Works WITH prompt_toolkit instead of fighting it.
+
+**Files Modified:**
+- `src/marcel_cli/app.py` — complete overhaul:
+  - Removed `_enter_alt_screen()`, `_leave_alt_screen()`, `_write_header_lines()`, `_setup_screen()`, `_refresh_header()`, `_full_redraw()`
+  - Startup: clear screen + scrollback (`\033[2J\033[3J\033[H`), print header via `sys.__stdout__`
+  - `_print_header()`: clear visible screen (`\033[2J\033[H`) + print header, all via `sys.__stdout__`
+  - Resize: `_print_header()` → `renderer.reset()` + `invalidate()` for single clean ❯
+  - `session.app.handle_sigwinch = False` prevents prompt_toolkit ❯ spam during drag
+  - All screen writes go to `sys.__stdout__` (bypass `patch_stdout` proxy)
+  - Debounce increased to 250ms for smoother resize
+- `docs/cli.md` — updated architecture notes, removed alt screen / scroll region references

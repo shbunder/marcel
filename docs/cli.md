@@ -2,7 +2,7 @@
 
 The Marcel CLI is a prompt_toolkit-based terminal interface for chatting with the Marcel agent. It connects to the `marcel-core` backend over WebSocket and streams responses in real time.
 
-The CLI runs in the terminal's **alternate screen buffer** (like vim or htop), giving it a clean, isolated screen. A fixed header at the top displays connection status and runtime info, while the chat area below scrolls independently. When the terminal is resized, the header reflows its responsive layout without disturbing chat history.
+The CLI is a scrolling REPL with a responsive header. On startup the screen is cleared for a clean view. When the terminal is resized the header reflows its layout automatically. Chat history is pushed to terminal scrollback during resize (scroll up to see it).
 
 ## Installation
 
@@ -83,7 +83,7 @@ The interface shows:
 - **Chat area** — scrolling conversation history below the header. User messages are prefixed with `❯`, assistant responses with `●`.
 - **Input prompt** — type your message and press `Enter` to send.
 
-On exit (`/exit`, `/quit`, `Ctrl+C`, or `Ctrl+D`), the alternate screen is closed and the original terminal is restored.
+On exit (`/exit`, `/quit`, `Ctrl+C`, or `Ctrl+D`), Marcel disconnects and returns to the shell.
 
 ## Slash Commands
 
@@ -111,13 +111,12 @@ The header reflows automatically when the terminal is resized:
 - **≥ 60 columns** — 2-column layout: mascot + runtime
 - **< 60 columns** — 1-column layout: mascot only
 
-Chat history below the header is preserved during resize. The header area is redrawn in-place using absolute cursor addressing and ANSI scroll regions to avoid disturbing the conversation.
+On resize the screen is cleared, the header is reprinted at the new width, and prompt_toolkit redraws the prompt. Previous conversation is pushed to terminal scrollback (scroll up to see it).
 
 ## Architecture Notes
 
-- **Alternate screen buffer** (`\033[?1049h`) isolates the CLI from the shell
-- **Scroll region** (`DECSTBM`) pins the header at the top; chat scrolls below
 - **prompt_toolkit** handles the input prompt, completions, and styled input
 - **Rich** renders the header panel with responsive column layout
-- **Polling resize monitor** checks terminal width every 200ms, debounces until stable, then redraws the header in-place without clearing chat content
-- **prompt_toolkit SIGWINCH disabled** to prevent duplicate prompt rendering during resize drags
+- **Polling resize monitor** checks terminal width every 250ms, debounces until stable, then clears screen and reprints the header
+- **prompt_toolkit SIGWINCH disabled** (`session.app.handle_sigwinch = False`) to prevent duplicate prompt rendering during resize drags
+- All screen management writes to `sys.__stdout__` to bypass `patch_stdout` and avoid interfering with prompt_toolkit's rendering

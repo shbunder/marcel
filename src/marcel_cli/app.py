@@ -1,4 +1,4 @@
-"""Marcel CLI — scrolling REPL in alternate-screen with a fixed header."""
+"""Marcel CLI — scrolling REPL with responsive header."""
 
 from __future__ import annotations
 
@@ -40,23 +40,6 @@ _WELCOME_MESSAGES = [
 ]
 
 console = Console(highlight=False)
-
-# ── terminal escape helpers ──────────────────────────────────────────────
-# sys.__stdout__ is the real file descriptor, never wrapped by patch_stdout.
-_real = sys.__stdout__
-
-
-def _enter_alt_screen() -> None:
-    """Switch to the alternate screen buffer (like vim/htop)."""
-    _real.write('\033[?1049h\033[2J\033[H')
-    _real.flush()
-
-
-def _leave_alt_screen() -> None:
-    """Return to the normal screen buffer."""
-    _real.write('\033[r\033[?1049l')
-    _real.flush()
-
 
 # ── prompt styling ───────────────────────────────────────────────────────
 _SESSION_STYLE = Style.from_dict(
@@ -198,87 +181,23 @@ def _render_header(
     return buf.getvalue()
 
 
-# ── screen management ────────────────────────────────────────────────────
-
-
-def _write_header_lines(header: str) -> int:
-    """Write header string to the fixed area at the top of the screen.
-
-    Each line is addressed by absolute row and cleared before writing, so
-    the scroll-region content below is never touched.
-
-    Returns the number of terminal lines the header occupies.
-    """
-    lines = header.split('\n')
-    if lines and lines[-1] == '':
-        lines = lines[:-1]
-    for i, line in enumerate(lines):
-        _real.write(f'\033[{i + 1};1H')  # absolute row, col 1
-        _real.write('\033[2K')  # clear entire line
-        _real.write(line)
-    _real.flush()
-    return len(lines)
-
-
-def _setup_screen(
+def _print_header(
     config: Config,
     server_version: str,
     connected: bool = False,
     *,
     welcome_msg: str | None = None,
-) -> int:
-    """Initial screen setup: draw header and set scroll region.
+) -> None:
+    """Clear the visible screen and print the header.
 
-    Call this once after entering the alternate screen buffer.
-    Returns the header height in lines.
+    Previous content is pushed into terminal scrollback (scroll up to see it).
+    Writes to sys.__stdout__ to bypass patch_stdout — this prevents
+    prompt_toolkit from intercepting the output and duplicating the ❯ prompt.
     """
-    header = _render_header(config, server_version, connected, welcome_msg=welcome_msg)
-    n = _write_header_lines(header)
-    height = shutil.get_terminal_size().lines
-    _real.write(f'\033[{n + 1};{height}r')  # set scroll region
-    _real.write(f'\033[{n + 1};1H')  # cursor to top of scroll region
-    _real.flush()
-    return n
-
-
-def _refresh_header(
-    config: Config,
-    server_version: str,
-    connected: bool = False,
-    *,
-    welcome_msg: str | None = None,
-) -> int:
-    """Redraw header in-place and update scroll-region bounds.
-
-    The scroll-region content (chat history) is NOT cleared.
-    Returns the header height in lines.
-    """
-    header = _render_header(config, server_version, connected, welcome_msg=welcome_msg)
-    n = _write_header_lines(header)
-    height = shutil.get_terminal_size().lines
-    # Update the scroll region bottom bound (terminal height may have changed).
-    # DECSTBM resets cursor to (1,1), but prompt_toolkit's invalidate() will
-    # reposition it correctly inside the scroll region.
-    _real.write(f'\033[{n + 1};{height}r')
-    _real.flush()
-    return n
-
-
-def _full_redraw(
-    config: Config,
-    server_version: str,
-    connected: bool = False,
-    *,
-    welcome_msg: str | None = None,
-) -> int:
-    """Clear the entire alt screen, draw header, set scroll region.
-
-    Used by /clear, /reconnect, and /config to start fresh.
-    """
-    _real.write('\033[r')  # reset scroll region
-    _real.write('\033[2J\033[H')  # clear screen + home
-    _real.flush()
-    return _setup_screen(config, server_version, connected, welcome_msg=welcome_msg)
+    out = sys.__stdout__
+    out.write('\033[2J\033[H')  # clear visible screen + cursor home
+    out.write(_render_header(config, server_version, connected, welcome_msg=welcome_msg))
+    out.flush()
 
 
 # ── command handling ─────────────────────────────────────────────────────
@@ -299,7 +218,7 @@ def _handle_command(
         return True
 
     if cmd == '/clear':
-        _full_redraw(
+        _print_header(
             config,
             server_version,
             connected=client.state == ConnectionState.CONNECTED,
@@ -417,16 +336,17 @@ async def run(config: Config) -> None:
     welcome_msg = random.choice(_WELCOME_MESSAGES).format(user=config.user)
     connected = client.state == ConnectionState.CONNECTED
 
-    # ── enter alternate screen ──
-    _enter_alt_screen()
-    _setup_screen(config, server_version, connected=connected, welcome_msg=welcome_msg)
+    # Clear screen + scrollback for a clean start, then print header.
+    out = sys.__stdout__
+    out.write('\033[2J\033[3J\033[H')
+    out.flush()
+    out.write(_render_header(config, server_version, connected=connected, welcome_msg=welcome_msg))
+    out.flush()
 
     if not connected:
         console.print(Text('  Could not connect to Marcel server.', style='#ff6b6b'))
         console.print(Text('  Start the server with: make serve', style='#555555 italic'))
         console.print()
-
-    loop = asyncio.get_running_loop()
 
     session: PromptSession = PromptSession(
         completer=_SlashCompleter(),
@@ -434,8 +354,8 @@ async def run(config: Config) -> None:
         style=_SESSION_STYLE,
     )
     # Prevent prompt_toolkit from handling SIGWINCH itself — its default
-    # handler re-renders the ❯ prompt on every resize event during a drag.
-    # Our polling monitor below takes over resize handling entirely.
+    # handler re-renders the ❯ prompt on every resize event during a drag,
+    # flooding the screen with duplicate prompts.
     session.app.handle_sigwinch = False
 
     # ── live resize via polling ──
@@ -444,29 +364,30 @@ async def run(config: Config) -> None:
     async def _resize_monitor() -> None:
         nonlocal _last_width
         while True:
-            await asyncio.sleep(0.20)
+            await asyncio.sleep(0.25)
             w = shutil.get_terminal_size().columns
             if w == _last_width:
                 continue
 
-            # Width changed — wait until stable for 200 ms before redrawing.
+            # Width changed — wait until stable for 250 ms before redrawing.
             while True:
                 prev = w
-                await asyncio.sleep(0.20)
+                await asyncio.sleep(0.25)
                 w = shutil.get_terminal_size().columns
                 if w == prev:
                     break
             _last_width = w
 
-            # Redraw header in-place (scroll-region content untouched).
-            _refresh_header(
+            # Clear screen and reprint header at the new width.
+            # Previous content is pushed to scrollback (scroll up to see it).
+            _print_header(
                 config,
                 server_version,
                 connected=client.state == ConnectionState.CONNECTED,
                 welcome_msg=welcome_msg,
             )
 
-            # Tell prompt_toolkit its screen cache is stale → single clean ❯.
+            # Tell prompt_toolkit to redraw a single clean ❯ prompt.
             app = session.app
             if app:
                 app.renderer.reset()
@@ -497,7 +418,7 @@ async def run(config: Config) -> None:
                         try:
                             await client.connect()
                             server_version = await _fetch_server_version(config)
-                            _full_redraw(
+                            _print_header(
                                 config,
                                 server_version,
                                 connected=True,
@@ -511,6 +432,7 @@ async def run(config: Config) -> None:
                     if cmd == '/config' and len(text.split()) == 1:
                         from .config import _CONFIG_PATH
 
+                        loop = asyncio.get_running_loop()
                         await loop.run_in_executor(
                             None,
                             lambda: subprocess.run(['nano', str(_CONFIG_PATH)]),
@@ -526,7 +448,7 @@ async def run(config: Config) -> None:
                         client._user = config.user
                         client._token = config.token
                         server_version = await _fetch_server_version(config)
-                        _full_redraw(
+                        _print_header(
                             config,
                             server_version,
                             connected=client.state == ConnectionState.CONNECTED,
@@ -567,5 +489,4 @@ async def run(config: Config) -> None:
                 console.print()
     finally:
         resize_task.cancel()
-        _leave_alt_screen()
         await client.disconnect()
