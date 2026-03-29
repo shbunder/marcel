@@ -58,8 +58,14 @@ async def _process_message_inner(chat_id: int, user_slug: str, text: str) -> Non
 
     response_parts: list[str] = []
     try:
-        async for token in stream_response(user_slug, 'telegram', text, conversation_id):
-            response_parts.append(token)
+        async def _collect() -> None:
+            async for token in stream_response(user_slug, 'telegram', text, conversation_id):
+                response_parts.append(token)
+
+        await asyncio.wait_for(_collect(), timeout=120.0)
+    except asyncio.TimeoutError:
+        await _reply(chat_id, 'Sorry, that took too long and I had to give up. Please try again.')
+        return
     except Exception as exc:
         await _reply(chat_id, f'Sorry, something went wrong: {exc}')
         return

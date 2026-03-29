@@ -56,7 +56,7 @@ async def extract_and_save_memories(
     options = ClaudeAgentOptions(
         system_prompt='You are a fact extractor. Follow the output format exactly.',
         tools=[],
-        permission_mode='default',
+        permission_mode='bypassPermissions',
         max_turns=1,
     )
 
