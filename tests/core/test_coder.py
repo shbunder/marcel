@@ -91,27 +91,29 @@ class TestRestrictedFileGuard:
 
 
 class TestRunCoderTask:
-    def test_returns_streamed_response_and_session_id(self, monkeypatch):
+    def test_returns_last_assistant_message_text(self, monkeypatch):
+        """Multi-turn agent: intermediate messages have tool use, last has summary."""
         monkeypatch.setattr(
             claude_agent_sdk,
             'query',
             lambda **_: _agen(
-                _stream_event('Hello', session_id='sess-123'),
-                _stream_event(' world', session_id='sess-123'),
+                _stream_event('', session_id='sess-123'),  # tool-use event (no text)
+                _assistant_message('intermediate tool result'),
+                _assistant_message('Final summary'),
             ),
         )
         result: CoderResult = asyncio.run(run_coder_task('do something'))
-        assert result.response == 'Hello world'
+        assert result.response == 'Final summary'
         assert result.session_id == 'sess-123'
 
-    def test_falls_back_to_assistant_message(self, monkeypatch):
+    def test_single_assistant_message(self, monkeypatch):
         monkeypatch.setattr(
             claude_agent_sdk,
             'query',
-            lambda **_: _agen(_assistant_message('Fallback')),
+            lambda **_: _agen(_assistant_message('Only response')),
         )
         result = asyncio.run(run_coder_task('do something'))
-        assert result.response == 'Fallback'
+        assert result.response == 'Only response'
         assert result.session_id is None
 
     def test_captures_session_id_from_first_event(self, monkeypatch):
@@ -119,8 +121,9 @@ class TestRunCoderTask:
             claude_agent_sdk,
             'query',
             lambda **_: _agen(
-                _stream_event('a', session_id='first'),
-                _stream_event('b', session_id='second'),
+                _stream_event('', session_id='first'),
+                _stream_event('', session_id='second'),
+                _assistant_message('done'),
             ),
         )
         result = asyncio.run(run_coder_task('do something'))
