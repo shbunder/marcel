@@ -1,0 +1,46 @@
+[package]
+name = "marcel-cli"
+version = "0.1.0"
+edition = "2024"
+description = "Marcel personal agent — terminal interface"
+license = "MIT"
+
+[[bin]]
+name = "marcel"
+path = "src/main.rs"
+
+[dependencies]
+# TUI framework
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["bracketed-paste", "event-stream"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Markdown rendering
+pulldown-cmark = "0.13"
+
+# Text handling
+unicode-width = "0.2"
+textwrap = "0.16"
+
+# Config
+toml = "0.8"
+dirs = "6"
+
+# HTTP (for /health check)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# URL handling
+url = "2"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1

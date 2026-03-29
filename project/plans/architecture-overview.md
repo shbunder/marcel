@@ -10,7 +10,7 @@
 | # | Question | Decision |
 |---|----------|----------|
 | Q1 | Server hosting | NUC at home + Cloudflare Tunnel for external access |
-| Q2 | CLI architecture | TUI (Textual) on NUC; thin API client with configurable host:port |
+| Q2 | CLI architecture | Native Rust TUI (ratatui + crossterm) on NUC; reads `~/.marcel/config.toml` for host:port |
 | Q3 | Encryption | Defer to Phase 5 — plain SQLite for Phase 1–4, no performance overhead |
 
 ### Q1 detail — NUC + Cloudflare Tunnel
@@ -19,16 +19,16 @@ Marcel runs on a home NUC connected to a Telenet router (Belgium). Telenet uses 
 
 - Install `cloudflared` on the NUC as a system service
 - Creates an outbound tunnel to Cloudflare's edge — no port forwarding, works behind CGNAT
-- Stable public URL: `https://marcel.yourdomain.com` → NUC:8000
+- Stable public URL: `https://marcel.yourdomain.com` → NUC:7420
 - Free tier is sufficient for personal use
 - Telegram webhooks, iOS away-from-home, and React app access all go through this URL
-- On home network: clients can also connect directly to `http://nuc-local-ip:8000` to skip the tunnel
+- On home network: clients can also connect directly to `http://nuc-local-ip:7420` to skip the tunnel
 
 ### Q2 detail — CLI as TUI
 
-The CLI is a **Terminal User Interface** (using `Textual` or `rich` + `prompt_toolkit`) rather than a one-shot CLI tool. It runs interactively, with a scrollable conversation view, streaming responses, and optional multi-panel layout.
+The CLI is a **native Rust TUI** (ratatui + crossterm, same stack as codex-cli) rather than a one-shot CLI tool. It runs interactively, with a scrollable conversation view, streaming responses, and a fixed header panel.
 
-Key requirement: the CLI takes a `--host` / `--port` config (or reads from `~/.marcel/config.toml`), so it can be installed on the developer's laptop and pointed at the NUC remotely.
+Key requirement: the CLI reads `~/.marcel/config.toml` for `host`, `port`, `user`, `model`, so it can be installed on the developer's laptop and pointed at the NUC remotely.
 
 ---
 
@@ -45,7 +45,7 @@ Key requirement: the CLI takes a `--host` / `--port` config (or reads from `~/.m
            │  home network    │              │  Cloudflare Tunnel  │
            └──────────────────┴──────────────┴──────────┴─────────┘
                                        │
-                              FastAPI (port 8000)
+                              FastAPI (port 7420)
                                        │
 ┌──────────────────────────────────────▼──────────────────────────┐
 │                        MARCEL-CORE (NUC)                        │
@@ -89,25 +89,26 @@ src/marcel_core/
   telegram/      # aiogram bot, message routing into agent
 ```
 
-**Runtime:** `uvicorn marcel_core.main:app --host 0.0.0.0 --port 8000`
+**Runtime:** `uvicorn marcel_core.main:app --host 0.0.0.0 --port 7420`
 
 The Telegram bot runs as a background task within the same process (aiogram's async loop alongside FastAPI's).
 
 ---
 
-### `marcel-cli` (Python, `src/marcel_cli/`)
+### `marcel-cli` (Rust, `src/marcel_cli/`)
 
-An interactive TUI built with **Textual** (or `rich` + `prompt_toolkit` if Textual proves heavy).
+A native Rust TUI built with **ratatui** + **crossterm** (same stack as codex-cli). Compiles to a single ~3.6MB binary with zero runtime dependencies.
 
 Features:
-- Scrollable conversation panel with streaming response rendering
-- Markdown rendering inline (bold, code blocks, lists)
-- Input bar at the bottom (multi-line with shift+enter)
-- Optional side panel: current session memory summary
-- Config: reads `~/.marcel/config.toml` for `host`, `port`, `token`
-- Accepts `--host` / `--port` flags to override config at launch
+- Fixed header panel with mascot art, runtime info, and server status (responsive 3/2/1-column layout)
+- Scrollable chat history with basic markdown rendering (headers, code blocks, lists)
+- Streaming token display via WebSocket
+- Text input with cursor editing
+- Status bar showing connection state and model
+- All slash commands (/help, /clear, /config, /model, /status, /cost, /memory, /compact, /reconnect, /exit)
+- Config: reads `~/.marcel/config.toml` for `host`, `port`, `user`, `model`, `token`
 
-Install on laptop: `pip install marcel-cli`, then `marcel --host <nuc-ip>` or `marcel --host marcel.yourdomain.com`.
+Install: `./install.sh` or `cd src/marcel_cli && cargo install --path .`
 
 The CLI identifies as channel `cli` and authenticates with a long-lived developer token (generated once, stored in `~/.marcel/config.toml`).
 
@@ -364,9 +365,9 @@ The API response envelope includes `"channel"` so clients can apply additional r
 **Deliverables:**
 - `marcel-core`: FastAPI + claude_agent_sdk agent loop
 - Flat-file data layout: `data/users/{slug}/` with profile, conversations, memory
-- Single developer user, no auth (localhost only, port 8000)
+- Single developer user, no auth (localhost only, port 7420)
 - Per-turn memory load + post-turn memory extraction + conversation file append
-- `marcel-cli`: Textual TUI, WebSocket streaming, `--host/--port` config
+- `marcel-cli`: Rust TUI (ratatui + crossterm), WebSocket streaming, config via `~/.marcel/config.toml`
 - `cmd` tool + `skills.json` plumbing (no real integrations yet)
 - Watchdog process + git rollback flow
 - `make serve` starts watchdog → starts uvicorn

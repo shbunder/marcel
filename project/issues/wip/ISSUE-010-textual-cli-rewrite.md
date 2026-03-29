@@ -1,6 +1,6 @@
-# ISSUE-010: Rewrite CLI with Textual TUI Framework
+# ISSUE-010: Rewrite CLI as Native Rust TUI
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-03-29
 **Assignee:** Claude
 **Priority:** High
@@ -9,87 +9,110 @@
 ## Capture
 **Original request:** "New feature, let's completely redo the Marcel CLI, I've learned that many use react or rust or whatever to build the CLI, we will do the same. To get you inspired look at the codex-cli; you can find the repo here: /home/shbunder/repos/codex/codex-rs. I still want the same header as now, and connection to the Marcel backend, but with the new cli that has similar features to show updates etc from the backend."
 
-**Resolved intent:** Replace the current prompt_toolkit-based REPL with a full Textual TUI application, inspired by codex-cli's architecture. The new CLI should have a proper component-based layout with: the existing header (preserved), a scrollable chat history area with streaming markdown rendering, a fixed input area, and a status bar. The WebSocket connection to the Marcel backend stays the same, but responses should render as styled markdown with smooth streaming — similar to how codex-cli handles it with adaptive chunking and newline-gated rendering.
+**Follow-up:** User clarified they want the same stack as codex-cli (Rust + ratatui), not Python/Textual. "don't use python anymore unless it's needed or really makes sense, I'm aiming for a complete redesign."
+
+**Resolved intent:** Replace the Python prompt_toolkit-based REPL with a native Rust TUI binary, using the same technology stack as codex-cli (ratatui + crossterm + tokio). The CLI compiles to a single binary, connects to the Marcel backend via WebSocket, and renders the familiar header with mascot art, streaming chat, input, and status bar. The old Python CLI (`src/marcel_cli/`) is fully removed.
 
 ## Requirements
-1. Fixed header panel at top — same 3-column responsive layout with mascot, runtime info, and server info
-2. Scrollable chat history area showing user messages and Marcel's responses
-3. Markdown rendering for responses (code blocks, bold, italic, lists, links)
-4. Streaming token display — tokens appear as they arrive from the WebSocket
-5. Fixed input area at bottom with slash command completion
-6. Status bar showing connection state, model, conversation info
-7. All existing slash commands work (/help, /clear, /config, /model, /status, /cost, /memory, /compact, /reconnect, /exit)
-8. Terminal resize handled natively by Textual (no manual polling)
-9. Keeps existing config system (config.toml), chat client (WebSocket), and mascot renderer
-10. Brand colors preserved (#cc5e76 blush rose, #2ec4b6 deep teal, etc.)
+1. Native Rust binary — single file, no runtime dependencies
+2. Fixed header panel at top — same 3-column responsive layout with mascot, runtime info, and server info
+3. Scrollable chat history with basic markdown rendering (headers, code blocks, lists)
+4. Streaming token display — tokens arrive from WebSocket and render in real time
+5. Text input with cursor editing
+6. Status bar showing connection state and model
+7. All slash commands (/help, /clear, /config, /model, /status, /cost, /memory, /compact, /reconnect, /exit)
+8. Same config file (~/.marcel/config.toml) — read by Rust via serde + toml
+9. Brand colors preserved (#cc5e76 blush rose, #2ec4b6 deep teal, etc.)
+10. Makefile, install.sh, docs updated for Rust workflow
+11. Old Python CLI (`src/marcel_cli/`) fully removed, deps cleaned from pyproject.toml
 
 ## Design
 
-### Framework: Textual
+### Stack: Rust + ratatui (same as codex-cli)
 
-Textual is the Python equivalent of ratatui (used by codex-cli). Built on Rich, it provides:
-- CSS-based styling with hot-reload
-- Widget composition and layout
-- Built-in Markdown widget
-- Async message passing (like codex-cli's AppEvent)
-- Native resize handling
-- Mouse support and scrolling
+- **ratatui** — TUI framework with retained-mode rendering
+- **crossterm** — terminal backend (events, cursor, colors)
+- **tokio** — async runtime for WebSocket + event loop
+- **tokio-tungstenite** — WebSocket client (rustls for TLS)
+- **reqwest** — HTTP client for /health check
+- **pulldown-cmark** — markdown parsing (future full rendering)
 
 ### Architecture
 
 ```
-MarcelApp(App)                    # Textual application
-├── HeaderWidget(Static)          # Fixed top — reuses _render_header() from current code
-├── ChatView(ScrollableContainer) # Middle — scrollable chat history
-│   ├── UserMessage(Static)       # User input bubble
-│   ├── AssistantMessage(Static)  # Marcel response with markdown
-│   └── StreamingMessage(Static)  # In-flight response being streamed
-├── InputWidget(Input)            # Fixed bottom — text input with completion
-└── StatusBar(Static)             # Footer — connection, model, cost
+main() -> App::run()
+  |-- FlexLayout (Renderable trait)
+  |     |-- Header         flex=0  -- mascot + runtime + server info
+  |     |-- ChatView       flex=1  -- scrollable message history + streaming
+  |     |-- InputBox       flex=0  -- text input with cursor
+  |     +-- StatusBar      flex=0  -- connection state + model
+  |-- ChatClient           -- async WebSocket send/receive via mpsc channel
+  +-- Event loop           -- crossterm key events + streaming token drain
 ```
-
-### Streaming Pipeline (inspired by codex-cli)
-
-```
-WebSocket tokens → StreamBuffer (accumulate) → newline gate → Markdown render → update widget
-```
-
-- Tokens accumulate in a buffer
-- On newline (or finalize), the completed line is rendered as Markdown
-- The StreamingMessage widget updates reactively
-- Auto-scroll keeps the latest content visible
 
 ### Files
 
 | File | Purpose |
 |------|---------|
-| `app.py` | MarcelApp — main Textual application, replaces current REPL |
-| `widgets/header.py` | HeaderWidget — ported from current _render_header() |
-| `widgets/chat.py` | ChatView, UserMessage, AssistantMessage, StreamingMessage |
-| `widgets/input.py` | InputWidget with slash command completion |
-| `widgets/status_bar.py` | StatusBar with connection state |
-| `marcel.tcss` | Textual CSS for layout and brand styling |
-| `main.py` | Entrypoint (minimal changes) |
-| `chat.py` | WebSocket client (unchanged) |
-| `config.py` | Config loader (unchanged) |
-| `mascot.py` | Mascot renderer (unchanged) |
-
-### Key Patterns from codex-cli
-
-- **Event-driven**: Textual's message system replaces codex-cli's AppEvent enum
-- **Streaming**: Newline-gated accumulation like codex-cli's StreamController
-- **Component isolation**: Each widget owns its rendering, communicates via messages
-- **Responsive layout**: Textual CSS handles resize natively (no polling needed)
+| `src/marcel_cli/Cargo.toml` | Rust crate with all dependencies |
+| `src/marcel_cli/src/main.rs` | Entrypoint |
+| `src/marcel_cli/src/app.rs` | Event loop, command routing, WebSocket integration |
+| `src/marcel_cli/src/tui.rs` | Terminal init/restore (raw mode, alt screen) |
+| `src/marcel_cli/src/render.rs` | Renderable trait, FlexLayout, ColumnLayout |
+| `src/marcel_cli/src/header.rs` | Header panel with responsive column layout |
+| `src/marcel_cli/src/ui.rs` | ChatView, InputBox, StatusBar |
+| `src/marcel_cli/src/chat.rs` | WebSocket client, streaming token receiver |
+| `src/marcel_cli/src/config.rs` | TOML config loader |
 
 ## Tasks
-- [ ] ISSUE-010-a: Add textual dependency and create file scaffold
-- [ ] ISSUE-010-b: Implement HeaderWidget (port existing header)
-- [ ] ISSUE-010-c: Implement ChatView with streaming markdown
-- [ ] ISSUE-010-d: Implement InputWidget with slash command completion
-- [ ] ISSUE-010-e: Implement StatusBar
-- [ ] ISSUE-010-f: Wire up MarcelApp — layout, WebSocket integration, command handling
-- [ ] ISSUE-010-g: Create Textual CSS stylesheet
-- [ ] ISSUE-010-h: Write tests
-- [ ] ISSUE-010-i: Update docs and version
+- [✓] ISSUE-010-a: Create Rust crate scaffold (Cargo.toml, src/main.rs)
+- [✓] ISSUE-010-b: Implement Renderable trait and FlexLayout
+- [✓] ISSUE-010-c: Implement terminal setup (tui.rs)
+- [✓] ISSUE-010-d: Implement Header with responsive columns and mascot
+- [✓] ISSUE-010-e: Implement ChatView with streaming and markdown
+- [✓] ISSUE-010-f: Implement InputBox with cursor editing
+- [✓] ISSUE-010-g: Implement StatusBar
+- [✓] ISSUE-010-h: Implement WebSocket client with async mpsc streaming
+- [✓] ISSUE-010-i: Wire up App event loop — commands, chat, streaming
+- [✓] ISSUE-010-j: Clean compile (0 errors, 0 warnings)
+- [✓] ISSUE-010-k: Update Makefile, install.sh, docs
+- [✓] ISSUE-010-l: Remove old Python CLI and clean up dependencies
+- [ ] ISSUE-010-m: Version bump (deferred — user wants to see it working first)
 
 ## Implementation Log
+
+### 2026-03-29 — Attempt 1: Python Textual (abandoned)
+**Action**: Attempted rewrite using Python's Textual framework
+**Result**: Working code but user rejected approach — wanted native Rust like codex-cli, not more Python
+
+### 2026-03-29 — Attempt 2: Rust + ratatui (complete)
+**Action**: Complete CLI rewrite as native Rust binary
+**Files Created**:
+- `src/marcel_cli/Cargo.toml` — Rust crate with ratatui, crossterm, tokio, tokio-tungstenite, reqwest, serde, toml, pulldown-cmark
+- `src/marcel_cli/src/main.rs` — Entrypoint, loads config and runs app
+- `src/marcel_cli/src/app.rs` — Event loop with keyboard handling, command routing, WebSocket streaming via mpsc
+- `src/marcel_cli/src/tui.rs` — Terminal init (raw mode + alt screen) and restore
+- `src/marcel_cli/src/render.rs` — Renderable trait, FlexLayout with flex allocation, ColumnLayout
+- `src/marcel_cli/src/header.rs` — 3/2/1-column responsive header with mascot art, brand colors
+- `src/marcel_cli/src/ui.rs` — ChatView (messages + streaming tokens), InputBox (cursor editing), StatusBar
+- `src/marcel_cli/src/chat.rs` — Async WebSocket client spawning tokio task, streaming ChatEvents via mpsc channel
+- `src/marcel_cli/src/config.rs` — serde + toml loader for ~/.marcel/config.toml
+**Files Modified**:
+- `Makefile` — Added cli, cli-build, cli-dev, install-cli targets; updated test/format/lint for Rust
+- `install.sh` — Builds Rust binary via cargo install instead of uv tool install
+- `docs/cli.md` — Rewritten for Rust architecture
+- `docs/architecture.md` — Added CLI section
+**Build**:
+- Debug: 84MB, Release: 3.6MB (with LTO + strip)
+- 0 errors, 0 warnings
+
+### 2026-03-29 — Cleanup: remove old Python CLI
+**Action**: Removed the entire old Python CLI and cleaned up references
+**Files Removed**:
+- `src/marcel_cli/` — entire directory (app.py, chat.py, config.py, main.py, mascot.py, __init__.py)
+- `tests/cli/test_cli.py` — old Python CLI tests (8 tests)
+**Files Modified**:
+- `pyproject.toml` — removed `rich`, `prompt-toolkit`, `websockets` dependencies; removed `[project.scripts]` entry; removed `src/marcel_cli` from wheel packages
+- `Makefile` — removed `cli-legacy` target
+- `uv.lock` — regenerated after dependency removal
+**Result**: 83 Python tests still passing. Rust CLI is the sole CLI.

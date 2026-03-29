@@ -26,7 +26,7 @@ There are two version strings in the codebase — one per deployable unit:
 
 | File | What it versions |
 |------|-----------------|
-| `src/marcel_cli/__init__.py` | The CLI (`marcel` command) |
+| `src/marcel_cli/Cargo.toml` | The CLI (`marcel` binary) |
 | `src/marcel_core/__init__.py` | The backend server |
 
 `pyproject.toml` carries the package version and should match `marcel_core.__version__` (the server is the heart of the project).

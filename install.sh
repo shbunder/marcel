@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 # Marcel CLI installer
-# Installs the `marcel` command into an isolated uv-managed tool environment.
-# The CLI connects to a Marcel server running elsewhere (e.g. your NUC).
+# Builds and installs the Rust-based `marcel` TUI binary.
 #
-# Usage:
-#   ./install.sh                        # install from this directory
-#   ./install.sh --host 192.168.1.10    # set default server host
-#   ./install.sh --port 7420            # set default server port
-#   ./install.sh --user alice           # set default user
+# Usage (from repo):
+#   ./install.sh
+#   ./install.sh --host 192.168.1.10 --port 7420 --user alice
+#
+# Usage (via curl):
+#   curl -fsSL https://raw.githubusercontent.com/shbunder/marcel/main/install.sh | bash
+#   curl -fsSL ... | bash -s -- --host 192.168.1.10 --port 7420
 
 set -euo pipefail
 
 HOST=""
 PORT=""
 USER_SLUG=""
+CLEANUP_DIR=""
 
 # Parse optional args
 while [[ $# -gt 0 ]]; do
@@ -25,13 +27,33 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "Installing Marcel CLI..."
-if [[ -f "$(dirname "${BASH_SOURCE[0]}")/pyproject.toml" ]]; then
-    uv tool install "$(dirname "${BASH_SOURCE[0]}")" --force
+# Determine source directory — either we're in the repo or we need to clone it
+if [[ -f "${BASH_SOURCE[0]:-}" ]] && [[ -d "$(dirname "${BASH_SOURCE[0]}")/src/marcel_cli" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    SRC_DIR="$SCRIPT_DIR/src/marcel_cli"
 else
-    uv tool install git+https://github.com/shbunder/marcel --force
+    # Running via curl pipe — clone to a temp directory
+    echo "Cloning Marcel repository..."
+    CLEANUP_DIR="$(mktemp -d)"
+    git clone --depth 1 https://github.com/shbunder/marcel.git "$CLEANUP_DIR"
+    SRC_DIR="$CLEANUP_DIR/src/marcel_cli"
+    trap 'rm -rf "$CLEANUP_DIR"' EXIT
 fi
 
+# Check for Rust toolchain
+if ! command -v cargo &>/dev/null; then
+    echo "Rust toolchain not found. Installing via rustup..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    # shellcheck source=/dev/null
+    source "$HOME/.cargo/env"
+fi
+
+echo "Building Marcel CLI..."
+cd "$SRC_DIR"
+cargo install --path .
+echo "Installed marcel binary to ~/.cargo/bin/marcel"
+
+# Config setup
 CONFIG_DIR="$HOME/.marcel"
 CONFIG_FILE="$CONFIG_DIR/config.toml"
 
@@ -58,18 +80,18 @@ else
     # Apply overrides to existing config if flags were passed
     if [[ -n "$HOST" ]]; then
         sed -i "s/^host = .*/host = \"$HOST\"/" "$CONFIG_FILE"
-        echo "Updated host → $HOST"
+        echo "Updated host -> $HOST"
     fi
     if [[ -n "$PORT" ]]; then
         sed -i "s/^port = .*/port = $PORT/" "$CONFIG_FILE"
-        echo "Updated port → $PORT"
+        echo "Updated port -> $PORT"
     fi
     if [[ -n "$USER_SLUG" ]]; then
         sed -i "s/^user = .*/user = \"$USER_SLUG\"/" "$CONFIG_FILE"
-        echo "Updated user → $USER_SLUG"
+        echo "Updated user -> $USER_SLUG"
     fi
 fi
 
 echo ""
-echo "Done. Run: marcel"
+echo "Done! Run: marcel"
 echo "Config:    $CONFIG_FILE"

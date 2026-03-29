@@ -1,6 +1,6 @@
 # ISSUE-009: Fixed Header with Live Resize — Alternate Screen + Scroll Region
 
-**Status:** WIP
+**Status:** Closed (superseded by ISSUE-010 — Rust CLI rewrite)
 **Created:** 2026-03-29
 **Assignee:** Claude
 **Priority:** High

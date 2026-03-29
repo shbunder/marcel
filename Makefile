@@ -42,9 +42,11 @@ docs-serve: ## Build and serve the documentation
 
 # TESTING
 .PHONY: test
-test: ## Run all tests
-	echo -e "$(INFO) Running all tests..."
+test: ## Run all tests (Python + Rust)
+	echo -e "$(INFO) Running Python tests..."
 	uv run pytest tests/ -x -v
+	echo -e "$(INFO) Running Rust CLI tests..."
+	cd src/marcel_cli && cargo test
 
 .PHONY: test-core
 test-core: ## Run core package tests
@@ -57,12 +59,22 @@ test-cov: ## Run tests with coverage report
 	uv run pytest tests/ --cov=execution_garden_core --cov-report=term-missing
 
 .PHONY: install-cli
-install-cli: ## Install the Marcel CLI as a standalone uv tool (for use on a remote machine)
-	bash install.sh
+install-cli: ## Install the Marcel CLI binary (Rust) to ~/.cargo/bin
+	echo -e "$(INFO) Building and installing Marcel CLI..."
+	cd src/marcel_cli && cargo install --path .
 
 .PHONY: cli
-cli: ## Start the Marcel CLI (TUI) — runs local source directly, no install needed
-	uv run python -m marcel_cli.main --host $(MARCEL_HOST) --port $(MARCEL_PORT)
+cli: cli-build ## Start the Marcel CLI (Rust TUI)
+	./src/marcel_cli/target/release/marcel
+
+.PHONY: cli-build
+cli-build: ## Build the Marcel CLI (Rust, release mode)
+	echo -e "$(INFO) Building Marcel CLI..."
+	cd src/marcel_cli && cargo build --release
+
+.PHONY: cli-dev
+cli-dev: ## Build and run the Marcel CLI (Rust, debug mode)
+	cd src/marcel_cli && cargo run
 
 .PHONY: serve
 serve: ## Start marcel-core development server (uvicorn with reload)
@@ -74,16 +86,20 @@ check: format lint typecheck test-cov ## Run format, lint, typecheck, and tests
 
 # CODE QUALITY
 .PHONY: format
-format: ## Format the code
-	echo -e "$(INFO) Formatting code..."
+format: ## Format the code (Python + Rust)
+	echo -e "$(INFO) Formatting Python code..."
 	uv run ruff format
 	uv run ruff check --fix --fix-only
+	echo -e "$(INFO) Formatting Rust code..."
+	cd src/marcel_cli && cargo fmt
 
 .PHONY: lint
-lint: ## Lint the code
-	echo -e "$(INFO) Linting code..."
+lint: ## Lint the code (Python + Rust)
+	echo -e "$(INFO) Linting Python code..."
 	uv run ruff format --check
 	uv run ruff check
+	echo -e "$(INFO) Linting Rust code..."
+	cd src/marcel_cli && cargo clippy -- -D warnings
 
 .PHONY: typecheck-pyright
 typecheck-pyright:

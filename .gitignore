@@ -41,6 +41,7 @@ notebooks/*.ipynb
 .build/
 build/
 site/
+src/marcel_cli/target/
 scripts/
 .confluence-build/
 tasks/
