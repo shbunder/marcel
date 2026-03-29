@@ -87,13 +87,15 @@ make check
 
 Log implementation work in the issue file (Implementation Log section).
 
-**Closing commit.** Once all code is committed and tests pass, create a **separate closing commit** that contains:
+**Pre-close verification.** Before creating the closing commit, run through the verification checklist in [./issues/CLAUDE.md](./issues/CLAUDE.md) — especially check that all files referencing changed conventions (skills, docs, other CLAUDE.md files) have been updated. This prevents post-close fixups.
+
+**Closing commit.** Create a **separate closing commit** that contains:
 - The issue file moved from `wip/` to `closed/` with `Status: Closed`
 - Documentation updates in `docs/` per [docs/CLAUDE.md](../docs/CLAUDE.md)
 - Version bump per [VERSIONING.md](./VERSIONING.md)
 - **No code changes** — all code must already be committed in implementation commits
 
-See [./issues/CLAUDE.md](./issues/CLAUDE.md) for the full commit workflow (create → implement → close).
+If you discover a missed item after closing, use a `🩹 fixup` commit — see [./issues/CLAUDE.md](./issues/CLAUDE.md) for rules.
 
 **Push to the user branch.** After committing, push the changes to a remote branch named after the requesting user. This lets the user review and merge to `main` at their own pace:
 

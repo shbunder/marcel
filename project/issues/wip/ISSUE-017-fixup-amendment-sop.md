@@ -1,6 +1,6 @@
 # ISSUE-017: Fixup / Amendment SOP
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-03-29
 **Assignee:** Marcel
 **Priority:** Medium
@@ -24,10 +24,10 @@ ISSUE-016 exposed the gap: after closing the issue, we discovered the skills had
 3. Clear rules for when to use fixup vs. new issue
 
 ## Tasks
-- [ ] ISSUE-017-a: Add `🩹` fixup emoji and rules to `project/issues/CLAUDE.md` Git Conventions section
-- [ ] ISSUE-017-b: Add pre-close verification checklist to `project/issues/CLAUDE.md` Issue Lifecycle section
-- [ ] ISSUE-017-c: Update `project/CLAUDE.md` Step 8 (Ship) to reference verification checklist
-- [ ] ISSUE-017-d: Verify finish-issue skill aligns with new verification + fixup rules
+- [✓] ISSUE-017-a: Add `🩹` fixup emoji and rules to `project/issues/CLAUDE.md` Git Conventions section
+- [✓] ISSUE-017-b: Add pre-close verification checklist to `project/issues/CLAUDE.md` Issue Lifecycle section
+- [✓] ISSUE-017-c: Update `project/CLAUDE.md` Step 8 (Ship) to reference verification checklist
+- [✓] ISSUE-017-d: Verify finish-issue skill aligns with new verification + fixup rules
 
 ## Relationships
 - Related to: [[ISSUE-016-clean-commit-workflow-sop]]
@@ -35,3 +35,11 @@ ISSUE-016 exposed the gap: after closing the issue, we discovered the skills had
 ## Comments
 
 ## Implementation Log
+
+### 2026-03-29 - LLM Implementation
+**Action**: Added fixup convention and pre-close verification to SOP
+**Files Modified**:
+- `project/issues/CLAUDE.md` — added 🩹 to emoji table, added "Post-close fixups" subsection with when-to-use/when-not-to rules, added verification bullet to pre-close checklist
+- `project/CLAUDE.md` — added pre-close verification step and fixup reference to Step 8 (Ship)
+- `.claude/skills/finish-issue/SKILL.md` — added step 6 (pre-close verification) with grep instructions, renumbered subsequent steps
+**Result**: All four files (issues CLAUDE.md, project CLAUDE.md, finish-issue skill, new-issue skill) are consistent with the new workflow

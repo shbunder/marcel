@@ -50,7 +50,14 @@ Add a log entry at the bottom of the issue file under `## Implementation Log`:
 **Result**: <outcome, e.g. "X tests passing">
 ```
 
-### 6. Move to closed
+### 6. Pre-close verification
+
+Before closing, check for stragglers:
+- Run `grep -r "<key term>" .claude/skills/ docs/ project/` for key terms from the changes (convention names, emoji, format strings) to find files that reference old patterns.
+- Verify all tasks and subtasks in the issue show `[✓]`.
+- If you find missed files, commit them as a final `🔧 [ISSUE-{NNN}] impl:` commit before closing.
+
+### 7. Move to closed
 
 - Update `**Status:** Closed`
 - Move the file: `project/issues/wip/ISSUE-{NNN}-{slug}.md` → `project/issues/closed/ISSUE-{NNN}-{slug}.md`
@@ -61,7 +68,7 @@ git add ./project/issues/
 git commit -m "✅ [ISSUE-{NNN}] closed: <one-line summary of what was completed>"
 ```
 
-### 7. Report back
+### 8. Report back
 
 Tell me:
 - Which tasks were marked done vs incomplete

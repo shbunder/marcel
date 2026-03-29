@@ -77,6 +77,7 @@ Before closing, verify:
 - All tasks and subtasks show `[✓]`
 - Dependent issues are unblocked and notified
 - Implementation Log reflects all work done
+- **All files that reference changed conventions are updated** — check skills (`.claude/skills/`), other CLAUDE.md files, and docs that may reference the patterns you modified. A `grep` for key terms from your changes is the fastest way to catch stragglers.
 
 ## Git Conventions
 
@@ -124,6 +125,7 @@ When a feature requires multiple implementation commits:
 | 📝 | Issue created | 1 |
 | 🔧 | Implementation work | 2 |
 | ✅ | Issue closed | 3 |
+| 🩹 | Post-close fixup | after 3 |
 
 Reserve `🐛`, `🚀`, `📚` for **issue labels** inside the issue file (bug, feature, docs) — not for commit messages. This keeps `git log --oneline` clean and scannable:
 
@@ -132,7 +134,28 @@ Reserve `🐛`, `🚀`, `📚` for **issue labels** inside the issue file (bug, 
 🔧 [ISSUE-042] impl: add OAuth handler, update routes
 🔧 [ISSUE-042] impl: add refresh token logic
 ✅ [ISSUE-042] closed: all tasks complete, docs updated
+🩹 [ISSUE-042] fixup: fix typo in OAuth error message
 ```
+
+### Post-close fixups
+
+Sometimes you catch a small mistake after closing an issue — a typo, a missed file, a convention not applied to a related template. Use a **fixup commit** instead of reopening the issue or creating a new one.
+
+```
+🩹 [ISSUE-XXX] fixup: <what was corrected>
+```
+
+**When to use `🩹 fixup`:**
+- The fix is trivial (a few lines, no design decisions)
+- It corrects work done under the same issue (same scope)
+- The issue is already closed
+
+**When to create a new issue instead:**
+- The fix is substantial (new logic, new files, needs testing)
+- It's new scope that wasn't part of the original issue
+- It would take more than a few minutes
+
+**Fixup staging rules:** stage only the files that need correcting — source files, docs, skills, whatever was missed. Do **not** reopen or move the issue file.
 
 ## Linking Issues
 
