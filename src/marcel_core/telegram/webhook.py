@@ -7,6 +7,7 @@ Webhook URL: POST /telegram/webhook
 """
 
 import asyncio
+import logging
 import os
 from typing import Any
 
@@ -15,6 +16,8 @@ from fastapi import APIRouter, HTTPException, Request
 from marcel_core import storage
 from marcel_core.agent import extract_and_save_memories, stream_response
 from marcel_core.telegram import bot, sessions
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -35,6 +38,17 @@ async def _process_message(chat_id: int, user_slug: str, text: str) -> None:
         user_slug: Marcel user slug resolved from the chat ID.
         text: The user's message text.
     """
+    try:
+        await _process_message_inner(chat_id, user_slug, text)
+    except Exception as exc:
+        log.exception('Unhandled error processing Telegram message from chat_id=%s: %s', chat_id, exc)
+        try:
+            await _reply(chat_id, f'Sorry, an unexpected error occurred: {exc}')
+        except Exception:
+            log.exception('Also failed to send error reply to chat_id=%s', chat_id)
+
+
+async def _process_message_inner(chat_id: int, user_slug: str, text: str) -> None:
     conversation_id = sessions.get_conversation_id(chat_id)
 
     if conversation_id is None:
@@ -118,6 +132,10 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
         )
         return {'status': 'ok'}
 
+    # Acknowledge immediately so the user knows Marcel received the message
+    await _reply(chat_id, 'Got it, working on it...')
+
     # Dispatch to background so we return 200 to Telegram immediately
+    log.info('Dispatching message from chat_id=%s user=%s: %r', chat_id, user_slug, text[:80])
     asyncio.create_task(_process_message(chat_id, user_slug, text))
     return {'status': 'ok'}

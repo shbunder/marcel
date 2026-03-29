@@ -3,7 +3,7 @@ name = "marcel"
 description = "A self-adapting agent build on top of claude-code that can rewrite itself."
 readme = "README.md"
 license = {text = "MIT"}
-version = "0.2.1"
+version = "0.2.2"
 authors = [
     { name="Shaun Bundervoet", email = "shaun.bundervoet@me.com"},
 ]
@@ -21,6 +21,7 @@ dependencies = [
     "uvicorn[standard]>=0.34.0",
     "python-dotenv>=1.0.0",
     "httpx>=0.27.0",
+    "pyicloud>=1.0.0",
 ]
 
 # Local package sources for editable installation

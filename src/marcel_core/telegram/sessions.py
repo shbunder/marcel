@@ -79,6 +79,23 @@ def get_user_slug(chat_id: int | str) -> str | None:
     return None
 
 
+def get_chat_id(user_slug: str) -> str | None:
+    """Return the Telegram chat ID for a Marcel user slug, or None if not linked.
+
+    Args:
+        user_slug: The Marcel user slug.
+
+    Returns:
+        The chat ID as a string, or None if the user has no Telegram account linked.
+    """
+    telegram_file = data_root() / 'users' / user_slug / 'telegram.json'
+    try:
+        data = json.loads(telegram_file.read_text(encoding='utf-8'))
+        return str(data.get('chat_id', '')) or None
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 def get_conversation_id(chat_id: int | str) -> str | None:
     """Return the active conversation ID for a chat, or None if none exists.
 

@@ -1,4 +1,4 @@
-"""cmd MCP tool — exposes the skills registry to the claude_agent_sdk agent."""
+"""cmd and notify MCP tools — exposes the skills registry and progress notifications to the agent."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from claude_agent_sdk.types import McpSdkServerConfig
 
 from .executor import run
 from .registry import get_skill, list_skills
+
 
 _CMD_SCHEMA: dict = {
     'type': 'object',
@@ -26,12 +27,25 @@ _CMD_SCHEMA: dict = {
     'required': ['skill'],
 }
 
+_NOTIFY_SCHEMA: dict = {
+    'type': 'object',
+    'properties': {
+        'message': {
+            'type': 'string',
+            'description': 'Short plain-text progress update to send to the user.',
+        },
+    },
+    'required': ['message'],
+}
 
-def build_skills_mcp_server(user_slug: str) -> McpSdkServerConfig:
-    """Return an in-process MCP server with the cmd tool bound to `user_slug`.
+
+def build_skills_mcp_server(user_slug: str, channel: str = 'cli') -> McpSdkServerConfig:
+    """Return an in-process MCP server with the cmd and notify tools bound to `user_slug`.
 
     Args:
         user_slug: The user executing the command (used for per-user auth).
+        channel: The originating channel. When 'telegram', the notify tool sends
+            real-time progress messages to the user's Telegram chat.
 
     Returns:
         A :class:`McpSdkServerConfig` ready for ``ClaudeAgentOptions.mcp_servers``.
@@ -61,5 +75,28 @@ def build_skills_mcp_server(user_slug: str) -> McpSdkServerConfig:
                 'is_error': True,
             }
 
+    async def _notify_impl(args: dict) -> dict:
+        message: str = args.get('message', '')
+        if not message:
+            return {'content': [{'type': 'text', 'text': 'ok'}]}
+
+        if channel == 'telegram':
+            try:
+                from marcel_core.telegram import bot, sessions
+                chat_id = sessions.get_chat_id(user_slug)
+                if chat_id:
+                    await bot.send_message(int(chat_id), bot.escape_markdown_v2(message))
+            except Exception as exc:  # noqa: BLE001
+                return {'content': [{'type': 'text', 'text': f'notify failed: {exc}'}]}
+
+        return {'content': [{'type': 'text', 'text': 'ok'}]}
+
     cmd_tool: SdkMcpTool = tool('cmd', description, _CMD_SCHEMA)(_cmd_impl)
-    return create_sdk_mcp_server('marcel-skills', tools=[cmd_tool])
+    notify_tool: SdkMcpTool = tool(
+        'notify',
+        'Send a short progress update to the user mid-task. '
+        'Use this to keep the user informed during long operations (e.g. "Creating issue...", "Writing code...", "Running tests..."). '
+        'Always call this at the start of any multi-step task and after each major step.',
+        _NOTIFY_SCHEMA,
+    )(_notify_impl)
+    return create_sdk_mcp_server('marcel-skills', tools=[cmd_tool, notify_tool])
