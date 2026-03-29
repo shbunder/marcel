@@ -3,6 +3,12 @@
 Receives updates from the Telegram Bot API and routes them through the
 Marcel agent loop. Responds to each message after streaming completes.
 
+Commands:
+    /start  — show chat ID for account linking
+    /code   — enter coder mode (self-modification via Claude Code)
+    /done   — exit coder mode early
+    /new    — start a fresh conversation (resets mode and conversation)
+
 Webhook URL: POST /telegram/webhook
 """
 
@@ -15,11 +21,16 @@ from fastapi import APIRouter, HTTPException, Request
 
 from marcel_core import storage
 from marcel_core.agent import extract_and_save_memories, stream_response
+from marcel_core.agent.coder import CoderResult, run_coder_task
 from marcel_core.telegram import bot, sessions
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Timeout for coder tasks (seconds) — much longer than assistant (120s).
+_CODER_TIMEOUT = 600.0
+_ASSISTANT_TIMEOUT = 120.0
 
 
 async def _reply(chat_id: int, text: str) -> None:
@@ -27,19 +38,15 @@ async def _reply(chat_id: int, text: str) -> None:
     await bot.send_message(chat_id, bot.escape_markdown_v2(text))
 
 
-async def _process_message(chat_id: int, user_slug: str, text: str) -> None:
-    """Run the agent for one incoming message and send the reply to Telegram.
+# ---------------------------------------------------------------------------
+# Assistant path (existing)
+# ---------------------------------------------------------------------------
 
-    Mirrors the logic in api/chat.py: look up or create a conversation,
-    stream the response, persist the turn, fire memory extraction.
 
-    Args:
-        chat_id: Telegram chat to send the reply to.
-        user_slug: Marcel user slug resolved from the chat ID.
-        text: The user's message text.
-    """
+async def _process_assistant_message(chat_id: int, user_slug: str, text: str) -> None:
+    """Run the standard assistant agent for one message."""
     try:
-        await _process_message_inner(chat_id, user_slug, text)
+        await _process_assistant_message_inner(chat_id, user_slug, text)
     except Exception as exc:
         log.exception('Unhandled error processing Telegram message from chat_id=%s: %s', chat_id, exc)
         try:
@@ -48,7 +55,7 @@ async def _process_message(chat_id: int, user_slug: str, text: str) -> None:
             log.exception('Also failed to send error reply to chat_id=%s', chat_id)
 
 
-async def _process_message_inner(chat_id: int, user_slug: str, text: str) -> None:
+async def _process_assistant_message_inner(chat_id: int, user_slug: str, text: str) -> None:
     conversation_id = sessions.get_conversation_id(chat_id)
 
     if conversation_id is None:
@@ -58,11 +65,12 @@ async def _process_message_inner(chat_id: int, user_slug: str, text: str) -> Non
 
     response_parts: list[str] = []
     try:
+
         async def _collect() -> None:
             async for token in stream_response(user_slug, 'telegram', text, conversation_id):
                 response_parts.append(token)
 
-        await asyncio.wait_for(_collect(), timeout=120.0)
+        await asyncio.wait_for(_collect(), timeout=_ASSISTANT_TIMEOUT)
     except asyncio.TimeoutError:
         await _reply(chat_id, 'Sorry, that took too long and I had to give up. Please try again.')
         return
@@ -73,7 +81,10 @@ async def _process_message_inner(chat_id: int, user_slug: str, text: str) -> Non
     full_response = ''.join(response_parts)
 
     if not full_response.strip():
-        await _reply(chat_id, 'Sorry, I received your message but produced an empty response. Please try again or rephrase your question.')
+        await _reply(
+            chat_id,
+            'Sorry, I received your message but produced an empty response. Please try again or rephrase your question.',
+        )
         return
 
     async with storage.get_lock(user_slug):
@@ -86,6 +97,58 @@ async def _process_message_inner(chat_id: int, user_slug: str, text: str) -> Non
         await bot.send_message(chat_id, full_response)
     except Exception as exc:
         await _reply(chat_id, f'I have a response but failed to send it: {exc}')
+
+
+# ---------------------------------------------------------------------------
+# Coder path
+# ---------------------------------------------------------------------------
+
+
+async def _process_coder_message(chat_id: int, text: str) -> None:
+    """Run a coder task (or continue one) and send the result to Telegram."""
+    try:
+        await _process_coder_message_inner(chat_id, text)
+    except Exception as exc:
+        log.exception('Unhandled error in coder task for chat_id=%s: %s', chat_id, exc)
+        try:
+            await _reply(chat_id, f'Coder task failed: {exc}')
+        except Exception:
+            log.exception('Also failed to send coder error reply to chat_id=%s', chat_id)
+
+
+async def _process_coder_message_inner(chat_id: int, text: str) -> None:
+    resume_id = sessions.get_coder_session_id(chat_id)
+
+    try:
+        result: CoderResult = await asyncio.wait_for(
+            run_coder_task(prompt=text, resume_session_id=resume_id),
+            timeout=_CODER_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        await _reply(chat_id, 'Coder task timed out after 10 minutes. Use /done to exit coder mode.')
+        return
+    except RuntimeError as exc:
+        # Another coder task is already running
+        await _reply(chat_id, str(exc))
+        return
+
+    # Store session ID for potential follow-ups
+    if result.session_id:
+        sessions.set_coder_session_id(chat_id, result.session_id)
+
+    if not result.response.strip():
+        await _reply(chat_id, 'Coder task completed but produced no output.')
+        return
+
+    try:
+        await bot.send_message(chat_id, result.response)
+    except Exception as exc:
+        await _reply(chat_id, f'Coder task finished but I failed to send the result: {exc}')
+
+
+# ---------------------------------------------------------------------------
+# Webhook endpoint
+# ---------------------------------------------------------------------------
 
 
 @router.post('/telegram/webhook')
@@ -118,7 +181,7 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
     if not text:
         return {'status': 'ignored'}
 
-    # /start — tell the user their chat ID so they can share it for account linking
+    # --- /start: show chat ID for account linking ---
     if text == '/start':
         escaped_id = bot.escape_markdown_v2(str(chat_id))
         await bot.send_message(
@@ -138,10 +201,52 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
         )
         return {'status': 'ok'}
 
-    # Acknowledge immediately so the user knows Marcel received the message
-    await _reply(chat_id, 'Got it, working on it...')
+    # --- /new: reset session, start fresh ---
+    if text == '/new':
+        sessions.reset_session(chat_id)
+        await _reply(chat_id, 'Fresh start! Previous conversation and coder mode cleared.')
+        return {'status': 'ok'}
 
-    # Dispatch to background so we return 200 to Telegram immediately
-    log.info('Dispatching message from chat_id=%s user=%s: %r', chat_id, user_slug, text[:80])
-    asyncio.create_task(_process_message(chat_id, user_slug, text))
+    # --- /done: exit coder mode ---
+    if text == '/done':
+        if sessions.get_mode(chat_id) == 'coder':
+            sessions.exit_coder_mode(chat_id)
+            await _reply(chat_id, 'Coder mode exited. Back to normal.')
+        else:
+            await _reply(chat_id, 'Not in coder mode — nothing to exit.')
+        return {'status': 'ok'}
+
+    # --- Auto-new on inactivity ---
+    if sessions.should_auto_new(chat_id):
+        sessions.reset_session(chat_id)
+        log.info('Auto-new conversation for chat_id=%s (inactivity)', chat_id)
+
+    # Update last-message timestamp
+    sessions.touch_last_message(chat_id)
+
+    # --- /code: enter coder mode ---
+    if text.startswith('/code'):
+        coder_prompt = text.removeprefix('/code').strip()
+        if not coder_prompt:
+            await _reply(chat_id, 'Usage: /code <describe the change you want>')
+            return {'status': 'ok'}
+
+        sessions.enter_coder_mode(chat_id)
+        await _reply(chat_id, 'Entering coder mode. This may take a while...')
+        log.info('Coder mode started for chat_id=%s: %r', chat_id, coder_prompt[:80])
+        asyncio.create_task(_process_coder_message(chat_id, coder_prompt))
+        return {'status': 'ok'}
+
+    # --- Route based on current mode ---
+    mode = sessions.get_mode(chat_id)
+
+    if mode == 'coder':
+        await _reply(chat_id, 'Continuing coder session...')
+        log.info('Coder follow-up from chat_id=%s: %r', chat_id, text[:80])
+        asyncio.create_task(_process_coder_message(chat_id, text))
+    else:
+        await _reply(chat_id, 'Got it, working on it...')
+        log.info('Dispatching message from chat_id=%s user=%s: %r', chat_id, user_slug, text[:80])
+        asyncio.create_task(_process_assistant_message(chat_id, user_slug, text))
+
     return {'status': 'ok'}

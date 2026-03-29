@@ -1,7 +1,8 @@
 """Agent module — Claude-powered conversation engine."""
 
+from .coder import CoderResult, run_coder_task
 from .context import build_system_prompt
 from .memory_extract import extract_and_save_memories
 from .runner import stream_response
 
-__all__ = ['build_system_prompt', 'stream_response', 'extract_and_save_memories']
+__all__ = ['build_system_prompt', 'stream_response', 'extract_and_save_memories', 'run_coder_task', 'CoderResult']

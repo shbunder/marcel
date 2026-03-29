@@ -27,6 +27,30 @@ Telegram user
 
 Messages are buffered (not streamed) before sending — Telegram does not support real-time streaming. Responses use MarkdownV2 with an automatic plain-text fallback if formatting is rejected.
 
+## Commands
+
+| Command | Effect |
+|---------|--------|
+| `/start` | Show your chat ID for account linking |
+| `/code <request>` | Enter coder mode — Marcel spawns a Claude Code agent with full file/shell/git capabilities to implement your request |
+| `/done` | Exit coder mode early (back to normal assistant) |
+| `/new` | Start a fresh conversation and exit coder mode |
+
+### Coder mode
+
+When you send `/code <describe the change>`, Marcel enters **coder mode**: it spawns a dedicated Claude Code agent that can read/write files, run shell commands, interact with git, and follow the full issue lifecycle (create → implement → test → ship).
+
+Follow-up messages are routed to the same coder session automatically — no need to prefix every message with `/code`. The coder agent remembers the full conversation context. When the task is done or you send `/done`, Marcel reverts to normal assistant mode.
+
+**Safety guardrails:**
+- Only one coder task runs at a time (global lock prevents concurrent git conflicts).
+- Auth files and CLAUDE.md files are protected from writes via `can_use_tool` callback.
+- Coder tasks have a 10-minute timeout.
+
+### Auto-new on inactivity
+
+If no message is sent for 6 hours, Marcel automatically starts a fresh conversation on the next message. This prevents stale context from accumulating in long-lived Telegram chats.
+
 ## Prerequisites
 
 - A running Marcel server reachable via a public HTTPS URL (required for webhooks).
@@ -222,3 +246,5 @@ Telegram sends the secret as the `X-Telegram-Bot-Api-Secret-Token` header. Marce
 ::: marcel_core.telegram.sessions
 
 ::: marcel_core.telegram.webhook
+
+::: marcel_core.agent.coder

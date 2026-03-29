@@ -632,7 +632,7 @@ wheels = [
 
 [[package]]
 name = "marcel"
-version = "0.2.2"
+version = "0.2.3"
 source = { editable = "." }
 dependencies = [
     { name = "claude-agent-sdk" },
