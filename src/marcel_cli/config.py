@@ -92,6 +92,23 @@ def load_config(
     )
 
 
+def save_config(config: Config) -> None:
+    """Persist *config* back to ``~/.marcel/config.toml``."""
+    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _CONFIG_PATH.write_text(
+        '# Marcel server address\n'
+        f'host = "{config.host}"\n'
+        f'port = {config.port}\n\n'
+        '# Your user slug\n'
+        f'user = "{config.user}"\n\n'
+        '# Long-lived developer token (auth not yet enforced in Phase 1)\n'
+        f'token = "{config.token}"\n\n'
+        '# Claude model to use\n'
+        f'model = "{config.model}"\n',
+        encoding='utf-8',
+    )
+
+
 def _write_default_config() -> None:
     _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     _CONFIG_PATH.write_text(

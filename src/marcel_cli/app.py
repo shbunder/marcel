@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 
 import httpx
 from prompt_toolkit import PromptSession
@@ -15,7 +16,7 @@ from rich.text import Text
 
 from . import __version__ as _CLI_VERSION
 from .chat import ChatClient, ConnectionState
-from .config import Config
+from .config import Config, load_config, save_config
 from .mascot import BLUSH_ROSE, _art
 
 console = Console(highlight=False)
@@ -30,6 +31,7 @@ _PROMPT = FormattedText([('class:prompt', ' ❯  ')])
 _COMMANDS: list[tuple[str, str]] = [
     ('/clear',      'Clear the screen'),
     ('/compact',    'Compact conversation context  [requires server]'),
+    ('/config',     'Show or set config  (/config host <value>)'),
     ('/cost',       'Show token usage and cost     [requires server]'),
     ('/help',       'Show available commands'),
     ('/memory',     'Show Marcel\'s memory          [requires server]'),
@@ -39,6 +41,8 @@ _COMMANDS: list[tuple[str, str]] = [
     ('/exit',       'Exit Marcel'),
     ('/quit',       'Exit Marcel'),
 ]
+
+_CONFIG_FIELDS = {'host', 'port', 'user', 'model', 'token'}
 
 _SERVER_COMMANDS = {'/compact', '/cost', '/memory'}
 
@@ -69,21 +73,24 @@ async def _fetch_server_version(config: Config) -> str:
         return 'offline'
 
 
-def _print_header(config: Config, server_version: str) -> None:
+def _print_header(config: Config, server_version: str, connected: bool = False) -> None:
     art = _art().splitlines()
     pad = '   '
     srv_color = '#ff6b6b' if server_version == 'offline' else '#888888'
+    conn_label = '● connected' if connected else '● offline'
+    conn_color = '#4caf50' if connected else '#ff6b6b'
     info: list[tuple[str, str]] = [
         (f'CLI v{_CLI_VERSION}',          'bold white'),
         (f'Server v{server_version}',     srv_color),
         (config.model,                    '#888888'),
         (config.user,                     BLUSH_ROSE),
+        (conn_label,                      conn_color),
     ]
     info_offset = 1
     width = console.width or 60
     rule = Text('─' * width, style='#333333')
     console.print(rule)
-    for i in range(5):
+    for i in range(6):
         art_line = art[i] if i < len(art) else ''
         info_idx = i - info_offset
         if 0 <= info_idx < len(info):
@@ -104,7 +111,7 @@ def _handle_command(text: str, config: Config, client: ChatClient, server_versio
 
     if cmd == '/clear':
         os.system('clear')
-        _print_header(config, server_version)
+        _print_header(config, server_version, connected=client.state == ConnectionState.CONNECTED)
 
     elif cmd == '/model':
         args = text.split()[1:]
@@ -114,6 +121,33 @@ def _handle_command(text: str, config: Config, client: ChatClient, server_versio
             console.print(Text(f'  model set to: {config.model}', style='#888888'))
         else:
             console.print(Text(f'  model: {config.model}', style='#888888'))
+        console.print()
+
+    elif cmd == '/config':
+        args = text.split()[1:]
+        if not args:
+            return False  # handled in async loop (opens nano)
+        elif len(args) < 2:
+            console.print(Text(f'  Usage: /config <field> <value>', style='#ff6b6b'))
+            console.print(Text(f'  Fields: {", ".join(sorted(_CONFIG_FIELDS))}', style='#888888'))
+        elif args[0] not in _CONFIG_FIELDS:
+            console.print(Text(f'  Unknown field: {args[0]}. Options: {", ".join(sorted(_CONFIG_FIELDS))}', style='#ff6b6b'))
+        else:
+            field, value = args[0], args[1]
+            if field == 'port':
+                try:
+                    value = int(value)  # type: ignore[assignment]
+                except ValueError:
+                    console.print(Text('  port must be a number', style='#ff6b6b'))
+                    console.print()
+                    return False
+            setattr(config, field, value)
+            if field == 'model':
+                client._model = str(value)
+            save_config(config)
+            console.print(Text(f'  {field} → {value}', style='#888888'))
+            if field in ('host', 'port'):
+                console.print(Text('  Run /reconnect to connect to the new server.', style='#555555 italic'))
         console.print()
 
     elif cmd == '/status':
@@ -155,7 +189,6 @@ def _handle_command(text: str, config: Config, client: ChatClient, server_versio
 async def run(config: Config) -> None:
     """Main REPL loop."""
     server_version = await _fetch_server_version(config)
-    _print_header(config, server_version)
 
     client = ChatClient(ws_url=config.ws_url, user=config.user, token=config.token, model=config.model)
 
@@ -165,6 +198,8 @@ async def run(config: Config) -> None:
         console.print(Text(f'  Could not connect to Marcel server: {exc}', style='#ff6b6b'))
         console.print(Text('  Start the server with: make serve', style='#555555 italic'))
         console.print()
+
+    _print_header(config, server_version, connected=client.state == ConnectionState.CONNECTED)
 
     session: PromptSession = PromptSession(
         completer=_SlashCompleter(),
@@ -193,9 +228,28 @@ async def run(config: Config) -> None:
                     console.print(Text('  Reconnecting…', style='#555555 italic'))
                     try:
                         await client.connect()
-                        console.print(Text('  Connected.', style='#888888'))
+                        server_version = await _fetch_server_version(config)
+                        os.system('clear')
+                        _print_header(config, server_version, connected=True)
                     except Exception as exc:
                         console.print(Text(f'  Reconnect failed: {exc}', style='#ff6b6b'))
+                        console.print()
+                    continue
+
+                if cmd == '/config' and len(text.split()) == 1:
+                    loop = asyncio.get_event_loop()
+                    from .config import _CONFIG_PATH
+                    await loop.run_in_executor(None, lambda: subprocess.run(['nano', str(_CONFIG_PATH)]))
+                    fresh = load_config()
+                    config.host, config.port = fresh.host, fresh.port
+                    config.user, config.token, config.model = fresh.user, fresh.token, fresh.model
+                    client._model = config.model
+                    client._user = config.user
+                    client._token = config.token
+                    server_version = await _fetch_server_version(config)
+                    os.system('clear')
+                    _print_header(config, server_version, connected=client.state == ConnectionState.CONNECTED)
+                    console.print(Text('  Config reloaded.', style='#888888'))
                     console.print()
                     continue
 

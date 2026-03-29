@@ -61,8 +61,8 @@ install-cli: ## Install the Marcel CLI as a standalone uv tool (for use on a rem
 	bash install.sh
 
 .PHONY: cli
-cli: ## Start the Marcel CLI (TUI)
-	uv run marcel --host $(MARCEL_HOST) --port $(MARCEL_PORT)
+cli: ## Start the Marcel CLI (TUI) — runs local source directly, no install needed
+	uv run python -m marcel_cli.main --host $(MARCEL_HOST) --port $(MARCEL_PORT)
 
 .PHONY: serve
 serve: ## Start marcel-core development server (uvicorn with reload)

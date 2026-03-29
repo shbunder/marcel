@@ -26,7 +26,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "Installing Marcel CLI..."
-uv tool install . --force
+if [[ -f "$(dirname "${BASH_SOURCE[0]}")/pyproject.toml" ]]; then
+    uv tool install "$(dirname "${BASH_SOURCE[0]}")" --force
+else
+    uv tool install git+https://github.com/shbunder/marcel --force
+fi
 
 CONFIG_DIR="$HOME/.marcel"
 CONFIG_FILE="$CONFIG_DIR/config.toml"
