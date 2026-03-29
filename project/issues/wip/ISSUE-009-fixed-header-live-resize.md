@@ -33,17 +33,36 @@ The previous SIGWINCH-based resize handler fought with prompt_toolkit's own SIGW
 
 ## Tasks
 
-- [ ] Rewrite `_draw_header` → split into `_setup_screen` (initial) and `_refresh_header` (resize-safe)
-- [ ] `_refresh_header`: write header lines in-place, update scroll region bounds, no content clear
-- [ ] `_full_redraw`: clear entire alt screen (for `/clear`, `/reconnect`, `/config`)
+- [✓] Rewrite `_draw_header` → split into `_setup_screen` (initial) and `_refresh_header` (resize-safe)
+- [✓] `_refresh_header`: write header lines in-place, update scroll region bounds, no content clear
+- [✓] `_full_redraw`: clear entire alt screen (for `/clear`, `/reconnect`, `/config`)
 - [ ] Verify chat history preserved after resize
 - [ ] Verify header adapts layout tiers (3-col / 2-col / 1-col) on width change
 - [ ] Verify no duplicate ❯ prompts on resize
 - [ ] Verify clean exit restores original terminal
-- [ ] Update docs
+- [✓] Update docs
 
 ## Relationships
 
 - Follows from: [[ISSUE-007-cli-overhaul-scrolling-repl]]
 
 ## Implementation Log
+
+### 2026-03-29 - Claude
+
+**Action:** Rewrote CLI screen management — alternate screen buffer, scroll regions, in-place header redraw
+
+**Files Modified:**
+- `src/marcel_cli/app.py` — full rewrite of screen management:
+  - Added `_enter_alt_screen()` / `_leave_alt_screen()` using `\033[?1049h` / `\033[?1049l`
+  - Added `_write_header_lines()` — writes header line-by-line with absolute cursor addressing (`\033[{row};1H\033[2K`), never touches scroll region content
+  - Added `_setup_screen()` — initial setup: draws header + sets scroll region + positions cursor
+  - Added `_refresh_header()` — resize-safe: redraws header in-place, updates scroll region bounds only
+  - Added `_full_redraw()` — for `/clear`, `/reconnect`, `/config`: clears everything and rebuilds
+  - Removed old `_draw_header()` and `_clear_screen()` which used `\033[J` (clear-to-end, wiping chat)
+  - `_render_header()` refactored to return ANSI string via `StringIO` + `force_terminal=True`
+  - `run()` wrapped in `try/finally` to guarantee `_leave_alt_screen()` on any exit path
+  - Resize monitor uses `_refresh_header()` instead of `_draw_header()` — chat history preserved
+  - `session.app.handle_sigwinch = False` prevents prompt_toolkit from duplicating ❯ on resize
+  - Removed unused `os` and `signal` imports
+- `docs/cli.md` — full rewrite: updated from Textual TUI docs to current prompt_toolkit + alt screen architecture, added Terminal Resize section and Architecture Notes

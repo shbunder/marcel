@@ -122,6 +122,7 @@ ignore = [
     "N803", 	# argument-name-snake-case
     "N806", 	# variable-in-function,
     "N815", 	# mixed-case-variable-in-class
+    "N812",     # lowercase-imported-as-non-lowercase
     "N818", 	# error-suffix-for-exceptions
     "D100",     # ignore missing docstring in module
     "D102",     # ignore missing docstring in public method
