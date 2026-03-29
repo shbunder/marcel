@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 import subprocess
 
 import httpx
@@ -13,6 +14,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
 from . import __version__ as _CLI_VERSION
@@ -21,6 +23,18 @@ from .config import Config, load_config, save_config
 from .mascot import BLUSH_ROSE, _art
 
 DEEP_TEAL = '#2ec4b6'
+_SEP_COLOR = '#444444'
+
+_WELCOME_MESSAGES = [
+    'Welcome back, {user}!',
+    'Good to see you, {user}.',
+    'Ready when you are.',
+    'At your service.',
+    'What can I do for you today?',
+    'Hello again, {user}.',
+    "Let's get to work.",
+    'How can I help?',
+]
 
 console = Console(highlight=False)
 
@@ -77,33 +91,44 @@ async def _fetch_server_version(config: Config) -> str:
 
 
 def _print_header(config: Config, server_version: str, connected: bool = False) -> None:
-    art = _art().splitlines()
-    art_width = max(len(line) for line in art)
-    pad = '   '
-    srv_color = '#ff6b6b' if server_version == 'offline' else '#888888'
+    art = _art().splitlines()[:6]  # just the head
+    welcome = random.choice(_WELCOME_MESSAGES).format(user=config.user)
+    srv_color = '#ff6b6b' if server_version == 'offline' else '#aaaaaa'
     conn_label = '● connected' if connected else '● offline'
     conn_color = '#4caf50' if connected else '#ff6b6b'
-    info: list[tuple[str, str]] = [
-        (f'CLI v{_CLI_VERSION}',                'bold white'),
-        (f'Server v{server_version}',           srv_color),
-        (f'{config.host}:{config.port}',        '#555555'),
-        (config.model,                          '#888888'),
-        (config.user,                           DEEP_TEAL),
-        (conn_label,                            conn_color),
-    ]
-    info_offset = 1
-    n_rows = max(len(art), len(info) + info_offset)
-    content = Text(no_wrap=True)
-    for i in range(n_rows):
-        art_line = art[i] if i < len(art) else ''
-        info_idx = i - info_offset
-        content.append(art_line.ljust(art_width), style=str(BLUSH_ROSE))
-        if 0 <= info_idx < len(info):
-            label, style = info[info_idx]
-            content.append(pad + label, style=style)
-        if i < n_rows - 1:
-            content.append('\n')
-    console.print(Panel(content, border_style=str(BLUSH_ROSE), padding=(0, 1)))
+    D = '│ '  # visual column divider baked into right column content
+
+    right = Text(no_wrap=True)
+    right.append(D, style=_SEP_COLOR); right.append('Server\n', style='#888888 bold')
+    right.append(D, style=_SEP_COLOR); right.append('─' * 24 + '\n', style='#333333')
+    right.append(D, style=_SEP_COLOR); right.append('version  ', style='#555555'); right.append(f'{server_version}\n', style=srv_color)
+    right.append(D, style=_SEP_COLOR); right.append('host     ', style='#555555'); right.append(f'{config.host}\n', style='#888888')
+    right.append(D, style=_SEP_COLOR); right.append('port     ', style='#555555'); right.append(f'{config.port}\n', style='#888888')
+    right.append(D, style=_SEP_COLOR); right.append('─' * 24 + '\n', style='#333333')
+    right.append(D, style=_SEP_COLOR); right.append(f'{conn_label}\n', style=conn_color)
+
+    left = Text()
+    left.append(f'\n  {welcome}\n\n', style=f'bold #cc5e76')
+    for line in art:
+        left.append(f'  {line}\n', style='#cc5e76')
+    left.append('\n')
+    left.append('  model  ', style='#555555')
+    left.append(config.model, style='#888888')
+    left.append('   ·   ', style='#444444')
+    left.append('user  ', style='#555555')
+    left.append(config.user, style=DEEP_TEAL)
+
+    table = Table(show_header=False, show_edge=False, box=None, expand=True, padding=0)
+    table.add_column(ratio=3)
+    table.add_column(ratio=2, no_wrap=True)
+    table.add_row(left, right)
+
+    console.print(Panel(
+        table,
+        title=f'[bold #cc5e76] Marcel CLI v{_CLI_VERSION} [/]',
+        border_style='#cc5e76',
+        padding=(0, 2),
+    ))
     console.print()
 
 
