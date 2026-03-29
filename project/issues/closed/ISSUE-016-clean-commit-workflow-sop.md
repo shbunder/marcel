@@ -1,6 +1,6 @@
 # ISSUE-016: Clean Commit Workflow SOP
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-03-29
 **Assignee:** Marcel
 **Priority:** Medium
