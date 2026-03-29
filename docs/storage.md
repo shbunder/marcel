@@ -193,6 +193,22 @@ API layer to coordinate around them.
 
 ---
 
+## User-specific data
+
+User-specific information — integration credentials, personal preferences, per-user facts — **must** be stored under `data/users/{slug}/`, not in `.env` or `.env.local`.
+
+| Type of data | Where it goes |
+|---|---|
+| Core identity (name, timezone, language) | `data/users/{slug}/profile.md` |
+| Integration facts (which Apple ID, which calendar) | `data/users/{slug}/memory/{topic}.md` |
+| Preferences, habits, known facts | `data/users/{slug}/memory/{topic}.md` |
+| System-wide API keys / ports / feature flags | `.env` / `.env.local` |
+| Runtime secret that can't live in a file (e.g. password) | `.env.local` — reference its location in the memory file, do not copy the value |
+
+This rule exists so that adding a second user never requires touching environment files, and so that each user's data is self-contained, auditable, and deletable.
+
+---
+
 ## Atomicity
 
 Every write goes through `_atomic.atomic_write(path, content)`:
