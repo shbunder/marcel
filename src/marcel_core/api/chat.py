@@ -46,9 +46,7 @@ async def chat(websocket: WebSocket) -> None:
             if conversation_id is None:
                 async with storage.get_lock(user_slug):
                     conversation_id = storage.new_conversation(user_slug, channel)
-                await websocket.send_text(
-                    json.dumps({'type': 'started', 'conversation': conversation_id})
-                )
+                await websocket.send_text(json.dumps({'type': 'started', 'conversation': conversation_id}))
 
             # Stream the agent response token by token
             response_parts: list[str] = []
@@ -68,9 +66,7 @@ async def chat(websocket: WebSocket) -> None:
                 storage.append_turn(user_slug, conversation_id, 'assistant', full_response)
 
             # Fire-and-forget memory extraction
-            asyncio.create_task(
-                extract_and_save_memories(user_slug, user_text, full_response, conversation_id)
-            )
+            asyncio.create_task(extract_and_save_memories(user_slug, user_text, full_response, conversation_id))
 
             await websocket.send_text(json.dumps({'type': 'done'}))
 

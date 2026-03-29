@@ -76,9 +76,7 @@ async def extract_and_save_memories(
         _parse_and_save(user_slug, response)
 
     except Exception:
-        log.exception(
-            'Memory extraction failed for user=%s conversation=%s', user_slug, conversation_id
-        )
+        log.exception('Memory extraction failed for user=%s conversation=%s', user_slug, conversation_id)
 
 
 def _parse_and_save(user_slug: str, response: str) -> None:

@@ -3,6 +3,7 @@
 Supported auth types: none, api_key.
 oauth2 returns a "not connected" message until Phase 3 adds the OAuth flow.
 """
+
 from __future__ import annotations
 
 import json
@@ -73,6 +74,7 @@ def _apply_transform(transform: str, body: str) -> str:
     expr = transform[3:]
     try:
         import jq  # type: ignore[import]
+
         data = json.loads(body)
         result = jq.first(expr, data)
         return json.dumps(result, indent=2, ensure_ascii=False)

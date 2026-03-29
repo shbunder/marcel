@@ -1,4 +1,5 @@
 """Skills registry — loads and validates skills.json."""
+
 import json
 from pathlib import Path
 
@@ -15,8 +16,7 @@ def get_skill(name: str) -> dict:
     if name not in registry:
         available = list(registry)
         raise KeyError(
-            f"Unknown skill '{name}'."
-            + (f' Available: {available}' if available else ' No skills are registered yet.')
+            f"Unknown skill '{name}'." + (f' Available: {available}' if available else ' No skills are registered yet.')
         )
     return registry[name]
 

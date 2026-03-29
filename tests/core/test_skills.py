@@ -1,16 +1,19 @@
 """Tests for ISSUE-004: skills registry, executor, and cmd tool."""
-import json
-import pytest
-import httpx
 
+import json
+
+import httpx
+import pytest
+
+from marcel_core.skills.executor import _apply_transform, run
 from marcel_core.skills.registry import get_skill, list_skills
-from marcel_core.skills.executor import run, _apply_transform
 
 
 class TestRegistry:
     def test_list_skills_empty(self, tmp_path, monkeypatch):
         # Point registry at an empty JSON file
         import marcel_core.skills.registry as reg
+
         empty = tmp_path / 'skills.json'
         empty.write_text('{}')
         monkeypatch.setattr(reg, '_SKILLS_JSON', empty)
@@ -18,6 +21,7 @@ class TestRegistry:
 
     def test_list_skills_returns_names(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
+
         f = tmp_path / 'skills.json'
         f.write_text(json.dumps({'a.b': {}, 'c.d': {}}))
         monkeypatch.setattr(reg, '_SKILLS_JSON', f)
@@ -25,6 +29,7 @@ class TestRegistry:
 
     def test_get_skill_returns_config(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
+
         cfg = {'url': 'https://example.com', 'method': 'GET'}
         f = tmp_path / 'skills.json'
         f.write_text(json.dumps({'test.skill': cfg}))
@@ -33,6 +38,7 @@ class TestRegistry:
 
     def test_get_skill_unknown_raises_key_error(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
+
         f = tmp_path / 'skills.json'
         f.write_text('{}')
         monkeypatch.setattr(reg, '_SKILLS_JSON', f)
@@ -41,6 +47,7 @@ class TestRegistry:
 
     def test_get_skill_suggests_available(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
+
         f = tmp_path / 'skills.json'
         f.write_text(json.dumps({'a.b': {}}))
         monkeypatch.setattr(reg, '_SKILLS_JSON', f)
@@ -62,9 +69,7 @@ class TestExecutorAuth:
 
     @pytest.mark.asyncio
     async def test_no_auth_calls_url(self, respx_mock):
-        respx_mock.get('https://example.com/data').mock(
-            return_value=httpx.Response(200, text='{"ok": true}')
-        )
+        respx_mock.get('https://example.com/data').mock(return_value=httpx.Response(200, text='{"ok": true}'))
         config = {'url': 'https://example.com/data', 'method': 'GET'}
         result = await run(config, {}, 'shaun')
         assert 'ok' in result
@@ -72,9 +77,7 @@ class TestExecutorAuth:
     @pytest.mark.asyncio
     async def test_api_key_added_to_header(self, respx_mock, monkeypatch):
         monkeypatch.setenv('TEST_API_KEY', 'secret123')
-        respx_mock.get('https://example.com/data').mock(
-            return_value=httpx.Response(200, text='ok')
-        )
+        respx_mock.get('https://example.com/data').mock(return_value=httpx.Response(200, text='ok'))
         config = {
             'url': 'https://example.com/data',
             'method': 'GET',
@@ -90,9 +93,7 @@ class TestExecutorAuth:
 
     @pytest.mark.asyncio
     async def test_params_resolved_from_args(self, respx_mock):
-        respx_mock.get('https://example.com/items').mock(
-            return_value=httpx.Response(200, text='[]')
-        )
+        respx_mock.get('https://example.com/items').mock(return_value=httpx.Response(200, text='[]'))
         config = {
             'url': 'https://example.com/items',
             'method': 'GET',
@@ -105,9 +106,7 @@ class TestExecutorAuth:
 
     @pytest.mark.asyncio
     async def test_params_use_default_when_arg_missing(self, respx_mock):
-        respx_mock.get('https://example.com/items').mock(
-            return_value=httpx.Response(200, text='[]')
-        )
+        respx_mock.get('https://example.com/items').mock(return_value=httpx.Response(200, text='[]'))
         config = {
             'url': 'https://example.com/items',
             'method': 'GET',
@@ -128,11 +127,14 @@ class TestTransform:
 
     def test_jq_import_error_returns_raw(self, monkeypatch):
         import builtins
+
         real_import = builtins.__import__
+
         def mock_import(name, *args, **kwargs):
             if name == 'jq':
                 raise ImportError('no jq')
             return real_import(name, *args, **kwargs)
+
         monkeypatch.setattr(builtins, '__import__', mock_import)
         result = _apply_transform('jq:.x', '{"x": 1}')
         assert result == '{"x": 1}'

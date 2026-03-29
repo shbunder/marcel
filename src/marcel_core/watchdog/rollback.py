@@ -27,7 +27,7 @@ def do_rollback(repo_root: pathlib.Path) -> None:
             status (e.g. merge conflict during revert).
     """
     subprocess.run(
-        ["git", "revert", "HEAD", "--no-edit"],
+        ['git', 'revert', 'HEAD', '--no-edit'],
         cwd=repo_root,
         check=True,
     )

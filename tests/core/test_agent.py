@@ -3,21 +3,19 @@
 import asyncio
 import json
 
-import pytest
+import claude_agent_sdk
+from claude_agent_sdk import AssistantMessage, StreamEvent, TextBlock
 from fastapi.testclient import TestClient
 
-import claude_agent_sdk
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, StreamEvent, TextBlock
-
-from marcel_core.agent.context import build_system_prompt, _load_all_memory
+from marcel_core.agent.context import build_system_prompt
 from marcel_core.agent.memory_extract import _parse_and_save, extract_and_save_memories
 from marcel_core.main import app
 from marcel_core.storage import _root
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 async def _agen(*items):
     """Yield items as an async generator — used to mock claude_agent_sdk.query."""
@@ -41,6 +39,7 @@ def _assistant_message(text: str) -> AssistantMessage:
 # context.py — build_system_prompt
 # ---------------------------------------------------------------------------
 
+
 class TestBuildSystemPrompt:
     def test_includes_user_identity(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
@@ -51,6 +50,7 @@ class TestBuildSystemPrompt:
     def test_includes_profile_content(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         from marcel_core.storage import save_user_profile
+
         save_user_profile('shaun', '# Shaun\nLoves coffee.')
         prompt = build_system_prompt('shaun', 'cli')
         assert 'Loves coffee.' in prompt
@@ -63,6 +63,7 @@ class TestBuildSystemPrompt:
     def test_includes_memory_content(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         from marcel_core.storage import save_memory_file, update_memory_index
+
         save_memory_file('shaun', 'calendar', '# Calendar\nPrefers mornings.')
         update_memory_index('shaun', 'calendar.md', 'calendar facts')
         prompt = build_system_prompt('shaun', 'cli')
@@ -75,7 +76,8 @@ class TestBuildSystemPrompt:
 
     def test_includes_conversation_history(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        from marcel_core.storage import new_conversation, append_turn
+        from marcel_core.storage import append_turn, new_conversation
+
         conv_id = new_conversation('shaun', 'cli')
         append_turn('shaun', conv_id, 'user', 'What time is it?')
         append_turn('shaun', conv_id, 'assistant', 'It is 3pm.')
@@ -104,6 +106,7 @@ class TestBuildSystemPrompt:
 # ---------------------------------------------------------------------------
 # runner.py — stream_response
 # ---------------------------------------------------------------------------
+
 
 class TestStreamResponse:
     def test_yields_tokens_from_stream_events(self, tmp_path, monkeypatch):
@@ -170,11 +173,13 @@ async def _collect(agen):
 # memory_extract.py — _parse_and_save
 # ---------------------------------------------------------------------------
 
+
 class TestParseAndSave:
     def test_saves_single_topic(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         _parse_and_save('shaun', 'TOPIC: calendar\nCONTENT: Prefers mornings.')
         from marcel_core.storage import load_memory_file
+
         content = load_memory_file('shaun', 'calendar')
         assert 'Prefers mornings.' in content
 
@@ -183,15 +188,18 @@ class TestParseAndSave:
         response = 'TOPIC: family\nCONTENT: Has two kids.\nTOPIC: work\nCONTENT: Works remotely.'
         _parse_and_save('shaun', response)
         from marcel_core.storage import load_memory_file
+
         assert 'Has two kids.' in load_memory_file('shaun', 'family')
         assert 'Works remotely.' in load_memory_file('shaun', 'work')
 
     def test_appends_to_existing_memory(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         from marcel_core.storage import save_memory_file
+
         save_memory_file('shaun', 'calendar', '# Calendar\nOld fact.')
         _parse_and_save('shaun', 'TOPIC: calendar\nCONTENT: New fact.')
         from marcel_core.storage import load_memory_file
+
         content = load_memory_file('shaun', 'calendar')
         assert 'Old fact.' in content
         assert 'New fact.' in content
@@ -201,6 +209,7 @@ class TestParseAndSave:
         # No CONTENT: line — should not crash
         _parse_and_save('shaun', 'TOPIC: broken\njust some text without content marker')
         from marcel_core.storage import load_memory_file
+
         assert load_memory_file('shaun', 'broken') == ''
 
 
@@ -212,10 +221,9 @@ class TestExtractAndSaveMemories:
             'query',
             lambda **_: _agen(_assistant_message('NO_NEW_FACTS')),
         )
-        asyncio.run(
-            extract_and_save_memories('shaun', 'hello', 'hi there', 'conv-1')
-        )
+        asyncio.run(extract_and_save_memories('shaun', 'hello', 'hi there', 'conv-1'))
         from marcel_core.storage import load_memory_index
+
         assert load_memory_index('shaun') == ''
 
     def test_saves_extracted_facts(self, tmp_path, monkeypatch):
@@ -225,10 +233,9 @@ class TestExtractAndSaveMemories:
             'query',
             lambda **_: _agen(_assistant_message('TOPIC: preferences\nCONTENT: Likes tea.')),
         )
-        asyncio.run(
-            extract_and_save_memories('shaun', 'I like tea', 'Noted!', 'conv-1')
-        )
+        asyncio.run(extract_and_save_memories('shaun', 'I like tea', 'Noted!', 'conv-1'))
         from marcel_core.storage import load_memory_file
+
         assert 'Likes tea.' in load_memory_file('shaun', 'preferences')
 
     def test_swallows_exceptions(self, tmp_path, monkeypatch):
@@ -246,6 +253,7 @@ class TestExtractAndSaveMemories:
 # ---------------------------------------------------------------------------
 # api/chat.py — WebSocket (mocked runner)
 # ---------------------------------------------------------------------------
+
 
 class TestChatWebSocket:
     def _mock_stream(self, monkeypatch, tokens: list[str]):
@@ -292,6 +300,7 @@ class TestChatWebSocket:
     def test_continue_existing_conversation(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         from marcel_core.storage import new_conversation
+
         conv_id = new_conversation('shaun', 'cli')
         self._mock_stream(monkeypatch, ['reply'])
         with TestClient(app).websocket_connect('/ws/chat') as ws:

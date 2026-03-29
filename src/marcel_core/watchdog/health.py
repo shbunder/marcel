@@ -27,7 +27,7 @@ def poll_health(
         ``True`` if a 200 response is received within *timeout_s* seconds,
         ``False`` if the deadline is exceeded.
     """
-    url = f"http://localhost:{port}/health"
+    url = f'http://localhost:{port}/health'
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         try:

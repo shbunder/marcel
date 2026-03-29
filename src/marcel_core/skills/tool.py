@@ -1,4 +1,5 @@
 """cmd MCP tool — exposes the skills registry to the claude_agent_sdk agent."""
+
 from __future__ import annotations
 
 from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server, tool
@@ -13,9 +14,7 @@ _CMD_SCHEMA: dict = {
         'skill': {
             'type': 'string',
             'description': (
-                'Dotted skill name from the registry '
-                '(e.g. "calendar.list_events"). '
-                'Call list_skills first if unsure.'
+                'Dotted skill name from the registry (e.g. "calendar.list_events"). Call list_skills first if unsure.'
             ),
         },
         'params': {
@@ -38,13 +37,10 @@ def build_skills_mcp_server(user_slug: str) -> McpSdkServerConfig:
         A :class:`McpSdkServerConfig` ready for ``ClaudeAgentOptions.mcp_servers``.
     """
     available = list_skills()
-    description = (
-        'Execute a registered integration skill.\n'
-        + (
-            f'Available skills: {", ".join(available)}'
-            if available
-            else 'No skills are registered yet — the registry is empty.'
-        )
+    description = 'Execute a registered integration skill.\n' + (
+        f'Available skills: {", ".join(available)}'
+        if available
+        else 'No skills are registered yet — the registry is empty.'
     )
 
     async def _cmd_impl(args: dict) -> dict:
