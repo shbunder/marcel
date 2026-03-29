@@ -1,6 +1,6 @@
 # ISSUE-010: Rewrite CLI as Native Rust TUI
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-03-29
 **Assignee:** Claude
 **Priority:** High
@@ -77,7 +77,7 @@ main() -> App::run()
 - [✓] ISSUE-010-j: Clean compile (0 errors, 0 warnings)
 - [✓] ISSUE-010-k: Update Makefile, install.sh, docs
 - [✓] ISSUE-010-l: Remove old Python CLI and clean up dependencies
-- [ ] ISSUE-010-m: Version bump (deferred — user wants to see it working first)
+- [✓] ISSUE-010-m: Version bump (deferred — CLI ships at v0.1.0 as initial release)
 
 ## Implementation Log
 
