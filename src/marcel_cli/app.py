@@ -12,12 +12,15 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from rich.console import Console
+from rich.panel import Panel
 from rich.text import Text
 
 from . import __version__ as _CLI_VERSION
 from .chat import ChatClient, ConnectionState
 from .config import Config, load_config, save_config
 from .mascot import BLUSH_ROSE, _art
+
+DEEP_TEAL = '#2ec4b6'
 
 console = Console(highlight=False)
 
@@ -75,30 +78,32 @@ async def _fetch_server_version(config: Config) -> str:
 
 def _print_header(config: Config, server_version: str, connected: bool = False) -> None:
     art = _art().splitlines()
+    art_width = max(len(line) for line in art)
     pad = '   '
     srv_color = '#ff6b6b' if server_version == 'offline' else '#888888'
     conn_label = '● connected' if connected else '● offline'
     conn_color = '#4caf50' if connected else '#ff6b6b'
     info: list[tuple[str, str]] = [
-        (f'CLI v{_CLI_VERSION}',          'bold white'),
-        (f'Server v{server_version}',     srv_color),
-        (config.model,                    '#888888'),
-        (config.user,                     BLUSH_ROSE),
-        (conn_label,                      conn_color),
+        (f'CLI v{_CLI_VERSION}',                'bold white'),
+        (f'Server v{server_version}',           srv_color),
+        (f'{config.host}:{config.port}',        '#555555'),
+        (config.model,                          '#888888'),
+        (config.user,                           DEEP_TEAL),
+        (conn_label,                            conn_color),
     ]
     info_offset = 1
-    width = console.width or 60
-    rule = Text('─' * width, style='#333333')
-    console.print(rule)
-    for i in range(6):
+    n_rows = max(len(art), len(info) + info_offset)
+    content = Text(no_wrap=True)
+    for i in range(n_rows):
         art_line = art[i] if i < len(art) else ''
         info_idx = i - info_offset
+        content.append(art_line.ljust(art_width), style=str(BLUSH_ROSE))
         if 0 <= info_idx < len(info):
             label, style = info[info_idx]
-            console.print(Text.assemble((art_line + pad, BLUSH_ROSE), (label, style)))
-        else:
-            console.print(Text(art_line, style=BLUSH_ROSE))
-    console.print(rule)
+            content.append(pad + label, style=style)
+        if i < n_rows - 1:
+            content.append('\n')
+    console.print(Panel(content, border_style=str(BLUSH_ROSE), padding=(0, 1)))
     console.print()
 
 
