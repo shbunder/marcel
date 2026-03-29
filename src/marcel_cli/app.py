@@ -4,8 +4,10 @@ from __future__ import annotations
 import asyncio
 import os
 import random
+import shutil
 import signal
 import subprocess
+import sys
 
 import httpx
 from prompt_toolkit import PromptSession
@@ -38,6 +40,12 @@ _WELCOME_MESSAGES = [
 ]
 
 console = Console(highlight=False)
+
+
+def _clear_screen() -> None:
+    """Clear the terminal through sys.stdout so patch_stdout can coordinate the redraw."""
+    sys.stdout.write('\033[2J\033[H')
+    sys.stdout.flush()
 
 # Gray background applied by prompt_toolkit — no need to reprint user messages
 _SESSION_STYLE = Style.from_dict({
@@ -92,6 +100,12 @@ async def _fetch_server_version(config: Config) -> str:
 
 
 def _print_header(config: Config, server_version: str, connected: bool = False) -> None:
+    # Fresh console on every call:
+    # - file=sys.stdout  → writes through patch_stdout proxy when active (no prompt duplication)
+    # - width from shutil → reads live terminal size even when sys.stdout is a proxy object
+    width = shutil.get_terminal_size().columns
+    c = Console(highlight=False, file=sys.stdout, width=width)
+
     art = _art().splitlines()[:6]  # head only — keeps height tight
     welcome = random.choice(_WELCOME_MESSAGES).format(user=config.user)
     D = '│ '  # column divider baked into content
@@ -123,7 +137,6 @@ def _print_header(config: Config, server_version: str, connected: bool = False) 
     col3.append(D, style=_SEP_COLOR); col3.append('─' * 20 + '\n', style='#333333')
     col3.append(D, style=_SEP_COLOR); col3.append(conn_label + '\n', style=conn_color)
 
-    width = console.width or 80
     table = Table(show_header=False, show_edge=False, box=None, expand=True, padding=(0, 1))
     if width >= 88:
         table.add_column(min_width=13, no_wrap=True)
@@ -138,13 +151,13 @@ def _print_header(config: Config, server_version: str, connected: bool = False) 
         table.add_column(no_wrap=True)
         table.add_row(col1)
 
-    console.print(Panel(
+    c.print(Panel(
         table,
         title=f'[bold #cc5e76] Marcel CLI v{_CLI_VERSION} [/]',
         border_style='#cc5e76',
         padding=(0, 1),
     ))
-    console.print()
+    c.print()
 
 
 def _handle_command(text: str, config: Config, client: ChatClient, server_version: str) -> bool:
@@ -155,7 +168,7 @@ def _handle_command(text: str, config: Config, client: ChatClient, server_versio
         return True
 
     if cmd == '/clear':
-        os.system('clear')
+        _clear_screen()
         _print_header(config, server_version, connected=client.state == ConnectionState.CONNECTED)
 
     elif cmd == '/model':
@@ -255,20 +268,23 @@ async def run(config: Config) -> None:
 
     _print_header(config, server_version, connected=client.state == ConnectionState.CONNECTED)
 
+    loop = asyncio.get_running_loop()
     _resize_task: asyncio.Task | None = None
 
     async def _redraw_after_delay() -> None:
-        await asyncio.sleep(0.12)  # debounce: wait for resize to settle
-        os.system('clear')
+        try:
+            await asyncio.sleep(0.15)  # debounce: wait for drag to settle
+        except asyncio.CancelledError:
+            return
+        _clear_screen()
         _print_header(config, server_version, connected=client.state == ConnectionState.CONNECTED)
 
     def _on_resize() -> None:
         nonlocal _resize_task
         if _resize_task and not _resize_task.done():
             _resize_task.cancel()
-        _resize_task = asyncio.get_event_loop().create_task(_redraw_after_delay())
+        _resize_task = loop.create_task(_redraw_after_delay())
 
-    loop = asyncio.get_event_loop()
     loop.add_signal_handler(signal.SIGWINCH, _on_resize)
 
     session: PromptSession = PromptSession(
@@ -299,7 +315,7 @@ async def run(config: Config) -> None:
                     try:
                         await client.connect()
                         server_version = await _fetch_server_version(config)
-                        os.system('clear')
+                        _clear_screen()
                         _print_header(config, server_version, connected=True)
                     except Exception as exc:
                         console.print(Text(f'  Reconnect failed: {exc}', style='#ff6b6b'))
@@ -307,7 +323,6 @@ async def run(config: Config) -> None:
                     continue
 
                 if cmd == '/config' and len(text.split()) == 1:
-                    loop = asyncio.get_event_loop()
                     from .config import _CONFIG_PATH
                     await loop.run_in_executor(None, lambda: subprocess.run(['nano', str(_CONFIG_PATH)]))
                     fresh = load_config()
@@ -317,7 +332,7 @@ async def run(config: Config) -> None:
                     client._user = config.user
                     client._token = config.token
                     server_version = await _fetch_server_version(config)
-                    os.system('clear')
+                    _clear_screen()
                     _print_header(config, server_version, connected=client.state == ConnectionState.CONNECTED)
                     console.print(Text('  Config reloaded.', style='#888888'))
                     console.print()
