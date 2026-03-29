@@ -13,6 +13,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import pathlib
+from collections.abc import AsyncIterator
+from typing import Any
 
 import claude_agent_sdk
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, StreamEvent, TextBlock
@@ -98,6 +100,15 @@ async def run_coder_task(
         return await _run_coder_task_inner(prompt, resume_session_id)
 
 
+async def _as_prompt_stream(text: str) -> AsyncIterator[dict[str, Any]]:
+    """Wrap a plain string into an async iterable of message dicts.
+
+    The SDK requires an AsyncIterable prompt (streaming mode) when
+    ``can_use_tool`` is set.
+    """
+    yield {'role': 'user', 'content': text}
+
+
 async def _run_coder_task_inner(
     prompt: str,
     resume_session_id: str | None,
@@ -116,7 +127,7 @@ async def _run_coder_task_inner(
     response_parts: list[str] = []
     got_stream_events = False
 
-    async for msg in claude_agent_sdk.query(prompt=prompt, options=options):
+    async for msg in claude_agent_sdk.query(prompt=_as_prompt_stream(prompt), options=options):
         if isinstance(msg, StreamEvent):
             # Capture session ID from the first event
             if session_id is None:
