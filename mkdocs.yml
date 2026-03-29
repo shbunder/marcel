@@ -12,6 +12,8 @@ nav:
   - Self-Modification: self-modification.md
   - Skills: skills.md
   - CLI: cli.md
+  - Channels:
+    - Telegram: channels/telegram.md
 
 extra:
   generator: false

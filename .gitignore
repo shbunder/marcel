@@ -37,6 +37,9 @@ data/
 notebooks/*.ipynb
 .ipynb_checkpoints/*
 
+# Downloaded installers
+*.deb
+
 # Build artifacts
 .build/
 build/

@@ -91,11 +91,23 @@ Update or add documentation in `docs/` per [docs/CLAUDE.md](../docs/CLAUDE.md). 
 
 Log implementation work in the issue file and close or update it per [./issues/CLAUDE.md](./issues/CLAUDE.md).
 
+**Trigger a restart.** After committing, signal the watchdog to restart Marcel with the new code:
+
+```python
+from marcel_core.watchdog.flags import request_restart
+import subprocess
+sha = subprocess.check_output(['git', 'rev-parse', 'HEAD~1']).decode().strip()
+request_restart(sha)  # watchdog detects this, restarts uvicorn, rolls back on failure
+```
+
+The watchdog polls for this flag, restarts uvicorn, and automatically runs `git revert` if the new version fails its health check. The pre-change SHA is stored so rollback targets the correct commit.
+
 ## Self-Modification Safety
 
 When rewriting Marcel's own code:
 
-- Commit before restarting the service — every change must be recoverable
+- Commit before restarting — every change must be recoverable via git revert
+- Always trigger restart through the watchdog flag (above), never `systemctl restart` — the watchdog provides the rollback safety net
 - Confirm with the user before restarting unless they explicitly asked for an auto-restart
 - Keep changes minimal and focused — don't refactor unrelated code while implementing a feature
 - **Restricted files:** Auth logic, core config, and safety rules (including CLAUDE.md files) are off-limits. If a change touches one of these areas, confirm with the user before proceeding even if they did not explicitly request confirmation.
