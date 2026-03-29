@@ -125,19 +125,34 @@ async def _run_coder_task_inner(
 
     session_id: str | None = None
     last_assistant_text: str = ''
+    msg_count = 0
 
     async for msg in claude_agent_sdk.query(prompt=_as_prompt_stream(prompt), options=options):
+        msg_count += 1
+        msg_type = type(msg).__name__
+
         if isinstance(msg, StreamEvent):
             if session_id is None:
                 session_id = msg.session_id
+            event_type = msg.event.get('type', '?')
+            log.debug('coder msg #%d: StreamEvent type=%s', msg_count, event_type)
 
         elif isinstance(msg, AssistantMessage):
-            # The claude_code preset runs many turns (tool calls, file edits,
-            # shell commands).  Each turn yields an AssistantMessage.  We want
-            # the text from the *last* one — that's the final summary/response.
+            block_types = [type(b).__name__ for b in msg.content]
             text_parts = [block.text for block in msg.content if isinstance(block, TextBlock)]
+            log.info(
+                'coder msg #%d: AssistantMessage blocks=%s text_len=%d',
+                msg_count,
+                block_types,
+                sum(len(t) for t in text_parts),
+            )
             if text_parts:
                 last_assistant_text = ''.join(text_parts)
+
+        else:
+            log.info('coder msg #%d: %s (unhandled)', msg_count, msg_type)
+
+    log.info('coder finished: %d messages, response_len=%d, session_id=%s', msg_count, len(last_assistant_text), session_id)
 
     return CoderResult(
         response=last_assistant_text,
