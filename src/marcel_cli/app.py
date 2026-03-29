@@ -91,43 +91,57 @@ async def _fetch_server_version(config: Config) -> str:
 
 
 def _print_header(config: Config, server_version: str, connected: bool = False) -> None:
-    art = _art().splitlines()[:6]  # just the head
+    art = _art().splitlines()[:6]  # head only — keeps height tight
     welcome = random.choice(_WELCOME_MESSAGES).format(user=config.user)
-    srv_color = '#ff6b6b' if server_version == 'offline' else '#aaaaaa'
+    D = '│ '  # column divider baked into content
+
+    # col1: welcome + mascot head (7 rows total)
+    col1 = Text(no_wrap=True)
+    col1.append(welcome + '\n', style='bold white')
+    for line in art:
+        col1.append(line + '\n', style='#cc5e76')
+
+    # col2: runtime info (5 rows)
+    col2 = Text(no_wrap=True)
+    col2.append(D, style=_SEP_COLOR); col2.append('Runtime\n', style='bold #888888')
+    col2.append(D, style=_SEP_COLOR); col2.append('─' * 20 + '\n', style='#333333')
+    col2.append(D, style=_SEP_COLOR); col2.append('cli    ', style='#555555'); col2.append(f'v{_CLI_VERSION}\n', style='#888888')
+    col2.append(D, style=_SEP_COLOR); col2.append('user   ', style='#555555'); col2.append(f'{config.user}\n', style=DEEP_TEAL)
+    col2.append(D, style=_SEP_COLOR); col2.append('model  ', style='#555555'); col2.append(f'{config.model}\n', style='#888888')
+
+    # col3: server info (7 rows)
+    srv_color = '#ff6b6b' if server_version == 'offline' else '#888888'
     conn_label = '● connected' if connected else '● offline'
     conn_color = '#4caf50' if connected else '#ff6b6b'
-    D = '│ '  # visual column divider baked into right column content
+    col3 = Text(no_wrap=True)
+    col3.append(D, style=_SEP_COLOR); col3.append('Server\n', style='bold #888888')
+    col3.append(D, style=_SEP_COLOR); col3.append('─' * 20 + '\n', style='#333333')
+    col3.append(D, style=_SEP_COLOR); col3.append('version  ', style='#555555'); col3.append(f'{server_version}\n', style=srv_color)
+    col3.append(D, style=_SEP_COLOR); col3.append('host     ', style='#555555'); col3.append(f'{config.host}\n', style='#888888')
+    col3.append(D, style=_SEP_COLOR); col3.append('port     ', style='#555555'); col3.append(f'{config.port}\n', style='#888888')
+    col3.append(D, style=_SEP_COLOR); col3.append('─' * 20 + '\n', style='#333333')
+    col3.append(D, style=_SEP_COLOR); col3.append(conn_label + '\n', style=conn_color)
 
-    right = Text(no_wrap=True)
-    right.append(D, style=_SEP_COLOR); right.append('Server\n', style='#888888 bold')
-    right.append(D, style=_SEP_COLOR); right.append('─' * 24 + '\n', style='#333333')
-    right.append(D, style=_SEP_COLOR); right.append('version  ', style='#555555'); right.append(f'{server_version}\n', style=srv_color)
-    right.append(D, style=_SEP_COLOR); right.append('host     ', style='#555555'); right.append(f'{config.host}\n', style='#888888')
-    right.append(D, style=_SEP_COLOR); right.append('port     ', style='#555555'); right.append(f'{config.port}\n', style='#888888')
-    right.append(D, style=_SEP_COLOR); right.append('─' * 24 + '\n', style='#333333')
-    right.append(D, style=_SEP_COLOR); right.append(f'{conn_label}\n', style=conn_color)
-
-    left = Text()
-    left.append(f'\n  {welcome}\n\n', style=f'bold #cc5e76')
-    for line in art:
-        left.append(f'  {line}\n', style='#cc5e76')
-    left.append('\n')
-    left.append('  model  ', style='#555555')
-    left.append(config.model, style='#888888')
-    left.append('   ·   ', style='#444444')
-    left.append('user  ', style='#555555')
-    left.append(config.user, style=DEEP_TEAL)
-
-    table = Table(show_header=False, show_edge=False, box=None, expand=True, padding=0)
-    table.add_column(ratio=3)
-    table.add_column(ratio=2, no_wrap=True)
-    table.add_row(left, right)
+    width = console.width or 80
+    table = Table(show_header=False, show_edge=False, box=None, expand=True, padding=(0, 1))
+    if width >= 88:
+        table.add_column(min_width=13, no_wrap=True)
+        table.add_column(min_width=24, no_wrap=True)
+        table.add_column(min_width=24, no_wrap=True)
+        table.add_row(col1, col2, col3)
+    elif width >= 60:
+        table.add_column(min_width=13, no_wrap=True)
+        table.add_column(min_width=24, no_wrap=True)
+        table.add_row(col1, col2)
+    else:
+        table.add_column(no_wrap=True)
+        table.add_row(col1)
 
     console.print(Panel(
         table,
         title=f'[bold #cc5e76] Marcel CLI v{_CLI_VERSION} [/]',
         border_style='#cc5e76',
-        padding=(0, 2),
+        padding=(0, 1),
     ))
     console.print()
 
