@@ -124,37 +124,53 @@ async def _run_coder_task_inner(
     )
 
     session_id: str | None = None
-    last_assistant_text: str = ''
+    all_assistant_texts: list[str] = []
     msg_count = 0
+    stream_text_parts: list[str] = []
 
     async for msg in claude_agent_sdk.query(prompt=_as_prompt_stream(prompt), options=options):
         msg_count += 1
-        msg_type = type(msg).__name__
 
         if isinstance(msg, StreamEvent):
             if session_id is None:
                 session_id = msg.session_id
-            event_type = msg.event.get('type', '?')
-            log.debug('coder msg #%d: StreamEvent type=%s', msg_count, event_type)
+
+            # Collect streamed text deltas
+            event = msg.event
+            if event.get('type') == 'content_block_delta':
+                delta = event.get('delta', {})
+                if delta.get('type') == 'text_delta':
+                    text = delta.get('text', '')
+                    if text:
+                        stream_text_parts.append(text)
 
         elif isinstance(msg, AssistantMessage):
-            block_types = [type(b).__name__ for b in msg.content]
+            # Collect text from every AssistantMessage
             text_parts = [block.text for block in msg.content if isinstance(block, TextBlock)]
-            log.info(
-                'coder msg #%d: AssistantMessage blocks=%s text_len=%d',
-                msg_count,
-                block_types,
-                sum(len(t) for t in text_parts),
-            )
             if text_parts:
-                last_assistant_text = ''.join(text_parts)
+                all_assistant_texts.append(''.join(text_parts))
 
         else:
-            log.info('coder msg #%d: %s (unhandled)', msg_count, msg_type)
+            log.warning('coder: unhandled message type %s', type(msg).__name__)
 
-    log.info('coder finished: %d messages, response_len=%d, session_id=%s', msg_count, len(last_assistant_text), session_id)
+    # Prefer streamed text (complete incremental output), fall back to last
+    # AssistantMessage text (final summary after multi-turn tool use).
+    if stream_text_parts:
+        response = ''.join(stream_text_parts)
+    elif all_assistant_texts:
+        response = all_assistant_texts[-1]
+    else:
+        response = ''
+
+    log.warning(
+        'coder finished: %d messages, stream_parts=%d, assistant_msgs=%d, response_len=%d',
+        msg_count,
+        len(stream_text_parts),
+        len(all_assistant_texts),
+        len(response),
+    )
 
     return CoderResult(
-        response=last_assistant_text,
+        response=response,
         session_id=session_id,
     )

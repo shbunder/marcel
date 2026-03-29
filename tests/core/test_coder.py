@@ -91,8 +91,23 @@ class TestRestrictedFileGuard:
 
 
 class TestRunCoderTask:
-    def test_returns_last_assistant_message_text(self, monkeypatch):
-        """Multi-turn agent: intermediate messages have tool use, last has summary."""
+    def test_prefers_streamed_text(self, monkeypatch):
+        """When stream events carry text, use that over AssistantMessage."""
+        monkeypatch.setattr(
+            claude_agent_sdk,
+            'query',
+            lambda **_: _agen(
+                _stream_event('Hello', session_id='sess-123'),
+                _stream_event(' world', session_id='sess-123'),
+                _assistant_message('Full text'),
+            ),
+        )
+        result: CoderResult = asyncio.run(run_coder_task('do something'))
+        assert result.response == 'Hello world'
+        assert result.session_id == 'sess-123'
+
+    def test_falls_back_to_last_assistant_message(self, monkeypatch):
+        """Multi-turn agent: no streamed text, use last AssistantMessage."""
         monkeypatch.setattr(
             claude_agent_sdk,
             'query',
@@ -102,7 +117,7 @@ class TestRunCoderTask:
                 _assistant_message('Final summary'),
             ),
         )
-        result: CoderResult = asyncio.run(run_coder_task('do something'))
+        result = asyncio.run(run_coder_task('do something'))
         assert result.response == 'Final summary'
         assert result.session_id == 'sess-123'
 
