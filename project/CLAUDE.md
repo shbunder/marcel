@@ -47,7 +47,7 @@ If the request is vague or conflicts with existing architecture, ask rather than
 
 ## Step 3 — Create an issue
 
-Create an issue in `./project/issues/open/` per the conventions in [./issues/CLAUDE.md](./issues/CLAUDE.md). Move it to `wip/` when work begins.
+Create an issue in `./project/issues/open/` per the conventions in [./issues/CLAUDE.md](./issues/CLAUDE.md). **Commit the issue file immediately** — this is a standalone `📝` commit. The issue moves to `wip/` in the first implementation commit (step 7).
 
 > Always do this for anything beyond a small change.
 
@@ -85,11 +85,15 @@ Run `make check` — this runs format, lint, typecheck, and tests with coverage.
 make check
 ```
 
-**Bump the version.** Every change that affects behaviour must increment a version segment. See [VERSIONING.md](./VERSIONING.md) to decide which segment (PROUD / DEFAULT / SHAME) and which files to update.
+Log implementation work in the issue file (Implementation Log section).
 
-Update or add documentation in `docs/` per [docs/CLAUDE.md](../docs/CLAUDE.md). Documentation ships in the same change as the code.
+**Closing commit.** Once all code is committed and tests pass, create a **separate closing commit** that contains:
+- The issue file moved from `wip/` to `closed/` with `Status: Closed`
+- Documentation updates in `docs/` per [docs/CLAUDE.md](../docs/CLAUDE.md)
+- Version bump per [VERSIONING.md](./VERSIONING.md)
+- **No code changes** — all code must already be committed in implementation commits
 
-Log implementation work in the issue file and close or update it per [./issues/CLAUDE.md](./issues/CLAUDE.md).
+See [./issues/CLAUDE.md](./issues/CLAUDE.md) for the full commit workflow (create → implement → close).
 
 **Push to the user branch.** After committing, push the changes to a remote branch named after the requesting user. This lets the user review and merge to `main` at their own pace:
 
@@ -134,7 +138,7 @@ Integrations must be self-contained — they should not require changes to core 
 
 When a user requests a code change or feature **via Telegram**, the following rules apply without exception:
 
-1. **Create an issue first** — open an issue in `./project/issues/open/` before writing any code, following the full lifecycle in [./issues/CLAUDE.md](./issues/CLAUDE.md). Move it to `wip/` when work begins.
+1. **Create an issue first** — open an issue in `./project/issues/open/` and commit it (`📝`) before writing any code. Follow the full commit workflow in [./issues/CLAUDE.md](./issues/CLAUDE.md).
 2. **Follow the full Feature Development Procedure** — capture, requirements, issue, implement, ship. No shortcuts because the request came through chat.
 3. **Respond via Telegram when done** — after committing, send the user a Telegram message containing:
    - The exact `git log --oneline -1` output (commit hash + message)

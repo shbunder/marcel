@@ -80,38 +80,59 @@ Before closing, verify:
 
 ## Git Conventions
 
-When managing issues, **only stage `./project/issues/`** — never `git add .` or `git add -A`.
+Every issue produces a clean, predictable sequence of commits. This is **mandatory** — no shortcuts, no combining steps that should be separate.
+
+### The commit workflow
+
+Each issue follows exactly this commit sequence:
+
+| Step | Commit message | What it contains | Standalone? |
+|------|---------------|------------------|-------------|
+| 1. Create | `📝 [ISSUE-XXX] created: one-line description` | Issue file in `open/` | Yes — separate commit |
+| 2. Implement | `🔧 [ISSUE-XXX] impl: what was done` | Issue file moved to `wip/` (status → WIP) + all source code changes | Yes — may be multiple commits |
+| 3. Close | `✅ [ISSUE-XXX] closed: summary` | Issue file moved to `closed/` (status → Closed) + docs + version bump | Yes — separate commit |
+
+**Rules:**
+
+- **Step 1 is always a standalone commit.** It contains only the issue file. No code, no other files. This is the "we decided to do this" marker.
+- **Step 2 combines the WIP move with implementation.** The first implementation commit moves the issue file from `open/` to `wip/` and sets `Status: WIP`. This avoids an empty "I started" commit. Stage both the issue file and source code together.
+- **Step 3 is always a standalone commit.** It moves the issue file from `wip/` to `closed/`, sets `Status: Closed`, and includes documentation updates and version bumps. It must **not** contain code changes — all code should already be committed in step 2.
+
+### Multi-commit implementations
+
+When a feature requires multiple implementation commits:
+
+- The **first** commit moves the issue to `wip/` and includes initial code: `🔧 [ISSUE-XXX] impl: description of first chunk`
+- **Subsequent** commits continue the work: `🔧 [ISSUE-XXX] impl: description of next chunk`
+- All implementation commits use `🔧` — no other emojis during implementation.
+
+### Staging rules
+
+- **Step 1 (create) and step 3 (close):** only stage `./project/issues/` (plus `docs/` and version files for step 3). Never `git add .` or `git add -A`.
+- **Step 2 (implement):** stage both `./project/issues/` and the relevant source files. Be explicit — name the files, don't use `git add .`.
+
+### Commit format
 
 ```
-git add ./project/issues/
-git commit -m "<emoji> [ISSUE-XXX] action: description"
+<emoji> [ISSUE-XXX] <action>: <description>
 ```
 
-### Commit emoji reference
+### Emoji reference
 
-| Emoji | Meaning |
-|-------|---------|
-| 📝 | New issue created |
-| 🗓️ ⇨ 🛠️ | Moved open → WIP |
-| 🛠️ ⇨ ✅ | Moved WIP → closed |
-| 📋 | Task or subtask update |
-| 🔧 | Implementation work logged |
-| 💬 | Comment added |
-| 👤 | Assignee changed |
-| 🔴🟡🟢 | Priority change (high/medium/low) |
-| 🐛 🚀 📚 | Bug / feature / docs |
-| 🔙 | Reopened |
+| Emoji | Meaning | Used in step |
+|-------|---------|-------------|
+| 📝 | Issue created | 1 |
+| 🔧 | Implementation work | 2 |
+| ✅ | Issue closed | 3 |
 
-Examples:
+Reserve `🐛`, `🚀`, `📚` for **issue labels** inside the issue file (bug, feature, docs) — not for commit messages. This keeps `git log --oneline` clean and scannable:
+
 ```
 📝 [ISSUE-042] created: fix login authentication bug
-🗓️ ⇨ 🛠️ [ISSUE-042] moved to wip: starting implementation
-📋 [ISSUE-042-a] subtask wip: investigating root cause
-🔧 [ISSUE-042] implementation: added OAuth handler, tests passing
-🛠️ ⇨ ✅ [ISSUE-042] closed: all tasks complete
+🔧 [ISSUE-042] impl: add OAuth handler, update routes
+🔧 [ISSUE-042] impl: add refresh token logic
+✅ [ISSUE-042] closed: all tasks complete, docs updated
 ```
-
-The emoji prefixes make `git log --oneline` a readable project timeline.
 
 ## Linking Issues
 

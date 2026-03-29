@@ -1,6 +1,6 @@
 # ISSUE-016: Clean Commit Workflow SOP
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-03-29
 **Assignee:** Marcel
 **Priority:** Medium
@@ -27,11 +27,11 @@ This issue tightens the SOP to make the commit workflow explicit and unambiguous
 5. Specify what the closing commit contains (issue file move, docs, version bump — no code)
 
 ## Tasks
-- [ ] ISSUE-016-a: Update `project/issues/CLAUDE.md` — rewrite Git Conventions section with explicit 4-step commit workflow
-- [ ] ISSUE-016-b: Update `project/issues/CLAUDE.md` — simplify emoji table to the clean 3-emoji pattern, add multi-commit rules
-- [ ] ISSUE-016-c: Update `project/issues/CLAUDE.md` — fix staging rule to allow combined issue+code commits for implementation
-- [ ] ISSUE-016-d: Update `project/CLAUDE.md` — align Feature Development Procedure step 8 (Ship) with new commit workflow
-- [ ] ISSUE-016-e: Verify consistency between both files after edits
+- [✓] ISSUE-016-a: Update `project/issues/CLAUDE.md` — rewrite Git Conventions section with explicit 4-step commit workflow
+- [✓] ISSUE-016-b: Update `project/issues/CLAUDE.md` — simplify emoji table to the clean 3-emoji pattern, add multi-commit rules
+- [✓] ISSUE-016-c: Update `project/issues/CLAUDE.md` — fix staging rule to allow combined issue+code commits for implementation
+- [✓] ISSUE-016-d: Update `project/CLAUDE.md` — align Feature Development Procedure step 8 (Ship) with new commit workflow
+- [✓] ISSUE-016-e: Verify consistency between both files after edits
 
 ## Relationships
 - Related to: [[ISSUE-014-sop-telegram-issue-tracking]]
@@ -39,3 +39,10 @@ This issue tightens the SOP to make the commit workflow explicit and unambiguous
 ## Comments
 
 ## Implementation Log
+
+### 2026-03-29 - LLM Implementation
+**Action**: Rewrote Git Conventions section and aligned Feature Development Procedure
+**Files Modified**:
+- `project/issues/CLAUDE.md` — replaced Git Conventions section: new 3-step commit workflow table, rules, multi-commit implementation guidance, staging rules, simplified emoji reference (📝/🔧/✅ only)
+- `project/CLAUDE.md` — updated Step 3 (Create an issue) to mandate standalone 📝 commit; rewrote Step 8 (Ship) to define closing commit contents (no code, only issue move + docs + version bump); updated Telegram-Initiated Changes to reference new workflow
+**Result**: Both files are consistent. The commit workflow is now explicit and unambiguous.
