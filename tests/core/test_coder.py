@@ -3,7 +3,7 @@
 import asyncio
 
 import claude_agent_sdk
-from claude_agent_sdk import AssistantMessage, StreamEvent, TextBlock
+from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 
 from marcel_core.agent.coder import (
     CoderResult,
@@ -21,11 +21,23 @@ async def _agen(*items):
         yield item
 
 
-def _stream_event(text: str, *, session_id: str = 'sess-abc') -> StreamEvent:
-    return StreamEvent(
-        uuid='u',
+def _result_message(
+    text: str = 'Done',
+    *,
+    session_id: str = 'sess-123',
+    cost: float = 0.05,
+    turns: int = 3,
+    is_error: bool = False,
+) -> ResultMessage:
+    return ResultMessage(
+        subtype='result',
+        duration_ms=1000,
+        duration_api_ms=800,
+        is_error=is_error,
+        num_turns=turns,
         session_id=session_id,
-        event={'type': 'content_block_delta', 'delta': {'type': 'text_delta', 'text': text}},
+        result=text,
+        total_cost_usd=cost,
     )
 
 
@@ -39,58 +51,45 @@ def _assistant_message(text: str) -> AssistantMessage:
 
 
 class TestRunCoderTask:
-    def test_prefers_streamed_text(self, monkeypatch):
-        """When stream events carry text, use that over AssistantMessage."""
+    def test_returns_result_message_text(self, monkeypatch):
+        """ResultMessage.result is the authoritative output."""
         monkeypatch.setattr(
             claude_agent_sdk,
             'query',
             lambda **_: _agen(
-                _stream_event('Hello', session_id='sess-123'),
-                _stream_event(' world', session_id='sess-123'),
-                _assistant_message('Full text'),
+                _assistant_message('intermediate'),
+                _result_message('Final result', session_id='sess-1', cost=0.10, turns=5),
             ),
         )
         result: CoderResult = asyncio.run(run_coder_task('do something'))
-        assert result.response == 'Hello world'
-        assert result.session_id == 'sess-123'
+        assert result.response == 'Final result'
+        assert result.session_id == 'sess-1'
+        assert result.cost_usd == 0.10
+        assert result.num_turns == 5
+        assert result.is_error is False
 
-    def test_falls_back_to_last_assistant_message(self, monkeypatch):
-        """Multi-turn agent: no streamed text, use last AssistantMessage."""
+    def test_falls_back_to_assistant_message(self, monkeypatch):
+        """If no ResultMessage, use last AssistantMessage text."""
         monkeypatch.setattr(
             claude_agent_sdk,
             'query',
             lambda **_: _agen(
-                _stream_event('', session_id='sess-123'),  # tool-use event (no text)
-                _assistant_message('intermediate tool result'),
-                _assistant_message('Final summary'),
+                _assistant_message('first'),
+                _assistant_message('last response'),
             ),
         )
         result = asyncio.run(run_coder_task('do something'))
-        assert result.response == 'Final summary'
-        assert result.session_id == 'sess-123'
+        assert result.response == 'last response'
 
-    def test_single_assistant_message(self, monkeypatch):
+    def test_result_message_error(self, monkeypatch):
         monkeypatch.setattr(
             claude_agent_sdk,
             'query',
-            lambda **_: _agen(_assistant_message('Only response')),
+            lambda **_: _agen(_result_message('error text', is_error=True)),
         )
         result = asyncio.run(run_coder_task('do something'))
-        assert result.response == 'Only response'
-        assert result.session_id is None
-
-    def test_captures_session_id_from_first_event(self, monkeypatch):
-        monkeypatch.setattr(
-            claude_agent_sdk,
-            'query',
-            lambda **_: _agen(
-                _stream_event('', session_id='first'),
-                _stream_event('', session_id='second'),
-                _assistant_message('done'),
-            ),
-        )
-        result = asyncio.run(run_coder_task('do something'))
-        assert result.session_id == 'first'
+        assert result.is_error is True
+        assert result.response == 'error text'
 
     def test_passes_resume_session_id(self, monkeypatch):
         captured_opts = {}
@@ -98,7 +97,7 @@ class TestRunCoderTask:
         def mock_query(*, prompt, options=None, **kwargs):
             if options:
                 captured_opts['resume'] = options.resume
-            return _agen(_assistant_message('ok'))
+            return _agen(_result_message('ok'))
 
         monkeypatch.setattr(claude_agent_sdk, 'query', mock_query)
         asyncio.run(run_coder_task('follow up', resume_session_id='prev-sess'))
@@ -109,7 +108,7 @@ class TestRunCoderTask:
 
         async def slow_query(**_):
             await asyncio.sleep(10)
-            yield _assistant_message('done')  # pragma: no cover
+            yield _result_message('done')  # pragma: no cover
 
         monkeypatch.setattr(claude_agent_sdk, 'query', slow_query)
 

@@ -15,7 +15,13 @@ import logging
 import pathlib
 
 import claude_agent_sdk
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, StreamEvent, TextBlock
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ResultMessage,
+    StreamEvent,
+    TextBlock,
+)
 
 log = logging.getLogger(__name__)
 
@@ -36,11 +42,22 @@ ask — the user will reply and you will be resumed.
 class CoderResult:
     """Outcome of a coder task."""
 
-    __slots__ = ('response', 'session_id')
+    __slots__ = ('response', 'session_id', 'cost_usd', 'num_turns', 'is_error')
 
-    def __init__(self, response: str, session_id: str | None) -> None:
+    def __init__(
+        self,
+        response: str,
+        session_id: str | None,
+        *,
+        cost_usd: float | None = None,
+        num_turns: int = 0,
+        is_error: bool = False,
+    ) -> None:
         self.response = response
         self.session_id = session_id
+        self.cost_usd = cost_usd
+        self.num_turns = num_turns
+        self.is_error = is_error
 
 
 async def run_coder_task(
@@ -85,53 +102,52 @@ async def _run_coder_task_inner(
     )
 
     session_id: str | None = None
+    result_text: str | None = None
+    result_cost: float | None = None
+    result_turns: int = 0
+    result_error: bool = False
     all_assistant_texts: list[str] = []
-    msg_count = 0
-    stream_text_parts: list[str] = []
 
     async for msg in claude_agent_sdk.query(prompt=prompt, options=options):
-        msg_count += 1
-
-        if isinstance(msg, StreamEvent):
-            if session_id is None:
-                session_id = msg.session_id
-
-            # Collect streamed text deltas
-            event = msg.event
-            if event.get('type') == 'content_block_delta':
-                delta = event.get('delta', {})
-                if delta.get('type') == 'text_delta':
-                    text = delta.get('text', '')
-                    if text:
-                        stream_text_parts.append(text)
+        if isinstance(msg, ResultMessage):
+            # Final message from the claude_code preset — contains the result
+            # text, session ID, cost, and turn count.
+            session_id = msg.session_id
+            result_text = msg.result
+            result_cost = msg.total_cost_usd
+            result_turns = msg.num_turns
+            result_error = msg.is_error
 
         elif isinstance(msg, AssistantMessage):
-            # Collect text from every AssistantMessage
             text_parts = [block.text for block in msg.content if isinstance(block, TextBlock)]
             if text_parts:
                 all_assistant_texts.append(''.join(text_parts))
 
-        else:
-            log.warning('coder: unhandled message type %s', type(msg).__name__)
+        elif isinstance(msg, StreamEvent):
+            if session_id is None:
+                session_id = msg.session_id
 
-    # Prefer streamed text (complete incremental output), fall back to last
-    # AssistantMessage text (final summary after multi-turn tool use).
-    if stream_text_parts:
-        response = ''.join(stream_text_parts)
+    # Prefer ResultMessage.result (authoritative), fall back to last
+    # AssistantMessage text.
+    if result_text:
+        response = result_text
     elif all_assistant_texts:
         response = all_assistant_texts[-1]
     else:
         response = ''
 
     log.warning(
-        'coder finished: %d messages, stream_parts=%d, assistant_msgs=%d, response_len=%d',
-        msg_count,
-        len(stream_text_parts),
-        len(all_assistant_texts),
+        'coder finished: turns=%d, cost=$%s, error=%s, response_len=%d',
+        result_turns,
+        f'{result_cost:.4f}' if result_cost else '?',
+        result_error,
         len(response),
     )
 
     return CoderResult(
         response=response,
         session_id=session_id,
+        cost_usd=result_cost,
+        num_turns=result_turns,
+        is_error=result_error,
     )
