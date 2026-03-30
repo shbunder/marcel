@@ -119,9 +119,12 @@ async def _process_coder_message(chat_id: int, text: str) -> None:
 async def _process_coder_message_inner(chat_id: int, text: str) -> None:
     resume_id = sessions.get_coder_session_id(chat_id)
 
+    async def _on_progress(description: str) -> None:
+        await _reply(chat_id, description)
+
     try:
         result: CoderResult = await asyncio.wait_for(
-            run_coder_task(prompt=text, resume_session_id=resume_id),
+            run_coder_task(prompt=text, resume_session_id=resume_id, on_progress=_on_progress),
             timeout=_CODER_TIMEOUT,
         )
     except asyncio.TimeoutError:

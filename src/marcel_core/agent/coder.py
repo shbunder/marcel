@@ -13,6 +13,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import pathlib
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 import claude_agent_sdk
 from claude_agent_sdk import (
@@ -20,7 +22,11 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     ResultMessage,
     StreamEvent,
+    SystemMessage,
+    TaskProgressMessage,
+    TaskStartedMessage,
     TextBlock,
+    UserMessage,
 )
 
 log = logging.getLogger(__name__)
@@ -37,6 +43,9 @@ create an issue, implement, test, ship. Respond with the commit message
 and a brief implementation summary when done. If you need clarification,
 ask — the user will reply and you will be resumed.
 """
+
+# Callback type for progress updates: async def on_progress(description: str) -> None
+ProgressCallback = Callable[[str], Coroutine[Any, Any, None]]
 
 
 class CoderResult:
@@ -64,6 +73,7 @@ async def run_coder_task(
     prompt: str,
     *,
     resume_session_id: str | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> CoderResult:
     """Run a coder task using the Claude Code preset.
 
@@ -74,6 +84,8 @@ async def run_coder_task(
         prompt: The user's coding request (or follow-up message).
         resume_session_id: If continuing a previous coder session, the SDK
             session ID captured from the first run's StreamEvent.
+        on_progress: Optional async callback invoked with a description string
+            each time the agent makes progress (e.g. for Telegram notifications).
 
     Returns:
         A :class:`CoderResult` with the response text and session ID.
@@ -85,12 +97,13 @@ async def run_coder_task(
         raise RuntimeError('A coder task is already running. Please wait for it to finish.')
 
     async with _coder_lock:
-        return await _run_coder_task_inner(prompt, resume_session_id)
+        return await _run_coder_task_inner(prompt, resume_session_id, on_progress)
 
 
 async def _run_coder_task_inner(
     prompt: str,
     resume_session_id: str | None,
+    on_progress: ProgressCallback | None,
 ) -> CoderResult:
     options = ClaudeAgentOptions(
         system_prompt={'type': 'preset', 'preset': 'claude_code', 'append': _CODER_APPEND},
@@ -110,13 +123,24 @@ async def _run_coder_task_inner(
 
     async for msg in claude_agent_sdk.query(prompt=prompt, options=options):
         if isinstance(msg, ResultMessage):
-            # Final message from the claude_code preset — contains the result
-            # text, session ID, cost, and turn count.
+            # Final message — contains the result text, session ID, cost, turns.
             session_id = msg.session_id
             result_text = msg.result
             result_cost = msg.total_cost_usd
             result_turns = msg.num_turns
             result_error = msg.is_error
+
+        elif isinstance(msg, TaskProgressMessage):
+            # Intermediate progress — forward to callback for live updates.
+            if on_progress:
+                try:
+                    await on_progress(msg.description)
+                except Exception:
+                    log.debug('Progress callback failed', exc_info=True)
+
+        elif isinstance(msg, TaskStartedMessage):
+            if session_id is None:
+                session_id = msg.session_id
 
         elif isinstance(msg, AssistantMessage):
             text_parts = [block.text for block in msg.content if isinstance(block, TextBlock)]
@@ -126,6 +150,12 @@ async def _run_coder_task_inner(
         elif isinstance(msg, StreamEvent):
             if session_id is None:
                 session_id = msg.session_id
+
+        elif isinstance(msg, (SystemMessage, UserMessage)):
+            pass  # Expected, no action needed
+
+        else:
+            log.debug('coder: unrecognised message type %s', type(msg).__name__)
 
     # Prefer ResultMessage.result (authoritative), fall back to last
     # AssistantMessage text.
