@@ -21,7 +21,8 @@ dependencies = [
     "uvicorn[standard]>=0.34.0",
     "python-dotenv>=1.0.0",
     "httpx>=0.27.0",
-    "pyicloud>=1.0.0",
+    "caldav>=3.1.0",
+    "vobject>=0.9.9",
 ]
 
 # Local package sources for editable installation

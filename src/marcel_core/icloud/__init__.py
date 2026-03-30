@@ -1,4 +1,4 @@
-"""iCloud integration — exposes Apple calendar, notes, and mail as MCP tools."""
+"""iCloud integration — exposes Apple calendar and mail as MCP tools."""
 
 from .tool import build_icloud_mcp_server
 

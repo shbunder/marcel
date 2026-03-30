@@ -1,4 +1,4 @@
-"""iCloud MCP tools — exposes get_calendar_events, get_notes, search_mail to the agent."""
+"""iCloud MCP tools — exposes get_calendar_events and search_mail to the agent."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import json
 from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server, tool
 from claude_agent_sdk.types import McpSdkServerConfig
 
-from .client import get_calendar_events, get_notes, search_mail
+from .client import get_calendar_events, search_mail
 
 _CALENDAR_SCHEMA: dict = {
     'type': 'object',
@@ -18,11 +18,6 @@ _CALENDAR_SCHEMA: dict = {
             'default': 7,
         },
     },
-}
-
-_NOTES_SCHEMA: dict = {
-    'type': 'object',
-    'properties': {},
 }
 
 _MAIL_SCHEMA: dict = {
@@ -57,13 +52,6 @@ def build_icloud_mcp_server() -> McpSdkServerConfig:
         except Exception as exc:  # noqa: BLE001
             return {'content': [{'type': 'text', 'text': f'iCloud calendar error: {exc}'}], 'is_error': True}
 
-    async def _notes_impl(args: dict) -> dict:
-        try:
-            notes = await get_notes()
-            return {'content': [{'type': 'text', 'text': json.dumps(notes, indent=2)}]}
-        except Exception as exc:  # noqa: BLE001
-            return {'content': [{'type': 'text', 'text': f'iCloud notes error: {exc}'}], 'is_error': True}
-
     async def _mail_impl(args: dict) -> dict:
         query: str = args.get('query', '')
         limit: int = int(args.get('limit', 10))
@@ -81,12 +69,6 @@ def build_icloud_mcp_server() -> McpSdkServerConfig:
         _CALENDAR_SCHEMA,
     )(_calendar_impl)
 
-    notes_tool: SdkMcpTool = tool(
-        'icloud_get_notes',
-        "Fetch all notes from the user's iCloud Notes.",
-        _NOTES_SCHEMA,
-    )(_notes_impl)
-
     mail_tool: SdkMcpTool = tool(
         'icloud_search_mail',
         "Search the user's iCloud Mail inbox for messages matching a text query.",
@@ -95,5 +77,5 @@ def build_icloud_mcp_server() -> McpSdkServerConfig:
 
     return create_sdk_mcp_server(
         'marcel-icloud',
-        tools=[calendar_tool, notes_tool, mail_tool],
+        tools=[calendar_tool, mail_tool],
     )

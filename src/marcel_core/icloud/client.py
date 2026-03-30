@@ -1,11 +1,14 @@
 """iCloud client wrappers.
 
-Uses pyicloud for calendar and notes access, and imaplib (stdlib) for mail search.
+Uses caldav for calendar access and imaplib (stdlib) for mail search.
 All blocking calls are wrapped in asyncio.to_thread() to avoid blocking the event loop.
 
 Credentials are read from the user's credentials file:
     data/users/{slug}/credentials.env
 Expected keys: ICLOUD_APPLE_ID, ICLOUD_APP_PASSWORD
+
+Note: Notes access is not available — Apple provides no standard protocol for
+notes, and pyicloud's web-auth flow does not work with app-specific passwords.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ import imaplib
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from pyicloud import PyiCloudService
+import caldav
 
 from marcel_core.storage._root import data_root
 
@@ -36,13 +39,6 @@ def _load_user_credentials(slug: str = 'shaun') -> dict[str, str]:
     return result
 
 
-def _cookie_dir() -> str:
-    """Return a persistent directory for iCloud session cookies."""
-    path = data_root() / 'icloud' / 'cookies'
-    path.mkdir(parents=True, exist_ok=True)
-    return str(path)
-
-
 def _credentials(slug: str = 'shaun') -> tuple[str, str]:
     """Return (apple_id, app_password) from the user's credentials.env file."""
     creds = _load_user_credentials(slug)
@@ -53,51 +49,45 @@ def _credentials(slug: str = 'shaun') -> tuple[str, str]:
     return apple_id, password
 
 
-def _get_service() -> PyiCloudService:
-    """Create (or reuse) a PyiCloudService instance.
-
-    With an app-specific password, Apple's 2FA is bypassed entirely.
-    The session cookies are persisted in the data dir to minimise round-trips.
-    """
-    apple_id, password = _credentials()
-    return PyiCloudService(apple_id, password, cookie_directory=_cookie_dir())
-
-
 def _fetch_calendar_events(days_ahead: int = 7) -> list[dict[str, Any]]:
-    """Synchronously fetch calendar events for the next `days_ahead` days."""
-    api = _get_service()
+    """Synchronously fetch calendar events for the next `days_ahead` days via CalDAV."""
+    apple_id, password = _credentials()
+    client = caldav.DAVClient(
+        url='https://caldav.icloud.com/',
+        username=apple_id,
+        password=password,
+    )
+    principal = client.principal()
+    calendars = principal.calendars()
+
     now = datetime.now(tz=timezone.utc)
     until = now + timedelta(days=days_ahead)
-    raw = api.calendar.events(from_dt=now, to_dt=until)
+
     events: list[dict[str, Any]] = []
-    for ev in raw:
-        events.append(
-            {
-                'title': ev.get('title', '(no title)'),
-                'start': str(ev.get('startDate', '')),
-                'end': str(ev.get('endDate', '')),
-                'location': ev.get('location', ''),
-                'description': ev.get('description', ''),
-            }
-        )
-    return events
-
-
-def _fetch_notes() -> list[dict[str, Any]]:
-    """Synchronously fetch all notes."""
-    api = _get_service()
-    notes: list[dict[str, Any]] = []
-    for folder in api.notes.folders:
-        for note in api.notes.show(folder).get('notes', []):
-            notes.append(
+    for cal in calendars:
+        cal_name = cal.get_display_name() or '(unnamed)'
+        try:
+            results = cal.search(start=now, end=until, event=True, expand=True)
+        except Exception:
+            continue
+        for ev in results:
+            try:
+                vevent = ev.vobject_instance.vevent
+            except Exception:
+                continue
+            events.append(
                 {
-                    'folder': folder.get('name', 'Notes'),
-                    'title': note.get('title', '(untitled)'),
-                    'snippet': note.get('snippet', ''),
-                    'modified': str(note.get('lastModified', '')),
+                    'calendar': cal_name,
+                    'title': vevent.summary.value if hasattr(vevent, 'summary') else '(no title)',
+                    'start': str(vevent.dtstart.value) if hasattr(vevent, 'dtstart') else '',
+                    'end': str(vevent.dtend.value) if hasattr(vevent, 'dtend') else '',
+                    'location': vevent.location.value if hasattr(vevent, 'location') else '',
+                    'description': vevent.description.value if hasattr(vevent, 'description') else '',
                 }
             )
-    return notes
+
+    events.sort(key=lambda e: e['start'])
+    return events
 
 
 def _search_mail_imap(query: str, limit: int = 10) -> list[dict[str, str]]:
@@ -118,7 +108,14 @@ def _search_mail_imap(query: str, limit: int = 10) -> list[dict[str, str]]:
         results: list[dict[str, str]] = []
         for msg_id in reversed(msg_ids[-limit:]):
             _, msg_data = mail.fetch(msg_id, '(RFC822)')
-            raw = msg_data[0][1]
+            # msg_data may contain non-tuple entries (e.g. b')'); skip them
+            raw = None
+            for part in msg_data:
+                if isinstance(part, tuple):
+                    raw = part[1]
+                    break
+            if raw is None:
+                continue
             msg = email.message_from_bytes(raw)
             body = ''
             if msg.is_multipart():
@@ -148,11 +145,6 @@ def _search_mail_imap(query: str, limit: int = 10) -> list[dict[str, str]]:
 async def get_calendar_events(days_ahead: int = 7) -> list[dict[str, Any]]:
     """Async wrapper: fetch upcoming calendar events."""
     return await asyncio.to_thread(_fetch_calendar_events, days_ahead)
-
-
-async def get_notes() -> list[dict[str, Any]]:
-    """Async wrapper: fetch all iCloud notes."""
-    return await asyncio.to_thread(_fetch_notes)
 
 
 async def search_mail(query: str, limit: int = 10) -> list[dict[str, str]]:
