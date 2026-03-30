@@ -135,9 +135,9 @@ async def _process_coder_message_inner(chat_id: int, text: str) -> None:
         await _reply(chat_id, str(exc))
         return
 
-    # Store session ID for potential follow-ups
-    if result.session_id:
-        sessions.set_coder_session_id(chat_id, result.session_id)
+    # Auto-exit coder mode after each task completes. The user can re-enter
+    # with /code if they want to continue coding.
+    sessions.exit_coder_mode(chat_id)
 
     if not result.response.strip():
         await _reply(chat_id, 'Coder task completed but produced no output.')
