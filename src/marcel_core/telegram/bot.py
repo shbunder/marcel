@@ -50,11 +50,14 @@ async def send_message(chat_id: int | str, text: str) -> None:
     url = f'{_API_BASE}/bot{token}/sendMessage'
 
     async with httpx.AsyncClient() as client:
-        resp = await client.post(url, json={
-            'chat_id': chat_id,
-            'text': text,
-            'parse_mode': 'MarkdownV2',
-        })
+        resp = await client.post(
+            url,
+            json={
+                'chat_id': chat_id,
+                'text': text,
+                'parse_mode': 'MarkdownV2',
+            },
+        )
         if resp.is_success:
             return
 

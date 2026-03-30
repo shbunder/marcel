@@ -9,7 +9,6 @@ from claude_agent_sdk.types import McpSdkServerConfig
 
 from .client import get_calendar_events, get_notes, search_mail
 
-
 _CALENDAR_SCHEMA: dict = {
     'type': 'object',
     'properties': {
@@ -78,19 +77,19 @@ def build_icloud_mcp_server() -> McpSdkServerConfig:
 
     calendar_tool: SdkMcpTool = tool(
         'icloud_get_calendar_events',
-        'Fetch upcoming events from the user\'s iCloud Calendar.',
+        "Fetch upcoming events from the user's iCloud Calendar.",
         _CALENDAR_SCHEMA,
     )(_calendar_impl)
 
     notes_tool: SdkMcpTool = tool(
         'icloud_get_notes',
-        'Fetch all notes from the user\'s iCloud Notes.',
+        "Fetch all notes from the user's iCloud Notes.",
         _NOTES_SCHEMA,
     )(_notes_impl)
 
     mail_tool: SdkMcpTool = tool(
         'icloud_search_mail',
-        'Search the user\'s iCloud Mail inbox for messages matching a text query.',
+        "Search the user's iCloud Mail inbox for messages matching a text query.",
         _MAIL_SCHEMA,
     )(_mail_impl)
 

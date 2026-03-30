@@ -8,7 +8,6 @@ from claude_agent_sdk.types import McpSdkServerConfig
 from .executor import run
 from .registry import get_skill, list_skills
 
-
 _CMD_SCHEMA: dict = {
     'type': 'object',
     'properties': {
@@ -83,6 +82,7 @@ def build_skills_mcp_server(user_slug: str, channel: str = 'cli') -> McpSdkServe
         if channel == 'telegram':
             try:
                 from marcel_core.telegram import bot, sessions
+
                 chat_id = sessions.get_chat_id(user_slug)
                 if chat_id:
                     await bot.send_message(int(chat_id), bot.escape_markdown_v2(message))

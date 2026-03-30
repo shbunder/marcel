@@ -11,10 +11,8 @@ Expected keys: ICLOUD_APPLE_ID, ICLOUD_APP_PASSWORD
 from __future__ import annotations
 
 import asyncio
-import imaplib
-import os
-import pathlib
 import email
+import imaplib
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -51,10 +49,7 @@ def _credentials(slug: str = 'shaun') -> tuple[str, str]:
     apple_id = creds.get('ICLOUD_APPLE_ID', '').strip()
     password = creds.get('ICLOUD_APP_PASSWORD', '').strip()
     if not apple_id or not password:
-        raise RuntimeError(
-            f'ICLOUD_APPLE_ID and ICLOUD_APP_PASSWORD must be set in '
-            f'data/users/{slug}/credentials.env'
-        )
+        raise RuntimeError(f'ICLOUD_APPLE_ID and ICLOUD_APP_PASSWORD must be set in data/users/{slug}/credentials.env')
     return apple_id, password
 
 
@@ -76,13 +71,15 @@ def _fetch_calendar_events(days_ahead: int = 7) -> list[dict[str, Any]]:
     raw = api.calendar.events(from_dt=now, to_dt=until)
     events: list[dict[str, Any]] = []
     for ev in raw:
-        events.append({
-            'title': ev.get('title', '(no title)'),
-            'start': str(ev.get('startDate', '')),
-            'end': str(ev.get('endDate', '')),
-            'location': ev.get('location', ''),
-            'description': ev.get('description', ''),
-        })
+        events.append(
+            {
+                'title': ev.get('title', '(no title)'),
+                'start': str(ev.get('startDate', '')),
+                'end': str(ev.get('endDate', '')),
+                'location': ev.get('location', ''),
+                'description': ev.get('description', ''),
+            }
+        )
     return events
 
 
@@ -92,12 +89,14 @@ def _fetch_notes() -> list[dict[str, Any]]:
     notes: list[dict[str, Any]] = []
     for folder in api.notes.folders:
         for note in api.notes.show(folder).get('notes', []):
-            notes.append({
-                'folder': folder.get('name', 'Notes'),
-                'title': note.get('title', '(untitled)'),
-                'snippet': note.get('snippet', ''),
-                'modified': str(note.get('lastModified', '')),
-            })
+            notes.append(
+                {
+                    'folder': folder.get('name', 'Notes'),
+                    'title': note.get('title', '(untitled)'),
+                    'snippet': note.get('snippet', ''),
+                    'modified': str(note.get('lastModified', '')),
+                }
+            )
     return notes
 
 
@@ -130,18 +129,21 @@ def _search_mail_imap(query: str, limit: int = 10) -> list[dict[str, str]]:
             else:
                 body = msg.get_payload(decode=True).decode('utf-8', errors='replace')[:500]
 
-            results.append({
-                'from': msg.get('From', ''),
-                'subject': msg.get('Subject', '(no subject)'),
-                'date': msg.get('Date', ''),
-                'snippet': body.strip(),
-            })
+            results.append(
+                {
+                    'from': msg.get('From', ''),
+                    'subject': msg.get('Subject', '(no subject)'),
+                    'date': msg.get('Date', ''),
+                    'snippet': body.strip(),
+                }
+            )
         return results
     finally:
         mail.logout()
 
 
 # ── Public async API ──────────────────────────────────────────────────────────
+
 
 async def get_calendar_events(days_ahead: int = 7) -> list[dict[str, Any]]:
     """Async wrapper: fetch upcoming calendar events."""

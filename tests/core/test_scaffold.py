@@ -4,7 +4,6 @@ WebSocket protocol tests have moved to test_agent.py now that the echo
 stub has been replaced with the real agent endpoint (ISSUE-003).
 """
 
-
 from fastapi.testclient import TestClient
 
 from marcel_core import __version__
