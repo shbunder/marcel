@@ -114,12 +114,12 @@ async def _process_coder_message(chat_id: int, text: str) -> None:
     except asyncio.CancelledError:
         log.info('Coder task cancelled for chat_id=%s', chat_id)
         sessions.exit_coder_mode(chat_id)
-        await _reply(chat_id, 'Coder task cancelled.')
+        await _reply(chat_id, '🤖 Coder task cancelled. Back to assistant mode.')
     except Exception as exc:
         log.exception('Unhandled error in coder task for chat_id=%s: %s', chat_id, exc)
         sessions.exit_coder_mode(chat_id)
         try:
-            await _reply(chat_id, f'Coder task failed: {exc}')
+            await _reply(chat_id, f'🤖 Coder task failed: {exc}')
         except Exception:
             log.exception('Also failed to send coder error reply to chat_id=%s', chat_id)
     finally:
@@ -139,7 +139,7 @@ async def _process_coder_message_inner(chat_id: int, text: str) -> None:
         )
     except asyncio.TimeoutError:
         sessions.exit_coder_mode(chat_id)
-        await _reply(chat_id, 'Coder task timed out after 10 minutes.')
+        await _reply(chat_id, '🤖 Coder task timed out after 10 minutes. Back to assistant mode.')
         return
     except RuntimeError as exc:
         # Another coder task is already running
@@ -150,7 +150,7 @@ async def _process_coder_message_inner(chat_id: int, text: str) -> None:
     sessions.exit_coder_mode(chat_id)
 
     if not result.response.strip():
-        await _reply(chat_id, 'Coder task completed but produced no output.')
+        await _reply(chat_id, '🤖 Coder task completed but produced no output. Back to assistant mode.')
         return
 
     try:
@@ -217,7 +217,7 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
     # --- /new: reset session, start fresh ---
     if text == '/new':
         sessions.reset_session(chat_id)
-        await _reply(chat_id, 'Fresh start! Previous conversation and coder mode cleared.')
+        await _reply(chat_id, '🤖 Fresh start! Previous conversation and coder mode cleared.')
         return {'status': 'ok'}
 
     # --- /done: cancel running coder task and/or exit coder mode ---
@@ -225,10 +225,10 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
         task = _running_coder_tasks.pop(chat_id, None)
         if task and not task.done():
             task.cancel()
-            await _reply(chat_id, 'Cancelling coder task...')
+            await _reply(chat_id, '👾 Cancelling coder task...')
         elif sessions.get_mode(chat_id) == 'coder':
             sessions.exit_coder_mode(chat_id)
-            await _reply(chat_id, 'Coder mode exited. Back to normal.')
+            await _reply(chat_id, '🤖 Coder mode exited. Back to assistant mode.')
         else:
             await _reply(chat_id, 'Not in coder mode — nothing to exit.')
         return {'status': 'ok'}
@@ -249,7 +249,7 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
             return {'status': 'ok'}
 
         sessions.enter_coder_mode(chat_id)
-        await _reply(chat_id, 'Entering coder mode. This may take a while... (send /done to cancel)')
+        await _reply(chat_id, '👾 Entering coder mode. This may take a while... (send /done to cancel)')
         log.info('Coder mode started for chat_id=%s: %r', chat_id, coder_prompt[:80])
         _running_coder_tasks[chat_id] = asyncio.create_task(_process_coder_message(chat_id, coder_prompt))
         return {'status': 'ok'}
@@ -258,11 +258,11 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
     mode = sessions.get_mode(chat_id)
 
     if mode == 'coder':
-        await _reply(chat_id, 'Continuing coder session...')
+        await _reply(chat_id, '👾 Continuing coder session...')
         log.info('Coder follow-up from chat_id=%s: %r', chat_id, text[:80])
         _running_coder_tasks[chat_id] = asyncio.create_task(_process_coder_message(chat_id, text))
     else:
-        await _reply(chat_id, 'Got it, working on it...')
+        await _reply(chat_id, '🤖 Got it, working on it...')
         log.info('Dispatching message from chat_id=%s user=%s: %r', chat_id, user_slug, text[:80])
         asyncio.create_task(_process_assistant_message(chat_id, user_slug, text))
 
