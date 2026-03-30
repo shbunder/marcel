@@ -100,7 +100,12 @@ impl ChatView {
             match msg.kind {
                 MessageKind::User => {
                     lines.push(Line::from(vec![
-                        Span::styled(" ❯  ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            " ❯  ",
+                            Style::default()
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD),
+                        ),
                         Span::styled(&msg.text, Style::default().fg(Color::White)),
                     ]));
                     lines.push(Line::from(""));
@@ -260,8 +265,12 @@ impl InputBox {
         }
     }
 
-    pub fn home(&mut self) { self.cursor = 0; }
-    pub fn end(&mut self) { self.cursor = self.text.len(); }
+    pub fn home(&mut self) {
+        self.cursor = 0;
+    }
+    pub fn end(&mut self) {
+        self.cursor = self.text.len();
+    }
 
     pub fn take(&mut self) -> String {
         let t = self.text.clone();
@@ -288,7 +297,12 @@ impl Renderable for InputBox {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(ROSE))
-            .title(Span::styled(" ❯ ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)));
+            .title(Span::styled(
+                " ❯ ",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ));
 
         let paragraph = Paragraph::new(display).block(block);
         paragraph.render(area, buf);
@@ -330,7 +344,11 @@ impl Renderable for StatusBar {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let dot = if self.connected { "●" } else { "○" };
         let conn_color = if self.connected { GREEN } else { RED };
-        let conn_text = if self.connected { "connected" } else { "offline" };
+        let conn_text = if self.connected {
+            "connected"
+        } else {
+            "offline"
+        };
 
         let line = Line::from(vec![
             Span::styled(format!(" {dot} "), Style::default().fg(conn_color)),

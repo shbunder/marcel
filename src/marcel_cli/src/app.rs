@@ -12,17 +12,20 @@ use crate::tui;
 use crate::ui::{ChatView, InputBox, StatusBar};
 
 const COMMANDS: &[(&str, &str)] = &[
-    ("/clear",     "Clear the chat history"),
-    ("/compact",   "Compact conversation context  [requires server]"),
-    ("/config",    "Show or set config  (/config host <value>)"),
-    ("/cost",      "Show token usage and cost     [requires server]"),
-    ("/help",      "Show available commands"),
-    ("/memory",    "Show Marcel's memory          [requires server]"),
-    ("/model",     "Show or set the current model"),
+    ("/clear", "Clear the chat history"),
+    (
+        "/compact",
+        "Compact conversation context  [requires server]",
+    ),
+    ("/config", "Show or set config  (/config host <value>)"),
+    ("/cost", "Show token usage and cost     [requires server]"),
+    ("/help", "Show available commands"),
+    ("/memory", "Show Marcel's memory          [requires server]"),
+    ("/model", "Show or set the current model"),
     ("/reconnect", "Reconnect to the Marcel server"),
-    ("/status",    "Show connection and server status"),
-    ("/exit",      "Exit Marcel"),
-    ("/quit",      "Exit Marcel"),
+    ("/status", "Show connection and server status"),
+    ("/exit", "Exit Marcel"),
+    ("/quit", "Exit Marcel"),
 ];
 
 pub async fn run(cfg: Config) -> io::Result<()> {
@@ -63,8 +66,15 @@ pub async fn run(cfg: Config) -> io::Result<()> {
             layout.render(area, frame.buffer_mut());
 
             // Show cursor inside input box
-            let input_y = area.height.saturating_sub(1 + input.desired_height(area.width));
-            let input_area = Rect::new(area.x, input_y, area.width, input.desired_height(area.width));
+            let input_y = area
+                .height
+                .saturating_sub(1 + input.desired_height(area.width));
+            let input_area = Rect::new(
+                area.x,
+                input_y,
+                area.width,
+                input.desired_height(area.width),
+            );
             if let Some((cx, cy)) = input.cursor_pos(input_area) {
                 frame.set_cursor_position((cx, cy));
             }
@@ -80,7 +90,11 @@ pub async fn run(cfg: Config) -> io::Result<()> {
                     Ok(ChatEvent::Token(t)) => {
                         chat_view.push_token(&t);
                         let h = terminal.size()?.height;
-                        chat_view.scroll_to_bottom(h.saturating_sub(header.desired_height(80) + input.desired_height(80) + status.desired_height(80)));
+                        chat_view.scroll_to_bottom(h.saturating_sub(
+                            header.desired_height(80)
+                                + input.desired_height(80)
+                                + status.desired_height(80),
+                        ));
                     }
                     Ok(ChatEvent::Done) => {
                         chat_view.finish_stream();
@@ -248,7 +262,11 @@ async fn handle_command(
         }
 
         "/status" => {
-            let conn = if header.connected { "connected" } else { "offline" };
+            let conn = if header.connected {
+                "connected"
+            } else {
+                "offline"
+            };
             chat.push_system(&format!("server:  {}:{}", cfg.host, cfg.port));
             chat.push_system(&format!("status:  {conn}"));
             chat.push_system("cli:     v0.1.0");

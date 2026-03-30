@@ -53,10 +53,7 @@ impl ChatClient {
     }
 
     /// Send a message and receive streaming events via the returned receiver.
-    pub async fn send(
-        &mut self,
-        text: &str,
-    ) -> Result<mpsc::Receiver<ChatEvent>, String> {
+    pub async fn send(&mut self, text: &str) -> Result<mpsc::Receiver<ChatEvent>, String> {
         let (event_tx, event_rx) = mpsc::channel(256);
 
         let url = &self.ws_url;

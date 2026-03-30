@@ -29,7 +29,9 @@ pub struct FlexLayout<'a> {
 
 impl<'a> FlexLayout<'a> {
     pub fn new() -> Self {
-        Self { children: Vec::new() }
+        Self {
+            children: Vec::new(),
+        }
     }
 
     pub fn push(&mut self, flex: u16, child: &'a dyn Renderable) {
@@ -42,7 +44,9 @@ impl Renderable for FlexLayout<'_> {
         let allocs = self.allocate(area.width, area.height);
         let mut y = area.y;
         for (child, h) in self.children.iter().zip(allocs.iter()) {
-            if *h == 0 { continue; }
+            if *h == 0 {
+                continue;
+            }
             let rect = Rect::new(area.x, y, area.width, *h);
             child.child.render(rect, buf);
             y += h;
@@ -50,16 +54,25 @@ impl Renderable for FlexLayout<'_> {
     }
 
     fn desired_height(&self, width: u16) -> u16 {
-        self.children.iter().map(|c| {
-            if c.flex == 0 { c.child.desired_height(width) } else { 1 }
-        }).sum()
+        self.children
+            .iter()
+            .map(|c| {
+                if c.flex == 0 {
+                    c.child.desired_height(width)
+                } else {
+                    1
+                }
+            })
+            .sum()
     }
 
     fn cursor_pos(&self, area: Rect) -> Option<(u16, u16)> {
         let allocs = self.allocate(area.width, area.height);
         let mut y = area.y;
         for (child, h) in self.children.iter().zip(allocs.iter()) {
-            if *h == 0 { continue; }
+            if *h == 0 {
+                continue;
+            }
             let rect = Rect::new(area.x, y, area.width, *h);
             if let Some(pos) = child.child.cursor_pos(rect) {
                 return Some(pos);
@@ -123,7 +136,9 @@ pub struct ColumnLayout<'a> {
 #[allow(dead_code)]
 impl<'a> ColumnLayout<'a> {
     pub fn new() -> Self {
-        Self { children: Vec::new() }
+        Self {
+            children: Vec::new(),
+        }
     }
 
     pub fn push(&mut self, child: &'a dyn Renderable) {
@@ -135,8 +150,12 @@ impl Renderable for ColumnLayout<'_> {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         let mut y = area.y;
         for child in &self.children {
-            let h = child.desired_height(area.width).min(area.height.saturating_sub(y - area.y));
-            if h == 0 { continue; }
+            let h = child
+                .desired_height(area.width)
+                .min(area.height.saturating_sub(y - area.y));
+            if h == 0 {
+                continue;
+            }
             let rect = Rect::new(area.x, y, area.width, h);
             child.render(rect, buf);
             y += h;

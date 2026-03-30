@@ -68,22 +68,56 @@ impl Header {
 
     fn col2_lines(&self) -> Vec<Line<'_>> {
         vec![
-            Line::from(Span::styled("Runtime", Style::default().fg(MID).add_modifier(Modifier::BOLD))),
-            Line::from(Span::styled("────────────────────", Style::default().fg(RULE))),
-            Line::from(vec![Span::styled("cli    ", Style::default().fg(DIM)), Span::styled("v0.1.0", Style::default().fg(MID))]),
-            Line::from(vec![Span::styled("user   ", Style::default().fg(DIM)), Span::styled(&self.user, Style::default().fg(TEAL))]),
-            Line::from(vec![Span::styled("model  ", Style::default().fg(DIM)), Span::styled(&self.model, Style::default().fg(MID))]),
+            Line::from(Span::styled(
+                "Runtime",
+                Style::default().fg(MID).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                "────────────────────",
+                Style::default().fg(RULE),
+            )),
+            Line::from(vec![
+                Span::styled("cli    ", Style::default().fg(DIM)),
+                Span::styled("v0.1.0", Style::default().fg(MID)),
+            ]),
+            Line::from(vec![
+                Span::styled("user   ", Style::default().fg(DIM)),
+                Span::styled(&self.user, Style::default().fg(TEAL)),
+            ]),
+            Line::from(vec![
+                Span::styled("model  ", Style::default().fg(DIM)),
+                Span::styled(&self.model, Style::default().fg(MID)),
+            ]),
         ]
     }
 
     fn col3_lines(&self) -> Vec<Line<'_>> {
-        let srv_color = if self.server_version == "offline" { Color::Rgb(0xff, 0x6b, 0x6b) } else { MID };
+        let srv_color = if self.server_version == "offline" {
+            Color::Rgb(0xff, 0x6b, 0x6b)
+        } else {
+            MID
+        };
         vec![
-            Line::from(Span::styled("Server", Style::default().fg(MID).add_modifier(Modifier::BOLD))),
-            Line::from(Span::styled("────────────────────", Style::default().fg(RULE))),
-            Line::from(vec![Span::styled("version  ", Style::default().fg(DIM)), Span::styled(&self.server_version, Style::default().fg(srv_color))]),
-            Line::from(vec![Span::styled("host     ", Style::default().fg(DIM)), Span::styled(&self.host, Style::default().fg(MID))]),
-            Line::from(vec![Span::styled("port     ", Style::default().fg(DIM)), Span::styled(self.port.to_string(), Style::default().fg(MID))]),
+            Line::from(Span::styled(
+                "Server",
+                Style::default().fg(MID).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                "────────────────────",
+                Style::default().fg(RULE),
+            )),
+            Line::from(vec![
+                Span::styled("version  ", Style::default().fg(DIM)),
+                Span::styled(&self.server_version, Style::default().fg(srv_color)),
+            ]),
+            Line::from(vec![
+                Span::styled("host     ", Style::default().fg(DIM)),
+                Span::styled(&self.host, Style::default().fg(MID)),
+            ]),
+            Line::from(vec![
+                Span::styled("port     ", Style::default().fg(DIM)),
+                Span::styled(self.port.to_string(), Style::default().fg(MID)),
+            ]),
         ]
     }
 }
@@ -94,7 +128,10 @@ impl Renderable for Header {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(ROSE))
-            .title(Span::styled(title, Style::default().fg(ROSE).add_modifier(Modifier::BOLD)));
+            .title(Span::styled(
+                title,
+                Style::default().fg(ROSE).add_modifier(Modifier::BOLD),
+            ));
 
         let inner = block.inner(area);
         block.render(area, buf);
@@ -156,7 +193,9 @@ fn render_mascot_col(welcome: &str, area: Rect, buf: &mut Buffer) {
         let welcome_area = Rect::new(area.x, welcome_y, area.width, 1);
         Paragraph::new(Line::from(Span::styled(
             welcome,
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         )))
         .alignment(Alignment::Center)
         .render(welcome_area, buf);

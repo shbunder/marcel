@@ -18,10 +18,18 @@ pub struct Config {
     pub model: String,
 }
 
-fn default_host() -> String { "localhost".into() }
-fn default_port() -> u16 { 7420 }
-fn default_user() -> String { "shaun".into() }
-fn default_model() -> String { "claude-sonnet-4-6".into() }
+fn default_host() -> String {
+    "localhost".into()
+}
+fn default_port() -> u16 {
+    7420
+}
+fn default_user() -> String {
+    "shaun".into()
+}
+fn default_model() -> String {
+    "claude-sonnet-4-6".into()
+}
 
 impl Default for Config {
     fn default() -> Self {
