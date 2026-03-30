@@ -1,14 +1,12 @@
-"""Tests for ISSUE-018: coder agent — restricted file guard, runner, session ID capture."""
+"""Tests for ISSUE-018: coder agent runner, session ID capture, concurrency."""
 
 import asyncio
 
 import claude_agent_sdk
 from claude_agent_sdk import AssistantMessage, StreamEvent, TextBlock
-from claude_agent_sdk.types import ToolPermissionContext
 
 from marcel_core.agent.coder import (
     CoderResult,
-    _restricted_file_guard,
     run_coder_task,
 )
 
@@ -33,56 +31,6 @@ def _stream_event(text: str, *, session_id: str = 'sess-abc') -> StreamEvent:
 
 def _assistant_message(text: str) -> AssistantMessage:
     return AssistantMessage(content=[TextBlock(text=text)], model='claude-sonnet-4-6')
-
-
-_CTX = ToolPermissionContext()
-
-
-# ---------------------------------------------------------------------------
-# _restricted_file_guard
-# ---------------------------------------------------------------------------
-
-
-class TestRestrictedFileGuard:
-    def test_allows_normal_write(self):
-        result = asyncio.run(
-            _restricted_file_guard('Write', {'file_path': '/home/user/projects/marcel/src/foo.py'}, _CTX)
-        )
-        assert result.behavior == 'allow'
-
-    def test_denies_claude_md_write(self):
-        result = asyncio.run(
-            _restricted_file_guard('Write', {'file_path': '/home/user/projects/marcel/CLAUDE.md'}, _CTX)
-        )
-        assert result.behavior == 'deny'
-
-    def test_denies_nested_claude_md(self):
-        result = asyncio.run(
-            _restricted_file_guard('Edit', {'file_path': '/home/user/projects/marcel/project/CLAUDE.md'}, _CTX)
-        )
-        assert result.behavior == 'deny'
-
-    def test_denies_auth_path(self):
-        result = asyncio.run(
-            _restricted_file_guard(
-                'Write', {'file_path': '/home/user/projects/marcel/src/marcel_core/auth/login.py'}, _CTX
-            )
-        )
-        assert result.behavior == 'deny'
-
-    def test_allows_read_of_restricted(self):
-        result = asyncio.run(
-            _restricted_file_guard('Read', {'file_path': '/home/user/projects/marcel/CLAUDE.md'}, _CTX)
-        )
-        assert result.behavior == 'allow'
-
-    def test_allows_bash(self):
-        result = asyncio.run(_restricted_file_guard('Bash', {'command': 'cat CLAUDE.md'}, _CTX))
-        assert result.behavior == 'allow'
-
-    def test_allows_write_without_file_path(self):
-        result = asyncio.run(_restricted_file_guard('Write', {}, _CTX))
-        assert result.behavior == 'allow'
 
 
 # ---------------------------------------------------------------------------

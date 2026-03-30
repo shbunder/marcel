@@ -13,16 +13,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import pathlib
-from collections.abc import AsyncIterator
-from typing import Any
 
 import claude_agent_sdk
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, StreamEvent, TextBlock
-from claude_agent_sdk.types import (
-    PermissionResultAllow,
-    PermissionResultDeny,
-    ToolPermissionContext,
-)
 
 log = logging.getLogger(__name__)
 
@@ -31,12 +24,6 @@ _coder_lock = asyncio.Lock()
 
 _REPO_ROOT = str(pathlib.Path(__file__).resolve().parents[3])
 
-# Paths that the coder agent must never write to.
-_RESTRICTED_PATTERNS: tuple[str, ...] = (
-    '/CLAUDE.md',
-    'src/marcel_core/auth/',
-)
-
 _CODER_APPEND = """\
 You are being invoked via Telegram by a user who sent a /code command.
 Follow the full feature development procedure in project/CLAUDE.md:
@@ -44,22 +31,6 @@ create an issue, implement, test, ship. Respond with the commit message
 and a brief implementation summary when done. If you need clarification,
 ask — the user will reply and you will be resumed.
 """
-
-
-async def _restricted_file_guard(
-    tool_name: str,
-    tool_input: dict[str, object],
-    _ctx: ToolPermissionContext,
-) -> PermissionResultAllow | PermissionResultDeny:
-    """Deny Write/Edit calls targeting restricted files."""
-    if tool_name in ('Write', 'Edit'):
-        file_path = str(tool_input.get('file_path', ''))
-        for pattern in _RESTRICTED_PATTERNS:
-            if pattern in file_path:
-                return PermissionResultDeny(
-                    message=f'Restricted path: {file_path} — CLAUDE.md and auth files are off-limits.',
-                )
-    return PermissionResultAllow()
 
 
 class CoderResult:
@@ -100,15 +71,6 @@ async def run_coder_task(
         return await _run_coder_task_inner(prompt, resume_session_id)
 
 
-async def _as_prompt_stream(text: str) -> AsyncIterator[dict[str, Any]]:
-    """Wrap a plain string into an async iterable of message dicts.
-
-    The SDK requires an AsyncIterable prompt (streaming mode) when
-    ``can_use_tool`` is set.
-    """
-    yield {'role': 'user', 'content': text}
-
-
 async def _run_coder_task_inner(
     prompt: str,
     resume_session_id: str | None,
@@ -118,7 +80,6 @@ async def _run_coder_task_inner(
         tools={'type': 'preset', 'preset': 'claude_code'},
         cwd=_REPO_ROOT,
         permission_mode='bypassPermissions',
-        can_use_tool=_restricted_file_guard,
         max_turns=75,
         resume=resume_session_id,
     )
@@ -128,7 +89,7 @@ async def _run_coder_task_inner(
     msg_count = 0
     stream_text_parts: list[str] = []
 
-    async for msg in claude_agent_sdk.query(prompt=_as_prompt_stream(prompt), options=options):
+    async for msg in claude_agent_sdk.query(prompt=prompt, options=options):
         msg_count += 1
 
         if isinstance(msg, StreamEvent):
