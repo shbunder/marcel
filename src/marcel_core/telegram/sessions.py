@@ -181,8 +181,8 @@ def enter_coder_mode(chat_id: int | str, coder_session_id: str | None = None) ->
 
 
 def exit_coder_mode(chat_id: int | str) -> None:
-    """Switch a chat back to assistant mode and clear the coder session."""
-    _update_state(chat_id, mode='assistant', coder_session_id=None)
+    """Switch a chat back to assistant mode, preserving coder_session_id for resume."""
+    _update_state(chat_id, mode='assistant')
 
 
 def set_coder_session_id(chat_id: int | str, session_id: str) -> None:

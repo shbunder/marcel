@@ -275,7 +275,8 @@ class TestCoderModeState:
         assert sessions.get_coder_session_id(123) == 'sess-1'
         sessions.exit_coder_mode(123)
         assert sessions.get_mode(123) == 'assistant'
-        assert sessions.get_coder_session_id(123) is None
+        # Session ID preserved for resume on next /code
+        assert sessions.get_coder_session_id(123) == 'sess-1'
 
     def test_reset_session_clears_everything(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)

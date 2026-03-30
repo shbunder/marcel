@@ -146,6 +146,10 @@ async def _process_coder_message_inner(chat_id: int, text: str) -> None:
         await _reply(chat_id, str(exc))
         return
 
+    # Save session ID so the next /code can resume with context.
+    if result.session_id:
+        sessions.set_coder_session_id(chat_id, result.session_id)
+
     # Auto-exit coder mode after each task completes.
     sessions.exit_coder_mode(chat_id)
 
@@ -157,6 +161,8 @@ async def _process_coder_message_inner(chat_id: int, text: str) -> None:
         await bot.send_message(chat_id, result.response)
     except Exception as exc:
         await _reply(chat_id, f'Coder task finished but I failed to send the result: {exc}')
+
+    await _reply(chat_id, '🤖 Back to assistant mode. Send /code to continue coding.')
 
 
 # ---------------------------------------------------------------------------
