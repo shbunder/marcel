@@ -338,7 +338,7 @@ class TestLegacySessionMigration:
 def _mock_coder(monkeypatch, response: str = 'Done!', session_id: str = 'sess-1') -> None:
     """Mock run_coder_task to return a canned CoderResult."""
 
-    async def fake_coder(prompt, *, resume_session_id=None):
+    async def fake_coder(prompt, *, resume_session_id=None, on_progress=None):
         return CoderResult(response=response, session_id=session_id)
 
     monkeypatch.setattr('marcel_core.telegram.webhook.run_coder_task', fake_coder)
@@ -360,7 +360,8 @@ class TestCoderWebhook:
         resp = client.post('/telegram/webhook', json=_make_update(555, '/code add retry logic'))
         assert resp.status_code == 200
         assert resp.json() == {'status': 'ok'}
-        assert sessions.get_mode(555) == 'coder'
+        # Auto-exits coder mode after task completes
+        assert sessions.get_mode(555) == 'assistant'
 
     @respx.mock
     def test_code_without_prompt_shows_usage(self, tmp_path, monkeypatch):
@@ -449,5 +450,5 @@ class TestCoderWebhook:
         client = TestClient(app)
         resp = client.post('/telegram/webhook', json=_make_update(555, 'yes do it that way'))
         assert resp.status_code == 200
-        # Still in coder mode after follow-up
-        assert sessions.get_mode(555) == 'coder'
+        # Auto-exits coder mode after task completes
+        assert sessions.get_mode(555) == 'assistant'

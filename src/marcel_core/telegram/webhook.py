@@ -32,6 +32,9 @@ router = APIRouter()
 _CODER_TIMEOUT = 600.0
 _ASSISTANT_TIMEOUT = 120.0
 
+# Running coder tasks keyed by chat_id — allows /done to cancel mid-execution.
+_running_coder_tasks: dict[int, asyncio.Task[None]] = {}
+
 
 async def _reply(chat_id: int, text: str) -> None:
     """Send a plain notification message, escaping special characters."""
@@ -108,12 +111,19 @@ async def _process_coder_message(chat_id: int, text: str) -> None:
     """Run a coder task (or continue one) and send the result to Telegram."""
     try:
         await _process_coder_message_inner(chat_id, text)
+    except asyncio.CancelledError:
+        log.info('Coder task cancelled for chat_id=%s', chat_id)
+        sessions.exit_coder_mode(chat_id)
+        await _reply(chat_id, 'Coder task cancelled.')
     except Exception as exc:
         log.exception('Unhandled error in coder task for chat_id=%s: %s', chat_id, exc)
+        sessions.exit_coder_mode(chat_id)
         try:
             await _reply(chat_id, f'Coder task failed: {exc}')
         except Exception:
             log.exception('Also failed to send coder error reply to chat_id=%s', chat_id)
+    finally:
+        _running_coder_tasks.pop(chat_id, None)
 
 
 async def _process_coder_message_inner(chat_id: int, text: str) -> None:
@@ -128,15 +138,15 @@ async def _process_coder_message_inner(chat_id: int, text: str) -> None:
             timeout=_CODER_TIMEOUT,
         )
     except asyncio.TimeoutError:
-        await _reply(chat_id, 'Coder task timed out after 10 minutes. Use /done to exit coder mode.')
+        sessions.exit_coder_mode(chat_id)
+        await _reply(chat_id, 'Coder task timed out after 10 minutes.')
         return
     except RuntimeError as exc:
         # Another coder task is already running
         await _reply(chat_id, str(exc))
         return
 
-    # Auto-exit coder mode after each task completes. The user can re-enter
-    # with /code if they want to continue coding.
+    # Auto-exit coder mode after each task completes.
     sessions.exit_coder_mode(chat_id)
 
     if not result.response.strip():
@@ -210,9 +220,13 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
         await _reply(chat_id, 'Fresh start! Previous conversation and coder mode cleared.')
         return {'status': 'ok'}
 
-    # --- /done: exit coder mode ---
+    # --- /done: cancel running coder task and/or exit coder mode ---
     if text == '/done':
-        if sessions.get_mode(chat_id) == 'coder':
+        task = _running_coder_tasks.pop(chat_id, None)
+        if task and not task.done():
+            task.cancel()
+            await _reply(chat_id, 'Cancelling coder task...')
+        elif sessions.get_mode(chat_id) == 'coder':
             sessions.exit_coder_mode(chat_id)
             await _reply(chat_id, 'Coder mode exited. Back to normal.')
         else:
@@ -235,9 +249,9 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
             return {'status': 'ok'}
 
         sessions.enter_coder_mode(chat_id)
-        await _reply(chat_id, 'Entering coder mode. This may take a while...')
+        await _reply(chat_id, 'Entering coder mode. This may take a while... (send /done to cancel)')
         log.info('Coder mode started for chat_id=%s: %r', chat_id, coder_prompt[:80])
-        asyncio.create_task(_process_coder_message(chat_id, coder_prompt))
+        _running_coder_tasks[chat_id] = asyncio.create_task(_process_coder_message(chat_id, coder_prompt))
         return {'status': 'ok'}
 
     # --- Route based on current mode ---
@@ -246,7 +260,7 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
     if mode == 'coder':
         await _reply(chat_id, 'Continuing coder session...')
         log.info('Coder follow-up from chat_id=%s: %r', chat_id, text[:80])
-        asyncio.create_task(_process_coder_message(chat_id, text))
+        _running_coder_tasks[chat_id] = asyncio.create_task(_process_coder_message(chat_id, text))
     else:
         await _reply(chat_id, 'Got it, working on it...')
         log.info('Dispatching message from chat_id=%s user=%s: %r', chat_id, user_slug, text[:80])
