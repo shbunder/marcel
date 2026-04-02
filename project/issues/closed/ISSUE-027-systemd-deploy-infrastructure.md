@@ -1,6 +1,6 @@
 # ISSUE-027: Systemd-based deploy infrastructure
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-02
 **Assignee:** Unassigned
 **Priority:** High
@@ -63,7 +63,7 @@ All units use `systemctl --user` — no root access needed (user must be in dock
 - [✓] Update `project/CLAUDE.md` — new restart instructions for Marcel agent
 - [✓] Update `docs/self-modification.md` — new architecture
 - [✓] Run tests and lint
-- [ ] Close issue with version bump
+- [✓] Close issue with version bump
 
 ## Relationships
 - Related to: [[ISSUE-024-agent-reimplementation-memory-architecture]] (fixup that exposed the broken restart)
