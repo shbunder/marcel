@@ -12,6 +12,12 @@ from fastapi import FastAPI
 
 load_dotenv()  # loads ANTHROPIC_API_KEY and other vars from .env into the process env
 
+# Configure application-level logging so marcel_core.* loggers are visible.
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(name)s %(levelname)s: %(message)s',
+)
+
 from marcel_core.agent.sessions import session_manager
 from marcel_core.api.chat import router as chat_router
 from marcel_core.api.conversations import router as conversations_router
