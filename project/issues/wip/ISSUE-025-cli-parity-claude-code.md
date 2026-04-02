@@ -28,10 +28,10 @@ The backend already provides most of the data needed (cost, turns, conversation 
 - [✓] ISSUE-025-c: Support stdin piping — detect `!isatty(stdin)` and read prompt from pipe when `-p` is used
 
 ### Phase 2 — Session management
-- [ ] ISSUE-025-d: Track conversation ID in CLI (already partially done) — persist last conversation ID per user to `~/.marcel/cli_state.json`
-- [ ] ISSUE-025-e: Add `-c/--continue` flag — resume most recent conversation
-- [ ] ISSUE-025-f: Add `-r/--resume [id]` flag — resume specific conversation or show picker
-- [ ] ISSUE-025-g: Add `/sessions` slash command — list recent conversations (requires new backend endpoint)
+- [✓] ISSUE-025-d: Track conversation ID in CLI (already partially done) — persist last conversation ID per user to `~/.marcel/cli_state.json`
+- [✓] ISSUE-025-e: Add `-c/--continue` flag — resume most recent conversation
+- [✓] ISSUE-025-f: Add `-r/--resume [id]` flag — resume specific conversation or show picker
+- [✓] ISSUE-025-g: Add `/sessions` slash command — list recent conversations (requires new backend endpoint)
 - [✓] ISSUE-025-h: Add `/new` slash command — start a fresh conversation without restarting CLI
 
 ### Phase 3 — Rich status bar
@@ -41,12 +41,12 @@ The backend already provides most of the data needed (cost, turns, conversation 
 
 ### Phase 4 — Input improvements
 - [✓] ISSUE-025-l: Input history — up/down arrows cycle through previous messages (session-scoped)
-- [ ] ISSUE-025-m: Multi-line input — `Ctrl+G` opens `$EDITOR` for composing longer messages
-- [ ] ISSUE-025-n: Tab autocompletion for slash commands — pressing Tab after `/` shows matching commands
+- [✓] ISSUE-025-m: Multi-line input — `Ctrl+G` opens `$EDITOR` for composing longer messages
+- [✓] ISSUE-025-n: Tab autocompletion for slash commands — pressing Tab after `/` shows matching commands
 - [✓] ISSUE-025-o: `Ctrl+U` to clear input line, `Ctrl+W` to delete word backward (readline-style shortcuts)
 
 ### Phase 5 — Additional slash commands + output formats
-- [ ] ISSUE-025-p: `/export [file]` — export conversation transcript to a file (markdown format)
+- [✓] ISSUE-025-p: `/export [file]` — export conversation transcript to a file (markdown format)
 - [✓] ISSUE-025-q: `--output-format json` for print mode — wrap response in JSON with cost/turns metadata
 - [✓] ISSUE-025-r: `--output-format stream-json` for print mode — NDJSON streaming (one JSON object per token)
 
@@ -55,19 +55,19 @@ The backend already provides most of the data needed (cost, turns, conversation 
 - [✓] ISSUE-025-a: Add clap dependency and replace manual arg parsing
 - [✓] ISSUE-025-b: Print mode implementation
 - [✓] ISSUE-025-c: Stdin pipe detection
-- [ ] ISSUE-025-d: Persist conversation ID to disk
-- [ ] ISSUE-025-e: Continue flag
-- [ ] ISSUE-025-f: Resume flag with picker
-- [ ] ISSUE-025-g: /sessions command (CLI + backend endpoint)
+- [✓] ISSUE-025-d: Persist conversation ID to disk
+- [✓] ISSUE-025-e: Continue flag
+- [✓] ISSUE-025-f: Resume flag with picker
+- [✓] ISSUE-025-g: /sessions command (CLI + backend endpoint)
 - [✓] ISSUE-025-h: /new command
 - [✓] ISSUE-025-i: Parse cost/turns from done messages
 - [✓] ISSUE-025-j: Redesign StatusBar widget
 - [✓] ISSUE-025-k: Live cost in status bar
 - [✓] ISSUE-025-l: Input history
-- [ ] ISSUE-025-m: External editor (Ctrl+G)
-- [ ] ISSUE-025-n: Tab autocompletion
+- [✓] ISSUE-025-m: External editor (Ctrl+G)
+- [✓] ISSUE-025-n: Tab autocompletion
 - [✓] ISSUE-025-o: Readline shortcuts
-- [ ] ISSUE-025-p: /export command
+- [✓] ISSUE-025-p: /export command
 - [✓] ISSUE-025-q: JSON output format
 - [✓] ISSUE-025-r: Stream-JSON output format
 
@@ -102,3 +102,15 @@ Gap analysis performed by comparing ~/repos/claude-code (TypeScript CLI) against
 **Commands Run**: `cargo build` — clean compile, no warnings
 **Result**: Success — all Phase 1, 3, and most of Phase 4/5 subtasks complete
 **Next**: Phase 2 (session persistence + resume) and remaining items (tab completion, external editor, /export)
+
+### 2026-04-02 15:00 - LLM Implementation
+**Action**: Phase 2 + remaining — session resume, tab completion, external editor, /export, /sessions, backend endpoint
+**Files Modified**:
+- `src/marcel_core/api/conversations.py` — new REST endpoint `GET /conversations?user=&limit=` for listing recent conversations
+- `src/marcel_core/main.py` — registered conversations router
+- `src/marcel_cli/src/state.rs` — new module: persists last conversation ID per user to `~/.marcel/cli_state.json`
+- `src/marcel_cli/src/main.rs` — registered state module
+- `src/marcel_cli/src/app.rs` — added: `-c`/`-r` session resume logic, `/sessions` command (fetches from backend), `/resume <id>` command, `/export` command (writes markdown), tab autocompletion for slash commands with common prefix, `Ctrl+G` external editor support, `fetch_conversations()` HTTP helper, `export_conversation()` file writer
+**Commands Run**: `cargo build` — clean compile; `uv run pytest tests/core/test_storage.py` — 50 passed
+**Result**: All 18 subtasks complete
+**Next**: Close issue — docs + version bump in closing commit

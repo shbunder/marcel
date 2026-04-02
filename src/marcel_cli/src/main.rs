@@ -4,6 +4,7 @@ mod config;
 mod header;
 mod print;
 mod render;
+mod state;
 mod tui;
 mod ui;
 

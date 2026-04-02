@@ -14,6 +14,7 @@ load_dotenv()  # loads ANTHROPIC_API_KEY and other vars from .env into the proce
 
 from marcel_core.agent.sessions import session_manager
 from marcel_core.api.chat import router as chat_router
+from marcel_core.api.conversations import router as conversations_router
 from marcel_core.api.health import router as health_router
 from marcel_core.telegram import router as telegram_router
 from marcel_core.watchdog.flags import clear_restart_request, read_restart_request, write_restart_result
@@ -66,4 +67,5 @@ app = FastAPI(title='Marcel', lifespan=lifespan)
 
 app.include_router(health_router)
 app.include_router(chat_router)
+app.include_router(conversations_router)
 app.include_router(telegram_router)

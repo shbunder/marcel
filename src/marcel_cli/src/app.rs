@@ -20,15 +20,46 @@ const COMMANDS: &[(&str, &str)] = &[
     ),
     ("/config", "Show or set config  (/config host <value>)"),
     ("/cost", "Show token usage and cost     [requires server]"),
+    ("/export", "Export conversation to file   (/export [path])"),
     ("/help", "Show available commands"),
     ("/memory", "Show Marcel's memory          [requires server]"),
     ("/model", "Show or set the current model"),
-    ("/reconnect", "Reconnect to the Marcel server"),
-    ("/status", "Show connection and server status"),
     ("/new", "Start a new conversation"),
+    ("/reconnect", "Reconnect to the Marcel server"),
+    ("/resume", "Resume a conversation        (/resume <id>)"),
+    ("/sessions", "List recent conversations    [requires server]"),
+    ("/status", "Show connection and server status"),
     ("/exit", "Exit Marcel"),
     ("/quit", "Exit Marcel"),
 ];
+
+#[derive(Debug, serde::Deserialize)]
+struct ConversationInfo {
+    id: String,
+    channel: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ConversationListResponse {
+    conversations: Vec<ConversationInfo>,
+}
+
+async fn fetch_conversations(
+    cfg: &Config,
+    dev_mode: bool,
+) -> Result<Vec<ConversationInfo>, String> {
+    let base = cfg.health_url(dev_mode).replace("/health", "");
+    let url = format!("{base}/conversations?user={}&limit=20", cfg.user);
+
+    let mut req = reqwest::Client::new().get(&url);
+    if !cfg.token.is_empty() {
+        req = req.header("Authorization", format!("Bearer {}", cfg.token));
+    }
+
+    let resp = req.send().await.map_err(|e| e.to_string())?;
+    let body: ConversationListResponse = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(body.conversations)
+}
 
 pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
     let dev_mode = cli.dev;
@@ -59,6 +90,47 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
 
     // Channel for receiving streaming events
     let mut stream_rx: Option<mpsc::Receiver<ChatEvent>> = None;
+
+    // Resume a previous conversation if requested
+    if cli.r#continue {
+        if let Some(id) = crate::state::get_last_conversation(&cfg.user) {
+            client.set_conversation_id(&id);
+            chat_view.push_system(&format!("Continuing conversation: {id}"));
+        } else {
+            chat_view.push_system("No previous conversation to continue.");
+        }
+    } else if let Some(ref resume) = cli.resume {
+        match resume {
+            Some(id) => {
+                client.set_conversation_id(id);
+                chat_view.push_system(&format!("Resumed conversation: {id}"));
+            }
+            None => {
+                // No ID given — fetch list and show picker
+                if header.connected {
+                    match fetch_conversations(&cfg, dev_mode).await {
+                        Ok(convs) if convs.is_empty() => {
+                            chat_view.push_system("No conversations found.");
+                        }
+                        Ok(convs) => {
+                            chat_view.push_system("Recent conversations (use /resume <id> to pick):");
+                            for c in &convs {
+                                chat_view.push_system(&format!("  {}  ({})", c.id, c.channel));
+                            }
+                            // Auto-resume the most recent
+                            if let Some(first) = convs.first() {
+                                client.set_conversation_id(&first.id);
+                                chat_view.push_system(&format!("Resumed: {}", first.id));
+                            }
+                        }
+                        Err(e) => {
+                            chat_view.push_error(&format!("Failed to list conversations: {e}"));
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // If a prompt was given on the command line, send it immediately
     if let Some(prompt) = &cli.prompt {
@@ -142,8 +214,9 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
                         break;
                     }
                     Ok(ChatEvent::Connected(meta)) => {
-                        if let Some(id) = meta.conversation_id {
-                            client.set_conversation_id(&id);
+                        if let Some(id) = &meta.conversation_id {
+                            client.set_conversation_id(id);
+                            crate::state::set_last_conversation(&cfg.user, id);
                         }
                     }
                     Err(mpsc::error::TryRecvError::Empty) => break,
@@ -237,6 +310,46 @@ async fn handle_key(
             }
         }
 
+        // Tab: autocomplete slash commands
+        (KeyCode::Tab, _) => {
+            if input.text.starts_with('/') {
+                let prefix = input.text.to_lowercase();
+                let matches: Vec<&str> = COMMANDS
+                    .iter()
+                    .map(|(c, _)| *c)
+                    .filter(|c| c.starts_with(&prefix))
+                    .collect();
+                match matches.len() {
+                    0 => {}
+                    1 => {
+                        input.text = format!("{} ", matches[0]);
+                        input.cursor = input.text.len();
+                    }
+                    _ => {
+                        // Show matching commands in chat
+                        let list = matches.join("  ");
+                        chat.push_system(&format!("  {list}"));
+                        // Complete common prefix
+                        if let Some(common) = common_prefix(&matches) {
+                            input.text = common;
+                            input.cursor = input.text.len();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Ctrl+G: open $EDITOR for multi-line input
+        (KeyCode::Char('g'), KeyModifiers::CONTROL) => {
+            if let Some(text) = open_editor() {
+                let text = text.trim().to_string();
+                if !text.is_empty() {
+                    input.text = text;
+                    input.cursor = input.text.len();
+                }
+            }
+        }
+
         // Readline shortcuts
         (KeyCode::Char('u'), KeyModifiers::CONTROL) => input.clear(),
         (KeyCode::Char('w'), KeyModifiers::CONTROL) => input.delete_word_back(),
@@ -266,6 +379,54 @@ async fn handle_key(
     }
 
     Action::Continue
+}
+
+/// Open $EDITOR with a temp file, return its contents on save.
+fn open_editor() -> Option<String> {
+    let editor = std::env::var("EDITOR")
+        .or_else(|_| std::env::var("VISUAL"))
+        .unwrap_or_else(|_| "nano".into());
+
+    let tmp = std::env::temp_dir().join("marcel-input.md");
+    // Write existing empty file so editor opens cleanly
+    let _ = std::fs::write(&tmp, "");
+
+    // Temporarily restore terminal for the editor
+    crossterm::terminal::disable_raw_mode().ok();
+    crossterm::execute!(io::stdout(), crossterm::terminal::LeaveAlternateScreen).ok();
+
+    let status = std::process::Command::new(&editor)
+        .arg(&tmp)
+        .status()
+        .ok();
+
+    // Re-enter TUI mode
+    crossterm::terminal::enable_raw_mode().ok();
+    crossterm::execute!(io::stdout(), crossterm::terminal::EnterAlternateScreen).ok();
+
+    if status.is_some_and(|s| s.success()) {
+        std::fs::read_to_string(&tmp).ok()
+    } else {
+        None
+    }
+}
+
+fn common_prefix(items: &[&str]) -> Option<String> {
+    let first = items.first()?;
+    let mut len = first.len();
+    for item in &items[1..] {
+        len = first
+            .chars()
+            .zip(item.chars())
+            .take_while(|(a, b)| a == b)
+            .count()
+            .min(len);
+    }
+    if len > 0 {
+        Some(first[..first.char_indices().nth(len).map(|(i, _)| i).unwrap_or(first.len())].to_string())
+    } else {
+        None
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -358,6 +519,49 @@ async fn handle_command(
             chat.push_system("New conversation started.");
         }
 
+        "/sessions" => {
+            if !header.connected {
+                chat.push_error("/sessions requires a running server.");
+            } else {
+                match fetch_conversations(cfg, dev_mode).await {
+                    Ok(convs) if convs.is_empty() => {
+                        chat.push_system("No conversations found.");
+                    }
+                    Ok(convs) => {
+                        chat.push_system("Recent conversations:");
+                        for c in &convs {
+                            chat.push_system(&format!("  {}  ({})", c.id, c.channel));
+                        }
+                    }
+                    Err(e) => chat.push_error(&format!("Failed: {e}")),
+                }
+            }
+        }
+
+        "/resume" => {
+            if parts.len() > 1 {
+                let id = parts[1];
+                client.set_conversation_id(id);
+                crate::state::set_last_conversation(&cfg.user, id);
+                chat.push_system(&format!("Resumed conversation: {id}"));
+            } else {
+                chat.push_system("Usage: /resume <conversation-id>");
+                chat.push_system("Use /sessions to list available conversations.");
+            }
+        }
+
+        "/export" => {
+            let path = if parts.len() > 1 {
+                parts[1].to_string()
+            } else {
+                "marcel-export.md".to_string()
+            };
+            match export_conversation(chat, &path) {
+                Ok(n) => chat.push_system(&format!("Exported {n} messages to {path}")),
+                Err(e) => chat.push_error(&format!("Export failed: {e}")),
+            }
+        }
+
         "/compact" | "/cost" | "/memory" => {
             if !header.connected {
                 chat.push_error(&format!("{cmd} requires a running server."));
@@ -376,4 +580,23 @@ async fn handle_command(
     }
 
     Action::Continue
+}
+
+fn export_conversation(chat: &ChatView, path: &str) -> Result<usize, io::Error> {
+    use crate::ui::MessageKind;
+    use std::io::Write;
+
+    let mut file = std::fs::File::create(path)?;
+    writeln!(file, "# Marcel Conversation Export\n")?;
+
+    let count = chat.messages.len();
+    for msg in &chat.messages {
+        match msg.kind {
+            MessageKind::User => writeln!(file, "**User:** {}\n", msg.text)?,
+            MessageKind::Assistant => writeln!(file, "**Marcel:** {}\n", msg.text)?,
+            MessageKind::System => writeln!(file, "*{system}*\n", system = msg.text)?,
+            MessageKind::Error => writeln!(file, "*Error: {err}*\n", err = msg.text)?,
+        }
+    }
+    Ok(count)
 }
