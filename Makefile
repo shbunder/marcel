@@ -89,6 +89,15 @@ serve: install-skills ## Start marcel-core development server (uvicorn with relo
 	echo -e "$(INFO) Starting marcel-core (dev) on http://0.0.0.0:$(MARCEL_DEV_PORT) ..."
 	MARCEL_PORT=$(MARCEL_DEV_PORT) uv run uvicorn marcel_core.main:app --host 0.0.0.0 --port $(MARCEL_DEV_PORT) --reload
 
+# Deployment
+.PHONY: setup
+setup: ## Full setup: systemd units + Docker build + start (one command to rule them all)
+	@./deploy/setup.sh
+
+.PHONY: teardown
+teardown: ## Stop Marcel and remove systemd units
+	@./deploy/teardown.sh
+
 # Docker targets
 .PHONY: docker-build
 docker-build: ## Build the Marcel Docker image

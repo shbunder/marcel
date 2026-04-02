@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import subprocess
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -23,7 +22,7 @@ from marcel_core.api.chat import router as chat_router
 from marcel_core.api.conversations import router as conversations_router
 from marcel_core.api.health import router as health_router
 from marcel_core.telegram import router as telegram_router
-from marcel_core.watchdog.flags import clear_restart_request, read_restart_request, write_restart_result
+from marcel_core.watchdog.flags import read_restart_request, write_restart_result
 
 log = logging.getLogger(__name__)
 
@@ -38,8 +37,9 @@ def _is_docker() -> bool:
 async def _restart_watcher() -> None:
     """Poll for a restart request flag and trigger a restart when found.
 
-    In Docker: delegates to redeploy.sh which rebuilds/restarts the container
-    with rollback on failure. The watchdog (PID 1) handles the process lifecycle.
+    In Docker: the flag file is left in place for the host-side systemd path
+    unit (marcel-redeploy.path) to detect and trigger redeploy.sh. The
+    watchdog (PID 1) handles the process lifecycle within the container.
 
     Outside Docker (dev mode): exec-replaces the process in-place so the PID
     stays the same and the Python interpreter reloads fresh from disk.
@@ -49,11 +49,11 @@ async def _restart_watcher() -> None:
         sha = read_restart_request()
         if sha:
             log.info('Restart requested (pre-change SHA: %s)', sha)
-            clear_restart_request()
 
             if _is_docker():
-                log.info('Docker detected — running redeploy.sh')
-                subprocess.Popen(['/app/redeploy.sh', '--no-build'], cwd='/app')
+                # Leave the flag file in place — the host-side systemd path
+                # unit watches it and triggers redeploy.sh on the host.
+                log.info('Docker detected — restart flag written, waiting for host-side redeploy')
             else:
                 write_restart_result('ok')
                 os.execv(sys.executable, [sys.executable] + sys.argv)

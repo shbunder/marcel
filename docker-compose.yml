@@ -25,7 +25,8 @@ services:
       # Claude SDK auth (OAuth credentials from host's `claude login`)
       - ${HOME}/.claude:/home/marcel/.claude
       - ${HOME}/.claude.json:/home/marcel/.claude.json
-      # Docker socket — so Marcel can restart itself and manage other containers
+      # Docker socket — for managing other containers (Plex, Home Assistant, etc.)
+      # Self-restart is handled by host-side systemd, not via this socket.
       - /var/run/docker.sock:/var/run/docker.sock
       # Host filesystem — read-only for inspecting logs, configs, etc.
       - /:/_host:ro

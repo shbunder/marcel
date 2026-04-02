@@ -1,6 +1,6 @@
 # ISSUE-027: Systemd-based deploy infrastructure
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-02
 **Assignee:** Unassigned
 **Priority:** High
@@ -52,20 +52,39 @@ make setup              # installs systemd units + builds + starts container
 All units use `systemctl --user` — no root access needed (user must be in docker group).
 
 ## Tasks
-- [ ] Create `deploy/` directory with systemd unit templates
-- [ ] Create `deploy/setup.sh` — prerequisite checks, template rendering, unit installation
-- [ ] Simplify `_restart_watcher` in `main.py` — just write the flag, no subprocess/Docker detection
-- [ ] Update `Dockerfile` — remove `docker-compose-plugin` (keep `docker-ce-cli` for managing other containers)
-- [ ] Update `docker-compose.yml` — keep Docker socket (needed for Plex etc.)
-- [ ] Update `redeploy.sh` for host-side execution (remove `--no-build` path, always full rebuild)
-- [ ] Update `Makefile` — add `setup` and `teardown` targets
-- [ ] Update `install.sh` to integrate with new setup
-- [ ] Update `project/CLAUDE.md` — new restart instructions for Marcel agent
-- [ ] Update `docs/self-modification.md` — new architecture
-- [ ] Run tests and lint
+- [✓] Create `deploy/` directory with systemd unit templates
+- [✓] Create `deploy/setup.sh` — prerequisite checks, template rendering, unit installation
+- [✓] Simplify `_restart_watcher` in `main.py` — just write the flag, no subprocess/Docker detection
+- [✓] Update `Dockerfile` — remove `docker-compose-plugin` (keep `docker-ce-cli` for managing other containers)
+- [✓] Update `docker-compose.yml` — update Docker socket comment
+- [✓] Update `redeploy.sh` for host-side execution
+- [✓] Update `Makefile` — add `setup` and `teardown` targets
+- [✓] Update `install.sh` to integrate with new setup
+- [✓] Update `project/CLAUDE.md` — new restart instructions for Marcel agent
+- [✓] Update `docs/self-modification.md` — new architecture
+- [✓] Run tests and lint
 - [ ] Close issue with version bump
 
 ## Relationships
 - Related to: [[ISSUE-024-agent-reimplementation-memory-architecture]] (fixup that exposed the broken restart)
 
 ## Implementation Log
+
+### 2026-04-02 - LLM Implementation
+**Action**: Implemented systemd-based deploy infrastructure
+**Files Modified**:
+- `deploy/marcel.service.tmpl` — Created: main Docker service unit
+- `deploy/marcel-redeploy.path.tmpl` — Created: watches restart flag file
+- `deploy/marcel-redeploy.service.tmpl` — Created: triggers redeploy.sh
+- `deploy/setup.sh` — Created: prerequisite checks, template rendering, unit installation, health check
+- `deploy/teardown.sh` — Created: stops services, removes units, preserves data
+- `src/marcel_core/main.py` — Simplified `_restart_watcher`: removed subprocess call, flag stays for systemd
+- `Dockerfile` — Removed `docker-compose-plugin` (not needed inside container)
+- `docker-compose.yml` — Updated Docker socket comment (container management only, not self-restart)
+- `redeploy.sh` — Rewritten: runs on host, clears flag file, full rebuild+health+rollback
+- `Makefile` — Added `setup` and `teardown` targets
+- `install.sh` — `--server` now delegates to `deploy/setup.sh`
+- `project/CLAUDE.md` — Updated restart instructions to describe systemd flow
+- `docs/self-modification.md` — Full rewrite: systemd architecture, setup instructions, unit reference
+**Commands Run**: `uv run pytest tests/ -x -q` (185 passed), `uv run ruff check`, `uv run ruff format --check`, `uv run pyright src/marcel_core/main.py`
+**Result**: All tests passing, lint clean, typecheck clean

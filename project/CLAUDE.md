@@ -111,17 +111,19 @@ Replace `shaun` with the slug of the user who requested the feature. The branch 
 from marcel_core.watchdog.flags import request_restart
 import subprocess
 sha = subprocess.check_output(['git', 'rev-parse', 'HEAD~1']).decode().strip()
-request_restart(sha)  # triggers redeploy with rollback on failure
+request_restart(sha)  # writes flag file → host systemd triggers redeploy
 ```
 
-In Docker (production), this triggers `redeploy.sh` which rebuilds and restarts the container with automatic rollback on health failure. In dev mode, it exec-replaces the process in-place. See [docs/self-modification.md](../docs/self-modification.md) for full details.
+This writes the `restart_requested` flag file. A host-side systemd path unit (`marcel-redeploy.path`) watches for this file and triggers `redeploy.sh` on the host — which rebuilds the Docker image, restarts the container, health-checks, and rolls back on failure. Marcel does **not** restart itself from inside the container.
+
+In dev mode (`make serve`), the restart watcher in `main.py` detects the flag and exec-replaces the process in-place. See [docs/self-modification.md](../docs/self-modification.md) for full details.
 
 ## Self-Modification Safety
 
 When rewriting Marcel's own code:
 
 - Commit before restarting — every change must be recoverable via git revert
-- Always trigger restart through the watchdog flag (above), never `systemctl restart` — the watchdog provides the rollback safety net
+- Always trigger restart through `request_restart()` — never `systemctl restart` or `docker restart` directly. The flag-based mechanism provides the rollback safety net.
 - Confirm with the user before restarting unless they explicitly asked for an auto-restart
 - Keep changes minimal and focused — don't refactor unrelated code while implementing a feature
 - **Restricted files:** Auth logic, core config, and safety rules (including CLAUDE.md files) are off-limits. If a change touches one of these areas, confirm with the user before proceeding even if they did not explicitly request confirmation.

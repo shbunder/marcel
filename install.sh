@@ -110,61 +110,17 @@ fi
 mkdir -p "$CONFIG_DIR/watchdog"
 mkdir -p "$CONFIG_DIR/users"
 
-# ── Docker server setup (optional) ───────────────────────────────────────
+# ── Server setup (optional) ──────────────────────────────────────────────
 
 if [[ "$SERVER" == "true" ]]; then
     echo ""
-    echo "Setting up Marcel Docker server..."
+    echo "Setting up Marcel server..."
 
-    # Check for Docker
-    if ! command -v docker &>/dev/null; then
-        echo "ERROR: Docker is required for server mode but not found."
-        echo "Install Docker: https://docs.docker.com/engine/install/"
-        exit 1
-    fi
-
-    # Check for Docker Compose
-    if ! docker compose version &>/dev/null; then
-        echo "ERROR: Docker Compose plugin is required but not found."
-        echo "Install: https://docs.docker.com/compose/install/"
-        exit 1
-    fi
-
+    # The deploy script handles prerequisite checks, systemd units, and Docker
     cd "$REPO_DIR"
-
-    # Build and start
-    echo "Building Marcel container..."
-    docker compose build
-
-    echo "Starting Marcel..."
-    docker compose up -d
-
-    # Wait for health
-    echo "Waiting for Marcel to become healthy..."
-    TIMEOUT=60
-    ELAPSED=0
-    while (( ELAPSED < TIMEOUT )); do
-        if curl -sf "http://localhost:${PORT:-7420}/health" >/dev/null 2>&1; then
-            echo ""
-            echo "Marcel server is running on port ${PORT:-7420}"
-            break
-        fi
-        sleep 3
-        ELAPSED=$((ELAPSED + 3))
-        printf "."
-    done
-
-    if (( ELAPSED >= TIMEOUT )); then
-        echo ""
-        echo "WARNING: Marcel did not become healthy within ${TIMEOUT}s."
-        echo "Check logs: docker compose logs marcel"
-    fi
+    exec ./deploy/setup.sh
 fi
 
 echo ""
 echo "Done! Run: marcel"
 echo "Config:    $CONFIG_FILE"
-if [[ "$SERVER" == "true" ]]; then
-    echo "Server:    docker compose (port ${PORT:-7420})"
-    echo "Logs:      docker compose logs -f marcel"
-fi
