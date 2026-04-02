@@ -6,13 +6,23 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import claude_agent_sdk
-from claude_agent_sdk import AssistantMessage, ResultMessage, StreamEvent, TextBlock
+from claude_agent_sdk import AssistantMessage, ResultMessage, StreamEvent, TextBlock, ToolResultBlock
 from fastapi.testclient import TestClient
 
 from marcel_core.agent.context import build_system_prompt
+from marcel_core.agent.events import (
+    RunFinished,
+    RunStarted,
+    TextMessageContent,
+    TextMessageEnd,
+    TextMessageStart,
+    ToolCallEnd,
+    ToolCallResult,
+    ToolCallStart,
+)
 from marcel_core.agent.memory_extract import extract_and_save_memories
 from marcel_core.agent.memory_select import _parse_selection, select_relevant_memories
-from marcel_core.agent.runner import TurnResult, stream_response
+from marcel_core.agent.runner import stream_response
 from marcel_core.agent.sessions import ActiveSession, SessionManager
 from marcel_core.main import app
 from marcel_core.storage import _root
@@ -36,8 +46,39 @@ def _stream_event(text: str) -> StreamEvent:
     )
 
 
+def _tool_use_start_event(index: int, tool_id: str, tool_name: str) -> StreamEvent:
+    return StreamEvent(
+        uuid='u',
+        session_id='s',
+        event={
+            'type': 'content_block_start',
+            'index': index,
+            'content_block': {'type': 'tool_use', 'id': tool_id, 'name': tool_name, 'input': {}},
+        },
+    )
+
+
+def _tool_use_stop_event(index: int) -> StreamEvent:
+    return StreamEvent(
+        uuid='u',
+        session_id='s',
+        event={'type': 'content_block_stop', 'index': index},
+    )
+
+
 def _assistant_message(text: str) -> AssistantMessage:
     return AssistantMessage(content=[TextBlock(text=text)], model='claude-sonnet-4-6')
+
+
+def _assistant_message_with_tool_result(
+    tool_use_id: str,
+    content: str = 'result',
+    is_error: bool = False,
+) -> AssistantMessage:
+    return AssistantMessage(
+        content=[ToolResultBlock(tool_use_id=tool_use_id, content=content, is_error=is_error)],
+        model='claude-sonnet-4-6',
+    )
 
 
 def _result_message(cost: float = 0.01, turns: int = 1) -> ResultMessage:
@@ -67,15 +108,17 @@ def _make_mock_session(response_items: list) -> ActiveSession:
 
 
 async def _collect_stream(agen):
-    """Collect text tokens and the final TurnResult from stream_response."""
-    tokens = []
-    result = None
-    async for item in agen:
-        if isinstance(item, TurnResult):
-            result = item
-        else:
-            tokens.append(item)
-    return tokens, result
+    """Collect text tokens and the final RunFinished from stream_response."""
+    tokens: list[str] = []
+    result: RunFinished | None = None
+    all_events: list = []
+    async for event in agen:
+        all_events.append(event)
+        if isinstance(event, TextMessageContent):
+            tokens.append(event.text)
+        elif isinstance(event, RunFinished):
+            result = event
+    return tokens, result, all_events
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +325,7 @@ class TestStreamResponse:
             MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
         )
 
-        tokens, result = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
+        tokens, result, _ = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
         assert tokens == ['Hello', ' world']
         assert result is not None
         assert result.total_cost_usd == 0.01
@@ -300,7 +343,7 @@ class TestStreamResponse:
             MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
         )
 
-        tokens, _ = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
+        tokens, _, _ = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
         assert tokens == ['Fallback text']
 
     def test_ignores_assistant_message_when_stream_events_received(self, tmp_path, monkeypatch):
@@ -317,7 +360,7 @@ class TestStreamResponse:
             MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
         )
 
-        tokens, _ = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
+        tokens, _, _ = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
         assert tokens == ['streamed']
 
     def test_skips_empty_text_deltas(self, tmp_path, monkeypatch):
@@ -335,7 +378,7 @@ class TestStreamResponse:
             MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
         )
 
-        tokens, _ = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
+        tokens, _, _ = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
         assert tokens == ['real']
 
     def test_result_message_captures_metadata(self, tmp_path, monkeypatch):
@@ -351,12 +394,156 @@ class TestStreamResponse:
             MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
         )
 
-        _, result = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
+        _, result, _ = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
         assert result is not None
         assert result.total_cost_usd == 0.05
         assert result.num_turns == 3
         assert result.session_id == 'test-session'
         assert result.is_error is False
+
+    def test_text_message_boundaries(self, tmp_path, monkeypatch):
+        """TextMessageStart and TextMessageEnd wrap streamed text tokens."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        mock_session = _make_mock_session(
+            [
+                _stream_event('Hello'),
+                _stream_event(' world'),
+                _result_message(),
+            ]
+        )
+        monkeypatch.setattr(
+            'marcel_core.agent.runner.session_manager',
+            MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
+        )
+
+        _, _, events = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
+        types = [type(e).__name__ for e in events]
+        assert types == [
+            'RunStarted',
+            'TextMessageStart',
+            'TextMessageContent',
+            'TextMessageContent',
+            'TextMessageEnd',
+            'RunFinished',
+        ]
+
+    def test_emits_tool_call_events(self, tmp_path, monkeypatch):
+        """Tool use content blocks produce ToolCallStart and ToolCallEnd events."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        mock_session = _make_mock_session(
+            [
+                _tool_use_start_event(0, 'tool-1', 'Read'),
+                _tool_use_stop_event(0),
+                _result_message(),
+            ]
+        )
+        monkeypatch.setattr(
+            'marcel_core.agent.runner.session_manager',
+            MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
+        )
+
+        _, _, events = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
+        types = [type(e).__name__ for e in events]
+        assert 'ToolCallStart' in types
+        assert 'ToolCallEnd' in types
+
+        start = next(e for e in events if isinstance(e, ToolCallStart))
+        assert start.tool_call_id == 'tool-1'
+        assert start.tool_name == 'Read'
+
+        end = next(e for e in events if isinstance(e, ToolCallEnd))
+        assert end.tool_call_id == 'tool-1'
+
+    def test_tool_call_splits_text_messages(self, tmp_path, monkeypatch):
+        """A tool call between text blocks produces two TextMessageStart/End pairs."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        mock_session = _make_mock_session(
+            [
+                _stream_event('before'),
+                _tool_use_start_event(1, 'tool-1', 'Edit'),
+                _tool_use_stop_event(1),
+                _stream_event('after'),
+                _result_message(),
+            ]
+        )
+        monkeypatch.setattr(
+            'marcel_core.agent.runner.session_manager',
+            MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
+        )
+
+        _, _, events = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
+        types = [type(e).__name__ for e in events]
+        assert types == [
+            'RunStarted',
+            'TextMessageStart',
+            'TextMessageContent',
+            'TextMessageEnd',
+            'ToolCallStart',
+            'ToolCallEnd',
+            'TextMessageStart',
+            'TextMessageContent',
+            'TextMessageEnd',
+            'RunFinished',
+        ]
+
+    def test_tool_result_from_assistant_message(self, tmp_path, monkeypatch):
+        """ToolResultBlock in AssistantMessage produces ToolCallResult events."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        mock_session = _make_mock_session(
+            [
+                _stream_event('text'),
+                _assistant_message_with_tool_result('tool-1', content='file contents', is_error=False),
+                _result_message(),
+            ]
+        )
+        monkeypatch.setattr(
+            'marcel_core.agent.runner.session_manager',
+            MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
+        )
+
+        _, _, events = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
+        results = [e for e in events if isinstance(e, ToolCallResult)]
+        assert len(results) == 1
+        assert results[0].tool_call_id == 'tool-1'
+        assert results[0].is_error is False
+        assert 'file contents' in results[0].summary
+
+    def test_fallback_path_has_text_boundaries(self, tmp_path, monkeypatch):
+        """Fallback (no stream events) still emits TextMessageStart/End."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        mock_session = _make_mock_session(
+            [
+                _assistant_message('Fallback'),
+                _result_message(),
+            ]
+        )
+        monkeypatch.setattr(
+            'marcel_core.agent.runner.session_manager',
+            MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
+        )
+
+        _, _, events = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
+        types = [type(e).__name__ for e in events]
+        assert types == [
+            'RunStarted',
+            'TextMessageStart',
+            'TextMessageContent',
+            'TextMessageEnd',
+            'RunFinished',
+        ]
+
+    def test_run_started_includes_thread_id(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        mock_session = _make_mock_session([_result_message()])
+        monkeypatch.setattr(
+            'marcel_core.agent.runner.session_manager',
+            MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
+        )
+
+        _, _, events = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
+        started = events[0]
+        assert isinstance(started, RunStarted)
+        assert started.thread_id == 'conv-1'
 
 
 # ---------------------------------------------------------------------------
@@ -445,9 +632,13 @@ class TestExtractAndSaveMemories:
 class TestChatWebSocket:
     def _mock_stream(self, monkeypatch, tokens: list[str], cost: float | None = None):
         async def fake_stream(*args, **kwargs):
-            for t in tokens:
-                yield t
-            yield TurnResult(total_cost_usd=cost)
+            yield RunStarted(thread_id='test-conv')
+            if tokens:
+                yield TextMessageStart()
+                for t in tokens:
+                    yield TextMessageContent(text=t)
+                yield TextMessageEnd()
+            yield RunFinished(total_cost_usd=cost)
 
         monkeypatch.setattr('marcel_core.api.chat.stream_response', fake_stream)
         monkeypatch.setattr(
@@ -470,8 +661,12 @@ class TestChatWebSocket:
         with TestClient(app).websocket_connect('/ws/chat') as ws:
             ws.send_text(json.dumps({'text': 'hi', 'user': 'shaun', 'conversation': None}))
             ws.receive_text()  # started
+            msg1 = json.loads(ws.receive_text())  # text_message_start
+            assert msg1['type'] == 'text_message_start'
             token1 = json.loads(ws.receive_text())
             token2 = json.loads(ws.receive_text())
+            msg2 = json.loads(ws.receive_text())  # text_message_end
+            assert msg2['type'] == 'text_message_end'
             done = json.loads(ws.receive_text())
             assert token1 == {'type': 'token', 'text': 'Hello'}
             assert token2 == {'type': 'token', 'text': ' there'}
@@ -483,7 +678,9 @@ class TestChatWebSocket:
         with TestClient(app).websocket_connect('/ws/chat') as ws:
             ws.send_text(json.dumps({'text': 'hi', 'user': 'shaun', 'conversation': None}))
             ws.receive_text()  # started
+            ws.receive_text()  # text_message_start
             ws.receive_text()  # token
+            ws.receive_text()  # text_message_end
             done = json.loads(ws.receive_text())
             assert done['type'] == 'done'
             assert done['cost_usd'] == 0.05
@@ -505,8 +702,40 @@ class TestChatWebSocket:
         with TestClient(app).websocket_connect('/ws/chat') as ws:
             ws.send_text(json.dumps({'text': 'hi', 'user': 'shaun', 'conversation': conv_id}))
             # No 'started' message since conversation already exists
+            msg1 = json.loads(ws.receive_text())  # text_message_start
+            assert msg1['type'] == 'text_message_start'
             token = json.loads(ws.receive_text())
             assert token['type'] == 'token'
+            ws.receive_text()  # text_message_end
+            done = json.loads(ws.receive_text())
+            assert done['type'] == 'done'
+
+    def test_tool_call_events_sent_over_websocket(self, tmp_path, monkeypatch):
+        """ToolCallStart/End events are forwarded to the WebSocket client."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        async def fake_stream(*args, **kwargs):
+            yield RunStarted(thread_id='test-conv')
+            yield ToolCallStart(tool_call_id='t-1', tool_name='Read')
+            yield ToolCallEnd(tool_call_id='t-1')
+            yield RunFinished()
+
+        monkeypatch.setattr('marcel_core.api.chat.stream_response', fake_stream)
+        monkeypatch.setattr(
+            'marcel_core.api.chat.extract_and_save_memories',
+            lambda *a, **k: asyncio.sleep(0),
+        )
+
+        from marcel_core.storage import new_conversation
+
+        conv_id = new_conversation('shaun', 'cli')
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text(json.dumps({'text': 'hi', 'user': 'shaun', 'conversation': conv_id}))
+            msg1 = json.loads(ws.receive_text())
+            assert msg1['type'] == 'tool_call_start'
+            assert msg1['tool_name'] == 'Read'
+            msg2 = json.loads(ws.receive_text())
+            assert msg2['type'] == 'tool_call_end'
             done = json.loads(ws.receive_text())
             assert done['type'] == 'done'
 

@@ -6,10 +6,15 @@ Client → server (first message must authenticate):
     {"token": "...", "text": "...", "user": "alice", "conversation": null | "2026-03-26T14-32", "channel": "cli"}
 
 Server → client (in order):
-    {"type": "started", "conversation": "2026-03-26T14-32"}   # only when conversation was null
-    {"type": "token", "text": "..."}                          # streamed, one or many
-    {"type": "done", "cost_usd": 0.012, "turns": 3}          # end of turn
-    {"type": "error", "message": "..."}                       # on failure (replaces done)
+    {"type": "started", "conversation": "2026-03-26T14-32"}           # only when conversation was null
+    {"type": "text_message_start"}                                     # AG-UI: text block opened
+    {"type": "token", "text": "..."}                                   # streamed, one or many
+    {"type": "text_message_end"}                                       # AG-UI: text block closed
+    {"type": "tool_call_start", "tool_call_id": "...", "tool_name": "..."}  # AG-UI
+    {"type": "tool_call_end", "tool_call_id": "..."}                        # AG-UI
+    {"type": "tool_call_result", "tool_call_id": "...", ...}                # AG-UI
+    {"type": "done", "cost_usd": 0.012, "turns": 3}                   # end of turn
+    {"type": "error", "message": "..."}                                # on failure (replaces done)
 """
 
 import asyncio
@@ -20,7 +25,15 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from marcel_core import storage
 from marcel_core.agent import extract_and_save_memories, stream_response
-from marcel_core.agent.runner import TurnResult
+from marcel_core.agent.events import (
+    RunFinished,
+    TextMessageContent,
+    TextMessageEnd,
+    TextMessageStart,
+    ToolCallEnd,
+    ToolCallResult,
+    ToolCallStart,
+)
 from marcel_core.auth import valid_user_slug, verify_api_token
 
 router = APIRouter()
@@ -73,16 +86,20 @@ async def chat(websocket: WebSocket) -> None:
                     conversation_id = storage.new_conversation(user_slug, channel)
                 await websocket.send_text(json.dumps({'type': 'started', 'conversation': conversation_id}))
 
-            # Stream the agent response token by token
+            # Stream the agent response as AG-UI events
             response_parts: list[str] = []
-            turn_result = TurnResult()
+            run_finished = RunFinished()
             try:
-                async for item in stream_response(user_slug, channel, user_text, conversation_id, model=model):
-                    if isinstance(item, TurnResult):
-                        turn_result = item
-                    else:
-                        response_parts.append(item)
-                        await websocket.send_text(json.dumps({'type': 'token', 'text': item}))
+                async for event in stream_response(user_slug, channel, user_text, conversation_id, model=model):
+                    if isinstance(event, TextMessageContent):
+                        response_parts.append(event.text)
+                        await websocket.send_text(json.dumps({'type': 'token', 'text': event.text}))
+                    elif isinstance(event, RunFinished):
+                        run_finished = event
+                    elif isinstance(
+                        event, (TextMessageStart, TextMessageEnd, ToolCallStart, ToolCallEnd, ToolCallResult)
+                    ):
+                        await websocket.send_text(json.dumps(event.to_dict()))
             except Exception as exc:
                 await websocket.send_text(json.dumps({'type': 'error', 'message': str(exc)}))
                 continue
@@ -98,10 +115,10 @@ async def chat(websocket: WebSocket) -> None:
             asyncio.create_task(extract_and_save_memories(user_slug, user_text, full_response, conversation_id))
 
             done_msg: dict[str, object] = {'type': 'done'}
-            if turn_result.total_cost_usd is not None:
-                done_msg['cost_usd'] = turn_result.total_cost_usd
-            if turn_result.num_turns:
-                done_msg['turns'] = turn_result.num_turns
+            if run_finished.total_cost_usd is not None:
+                done_msg['cost_usd'] = run_finished.total_cost_usd
+            if run_finished.num_turns:
+                done_msg['turns'] = run_finished.num_turns
             await websocket.send_text(json.dumps(done_msg))
 
     except WebSocketDisconnect:

@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from marcel_core import storage
 from marcel_core.agent import extract_and_save_memories, stream_response
-from marcel_core.agent.runner import TurnResult
+from marcel_core.agent.events import TextMessageContent
 from marcel_core.agent.sessions import session_manager
 from marcel_core.telegram import bot, sessions
 
@@ -64,11 +64,9 @@ async def _process_assistant_message_inner(chat_id: int, user_slug: str, text: s
     try:
 
         async def _collect() -> None:
-            async for item in stream_response(user_slug, 'telegram', text, conversation_id):
-                if isinstance(item, TurnResult):
-                    pass  # metadata — not sent to user
-                else:
-                    response_parts.append(item)
+            async for event in stream_response(user_slug, 'telegram', text, conversation_id):
+                if isinstance(event, TextMessageContent):
+                    response_parts.append(event.text)
 
         await asyncio.wait_for(_collect(), timeout=_ASSISTANT_TIMEOUT)
     except asyncio.TimeoutError:

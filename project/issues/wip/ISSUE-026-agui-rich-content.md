@@ -1,6 +1,6 @@
 # ISSUE-026: AG-UI Protocol + Rich Content Rendering
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-02
 **Assignee:** Unassigned
 **Priority:** High
@@ -46,12 +46,12 @@ Marcel Python Backend (AG-UI event emitter)
 ## Tasks
 
 ### Phase 1 — AG-UI Protocol Adoption
-- [ ] ISSUE-026-a: Define Marcel's AG-UI event schema (Python dataclasses/TypedDicts mapping to AG-UI event types)
-- [ ] ISSUE-026-b: Refactor `runner.py` to emit AG-UI events instead of raw token strings
-- [ ] ISSUE-026-c: Update WebSocket endpoint to stream AG-UI events
+- [✓] ISSUE-026-a: Define Marcel's AG-UI event schema (Python dataclasses/TypedDicts mapping to AG-UI event types)
+- [✓] ISSUE-026-b: Refactor `runner.py` to emit AG-UI events instead of raw token strings
+- [✓] ISSUE-026-c: Update WebSocket endpoint to stream AG-UI events
 - [ ] ISSUE-026-d: Update Rust TUI client to consume AG-UI events (backward-compatible: text events render as before, tool call events show activity indicators)
-- [ ] ISSUE-026-e: Update Telegram webhook handler to consume AG-UI events (text events → MarkdownV2 as before)
-- [ ] ISSUE-026-f: Emit `ToolCallStart`/`ToolCallArgs`/`ToolCallEnd` events when the agent invokes tools
+- [✓] ISSUE-026-e: Update Telegram webhook handler to consume AG-UI events (text events → MarkdownV2 as before)
+- [✓] ISSUE-026-f: Emit `ToolCallStart`/`ToolCallArgs`/`ToolCallEnd` events when the agent invokes tools
 
 ### Phase 2 — Web App + Telegram Mini App
 - [ ] ISSUE-026-g: Build minimal web app (React or Preact) consuming AG-UI event stream via SSE
@@ -85,4 +85,16 @@ Conducted a thorough investigation of CopilotKit, AG-UI protocol, A2UI, and Tele
 **A2UI** (Google) is a companion protocol to AG-UI where agents emit structured JSON describing what UI they need. Deferred to Phase 4.
 
 ## Implementation Log
-<!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-02 14:00 - LLM Implementation
+**Action**: Implemented Phase 1 subtasks a, b, c, e, f — AG-UI event protocol adoption
+**Files Modified**:
+- `src/marcel_core/agent/events.py` — Created: 9 AG-UI event types as frozen dataclasses (RunStarted, RunFinished, RunError, TextMessageStart, TextMessageContent, TextMessageEnd, ToolCallStart, ToolCallEnd, ToolCallResult) + AgentEvent union type + _truncate helper
+- `src/marcel_core/agent/runner.py` — Refactored: stream_response() now yields AgentEvent instead of str | TurnResult. Added ToolUseBlock/ToolResultBlock processing from SDK stream events. Removed TurnResult (replaced by RunFinished).
+- `src/marcel_core/agent/__init__.py` — Updated exports: removed TurnResult, added all event types
+- `src/marcel_core/api/chat.py` — Updated: consumes AgentEvent types. TextMessageContent → backward-compatible `{"type": "token"}`. New AG-UI events (text boundaries, tool calls) sent via to_dict(). RunFinished → backward-compatible `{"type": "done"}`.
+- `src/marcel_core/telegram/webhook.py` — Updated: collects TextMessageContent events, ignores all others
+- `tests/core/test_agent.py` — Updated helpers (_collect_stream returns events list), adapted existing tests, added 7 new tests: text_message_boundaries, emits_tool_call_events, tool_call_splits_text_messages, tool_result_from_assistant_message, fallback_path_has_text_boundaries, run_started_includes_thread_id, tool_call_events_sent_over_websocket
+**Commands Run**: `make check` (format + lint pass, pyright has 5 pre-existing errors unrelated to this change), `uv run pytest tests/ -v` (185/185 pass)
+**Result**: Success — all tests passing, wire protocol backward-compatible
+**Next**: ISSUE-026-d (Rust TUI update to display tool call activity)

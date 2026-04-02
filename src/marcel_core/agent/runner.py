@@ -1,4 +1,4 @@
-"""Agent runner — streams response tokens from Claude for one conversation turn.
+"""Agent runner — streams AG-UI events from Claude for one conversation turn.
 
 Uses persistent ClaudeSDKClient sessions (via SessionManager) so conversation
 context is maintained across turns with prompt cache reuse and SDK-managed
@@ -10,23 +10,24 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
 
-from claude_agent_sdk import AssistantMessage, ResultMessage, StreamEvent, TextBlock
+from claude_agent_sdk import AssistantMessage, ResultMessage, StreamEvent, TextBlock, ToolResultBlock
 
+from marcel_core.agent.events import (
+    AgentEvent,
+    RunFinished,
+    RunStarted,
+    TextMessageContent,
+    TextMessageEnd,
+    TextMessageStart,
+    ToolCallEnd,
+    ToolCallResult,
+    ToolCallStart,
+    _truncate,
+)
 from marcel_core.agent.sessions import session_manager
 
 log = logging.getLogger(__name__)
-
-
-@dataclass
-class TurnResult:
-    """Metadata returned after a complete turn."""
-
-    total_cost_usd: float | None = None
-    num_turns: int = 0
-    session_id: str | None = None
-    is_error: bool = False
 
 
 async def stream_response(
@@ -34,17 +35,18 @@ async def stream_response(
     channel: str,
     user_text: str,
     conversation_id: str,
+    *,
     model: str | None = None,
-) -> AsyncIterator[str | TurnResult]:
-    """Stream response tokens from Claude for one conversation turn.
+) -> AsyncIterator[AgentEvent]:
+    """Stream AG-UI events from Claude for one conversation turn.
 
     Uses a persistent ClaudeSDKClient session — the first call for a
     (user, conversation) pair creates and connects the client; subsequent
     calls reuse it with full prompt cache benefits.
 
     Yields:
-        Text token strings as they arrive, then a final TurnResult with
-        cost/usage metadata.
+        AgentEvent instances: RunStarted, TextMessageStart/Content/End,
+        ToolCallStart/End/Result, and a final RunFinished.
 
     Args:
         user_slug: The user's slug.
@@ -62,38 +64,86 @@ async def stream_response(
 
     await session.client.query(user_text)
 
+    yield RunStarted(thread_id=conversation_id)
+
     got_stream_events = False
+    text_started = False
     pending_assistant_blocks: list[str] = []
-    turn_result = TurnResult()
+    pending_tool_results: list[ToolCallResult] = []
+    run_finished = RunFinished()
+
+    # Track active tool_use content blocks by index
+    active_tool_blocks: dict[int, str] = {}
 
     async for msg in session.client.receive_response():
         if isinstance(msg, StreamEvent):
             event = msg.event
-            if event.get('type') == 'content_block_delta':
+            event_type = event.get('type')
+
+            if event_type == 'content_block_start':
+                cb = event.get('content_block', {})
+                if cb.get('type') == 'tool_use':
+                    if text_started:
+                        yield TextMessageEnd()
+                        text_started = False
+                    idx = event.get('index', 0)
+                    tool_id = cb.get('id', '')
+                    tool_name = cb.get('name', '')
+                    active_tool_blocks[idx] = tool_id
+                    yield ToolCallStart(tool_call_id=tool_id, tool_name=tool_name)
+
+            elif event_type == 'content_block_delta':
                 delta = event.get('delta', {})
                 if delta.get('type') == 'text_delta':
                     text = delta.get('text', '')
                     if text:
                         got_stream_events = True
-                        yield text
+                        if not text_started:
+                            yield TextMessageStart()
+                            text_started = True
+                        yield TextMessageContent(text=text)
 
-        elif isinstance(msg, AssistantMessage) and not got_stream_events:
-            # Buffer complete text blocks as fallback if streaming never arrived
+            elif event_type == 'content_block_stop':
+                idx = event.get('index', 0)
+                if tool_id := active_tool_blocks.pop(idx, None):
+                    yield ToolCallEnd(tool_call_id=tool_id)
+
+        elif isinstance(msg, AssistantMessage):
+            if not got_stream_events:
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        pending_assistant_blocks.append(block.text)
             for block in msg.content:
-                if isinstance(block, TextBlock):
-                    pending_assistant_blocks.append(block.text)
+                if isinstance(block, ToolResultBlock):
+                    summary = _truncate(str(block.content or ''))
+                    pending_tool_results.append(
+                        ToolCallResult(
+                            tool_call_id=block.tool_use_id,
+                            is_error=bool(block.is_error),
+                            summary=summary,
+                        )
+                    )
 
         elif isinstance(msg, ResultMessage):
-            turn_result = TurnResult(
+            run_finished = RunFinished(
                 total_cost_usd=msg.total_cost_usd,
                 num_turns=msg.num_turns,
                 session_id=msg.session_id,
                 is_error=msg.is_error,
             )
 
-    # Fallback: emit buffered text if no stream events were received
-    if not got_stream_events:
-        for text in pending_assistant_blocks:
-            yield text
+    # Close any open text message
+    if text_started:
+        yield TextMessageEnd()
 
-    yield turn_result
+    # Fallback: emit buffered text if no stream events were received
+    if not got_stream_events and pending_assistant_blocks:
+        yield TextMessageStart()
+        for text in pending_assistant_blocks:
+            yield TextMessageContent(text=text)
+        yield TextMessageEnd()
+
+    for result in pending_tool_results:
+        yield result
+
+    yield run_finished
