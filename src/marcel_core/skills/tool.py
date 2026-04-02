@@ -1,4 +1,4 @@
-"""cmd and notify MCP tools — exposes the skills registry and progress notifications to the agent."""
+"""integration and notify MCP tools — exposes the skills registry and progress notifications to the agent."""
 
 from __future__ import annotations
 
@@ -8,13 +8,14 @@ from claude_agent_sdk.types import McpSdkServerConfig
 from .executor import run
 from .registry import get_skill, list_skills
 
-_CMD_SCHEMA: dict = {
+_INTEGRATION_SCHEMA: dict = {
     'type': 'object',
     'properties': {
         'skill': {
             'type': 'string',
             'description': (
-                'Dotted skill name from the registry (e.g. "calendar.list_events"). Call list_skills first if unsure.'
+                'Dotted skill name from the registry (e.g. "icloud.calendar"). '
+                'See your skill docs for available commands and parameters.'
             ),
         },
         'params': {
@@ -39,7 +40,7 @@ _NOTIFY_SCHEMA: dict = {
 
 
 def build_skills_mcp_server(user_slug: str, channel: str = 'cli') -> McpSdkServerConfig:
-    """Return an in-process MCP server with the cmd and notify tools bound to `user_slug`.
+    """Return an in-process MCP server with the integration and notify tools bound to `user_slug`.
 
     Args:
         user_slug: The user executing the command (used for per-user auth).
@@ -56,7 +57,7 @@ def build_skills_mcp_server(user_slug: str, channel: str = 'cli') -> McpSdkServe
         else 'No skills are registered yet — the registry is empty.'
     )
 
-    async def _cmd_impl(args: dict) -> dict:
+    async def _integration_impl(args: dict) -> dict:
         skill_name: str = args.get('skill', '')
         params: dict = args.get('params', {})
 
@@ -91,7 +92,7 @@ def build_skills_mcp_server(user_slug: str, channel: str = 'cli') -> McpSdkServe
 
         return {'content': [{'type': 'text', 'text': 'ok'}]}
 
-    cmd_tool: SdkMcpTool = tool('cmd', description, _CMD_SCHEMA)(_cmd_impl)
+    integration_tool: SdkMcpTool = tool('integration', description, _INTEGRATION_SCHEMA)(_integration_impl)
     notify_tool: SdkMcpTool = tool(
         'notify',
         'Send a short progress update to the user mid-task. '
@@ -99,4 +100,4 @@ def build_skills_mcp_server(user_slug: str, channel: str = 'cli') -> McpSdkServe
         'Always call this at the start of any multi-step task and after each major step.',
         _NOTIFY_SCHEMA,
     )(_notify_impl)
-    return create_sdk_mcp_server('marcel-skills', tools=[cmd_tool, notify_tool])
+    return create_sdk_mcp_server('marcel-skills', tools=[integration_tool, notify_tool])

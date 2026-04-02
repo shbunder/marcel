@@ -1,13 +1,24 @@
-"""Skills registry — loads and validates skills.json."""
+"""Skills registry — loads skills.json and merges python integrations."""
 
 import json
 from pathlib import Path
+
+from marcel_core.skills.integrations import discover, list_python_skills
 
 _SKILLS_JSON = Path(__file__).parent / 'skills.json'
 
 
 def _load() -> dict[str, dict]:
-    return json.loads(_SKILLS_JSON.read_text(encoding='utf-8'))
+    """Load skills.json and merge in python integration entries."""
+    registry: dict[str, dict] = json.loads(_SKILLS_JSON.read_text(encoding='utf-8'))
+
+    # Auto-discover python integration modules and add them to the registry.
+    discover()
+    for name in list_python_skills():
+        if name not in registry:
+            registry[name] = {'type': 'python', 'handler': name}
+
+    return registry
 
 
 def get_skill(name: str) -> dict:

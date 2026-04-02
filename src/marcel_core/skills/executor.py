@@ -1,28 +1,41 @@
-"""HTTP executor for skills.
+"""HTTP, shell, and python executor for skills.
 
-Supported auth types: none, api_key.
-oauth2 returns a "not connected" message until Phase 3 adds the OAuth flow.
+Supported skill types:
+- http (default): Makes HTTP requests. Auth types: none, api_key.
+  oauth2 returns a "not connected" message until Phase 3 adds the OAuth flow.
+- shell: Runs a local shell command. Command string supports {param} substitution.
+- python: Dispatches to a registered integration handler function.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 
 import httpx
 
 
-async def run(config: dict, params: dict, user_slug: str) -> str:  # noqa: ARG001
-    """Execute a skill HTTP call and return the result as a plain string.
+async def run(config: dict, params: dict, user_slug: str) -> str:
+    """Execute a skill and return the result as a plain string.
+
+    Dispatches to the appropriate executor based on config['type'].
 
     Args:
         config: Skill config dict from the registry.
         params: Caller-supplied keyword arguments.
-        user_slug: Slug of the requesting user (used for per-user auth lookup in future phases).
+        user_slug: Slug of the requesting user (used for per-user auth lookup).
 
     Returns:
         Response body as a string, with response_transform applied if configured.
     """
+    skill_type = config.get('type', 'http')
+    if skill_type == 'python':
+        return await _run_python(config, params, user_slug)
+    if skill_type == 'shell':
+        return await _run_shell(config, params)
+
+    # Default: HTTP skill
     auth = config.get('auth', {})
     auth_type = auth.get('type', 'none')
 
@@ -66,6 +79,53 @@ async def run(config: dict, params: dict, user_slug: str) -> str:  # noqa: ARG00
         body = _apply_transform(transform, body)
 
     return body
+
+
+async def _run_shell(config: dict, params: dict) -> str:
+    """Execute a shell command and return combined stdout+stderr.
+
+    The ``command`` field in the skill config supports ``{param}`` placeholders
+    that are replaced with values from *params* (or defaults from the skill spec).
+    """
+    template: str = config.get('command', '')
+    if not template:
+        return 'Shell skill has no command configured.'
+
+    # Resolve params with defaults
+    resolved: dict[str, str] = {}
+    for key, spec in config.get('params', {}).items():
+        if key in params:
+            resolved[key] = str(params[key])
+        elif 'default' in spec:
+            resolved[key] = str(spec['default'])
+
+    try:
+        command = template.format(**resolved)
+    except KeyError as exc:
+        return f'Missing required parameter: {exc}'
+
+    proc = await asyncio.create_subprocess_shell(
+        command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+    output = stdout.decode().strip() if stdout else ''
+    rc = proc.returncode
+
+    if rc != 0:
+        raise RuntimeError(f'Command exited with code {rc}.\n{output}')
+
+    return output or '(command completed with no output)'
+
+
+async def _run_python(config: dict, params: dict, user_slug: str) -> str:
+    """Dispatch to a registered python integration handler."""
+    from marcel_core.skills.integrations import get_handler
+
+    handler_name: str = config['handler']
+    handler = get_handler(handler_name)
+    return await handler(params, user_slug)
 
 
 def _apply_transform(transform: str, body: str) -> str:

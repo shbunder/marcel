@@ -12,8 +12,6 @@ Session state per chat::
 
     {
         "conversation_id": "2026-03-29T14-00",
-        "mode": "assistant",
-        "coder_session_id": null,
         "last_message_at": "2026-03-29T14:32:00"
     }
 """
@@ -33,8 +31,6 @@ AUTO_NEW_HOURS = 6
 
 class SessionState(TypedDict, total=False):
     conversation_id: str | None
-    mode: str  # "assistant" | "coder"
-    coder_session_id: str | None
     last_message_at: str | None
 
 
@@ -52,18 +48,20 @@ def _load_sessions() -> dict[str, SessionState]:
     except (json.JSONDecodeError, OSError):
         return {}
 
-    # Migrate legacy format: {chat_id: "conversation_id"} → SessionState
+    # Migrate legacy formats to current SessionState
     sessions: dict[str, SessionState] = {}
     for key, value in raw.items():
         if isinstance(value, str):
             sessions[key] = SessionState(
                 conversation_id=value,
-                mode='assistant',
-                coder_session_id=None,
                 last_message_at=None,
             )
         elif isinstance(value, dict):
-            sessions[key] = value  # type: ignore[assignment]
+            # Drop legacy coder fields if present
+            sessions[key] = SessionState(
+                conversation_id=value.get('conversation_id'),
+                last_message_at=value.get('last_message_at'),
+            )
         # Skip malformed entries
     return sessions
 
@@ -78,8 +76,6 @@ def _get_state(chat_id: int | str) -> SessionState:
         str(chat_id),
         SessionState(
             conversation_id=None,
-            mode='assistant',
-            coder_session_id=None,
             last_message_at=None,
         ),
     )
@@ -93,8 +89,6 @@ def _update_state(chat_id: int | str, **updates: object) -> SessionState:
         key,
         SessionState(
             conversation_id=None,
-            mode='assistant',
-            coder_session_id=None,
             last_message_at=None,
         ),
     )
@@ -105,7 +99,7 @@ def _update_state(chat_id: int | str, **updates: object) -> SessionState:
 
 
 # ---------------------------------------------------------------------------
-# User linking (unchanged)
+# User linking
 # ---------------------------------------------------------------------------
 
 
@@ -151,7 +145,7 @@ def get_chat_id(user_slug: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Conversation & mode state
+# Conversation state
 # ---------------------------------------------------------------------------
 
 
@@ -163,31 +157,6 @@ def get_conversation_id(chat_id: int | str) -> str | None:
 def set_conversation_id(chat_id: int | str, conversation_id: str) -> None:
     """Persist the active conversation ID for a chat."""
     _update_state(chat_id, conversation_id=conversation_id)
-
-
-def get_mode(chat_id: int | str) -> str:
-    """Return the current mode for a chat: ``"assistant"`` or ``"coder"``."""
-    return _get_state(chat_id).get('mode', 'assistant')
-
-
-def get_coder_session_id(chat_id: int | str) -> str | None:
-    """Return the Claude Code session ID for an active coder session."""
-    return _get_state(chat_id).get('coder_session_id')
-
-
-def enter_coder_mode(chat_id: int | str, coder_session_id: str | None = None) -> None:
-    """Switch a chat into coder mode, optionally storing a session ID."""
-    _update_state(chat_id, mode='coder', coder_session_id=coder_session_id)
-
-
-def exit_coder_mode(chat_id: int | str) -> None:
-    """Switch a chat back to assistant mode, preserving coder_session_id for resume."""
-    _update_state(chat_id, mode='assistant')
-
-
-def set_coder_session_id(chat_id: int | str, session_id: str) -> None:
-    """Store the Claude Code session ID captured from a StreamEvent."""
-    _update_state(chat_id, coder_session_id=session_id)
 
 
 def touch_last_message(chat_id: int | str) -> None:
@@ -209,10 +178,8 @@ def should_auto_new(chat_id: int | str) -> bool:
 
 
 def reset_session(chat_id: int | str) -> None:
-    """Clear conversation, exit coder mode — used by /new command."""
+    """Clear conversation — used by /new command."""
     _update_state(
         chat_id,
         conversation_id=None,
-        mode='assistant',
-        coder_session_id=None,
     )

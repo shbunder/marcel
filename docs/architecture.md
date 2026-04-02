@@ -16,13 +16,23 @@ src/marcel_core/
     chat.py        # WebSocket /ws/chat
   agent/
     context.py     # build_system_prompt — loads profile, memory, conversation history
-    runner.py      # stream_response — calls claude_agent_sdk, yields text tokens
+    runner.py      # stream_response — single unified agent, calls claude_agent_sdk
     memory_extract.py  # background fact extraction after each turn
-  storage/         # Flat-file read/write helpers (ISSUE-002)
-  skills/          # cmd-tool dispatcher and skills.json registry (ISSUE-004)
-  auth/            # JWT and user identity (Phase 2)
-  watchdog/        # Self-modification safety and git rollback (ISSUE-005)
-  telegram/        # Telegram bot (Phase 2)
+  storage/         # Flat-file read/write helpers
+  skills/
+    tool.py        # integration + notify MCP tools (thin dispatcher)
+    registry.py    # Merges skills.json with auto-discovered python integrations
+    executor.py    # Routes to shell/http/python handlers
+    skills.json    # Shell and HTTP skill configs
+    integrations/  # Pluggable python integration modules (@register decorator)
+      icloud.py    # iCloud calendar + mail
+  icloud/          # iCloud client library (CalDAV, IMAP)
+  auth/            # Token verification and input validation
+  watchdog/        # Self-modification safety and git rollback
+  telegram/        # Telegram webhook, bot client, session state
+
+.claude/skills/    # Claude Code skill docs — teach the agent how to use integrations
+  icloud/SKILL.md  # iCloud calendar and mail usage
 ```
 
 ## API endpoints

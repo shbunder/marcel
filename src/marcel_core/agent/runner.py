@@ -10,7 +10,6 @@ import claude_agent_sdk
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, StreamEvent, TextBlock
 
 from marcel_core.agent.context import build_system_prompt
-from marcel_core.icloud import build_icloud_mcp_server
 from marcel_core.skills import build_skills_mcp_server
 
 
@@ -41,9 +40,9 @@ async def stream_response(
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         tools={'type': 'preset', 'preset': 'claude_code'},
-        mcp_servers={'skills': build_skills_mcp_server(user_slug, channel), 'icloud': build_icloud_mcp_server(user_slug)},
+        mcp_servers={'skills': build_skills_mcp_server(user_slug, channel)},
         permission_mode='bypassPermissions',
-        max_turns=10,
+        max_turns=75,
         model=model,
     )
 

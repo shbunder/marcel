@@ -53,7 +53,7 @@ Create an issue in `./project/issues/open/` per the conventions in [./issues/CLA
 
 ## Step 4 — Design *(skip for small changes)*
 
-For substantial features, sketch the approach before writing code: which files change, what the public interface looks like (`cmd()` signature, skill contract, config shape). Confirm with the user before proceeding.
+For substantial features, sketch the approach before writing code: which files change, what the public interface looks like (integration handler signature, skill contract, config shape). Confirm with the user before proceeding.
 
 > Skip when the change is confined to one file and the interface is obvious.
 
@@ -130,11 +130,11 @@ When rewriting Marcel's own code:
 
 New integrations follow this pattern:
 
-1. A new **skill** that describes what the integration does and how to invoke it
-2. A `cmd("some_string")` entry that maps a user-facing command to the skill. `cmd()` is Marcel's dispatch mechanism: when a user issues a command, the router matches the input to a registered `cmd()` entry and hands off to the corresponding skill.
-3. A **JSON config entry** that configures the underlying request/behavior (endpoint, auth, params)
+1. **Create a python integration module** at `src/marcel_core/skills/integrations/<name>.py`. Use the `@register("name.action")` decorator to register async handler functions. Each handler receives `(params: dict, user_slug: str)` and returns a string.
+2. **Create a Claude Code skill** at `.claude/skills/<name>/SKILL.md`. This teaches the agent how to call `integration(skill="name.action", params={...})` with inline examples, parameter tables, and usage notes.
+3. **For simple HTTP/shell integrations**, add a JSON entry to `skills.json` instead — no Python module needed.
 
-Integrations must be self-contained — they should not require changes to core Marcel code. When adding an integration, verify the pattern works end-to-end before committing.
+All integrations are dispatched through the single `integration` tool. Integrations must be self-contained — they should not require changes to core Marcel code (tool.py, executor.py, runner.py). When adding an integration, verify the pattern works end-to-end before committing.
 
 ## Telegram-Initiated Changes
 

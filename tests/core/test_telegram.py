@@ -1,7 +1,7 @@
-"""Tests for ISSUE-011 & ISSUE-018: Telegram channel integration.
+"""Tests for Telegram channel integration.
 
-Covers bot.py (escape helper), sessions.py (state management, coder mode),
-and webhook.py (routing, /start, /code, /done, /new commands, coder dispatch).
+Covers bot.py (escape helper), sessions.py (state management),
+and webhook.py (routing, /start, /new commands).
 """
 
 import asyncio
@@ -12,7 +12,6 @@ import respx
 from fastapi.testclient import TestClient
 from httpx import Response
 
-from marcel_core.agent.coder import CoderResult
 from marcel_core.main import app
 from marcel_core.storage import _root
 from marcel_core.telegram import sessions
@@ -274,39 +273,8 @@ class TestTelegramWebhook:
 
 
 # ---------------------------------------------------------------------------
-# sessions.py — coder mode state (ISSUE-018)
+# sessions.py — auto-new on inactivity
 # ---------------------------------------------------------------------------
-
-
-class TestCoderModeState:
-    def test_default_mode_is_assistant(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        assert sessions.get_mode(123) == 'assistant'
-
-    def test_enter_and_exit_coder_mode(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        sessions.enter_coder_mode(123, coder_session_id='sess-1')
-        assert sessions.get_mode(123) == 'coder'
-        assert sessions.get_coder_session_id(123) == 'sess-1'
-        sessions.exit_coder_mode(123)
-        assert sessions.get_mode(123) == 'assistant'
-        # Session ID preserved for resume on next /code
-        assert sessions.get_coder_session_id(123) == 'sess-1'
-
-    def test_reset_session_clears_everything(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        sessions.set_conversation_id(123, 'conv-1')
-        sessions.enter_coder_mode(123, coder_session_id='sess-1')
-        sessions.reset_session(123)
-        assert sessions.get_mode(123) == 'assistant'
-        assert sessions.get_coder_session_id(123) is None
-        assert sessions.get_conversation_id(123) is None
-
-    def test_set_coder_session_id(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        sessions.enter_coder_mode(123)
-        sessions.set_coder_session_id(123, 'new-sess')
-        assert sessions.get_coder_session_id(123) == 'new-sess'
 
 
 class TestAutoNewOnInactivity:
@@ -343,100 +311,28 @@ class TestLegacySessionMigration:
         sessions_path.write_text(json.dumps({'123': 'old-conv-id'}))
 
         assert sessions.get_conversation_id(123) == 'old-conv-id'
-        assert sessions.get_mode(123) == 'assistant'
 
-
-# ---------------------------------------------------------------------------
-# webhook.py — /code, /done, /new commands (ISSUE-018)
-# ---------------------------------------------------------------------------
-
-
-def _mock_coder(monkeypatch, response: str = 'Done!', session_id: str = 'sess-1') -> None:
-    """Mock run_coder_task to return a canned CoderResult."""
-
-    async def fake_coder(prompt, *, resume_session_id=None, on_progress=None):
-        return CoderResult(response=response, session_id=session_id)
-
-    monkeypatch.setattr('marcel_core.telegram.webhook.run_coder_task', fake_coder)
-
-
-class TestCoderWebhook:
-    @respx.mock
-    def test_code_command_enters_coder_mode(self, tmp_path, monkeypatch):
+    def test_migrates_dict_with_legacy_coder_fields(self, tmp_path, monkeypatch):
+        """Legacy sessions with coder fields should be migrated cleanly."""
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
-        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
-        sessions.link_user('shaun', 555)
-        _mock_coder(monkeypatch)
-
-        respx.post('https://api.telegram.org/bottest-token/sendMessage').mock(
-            return_value=Response(200, json={'ok': True})
+        sessions_path = tmp_path / 'telegram' / 'sessions.json'
+        sessions_path.parent.mkdir(parents=True, exist_ok=True)
+        sessions_path.write_text(
+            json.dumps(
+                {
+                    '123': {
+                        'conversation_id': 'conv-1',
+                        'mode': 'coder',
+                        'coder_session_id': 'sess-1',
+                        'last_message_at': '2026-03-29T14:32:00',
+                    }
+                }
+            )
         )
+        assert sessions.get_conversation_id(123) == 'conv-1'
 
-        client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=_make_update(555, '/code add retry logic'), headers=_WEBHOOK_HEADERS)
-        assert resp.status_code == 200
-        assert resp.json() == {'status': 'ok'}
-        # Auto-exits coder mode after task completes
-        assert sessions.get_mode(555) == 'assistant'
 
-    @respx.mock
-    def test_code_without_prompt_shows_usage(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
-        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
-        sessions.link_user('shaun', 555)
-
-        sent_payloads: list[dict] = []
-
-        def capture(request):
-            sent_payloads.append(json.loads(request.content))
-            return Response(200, json={'ok': True})
-
-        respx.post('https://api.telegram.org/bottest-token/sendMessage').mock(side_effect=capture)
-
-        client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=_make_update(555, '/code'), headers=_WEBHOOK_HEADERS)
-        assert resp.status_code == 200
-        assert any('Usage' in p.get('text', '') for p in sent_payloads)
-
-    @respx.mock
-    def test_done_command_exits_coder_mode(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
-        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
-        sessions.link_user('shaun', 555)
-        sessions.enter_coder_mode(555)
-
-        respx.post('https://api.telegram.org/bottest-token/sendMessage').mock(
-            return_value=Response(200, json={'ok': True})
-        )
-
-        client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=_make_update(555, '/done'), headers=_WEBHOOK_HEADERS)
-        assert resp.status_code == 200
-        assert sessions.get_mode(555) == 'assistant'
-
-    @respx.mock
-    def test_done_when_not_in_coder_mode(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
-        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
-        sessions.link_user('shaun', 555)
-
-        sent_payloads: list[dict] = []
-
-        def capture(request):
-            sent_payloads.append(json.loads(request.content))
-            return Response(200, json={'ok': True})
-
-        respx.post('https://api.telegram.org/bottest-token/sendMessage').mock(side_effect=capture)
-
-        client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=_make_update(555, '/done'), headers=_WEBHOOK_HEADERS)
-        assert resp.status_code == 200
-        assert any('Not in coder mode' in p.get('text', '') for p in sent_payloads)
-
+class TestNewCommand:
     @respx.mock
     def test_new_command_resets_session(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
@@ -444,7 +340,6 @@ class TestCoderWebhook:
         monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
         sessions.link_user('shaun', 555)
         sessions.set_conversation_id(555, 'old-conv')
-        sessions.enter_coder_mode(555)
 
         respx.post('https://api.telegram.org/bottest-token/sendMessage').mock(
             return_value=Response(200, json={'ok': True})
@@ -453,24 +348,4 @@ class TestCoderWebhook:
         client = TestClient(app)
         resp = client.post('/telegram/webhook', json=_make_update(555, '/new'), headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
-        assert sessions.get_mode(555) == 'assistant'
         assert sessions.get_conversation_id(555) is None
-
-    @respx.mock
-    def test_coder_mode_follow_up_routes_to_coder(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
-        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
-        sessions.link_user('shaun', 555)
-        sessions.enter_coder_mode(555, coder_session_id='prev-sess')
-        _mock_coder(monkeypatch, response='Follow-up done', session_id='sess-2')
-
-        respx.post('https://api.telegram.org/bottest-token/sendMessage').mock(
-            return_value=Response(200, json={'ok': True})
-        )
-
-        client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=_make_update(555, 'yes do it that way'), headers=_WEBHOOK_HEADERS)
-        assert resp.status_code == 200
-        # Auto-exits coder mode after task completes
-        assert sessions.get_mode(555) == 'assistant'

@@ -1,5 +1,5 @@
-"""iCloud integration — exposes Apple calendar and mail as MCP tools."""
+"""iCloud integration — Apple calendar and mail client library."""
 
-from .tool import build_icloud_mcp_server
+from .client import get_calendar_events, search_mail
 
-__all__ = ['build_icloud_mcp_server']
+__all__ = ['get_calendar_events', 'search_mail']
