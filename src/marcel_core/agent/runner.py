@@ -40,6 +40,7 @@ async def stream_response(
 
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
+        tools={'type': 'preset', 'preset': 'claude_code'},
         mcp_servers={'skills': build_skills_mcp_server(user_slug, channel), 'icloud': build_icloud_mcp_server(user_slug)},
         permission_mode='bypassPermissions',
         max_turns=10,
