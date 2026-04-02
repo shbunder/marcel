@@ -439,6 +439,14 @@ impl Renderable for InputBox {
         if suggestion_height > 0 {
             let dropdown_area = Rect::new(area.x, area.y, area.width, suggestion_height);
 
+            // Scroll window: keep the selected item visible
+            let max_visible = MAX_VISIBLE_SUGGESTIONS;
+            let scroll_start = if self.selected_suggestion >= max_visible {
+                self.selected_suggestion - max_visible + 1
+            } else {
+                0
+            };
+
             // Background fill
             let bg = Style::default().bg(Color::Rgb(0x1e, 0x1e, 0x1e));
             for y in dropdown_area.y..dropdown_area.y + dropdown_area.height {
@@ -447,9 +455,13 @@ impl Renderable for InputBox {
                 }
             }
 
-            for (i, suggestion) in self.suggestions.iter().take(MAX_VISIBLE_SUGGESTIONS).enumerate() {
-                let y = dropdown_area.y + i as u16;
-                let is_selected = i == self.selected_suggestion;
+            for (row, abs_idx) in (scroll_start..scroll_start + max_visible)
+                .filter(|&i| i < self.suggestions.len())
+                .enumerate()
+            {
+                let suggestion = &self.suggestions[abs_idx];
+                let y = dropdown_area.y + row as u16;
+                let is_selected = abs_idx == self.selected_suggestion;
 
                 let (name_style, desc_style, row_bg) = if is_selected {
                     (
