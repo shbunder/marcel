@@ -126,25 +126,25 @@ if [[ ! -f "$REPO_DIR/.env" ]]; then
     fi
 fi
 
-# Check for required keys
-MISSING_KEYS=0
-while IFS='=' read -r key value; do
-    key=$(echo "$key" | xargs)
-    value=$(echo "$value" | xargs)
-    if [[ "$key" == "ANTHROPIC_API_KEY" && -z "$value" ]]; then
-        err "ANTHROPIC_API_KEY is empty in .env"
-        MISSING_KEYS=$((MISSING_KEYS + 1))
+# Check for required keys (may be in .env or .env.local)
+_check_env_key() {
+    local key="$1"
+    local value=""
+    # Check .env
+    value=$(grep -E "^${key}=" "$REPO_DIR/.env" 2>/dev/null | cut -d= -f2- | xargs)
+    # Override with .env.local if present
+    if [[ -f "$REPO_DIR/.env.local" ]]; then
+        local local_value
+        local_value=$(grep -E "^${key}=" "$REPO_DIR/.env.local" 2>/dev/null | cut -d= -f2- | xargs)
+        [[ -n "$local_value" ]] && value="$local_value"
     fi
-done < "$REPO_DIR/.env"
+    [[ -n "$value" ]]
+}
 
-# Also check .env.local if it exists
-if [[ -f "$REPO_DIR/.env.local" ]]; then
-    source "$REPO_DIR/.env.local" 2>/dev/null || true
-fi
-
-if (( MISSING_KEYS > 0 )); then
-    err "Fill in the required keys in $REPO_DIR/.env (or .env.local) and re-run."
-    exit 1
+if ! _check_env_key "ANTHROPIC_API_KEY"; then
+    warn "ANTHROPIC_API_KEY is not set in .env or .env.local"
+    warn "This is fine if you use Claude SDK OAuth (claude login)."
+    warn "If using an API key, set it before starting Marcel."
 fi
 
 log "Configuration looks good."
