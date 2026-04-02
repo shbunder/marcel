@@ -1,6 +1,6 @@
 # ISSUE-025: CLI Parity with Claude Code
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-02
 **Assignee:** Marcel
 **Priority:** High
