@@ -1,6 +1,6 @@
 # Telegram Channel
 
-Marcel can receive and respond to messages via Telegram. This works like any other channel: the same agent loop runs, the same memory and conversation history is used, and responses are formatted for Telegram's MarkdownV2 syntax.
+Marcel can receive and respond to messages via Telegram. This works like any other channel: the same agent loop runs with persistent `ClaudeSDKClient` sessions, the same typed memory system is used, and responses are formatted for Telegram's MarkdownV2 syntax.
 
 ## How it works
 
@@ -15,8 +15,9 @@ Marcel server (webhook.py)
     │  look up user from TELEGRAM_USER_MAP
     │  load/create conversation
     ▼
-Agent loop (same as CLI)
+Agent loop (same as CLI, persistent ClaudeSDKClient session)
     │  stream_response(user_slug, channel="telegram", ...)
+    │  yields TurnResult with cost/usage metadata
     ▼
 bot.send_message()
     │  POST to Telegram sendMessage

@@ -93,6 +93,7 @@ A `"conversation": null` in the client message means start a new conversation â€
 ## Relationships
 - Depends on: [[ISSUE-001-marcel-core-server-scaffold]], [[ISSUE-002-flat-file-storage]]
 - Blocks: [[ISSUE-006-marcel-cli-tui]]
+- Superseded by: [[ISSUE-024-agent-reimplementation-memory-architecture]] (ClaudeSDKClient sessions, typed memory, relevance selection)
 
 ## Implementation Log
 

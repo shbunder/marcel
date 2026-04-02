@@ -135,7 +135,9 @@ New integrations follow this pattern:
 3. **For simple HTTP/shell integrations**, add a JSON entry to `skills.json` instead — no Python module needed.
 4. **Add the new skill directory to `.gitignore`** — e.g. `.claude/skills/<name>/` — so the generated symlink is not tracked.
 
-All integrations are dispatched through the single `integration` tool. Integrations must be self-contained — they should not require changes to core Marcel code (tool.py, executor.py, runner.py). When adding an integration, verify the pattern works end-to-end before committing.
+All integrations are dispatched through the `integration` tool. The agent also has access to `memory_search` (keyword search across memory files) and `notify` (progress updates). These three tools are registered as MCP tools in `skills/tool.py` and passed to the `ClaudeSDKClient` session via `build_skills_mcp_server()`.
+
+Integrations must be self-contained — they should not require changes to core Marcel code (tool.py, executor.py, runner.py). When adding an integration, verify the pattern works end-to-end before committing.
 
 ## Telegram-Initiated Changes
 

@@ -241,14 +241,20 @@ Work calendar: primary Google Calendar account.
 - [shopping.md](shopping.md) — shopping habits, preferred stores
 ```
 
-### Agent memory loop
+### Agent memory loop (ISSUE-024 redesign)
 
-On each turn:
-1. Read `memory/index.md` — load all relevant memory files into context
-2. Read last N turns from the current conversation file
-3. Inject as system context block before the Claude call
-4. After response: agent optionally appends new facts to memory files or creates new topic files, updates `memory/index.md` if new file created
-5. Append this turn to the conversation file
+Memory files use YAML frontmatter with typed metadata (`schedule`, `preference`, `person`, `reference`, `household`). On each turn:
+
+1. `SessionManager.get_or_create()` retrieves or creates a persistent `ClaudeSDKClient` session
+2. Scan memory headers (frontmatter only, ~2KB per file) from user + `_household` pseudo-user
+3. For small sets (≤10 files): load all. For large sets: Haiku side-query picks top-8 by relevance
+4. Build system prompt = profile + selected memories (with staleness warnings) + channel hint
+5. SDK maintains conversation history internally — no manual history loading
+6. After response: fire-and-forget extraction agent (Haiku + `claude_code` tools, CWD=memory dir) reads existing memories and writes/updates with proper frontmatter
+7. Append both turns to conversation file as audit log (not loaded into context)
+8. Schedule-type memories auto-pruned past their `expires` date; index capped at 200 lines
+
+The `memory_search` MCP tool enables mid-conversation keyword search when pre-loaded context isn't enough.
 
 Concurrent writes from two channels for the same user: write-then-rename for atomic file updates + per-user asyncio lock in the server process.
 

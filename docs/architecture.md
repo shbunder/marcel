@@ -15,12 +15,14 @@ src/marcel_core/
     health.py      # GET /health
     chat.py        # WebSocket /ws/chat
   agent/
-    context.py     # build_system_prompt — loads profile, memory, conversation history
-    runner.py      # stream_response — single unified agent, calls claude_agent_sdk
-    memory_extract.py  # background fact extraction after each turn
-  storage/         # Flat-file read/write helpers
+    context.py        # build_system_prompt — loads profile + relevance-selected memory
+    runner.py         # stream_response — streams from persistent ClaudeSDKClient session
+    sessions.py       # SessionManager — persistent session lifecycle + idle cleanup
+    memory_select.py  # Relevance-based memory selection via Haiku side-query
+    memory_extract.py # Agent-based memory extraction (Haiku + claude_code tools)
+  storage/         # Flat-file read/write helpers (typed memory with frontmatter)
   skills/
-    tool.py        # integration + notify MCP tools (thin dispatcher)
+    tool.py        # integration + memory_search + notify MCP tools
     registry.py    # Merges skills.json with auto-discovered python integrations
     executor.py    # Routes to shell/http/python handlers
     skills.json    # Shell and HTTP skill configs
@@ -73,18 +75,29 @@ For each conversation turn:
 ```
 1. Client sends {"text": "...", "user": "alice", "token": "...", "conversation": null | "id"}
 2. If conversation is null → storage.new_conversation() → send {"type":"started","conversation":"id"}
-3. agent/context.py: load profile + all memory files + recent conversation history
-4. Build system prompt, call claude_agent_sdk.query(prompt=user_text, options=...)
-5. For each StreamEvent with type=content_block_delta:
+3. SessionManager.get_or_create() retrieves or creates a persistent ClaudeSDKClient session
+4. agent/context.py: scan memory headers, select top memories via relevance side-query (Haiku),
+   build system prompt = profile + selected memory + channel hint
+   (no conversation history — SDK maintains context internally)
+5. client.query(user_text) → client.receive_response()
+6. For each StreamEvent with type=content_block_delta:
      → yield text token → send {"type":"token","text":"..."}
-6. After stream: append both turns to conversation file (storage.append_turn)
-7. Fire-and-forget: memory_extract.extract_and_save_memories() as asyncio background task
-8. Send {"type":"done"}
+7. After stream: append both turns to conversation file as audit log (storage.append_turn)
+8. Fire-and-forget: memory_extract.extract_and_save_memories() as asyncio background task
+9. Send {"type":"done", "cost_usd": ..., "turns": ...}
 ```
 
-Memory extraction runs after every turn without blocking the response. It calls Claude with a
-structured prompt, parses `TOPIC: / CONTENT:` blocks, and appends new facts to the relevant
-`~/.marcel/users/{slug}/memory/{topic}.md` files.
+### Session management
+
+Each (user, conversation) pair gets a persistent `ClaudeSDKClient` that maintains conversation state across turns. This enables prompt cache reuse and SDK-managed context compaction. Sessions are cleaned up after 1 hour of idle time by a background task.
+
+### Memory extraction
+
+Runs after every turn without blocking the response. Launches a lightweight agent (Haiku, max 3 turns) with `claude_code` tools preset and CWD set to the user's memory directory. The agent reads existing memory files (via a manifest of frontmatter headers), writes new facts with typed frontmatter, and can update existing memories instead of duplicating. Schedule-type memories include an `expires` date for auto-pruning.
+
+### Memory system
+
+Memory files use YAML frontmatter with typed metadata (`schedule`, `preference`, `person`, `reference`, `household`). At conversation start, a Haiku side-query selects the most relevant memories from a manifest of headers (up to 8 for large sets; all for small sets). The `memory_search` MCP tool enables mid-conversation keyword search. Schedule memories auto-expire past their date. The `_household` pseudo-user holds shared family memories included in all users' context.
 
 ## Running locally
 
