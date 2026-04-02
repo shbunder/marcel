@@ -10,6 +10,7 @@ use crate::header::Header;
 use crate::render::{FlexLayout, Renderable};
 use crate::tui;
 use crate::ui::{ChatView, InputBox, StatusBar};
+use crate::Cli;
 
 const COMMANDS: &[(&str, &str)] = &[
     ("/clear", "Clear the chat history"),
@@ -24,11 +25,13 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/model", "Show or set the current model"),
     ("/reconnect", "Reconnect to the Marcel server"),
     ("/status", "Show connection and server status"),
+    ("/new", "Start a new conversation"),
     ("/exit", "Exit Marcel"),
     ("/quit", "Exit Marcel"),
 ];
 
-pub async fn run(cfg: Config, dev_mode: bool) -> io::Result<()> {
+pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
+    let dev_mode = cli.dev;
     let mut terminal = tui::init()?;
 
     // State
@@ -56,6 +59,18 @@ pub async fn run(cfg: Config, dev_mode: bool) -> io::Result<()> {
 
     // Channel for receiving streaming events
     let mut stream_rx: Option<mpsc::Receiver<ChatEvent>> = None;
+
+    // If a prompt was given on the command line, send it immediately
+    if let Some(prompt) = &cli.prompt {
+        let prompt = prompt.trim();
+        if !prompt.is_empty() && header.connected {
+            chat_view.push_user(prompt);
+            match client.send(prompt).await {
+                Ok(rx) => stream_rx = Some(rx),
+                Err(e) => chat_view.push_error(&format!("Send failed: {e}")),
+            }
+        }
+    }
 
     loop {
         // ── draw ───────────────────────────────────────────────────────
@@ -101,8 +116,14 @@ pub async fn run(cfg: Config, dev_mode: bool) -> io::Result<()> {
                                 + status.desired_height(80),
                         ));
                     }
-                    Ok(ChatEvent::Done) => {
+                    Ok(ChatEvent::Done(meta)) => {
                         chat_view.finish_stream();
+                        if let Some(cost) = meta.cost_usd {
+                            status.session_cost += cost;
+                        }
+                        if let Some(turns) = meta.turns {
+                            status.turn_count = turns;
+                        }
                         stream_rx = None;
                         break;
                     }
@@ -120,7 +141,11 @@ pub async fn run(cfg: Config, dev_mode: bool) -> io::Result<()> {
                         stream_rx = None;
                         break;
                     }
-                    Ok(ChatEvent::Connected) => {}
+                    Ok(ChatEvent::Connected(meta)) => {
+                        if let Some(id) = meta.conversation_id {
+                            client.set_conversation_id(&id);
+                        }
+                    }
                     Err(mpsc::error::TryRecvError::Empty) => break,
                     Err(mpsc::error::TryRecvError::Disconnected) => {
                         chat_view.finish_stream();
@@ -212,12 +237,20 @@ async fn handle_key(
             }
         }
 
+        // Readline shortcuts
+        (KeyCode::Char('u'), KeyModifiers::CONTROL) => input.clear(),
+        (KeyCode::Char('w'), KeyModifiers::CONTROL) => input.delete_word_back(),
+        (KeyCode::Char('a'), KeyModifiers::CONTROL) => input.home(),
+        (KeyCode::Char('e'), KeyModifiers::CONTROL) => input.end(),
+
         // Text editing
         (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => input.insert(c),
         (KeyCode::Backspace, _) => input.backspace(),
         (KeyCode::Delete, _) => input.delete(),
         (KeyCode::Left, _) => input.move_left(),
         (KeyCode::Right, _) => input.move_right(),
+        (KeyCode::Up, _) => input.history_prev(),
+        (KeyCode::Down, _) => input.history_next(),
         (KeyCode::Home, _) => input.home(),
         (KeyCode::End, _) => input.end(),
 
@@ -284,7 +317,7 @@ async fn handle_command(
             let mode = if dev_mode { "dev" } else { "prod" };
             chat.push_system(&format!("server:  {}:{} ({})", cfg.host, port, mode));
             chat.push_system(&format!("status:  {conn}"));
-            chat.push_system("cli:     v0.1.0");
+            chat.push_system("cli:     v0.2.0");
             chat.push_system(&format!("backend: v{}", header.server_version));
             chat.push_system(&format!("model:   {}", header.model));
             chat.push_system(&format!("user:    {}", cfg.user));
@@ -315,6 +348,14 @@ async fn handle_command(
             } else {
                 chat.push_system("Config editing not yet supported in Rust CLI. Edit ~/.marcel/config.toml directly.");
             }
+        }
+
+        "/new" => {
+            client.clear_conversation();
+            status.session_cost = 0.0;
+            status.turn_count = 0;
+            chat.clear();
+            chat.push_system("New conversation started.");
         }
 
         "/compact" | "/cost" | "/memory" => {

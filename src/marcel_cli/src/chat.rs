@@ -19,19 +19,30 @@ struct ChatResponse {
     msg_type: String,
     #[serde(default)]
     text: Option<String>,
-    #[allow(dead_code)] // used for conversation tracking
     #[serde(default)]
     conversation: Option<String>,
     #[serde(default)]
     message: Option<String>,
+    #[serde(default)]
+    cost_usd: Option<f64>,
+    #[serde(default)]
+    turns: Option<u32>,
+}
+
+/// Metadata returned with a completed turn.
+#[derive(Debug, Clone, Default)]
+pub struct TurnMeta {
+    pub cost_usd: Option<f64>,
+    pub turns: Option<u32>,
+    pub conversation_id: Option<String>,
 }
 
 /// Events emitted by the WebSocket client.
 #[derive(Debug, Clone)]
 pub enum ChatEvent {
-    Connected,
+    Connected(TurnMeta),
     Token(String),
-    Done,
+    Done(TurnMeta),
     Error(String),
     Disconnected,
 }
@@ -88,7 +99,11 @@ impl ChatClient {
                         if let Ok(resp) = serde_json::from_str::<ChatResponse>(&text) {
                             match resp.msg_type.as_str() {
                                 "started" => {
-                                    let _ = event_tx.send(ChatEvent::Connected).await;
+                                    let meta = TurnMeta {
+                                        conversation_id: resp.conversation,
+                                        ..Default::default()
+                                    };
+                                    let _ = event_tx.send(ChatEvent::Connected(meta)).await;
                                 }
                                 "token" => {
                                     if let Some(t) = resp.text {
@@ -96,7 +111,12 @@ impl ChatClient {
                                     }
                                 }
                                 "done" => {
-                                    let _ = event_tx.send(ChatEvent::Done).await;
+                                    let meta = TurnMeta {
+                                        cost_usd: resp.cost_usd,
+                                        turns: resp.turns,
+                                        ..Default::default()
+                                    };
+                                    let _ = event_tx.send(ChatEvent::Done(meta)).await;
                                     break;
                                 }
                                 "error" => {
@@ -122,6 +142,14 @@ impl ChatClient {
 
     pub fn set_model(&mut self, model: &str) {
         self.model = model.into();
+    }
+
+    pub fn set_conversation_id(&mut self, id: &str) {
+        self.conversation_id = Some(id.into());
+    }
+
+    pub fn clear_conversation(&mut self) {
+        self.conversation_id = None;
     }
 }
 

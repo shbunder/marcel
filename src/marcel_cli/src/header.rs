@@ -78,7 +78,7 @@ impl Header {
             )),
             Line::from(vec![
                 Span::styled("cli    ", Style::default().fg(DIM)),
-                Span::styled("v0.1.0", Style::default().fg(MID)),
+                Span::styled("v0.2.0", Style::default().fg(MID)),
             ]),
             Line::from(vec![
                 Span::styled("user   ", Style::default().fg(DIM)),
@@ -124,7 +124,7 @@ impl Header {
 
 impl Renderable for Header {
     fn render(&self, area: Rect, buf: &mut Buffer) {
-        let title = " Marcel CLI v0.1.0 ".to_string();
+        let title = " Marcel CLI v0.2.0 ".to_string();
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(ROSE))

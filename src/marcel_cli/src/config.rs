@@ -87,8 +87,3 @@ pub fn load() -> Config {
         Config::default()
     }
 }
-
-/// Parse CLI arguments, returning true if --dev flag is present.
-pub fn parse_dev_flag() -> bool {
-    std::env::args().any(|a| a == "--dev")
-}

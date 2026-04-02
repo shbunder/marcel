@@ -207,6 +207,9 @@ impl Renderable for ChatView {
 pub struct InputBox {
     pub text: String,
     pub cursor: usize,
+    history: Vec<String>,
+    history_idx: Option<usize>,
+    stashed: String,
 }
 
 impl InputBox {
@@ -214,7 +217,47 @@ impl InputBox {
         Self {
             text: String::new(),
             cursor: 0,
+            history: Vec::new(),
+            history_idx: None,
+            stashed: String::new(),
         }
+    }
+
+    /// Navigate to the previous history entry (older).
+    pub fn history_prev(&mut self) {
+        if self.history.is_empty() {
+            return;
+        }
+        let idx = match self.history_idx {
+            None => {
+                // Stash current input before entering history
+                self.stashed = self.text.clone();
+                self.history.len() - 1
+            }
+            Some(0) => return, // already at oldest
+            Some(i) => i - 1,
+        };
+        self.history_idx = Some(idx);
+        self.text = self.history[idx].clone();
+        self.cursor = self.text.len();
+    }
+
+    /// Navigate to the next history entry (newer).
+    pub fn history_next(&mut self) {
+        let idx = match self.history_idx {
+            None => return, // not browsing history
+            Some(i) => i,
+        };
+        if idx + 1 >= self.history.len() {
+            // Return to stashed input
+            self.history_idx = None;
+            self.text = self.stashed.clone();
+            self.stashed.clear();
+        } else {
+            self.history_idx = Some(idx + 1);
+            self.text = self.history[idx + 1].clone();
+        }
+        self.cursor = self.text.len();
     }
 
     pub fn insert(&mut self, c: char) {
@@ -272,10 +315,35 @@ impl InputBox {
         self.cursor = self.text.len();
     }
 
-    pub fn take(&mut self) -> String {
-        let t = self.text.clone();
+    pub fn clear(&mut self) {
         self.text.clear();
         self.cursor = 0;
+    }
+
+    pub fn delete_word_back(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        // Skip trailing whitespace, then delete to previous whitespace
+        let before = &self.text[..self.cursor];
+        let trimmed = before.trim_end();
+        let new_end = trimmed
+            .rfind(char::is_whitespace)
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        self.text.drain(new_end..self.cursor);
+        self.cursor = new_end;
+    }
+
+    pub fn take(&mut self) -> String {
+        let t = self.text.clone();
+        if !t.trim().is_empty() {
+            self.history.push(t.clone());
+        }
+        self.text.clear();
+        self.cursor = 0;
+        self.history_idx = None;
+        self.stashed.clear();
         t
     }
 }
@@ -329,6 +397,8 @@ impl Renderable for InputBox {
 pub struct StatusBar {
     pub connected: bool,
     pub model: String,
+    pub session_cost: f64,
+    pub turn_count: u32,
 }
 
 impl StatusBar {
@@ -336,12 +406,16 @@ impl StatusBar {
         Self {
             connected: false,
             model: model.into(),
+            session_cost: 0.0,
+            turn_count: 0,
         }
     }
 }
 
 impl Renderable for StatusBar {
     fn render(&self, area: Rect, buf: &mut Buffer) {
+        let sep = Span::styled("  │  ", Style::default().fg(Color::Rgb(0x44, 0x44, 0x44)));
+
         let dot = if self.connected { "●" } else { "○" };
         let conn_color = if self.connected { GREEN } else { RED };
         let conn_text = if self.connected {
@@ -350,19 +424,34 @@ impl Renderable for StatusBar {
             "offline"
         };
 
-        let line = Line::from(vec![
+        let mut spans = vec![
             Span::styled(format!(" {dot} "), Style::default().fg(conn_color)),
             Span::styled(conn_text, Style::default().fg(conn_color)),
-            Span::styled("  │  ", Style::default().fg(Color::Rgb(0x44, 0x44, 0x44))),
+            sep.clone(),
             Span::styled("model: ", Style::default().fg(DIM)),
             Span::styled(&self.model, Style::default().fg(MID)),
-            Span::styled("  │  ", Style::default().fg(Color::Rgb(0x44, 0x44, 0x44))),
-            Span::styled("/help", Style::default().fg(ROSE)),
-            Span::styled(" for commands", Style::default().fg(DIM)),
-        ]);
+        ];
+
+        // Show cost + turns when we have data
+        if self.session_cost > 0.0 || self.turn_count > 0 {
+            spans.push(sep.clone());
+            spans.push(Span::styled(
+                format!("${:.4}", self.session_cost),
+                Style::default().fg(MID),
+            ));
+            spans.push(Span::styled(
+                format!("  {} turns", self.turn_count),
+                Style::default().fg(DIM),
+            ));
+        }
+
+        spans.push(sep);
+        spans.push(Span::styled("/help", Style::default().fg(ROSE)));
+        spans.push(Span::styled(" for commands", Style::default().fg(DIM)));
+
+        let line = Line::from(spans);
 
         let bg = Style::default().bg(Color::Rgb(0x19, 0x18, 0x19));
-        // Fill background
         for x in area.x..area.x + area.width {
             buf[(x, area.y)].set_style(bg);
         }
