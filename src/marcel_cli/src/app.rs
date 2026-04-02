@@ -28,18 +28,23 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/quit", "Exit Marcel"),
 ];
 
-pub async fn run(cfg: Config) -> io::Result<()> {
+pub async fn run(cfg: Config, dev_mode: bool) -> io::Result<()> {
     let mut terminal = tui::init()?;
 
     // State
-    let mut header = Header::new(&cfg.user, &cfg.model, &cfg.host, cfg.port);
+    let port = cfg.effective_port(dev_mode);
+    let mut header = Header::new(&cfg.user, &cfg.model, &cfg.host, port);
     let mut chat_view = ChatView::new();
     let mut input = InputBox::new();
     let mut status = StatusBar::new(&cfg.model);
-    let mut client = ChatClient::new(&cfg.ws_url(), &cfg.user, &cfg.model);
+    let mut client = ChatClient::new(&cfg.ws_url(dev_mode), &cfg.user, &cfg.model);
+
+    if dev_mode {
+        chat_view.push_system(&format!("DEV MODE — connecting to port {port}"));
+    }
 
     // Check server health
-    let version = chat::fetch_server_version(&cfg.health_url()).await;
+    let version = chat::fetch_server_version(&cfg.health_url(dev_mode)).await;
     header.server_version = version.clone();
     header.connected = version != "offline";
     status.connected = header.connected;
@@ -127,23 +132,24 @@ pub async fn run(cfg: Config) -> io::Result<()> {
         }
 
         // Poll keyboard
-        if event::poll(timeout)? {
-            if let Event::Key(key) = event::read()? {
-                match handle_key(
-                    key,
-                    &mut input,
-                    &mut chat_view,
-                    &mut header,
-                    &mut status,
-                    &mut client,
-                    &mut stream_rx,
-                    &cfg,
-                )
-                .await
-                {
-                    Action::Continue => {}
-                    Action::Quit => break,
-                }
+        if event::poll(timeout)?
+            && let Event::Key(key) = event::read()?
+        {
+            match handle_key(
+                key,
+                &mut input,
+                &mut chat_view,
+                &mut header,
+                &mut status,
+                &mut client,
+                &mut stream_rx,
+                &cfg,
+                dev_mode,
+            )
+            .await
+            {
+                Action::Continue => {}
+                Action::Quit => break,
             }
         }
     }
@@ -157,6 +163,7 @@ enum Action {
     Quit,
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_key(
     key: KeyEvent,
     input: &mut InputBox,
@@ -166,6 +173,7 @@ async fn handle_key(
     client: &mut ChatClient,
     stream_rx: &mut Option<mpsc::Receiver<ChatEvent>>,
     cfg: &Config,
+    dev_mode: bool,
 ) -> Action {
     match (key.code, key.modifiers) {
         // Quit
@@ -181,7 +189,10 @@ async fn handle_key(
             }
 
             if text.starts_with('/') {
-                return handle_command(&text, chat, header, status, client, stream_rx, cfg).await;
+                return handle_command(
+                    &text, chat, header, status, client, stream_rx, cfg, dev_mode,
+                )
+                .await;
             }
 
             // Send message
@@ -224,6 +235,7 @@ async fn handle_key(
     Action::Continue
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_command(
     text: &str,
     chat: &mut ChatView,
@@ -232,6 +244,7 @@ async fn handle_command(
     client: &mut ChatClient,
     stream_rx: &mut Option<mpsc::Receiver<ChatEvent>>,
     cfg: &Config,
+    dev_mode: bool,
 ) -> Action {
     let parts: Vec<&str> = text.split_whitespace().collect();
     let cmd = parts[0].to_lowercase();
@@ -267,7 +280,9 @@ async fn handle_command(
             } else {
                 "offline"
             };
-            chat.push_system(&format!("server:  {}:{}", cfg.host, cfg.port));
+            let port = cfg.effective_port(dev_mode);
+            let mode = if dev_mode { "dev" } else { "prod" };
+            chat.push_system(&format!("server:  {}:{} ({})", cfg.host, port, mode));
             chat.push_system(&format!("status:  {conn}"));
             chat.push_system("cli:     v0.1.0");
             chat.push_system(&format!("backend: v{}", header.server_version));
@@ -277,7 +292,7 @@ async fn handle_command(
 
         "/reconnect" => {
             chat.push_system("Reconnecting…");
-            let version = chat::fetch_server_version(&cfg.health_url()).await;
+            let version = chat::fetch_server_version(&cfg.health_url(dev_mode)).await;
             header.server_version = version.clone();
             header.connected = version != "offline";
             status.connected = header.connected;
@@ -290,7 +305,11 @@ async fn handle_command(
 
         "/config" => {
             if parts.len() == 1 {
-                chat.push_system(&format!("host:  {}:{}", cfg.host, cfg.port));
+                chat.push_system(&format!(
+                    "host:  {}:{}",
+                    cfg.host,
+                    cfg.effective_port(dev_mode)
+                ));
                 chat.push_system(&format!("user:  {}", cfg.user));
                 chat.push_system(&format!("model: {}", header.model));
             } else {

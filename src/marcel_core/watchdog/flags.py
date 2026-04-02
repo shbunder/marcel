@@ -1,6 +1,6 @@
 """Flag file helpers for watchdog ↔ agent communication.
 
-Flag files live at ``data/watchdog/`` (relative to repo root):
+Flag files live at ``~/.marcel/watchdog/`` (or ``MARCEL_DATA_DIR/watchdog/``):
 
 - ``restart_requested`` — written by the agent to request a restart;
   contains the pre-change git commit SHA.
@@ -21,13 +21,12 @@ import tempfile
 _data_dir_override: pathlib.Path | None = None
 
 
-def _repo_root() -> pathlib.Path:
-    """Walk up from this file until a directory containing ``.git`` is found."""
-    here = pathlib.Path(__file__).resolve()
-    for parent in here.parents:
-        if (parent / '.git').exists():
-            return parent
-    raise RuntimeError('Could not find repo root (no .git directory found in any ancestor)')
+def _marcel_data_root() -> pathlib.Path:
+    """Return the Marcel data root (from env or default ``~/.marcel/``)."""
+    env = os.environ.get('MARCEL_DATA_DIR')
+    if env:
+        return pathlib.Path(env)
+    return pathlib.Path.home() / '.marcel'
 
 
 def data_dir() -> pathlib.Path:
@@ -35,7 +34,7 @@ def data_dir() -> pathlib.Path:
     if _data_dir_override is not None:
         d = _data_dir_override
     else:
-        d = _repo_root() / 'data' / 'watchdog'
+        d = _marcel_data_root() / 'watchdog'
     d.mkdir(parents=True, exist_ok=True)
     return d
 

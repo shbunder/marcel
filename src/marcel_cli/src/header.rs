@@ -124,7 +124,7 @@ impl Header {
 
 impl Renderable for Header {
     fn render(&self, area: Rect, buf: &mut Buffer) {
-        let title = format!(" Marcel CLI v0.1.0 ");
+        let title = " Marcel CLI v0.1.0 ".to_string();
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(ROSE))

@@ -125,14 +125,14 @@ impl ChatView {
                                 format!("  {line}"),
                                 Style::default().fg(Color::Cyan),
                             )));
-                        } else if line.starts_with("# ") {
+                        } else if let Some(heading) = line.strip_prefix("# ") {
                             lines.push(Line::from(Span::styled(
-                                format!("  {}", &line[2..]),
+                                format!("  {heading}"),
                                 Style::default().fg(ROSE).add_modifier(Modifier::BOLD),
                             )));
-                        } else if line.starts_with("## ") {
+                        } else if let Some(heading) = line.strip_prefix("## ") {
                             lines.push(Line::from(Span::styled(
-                                format!("  {}", &line[3..]),
+                                format!("  {heading}"),
                                 Style::default().fg(ROSE).add_modifier(Modifier::BOLD),
                             )));
                         } else if line.starts_with("- ") || line.starts_with("* ") {

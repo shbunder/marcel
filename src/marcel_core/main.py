@@ -1,8 +1,10 @@
 import asyncio
 import logging
 import os
+import subprocess
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
 from dotenv import load_dotenv
@@ -20,24 +22,33 @@ log = logging.getLogger(__name__)
 _RESTART_POLL_INTERVAL = 2.0  # seconds
 
 
-async def _restart_watcher() -> None:
-    """Poll for a restart request flag and exec-replace the process when found.
+def _is_docker() -> bool:
+    """Return True if running inside a Docker container."""
+    return Path('/.dockerenv').exists()
 
-    This allows Marcel to restart itself after a self-modification without requiring
-    sudo or an external watchdog process. os.execv replaces the running process image
-    in-place — the PID stays the same (systemd keeps tracking it), but the Python
-    interpreter and all imported modules are reloaded fresh from disk.
+
+async def _restart_watcher() -> None:
+    """Poll for a restart request flag and trigger a restart when found.
+
+    In Docker: delegates to redeploy.sh which rebuilds/restarts the container
+    with rollback on failure. The watchdog (PID 1) handles the process lifecycle.
+
+    Outside Docker (dev mode): exec-replaces the process in-place so the PID
+    stays the same and the Python interpreter reloads fresh from disk.
     """
     while True:
         await asyncio.sleep(_RESTART_POLL_INTERVAL)
         sha = read_restart_request()
         if sha:
-            log.info('Restart requested (pre-change SHA: %s) — exec-replacing process', sha)
+            log.info('Restart requested (pre-change SHA: %s)', sha)
             clear_restart_request()
-            write_restart_result('ok')
-            # Replace the current process image with a fresh uvicorn instance.
-            # sys.argv is ['uvicorn', 'marcel_core.main:app', '--host', ...]
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+
+            if _is_docker():
+                log.info('Docker detected — running redeploy.sh')
+                subprocess.Popen(['/app/redeploy.sh', '--no-build'], cwd='/app')
+            else:
+                write_restart_result('ok')
+                os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 @asynccontextmanager

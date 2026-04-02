@@ -22,7 +22,6 @@ pub struct FlexChild<'a> {
 // ── FlexLayout ────────────────────────────────────────────────────────
 /// Vertical flex layout: children with flex=0 get their desired_height,
 /// children with flex>0 share remaining space proportionally.
-
 pub struct FlexLayout<'a> {
     children: Vec<FlexChild<'a>>,
 }
@@ -127,7 +126,6 @@ impl FlexLayout<'_> {
 
 // ── ColumnLayout ──────────────────────────────────────────────────────
 /// Simple vertical stack — each child gets its desired_height.
-
 #[allow(dead_code)]
 pub struct ColumnLayout<'a> {
     children: Vec<&'a dyn Renderable>,

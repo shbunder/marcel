@@ -74,7 +74,7 @@ For each conversation turn:
 
 Memory extraction runs after every turn without blocking the response. It calls Claude with a
 structured prompt, parses `TOPIC: / CONTENT:` blocks, and appends new facts to the relevant
-`data/users/{slug}/memory/{topic}.md` files.
+`~/.marcel/users/{slug}/memory/{topic}.md` files.
 
 ## Running locally
 

@@ -11,5 +11,6 @@ use std::io;
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let cfg = config::load();
-    app::run(cfg).await
+    let dev_mode = config::parse_dev_flag();
+    app::run(cfg, dev_mode).await
 }

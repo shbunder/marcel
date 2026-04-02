@@ -16,6 +16,8 @@ pub struct Config {
     pub token: String,
     #[serde(default = "default_model")]
     pub model: String,
+    #[serde(default = "default_dev_port")]
+    pub dev_port: u16,
 }
 
 fn default_host() -> String {
@@ -23,6 +25,9 @@ fn default_host() -> String {
 }
 fn default_port() -> u16 {
     7420
+}
+fn default_dev_port() -> u16 {
+    7421
 }
 fn default_user() -> String {
     "shaun".into()
@@ -39,17 +44,31 @@ impl Default for Config {
             user: default_user(),
             token: String::new(),
             model: default_model(),
+            dev_port: default_dev_port(),
         }
     }
 }
 
 impl Config {
-    pub fn ws_url(&self) -> String {
-        format!("ws://{}:{}/ws/chat", self.host, self.port)
+    /// Return effective port, using dev_port when in dev mode.
+    pub fn effective_port(&self, dev_mode: bool) -> u16 {
+        if dev_mode { self.dev_port } else { self.port }
     }
 
-    pub fn health_url(&self) -> String {
-        format!("http://{}:{}/health", self.host, self.port)
+    pub fn ws_url(&self, dev_mode: bool) -> String {
+        format!(
+            "ws://{}:{}/ws/chat",
+            self.host,
+            self.effective_port(dev_mode)
+        )
+    }
+
+    pub fn health_url(&self, dev_mode: bool) -> String {
+        format!(
+            "http://{}:{}/health",
+            self.host,
+            self.effective_port(dev_mode)
+        )
     }
 }
 
@@ -67,4 +86,9 @@ pub fn load() -> Config {
     } else {
         Config::default()
     }
+}
+
+/// Parse CLI arguments, returning true if --dev flag is present.
+pub fn parse_dev_flag() -> bool {
+    std::env::args().any(|a| a == "--dev")
 }

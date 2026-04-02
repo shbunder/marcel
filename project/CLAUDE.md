@@ -105,16 +105,16 @@ git push origin HEAD:shaun
 
 Replace `shaun` with the slug of the user who requested the feature. The branch is created if it doesn't exist. Do **not** force-push — append only, so the review history is preserved.
 
-**Trigger a restart.** After pushing, signal the watchdog to restart Marcel with the new code:
+**Trigger a restart.** After pushing, signal the restart mechanism to redeploy Marcel with the new code:
 
 ```python
 from marcel_core.watchdog.flags import request_restart
 import subprocess
 sha = subprocess.check_output(['git', 'rev-parse', 'HEAD~1']).decode().strip()
-request_restart(sha)  # watchdog detects this, restarts uvicorn, rolls back on failure
+request_restart(sha)  # triggers redeploy with rollback on failure
 ```
 
-The watchdog polls for this flag, restarts uvicorn, and automatically runs `git revert` if the new version fails its health check. The pre-change SHA is stored so rollback targets the correct commit.
+In Docker (production), this triggers `redeploy.sh` which rebuilds and restarts the container with automatic rollback on health failure. In dev mode, it exec-replaces the process in-place. See [docs/self-modification.md](../docs/self-modification.md) for full details.
 
 ## Self-Modification Safety
 
@@ -152,7 +152,7 @@ This rule exists so that all work is traceable, the project history is readable,
 
 ## User Data Rule
 
-**User-specific information always goes in `data/users/{slug}/`, never in `.env` or `.env.local`.**
+**User-specific information always goes in `~/.marcel/users/{slug}/`, never in `.env` or `.env.local`.**
 
 This applies to:
 - Integration credentials tied to a specific user (Apple ID, OAuth tokens, app-specific passwords)
@@ -162,8 +162,8 @@ This applies to:
 The `.env` / `.env.local` files are for **system-wide** config only (API keys for shared services, port numbers, feature flags). Mixing user data into the environment makes multi-user support impossible and leaks one user's data into another's context.
 
 When a user provides personal credentials or preferences:
-1. Store them in `data/users/{slug}/memory/{topic}.md` (or `profile.md` for core identity info)
-2. Update `data/users/{slug}/memory/index.md` with a one-liner
+1. Store them in `~/.marcel/users/{slug}/memory/{topic}.md` (or `profile.md` for core identity info)
+2. Update `~/.marcel/users/{slug}/memory/index.md` with a one-liner
 3. If the runtime needs the value at startup (e.g. an iCloud password), write it to `.env.local` **and** record the fact that it lives there in the memory file — never store the secret value itself in memory
 
 See [docs/storage.md](../docs/storage.md) for the full storage API and file format.

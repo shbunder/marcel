@@ -9,7 +9,8 @@ synchronous Python API for reading and writing users, conversations, and memory.
 ## Data directory layout
 
 ```
-data/
+~/.marcel/
+  config.toml               # CLI configuration
   users/
     {user_slug}/
       profile.md              # display name, preferences, known facts (free-form markdown)
@@ -23,9 +24,12 @@ data/
         calendar.md           # distilled facts about calendar preferences
         family.md             # family members, relationships, birthdays
         shopping.md           # shopping habits, preferred stores
+  watchdog/
+    restart_requested         # flag file for self-restart
+    restart_result            # restart outcome (ok, rolled_back, rollback_failed)
 ```
 
-The data root defaults to `{repo_root}/data`.  Set the `MARCEL_DATA_DIR`
+The data root defaults to `~/.marcel/`.  Set the `MARCEL_DATA_DIR`
 environment variable to override at runtime, or patch
 `marcel_core.storage._root._DATA_ROOT` in tests.
 
@@ -106,7 +110,7 @@ from marcel_core.storage import (
 ```python
 def user_exists(slug: str) -> bool
 ```
-Returns `True` if `data/users/{slug}/` exists.
+Returns `True` if `~/.marcel/users/{slug}/` exists.
 
 ```python
 def load_user_profile(slug: str) -> str
@@ -195,13 +199,13 @@ API layer to coordinate around them.
 
 ## User-specific data
 
-User-specific information — integration credentials, personal preferences, per-user facts — **must** be stored under `data/users/{slug}/`, not in `.env` or `.env.local`.
+User-specific information — integration credentials, personal preferences, per-user facts — **must** be stored under `~/.marcel/users/{slug}/`, not in `.env` or `.env.local`.
 
 | Type of data | Where it goes |
 |---|---|
-| Core identity (name, timezone, language) | `data/users/{slug}/profile.md` |
-| Integration facts (which Apple ID, which calendar) | `data/users/{slug}/memory/{topic}.md` |
-| Preferences, habits, known facts | `data/users/{slug}/memory/{topic}.md` |
+| Core identity (name, timezone, language) | `~/.marcel/users/{slug}/profile.md` |
+| Integration facts (which Apple ID, which calendar) | `~/.marcel/users/{slug}/memory/{topic}.md` |
+| Preferences, habits, known facts | `~/.marcel/users/{slug}/memory/{topic}.md` |
 | System-wide API keys / ports / feature flags | `.env` / `.env.local` |
 | Runtime secret that can't live in a file (e.g. password) | `.env.local` — reference its location in the memory file, do not copy the value |
 

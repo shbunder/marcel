@@ -76,10 +76,37 @@ cli-build: ## Build the Marcel CLI (Rust, release mode)
 cli-dev: ## Build and run the Marcel CLI (Rust, debug mode)
 	cd src/marcel_cli && cargo run
 
+# Dev server port — defaults to 7421 to avoid conflicting with Docker prod (7420)
+MARCEL_DEV_PORT ?= 7421
+
 .PHONY: serve
 serve: ## Start marcel-core development server (uvicorn with reload)
-	echo -e "$(INFO) Starting marcel-core on http://0.0.0.0:$(MARCEL_PORT) ..."
-	uv run uvicorn marcel_core.main:app --host 0.0.0.0 --port $(MARCEL_PORT) --reload
+	echo -e "$(INFO) Starting marcel-core (dev) on http://0.0.0.0:$(MARCEL_DEV_PORT) ..."
+	MARCEL_PORT=$(MARCEL_DEV_PORT) uv run uvicorn marcel_core.main:app --host 0.0.0.0 --port $(MARCEL_DEV_PORT) --reload
+
+# Docker targets
+.PHONY: docker-build
+docker-build: ## Build the Marcel Docker image
+	echo -e "$(INFO) Building Marcel Docker image..."
+	docker compose build
+
+.PHONY: docker-up
+docker-up: ## Start Marcel in Docker (production)
+	echo -e "$(INFO) Starting Marcel (Docker) on port 7420..."
+	docker compose up -d
+
+.PHONY: docker-down
+docker-down: ## Stop Marcel Docker container
+	docker compose down
+
+.PHONY: docker-logs
+docker-logs: ## Tail Marcel Docker logs
+	docker compose logs -f marcel
+
+.PHONY: docker-restart
+docker-restart: ## Rebuild and restart Marcel Docker container
+	echo -e "$(INFO) Redeploying Marcel..."
+	./redeploy.sh
 
 .PHONY: check
 check: format lint typecheck test-cov ## Run format, lint, typecheck, and tests

@@ -1,6 +1,6 @@
 # ISSUE-020: Dockerize Marcel for Self-Restart and NUC Management
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-02
 **Assignee:** Shaun
 **Priority:** High
@@ -49,27 +49,27 @@ Docker container (marcel)
 - **docker-compose from the start** to support future sidecars
 
 ## Tasks
-- [ ] ISSUE-020-a: Move runtime data from `data/` to `~/.marcel/` — update default `MARCEL_DATA_DIR`, storage layer, all references
-- [ ] ISSUE-020-b: Create `Dockerfile` — Python app with uvicorn, install dependencies from pyproject.toml
-- [ ] ISSUE-020-c: Create `docker-compose.yml` — volumes (source rw, ~/.marcel rw, docker.sock, /_host ro), network_mode: host, healthcheck
-- [ ] ISSUE-020-d: Build redeploy script with rollback — tag known-good, build+restart via Docker socket, health-check, revert on failure, write result to ~/.marcel/watchdog/
-- [ ] ISSUE-020-e: Update watchdog to work in Docker context — detect container environment, use redeploy script instead of os.execv
-- [ ] ISSUE-020-f: Update `install.sh` to bootstrap Docker-based prod setup — check Docker, create ~/.marcel structure, generate compose, build and start container
-- [ ] ISSUE-020-g: Keep `make serve` working for dev — ensure Makefile targets still work without Docker, uses port from .env.local
-- [ ] ISSUE-020-h: Add `--dev` flag to CLI — connects to dev port instead of default 7420
-- [ ] ISSUE-020-i: Update docs — self-modification.md, deployment docs, storage.md references
+- [✓] ISSUE-020-a: Move runtime data from `data/` to `~/.marcel/` — update default `MARCEL_DATA_DIR`, storage layer, all references
+- [✓] ISSUE-020-b: Create `Dockerfile` — Python app with uvicorn, install dependencies from pyproject.toml
+- [✓] ISSUE-020-c: Create `docker-compose.yml` — volumes (source rw, ~/.marcel rw, docker.sock, /_host ro), network_mode: host, healthcheck
+- [✓] ISSUE-020-d: Build redeploy script with rollback — tag known-good, build+restart via Docker socket, health-check, revert on failure, write result to ~/.marcel/watchdog/
+- [✓] ISSUE-020-e: Update watchdog to work in Docker context — detect container environment, use redeploy script instead of os.execv
+- [✓] ISSUE-020-f: Update `install.sh` to bootstrap Docker-based prod setup — check Docker, create ~/.marcel structure, generate compose, build and start container
+- [✓] ISSUE-020-g: Keep `make serve` working for dev — ensure Makefile targets still work without Docker, uses port from .env.local
+- [✓] ISSUE-020-h: Add `--dev` flag to CLI — connects to dev port instead of default 7420
+- [✓] ISSUE-020-i: Update docs — self-modification.md, deployment docs, storage.md references
 
 ## Subtasks
 
-- [ ] ISSUE-020-a: Move runtime data to ~/.marcel/
-- [ ] ISSUE-020-b: Create Dockerfile
-- [ ] ISSUE-020-c: Create docker-compose.yml
-- [ ] ISSUE-020-d: Build redeploy script with rollback
-- [ ] ISSUE-020-e: Update watchdog for Docker context
-- [ ] ISSUE-020-f: Update install.sh for Docker bootstrap
-- [ ] ISSUE-020-g: Ensure make serve dev workflow preserved (separate port)
-- [ ] ISSUE-020-h: Add --dev flag to CLI
-- [ ] ISSUE-020-i: Update documentation
+- [✓] ISSUE-020-a: Move runtime data to ~/.marcel/
+- [✓] ISSUE-020-b: Create Dockerfile
+- [✓] ISSUE-020-c: Create docker-compose.yml
+- [✓] ISSUE-020-d: Build redeploy script with rollback
+- [✓] ISSUE-020-e: Update watchdog for Docker context
+- [✓] ISSUE-020-f: Update install.sh for Docker bootstrap
+- [✓] ISSUE-020-g: Ensure make serve dev workflow preserved (separate port)
+- [✓] ISSUE-020-h: Add --dev flag to CLI
+- [✓] ISSUE-020-i: Update documentation
 
 ## Relationships
 - Related to: [[ISSUE-015-icloud-caldav-auth]] (credentials storage moves)
@@ -77,3 +77,29 @@ Docker container (marcel)
 ## Comments
 
 ## Implementation Log
+
+### 2026-04-02 — LLM Implementation
+**Action**: Full implementation of Docker-based deployment with self-restart
+**Files Modified**:
+- `src/marcel_core/storage/_root.py` — Changed default data root from `{repo}/data` to `~/.marcel/`, removed `_find_repo_root()`
+- `src/marcel_core/watchdog/flags.py` — Changed watchdog data dir from `{repo}/data/watchdog` to `~/.marcel/watchdog`
+- `src/marcel_core/main.py` — Added Docker detection (`/.dockerenv`), runs `redeploy.sh` in Docker instead of `os.execv`
+- `Dockerfile` — New: Python 3.12-slim, uv, uvicorn via watchdog, healthcheck
+- `docker-compose.yml` — New: host networking, Docker socket, source rw mount, ~/.marcel mount, /_host ro mount
+- `redeploy.sh` — New: self-redeploy with known-good tagging, health check, and automatic rollback
+- `Makefile` — Added `MARCEL_DEV_PORT` (7421), Docker targets (docker-build/up/down/logs/restart), updated `serve` to use dev port
+- `install.sh` — Added `--server` flag for Docker bootstrap, `~/.marcel/` directory setup, `dev_port` config
+- `src/marcel_cli/src/config.rs` — Added `dev_port` field, `effective_port()`, `parse_dev_flag()`, updated `ws_url`/`health_url` to accept dev_mode
+- `src/marcel_cli/src/main.rs` — Parse `--dev` flag, pass to `app::run`
+- `src/marcel_cli/src/app.rs` — Thread `dev_mode` through run/handle_key/handle_command, show mode in /status
+- `src/marcel_cli/src/render.rs` — Fixed pre-existing clippy: empty lines after doc comments
+- `src/marcel_cli/src/header.rs` — Fixed pre-existing clippy: useless format!
+- `src/marcel_cli/src/ui.rs` — Fixed pre-existing clippy: manual strip_prefix
+- `pyproject.toml` — Added E402 to ruff ignore (intentional load_dotenv before app imports)
+- `docs/self-modification.md` — Rewritten for Docker-based deployment
+- `docs/storage.md` — Updated data paths from `data/` to `~/.marcel/`
+- `docs/architecture.md` — Updated memory path reference
+- `docs/channels/telegram.md` — Updated data path reference
+- `project/CLAUDE.md` — Updated user data rule paths, restart trigger docs
+**Commands Run**: `make check` (format, lint, clippy, tests)
+**Result**: 129 Python tests pass, Rust compiles clean, lint/clippy pass. Pre-existing pyright errors in icloud/client.py and watchdog type-ignore comments remain (not introduced by this change).

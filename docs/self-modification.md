@@ -1,92 +1,93 @@
 # Self-Modification Safety
 
-Marcel can rewrite its own code.  The watchdog is the safety net that makes
-this safe: it manages the `uvicorn` subprocess, detects startup failures, and
-automatically rolls back a bad commit before the agent even wakes up on the
-next request.
+Marcel can rewrite its own code.  The safety net that makes this possible has
+two layers: the **watchdog** (manages the `uvicorn` subprocess inside the
+container) and the **redeploy script** (rebuilds and restarts the Docker
+container with automatic rollback on failure).
 
 ---
 
 ## Process hierarchy
 
+### Production (Docker)
+
 ```
-systemd (production) / make serve (development)
-  └── marcel-watchdog   (marcel_core.watchdog.main)
+Docker container (marcel)
+  └── marcel-watchdog   (marcel_core.watchdog.main, PID 1)
         └── uvicorn     (marcel_core.main:app)
 ```
 
-The watchdog is a plain Python process.  It has **no imports from the rest of
-`marcel_core`** — it is intentionally isolated so it cannot be broken by agent
-self-modification.
+The container runs with `network_mode: host` and has access to:
+
+- `/home/shbunder` (read-write) — source code and user files
+- `~/.marcel/` (read-write) — runtime data, watchdog flags, schedules
+- `/var/run/docker.sock` — self-restart and managing other containers
+- `/_host` (read-only) — full NUC filesystem for inspection
+
+### Development
+
+```
+make serve   →   uvicorn --reload   (port 7421, no watchdog)
+```
+
+Dev and prod can run simultaneously on different ports.
 
 ---
 
-## Watchdog flow
+## Restart flow (Docker)
 
-### 1. Normal startup
-
-1. Start a `uvicorn` subprocess on `$MARCEL_PORT` (default `8000`).
-2. Poll `GET http://localhost:{port}/health` every `$MARCEL_POLL_INTERVAL`
-   seconds (default `2`) for up to `$MARCEL_HEALTH_TIMEOUT` seconds
-   (default `30`).
-3. If `200 OK` is received: log *"Marcel is up"* and enter the monitor loop.
-4. If the deadline expires without a `200`: log a fatal error and exit.
-   **No rollback is attempted on first boot** — there is no prior good commit
-   to roll back to.
-
-### 2. Monitor loop
-
-The watchdog sleeps for `POLL_INTERVAL` seconds on each iteration and checks
-two things:
-
-- **Restart request flag** — has the agent asked for a restart?
-- **Unexpected exit** — did `uvicorn` die on its own?
-
-### 3. Restart on request (self-modification path)
-
-When Marcel modifies its own code it:
+When Marcel modifies its own code:
 
 1. Commits all changes via git.
 2. Writes the **pre-change SHA** to the `restart_requested` flag file.
 
-The watchdog detects the flag on the next poll and:
+The restart watcher in `main.py` detects the flag and:
 
 1. Clears `restart_requested`.
-2. Sends `SIGTERM` to `uvicorn`; waits up to 10 s for a clean exit
-   (falls back to `SIGKILL`).
-3. Starts a new `uvicorn` subprocess.
-4. Polls `/health` for up to `HEALTH_TIMEOUT` seconds.
+2. Launches `redeploy.sh --no-build` (a background process that outlives the
+   container restart).
 
-**If health check passes** → writes `"ok"` to `restart_result`.
+### redeploy.sh
 
-**If health check fails**:
+The redeploy script (`redeploy.sh` in the repo root):
 
-1. Stops the unhealthy process.
-2. Runs `git revert HEAD --no-edit` in the repo root — this creates a new
-   revert commit (no separate `git commit` is needed).
-3. Starts `uvicorn` again from the reverted code.
-4. Polls `/health` again.
-5. Writes `"rolled_back"` to `restart_result` on success, or
-   `"rollback_failed"` and exits with code `1` if the rolled-back version
-   also fails to start.
+1. Tags the current commit as known-good.
+2. Runs `docker compose build` (skipped with `--no-build` for code-only changes).
+3. Runs `docker compose up -d` — Docker replaces the old container.
+4. Polls `GET http://localhost:7420/health` for up to 60 seconds.
+5. **If healthy**: writes `"ok"` to `~/.marcel/watchdog/restart_result`.
+6. **If unhealthy**: reverts to the known-good commit, rebuilds, restarts,
+   and writes `"rolled_back"` or `"rollback_failed"`.
 
-### 4. Unexpected exit recovery
+### Watchdog (inside the container)
 
-If `uvicorn` exits without a restart request, the watchdog immediately starts a
-fresh process and polls health.  If the restart fails, the watchdog logs an
-error and exits — at which point systemd will restart the watchdog itself
-(`Restart=always`).
+The watchdog still runs as PID 1 inside the container and provides a second
+layer of safety:
+
+1. Starts `uvicorn` and polls `/health`.
+2. On restart request: stops and restarts uvicorn, rolls back via `git revert`
+   if the new code fails health checks.
+3. On unexpected uvicorn exit: restarts immediately.
+
+---
+
+## Restart flow (Development)
+
+When running without Docker (`make serve`), the restart watcher in `main.py`
+uses `os.execv` to replace the running process in-place. The PID stays the same
+and the Python interpreter reloads fresh from disk. No rollback is attempted in
+dev mode.
 
 ---
 
 ## Flag files
 
-Flag files live at `data/watchdog/` relative to the repository root.
+Flag files live at `~/.marcel/watchdog/` (or `$MARCEL_DATA_DIR/watchdog/`).
 
 | File | Writer | Reader | Contents |
 |------|--------|--------|----------|
-| `restart_requested` | agent | watchdog | pre-change git SHA (plain text) |
-| `restart_result` | watchdog | agent | `"ok"`, `"rolled_back"`, or `"rollback_failed"` |
+| `restart_requested` | agent | watchdog / main.py | pre-change git SHA (plain text) |
+| `restart_result` | watchdog / redeploy.sh | agent | `"ok"`, `"rolled_back"`, or `"rollback_failed"` |
 
 All writes use an **atomic write-to-temp-then-rename** pattern so neither side
 ever reads a partially-written file.
@@ -100,50 +101,59 @@ The agent API for triggering a restart lives in
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MARCEL_PORT` | `8000` | Port passed to `uvicorn` |
+| `MARCEL_PORT` | `7420` | Port passed to `uvicorn` |
+| `MARCEL_DATA_DIR` | `~/.marcel/` | Runtime data directory |
 | `MARCEL_HEALTH_TIMEOUT` | `30` | Seconds to wait for `/health` |
 | `MARCEL_POLL_INTERVAL` | `2` | Seconds between health polls |
 
 ---
 
-## Development usage
+## Dual-port setup
 
-```bash
-make serve          # starts the watchdog (which starts uvicorn)
-```
+| Mode | Port | How to start | How to connect |
+|------|------|-------------|----------------|
+| Production (Docker) | 7420 | `docker compose up -d` | `marcel` |
+| Development | 7421 (configurable) | `make serve` | `marcel --dev` |
 
-The `Makefile` target runs:
-
-```
-python -m marcel_core.watchdog.main
-```
+Both can run simultaneously. The dev port can be overridden via
+`MARCEL_DEV_PORT` in the Makefile or `dev_port` in `~/.marcel/config.toml`.
 
 ---
 
-## Production — systemd unit (NUC)
+## Docker setup
 
-```ini
-[Unit]
-Description=Marcel Watchdog
-After=network.target
+### docker-compose.yml
 
-[Service]
-WorkingDirectory=/path/to/marcel
-ExecStart=/path/to/.venv/bin/python -m marcel_core.watchdog.main
-Restart=always
-RestartSec=5
-Environment=MARCEL_PORT=8000
+The compose file lives in the repo root and defines the `marcel` service with:
 
-[Install]
-WantedBy=multi-user.target
-```
+- `network_mode: host` — full LAN/internet access
+- Docker socket mount — self-restart and managing other containers (Plex, etc.)
+- Source code bind-mount (read-write) — Marcel can edit its own code
+- `~/.marcel/` bind-mount — persistent runtime data
+- `/_host` (read-only) — NUC filesystem for inspection
 
-Enable and start:
+### Installation
 
 ```bash
-sudo systemctl enable marcel-watchdog
-sudo systemctl start  marcel-watchdog
-sudo journalctl -u marcel-watchdog -f   # follow logs
+./install.sh --server     # installs CLI + bootstraps Docker server
+```
+
+Or manually:
+
+```bash
+docker compose build
+docker compose up -d
+docker compose logs -f marcel   # follow logs
+```
+
+### Makefile targets
+
+```bash
+make docker-build      # build image
+make docker-up         # start container
+make docker-down       # stop container
+make docker-logs       # tail logs
+make docker-restart    # rebuild + restart with rollback
 ```
 
 ---
@@ -155,5 +165,8 @@ self-modification system**.  It is the process that decides whether a
 self-modification was safe, and modifying it mid-flight would remove the safety
 guarantee.  If a change to the watchdog itself is required, it must be done by
 a human developer with a manual restart.
+
+`redeploy.sh` is similarly critical — it orchestrates the container restart and
+rollback. Changes to it should be reviewed carefully.
 
 The restriction is documented in CLAUDE.md under *Self-Modification Safety*.

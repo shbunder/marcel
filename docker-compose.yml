@@ -1,0 +1,31 @@
+services:
+  marcel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: marcel
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
+      - .env.local
+    environment:
+      - MARCEL_PORT=7420
+      - MARCEL_DATA_DIR=/home/shbunder/.marcel
+    volumes:
+      # Source code — read-write so Marcel can self-modify
+      - .:/app
+      # User home — read-write for repos, dotfiles, scripts
+      - /home/shbunder:/home/shbunder
+      # Marcel runtime data (users, conversations, memory, watchdog flags)
+      - /home/shbunder/.marcel:/home/shbunder/.marcel
+      # Docker socket — so Marcel can restart itself and manage other containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Host filesystem — read-only for inspecting logs, configs, etc.
+      - /:/_host:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7420/health')"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3

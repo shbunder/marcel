@@ -108,6 +108,7 @@ ignore = [
     "A002", 	# builtin-shadowing
     "E203", 	# whitespace-before-punctuation
     "F403", 	# import-star-used
+    "E402",     # module-level-import-not-at-top (load_dotenv must run before app imports)
     "E501",     # line-too-long
     "E701", 	# multiple-statements-on-one-line-colon
     "E702", 	# multiple-statements-on-one-line-semicolon

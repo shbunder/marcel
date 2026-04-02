@@ -96,7 +96,7 @@ print('Linked.')
 EOF
 ```
 
-This writes `data/users/shaun/telegram.json` — gitignored, local to your server.
+This writes `~/.marcel/users/shaun/telegram.json` — local to your server.
 
 ### 4. Expose Marcel via Cloudflare Tunnel
 
