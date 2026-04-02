@@ -76,7 +76,9 @@ async fn stream_text(mut rx: tokio::sync::mpsc::Receiver<ChatEvent>) -> io::Resu
                 eprintln!("\nerror: disconnected");
                 std::process::exit(1);
             }
-            ChatEvent::Connected(_) => {}
+            ChatEvent::Connected(_)
+            | ChatEvent::ToolCallStart { .. }
+            | ChatEvent::ToolCallEnd { .. } => {}
         }
     }
 
@@ -116,7 +118,9 @@ async fn stream_collect_json(mut rx: tokio::sync::mpsc::Receiver<ChatEvent>) -> 
                 println!("{}", serde_json::to_string_pretty(&err).unwrap());
                 std::process::exit(1);
             }
-            ChatEvent::Connected(_) => {}
+            ChatEvent::Connected(_)
+            | ChatEvent::ToolCallStart { .. }
+            | ChatEvent::ToolCallEnd { .. } => {}
         }
     }
 
@@ -152,6 +156,17 @@ async fn stream_ndjson(mut rx: tokio::sync::mpsc::Receiver<ChatEvent>) -> io::Re
             }
             ChatEvent::Connected(meta) => {
                 serde_json::json!({ "type": "started", "conversation": meta.conversation_id })
+            }
+            ChatEvent::ToolCallStart {
+                tool_call_id,
+                tool_name,
+            } => serde_json::json!({
+                "type": "tool_call_start",
+                "tool_call_id": tool_call_id,
+                "tool_name": tool_name,
+            }),
+            ChatEvent::ToolCallEnd { tool_call_id } => {
+                serde_json::json!({ "type": "tool_call_end", "tool_call_id": tool_call_id })
             }
         };
         writeln!(stdout, "{}", serde_json::to_string(&obj).unwrap())?;

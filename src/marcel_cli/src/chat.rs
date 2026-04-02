@@ -14,6 +14,7 @@ struct ChatRequest {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 struct ChatResponse {
     #[serde(rename = "type")]
     msg_type: String,
@@ -27,6 +28,14 @@ struct ChatResponse {
     cost_usd: Option<f64>,
     #[serde(default)]
     turns: Option<u32>,
+    #[serde(default)]
+    tool_call_id: Option<String>,
+    #[serde(default)]
+    tool_name: Option<String>,
+    #[serde(default)]
+    is_error: Option<bool>,
+    #[serde(default)]
+    summary: Option<String>,
 }
 
 /// Metadata returned with a completed turn.
@@ -45,6 +54,15 @@ pub enum ChatEvent {
     Done(TurnMeta),
     Error(String),
     Disconnected,
+    /// AG-UI: a tool invocation has started.
+    ToolCallStart {
+        tool_call_id: String,
+        tool_name: String,
+    },
+    /// AG-UI: a tool invocation has completed.
+    ToolCallEnd {
+        tool_call_id: String,
+    },
 }
 
 /// Async WebSocket chat client.
@@ -123,6 +141,21 @@ impl ChatClient {
                                     let msg = resp.message.unwrap_or_else(|| "unknown".into());
                                     let _ = event_tx.send(ChatEvent::Error(msg)).await;
                                     break;
+                                }
+                                "tool_call_start" => {
+                                    let _ = event_tx
+                                        .send(ChatEvent::ToolCallStart {
+                                            tool_call_id: resp.tool_call_id.unwrap_or_default(),
+                                            tool_name: resp.tool_name.unwrap_or_default(),
+                                        })
+                                        .await;
+                                }
+                                "tool_call_end" => {
+                                    let _ = event_tx
+                                        .send(ChatEvent::ToolCallEnd {
+                                            tool_call_id: resp.tool_call_id.unwrap_or_default(),
+                                        })
+                                        .await;
                                 }
                                 _ => {}
                             }

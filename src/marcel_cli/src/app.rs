@@ -223,6 +223,21 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
                             crate::state::set_last_conversation(&cfg.user, id);
                         }
                     }
+                    Ok(ChatEvent::ToolCallStart {
+                        tool_call_id,
+                        tool_name,
+                    }) => {
+                        chat_view.start_tool(tool_call_id, tool_name);
+                        let h = terminal.size()?.height;
+                        chat_view.scroll_to_bottom(h.saturating_sub(
+                            header.desired_height(80)
+                                + input.desired_height(80)
+                                + status.desired_height(80),
+                        ));
+                    }
+                    Ok(ChatEvent::ToolCallEnd { tool_call_id }) => {
+                        chat_view.end_tool(&tool_call_id);
+                    }
                     Err(mpsc::error::TryRecvError::Empty) => break,
                     Err(mpsc::error::TryRecvError::Disconnected) => {
                         chat_view.finish_stream();

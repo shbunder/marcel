@@ -9,6 +9,7 @@ use crate::render::Renderable;
 const ROSE: Color = Color::Rgb(0xcc, 0x5e, 0x76);
 const RED: Color = Color::Rgb(0xff, 0x6b, 0x6b);
 const GREEN: Color = Color::Rgb(0x4c, 0xaf, 0x50);
+const YELLOW: Color = Color::Rgb(0xff, 0xc1, 0x07);
 const DIM: Color = Color::Rgb(0x55, 0x55, 0x55);
 const MID: Color = Color::Rgb(0x88, 0x88, 0x88);
 
@@ -30,11 +31,20 @@ pub struct ChatMessage {
 
 // ── ChatView ──────────────────────────────────────────────────────────
 
+/// A tool invocation currently in progress.
+#[derive(Clone, Debug)]
+pub struct ToolActivity {
+    pub tool_call_id: String,
+    pub tool_name: String,
+}
+
 pub struct ChatView {
     pub messages: Vec<ChatMessage>,
     /// Tokens of the in-flight streaming response.
     pub streaming_tokens: Vec<String>,
     pub scroll_offset: u16,
+    /// Tools currently executing (shown as activity indicators).
+    pub active_tools: Vec<ToolActivity>,
 }
 
 impl ChatView {
@@ -43,7 +53,19 @@ impl ChatView {
             messages: Vec::new(),
             streaming_tokens: Vec::new(),
             scroll_offset: 0,
+            active_tools: Vec::new(),
         }
+    }
+
+    pub fn start_tool(&mut self, tool_call_id: String, tool_name: String) {
+        self.active_tools.push(ToolActivity {
+            tool_call_id,
+            tool_name,
+        });
+    }
+
+    pub fn end_tool(&mut self, tool_call_id: &str) {
+        self.active_tools.retain(|t| t.tool_call_id != tool_call_id);
     }
 
     pub fn push_user(&mut self, text: &str) {
@@ -85,11 +107,13 @@ impl ChatView {
                 self.push_assistant(&full);
             }
         }
+        self.active_tools.clear();
     }
 
     pub fn clear(&mut self) {
         self.messages.clear();
         self.streaming_tokens.clear();
+        self.active_tools.clear();
         self.scroll_offset = 0;
     }
 
@@ -170,6 +194,15 @@ impl ChatView {
             lines.push(Line::from(vec![
                 Span::styled("● ", Style::default().fg(Color::White)),
                 Span::styled(full, Style::default().fg(Color::White)),
+            ]));
+        }
+
+        // Active tool call indicators
+        for tool in &self.active_tools {
+            lines.push(Line::from(vec![
+                Span::styled("  ⚙ ", Style::default().fg(YELLOW)),
+                Span::styled(&tool.tool_name, Style::default().fg(YELLOW)),
+                Span::styled(" …", Style::default().fg(DIM)),
             ]));
         }
 

@@ -49,7 +49,7 @@ Marcel Python Backend (AG-UI event emitter)
 - [✓] ISSUE-026-a: Define Marcel's AG-UI event schema (Python dataclasses/TypedDicts mapping to AG-UI event types)
 - [✓] ISSUE-026-b: Refactor `runner.py` to emit AG-UI events instead of raw token strings
 - [✓] ISSUE-026-c: Update WebSocket endpoint to stream AG-UI events
-- [ ] ISSUE-026-d: Update Rust TUI client to consume AG-UI events (backward-compatible: text events render as before, tool call events show activity indicators)
+- [✓] ISSUE-026-d: Update Rust TUI client to consume AG-UI events (backward-compatible: text events render as before, tool call events show activity indicators)
 - [✓] ISSUE-026-e: Update Telegram webhook handler to consume AG-UI events (text events → MarkdownV2 as before)
 - [✓] ISSUE-026-f: Emit `ToolCallStart`/`ToolCallArgs`/`ToolCallEnd` events when the agent invokes tools
 
@@ -98,3 +98,14 @@ Conducted a thorough investigation of CopilotKit, AG-UI protocol, A2UI, and Tele
 **Commands Run**: `make check` (format + lint pass, pyright has 5 pre-existing errors unrelated to this change), `uv run pytest tests/ -v` (185/185 pass)
 **Result**: Success — all tests passing, wire protocol backward-compatible
 **Next**: ISSUE-026-d (Rust TUI update to display tool call activity)
+
+### 2026-04-02 15:00 - LLM Implementation
+**Action**: Implemented ISSUE-026-d — Rust TUI tool call activity indicators
+**Files Modified**:
+- `src/marcel_cli/src/chat.rs` — Extended `ChatResponse` with `tool_call_id`, `tool_name`, `is_error`, `summary` fields. Added `ToolCallStart` and `ToolCallEnd` variants to `ChatEvent`. Parse `tool_call_start`/`tool_call_end` message types from WebSocket.
+- `src/marcel_cli/src/ui.rs` — Added `ToolActivity` struct and `active_tools: Vec<ToolActivity>` to `ChatView`. Added `start_tool()`/`end_tool()` methods. Renders yellow `⚙ ToolName …` indicator lines below streaming text. Clears active tools on `finish_stream()` and `clear()`. Added `YELLOW` color constant.
+- `src/marcel_cli/src/app.rs` — Handle `ToolCallStart`/`ToolCallEnd` events in the main event loop, updating `ChatView` state and scrolling to bottom.
+- `src/marcel_cli/src/print.rs` — Handle new `ChatEvent` variants: ignored in text/json modes, emitted as JSON in stream-json mode.
+**Commands Run**: `cargo build`, `cargo clippy -- -D warnings`, `cargo fmt`
+**Result**: Success — builds clean, no warnings, no clippy issues
+**Next**: Phase 1 complete. Phase 2 (web app + Telegram Mini App) is next.
