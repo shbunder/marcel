@@ -116,10 +116,11 @@ The interface consists of four areas:
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Send message or execute command |
+| `Enter` | Send message, or accept selected suggestion |
 | `Ctrl+C` / `Ctrl+D` | Quit |
-| `Tab` | Autocomplete slash commands |
-| `Up` / `Down` | Cycle through input history |
+| `Up` / `Down` | Navigate suggestion dropdown, or cycle input history |
+| `Tab` | Accept selected suggestion |
+| `Escape` | Dismiss suggestion dropdown |
 | `Ctrl+G` | Open `$EDITOR` for multi-line input |
 | `Ctrl+U` | Clear input line |
 | `Ctrl+W` | Delete word backward |
@@ -154,7 +155,7 @@ In text mode, cost is printed to stderr so it doesn't pollute piped output.
 
 ## Slash Commands
 
-Type `/` followed by `Tab` to autocomplete commands.
+Typing `/` opens a suggestion dropdown above the input. Use `Up`/`Down` to navigate, `Tab` or `Enter` to accept, `Escape` to dismiss. The dropdown scrolls to keep the selection visible (max 6 rows at a time).
 
 | Command | Description |
 |---------|-------------|
