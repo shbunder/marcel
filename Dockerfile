@@ -19,8 +19,17 @@ RUN uv sync --frozen --all-extras --no-dev --no-install-project
 # serves as a fallback and for the initial build)
 COPY src/ ./src/
 
-# Install the project itself in editable mode
+# Install the project itself
 RUN uv sync --frozen --all-extras --no-dev
+
+# Create non-root user matching the host user (UID/GID passed at build time)
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN groupadd -g ${USER_GID} marcel && \
+    useradd -m -u ${USER_UID} -g marcel -s /bin/bash marcel && \
+    chown -R marcel:marcel /app
+ENV PATH="/home/marcel/.local/bin:${PATH}"
+USER marcel
 
 EXPOSE 7420
 

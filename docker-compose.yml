@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        USER_UID: ${MARCEL_UID:-1000}
+        USER_GID: ${MARCEL_GID:-1000}
     container_name: marcel
     restart: unless-stopped
     network_mode: host
