@@ -273,18 +273,27 @@ async fn handle_key(
     cfg: &Config,
     dev_mode: bool,
 ) -> Action {
-    // Cancel tab-completion on any key except Tab itself
-    if key.code != KeyCode::Tab {
-        input.cancel_completion();
-    }
+    // Track whether input text changes (to refresh suggestions)
+    let text_before = input.text.clone();
 
     match (key.code, key.modifiers) {
         // Quit
         (KeyCode::Char('c'), KeyModifiers::CONTROL)
         | (KeyCode::Char('d'), KeyModifiers::CONTROL) => return Action::Quit,
 
+        // Escape: dismiss suggestions if visible
+        (KeyCode::Esc, _) => {
+            input.dismiss_suggestions();
+        }
+
         // Submit
         (KeyCode::Enter, _) => {
+            // If suggestions are visible, accept the selected one instead of submitting
+            if input.has_suggestions() {
+                input.accept_suggestion();
+                return Action::Continue;
+            }
+
             let text = input.take();
             let text = text.trim().to_string();
             if text.is_empty() {
@@ -315,9 +324,25 @@ async fn handle_key(
             }
         }
 
-        // Tab: cycle through slash command completions
+        // Tab: accept the selected suggestion
         (KeyCode::Tab, _) => {
-            input.tab_complete(COMMANDS);
+            input.accept_suggestion();
+        }
+
+        // Up/Down: navigate suggestions when visible, otherwise cycle history
+        (KeyCode::Up, _) => {
+            if input.has_suggestions() {
+                input.suggestion_prev();
+            } else {
+                input.history_prev();
+            }
+        }
+        (KeyCode::Down, _) => {
+            if input.has_suggestions() {
+                input.suggestion_next();
+            } else {
+                input.history_next();
+            }
         }
 
         // Ctrl+G: open $EDITOR for multi-line input
@@ -343,8 +368,6 @@ async fn handle_key(
         (KeyCode::Delete, _) => input.delete(),
         (KeyCode::Left, _) => input.move_left(),
         (KeyCode::Right, _) => input.move_right(),
-        (KeyCode::Up, _) => input.history_prev(),
-        (KeyCode::Down, _) => input.history_next(),
         (KeyCode::Home, _) => input.home(),
         (KeyCode::End, _) => input.end(),
 
@@ -357,6 +380,11 @@ async fn handle_key(
         }
 
         _ => {}
+    }
+
+    // Refresh suggestions whenever the input text changes
+    if input.text != text_before {
+        input.update_suggestions(COMMANDS);
     }
 
     Action::Continue

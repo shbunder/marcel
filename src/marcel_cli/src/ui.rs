@@ -204,14 +204,23 @@ impl Renderable for ChatView {
 
 // ── InputBox ──────────────────────────────────────────────────────────
 
+/// A single suggestion entry (command name + description).
+#[derive(Clone)]
+pub struct Suggestion {
+    pub name: String,
+    pub desc: String,
+}
+
 pub struct InputBox {
     pub text: String,
     pub cursor: usize,
     history: Vec<String>,
     history_idx: Option<usize>,
     stashed: String,
-    /// Tab-completion state: (original prefix, matching commands, current index).
-    completion: Option<(String, Vec<String>, usize)>,
+    /// Live suggestions shown as a dropdown.
+    pub suggestions: Vec<Suggestion>,
+    /// Index of the highlighted suggestion (0-based).
+    pub selected_suggestion: usize,
 }
 
 impl InputBox {
@@ -222,55 +231,76 @@ impl InputBox {
             history: Vec::new(),
             history_idx: None,
             stashed: String::new(),
-            completion: None,
+            suggestions: Vec::new(),
+            selected_suggestion: 0,
         }
     }
 
-    /// Start or cycle through tab completions for the given command list.
-    /// Returns true if a completion was applied.
-    pub fn tab_complete(&mut self, commands: &[(&str, &str)]) -> bool {
-        if !self.text.starts_with('/') {
-            return false;
-        }
+    /// Returns true when the suggestion dropdown is visible.
+    pub fn has_suggestions(&self) -> bool {
+        !self.suggestions.is_empty()
+    }
 
-        if let Some((_, ref matches, ref mut idx)) = self.completion {
-            // Already completing — cycle to next
-            *idx = (*idx + 1) % matches.len();
-            let next = matches[*idx].clone();
-            self.text = format!("{next} ");
-            self.cursor = self.text.len();
-            return true;
-        }
-
-        // Start new completion
+    /// Recompute suggestions based on current input and the command list.
+    pub fn update_suggestions(&mut self, commands: &[(&str, &str)]) {
         let prefix = self.text.to_lowercase();
-        let matches: Vec<String> = commands
-            .iter()
-            .map(|(c, _)| c.to_string())
-            .filter(|c| c.starts_with(&prefix))
-            .collect();
-
-        match matches.len() {
-            0 => false,
-            1 => {
-                self.text = format!("{} ", matches[0]);
-                self.cursor = self.text.len();
-                // Don't enter cycling mode for single match
-                true
+        if prefix.starts_with('/') && !prefix.contains(' ') {
+            self.suggestions = commands
+                .iter()
+                .filter(|(c, _)| c.starts_with(&prefix))
+                .map(|(c, d)| Suggestion {
+                    name: c.to_string(),
+                    desc: d.to_string(),
+                })
+                .collect();
+            // Clamp selection
+            if self.selected_suggestion >= self.suggestions.len() {
+                self.selected_suggestion = 0;
             }
-            _ => {
-                let first = matches[0].clone();
-                self.completion = Some((prefix, matches, 0));
-                self.text = format!("{first} ");
-                self.cursor = self.text.len();
-                true
-            }
+        } else {
+            self.suggestions.clear();
+            self.selected_suggestion = 0;
         }
     }
 
-    /// Cancel any active tab-completion cycle (call on any non-Tab keypress).
-    pub fn cancel_completion(&mut self) {
-        self.completion = None;
+    /// Move selection up (wraps around).
+    pub fn suggestion_prev(&mut self) {
+        if self.suggestions.is_empty() {
+            return;
+        }
+        if self.selected_suggestion == 0 {
+            self.selected_suggestion = self.suggestions.len() - 1;
+        } else {
+            self.selected_suggestion -= 1;
+        }
+    }
+
+    /// Move selection down (wraps around).
+    pub fn suggestion_next(&mut self) {
+        if self.suggestions.is_empty() {
+            return;
+        }
+        self.selected_suggestion = (self.selected_suggestion + 1) % self.suggestions.len();
+    }
+
+    /// Accept the currently selected suggestion — replaces input text.
+    /// Returns true if a suggestion was accepted.
+    pub fn accept_suggestion(&mut self) -> bool {
+        if let Some(s) = self.suggestions.get(self.selected_suggestion) {
+            self.text = format!("{} ", s.name);
+            self.cursor = self.text.len();
+            self.suggestions.clear();
+            self.selected_suggestion = 0;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Dismiss the suggestion dropdown.
+    pub fn dismiss_suggestions(&mut self) {
+        self.suggestions.clear();
+        self.selected_suggestion = 0;
     }
 
     /// Navigate to the previous history entry (older).
@@ -398,8 +428,66 @@ impl InputBox {
     }
 }
 
+const MAX_VISIBLE_SUGGESTIONS: usize = 6;
+
 impl Renderable for InputBox {
     fn render(&self, area: Rect, buf: &mut Buffer) {
+        let suggestion_count = self.suggestions.len().min(MAX_VISIBLE_SUGGESTIONS);
+        let suggestion_height = suggestion_count as u16;
+
+        // ── Suggestion dropdown (rendered above the input box) ──
+        if suggestion_height > 0 {
+            let dropdown_area = Rect::new(area.x, area.y, area.width, suggestion_height);
+
+            // Background fill
+            let bg = Style::default().bg(Color::Rgb(0x1e, 0x1e, 0x1e));
+            for y in dropdown_area.y..dropdown_area.y + dropdown_area.height {
+                for x in dropdown_area.x..dropdown_area.x + dropdown_area.width {
+                    buf[(x, y)].set_style(bg);
+                }
+            }
+
+            for (i, suggestion) in self.suggestions.iter().take(MAX_VISIBLE_SUGGESTIONS).enumerate() {
+                let y = dropdown_area.y + i as u16;
+                let is_selected = i == self.selected_suggestion;
+
+                let (name_style, desc_style, row_bg) = if is_selected {
+                    (
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                        Style::default().fg(Color::White),
+                        Style::default().bg(Color::Rgb(0x2a, 0x2a, 0x2a)),
+                    )
+                } else {
+                    (
+                        Style::default().fg(MID),
+                        Style::default().fg(DIM),
+                        bg,
+                    )
+                };
+
+                // Fill row background
+                for x in area.x..area.x + area.width {
+                    buf[(x, y)].set_style(row_bg);
+                }
+
+                let line = Line::from(vec![
+                    Span::styled(if is_selected { " ▸ " } else { "   " }, name_style),
+                    Span::styled(&suggestion.name, name_style),
+                    Span::styled("  ", desc_style),
+                    Span::styled(&suggestion.desc, desc_style),
+                ]);
+                buf.set_line(area.x, y, &line, area.width);
+            }
+        }
+
+        // ── Input box (rendered below suggestions) ──
+        let input_area = Rect::new(
+            area.x,
+            area.y + suggestion_height,
+            area.width,
+            3, // border top + text + border bottom
+        );
+
         let display = if self.text.is_empty() {
             vec![Line::from(Span::styled(
                 "Message Marcel or type / for commands…",
@@ -423,17 +511,18 @@ impl Renderable for InputBox {
             ));
 
         let paragraph = Paragraph::new(display).block(block);
-        paragraph.render(area, buf);
+        paragraph.render(input_area, buf);
     }
 
     fn desired_height(&self, _width: u16) -> u16 {
-        3 // 1 line of text + 2 for border
+        let suggestions = self.suggestions.len().min(MAX_VISIBLE_SUGGESTIONS) as u16;
+        3 + suggestions // input box (3) + suggestion rows
     }
 
     fn cursor_pos(&self, area: Rect) -> Option<(u16, u16)> {
-        // Cursor inside the block (1 for left border + 1 for title spacing)
+        let suggestion_height = self.suggestions.len().min(MAX_VISIBLE_SUGGESTIONS) as u16;
         let x = area.x + 1 + self.cursor as u16;
-        let y = area.y + 1;
+        let y = area.y + suggestion_height + 1; // below suggestions, inside border
         if x < area.x + area.width - 1 {
             Some((x, y))
         } else {
