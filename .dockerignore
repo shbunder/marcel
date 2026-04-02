@@ -1,0 +1,15 @@
+.venv
+.git
+.cache
+.mypy_cache
+.ruff_cache
+.pytest_cache
+__pycache__
+*.egg-info
+src/marcel_cli/target
+site
+build
+.build
+notebooks
+data
+*.deb

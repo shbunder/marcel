@@ -12,7 +12,7 @@ ENV PATH="/root/.local/bin:$PATH"
 WORKDIR /app
 
 # Install Python dependencies (cached layer — only rebuilds when deps change)
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --all-extras --no-dev --no-install-project
 
 # Copy source code (in production, source is bind-mounted so this layer
