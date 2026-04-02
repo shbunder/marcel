@@ -112,15 +112,15 @@ Replace regex-based extraction with a file-tool agent (inspired by Claude Code's
 - [✓] ISSUE-024-f: Update `context.py` — system prompt becomes profile + memory + channel hint (no history)
 
 ### Part B — Typed Memory
-- [ ] ISSUE-024-g: Define `MemoryHeader` dataclass and `MemoryType` enum in `storage/memory.py`
-- [ ] ISSUE-024-h: Add `scan_memory_headers()` — reads frontmatter only from all `.md` files in a user's memory dir
-- [ ] ISSUE-024-i: Add `format_memory_manifest()` — one-line-per-file text for prompts
+- [✓] ISSUE-024-g: Define `MemoryHeader` dataclass and `MemoryType` enum in `storage/memory.py`
+- [✓] ISSUE-024-h: Add `scan_memory_headers()` — reads frontmatter only from all `.md` files in a user's memory dir
+- [✓] ISSUE-024-i: Add `format_memory_manifest()` — one-line-per-file text for prompts
 - [ ] ISSUE-024-j: Migrate existing memory files to frontmatter format (one-time migration utility)
 
 ### Part C — Relevance Selection
-- [ ] ISSUE-024-k: Create `agent/memory_select.py` — side-query to Haiku that picks top-N relevant memory files from manifest
-- [ ] ISSUE-024-l: Integrate into `context.py` — replace `_load_all_memory()` with `select_relevant_memories()`
-- [ ] ISSUE-024-m: Add staleness warnings for memories older than configurable threshold
+- [✓] ISSUE-024-k: Create `agent/memory_select.py` — side-query to Haiku that picks top-N relevant memory files from manifest
+- [✓] ISSUE-024-l: Integrate into `context.py` — replace `_load_all_memory()` with scan-based loading, capped at MAX_MEMORY_FILES
+- [✓] ISSUE-024-m: Add staleness warnings for memories older than configurable threshold
 
 ### Part D — Memory Search Tool
 - [ ] ISSUE-024-n: Add `memory_search` MCP tool to `skills/tool.py` alongside `integration` and `notify`
@@ -138,8 +138,8 @@ Replace regex-based extraction with a file-tool agent (inspired by Claude Code's
 
 ### Testing & Shipping
 - [✓] ISSUE-024-v: Tests for SessionManager (create, reuse, idle cleanup, disconnect)
-- [ ] ISSUE-024-w: Tests for typed memory (scan, manifest, frontmatter parsing, migration)
-- [ ] ISSUE-024-x: Tests for relevance selection (mock side-query, household inclusion)
+- [✓] ISSUE-024-w: Tests for typed memory (scan, manifest, frontmatter parsing, staleness)
+- [✓] ISSUE-024-x: Tests for relevance selection (small-set load-all, household inclusion/exclusion, parse_selection)
 - [ ] ISSUE-024-y: Tests for memory search tool
 - [ ] ISSUE-024-z: Tests for agent-based extraction (mock agent, deduplication, skip logic)
 - [ ] ISSUE-024-aa: Update docs (architecture.md, storage.md), run `make check`, version bump
@@ -182,3 +182,17 @@ This is a large issue. Implementation should proceed in phases: Part A (session 
 - `tests/core/test_agent.py` — Rewrote runner tests to mock `SessionManager` instead of `claude_agent_sdk.query`. Added 6 new `TestSessionManager` tests (create, reuse, disconnect, reset_user, cleanup_idle, disconnect_all). Added `TurnResult` cost test for WebSocket. Updated context tests to remove conversation_id.
 **Commands Run**: `make check` — lint/format pass, 0 type errors in changed files (5 pre-existing in icloud/watchdog), 131 tests pass.
 **Next**: Part B — Typed memory with frontmatter.
+
+### 2026-04-02 — Part B+C: Typed Memory + Relevance Selection
+**Action**: Added typed memory infrastructure with frontmatter parsing and relevance-based memory selection.
+**Files Modified**:
+- `src/marcel_core/storage/memory.py` — Rewrote. Added `MemoryType` enum (schedule, preference, person, reference, household), `MemoryHeader` dataclass, `parse_frontmatter()` regex parser, `scan_memory_headers()` (reads first 2KB per file for frontmatter, returns sorted headers), `format_memory_manifest()` (one-line-per-file text), `memory_age_days()` and `memory_freshness_note()` staleness helpers. All original CRUD operations preserved unchanged.
+- `src/marcel_core/agent/memory_select.py` — Created. `select_relevant_memories()` scans headers from user + `_household`, loads all for small sets (≤10 files), or asks Haiku to select top-8 from manifest for large sets. `_parse_selection()` handles JSON array parsing with code fence stripping. Falls back to loading all on API failure.
+- `src/marcel_core/agent/context.py` — Rewrote `_load_memory()` to use `scan_memory_headers()` instead of index-based loading. Caps at 15 files, sorted by mtime, includes `_household` shared memories, appends freshness warnings.
+- `src/marcel_core/storage/__init__.py` — Exports new types: `MemoryHeader`, `MemoryType`, `format_memory_manifest`, `memory_age_days`, `memory_freshness_note`, `parse_frontmatter`, `scan_memory_headers`.
+- `src/marcel_core/agent/__init__.py` — Exports `extract_and_save_memories`, `select_relevant_memories`.
+- `tests/core/test_storage.py` — Added 19 tests: `TestParseFrontmatter` (4), `TestMemoryType` (2), `TestScanMemoryHeaders` (4), `TestFormatMemoryManifest` (2), `TestMemoryStaleness` (7).
+- `tests/core/test_agent.py` — Added 9 tests: `TestParseSelection` (5), `TestSelectRelevantMemories` (4).
+**Bug fixed**: Slug detection in `memory_select.py` and `context.py` used `'_household' in str(header.filepath)` which incorrectly matched when the filesystem path (e.g. pytest tmp dir name) contained `_household`. Fixed to use `header.filepath.parent.parent.name` which directly extracts the slug from the directory structure.
+**Commands Run**: `ruff format`, `ruff check --fix`, `pyright` (0 errors on changed files), `pytest tests/ -v` — 160 tests pass.
+**Next**: Part D — Memory search tool.

@@ -29,9 +29,16 @@ from .conversations import (
     update_conversation_index,
 )
 from .memory import (
+    MemoryHeader,
+    MemoryType,
+    format_memory_manifest,
     load_memory_file,
     load_memory_index,
+    memory_age_days,
+    memory_freshness_note,
+    parse_frontmatter,
     save_memory_file,
+    scan_memory_headers,
     update_memory_index,
 )
 from .users import load_user_profile, save_user_profile, user_exists
@@ -48,9 +55,16 @@ __all__ = [
     'load_conversation_index',
     'update_conversation_index',
     # memory
+    'MemoryHeader',
+    'MemoryType',
+    'format_memory_manifest',
     'load_memory_index',
     'load_memory_file',
+    'memory_age_days',
+    'memory_freshness_note',
+    'parse_frontmatter',
     'save_memory_file',
+    'scan_memory_headers',
     'update_memory_index',
     # concurrency
     'get_lock',

@@ -3,13 +3,21 @@
 The system prompt is set once when the session connects.  Conversation history
 is maintained by the SDK internally — we no longer inject it here.
 
-Memory loading is a full dump for now; ISSUE-024 Part C will replace this with
-relevance-based selection.
+Memory is loaded from frontmatter-typed files, sorted by recency, with
+staleness warnings on old entries.  For small memory sets all files are
+included; for large sets only the most recent are loaded in-prompt (the agent
+can use the ``memory_search`` tool for older/less-relevant memories).
 """
 
-import re
+from marcel_core.storage.memory import (
+    load_memory_file,
+    memory_freshness_note,
+    scan_memory_headers,
+)
 
-from marcel_core import storage
+# Maximum memory files to include in the system prompt.
+# Beyond this, the agent should use the memory_search tool.
+_MAX_MEMORY_FILES = 15
 
 _CHANNEL_FORMAT: dict[str, str] = {
     'cli': 'Use rich markdown: headers, bold, code blocks, and bullet lists freely.',
@@ -37,8 +45,10 @@ def build_system_prompt(
     Returns:
         A complete system prompt string ready to pass to ClaudeAgentOptions.
     """
+    from marcel_core import storage
+
     profile = storage.load_user_profile(user_slug)
-    memory_content = _load_all_memory(user_slug)
+    memory_content = _load_memory(user_slug)
 
     lines: list[str] = [
         f'You are Marcel, a warm and capable personal assistant for {user_slug}.',
@@ -60,19 +70,35 @@ def build_system_prompt(
     return '\n'.join(lines)
 
 
-def _load_all_memory(user_slug: str) -> str:
-    """Load and concatenate all topic memory files referenced in the memory index."""
-    index = storage.load_memory_index(user_slug)
-    if not index.strip():
+def _load_memory(user_slug: str) -> str:
+    """Load memory files sorted by recency, with staleness notes.
+
+    Scans frontmatter headers, takes the most recent _MAX_MEMORY_FILES,
+    loads their full content, and appends freshness warnings for older entries.
+    Also includes ``_household`` shared memories.
+    """
+    headers = scan_memory_headers(user_slug)
+    headers += scan_memory_headers('_household')
+
+    if not headers:
         return ''
 
-    # Match link text filenames: [calendar.md](calendar.md)
-    filenames = re.findall(r'\[([^\]]+\.md)\]', index)
-    parts: list[str] = []
-    for filename in filenames:
-        topic = filename.removesuffix('.md')
-        content = storage.load_memory_file(user_slug, topic)
-        if content.strip():
-            parts.append(content)
+    # Sort all by mtime descending (most recent first) and cap.
+    headers.sort(key=lambda h: h.mtime, reverse=True)
+    headers = headers[:_MAX_MEMORY_FILES]
 
-    return '\n\n'.join(parts)
+    parts: list[str] = []
+    for header in headers:
+        # Determine slug from filepath: <root>/users/<slug>/memory/<file>.md
+        slug = header.filepath.parent.parent.name
+        topic = header.filename.removesuffix('.md')
+        content = load_memory_file(slug, topic)
+        if not content.strip():
+            continue
+
+        freshness = memory_freshness_note(header.mtime)
+        if freshness:
+            content = f'{content.rstrip()}\n\n{freshness}'
+        parts.append(content)
+
+    return '\n\n---\n\n'.join(parts)

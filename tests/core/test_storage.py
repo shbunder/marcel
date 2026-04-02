@@ -5,20 +5,28 @@ temporary directory so no real data is read or written.
 """
 
 import pathlib
+import time
 
 import pytest
 
 import marcel_core.storage._root as _root_mod
 from marcel_core.storage import (
+    MemoryHeader,
+    MemoryType,
     append_turn,
+    format_memory_manifest,
     load_conversation,
     load_conversation_index,
     load_memory_file,
     load_memory_index,
     load_user_profile,
+    memory_age_days,
+    memory_freshness_note,
     new_conversation,
+    parse_frontmatter,
     save_memory_file,
     save_user_profile,
+    scan_memory_headers,
     update_conversation_index,
     update_memory_index,
     user_exists,
@@ -224,3 +232,176 @@ class TestUpdateMemoryIndex:
         content = load_memory_index('shaun')
         assert 'calendar.md' in content
         assert 'family.md' in content
+
+
+# ---------------------------------------------------------------------------
+# frontmatter parsing
+# ---------------------------------------------------------------------------
+
+
+class TestParseFrontmatter:
+    def test_parses_basic_frontmatter(self) -> None:
+        text = '---\nname: dentist\ntype: schedule\n---\nBody text.'
+        meta, body = parse_frontmatter(text)
+        assert meta['name'] == 'dentist'
+        assert meta['type'] == 'schedule'
+        assert body.strip() == 'Body text.'
+
+    def test_no_frontmatter_returns_empty_dict(self) -> None:
+        text = 'Just some text without frontmatter.'
+        meta, body = parse_frontmatter(text)
+        assert meta == {}
+        assert body == text
+
+    def test_frontmatter_with_all_fields(self) -> None:
+        text = (
+            '---\n'
+            'name: morning_routine\n'
+            'description: Prefers mornings for meetings\n'
+            'type: preference\n'
+            'expires: 2026-12-31\n'
+            'confidence: told\n'
+            '---\n'
+            'Content here.'
+        )
+        meta, body = parse_frontmatter(text)
+        assert meta['name'] == 'morning_routine'
+        assert meta['description'] == 'Prefers mornings for meetings'
+        assert meta['type'] == 'preference'
+        assert meta['expires'] == '2026-12-31'
+        assert meta['confidence'] == 'told'
+        assert body.strip() == 'Content here.'
+
+    def test_body_preserved_after_frontmatter(self) -> None:
+        text = '---\nname: test\n---\nLine 1\nLine 2\n'
+        _, body = parse_frontmatter(text)
+        assert 'Line 1' in body
+        assert 'Line 2' in body
+
+
+class TestMemoryType:
+    def test_valid_types(self) -> None:
+        assert MemoryType('schedule') == MemoryType.SCHEDULE
+        assert MemoryType('preference') == MemoryType.PREFERENCE
+        assert MemoryType('person') == MemoryType.PERSON
+        assert MemoryType('reference') == MemoryType.REFERENCE
+        assert MemoryType('household') == MemoryType.HOUSEHOLD
+
+    def test_invalid_type_raises(self) -> None:
+        with pytest.raises(ValueError):
+            MemoryType('invalid_type')
+
+
+# ---------------------------------------------------------------------------
+# memory scanning
+# ---------------------------------------------------------------------------
+
+
+class TestScanMemoryHeaders:
+    def test_empty_when_no_memory_dir(self) -> None:
+        assert scan_memory_headers('nobody') == []
+
+    def test_scans_files_with_frontmatter(self, tmp_path: pathlib.Path) -> None:
+        mem_dir = tmp_path / 'users' / 'shaun' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'calendar.md').write_text(
+            '---\nname: calendar\ndescription: Calendar facts\ntype: schedule\n---\nContent.',
+            encoding='utf-8',
+        )
+        headers = scan_memory_headers('shaun')
+        assert len(headers) == 1
+        assert headers[0].filename == 'calendar.md'
+        assert headers[0].name == 'calendar'
+        assert headers[0].description == 'Calendar facts'
+        assert headers[0].type == MemoryType.SCHEDULE
+
+    def test_scans_files_without_frontmatter(self, tmp_path: pathlib.Path) -> None:
+        mem_dir = tmp_path / 'users' / 'shaun' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'notes.md').write_text('Plain text notes.', encoding='utf-8')
+        headers = scan_memory_headers('shaun')
+        assert len(headers) == 1
+        assert headers[0].name is None
+        assert headers[0].type is None
+
+    def test_excludes_index_md(self, tmp_path: pathlib.Path) -> None:
+        mem_dir = tmp_path / 'users' / 'shaun' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'index.md').write_text('Index content.', encoding='utf-8')
+        (mem_dir / 'real.md').write_text('Real content.', encoding='utf-8')
+        headers = scan_memory_headers('shaun')
+        assert len(headers) == 1
+        assert headers[0].filename == 'real.md'
+
+    def test_sorted_newest_first(self, tmp_path: pathlib.Path) -> None:
+        import os
+
+        mem_dir = tmp_path / 'users' / 'shaun' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'old.md').write_text('Old.', encoding='utf-8')
+        os.utime(mem_dir / 'old.md', (1000, 1000))
+        (mem_dir / 'new.md').write_text('New.', encoding='utf-8')
+        headers = scan_memory_headers('shaun')
+        assert headers[0].filename == 'new.md'
+        assert headers[1].filename == 'old.md'
+
+
+class TestFormatMemoryManifest:
+    def test_formats_with_type_and_description(self) -> None:
+        headers = [
+            MemoryHeader(
+                filename='calendar.md',
+                filepath=pathlib.Path('/fake/calendar.md'),
+                mtime=time.time(),
+                name='calendar',
+                description='Calendar facts',
+                type=MemoryType.SCHEDULE,
+            ),
+        ]
+        result = format_memory_manifest(headers)
+        assert '[schedule]' in result
+        assert 'calendar.md' in result
+        assert 'Calendar facts' in result
+        assert 'today' in result
+
+    def test_formats_without_type(self) -> None:
+        headers = [
+            MemoryHeader(
+                filename='notes.md',
+                filepath=pathlib.Path('/fake/notes.md'),
+                mtime=time.time(),
+            ),
+        ]
+        result = format_memory_manifest(headers)
+        assert 'notes.md' in result
+        assert '[' not in result.split('notes.md')[0]  # no type tag
+
+
+# ---------------------------------------------------------------------------
+# staleness helpers
+# ---------------------------------------------------------------------------
+
+
+class TestMemoryStaleness:
+    def test_age_days_today(self) -> None:
+        assert memory_age_days(time.time()) == 0
+
+    def test_age_days_yesterday(self) -> None:
+        assert memory_age_days(time.time() - 86_400) == 1
+
+    def test_age_days_old(self) -> None:
+        assert memory_age_days(time.time() - 86_400 * 30) == 30
+
+    def test_freshness_note_empty_for_today(self) -> None:
+        assert memory_freshness_note(time.time()) == ''
+
+    def test_freshness_note_empty_for_yesterday(self) -> None:
+        assert memory_freshness_note(time.time() - 86_400) == ''
+
+    def test_freshness_note_for_old(self) -> None:
+        note = memory_freshness_note(time.time() - 86_400 * 10)
+        assert '10 days old' in note
+
+    def test_freshness_note_very_old(self) -> None:
+        note = memory_freshness_note(time.time() - 86_400 * 100)
+        assert 'very outdated' in note
