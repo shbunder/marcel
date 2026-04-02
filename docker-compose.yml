@@ -24,6 +24,7 @@ services:
       - ${HOME}/.marcel:${HOME}/.marcel
       # Claude SDK auth (OAuth credentials from host's `claude login`)
       - ${HOME}/.claude:/home/marcel/.claude
+      - ${HOME}/.claude.json:/home/marcel/.claude.json
       # Docker socket — so Marcel can restart itself and manage other containers
       - /var/run/docker.sock:/var/run/docker.sock
       # Host filesystem — read-only for inspecting logs, configs, etc.
