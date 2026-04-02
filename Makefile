@@ -79,8 +79,13 @@ cli-dev: ## Build and run the Marcel CLI (Rust, debug mode)
 # Dev server port — defaults to 7421 to avoid conflicting with Docker prod (7420)
 MARCEL_DEV_PORT ?= 7421
 
+.PHONY: install-skills
+install-skills: ## Symlink Marcel integration skills into .claude/skills/
+	@echo -e "$(INFO) Installing integration skills (symlink)..."
+	@uv run python -m marcel_core.skills.install_skills
+
 .PHONY: serve
-serve: ## Start marcel-core development server (uvicorn with reload)
+serve: install-skills ## Start marcel-core development server (uvicorn with reload)
 	echo -e "$(INFO) Starting marcel-core (dev) on http://0.0.0.0:$(MARCEL_DEV_PORT) ..."
 	MARCEL_PORT=$(MARCEL_DEV_PORT) uv run uvicorn marcel_core.main:app --host 0.0.0.0 --port $(MARCEL_DEV_PORT) --reload
 

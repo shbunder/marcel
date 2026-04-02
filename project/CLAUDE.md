@@ -131,8 +131,9 @@ When rewriting Marcel's own code:
 New integrations follow this pattern:
 
 1. **Create a python integration module** at `src/marcel_core/skills/integrations/<name>.py`. Use the `@register("name.action")` decorator to register async handler functions. Each handler receives `(params: dict, user_slug: str)` and returns a string.
-2. **Create a Claude Code skill** at `.claude/skills/<name>/SKILL.md`. This teaches the agent how to call `integration(skill="name.action", params={...})` with inline examples, parameter tables, and usage notes.
+2. **Create a skill doc** at `src/marcel_core/skills/docs/<name>/SKILL.md`. This teaches the agent how to call `integration(skill="name.action", params={...})` with inline examples, parameter tables, and usage notes. Run `make install-skills` to symlink it into `.claude/skills/` (happens automatically with `make serve`).
 3. **For simple HTTP/shell integrations**, add a JSON entry to `skills.json` instead — no Python module needed.
+4. **Add the new skill directory to `.gitignore`** — e.g. `.claude/skills/<name>/` — so the generated symlink is not tracked.
 
 All integrations are dispatched through the single `integration` tool. Integrations must be self-contained — they should not require changes to core Marcel code (tool.py, executor.py, runner.py). When adding an integration, verify the pattern works end-to-end before committing.
 

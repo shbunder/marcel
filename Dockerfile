@@ -27,6 +27,10 @@ COPY src/ ./src/
 # Install the project itself
 RUN uv sync --frozen --all-extras --no-dev
 
+# Install integration skills into .claude/skills/ (copy mode for Docker)
+COPY .claude/skills/ .claude/skills/
+RUN uv run python -m marcel_core.skills.install_skills --copy
+
 # Create non-root user matching the host user (UID/GID passed at build time)
 ARG USER_UID=1000
 ARG USER_GID=1000

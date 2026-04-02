@@ -40,6 +40,10 @@ notebooks/*.ipynb
 # Downloaded installers
 *.deb
 
+# Generated integration skills (installed by `make install-skills`)
+# Repo-owned skills (new-issue, finish-issue) are tracked; integration skills are not.
+.claude/skills/icloud/
+
 # Build artifacts
 .build/
 build/

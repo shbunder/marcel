@@ -34,7 +34,7 @@ async def action(params: dict, user_slug: str) -> str:
     return json.dumps(result, indent=2)
 ```
 
-Then create a Claude Code skill at `.claude/skills/myservice/SKILL.md`:
+Then create a Claude Code skill doc at `src/marcel_core/skills/docs/myservice/SKILL.md`:
 
 ```markdown
 ---
@@ -63,6 +63,8 @@ Returns: description of the response format.
 ```
 
 No changes to core code are needed — the module is auto-discovered at startup.
+
+Run `make install-skills` to symlink the skill doc into `.claude/skills/` where the Claude Agent SDK picks it up. This runs automatically with `make serve` (dev) and during `docker build` (prod).
 
 ## Adding a JSON skill (HTTP or shell)
 
