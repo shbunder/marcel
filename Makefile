@@ -76,6 +76,21 @@ cli-build: ## Build the Marcel CLI (Rust, release mode)
 cli-dev: ## Build and run the Marcel CLI (Rust, debug mode)
 	cd src/marcel_cli && cargo run
 
+# WEB FRONTEND
+.PHONY: web-install
+web-install: ## Install web frontend dependencies
+	echo -e "$(INFO) Installing web dependencies..."
+	cd src/web && npm ci
+
+.PHONY: web-build
+web-build: ## Build web frontend for production
+	echo -e "$(INFO) Building web frontend..."
+	cd src/web && npm run build
+
+.PHONY: web-dev
+web-dev: ## Start web frontend dev server (Vite on :5173)
+	cd src/web && npm run dev
+
 # Dev server port — defaults to 7421 to avoid conflicting with Docker prod (7420)
 MARCEL_DEV_PORT ?= 7421
 

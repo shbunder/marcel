@@ -54,8 +54,8 @@ Marcel Python Backend (AG-UI event emitter)
 - [✓] ISSUE-026-f: Emit `ToolCallStart`/`ToolCallArgs`/`ToolCallEnd` events when the agent invokes tools
 
 ### Phase 2 — Web App + Telegram Mini App
-- [ ] ISSUE-026-g: Build minimal web app (React or Preact) consuming AG-UI event stream via SSE
-- [ ] ISSUE-026-h: Implement hardcoded widget renderers for initial content types: calendar view, list/checklist, confirmation dialog, streaming text
+- [✓] ISSUE-026-g: Build minimal web app (React + Vite) consuming AG-UI event stream via WebSocket
+- [✓] ISSUE-026-h: Implement hardcoded widget renderers for initial content types: calendar view, checklist, streaming text with markdown
 - [ ] ISSUE-026-i: Wrap web app as Telegram Mini App (Telegram JS bridge adapter, theme integration, back button wiring)
 - [ ] ISSUE-026-j: Wire bot to send inline keyboard buttons that open the Mini App on-demand for rich content
 - [ ] ISSUE-026-k: Authentication flow for Mini App (validate Telegram `initData` via HMAC-SHA256, map to Marcel user)
@@ -109,3 +109,30 @@ Conducted a thorough investigation of CopilotKit, AG-UI protocol, A2UI, and Tele
 **Commands Run**: `cargo build`, `cargo clippy -- -D warnings`, `cargo fmt`
 **Result**: Success — builds clean, no warnings, no clippy issues
 **Next**: Phase 1 complete. Phase 2 (web app + Telegram Mini App) is next.
+
+### 2026-04-02 16:30 - LLM Implementation
+**Action**: Implemented Phase 2 subtasks g + h — React web frontend with streaming chat, tool indicators, and widget renderers
+**Files Modified**:
+- `src/marcel_core/main.py` — Added CORSMiddleware (origins from MARCEL_CORS_ORIGINS env var), SPA fallback serving index.html from src/web/dist/ for non-API routes, /assets StaticFiles mount
+- `src/web/package.json` — Created: React 19, react-markdown 9, remark-gfm 4, Vite 6, TypeScript 5
+- `src/web/vite.config.ts` — Created: React plugin, outDir dist, dev proxy /ws → ws://localhost:7421, /health + /conversations → http://localhost:7421
+- `src/web/tsconfig.json` — Created: strict mode, JSX react-jsx, ES2020, bundler moduleResolution
+- `src/web/index.html` — Created: minimal HTML shell with #root div
+- `src/web/src/vite-env.d.ts` — Created: Vite client type reference
+- `src/web/src/main.tsx` — Created: React root entry point
+- `src/web/src/App.tsx` — Created: main layout with header (title, status dot, new chat button), useChat hook integration
+- `src/web/src/types.ts` — Created: Message, ActiveTool, ChatConfig interfaces + ServerEvent discriminated union
+- `src/web/src/hooks/useChat.ts` — Created: WebSocket state machine managing messages, streamingText, activeTools, conversationId. Auto-reconnect with exponential backoff (1s→30s). Processes all AG-UI event types.
+- `src/web/src/components/Chat.tsx` — Created: scrollable message list with auto-scroll, empty state, InputBar
+- `src/web/src/components/MessageBubble.tsx` — Created: user/assistant/error/system messages with react-markdown + remark-gfm, calendar + checklist widget detection
+- `src/web/src/components/StreamingMessage.tsx` — Created: memoized in-flight markdown rendering with blinking cursor
+- `src/web/src/components/ToolIndicator.tsx` — Created: yellow gear icon + tool name with pulse animation
+- `src/web/src/components/InputBar.tsx` — Created: textarea with Enter to send, Shift+Enter for newline
+- `src/web/src/widgets/CalendarWidget.tsx` — Created: detects markdown tables with date columns → styled event cards
+- `src/web/src/widgets/ChecklistWidget.tsx` — Created: detects GFM task lists → interactive checkboxes (client-side state)
+- `src/web/src/styles/global.css` — Created: full dark theme with custom properties, all component styles, animations
+- `Makefile` — Added web-install, web-build, web-dev targets
+- `.gitignore` — Added src/web/node_modules/ and src/web/dist/
+**Commands Run**: `npm install` (166 packages, 0 vulnerabilities), `npm run build` (tsc + vite build, success)
+**Result**: Success — production build generates dist/index.html + dist/assets/
+**Next**: Phase 2 subtasks i-k (Telegram Mini App) are future work

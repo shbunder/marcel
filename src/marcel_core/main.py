@@ -8,6 +8,9 @@ from typing import AsyncIterator
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 load_dotenv()  # loads ANTHROPIC_API_KEY and other vars from .env into the process env
 
@@ -71,7 +74,35 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title='Marcel', lifespan=lifespan)
 
+# CORS — needed for Vite dev server (different port) during development
+_cors_origins = os.environ.get('MARCEL_CORS_ORIGINS', 'http://localhost:5173').split(',')
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in _cors_origins],
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
+
 app.include_router(health_router)
 app.include_router(chat_router)
 app.include_router(conversations_router)
 app.include_router(telegram_router)
+
+# Serve the built web frontend (SPA) if it exists
+_WEB_DIST = Path(__file__).resolve().parent.parent / 'web' / 'dist'
+_API_PREFIXES = ('ws', 'health', 'conversations', 'telegram', 'api')
+
+if _WEB_DIST.is_dir():
+    _assets_dir = _WEB_DIST / 'assets'
+    if _assets_dir.is_dir():
+        app.mount('/assets', StaticFiles(directory=str(_assets_dir)), name='web-assets')
+
+    @app.get('/{path:path}')
+    async def _spa_fallback(path: str) -> FileResponse:
+        """Serve index.html for all non-API routes (SPA client-side routing)."""
+        if path and path.split('/')[0] in _API_PREFIXES:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404)
+        return FileResponse(str(_WEB_DIST / 'index.html'))
