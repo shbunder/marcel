@@ -1,8 +1,13 @@
 FROM python:3.12-slim
 
-# System dependencies
+# System dependencies + Docker CLI (to manage sibling containers via mounted socket)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends git curl && \
+    apt-get install -y --no-install-recommends git curl gnupg && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends docker-ce-cli && \
+    apt-get purge -y gnupg && apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
 # Install uv (fast Python package manager)
@@ -25,8 +30,10 @@ RUN uv sync --frozen --all-extras --no-dev
 # Create non-root user matching the host user (UID/GID passed at build time)
 ARG USER_UID=1000
 ARG USER_GID=1000
+ARG DOCKER_GID=988
 RUN groupadd -g ${USER_GID} marcel && \
     useradd -m -u ${USER_UID} -g marcel -s /bin/bash marcel && \
+    groupadd -g ${DOCKER_GID} dockerhost && usermod -aG dockerhost marcel && \
     chown -R marcel:marcel /app
 ENV PATH="/home/marcel/.local/bin:${PATH}"
 USER marcel
