@@ -123,8 +123,8 @@ Replace regex-based extraction with a file-tool agent (inspired by Claude Code's
 - [✓] ISSUE-024-m: Add staleness warnings for memories older than configurable threshold
 
 ### Part D — Memory Search Tool
-- [ ] ISSUE-024-n: Add `memory_search` MCP tool to `skills/tool.py` alongside `integration` and `notify`
-- [ ] ISSUE-024-o: Implement keyword search across memory files (grep frontmatter + content)
+- [✓] ISSUE-024-n: Add `memory_search` MCP tool to `skills/tool.py` alongside `integration` and `notify`
+- [✓] ISSUE-024-o: Implement keyword search across memory files (filename + frontmatter + content)
 
 ### Part E — Agent-Based Extraction
 - [ ] ISSUE-024-p: Rewrite `memory_extract.py` — use `query()` with Haiku + `claude_code` tools preset + CWD=memory dir
@@ -140,7 +140,7 @@ Replace regex-based extraction with a file-tool agent (inspired by Claude Code's
 - [✓] ISSUE-024-v: Tests for SessionManager (create, reuse, idle cleanup, disconnect)
 - [✓] ISSUE-024-w: Tests for typed memory (scan, manifest, frontmatter parsing, staleness)
 - [✓] ISSUE-024-x: Tests for relevance selection (small-set load-all, household inclusion/exclusion, parse_selection)
-- [ ] ISSUE-024-y: Tests for memory search tool
+- [✓] ISSUE-024-y: Tests for memory search tool (11 tests in test_storage, 1 in test_skills)
 - [ ] ISSUE-024-z: Tests for agent-based extraction (mock agent, deduplication, skip logic)
 - [ ] ISSUE-024-aa: Update docs (architecture.md, storage.md), run `make check`, version bump
 
@@ -196,3 +196,14 @@ This is a large issue. Implementation should proceed in phases: Part A (session 
 **Bug fixed**: Slug detection in `memory_select.py` and `context.py` used `'_household' in str(header.filepath)` which incorrectly matched when the filesystem path (e.g. pytest tmp dir name) contained `_household`. Fixed to use `header.filepath.parent.parent.name` which directly extracts the slug from the directory structure.
 **Commands Run**: `ruff format`, `ruff check --fix`, `pyright` (0 errors on changed files), `pytest tests/ -v` — 160 tests pass.
 **Next**: Part D — Memory search tool.
+
+### 2026-04-02 — Part D: Memory Search MCP Tool
+**Action**: Added `memory_search` MCP tool for mid-conversation memory lookup.
+**Files Modified**:
+- `src/marcel_core/storage/memory.py` — Added `MemorySearchResult` dataclass and `search_memory_files()` function. Searches filename, frontmatter (name, description), and body content. Supports type filtering, result limits, and `_household` inclusion. Results ranked: meta matches first, then body matches, both sorted by recency. `_extract_snippet()` returns context around first match.
+- `src/marcel_core/skills/tool.py` — Added `memory_search` MCP tool with schema (query, type filter, max_results). Handler validates input, calls `search_memory_files()`, formats results as markdown with type tags and snippets. Registered alongside `integration` and `notify` in the MCP server.
+- `src/marcel_core/storage/__init__.py` — Exports `MemorySearchResult` and `search_memory_files`.
+- `tests/core/test_storage.py` — Added 11 tests in `TestSearchMemoryFiles`: body/description/filename matching, case insensitivity, type filter, household inclusion/exclusion, max_results cap, no-match empty result, meta-before-body ranking, index.md exclusion.
+- `tests/core/test_skills.py` — Added `TestBuildSkillsMcpServer` verifying server config includes all tools.
+**Commands Run**: `ruff format`, `ruff check --fix`, `pyright` (0 errors), `pytest tests/ -v` — 172 tests pass.
+**Next**: Part E — Agent-based memory extraction.

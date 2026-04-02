@@ -27,6 +27,7 @@ from marcel_core.storage import (
     save_memory_file,
     save_user_profile,
     scan_memory_headers,
+    search_memory_files,
     update_conversation_index,
     update_memory_index,
     user_exists,
@@ -405,3 +406,85 @@ class TestMemoryStaleness:
     def test_freshness_note_very_old(self) -> None:
         note = memory_freshness_note(time.time() - 86_400 * 100)
         assert 'very outdated' in note
+
+
+# ---------------------------------------------------------------------------
+# memory search
+# ---------------------------------------------------------------------------
+
+
+class TestSearchMemoryFiles:
+    def test_empty_when_no_memory_dir(self) -> None:
+        assert search_memory_files('nobody', 'anything') == []
+
+    def test_finds_match_in_body(self, tmp_path: pathlib.Path) -> None:
+        save_memory_file('shaun', 'dentist', '---\nname: dentist\ntype: schedule\n---\nDentist on Friday at 3pm.')
+        results = search_memory_files('shaun', 'dentist')
+        assert len(results) == 1
+        assert results[0].filename == 'dentist.md'
+        assert results[0].type == MemoryType.SCHEDULE
+        assert 'Friday' in results[0].snippet
+
+    def test_finds_match_in_description(self, tmp_path: pathlib.Path) -> None:
+        save_memory_file(
+            'shaun',
+            'prefs',
+            '---\nname: prefs\ndescription: Morning coffee routine\ntype: preference\n---\nDrinks espresso.',
+        )
+        results = search_memory_files('shaun', 'coffee')
+        assert len(results) == 1
+        assert results[0].filename == 'prefs.md'
+
+    def test_case_insensitive(self, tmp_path: pathlib.Path) -> None:
+        save_memory_file('shaun', 'note', 'Remember the WiFi password.')
+        results = search_memory_files('shaun', 'wifi')
+        assert len(results) == 1
+
+    def test_type_filter(self, tmp_path: pathlib.Path) -> None:
+        save_memory_file('shaun', 'cal', '---\ntype: schedule\n---\nMeeting Monday.')
+        save_memory_file('shaun', 'pref', '---\ntype: preference\n---\nLikes Monday mornings.')
+        results = search_memory_files('shaun', 'monday', type_filter=MemoryType.SCHEDULE)
+        assert len(results) == 1
+        assert results[0].filename == 'cal.md'
+
+    def test_includes_household(self, tmp_path: pathlib.Path) -> None:
+        save_memory_file('shaun', 'personal', 'My wifi is fast.')
+        save_memory_file('_household', 'wifi', '---\ntype: household\n---\nPassword: secret123.')
+        results = search_memory_files('shaun', 'wifi')
+        assert len(results) == 2
+
+    def test_excludes_household_when_disabled(self, tmp_path: pathlib.Path) -> None:
+        save_memory_file('shaun', 'personal', 'My wifi is fast.')
+        save_memory_file('_household', 'wifi', 'Password: secret123.')
+        results = search_memory_files('shaun', 'wifi', include_household=False)
+        assert len(results) == 1
+        assert results[0].filename == 'personal.md'
+
+    def test_max_results(self, tmp_path: pathlib.Path) -> None:
+        for i in range(5):
+            save_memory_file('shaun', f'note{i}', f'Keyword match {i}.')
+        results = search_memory_files('shaun', 'keyword', max_results=3)
+        assert len(results) == 3
+
+    def test_no_match_returns_empty(self, tmp_path: pathlib.Path) -> None:
+        save_memory_file('shaun', 'note', 'Nothing relevant here.')
+        results = search_memory_files('shaun', 'xyz123nonexistent')
+        assert results == []
+
+    def test_meta_matches_ranked_before_body(self, tmp_path: pathlib.Path) -> None:
+        save_memory_file('shaun', 'body_match', 'The dentist appointment is on Friday.')
+        save_memory_file('shaun', 'meta_match', '---\nname: dentist\ndescription: Dentist visit\n---\nSome body.')
+        results = search_memory_files('shaun', 'dentist')
+        assert len(results) == 2
+        # Meta match should come first.
+        assert results[0].filename == 'meta_match.md'
+        assert results[1].filename == 'body_match.md'
+
+    def test_excludes_index_md(self, tmp_path: pathlib.Path) -> None:
+        mem_dir = tmp_path / 'users' / 'shaun' / 'memory'
+        mem_dir.mkdir(parents=True, exist_ok=True)
+        (mem_dir / 'index.md').write_text('keyword in index', encoding='utf-8')
+        save_memory_file('shaun', 'real', 'keyword in real file.')
+        results = search_memory_files('shaun', 'keyword')
+        assert len(results) == 1
+        assert results[0].filename == 'real.md'

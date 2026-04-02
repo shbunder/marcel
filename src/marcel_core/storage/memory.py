@@ -230,6 +230,127 @@ def save_memory_file(slug: str, topic: str, content: str) -> None:
     atomic_write(path, content)
 
 
+@dataclass
+class MemorySearchResult:
+    """A single result from searching memory files."""
+
+    filename: str
+    name: str | None
+    type: MemoryType | None
+    description: str | None
+    snippet: str
+    mtime: float
+
+
+def search_memory_files(
+    slug: str,
+    query: str,
+    *,
+    type_filter: MemoryType | None = None,
+    max_results: int = 10,
+    include_household: bool = True,
+) -> list[MemorySearchResult]:
+    """Search memory files by keyword, returning matching results.
+
+    Searches both frontmatter metadata (name, description) and body content.
+    Results are ranked: frontmatter matches first, then body matches, both
+    sorted by recency.
+
+    Args:
+        slug: User slug to search.
+        query: Search query (case-insensitive substring match).
+        type_filter: Optional filter by memory type.
+        max_results: Maximum results to return.
+        include_household: Also search ``_household`` memories.
+
+    Returns:
+        List of :class:`MemorySearchResult` ordered by relevance then recency.
+    """
+    slugs = [slug]
+    if include_household:
+        slugs.append('_household')
+
+    query_lower = query.lower()
+    meta_matches: list[MemorySearchResult] = []
+    body_matches: list[MemorySearchResult] = []
+
+    for s in slugs:
+        mem_dir = _memory_dir(s)
+        if not mem_dir.exists():
+            continue
+        for entry in mem_dir.iterdir():
+            if not entry.is_file() or not entry.name.endswith('.md') or entry.name == 'index.md':
+                continue
+            try:
+                content = entry.read_text(encoding='utf-8')
+                stat = entry.stat()
+            except OSError:
+                continue
+
+            metadata, body = parse_frontmatter(content)
+            mem_type = parse_memory_type(metadata.get('type'))
+
+            if type_filter is not None and mem_type != type_filter:
+                continue
+
+            name = metadata.get('name')
+            description = metadata.get('description')
+            filename_stem = entry.name.removesuffix('.md')
+
+            # Check if query matches frontmatter fields or filename.
+            meta_hit = False
+            if query_lower in filename_stem.lower():
+                meta_hit = True
+            if name and query_lower in name.lower():
+                meta_hit = True
+            if description and query_lower in description.lower():
+                meta_hit = True
+
+            # Check if query matches body content.
+            body_hit = query_lower in body.lower()
+
+            if not meta_hit and not body_hit:
+                continue
+
+            snippet = _extract_snippet(body, query_lower)
+            result = MemorySearchResult(
+                filename=entry.name,
+                name=name,
+                type=mem_type,
+                description=description,
+                snippet=snippet,
+                mtime=stat.st_mtime,
+            )
+            if meta_hit:
+                meta_matches.append(result)
+            else:
+                body_matches.append(result)
+
+    # Meta matches first (sorted newest-first), then body matches.
+    meta_matches.sort(key=lambda r: r.mtime, reverse=True)
+    body_matches.sort(key=lambda r: r.mtime, reverse=True)
+    return (meta_matches + body_matches)[:max_results]
+
+
+def _extract_snippet(body: str, query_lower: str, context_chars: int = 120) -> str:
+    """Extract a short snippet around the first match of query in body."""
+    body_stripped = body.strip()
+    if not body_stripped:
+        return ''
+    idx = body_stripped.lower().find(query_lower)
+    if idx == -1:
+        # No match in body; return first N chars.
+        return body_stripped[:context_chars].replace('\n', ' ').strip()
+    start = max(0, idx - context_chars // 2)
+    end = min(len(body_stripped), idx + len(query_lower) + context_chars // 2)
+    snippet = body_stripped[start:end].replace('\n', ' ').strip()
+    if start > 0:
+        snippet = '...' + snippet
+    if end < len(body_stripped):
+        snippet = snippet + '...'
+    return snippet
+
+
 def update_memory_index(slug: str, topic: str, description: str) -> None:
     """Add a topic entry to the memory index if not already present."""
     path = _index_path(slug)

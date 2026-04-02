@@ -30,6 +30,7 @@ from .conversations import (
 )
 from .memory import (
     MemoryHeader,
+    MemorySearchResult,
     MemoryType,
     format_memory_manifest,
     load_memory_file,
@@ -39,6 +40,7 @@ from .memory import (
     parse_frontmatter,
     save_memory_file,
     scan_memory_headers,
+    search_memory_files,
     update_memory_index,
 )
 from .users import load_user_profile, save_user_profile, user_exists
@@ -56,6 +58,7 @@ __all__ = [
     'update_conversation_index',
     # memory
     'MemoryHeader',
+    'MemorySearchResult',
     'MemoryType',
     'format_memory_manifest',
     'load_memory_index',
@@ -65,6 +68,7 @@ __all__ = [
     'parse_frontmatter',
     'save_memory_file',
     'scan_memory_headers',
+    'search_memory_files',
     'update_memory_index',
     # concurrency
     'get_lock',

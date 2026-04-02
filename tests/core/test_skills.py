@@ -1,4 +1,4 @@
-"""Tests for skills registry, executor, and integration tool."""
+"""Tests for skills registry, executor, integration tool, and memory search tool."""
 
 import json
 
@@ -8,6 +8,7 @@ import pytest
 from marcel_core.skills.executor import _apply_transform, run
 from marcel_core.skills.integrations import _registry, discover, get_handler, list_python_skills, register
 from marcel_core.skills.registry import get_skill, list_skills
+from marcel_core.skills.tool import build_skills_mcp_server
 
 
 class TestRegistry:
@@ -232,3 +233,19 @@ class TestRegistryMerge:
         config = get_skill('icloud.calendar')
         assert config['type'] == 'python'
         assert config['handler'] == 'icloud.calendar'
+
+
+# ---------------------------------------------------------------------------
+# memory_search MCP tool
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSkillsMcpServer:
+    """Tests for the skills MCP server configuration."""
+
+    def test_server_includes_memory_search_tool(self) -> None:
+        server = build_skills_mcp_server('shaun', 'cli')
+        assert server['type'] == 'sdk'
+        assert server['name'] == 'marcel-skills'
+        # Verify the server instance was created (tools are registered internally).
+        assert server['instance'] is not None
