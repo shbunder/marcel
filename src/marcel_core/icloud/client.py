@@ -21,27 +21,12 @@ from typing import Any
 
 import caldav
 
-from marcel_core.storage._root import data_root
+from marcel_core.storage.credentials import load_credentials
 
 
-def _load_user_credentials(slug: str = 'shaun') -> dict[str, str]:
-    """Load key=value pairs from data/users/{slug}/credentials.env."""
-    creds_path = data_root() / 'users' / slug / 'credentials.env'
-    result: dict[str, str] = {}
-    if not creds_path.exists():
-        return result
-    for line in creds_path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith('#') or '=' not in line:
-            continue
-        key, _, value = line.partition('=')
-        result[key.strip()] = value.strip()
-    return result
-
-
-def _credentials(slug: str = 'shaun') -> tuple[str, str]:
-    """Return (apple_id, app_password) from the user's credentials.env file."""
-    creds = _load_user_credentials(slug)
+def _credentials(slug: str) -> tuple[str, str]:
+    """Return (apple_id, app_password) from the user's credential store."""
+    creds = load_credentials(slug)
     apple_id = creds.get('ICLOUD_APPLE_ID', '').strip()
     password = creds.get('ICLOUD_APP_PASSWORD', '').strip()
     if not apple_id or not password:
@@ -49,9 +34,9 @@ def _credentials(slug: str = 'shaun') -> tuple[str, str]:
     return apple_id, password
 
 
-def _fetch_calendar_events(days_ahead: int = 7) -> list[dict[str, Any]]:
+def _fetch_calendar_events(slug: str, days_ahead: int = 7) -> list[dict[str, Any]]:
     """Synchronously fetch calendar events for the next `days_ahead` days via CalDAV."""
-    apple_id, password = _credentials()
+    apple_id, password = _credentials(slug)
     client = caldav.DAVClient(
         url='https://caldav.icloud.com/',
         username=apple_id,
@@ -90,9 +75,9 @@ def _fetch_calendar_events(days_ahead: int = 7) -> list[dict[str, Any]]:
     return events
 
 
-def _search_mail_imap(query: str, limit: int = 10) -> list[dict[str, str]]:
+def _search_mail_imap(slug: str, query: str, limit: int = 10) -> list[dict[str, str]]:
     """Synchronously search iCloud mail via IMAP using an app-specific password."""
-    apple_id, password = _credentials()
+    apple_id, password = _credentials(slug)
 
     mail = imaplib.IMAP4_SSL('imap.mail.me.com', 993)
     try:
@@ -142,11 +127,11 @@ def _search_mail_imap(query: str, limit: int = 10) -> list[dict[str, str]]:
 # ── Public async API ──────────────────────────────────────────────────────────
 
 
-async def get_calendar_events(days_ahead: int = 7) -> list[dict[str, Any]]:
+async def get_calendar_events(slug: str, days_ahead: int = 7) -> list[dict[str, Any]]:
     """Async wrapper: fetch upcoming calendar events."""
-    return await asyncio.to_thread(_fetch_calendar_events, days_ahead)
+    return await asyncio.to_thread(_fetch_calendar_events, slug, days_ahead)
 
 
-async def search_mail(query: str, limit: int = 10) -> list[dict[str, str]]:
+async def search_mail(slug: str, query: str, limit: int = 10) -> list[dict[str, str]]:
     """Async wrapper: search iCloud mail."""
-    return await asyncio.to_thread(_search_mail_imap, query, limit)
+    return await asyncio.to_thread(_search_mail_imap, slug, query, limit)

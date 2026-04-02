@@ -52,10 +52,12 @@ Edit `~/.marcel/config.toml` to configure the server connection:
 ```toml
 host = "localhost"
 port = 7420
-user = "shaun"
+user = "alice"
 model = "claude-sonnet-4-6"
 token = ""
 ```
+
+For a complete setup guide (including Telegram, security, and multi-user configuration), see [SETUP.md](SETUP.md).
 
 ## Goal
 

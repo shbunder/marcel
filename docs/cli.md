@@ -34,10 +34,12 @@ Marcel reads its configuration from `~/.marcel/config.toml`. If the file does no
 ```toml
 host = "localhost"
 port = 7420
-user = "shaun"
+user = "alice"
 model = "claude-sonnet-4-6"
 token = ""
 ```
+
+The `token` field must match the `MARCEL_API_TOKEN` environment variable on the server (if set). The `user` field identifies which user profile to load.
 
 ### Connecting to a remote server
 

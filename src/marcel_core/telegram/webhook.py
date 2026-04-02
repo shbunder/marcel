@@ -183,10 +183,11 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
         for updates without an actionable message.
     """
     secret = os.environ.get('TELEGRAM_WEBHOOK_SECRET', '')
-    if secret:
-        token_header = request.headers.get('x-telegram-bot-api-secret-token', '')
-        if token_header != secret:
-            raise HTTPException(status_code=403, detail='Invalid webhook secret')
+    if not secret:
+        raise HTTPException(status_code=503, detail='TELEGRAM_WEBHOOK_SECRET is not configured')
+    token_header = request.headers.get('x-telegram-bot-api-secret-token', '')
+    if token_header != secret:
+        raise HTTPException(status_code=403, detail='Invalid webhook secret')
 
     update: dict[str, Any] = await request.json()
 

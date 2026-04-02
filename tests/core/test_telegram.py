@@ -156,20 +156,32 @@ def _mock_stream(monkeypatch, tokens: list[str]) -> None:
     )
 
 
+_WEBHOOK_HEADERS = {'x-telegram-bot-api-secret-token': 'test-secret'}
+
+
 class TestTelegramWebhook:
-    def test_ignores_update_without_message(self, tmp_path, monkeypatch):
+    def test_rejects_missing_webhook_secret(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        # No TELEGRAM_WEBHOOK_SECRET set — should reject
         client = TestClient(app)
         resp = client.post('/telegram/webhook', json={'update_id': 1})
+        assert resp.status_code == 503
+
+    def test_ignores_update_without_message(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
+        client = TestClient(app)
+        resp = client.post('/telegram/webhook', json={'update_id': 1}, headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
         assert resp.json() == {'status': 'ignored'}
 
     def test_ignores_empty_text(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
         update = _make_update(123, '')
         update['message']['text'] = ''
         client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=update)
+        resp = client.post('/telegram/webhook', json=update, headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
         assert resp.json() == {'status': 'ignored'}
 
@@ -177,6 +189,7 @@ class TestTelegramWebhook:
     def test_start_command_sends_chat_id(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
 
         sent_payload = {}
 
@@ -187,7 +200,7 @@ class TestTelegramWebhook:
         respx.post('https://api.telegram.org/bottest-token/sendMessage').mock(side_effect=capture)
 
         client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=_make_update(42, '/start'))
+        resp = client.post('/telegram/webhook', json=_make_update(42, '/start'), headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
         assert resp.json() == {'status': 'ok'}
         assert '42' in sent_payload.get('text', '')
@@ -197,6 +210,7 @@ class TestTelegramWebhook:
         # No telegram.json written for any user — chat is unlinked
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
 
         sent_payload = {}
 
@@ -207,7 +221,7 @@ class TestTelegramWebhook:
         respx.post('https://api.telegram.org/bottest-token/sendMessage').mock(side_effect=capture)
 
         client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=_make_update(99, 'hello'))
+        resp = client.post('/telegram/webhook', json=_make_update(99, 'hello'), headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
         assert resp.json() == {'status': 'ok'}
         assert '99' in sent_payload.get('text', '')
@@ -245,6 +259,7 @@ class TestTelegramWebhook:
     def test_linked_chat_dispatches_to_agent(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
         sessions.link_user('shaun', 555)
         _mock_stream(monkeypatch, ['Hello', ' Shaun'])
 
@@ -253,7 +268,7 @@ class TestTelegramWebhook:
         )
 
         client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=_make_update(555, 'hi'))
+        resp = client.post('/telegram/webhook', json=_make_update(555, 'hi'), headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
         assert resp.json() == {'status': 'ok'}
 
@@ -350,6 +365,7 @@ class TestCoderWebhook:
     def test_code_command_enters_coder_mode(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
         sessions.link_user('shaun', 555)
         _mock_coder(monkeypatch)
 
@@ -358,7 +374,7 @@ class TestCoderWebhook:
         )
 
         client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=_make_update(555, '/code add retry logic'))
+        resp = client.post('/telegram/webhook', json=_make_update(555, '/code add retry logic'), headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
         assert resp.json() == {'status': 'ok'}
         # Auto-exits coder mode after task completes
@@ -368,6 +384,7 @@ class TestCoderWebhook:
     def test_code_without_prompt_shows_usage(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
         sessions.link_user('shaun', 555)
 
         sent_payloads: list[dict] = []
@@ -379,7 +396,7 @@ class TestCoderWebhook:
         respx.post('https://api.telegram.org/bottest-token/sendMessage').mock(side_effect=capture)
 
         client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=_make_update(555, '/code'))
+        resp = client.post('/telegram/webhook', json=_make_update(555, '/code'), headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
         assert any('Usage' in p.get('text', '') for p in sent_payloads)
 
@@ -387,6 +404,7 @@ class TestCoderWebhook:
     def test_done_command_exits_coder_mode(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
         sessions.link_user('shaun', 555)
         sessions.enter_coder_mode(555)
 
@@ -395,7 +413,7 @@ class TestCoderWebhook:
         )
 
         client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=_make_update(555, '/done'))
+        resp = client.post('/telegram/webhook', json=_make_update(555, '/done'), headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
         assert sessions.get_mode(555) == 'assistant'
 
@@ -403,6 +421,7 @@ class TestCoderWebhook:
     def test_done_when_not_in_coder_mode(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
         sessions.link_user('shaun', 555)
 
         sent_payloads: list[dict] = []
@@ -414,7 +433,7 @@ class TestCoderWebhook:
         respx.post('https://api.telegram.org/bottest-token/sendMessage').mock(side_effect=capture)
 
         client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=_make_update(555, '/done'))
+        resp = client.post('/telegram/webhook', json=_make_update(555, '/done'), headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
         assert any('Not in coder mode' in p.get('text', '') for p in sent_payloads)
 
@@ -422,6 +441,7 @@ class TestCoderWebhook:
     def test_new_command_resets_session(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
         sessions.link_user('shaun', 555)
         sessions.set_conversation_id(555, 'old-conv')
         sessions.enter_coder_mode(555)
@@ -431,7 +451,7 @@ class TestCoderWebhook:
         )
 
         client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=_make_update(555, '/new'))
+        resp = client.post('/telegram/webhook', json=_make_update(555, '/new'), headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
         assert sessions.get_mode(555) == 'assistant'
         assert sessions.get_conversation_id(555) is None
@@ -440,6 +460,7 @@ class TestCoderWebhook:
     def test_coder_mode_follow_up_routes_to_coder(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
         sessions.link_user('shaun', 555)
         sessions.enter_coder_mode(555, coder_session_id='prev-sess')
         _mock_coder(monkeypatch, response='Follow-up done', session_id='sess-2')
@@ -449,7 +470,7 @@ class TestCoderWebhook:
         )
 
         client = TestClient(app)
-        resp = client.post('/telegram/webhook', json=_make_update(555, 'yes do it that way'))
+        resp = client.post('/telegram/webhook', json=_make_update(555, 'yes do it that way'), headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
         # Auto-exits coder mode after task completes
         assert sessions.get_mode(555) == 'assistant'

@@ -38,7 +38,7 @@ Connect to `/ws/chat`. Send JSON, receive a stream of JSON messages.
 
 **Client → server:**
 ```json
-{"text": "What's on my calendar?", "user": "shaun", "conversation": null}
+{"text": "What's on my calendar?", "user": "alice", "token": "your-api-token", "conversation": null}
 ```
 
 `"conversation": null` starts a new session. Subsequent messages include the conversation ID returned by the server.
@@ -61,7 +61,7 @@ On error:
 For each conversation turn:
 
 ```
-1. Client sends {"text": "...", "user": "shaun", "conversation": null | "id"}
+1. Client sends {"text": "...", "user": "alice", "token": "...", "conversation": null | "id"}
 2. If conversation is null → storage.new_conversation() → send {"type":"started","conversation":"id"}
 3. agent/context.py: load profile + all memory files + recent conversation history
 4. Build system prompt, call claude_agent_sdk.query(prompt=user_text, options=...)

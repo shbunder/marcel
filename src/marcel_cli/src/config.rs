@@ -30,7 +30,7 @@ fn default_dev_port() -> u16 {
     7421
 }
 fn default_user() -> String {
-    "shaun".into()
+    String::new()
 }
 fn default_model() -> String {
     "claude-sonnet-4-6".into()

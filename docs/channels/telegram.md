@@ -235,9 +235,13 @@ EOF
 
 ## Security
 
-**Always set `TELEGRAM_WEBHOOK_SECRET`** in production. Without it, anyone who discovers your webhook URL can send fake messages.
+`TELEGRAM_WEBHOOK_SECRET` is **required**. Marcel returns `503` if it is not set and `403` if the request header does not match.
 
-Telegram sends the secret as the `X-Telegram-Bot-Api-Secret-Token` header. Marcel validates this header and returns `403` for mismatches.
+Telegram sends the secret as the `X-Telegram-Bot-Api-Secret-Token` header on every webhook request. Generate one with:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
 
 ## Module reference
 

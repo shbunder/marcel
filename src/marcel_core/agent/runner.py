@@ -40,7 +40,7 @@ async def stream_response(
 
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
-        mcp_servers={'skills': build_skills_mcp_server(user_slug, channel), 'icloud': build_icloud_mcp_server()},
+        mcp_servers={'skills': build_skills_mcp_server(user_slug, channel), 'icloud': build_icloud_mcp_server(user_slug)},
         allowed_tools=['cmd', 'notify', 'icloud_get_calendar_events', 'icloud_get_notes', 'icloud_search_mail'],
         permission_mode='bypassPermissions',
         max_turns=10,

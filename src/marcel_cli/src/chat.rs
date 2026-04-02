@@ -9,6 +9,8 @@ struct ChatRequest {
     user: String,
     conversation: Option<String>,
     model: Option<String>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    token: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -39,15 +41,17 @@ pub struct ChatClient {
     ws_url: String,
     user: String,
     model: String,
+    token: String,
     conversation_id: Option<String>,
 }
 
 impl ChatClient {
-    pub fn new(ws_url: &str, user: &str, model: &str) -> Self {
+    pub fn new(ws_url: &str, user: &str, model: &str, token: &str) -> Self {
         Self {
             ws_url: ws_url.into(),
             user: user.into(),
             model: model.into(),
+            token: token.into(),
             conversation_id: None,
         }
     }
@@ -68,6 +72,7 @@ impl ChatClient {
             user: self.user.clone(),
             conversation: self.conversation_id.clone(),
             model: Some(self.model.clone()),
+            token: self.token.clone(),
         };
 
         let payload = serde_json::to_string(&req).unwrap();

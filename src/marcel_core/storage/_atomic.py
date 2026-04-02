@@ -5,7 +5,7 @@ import pathlib
 import tempfile
 
 
-def atomic_write(path: pathlib.Path, content: str) -> None:
+def atomic_write(path: pathlib.Path, content: str, mode: int = 0o600) -> None:
     """
     Write content to path atomically using a temp file + rename.
 
@@ -16,10 +16,12 @@ def atomic_write(path: pathlib.Path, content: str) -> None:
     Args:
         path: Destination file path.
         content: Text content to write (UTF-8).
+        mode: File permission bits (default ``0o600`` — owner read/write only).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix='.tmp_')
     try:
+        os.fchmod(fd, mode)
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
             f.write(content)
         os.rename(tmp, path)

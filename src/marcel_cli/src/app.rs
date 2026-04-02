@@ -37,7 +37,7 @@ pub async fn run(cfg: Config, dev_mode: bool) -> io::Result<()> {
     let mut chat_view = ChatView::new();
     let mut input = InputBox::new();
     let mut status = StatusBar::new(&cfg.model);
-    let mut client = ChatClient::new(&cfg.ws_url(dev_mode), &cfg.user, &cfg.model);
+    let mut client = ChatClient::new(&cfg.ws_url(dev_mode), &cfg.user, &cfg.model, &cfg.token);
 
     if dev_mode {
         chat_view.push_system(&format!("DEV MODE — connecting to port {port}"));

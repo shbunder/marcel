@@ -37,8 +37,11 @@ _MAIL_SCHEMA: dict = {
 }
 
 
-def build_icloud_mcp_server() -> McpSdkServerConfig:
-    """Return an in-process MCP server with iCloud tools.
+def build_icloud_mcp_server(user_slug: str) -> McpSdkServerConfig:
+    """Return an in-process MCP server with iCloud tools scoped to *user_slug*.
+
+    Args:
+        user_slug: The user whose iCloud credentials should be used.
 
     Returns:
         A :class:`McpSdkServerConfig` ready for ``ClaudeAgentOptions.mcp_servers``.
@@ -47,7 +50,7 @@ def build_icloud_mcp_server() -> McpSdkServerConfig:
     async def _calendar_impl(args: dict) -> dict:
         days = int(args.get('days_ahead', 7))
         try:
-            events = await get_calendar_events(days_ahead=days)
+            events = await get_calendar_events(user_slug, days_ahead=days)
             return {'content': [{'type': 'text', 'text': json.dumps(events, indent=2)}]}
         except Exception as exc:  # noqa: BLE001
             return {'content': [{'type': 'text', 'text': f'iCloud calendar error: {exc}'}], 'is_error': True}
@@ -58,7 +61,7 @@ def build_icloud_mcp_server() -> McpSdkServerConfig:
         if not query:
             return {'content': [{'type': 'text', 'text': 'query parameter is required'}], 'is_error': True}
         try:
-            messages = await search_mail(query=query, limit=limit)
+            messages = await search_mail(user_slug, query=query, limit=limit)
             return {'content': [{'type': 'text', 'text': json.dumps(messages, indent=2)}]}
         except Exception as exc:  # noqa: BLE001
             return {'content': [{'type': 'text', 'text': f'iCloud mail error: {exc}'}], 'is_error': True}
