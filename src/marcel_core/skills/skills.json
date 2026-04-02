@@ -1,1 +1,7 @@
-{}
+{
+  "plex.restart": {
+    "type": "shell",
+    "description": "Restart the Plex Media Server Docker container on the NUC.",
+    "command": "docker restart plex-server"
+  }
+}

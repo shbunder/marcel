@@ -49,10 +49,14 @@ async def chat(websocket: WebSocket) -> None:
             user_text: str = data.get('text', '').strip()
             user_slug: str = data.get('user', '') or _DEFAULT_USER
             if not user_slug:
-                await websocket.send_text(json.dumps({'type': 'error', 'message': 'No user specified and MARCEL_DEFAULT_USER is not set'}))
+                await websocket.send_text(
+                    json.dumps({'type': 'error', 'message': 'No user specified and MARCEL_DEFAULT_USER is not set'})
+                )
                 continue
             if not valid_user_slug(user_slug):
-                await websocket.send_text(json.dumps({'type': 'error', 'message': 'Invalid user slug — only a-z, 0-9, _ and - are allowed'}))
+                await websocket.send_text(
+                    json.dumps({'type': 'error', 'message': 'Invalid user slug — only a-z, 0-9, _ and - are allowed'})
+                )
                 continue
             conversation_id: str | None = data.get('conversation')
             channel: str = data.get('channel', 'cli')

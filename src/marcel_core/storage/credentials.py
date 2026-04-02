@@ -85,9 +85,7 @@ def load_credentials(slug: str) -> dict[str, str]:
             if key is not None:
                 log.info('Migrating plaintext credentials to encrypted storage for user %s', slug)
             else:
-                log.warning(
-                    'Using plaintext credentials (set MARCEL_CREDENTIALS_KEY to enable encryption)'
-                )
+                log.warning('Using plaintext credentials (set MARCEL_CREDENTIALS_KEY to enable encryption)')
         creds = _parse_env(plain.read_text(encoding='utf-8'))
 
         # Auto-migrate: if we have a key and plaintext exists, encrypt and remove plaintext
