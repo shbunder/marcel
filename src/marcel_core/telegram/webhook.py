@@ -19,6 +19,8 @@ from fastapi import APIRouter, HTTPException, Request
 
 from marcel_core import storage
 from marcel_core.agent import extract_and_save_memories, stream_response
+from marcel_core.agent.runner import TurnResult
+from marcel_core.agent.sessions import session_manager
 from marcel_core.telegram import bot, sessions
 
 log = logging.getLogger(__name__)
@@ -62,8 +64,11 @@ async def _process_assistant_message_inner(chat_id: int, user_slug: str, text: s
     try:
 
         async def _collect() -> None:
-            async for token in stream_response(user_slug, 'telegram', text, conversation_id):
-                response_parts.append(token)
+            async for item in stream_response(user_slug, 'telegram', text, conversation_id):
+                if isinstance(item, TurnResult):
+                    pass  # metadata — not sent to user
+                else:
+                    response_parts.append(item)
 
         await asyncio.wait_for(_collect(), timeout=_ASSISTANT_TIMEOUT)
     except asyncio.TimeoutError:
@@ -152,12 +157,14 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
 
     # --- /new: reset session, start fresh ---
     if text == '/new':
+        await session_manager.reset_user(user_slug)
         sessions.reset_session(chat_id)
         await _reply(chat_id, 'Fresh start! Previous conversation cleared.')
         return {'status': 'ok'}
 
     # --- Auto-new on inactivity ---
     if sessions.should_auto_new(chat_id):
+        await session_manager.reset_user(user_slug)
         sessions.reset_session(chat_id)
         log.info('Auto-new conversation for chat_id=%s (inactivity)', chat_id)
 

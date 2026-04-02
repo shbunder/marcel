@@ -2,6 +2,15 @@
 
 from .context import build_system_prompt
 from .memory_extract import extract_and_save_memories
-from .runner import stream_response
+from .runner import TurnResult, stream_response
+from .sessions import ActiveSession, SessionManager, session_manager
 
-__all__ = ['build_system_prompt', 'stream_response', 'extract_and_save_memories']
+__all__ = [
+    'ActiveSession',
+    'SessionManager',
+    'TurnResult',
+    'build_system_prompt',
+    'extract_and_save_memories',
+    'session_manager',
+    'stream_response',
+]

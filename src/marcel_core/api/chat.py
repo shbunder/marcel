@@ -8,7 +8,7 @@ Client → server (first message must authenticate):
 Server → client (in order):
     {"type": "started", "conversation": "2026-03-26T14-32"}   # only when conversation was null
     {"type": "token", "text": "..."}                          # streamed, one or many
-    {"type": "done"}                                           # end of turn
+    {"type": "done", "cost_usd": 0.012, "turns": 3}          # end of turn
     {"type": "error", "message": "..."}                       # on failure (replaces done)
 """
 
@@ -20,6 +20,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from marcel_core import storage
 from marcel_core.agent import extract_and_save_memories, stream_response
+from marcel_core.agent.runner import TurnResult
 from marcel_core.auth import valid_user_slug, verify_api_token
 
 router = APIRouter()
@@ -74,17 +75,21 @@ async def chat(websocket: WebSocket) -> None:
 
             # Stream the agent response token by token
             response_parts: list[str] = []
+            turn_result = TurnResult()
             try:
-                async for token in stream_response(user_slug, channel, user_text, conversation_id, model=model):
-                    response_parts.append(token)
-                    await websocket.send_text(json.dumps({'type': 'token', 'text': token}))
+                async for item in stream_response(user_slug, channel, user_text, conversation_id, model=model):
+                    if isinstance(item, TurnResult):
+                        turn_result = item
+                    else:
+                        response_parts.append(item)
+                        await websocket.send_text(json.dumps({'type': 'token', 'text': item}))
             except Exception as exc:
                 await websocket.send_text(json.dumps({'type': 'error', 'message': str(exc)}))
                 continue
 
             full_response = ''.join(response_parts)
 
-            # Persist the turn (lock only for the file writes, not during streaming)
+            # Persist the turn as an audit log (lock only for file writes)
             async with storage.get_lock(user_slug):
                 storage.append_turn(user_slug, conversation_id, 'user', user_text)
                 storage.append_turn(user_slug, conversation_id, 'assistant', full_response)
@@ -92,7 +97,12 @@ async def chat(websocket: WebSocket) -> None:
             # Fire-and-forget memory extraction
             asyncio.create_task(extract_and_save_memories(user_slug, user_text, full_response, conversation_id))
 
-            await websocket.send_text(json.dumps({'type': 'done'}))
+            done_msg: dict[str, object] = {'type': 'done'}
+            if turn_result.total_cost_usd is not None:
+                done_msg['cost_usd'] = turn_result.total_cost_usd
+            if turn_result.num_turns:
+                done_msg['turns'] = turn_result.num_turns
+            await websocket.send_text(json.dumps(done_msg))
 
     except WebSocketDisconnect:
         pass

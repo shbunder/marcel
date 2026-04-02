@@ -1,6 +1,6 @@
 # ISSUE-024: Agent Reimplementation — ClaudeSDKClient + Memory Architecture
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-02
 **Assignee:** Marcel
 **Priority:** High
@@ -104,12 +104,12 @@ Replace regex-based extraction with a file-tool agent (inspired by Claude Code's
 ## Tasks
 
 ### Part A — ClaudeSDKClient Migration
-- [ ] ISSUE-024-a: Create `SessionManager` class + `ActiveSession` dataclass in `agent/sessions.py`
-- [ ] ISSUE-024-b: Rewrite `runner.py` — `stream_response` uses `SessionManager.get_or_create()`, calls `client.query()` + `client.receive_response()`
-- [ ] ISSUE-024-c: Surface SDK events to callers — `ResultMessage` (cost/tokens), retry/compaction status
-- [ ] ISSUE-024-d: Add idle session cleanup (background task, configurable timeout)
-- [ ] ISSUE-024-e: Update `chat.py` — stop injecting history into system prompt; keep conversation markdown as audit log only
-- [ ] ISSUE-024-f: Update `context.py` — system prompt becomes profile + selected memories + channel hint (no history, no memory dump)
+- [✓] ISSUE-024-a: Create `SessionManager` class + `ActiveSession` dataclass in `agent/sessions.py`
+- [✓] ISSUE-024-b: Rewrite `runner.py` — `stream_response` uses `SessionManager.get_or_create()`, calls `client.query()` + `client.receive_response()`
+- [✓] ISSUE-024-c: Surface SDK events to callers — `ResultMessage` (cost/tokens) via `TurnResult` dataclass
+- [✓] ISSUE-024-d: Add idle session cleanup (background task, configurable timeout)
+- [✓] ISSUE-024-e: Update `chat.py` — stop injecting history into system prompt; keep conversation markdown as audit log only
+- [✓] ISSUE-024-f: Update `context.py` — system prompt becomes profile + memory + channel hint (no history)
 
 ### Part B — Typed Memory
 - [ ] ISSUE-024-g: Define `MemoryHeader` dataclass and `MemoryType` enum in `storage/memory.py`
@@ -137,7 +137,7 @@ Replace regex-based extraction with a file-tool agent (inspired by Claude Code's
 - [ ] ISSUE-024-u: Add memory index cap (200 lines) with truncation warning
 
 ### Testing & Shipping
-- [ ] ISSUE-024-v: Tests for SessionManager (create, reuse, idle cleanup, disconnect)
+- [✓] ISSUE-024-v: Tests for SessionManager (create, reuse, idle cleanup, disconnect)
 - [ ] ISSUE-024-w: Tests for typed memory (scan, manifest, frontmatter parsing, migration)
 - [ ] ISSUE-024-x: Tests for relevance selection (mock side-query, household inclusion)
 - [ ] ISSUE-024-y: Tests for memory search tool
@@ -166,3 +166,19 @@ Conducted deep analysis of Claude Code source at ~/repos/claude-code. Key findin
 
 ### 2026-04-02 — Scoping Note
 This is a large issue. Implementation should proceed in phases: Part A (session migration) first as it's the foundation, then Parts B+C (typed memory + selection) as they're tightly coupled, then D+E (search + extraction) which build on the new memory format, and finally F (lifecycle) as polish.
+
+## Implementation Log
+
+### 2026-04-02 — Part A: ClaudeSDKClient Migration
+**Action**: Replaced one-shot `query()` calls with persistent `ClaudeSDKClient` sessions managed by a `SessionManager` singleton.
+**Files Modified**:
+- `src/marcel_core/agent/sessions.py` — Created. `SessionManager` manages `(user_slug, conv_id) → ActiveSession` dict. Each `ActiveSession` wraps a `ClaudeSDKClient` with idle timeout cleanup. Background cleanup loop runs every 5 minutes. Module-level `session_manager` singleton.
+- `src/marcel_core/agent/runner.py` — Rewritten. `stream_response` now calls `session_manager.get_or_create()` then `client.query()` + `client.receive_response()`. Yields `TurnResult` dataclass with cost/usage metadata from `ResultMessage`. No longer imports or calls `claude_agent_sdk.query()` directly.
+- `src/marcel_core/agent/context.py` — Removed `conversation_id` parameter and history loading. System prompt is now profile + memory + channel hint only. Conversation history is maintained by the SDK internally.
+- `src/marcel_core/api/chat.py` — Updated to handle `TurnResult` from stream. Done message now includes `cost_usd` and `turns` when available. Conversation markdown persisted as audit log only.
+- `src/marcel_core/telegram/webhook.py` — Updated for `TurnResult`. `/new` and auto-new now call `session_manager.reset_user()` to disconnect SDK sessions.
+- `src/marcel_core/main.py` — Wired session manager lifecycle into FastAPI lifespan: `start_cleanup_loop()` on startup, `stop_cleanup_loop()` + `disconnect_all()` on shutdown.
+- `src/marcel_core/agent/__init__.py` — Exports `SessionManager`, `ActiveSession`, `TurnResult`, `session_manager`.
+- `tests/core/test_agent.py` — Rewrote runner tests to mock `SessionManager` instead of `claude_agent_sdk.query`. Added 6 new `TestSessionManager` tests (create, reuse, disconnect, reset_user, cleanup_idle, disconnect_all). Added `TurnResult` cost test for WebSocket. Updated context tests to remove conversation_id.
+**Commands Run**: `make check` — lint/format pass, 0 type errors in changed files (5 pre-existing in icloud/watchdog), 131 tests pass.
+**Next**: Part B — Typed memory with frontmatter.

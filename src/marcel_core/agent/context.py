@@ -1,7 +1,10 @@
-"""Builds the system prompt for each agent turn.
+"""Builds the system prompt for a ClaudeSDKClient session.
 
-Loads user profile, all distilled memory files, and recent conversation history,
-then assembles them into a structured prompt injected before each Claude call.
+The system prompt is set once when the session connects.  Conversation history
+is maintained by the SDK internally — we no longer inject it here.
+
+Memory loading is a full dump for now; ISSUE-024 Part C will replace this with
+relevance-based selection.
 """
 
 import re
@@ -24,14 +27,12 @@ _CHANNEL_FORMAT: dict[str, str] = {
 def build_system_prompt(
     user_slug: str,
     channel: str,
-    conversation_id: str | None = None,
 ) -> str:
-    """Assemble the system prompt for one agent turn.
+    """Assemble the system prompt for a new ClaudeSDKClient session.
 
     Args:
         user_slug: The user's slug (directory name under data/users/).
         channel: The originating channel (cli, app, ios, telegram).
-        conversation_id: Filename stem of the current conversation, or None for new.
 
     Returns:
         A complete system prompt string ready to pass to ClaudeAgentOptions.
@@ -49,11 +50,6 @@ def build_system_prompt(
 
     if memory_content:
         lines += ['## Memory', memory_content, '']
-
-    if conversation_id:
-        history = storage.load_conversation(user_slug, conversation_id)
-        if history.strip():
-            lines += ['## Recent conversation', history, '']
 
     format_hint = _CHANNEL_FORMAT.get(channel, _CHANNEL_FORMAT['cli'])
     lines += [

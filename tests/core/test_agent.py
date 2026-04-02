@@ -1,14 +1,18 @@
-"""Tests for ISSUE-003: agent loop — context building, streaming, and memory extraction."""
+"""Tests for agent loop — context building, streaming, sessions, and memory extraction."""
 
 import asyncio
 import json
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import claude_agent_sdk
-from claude_agent_sdk import AssistantMessage, StreamEvent, TextBlock
+from claude_agent_sdk import AssistantMessage, ResultMessage, StreamEvent, TextBlock
 from fastapi.testclient import TestClient
 
 from marcel_core.agent.context import build_system_prompt
 from marcel_core.agent.memory_extract import _parse_and_save, extract_and_save_memories
+from marcel_core.agent.runner import TurnResult, stream_response
+from marcel_core.agent.sessions import ActiveSession, SessionManager
 from marcel_core.main import app
 from marcel_core.storage import _root
 
@@ -18,7 +22,7 @@ from marcel_core.storage import _root
 
 
 async def _agen(*items):
-    """Yield items as an async generator — used to mock claude_agent_sdk.query."""
+    """Yield items as an async generator — used to mock receive_response."""
     for item in items:
         yield item
 
@@ -33,6 +37,44 @@ def _stream_event(text: str) -> StreamEvent:
 
 def _assistant_message(text: str) -> AssistantMessage:
     return AssistantMessage(content=[TextBlock(text=text)], model='claude-sonnet-4-6')
+
+
+def _result_message(cost: float = 0.01, turns: int = 1) -> ResultMessage:
+    return ResultMessage(
+        subtype='success',
+        duration_ms=100,
+        duration_api_ms=80,
+        is_error=False,
+        num_turns=turns,
+        session_id='test-session',
+        total_cost_usd=cost,
+    )
+
+
+def _make_mock_session(response_items: list) -> ActiveSession:
+    """Create a mock ActiveSession whose client.query + receive_response work."""
+    client = AsyncMock()
+    client.query = AsyncMock()
+    client.receive_response = MagicMock(return_value=_agen(*response_items))
+    client.disconnect = AsyncMock()
+    return ActiveSession(
+        client=client,
+        user_slug='shaun',
+        conversation_id='test-conv',
+        channel='cli',
+    )
+
+
+async def _collect_stream(agen):
+    """Collect text tokens and the final TurnResult from stream_response."""
+    tokens = []
+    result = None
+    async for item in agen:
+        if isinstance(item, TurnResult):
+            result = item
+        else:
+            tokens.append(item)
+    return tokens, result
 
 
 # ---------------------------------------------------------------------------
@@ -74,20 +116,10 @@ class TestBuildSystemPrompt:
         prompt = build_system_prompt('shaun', 'cli')
         assert '## Memory' not in prompt
 
-    def test_includes_conversation_history(self, tmp_path, monkeypatch):
+    def test_no_conversation_section(self, tmp_path, monkeypatch):
+        """System prompt no longer includes conversation history (SDK manages it)."""
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        from marcel_core.storage import append_turn, new_conversation
-
-        conv_id = new_conversation('shaun', 'cli')
-        append_turn('shaun', conv_id, 'user', 'What time is it?')
-        append_turn('shaun', conv_id, 'assistant', 'It is 3pm.')
-        prompt = build_system_prompt('shaun', 'cli', conversation_id=conv_id)
-        assert 'What time is it?' in prompt
-        assert 'It is 3pm.' in prompt
-
-    def test_no_conversation_section_when_no_id(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        prompt = build_system_prompt('shaun', 'cli', conversation_id=None)
+        prompt = build_system_prompt('shaun', 'cli')
         assert '## Recent conversation' not in prompt
 
     def test_channel_hint_cli(self, tmp_path, monkeypatch):
@@ -104,69 +136,226 @@ class TestBuildSystemPrompt:
 
 
 # ---------------------------------------------------------------------------
-# runner.py — stream_response
+# sessions.py — SessionManager
+# ---------------------------------------------------------------------------
+
+
+class TestSessionManager:
+    def test_get_or_create_creates_new(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        mgr = SessionManager()
+
+        with patch('marcel_core.agent.sessions.ClaudeSDKClient') as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.connect = AsyncMock()
+            MockClient.return_value = mock_instance
+
+            session = asyncio.run(mgr.get_or_create('shaun', 'conv-1', 'cli'))
+            assert session.user_slug == 'shaun'
+            assert session.conversation_id == 'conv-1'
+            assert mgr.active_count == 1
+            mock_instance.connect.assert_awaited_once()
+
+    def test_get_or_create_reuses_existing(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        mgr = SessionManager()
+
+        with patch('marcel_core.agent.sessions.ClaudeSDKClient') as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.connect = AsyncMock()
+            MockClient.return_value = mock_instance
+
+            s1 = asyncio.run(mgr.get_or_create('shaun', 'conv-1', 'cli'))
+            s2 = asyncio.run(mgr.get_or_create('shaun', 'conv-1', 'cli'))
+            assert s1 is s2
+            assert mgr.active_count == 1
+            # connect() only called once — session was reused
+            assert mock_instance.connect.await_count == 1
+
+    def test_disconnect_removes_session(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        mgr = SessionManager()
+
+        with patch('marcel_core.agent.sessions.ClaudeSDKClient') as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.connect = AsyncMock()
+            mock_instance.disconnect = AsyncMock()
+            MockClient.return_value = mock_instance
+
+            asyncio.run(mgr.get_or_create('shaun', 'conv-1', 'cli'))
+            assert mgr.active_count == 1
+            asyncio.run(mgr.disconnect('shaun', 'conv-1'))
+            assert mgr.active_count == 0
+            mock_instance.disconnect.assert_awaited_once()
+
+    def test_reset_user_disconnects_all_user_sessions(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        mgr = SessionManager()
+
+        call_count = 0
+
+        with patch('marcel_core.agent.sessions.ClaudeSDKClient') as MockClient:
+
+            def make_client(*args, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                m = AsyncMock()
+                m.connect = AsyncMock()
+                m.disconnect = AsyncMock()
+                return m
+
+            MockClient.side_effect = make_client
+
+            asyncio.run(mgr.get_or_create('shaun', 'conv-1', 'cli'))
+            asyncio.run(mgr.get_or_create('shaun', 'conv-2', 'cli'))
+            asyncio.run(mgr.get_or_create('alice', 'conv-3', 'cli'))
+            assert mgr.active_count == 3
+
+            asyncio.run(mgr.reset_user('shaun'))
+            assert mgr.active_count == 1  # alice's session remains
+
+    def test_cleanup_idle_removes_stale(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        mgr = SessionManager(idle_timeout=0.1)  # 100ms
+
+        with patch('marcel_core.agent.sessions.ClaudeSDKClient') as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.connect = AsyncMock()
+            mock_instance.disconnect = AsyncMock()
+            MockClient.return_value = mock_instance
+
+            asyncio.run(mgr.get_or_create('shaun', 'conv-1', 'cli'))
+            assert mgr.active_count == 1
+
+            # Simulate passage of time
+            for s in mgr._sessions.values():
+                s.last_active = time.monotonic() - 1.0
+
+            removed = asyncio.run(mgr.cleanup_idle())
+            assert removed == 1
+            assert mgr.active_count == 0
+
+    def test_disconnect_all(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        mgr = SessionManager()
+
+        call_count = 0
+
+        with patch('marcel_core.agent.sessions.ClaudeSDKClient') as MockClient:
+
+            def make_client(*args, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                m = AsyncMock()
+                m.connect = AsyncMock()
+                m.disconnect = AsyncMock()
+                return m
+
+            MockClient.side_effect = make_client
+
+            asyncio.run(mgr.get_or_create('shaun', 'conv-1', 'cli'))
+            asyncio.run(mgr.get_or_create('alice', 'conv-2', 'cli'))
+            assert mgr.active_count == 2
+
+            asyncio.run(mgr.disconnect_all())
+            assert mgr.active_count == 0
+
+
+# ---------------------------------------------------------------------------
+# runner.py — stream_response (with mocked SessionManager)
 # ---------------------------------------------------------------------------
 
 
 class TestStreamResponse:
     def test_yields_tokens_from_stream_events(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(
-            claude_agent_sdk,
-            'query',
-            lambda **_: _agen(_stream_event('Hello'), _stream_event(' world')),
+        mock_session = _make_mock_session(
+            [
+                _stream_event('Hello'),
+                _stream_event(' world'),
+                _result_message(),
+            ]
         )
-        from marcel_core.agent.runner import stream_response
+        monkeypatch.setattr(
+            'marcel_core.agent.runner.session_manager',
+            MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
+        )
 
-        tokens = asyncio.run(_collect(stream_response('shaun', 'cli', 'hi')))
+        tokens, result = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
         assert tokens == ['Hello', ' world']
+        assert result is not None
+        assert result.total_cost_usd == 0.01
 
     def test_falls_back_to_assistant_message(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(
-            claude_agent_sdk,
-            'query',
-            lambda **_: _agen(_assistant_message('Fallback text')),
+        mock_session = _make_mock_session(
+            [
+                _assistant_message('Fallback text'),
+                _result_message(),
+            ]
         )
-        from marcel_core.agent.runner import stream_response
+        monkeypatch.setattr(
+            'marcel_core.agent.runner.session_manager',
+            MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
+        )
 
-        tokens = asyncio.run(_collect(stream_response('shaun', 'cli', 'hi')))
+        tokens, _ = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
         assert tokens == ['Fallback text']
 
     def test_ignores_assistant_message_when_stream_events_received(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(
-            claude_agent_sdk,
-            'query',
-            lambda **_: _agen(
+        mock_session = _make_mock_session(
+            [
                 _stream_event('streamed'),
                 _assistant_message('full text'),
-            ),
+                _result_message(),
+            ]
         )
-        from marcel_core.agent.runner import stream_response
+        monkeypatch.setattr(
+            'marcel_core.agent.runner.session_manager',
+            MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
+        )
 
-        tokens = asyncio.run(_collect(stream_response('shaun', 'cli', 'hi')))
+        tokens, _ = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
         assert tokens == ['streamed']
 
     def test_skips_empty_text_deltas(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(
-            claude_agent_sdk,
-            'query',
-            lambda **_: _agen(
+        mock_session = _make_mock_session(
+            [
                 _stream_event(''),
                 _stream_event('real'),
                 _stream_event(''),
-            ),
+                _result_message(),
+            ]
         )
-        from marcel_core.agent.runner import stream_response
+        monkeypatch.setattr(
+            'marcel_core.agent.runner.session_manager',
+            MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
+        )
 
-        tokens = asyncio.run(_collect(stream_response('shaun', 'cli', 'hi')))
+        tokens, _ = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
         assert tokens == ['real']
 
+    def test_result_message_captures_metadata(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        mock_session = _make_mock_session(
+            [
+                _stream_event('ok'),
+                _result_message(cost=0.05, turns=3),
+            ]
+        )
+        monkeypatch.setattr(
+            'marcel_core.agent.runner.session_manager',
+            MagicMock(get_or_create=AsyncMock(return_value=mock_session)),
+        )
 
-async def _collect(agen):
-    return [x async for x in agen]
+        _, result = asyncio.run(_collect_stream(stream_response('shaun', 'cli', 'hi', 'conv-1')))
+        assert result is not None
+        assert result.total_cost_usd == 0.05
+        assert result.num_turns == 3
+        assert result.session_id == 'test-session'
+        assert result.is_error is False
 
 
 # ---------------------------------------------------------------------------
@@ -256,10 +445,11 @@ class TestExtractAndSaveMemories:
 
 
 class TestChatWebSocket:
-    def _mock_stream(self, monkeypatch, tokens: list[str]):
+    def _mock_stream(self, monkeypatch, tokens: list[str], cost: float | None = None):
         async def fake_stream(*args, **kwargs):
             for t in tokens:
                 yield t
+            yield TurnResult(total_cost_usd=cost)
 
         monkeypatch.setattr('marcel_core.api.chat.stream_response', fake_stream)
         monkeypatch.setattr(
@@ -287,7 +477,18 @@ class TestChatWebSocket:
             done = json.loads(ws.receive_text())
             assert token1 == {'type': 'token', 'text': 'Hello'}
             assert token2 == {'type': 'token', 'text': ' there'}
-            assert done == {'type': 'done'}
+            assert done['type'] == 'done'
+
+    def test_done_includes_cost_when_available(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        self._mock_stream(monkeypatch, ['ok'], cost=0.05)
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text(json.dumps({'text': 'hi', 'user': 'shaun', 'conversation': None}))
+            ws.receive_text()  # started
+            ws.receive_text()  # token
+            done = json.loads(ws.receive_text())
+            assert done['type'] == 'done'
+            assert done['cost_usd'] == 0.05
 
     def test_empty_message_returns_error(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)

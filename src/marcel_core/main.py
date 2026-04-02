@@ -12,6 +12,7 @@ from fastapi import FastAPI
 
 load_dotenv()  # loads ANTHROPIC_API_KEY and other vars from .env into the process env
 
+from marcel_core.agent.sessions import session_manager
 from marcel_core.api.chat import router as chat_router
 from marcel_core.api.health import router as health_router
 from marcel_core.telegram import router as telegram_router
@@ -54,7 +55,10 @@ async def _restart_watcher() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     task = asyncio.create_task(_restart_watcher())
+    session_manager.start_cleanup_loop()
     yield
+    session_manager.stop_cleanup_loop()
+    await session_manager.disconnect_all()
     task.cancel()
 
 
