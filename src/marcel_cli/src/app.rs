@@ -4,13 +4,13 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 use tokio::sync::mpsc;
 
+use crate::Cli;
 use crate::chat::{self, ChatClient, ChatEvent};
 use crate::config::Config;
 use crate::header::Header;
 use crate::render::{FlexLayout, Renderable};
 use crate::tui;
 use crate::ui::{ChatView, InputBox, StatusBar};
-use crate::Cli;
 
 const COMMANDS: &[(&str, &str)] = &[
     ("/clear", "Clear the chat history"),
@@ -27,7 +27,10 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/new", "Start a new conversation"),
     ("/reconnect", "Reconnect to the Marcel server"),
     ("/resume", "Resume a conversation        (/resume <id>)"),
-    ("/sessions", "List recent conversations    [requires server]"),
+    (
+        "/sessions",
+        "List recent conversations    [requires server]",
+    ),
     ("/status", "Show connection and server status"),
     ("/exit", "Exit Marcel"),
     ("/quit", "Exit Marcel"),
@@ -113,7 +116,8 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
                             chat_view.push_system("No conversations found.");
                         }
                         Ok(convs) => {
-                            chat_view.push_system("Recent conversations (use /resume <id> to pick):");
+                            chat_view
+                                .push_system("Recent conversations (use /resume <id> to pick):");
                             for c in &convs {
                                 chat_view.push_system(&format!("  {}  ({})", c.id, c.channel));
                             }
@@ -404,10 +408,7 @@ fn open_editor() -> Option<String> {
     crossterm::terminal::disable_raw_mode().ok();
     crossterm::execute!(io::stdout(), crossterm::terminal::LeaveAlternateScreen).ok();
 
-    let status = std::process::Command::new(&editor)
-        .arg(&tmp)
-        .status()
-        .ok();
+    let status = std::process::Command::new(&editor).arg(&tmp).status().ok();
 
     // Re-enter TUI mode
     crossterm::terminal::enable_raw_mode().ok();

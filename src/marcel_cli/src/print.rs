@@ -1,8 +1,8 @@
 use std::io::{self, IsTerminal, Read, Write};
 
+use crate::Cli;
 use crate::chat::{ChatClient, ChatEvent};
 use crate::config::Config;
-use crate::Cli;
 
 /// Non-interactive print mode: send prompt, stream response to stdout, exit.
 pub async fn run(cli: &Cli, cfg: &Config) -> io::Result<()> {
@@ -147,7 +147,9 @@ async fn stream_ndjson(mut rx: tokio::sync::mpsc::Receiver<ChatEvent>) -> io::Re
                 break;
             }
             ChatEvent::Error(e) => serde_json::json!({ "type": "error", "message": e }),
-            ChatEvent::Disconnected => serde_json::json!({ "type": "error", "message": "disconnected" }),
+            ChatEvent::Disconnected => {
+                serde_json::json!({ "type": "error", "message": "disconnected" })
+            }
             ChatEvent::Connected(meta) => {
                 serde_json::json!({ "type": "started", "conversation": meta.conversation_id })
             }
