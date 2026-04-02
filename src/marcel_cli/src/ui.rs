@@ -210,6 +210,8 @@ pub struct InputBox {
     history: Vec<String>,
     history_idx: Option<usize>,
     stashed: String,
+    /// Tab-completion state: (original prefix, matching commands, current index).
+    completion: Option<(String, Vec<String>, usize)>,
 }
 
 impl InputBox {
@@ -220,7 +222,55 @@ impl InputBox {
             history: Vec::new(),
             history_idx: None,
             stashed: String::new(),
+            completion: None,
         }
+    }
+
+    /// Start or cycle through tab completions for the given command list.
+    /// Returns true if a completion was applied.
+    pub fn tab_complete(&mut self, commands: &[(&str, &str)]) -> bool {
+        if !self.text.starts_with('/') {
+            return false;
+        }
+
+        if let Some((_, ref matches, ref mut idx)) = self.completion {
+            // Already completing — cycle to next
+            *idx = (*idx + 1) % matches.len();
+            let next = matches[*idx].clone();
+            self.text = format!("{next} ");
+            self.cursor = self.text.len();
+            return true;
+        }
+
+        // Start new completion
+        let prefix = self.text.to_lowercase();
+        let matches: Vec<String> = commands
+            .iter()
+            .map(|(c, _)| c.to_string())
+            .filter(|c| c.starts_with(&prefix))
+            .collect();
+
+        match matches.len() {
+            0 => false,
+            1 => {
+                self.text = format!("{} ", matches[0]);
+                self.cursor = self.text.len();
+                // Don't enter cycling mode for single match
+                true
+            }
+            _ => {
+                let first = matches[0].clone();
+                self.completion = Some((prefix, matches, 0));
+                self.text = format!("{first} ");
+                self.cursor = self.text.len();
+                true
+            }
+        }
+    }
+
+    /// Cancel any active tab-completion cycle (call on any non-Tab keypress).
+    pub fn cancel_completion(&mut self) {
+        self.completion = None;
     }
 
     /// Navigate to the previous history entry (older).

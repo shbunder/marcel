@@ -273,6 +273,11 @@ async fn handle_key(
     cfg: &Config,
     dev_mode: bool,
 ) -> Action {
+    // Cancel tab-completion on any key except Tab itself
+    if key.code != KeyCode::Tab {
+        input.cancel_completion();
+    }
+
     match (key.code, key.modifiers) {
         // Quit
         (KeyCode::Char('c'), KeyModifiers::CONTROL)
@@ -310,33 +315,9 @@ async fn handle_key(
             }
         }
 
-        // Tab: autocomplete slash commands
+        // Tab: cycle through slash command completions
         (KeyCode::Tab, _) => {
-            if input.text.starts_with('/') {
-                let prefix = input.text.to_lowercase();
-                let matches: Vec<&str> = COMMANDS
-                    .iter()
-                    .map(|(c, _)| *c)
-                    .filter(|c| c.starts_with(&prefix))
-                    .collect();
-                match matches.len() {
-                    0 => {}
-                    1 => {
-                        input.text = format!("{} ", matches[0]);
-                        input.cursor = input.text.len();
-                    }
-                    _ => {
-                        // Show matching commands in chat
-                        let list = matches.join("  ");
-                        chat.push_system(&format!("  {list}"));
-                        // Complete common prefix
-                        if let Some(common) = common_prefix(&matches) {
-                            input.text = common;
-                            input.cursor = input.text.len();
-                        }
-                    }
-                }
-            }
+            input.tab_complete(COMMANDS);
         }
 
         // Ctrl+G: open $EDITOR for multi-line input
@@ -406,24 +387,6 @@ fn open_editor() -> Option<String> {
 
     if status.is_some_and(|s| s.success()) {
         std::fs::read_to_string(&tmp).ok()
-    } else {
-        None
-    }
-}
-
-fn common_prefix(items: &[&str]) -> Option<String> {
-    let first = items.first()?;
-    let mut len = first.len();
-    for item in &items[1..] {
-        len = first
-            .chars()
-            .zip(item.chars())
-            .take_while(|(a, b)| a == b)
-            .count()
-            .min(len);
-    }
-    if len > 0 {
-        Some(first[..first.char_indices().nth(len).map(|(i, _)| i).unwrap_or(first.len())].to_string())
     } else {
         None
     }
