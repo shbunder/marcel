@@ -41,7 +41,7 @@ log "Current known-good SHA: ${GOOD_SHA}"
 check_health() {
     local deadline=$((SECONDS + HEALTH_TIMEOUT))
     while (( SECONDS < deadline )); do
-        if python3 -c "import urllib.request; urllib.request.urlopen('${HEALTH_URL}')" 2>/dev/null; then
+        if curl -sf "${HEALTH_URL}" >/dev/null 2>&1; then
             return 0
         fi
         sleep "$HEALTH_INTERVAL"

@@ -144,7 +144,7 @@ if [[ "$SERVER" == "true" ]]; then
     TIMEOUT=60
     ELAPSED=0
     while (( ELAPSED < TIMEOUT )); do
-        if python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-7420}/health')" 2>/dev/null; then
+        if curl -sf "http://localhost:${PORT:-7420}/health" >/dev/null 2>&1; then
             echo ""
             echo "Marcel server is running on port ${PORT:-7420}"
             break

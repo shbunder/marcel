@@ -27,7 +27,7 @@ EXPOSE 7420
 ENV MARCEL_PORT=7420
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:${MARCEL_PORT}/health')" || exit 1
+    CMD curl -f http://localhost:${MARCEL_PORT}/health || exit 1
 
 # Run via the watchdog (PID 1) which manages uvicorn and handles rollback
 CMD ["uv", "run", "python", "-m", "marcel_core.watchdog.main"]

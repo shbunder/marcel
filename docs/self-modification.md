@@ -19,7 +19,7 @@ Docker container (marcel)
 
 The container runs with `network_mode: host` and has access to:
 
-- `/home/shbunder` (read-write) — source code and user files
+- `$HOME` (read-write) — source code and user files
 - `~/.marcel/` (read-write) — runtime data, watchdog flags, schedules
 - `/var/run/docker.sock` — self-restart and managing other containers
 - `/_host` (read-only) — full NUC filesystem for inspection
