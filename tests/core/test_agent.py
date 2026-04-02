@@ -10,7 +10,7 @@ from claude_agent_sdk import AssistantMessage, ResultMessage, StreamEvent, TextB
 from fastapi.testclient import TestClient
 
 from marcel_core.agent.context import build_system_prompt
-from marcel_core.agent.memory_extract import _parse_and_save, extract_and_save_memories
+from marcel_core.agent.memory_extract import extract_and_save_memories
 from marcel_core.agent.memory_select import _parse_selection, select_relevant_memories
 from marcel_core.agent.runner import TurnResult, stream_response
 from marcel_core.agent.sessions import ActiveSession, SessionManager
@@ -360,80 +360,77 @@ class TestStreamResponse:
 
 
 # ---------------------------------------------------------------------------
-# memory_extract.py — _parse_and_save
+# memory_extract.py — agent-based extraction
 # ---------------------------------------------------------------------------
 
 
-class TestParseAndSave:
-    def test_saves_single_topic(self, tmp_path, monkeypatch):
+class TestExtractAndSaveMemories:
+    def test_calls_query_with_correct_options(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        _parse_and_save('shaun', 'TOPIC: calendar\nCONTENT: Prefers mornings.')
-        from marcel_core.storage import load_memory_file
+        captured_kwargs = {}
 
-        content = load_memory_file('shaun', 'calendar')
-        assert 'Prefers mornings.' in content
+        async def capture_query(**kwargs):
+            captured_kwargs.update(kwargs)
+            yield ResultMessage(
+                subtype='success',
+                duration_ms=50,
+                duration_api_ms=40,
+                is_error=False,
+                num_turns=1,
+                session_id='extract-1',
+                total_cost_usd=0.001,
+            )
 
-    def test_saves_multiple_topics(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        response = 'TOPIC: family\nCONTENT: Has two kids.\nTOPIC: work\nCONTENT: Works remotely.'
-        _parse_and_save('shaun', response)
-        from marcel_core.storage import load_memory_file
+        monkeypatch.setattr(claude_agent_sdk, 'query', capture_query)
+        asyncio.run(extract_and_save_memories('shaun', 'I like tea', 'Noted!', 'conv-1'))
 
-        assert 'Has two kids.' in load_memory_file('shaun', 'family')
-        assert 'Works remotely.' in load_memory_file('shaun', 'work')
+        # Verify correct model and tools preset.
+        opts = captured_kwargs.get('options')
+        assert opts is not None
+        assert opts.model == 'claude-haiku-4-5-20251001'
+        assert opts.tools == {'type': 'preset', 'preset': 'claude_code'}
+        assert opts.max_turns == 3
+        # CWD should be user's memory dir.
+        expected_cwd = str(tmp_path / 'users' / 'shaun' / 'memory')
+        assert opts.cwd == expected_cwd
+        # Prompt should include the user/assistant text.
+        assert 'I like tea' in captured_kwargs.get('prompt', '')
+        assert 'Noted!' in captured_kwargs.get('prompt', '')
 
-    def test_appends_to_existing_memory(self, tmp_path, monkeypatch):
+    def test_includes_manifest_in_system_prompt(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         from marcel_core.storage import save_memory_file
 
-        save_memory_file('shaun', 'calendar', '# Calendar\nOld fact.')
-        _parse_and_save('shaun', 'TOPIC: calendar\nCONTENT: New fact.')
-        from marcel_core.storage import load_memory_file
+        save_memory_file('shaun', 'prefs', '---\nname: prefs\ntype: preference\n---\nLikes tea.')
 
-        content = load_memory_file('shaun', 'calendar')
-        assert 'Old fact.' in content
-        assert 'New fact.' in content
+        captured_kwargs = {}
 
-    def test_skips_malformed_block(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        # No CONTENT: line — should not crash
-        _parse_and_save('shaun', 'TOPIC: broken\njust some text without content marker')
-        from marcel_core.storage import load_memory_file
+        async def capture_query(**kwargs):
+            captured_kwargs.update(kwargs)
+            yield ResultMessage(
+                subtype='success',
+                duration_ms=50,
+                duration_api_ms=40,
+                is_error=False,
+                num_turns=1,
+                session_id='s',
+                total_cost_usd=0.001,
+            )
 
-        assert load_memory_file('shaun', 'broken') == ''
+        monkeypatch.setattr(claude_agent_sdk, 'query', capture_query)
+        asyncio.run(extract_and_save_memories('shaun', 'hello', 'hi', 'conv-1'))
 
-
-class TestExtractAndSaveMemories:
-    def test_no_new_facts_skips_save(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(
-            claude_agent_sdk,
-            'query',
-            lambda **_: _agen(_assistant_message('NO_NEW_FACTS')),
-        )
-        asyncio.run(extract_and_save_memories('shaun', 'hello', 'hi there', 'conv-1'))
-        from marcel_core.storage import load_memory_index
-
-        assert load_memory_index('shaun') == ''
-
-    def test_saves_extracted_facts(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(
-            claude_agent_sdk,
-            'query',
-            lambda **_: _agen(_assistant_message('TOPIC: preferences\nCONTENT: Likes tea.')),
-        )
-        asyncio.run(extract_and_save_memories('shaun', 'I like tea', 'Noted!', 'conv-1'))
-        from marcel_core.storage import load_memory_file
-
-        assert 'Likes tea.' in load_memory_file('shaun', 'preferences')
+        # System prompt should contain the existing memory manifest.
+        system = captured_kwargs['options'].system_prompt
+        assert 'prefs.md' in system
+        assert '[preference]' in system
 
     def test_swallows_exceptions(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
         async def boom(**_):
             raise RuntimeError('api down')
-            yield  # make it an async generator
+            yield  # make it an async generator  # noqa: RET503
 
         monkeypatch.setattr(claude_agent_sdk, 'query', boom)
         # Should not raise

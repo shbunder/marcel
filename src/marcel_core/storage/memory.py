@@ -17,6 +17,8 @@ Supported types: schedule, preference, person, reference, household.
 
 from __future__ import annotations
 
+import datetime
+import logging
 import pathlib
 import re
 import time
@@ -361,3 +363,69 @@ def update_memory_index(slug: str, topic: str, description: str) -> None:
     entry = f'- [{filename}]({filename}) — {description}\n'
     updated = existing + entry
     atomic_write(path, updated)
+
+
+# ---------------------------------------------------------------------------
+# Memory lifecycle
+# ---------------------------------------------------------------------------
+
+log = logging.getLogger(__name__)
+
+_INDEX_CAP = 200  # Maximum lines in the memory index file.
+
+
+def prune_expired_memories(slug: str, today: datetime.date | None = None) -> list[str]:
+    """Delete schedule-type memories whose ``expires`` date has passed.
+
+    Args:
+        slug: User slug.
+        today: Override for "today" (for testing). Defaults to ``date.today()``.
+
+    Returns:
+        List of filenames that were pruned.
+    """
+    if today is None:
+        today = datetime.date.today()
+
+    headers = scan_memory_headers(slug)
+    pruned: list[str] = []
+
+    for header in headers:
+        if header.type != MemoryType.SCHEDULE or not header.expires:
+            continue
+        try:
+            expires_date = datetime.date.fromisoformat(header.expires)
+        except ValueError:
+            continue
+        if expires_date < today:
+            try:
+                header.filepath.unlink()
+                pruned.append(header.filename)
+                log.info('Pruned expired memory %s for user=%s (expired %s)', header.filename, slug, header.expires)
+            except OSError:
+                log.warning('Failed to prune %s for user=%s', header.filename, slug)
+
+    return pruned
+
+
+def enforce_index_cap(slug: str, max_lines: int = _INDEX_CAP) -> bool:
+    """Truncate the memory index to ``max_lines``, appending a warning if needed.
+
+    Returns:
+        True if the index was truncated, False otherwise.
+    """
+    path = _index_path(slug)
+    if not path.exists():
+        return False
+
+    content = path.read_text(encoding='utf-8')
+    lines = content.splitlines(keepends=True)
+
+    if len(lines) <= max_lines:
+        return False
+
+    truncated = lines[:max_lines]
+    warning = f'\n<!-- Index truncated at {max_lines} lines. Older entries removed. -->\n'
+    atomic_write(path, ''.join(truncated) + warning)
+    log.info('Truncated memory index for user=%s from %d to %d lines', slug, len(lines), max_lines)
+    return True

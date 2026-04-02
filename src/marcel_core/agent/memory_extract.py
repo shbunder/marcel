@@ -1,36 +1,67 @@
-"""Background memory extraction — identifies new facts from a conversation turn.
+"""Background memory extraction — uses a tool-equipped agent to update memory files.
 
-Runs as a fire-and-forget asyncio task after each agent response. Never raises;
-logs failures instead so a bad extraction never breaks the conversation.
+Runs as a fire-and-forget asyncio task after each agent response.  Instead of
+regex-parsing structured text, we give a cheap model (Haiku) the ``claude_code``
+tools preset so it can read existing memory files, write new ones, and edit
+existing ones — all with proper frontmatter.
+
+Inspired by Claude Code's ``extractMemories.ts``.
 """
 
+from __future__ import annotations
+
 import logging
-import re
 
 import claude_agent_sdk
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock
+from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
 
-from marcel_core import storage
+from marcel_core.storage.memory import (
+    format_memory_manifest,
+    scan_memory_headers,
+)
 
 log = logging.getLogger(__name__)
 
-_EXTRACT_PROMPT = """\
-Review this conversation exchange and identify any new facts about the user \
-that should be saved for future reference.
+_EXTRACTOR_MODEL = 'claude-haiku-4-5-20251001'
 
-User said:
-{user_text}
+_EXTRACT_SYSTEM_PROMPT = """\
+You are a memory extraction agent for Marcel, a personal assistant. Your job is \
+to review a conversation exchange and save any new facts worth remembering to \
+memory files in the current directory.
 
-Assistant responded:
-{assistant_text}
+## Rules
 
-If there are new facts worth remembering, output them in this exact format \
-(repeat the block for multiple topics):
+1. Only save facts that will be useful in future conversations — skip ephemeral \
+details like "the weather today" or transient task status.
+2. Check existing memory files before writing — update an existing file if the \
+new fact belongs there, rather than creating a duplicate.
+3. Every memory file MUST have YAML frontmatter with at least `name` and `type`:
 
-TOPIC: <topic name, e.g. calendar, family, preferences, work>
-CONTENT: <the facts to remember, as bullet points or short prose>
+```
+---
+name: <short_snake_case_name>
+description: <one-line description of what this memory contains>
+type: <schedule|preference|person|reference|household>
+expires: <YYYY-MM-DD, only for schedule type — set to the event date>
+---
 
-If there are no new facts worth saving, output exactly: NO_NEW_FACTS
+<memory content>
+```
+
+4. For `schedule` type memories, always set `expires` to the event date so they \
+can be auto-pruned after the date passes.
+5. Keep memory files focused — one topic per file. Use descriptive filenames \
+like `dentist_april.md`, `coffee_preference.md`, `sister_emily.md`.
+6. If there are NO new facts worth saving, do nothing — do not create empty files.
+
+## Current directory
+
+You are working in the user's memory directory. All file operations are relative \
+to this directory.
+
+## Existing memories
+
+{manifest}
 """
 
 
@@ -40,10 +71,14 @@ async def extract_and_save_memories(
     assistant_text: str,
     conversation_id: str,
 ) -> None:
-    """Extract facts from a turn and persist them to the user's memory files.
+    """Extract facts from a turn and persist them using a tool-equipped agent.
 
-    Designed to run as a background asyncio task. All exceptions are caught
+    Designed to run as a background asyncio task.  All exceptions are caught
     and logged so a failed extraction never surfaces to the user.
+
+    The agent receives ``claude_code`` tools (Read, Write, Edit, Glob, Grep)
+    with CWD set to the user's memory directory, so it can directly read and
+    write memory files with proper frontmatter.
 
     Args:
         user_slug: The user's slug.
@@ -51,60 +86,55 @@ async def extract_and_save_memories(
         assistant_text: Marcel's response for this turn.
         conversation_id: Filename stem of the conversation (for logging only).
     """
-    prompt = _EXTRACT_PROMPT.format(user_text=user_text, assistant_text=assistant_text)
+    from marcel_core.storage.memory import _memory_dir
+
+    mem_dir = _memory_dir(user_slug)
+    mem_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build manifest of existing memories so the agent can avoid duplicates.
+    headers = scan_memory_headers(user_slug)
+    if headers:
+        manifest = format_memory_manifest(headers)
+    else:
+        manifest = '(no existing memories)'
+
+    system_prompt = _EXTRACT_SYSTEM_PROMPT.format(manifest=manifest)
+
+    prompt = (
+        f'Review this conversation exchange and save any new facts to memory files.\n\n'
+        f'User said:\n{user_text}\n\n'
+        f'Assistant responded:\n{assistant_text}'
+    )
 
     options = ClaudeAgentOptions(
-        system_prompt='You are a fact extractor. Follow the output format exactly.',
-        tools=[],
+        system_prompt=system_prompt,
+        tools={'type': 'preset', 'preset': 'claude_code'},
         permission_mode='bypassPermissions',
-        max_turns=1,
+        max_turns=3,
+        model=_EXTRACTOR_MODEL,
+        cwd=str(mem_dir),
     )
 
     try:
-        response_parts: list[str] = []
         async for msg in claude_agent_sdk.query(prompt=prompt, options=options):
-            if isinstance(msg, AssistantMessage):
-                for block in msg.content:
-                    if isinstance(block, TextBlock):
-                        response_parts.append(block.text)
-
-        response = ''.join(response_parts).strip()
-
-        if not response or response == 'NO_NEW_FACTS':
-            return
-
-        _parse_and_save(user_slug, response)
-
+            if isinstance(msg, ResultMessage):
+                if msg.is_error:
+                    log.warning(
+                        'Memory extraction agent reported error for user=%s conversation=%s',
+                        user_slug,
+                        conversation_id,
+                    )
+                else:
+                    log.debug(
+                        'Memory extraction complete for user=%s conversation=%s (turns=%s, cost=$%s)',
+                        user_slug,
+                        conversation_id,
+                        msg.num_turns,
+                        msg.total_cost_usd,
+                    )
     except Exception:
-        log.exception('Memory extraction failed for user=%s conversation=%s', user_slug, conversation_id)
-
-
-def _parse_and_save(user_slug: str, response: str) -> None:
-    """Parse TOPIC/CONTENT blocks from the extraction response and save each."""
-    # Split on TOPIC: boundaries (first block may or may not start with TOPIC:)
-    raw_blocks = re.split(r'(?:^|\n)TOPIC:', response)
-
-    for block in raw_blocks:
-        block = block.strip()
-        if not block:
-            continue
-
-        match = re.match(r'([^\n]+)\nCONTENT:\s*(.*)', block, re.DOTALL)
-        if not match:
-            continue
-
-        topic = match.group(1).strip().lower().replace(' ', '_')
-        content = match.group(2).strip()
-
-        if not topic or not content:
-            continue
-
-        existing = storage.load_memory_file(user_slug, topic)
-        if existing.strip():
-            updated = existing.rstrip() + '\n' + content
-        else:
-            updated = f'# {topic.replace("_", " ").title()}\n\n{content}'
-
-        storage.save_memory_file(user_slug, topic, updated)
-        storage.update_memory_index(user_slug, f'{topic}.md', f'{topic.replace("_", " ")} facts')
-        log.debug('Saved memory topic=%r for user=%s', topic, user_slug)
+        log.exception(
+            'Memory extraction failed for user=%s conversation=%s',
+            user_slug,
+            conversation_id,
+        )

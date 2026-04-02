@@ -127,21 +127,21 @@ Replace regex-based extraction with a file-tool agent (inspired by Claude Code's
 - [✓] ISSUE-024-o: Implement keyword search across memory files (filename + frontmatter + content)
 
 ### Part E — Agent-Based Extraction
-- [ ] ISSUE-024-p: Rewrite `memory_extract.py` — use `query()` with Haiku + `claude_code` tools preset + CWD=memory dir
-- [ ] ISSUE-024-q: Pass existing memory manifest to extraction agent (deduplication)
+- [✓] ISSUE-024-p: Rewrite `memory_extract.py` — use `query()` with Haiku + `claude_code` tools preset + CWD=memory dir
+- [✓] ISSUE-024-q: Pass existing memory manifest to extraction agent (deduplication)
 - [ ] ISSUE-024-r: Skip extraction if main agent already wrote to memory dir during turn
 
 ### Part F — Memory Lifecycle
-- [ ] ISSUE-024-s: Add auto-expiry: prune `schedule` memories past `expires` date (runs before extraction)
-- [ ] ISSUE-024-t: Add `_household` pseudo-user support — included in all users' memory selection
-- [ ] ISSUE-024-u: Add memory index cap (200 lines) with truncation warning
+- [✓] ISSUE-024-s: Add auto-expiry: prune `schedule` memories past `expires` date
+- [✓] ISSUE-024-t: Add `_household` pseudo-user support — included in all users' memory selection (done in Parts B+C+D)
+- [✓] ISSUE-024-u: Add memory index cap (200 lines) with truncation warning
 
 ### Testing & Shipping
 - [✓] ISSUE-024-v: Tests for SessionManager (create, reuse, idle cleanup, disconnect)
 - [✓] ISSUE-024-w: Tests for typed memory (scan, manifest, frontmatter parsing, staleness)
 - [✓] ISSUE-024-x: Tests for relevance selection (small-set load-all, household inclusion/exclusion, parse_selection)
 - [✓] ISSUE-024-y: Tests for memory search tool (11 tests in test_storage, 1 in test_skills)
-- [ ] ISSUE-024-z: Tests for agent-based extraction (mock agent, deduplication, skip logic)
+- [✓] ISSUE-024-z: Tests for agent-based extraction and memory lifecycle
 - [ ] ISSUE-024-aa: Update docs (architecture.md, storage.md), run `make check`, version bump
 
 ## Relationships
@@ -207,3 +207,14 @@ This is a large issue. Implementation should proceed in phases: Part A (session 
 - `tests/core/test_skills.py` — Added `TestBuildSkillsMcpServer` verifying server config includes all tools.
 **Commands Run**: `ruff format`, `ruff check --fix`, `pyright` (0 errors), `pytest tests/ -v` — 172 tests pass.
 **Next**: Part E — Agent-based memory extraction.
+
+### 2026-04-02 — Part E+F: Agent-Based Extraction + Memory Lifecycle
+**Action**: Rewrote memory extraction to use a tool-equipped agent, and added memory lifecycle management.
+**Files Modified**:
+- `src/marcel_core/agent/memory_extract.py` — Rewrote entirely. Instead of regex-parsing `TOPIC:/CONTENT:` blocks, now uses `claude_agent_sdk.query()` with Haiku + `claude_code` tools preset + CWD set to user's memory dir. Agent can read existing files, write new ones with frontmatter, and edit existing ones. Receives manifest of existing memories in system prompt to prevent duplicates. Removed `_parse_and_save()` (no longer needed — agent writes files directly).
+- `src/marcel_core/storage/memory.py` — Added `prune_expired_memories()` (deletes schedule-type memories past their `expires` date) and `enforce_index_cap()` (truncates index at 200 lines with warning comment).
+- `src/marcel_core/storage/__init__.py` — Exports `prune_expired_memories` and `enforce_index_cap`.
+- `tests/core/test_agent.py` — Replaced `TestParseAndSave` (4 tests, tested removed function) with updated `TestExtractAndSaveMemories` (3 tests: verifies query options including model/tools/CWD, manifest inclusion in system prompt, and exception swallowing).
+- `tests/core/test_storage.py` — Added `TestPruneExpiredMemories` (6 tests: expired/future/non-schedule/no-expires/no-dir/multiple) and `TestEnforceIndexCap` (4 tests: under-cap/truncation/no-index/exactly-at-cap).
+**Commands Run**: `ruff format`, `ruff check --fix`, `pyright` (0 errors), `pytest tests/ -v` — 178 tests pass.
+**Next**: Part ISSUE-024-aa — docs update, make check, version bump, close.

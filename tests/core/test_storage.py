@@ -4,6 +4,7 @@ All tests use ``tmp_path`` to point the storage module at an isolated
 temporary directory so no real data is read or written.
 """
 
+import datetime
 import pathlib
 import time
 
@@ -14,6 +15,7 @@ from marcel_core.storage import (
     MemoryHeader,
     MemoryType,
     append_turn,
+    enforce_index_cap,
     format_memory_manifest,
     load_conversation,
     load_conversation_index,
@@ -24,6 +26,7 @@ from marcel_core.storage import (
     memory_freshness_note,
     new_conversation,
     parse_frontmatter,
+    prune_expired_memories,
     save_memory_file,
     save_user_profile,
     scan_memory_headers,
@@ -488,3 +491,93 @@ class TestSearchMemoryFiles:
         results = search_memory_files('shaun', 'keyword')
         assert len(results) == 1
         assert results[0].filename == 'real.md'
+
+
+# ---------------------------------------------------------------------------
+# memory lifecycle — expiry and index cap
+# ---------------------------------------------------------------------------
+
+
+class TestPruneExpiredMemories:
+    def test_prunes_expired_schedule(self, tmp_path: pathlib.Path) -> None:
+        save_memory_file(
+            'shaun',
+            'old_dentist',
+            '---\nname: old_dentist\ntype: schedule\nexpires: 2026-03-01\n---\nDentist March 1.',
+        )
+        pruned = prune_expired_memories('shaun', today=datetime.date(2026, 4, 2))
+        assert 'old_dentist.md' in pruned
+        assert load_memory_file('shaun', 'old_dentist') == ''
+
+    def test_keeps_future_schedule(self, tmp_path: pathlib.Path) -> None:
+        save_memory_file(
+            'shaun',
+            'future_dentist',
+            '---\nname: future_dentist\ntype: schedule\nexpires: 2026-12-31\n---\nDentist December.',
+        )
+        pruned = prune_expired_memories('shaun', today=datetime.date(2026, 4, 2))
+        assert pruned == []
+        assert 'Dentist December.' in load_memory_file('shaun', 'future_dentist')
+
+    def test_ignores_non_schedule_with_expires(self, tmp_path: pathlib.Path) -> None:
+        save_memory_file(
+            'shaun',
+            'pref',
+            '---\nname: pref\ntype: preference\nexpires: 2020-01-01\n---\nOld pref.',
+        )
+        pruned = prune_expired_memories('shaun', today=datetime.date(2026, 4, 2))
+        assert pruned == []
+
+    def test_ignores_schedule_without_expires(self, tmp_path: pathlib.Path) -> None:
+        save_memory_file(
+            'shaun',
+            'undated',
+            '---\nname: undated\ntype: schedule\n---\nNo expiry.',
+        )
+        pruned = prune_expired_memories('shaun', today=datetime.date(2026, 4, 2))
+        assert pruned == []
+
+    def test_returns_empty_for_no_memory_dir(self) -> None:
+        assert prune_expired_memories('nobody') == []
+
+    def test_prunes_multiple(self, tmp_path: pathlib.Path) -> None:
+        save_memory_file('shaun', 'a', '---\ntype: schedule\nexpires: 2026-01-01\n---\nOld A.')
+        save_memory_file('shaun', 'b', '---\ntype: schedule\nexpires: 2026-02-01\n---\nOld B.')
+        save_memory_file('shaun', 'c', '---\ntype: schedule\nexpires: 2026-12-01\n---\nFuture C.')
+        pruned = prune_expired_memories('shaun', today=datetime.date(2026, 4, 2))
+        assert len(pruned) == 2
+        assert 'a.md' in pruned
+        assert 'b.md' in pruned
+        assert load_memory_file('shaun', 'c') != ''
+
+
+class TestEnforceIndexCap:
+    def test_no_truncation_under_cap(self, tmp_path: pathlib.Path) -> None:
+        update_memory_index('shaun', 'topic1', 'description 1')
+        update_memory_index('shaun', 'topic2', 'description 2')
+        assert enforce_index_cap('shaun', max_lines=10) is False
+
+    def test_truncates_at_cap(self, tmp_path: pathlib.Path) -> None:
+        # Write 20 lines to the index.
+        mem_dir = tmp_path / 'users' / 'shaun' / 'memory'
+        mem_dir.mkdir(parents=True, exist_ok=True)
+        lines = [f'- [topic{i}.md](topic{i}.md) — description {i}\n' for i in range(20)]
+        (mem_dir / 'index.md').write_text(''.join(lines), encoding='utf-8')
+
+        assert enforce_index_cap('shaun', max_lines=10) is True
+        content = load_memory_index('shaun')
+        # Should have 10 original lines + truncation warning.
+        assert 'topic0.md' in content
+        assert 'topic9.md' in content
+        assert 'topic10.md' not in content
+        assert 'truncated' in content.lower()
+
+    def test_returns_false_when_no_index(self) -> None:
+        assert enforce_index_cap('nobody') is False
+
+    def test_exactly_at_cap_no_truncation(self, tmp_path: pathlib.Path) -> None:
+        mem_dir = tmp_path / 'users' / 'shaun' / 'memory'
+        mem_dir.mkdir(parents=True, exist_ok=True)
+        lines = [f'- [topic{i}.md](topic{i}.md) — desc {i}\n' for i in range(5)]
+        (mem_dir / 'index.md').write_text(''.join(lines), encoding='utf-8')
+        assert enforce_index_cap('shaun', max_lines=5) is False
