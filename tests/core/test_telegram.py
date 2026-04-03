@@ -351,3 +351,76 @@ class TestNewCommand:
         resp = client.post('/telegram/webhook', json=_make_update(555, '/new'), headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
         assert sessions.get_conversation_id(555) is None
+
+
+# ---------------------------------------------------------------------------
+# conversations.py — _extract_assistant_message
+# ---------------------------------------------------------------------------
+
+from marcel_core.api.conversations import _extract_assistant_message
+
+
+class TestExtractAssistantMessage:
+    """Tests for assistant message extraction from conversation markdown."""
+
+    _SIMPLE = (
+        '# Conversation — 2026-04-03T11:00 (channel: telegram)\n\n'
+        "**User:** What's the weather?\n\n"
+        "**Marcel:** It's sunny and 20°C today.\n"
+    )
+
+    _MULTI_TURN = (
+        '# Conversation — 2026-04-03T11:00 (channel: telegram)\n\n'
+        "**User:** What's my salary?\n\n"
+        "**Marcel:** Based on that single month, here's a **rough annual estimate**:\n\n"
+        'Scenario — Calculation — Total\n'
+        'Base (12x) — €3,264.60 x 12 — €39,175\n\n'
+        '**User:** What should I not forget next week?\n\n'
+        "**Marcel:** Here's what's on for next week (6-12 April)\n\n"
+        '**Sunday 6 April**\n'
+        '- 🏠 Kids return from Weekend VdB at 10:00\n\n'
+        '**All week (6–20 April)**\n'
+        '- 🐣 Paasvakantie — kids are off school\n'
+    )
+
+    def test_extracts_last_by_default(self):
+        result = _extract_assistant_message(self._SIMPLE)
+        assert result == "It's sunny and 20°C today."
+
+    def test_does_not_truncate_at_bold_text(self):
+        """The core bug: bold date headers like **Sunday 6 April** must not
+        be mistaken for a turn marker."""
+        result = _extract_assistant_message(self._MULTI_TURN)
+        assert result is not None
+        assert '**Sunday 6 April**' in result
+        assert 'Kids return' in result
+        assert 'Paasvakantie' in result
+
+    def test_turn_0_returns_first_assistant_message(self):
+        result = _extract_assistant_message(self._MULTI_TURN, turn=0)
+        assert result is not None
+        assert 'rough annual estimate' in result
+        assert '€39,175' in result
+        # Must NOT include the second response
+        assert 'Sunday 6 April' not in result
+
+    def test_turn_1_returns_second_assistant_message(self):
+        result = _extract_assistant_message(self._MULTI_TURN, turn=1)
+        assert result is not None
+        assert 'next week' in result
+        assert 'Sunday 6 April' in result
+
+    def test_turn_out_of_range_returns_none(self):
+        result = _extract_assistant_message(self._SIMPLE, turn=5)
+        assert result is None
+
+    def test_no_assistant_message_returns_none(self):
+        raw = '# Conversation\n\n**User:** Hello?\n'
+        assert _extract_assistant_message(raw) is None
+
+    def test_last_message_in_multi_turn(self):
+        """Default (turn=None) should return the last assistant message."""
+        result = _extract_assistant_message(self._MULTI_TURN)
+        assert result is not None
+        assert 'next week' in result
+        assert 'rough annual estimate' not in result

@@ -1,6 +1,6 @@
 # ISSUE-030: Fix "View in App" — Content Truncation & Wrong Message
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-03
 **Assignee:** Unassigned
 **Priority:** High
@@ -34,11 +34,25 @@ This incorrectly matches bold markdown within the response itself (date headers 
 Fix: include a turn index in the URL (e.g. `?conversation=...&turn=3`) and make `_extract_last_assistant` accept an optional turn number to extract a specific message instead of always the last.
 
 ## Tasks
-- [ ] ISSUE-030-a: Fix `_extract_last_assistant` turn delimiter to only match `**Marcel:**` / `**User:**`
-- [ ] ISSUE-030-b: Add `turn` parameter to `/api/message/{conversation_id}` endpoint
-- [ ] ISSUE-030-c: Include turn index in `rich_content_markup()` URL and count assistant turns in webhook
-- [ ] ISSUE-030-d: Update `Viewer.tsx` to pass `turn` param to the API
-- [ ] ISSUE-030-e: Test both fixes end-to-end
+- [✓] ISSUE-030-a: Fix `_extract_last_assistant` turn delimiter to only match `**Marcel:**` / `**User:**`
+- [✓] ISSUE-030-b: Add `turn` parameter to `/api/message/{conversation_id}` endpoint
+- [✓] ISSUE-030-c: Include turn index in `rich_content_markup()` URL and count assistant turns in webhook
+- [✓] ISSUE-030-d: Update `Viewer.tsx` to pass `turn` param to the API
+- [✓] ISSUE-030-e: Test both fixes end-to-end (266 tests pass, 7 new extraction tests)
 
 ## Relationships
 - Related to: ISSUE-031 (rich visual widgets — separate scope)
+
+## Implementation Log
+### 2026-04-03 — LLM Implementation
+**Action**: Fixed both View-in-app bugs
+**Files Modified**:
+- `src/marcel_core/api/conversations.py` — Renamed `_extract_last_assistant` → `_extract_assistant_message`; fixed turn delimiter from `\n\n**` (matches any bold) to regex matching only `**Marcel:**` / `**User:**` turn markers; added `turn` param for extracting specific messages; added `turn` query param to API endpoint
+- `src/marcel_core/telegram/bot.py` — `rich_content_markup()` accepts `turn` param, embeds in URL
+- `src/marcel_core/telegram/formatting.py` — `web_app_url_for()` accepts `turn` param
+- `src/marcel_core/telegram/webhook.py` — Counts assistant turns before appending, passes turn index to `_format_response`; updated callback handler import
+- `src/web/src/App.tsx` — Reads `turn` query param from URL, passes to `<Viewer>`
+- `src/web/src/components/Viewer.tsx` — Accepts `turn` prop, includes in API fetch URL
+- `tests/core/test_telegram.py` — Added 7 tests for `_extract_assistant_message` covering truncation bug, turn indexing, out-of-range, and multi-turn extraction
+**Commands Run**: `make check`, `pytest tests/`
+**Result**: 266 tests pass; only pre-existing pyright errors in icloud/watchdog remain

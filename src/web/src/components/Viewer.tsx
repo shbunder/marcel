@@ -7,19 +7,23 @@ import { ChecklistWidget, detectChecklist } from '../widgets/ChecklistWidget'
 interface Props {
   conversationId: string
   initData: string
+  turn?: string | null
 }
 
 /**
- * Viewer mode: fetches the last assistant message from a conversation and
+ * Viewer mode: fetches a specific assistant message from a conversation and
  * renders it as a rich widget. Used when the Mini App is opened from a
- * "Show events" / "Show checklist" inline button in Telegram.
+ * "View in app" inline button in Telegram.
  */
-export function Viewer({ conversationId, initData }: Props) {
+export function Viewer({ conversationId, initData, turn }: Props) {
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const url = `/api/message/${encodeURIComponent(conversationId)}?initData=${encodeURIComponent(initData)}`
+    let url = `/api/message/${encodeURIComponent(conversationId)}?initData=${encodeURIComponent(initData)}`
+    if (turn) {
+      url += `&turn=${encodeURIComponent(turn)}`
+    }
     fetch(url)
       .then((res) => {
         if (!res.ok) throw new Error(`Failed to load (${res.status})`)

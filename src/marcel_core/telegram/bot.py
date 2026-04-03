@@ -223,7 +223,7 @@ _BUTTON_LABELS = {
 }
 
 
-def rich_content_markup(conversation_id: str | None = None) -> dict | None:
+def rich_content_markup(conversation_id: str | None = None, turn: int | None = None) -> dict | None:
     """Return an InlineKeyboardMarkup that opens the Mini App, or None."""
     url = _public_url()
     if not url:
@@ -231,6 +231,8 @@ def rich_content_markup(conversation_id: str | None = None) -> dict | None:
     app_url = url
     if conversation_id:
         app_url = f'{url}?conversation={conversation_id}'
+        if turn is not None:
+            app_url += f'&turn={turn}'
     return {
         'inline_keyboard': [[{'text': '✨ View in app', 'web_app': {'url': app_url}}]],
     }

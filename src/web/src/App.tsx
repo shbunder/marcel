@@ -9,7 +9,9 @@ const tg = getTelegramWebApp()
 
 // Check if we're in viewer mode (opened from "Show events" button with a
 // conversation ID in the URL).
-const viewConversation = new URLSearchParams(location.search).get('conversation')
+const searchParams = new URLSearchParams(location.search)
+const viewConversation = searchParams.get('conversation')
+const viewTurn = searchParams.get('turn')
 
 const config: ChatConfig = {
   wsUrl: `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/chat`,
@@ -95,7 +97,7 @@ export function App() {
   if (viewConversation && tg?.initData) {
     return (
       <div className="app">
-        <Viewer conversationId={viewConversation} initData={tg.initData} />
+        <Viewer conversationId={viewConversation} initData={tg.initData} turn={viewTurn} />
       </div>
     )
   }

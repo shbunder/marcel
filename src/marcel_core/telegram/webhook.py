@@ -123,6 +123,11 @@ async def _process_assistant_message(
         return
 
     async with storage.get_lock(user_slug):
+        # Count existing assistant turns before appending, so we know this
+        # message's 0-based turn index for the "View in app" button.
+        existing = storage.load_conversation(user_slug, conversation_id)
+        assistant_turn = existing.count('**Marcel:** ')
+
         storage.append_turn(user_slug, conversation_id, 'user', text)
         storage.append_turn(user_slug, conversation_id, 'assistant', full_response)
 
@@ -130,7 +135,7 @@ async def _process_assistant_message(
 
     # --- Format and send ---
     try:
-        html_text, markup = _format_response(full_response, conversation_id)
+        html_text, markup = _format_response(full_response, conversation_id, turn=assistant_turn)
 
         if ack.get('sent') and ack.get('message_id'):
             await bot.edit_message_text(chat_id, ack['message_id'], html_text, reply_markup=markup)
@@ -140,8 +145,14 @@ async def _process_assistant_message(
         await _reply(chat_id, f'I have a response but failed to send it: {exc}')
 
 
-def _format_response(full_response: str, conversation_id: str) -> tuple[str, dict | None]:
+def _format_response(full_response: str, conversation_id: str, *, turn: int | None = None) -> tuple[str, dict | None]:
     """Convert a raw markdown response to HTML and build appropriate markup.
+
+    Args:
+        full_response: The raw markdown response text.
+        conversation_id: The conversation filename stem.
+        turn: 0-based assistant turn index, embedded in the "View in app" URL
+            so the Mini App can fetch this specific message.
 
     Returns:
         A ``(html_text, reply_markup)`` tuple.
@@ -159,16 +170,16 @@ def _format_response(full_response: str, conversation_id: str) -> tuple[str, dic
             conversation_id,
             page=0,
             total_pages=total_pages,
-            web_app_url=web_app_url_for(conversation_id),
+            web_app_url=web_app_url_for(conversation_id, turn=turn),
         )
     elif day_groups:
         # Single-page calendar — expandable blockquotes, no nav
         html_text = format_calendar_page(day_groups, page=0)
-        markup = bot.rich_content_markup(conversation_id)
+        markup = bot.rich_content_markup(conversation_id, turn=turn)
     else:
         # Regular message — convert markdown to HTML
         html_text = markdown_to_telegram_html(full_response)
-        markup = bot.rich_content_markup(conversation_id) if has_rich else None
+        markup = bot.rich_content_markup(conversation_id, turn=turn) if has_rich else None
 
     return html_text, markup
 
@@ -215,9 +226,9 @@ async def _handle_callback_query(callback_query: dict[str, Any]) -> None:
         await bot.answer_callback_query(query_id, 'Conversation not found')
         return
 
-    from marcel_core.api.conversations import _extract_last_assistant
+    from marcel_core.api.conversations import _extract_assistant_message
 
-    assistant_text = _extract_last_assistant(raw)
+    assistant_text = _extract_assistant_message(raw)
     if not assistant_text:
         await bot.answer_callback_query(query_id, 'Message not found')
         return

@@ -1,6 +1,7 @@
 """REST endpoints for listing and fetching conversations."""
 
 import pathlib
+import re
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
@@ -74,16 +75,37 @@ async def list_conversations(
     return ConversationListResponse(conversations=entries)
 
 
-def _extract_last_assistant(raw: str) -> str | None:
-    """Extract the last ``**Marcel:** ...`` block from conversation markdown."""
+_TURN_MARKER_RE = re.compile(r'\n\n\*\*(?:Marcel|User):\*\* ')
+
+
+def _extract_assistant_message(raw: str, turn: int | None = None) -> str | None:
+    """Extract an assistant message from conversation markdown.
+
+    Args:
+        raw: Full conversation markdown text.
+        turn: 0-based index of the assistant turn to extract. When ``None``,
+            returns the last assistant message (backwards-compatible default).
+    """
     marker = '**Marcel:** '
-    idx = raw.rfind(marker)
-    if idx < 0:
-        return None
-    start = idx + len(marker)
-    # The block ends at the next turn marker or EOF
-    next_turn = raw.find('\n\n**', start)
-    return raw[start:next_turn].strip() if next_turn > 0 else raw[start:].strip()
+    if turn is None:
+        # Last assistant message
+        idx = raw.rfind(marker)
+        if idx < 0:
+            return None
+        start = idx + len(marker)
+    else:
+        # Find the nth assistant message (0-based)
+        offset = 0
+        for _ in range(turn + 1):
+            idx = raw.find(marker, offset)
+            if idx < 0:
+                return None
+            offset = idx + len(marker)
+        start = offset
+
+    # The block ends at the next turn marker (**Marcel:** or **User:**) or EOF
+    m = _TURN_MARKER_RE.search(raw, start)
+    return raw[start : m.start()].strip() if m else raw[start:].strip()
 
 
 class MessageResponse(BaseModel):
@@ -95,8 +117,12 @@ async def get_last_message(
     conversation_id: str,
     initData: str = Query(''),
     authorization: str = Header(''),
+    turn: int | None = Query(None, ge=0),
 ) -> MessageResponse:
-    """Return the last assistant message from a conversation.
+    """Return an assistant message from a conversation.
+
+    When *turn* is provided (0-based), returns that specific assistant
+    message.  Otherwise returns the last one (backwards compatible).
 
     Authenticates via Telegram ``initData`` (Mini App) or Bearer token.
     """
@@ -122,7 +148,7 @@ async def get_last_message(
     if not raw:
         raise HTTPException(status_code=404, detail='Conversation not found')
 
-    content = _extract_last_assistant(raw)
+    content = _extract_assistant_message(raw, turn=turn)
     if content is None:
         raise HTTPException(status_code=404, detail='No assistant message found')
 
