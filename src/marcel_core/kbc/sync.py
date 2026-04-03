@@ -82,7 +82,10 @@ async def sync_account(slug: str) -> dict[str, Any]:
 
                 # Sync transactions (handles pagination)
                 txs = await client.get_all_transactions(
-                    slug, account_uid, date_from=date_from, date_to=date_to,
+                    slug,
+                    account_uid,
+                    date_from=date_from,
+                    date_to=date_to,
                 )
                 if txs:
                     cache.upsert_transactions(slug, account_uid, txs)

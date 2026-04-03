@@ -28,7 +28,10 @@ async def setup(params: dict, user_slug: str) -> str:
     country = params.get('country', client.SUPPORTED_BANKS.get(bank, {}).get('country', 'BE'))
     redirect = params.get('redirect_url', 'https://enablebanking.com')
     data = await client.start_authorization(
-        user_slug, redirect_url=redirect, bank=bank, country=country,
+        user_slug,
+        redirect_url=redirect,
+        bank=bank,
+        country=country,
     )
     return json.dumps(
         {

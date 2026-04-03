@@ -43,9 +43,7 @@ def _app_id(slug: str) -> str:
     creds = load_credentials(slug)
     app_id = creds.get('ENABLEBANKING_APP_ID', '').strip()
     if not app_id:
-        raise RuntimeError(
-            f'ENABLEBANKING_APP_ID must be set in credentials for user {slug}'
-        )
+        raise RuntimeError(f'ENABLEBANKING_APP_ID must be set in credentials for user {slug}')
     return app_id
 
 
@@ -58,8 +56,7 @@ def _load_private_key(slug: str) -> str:
     path = _private_key_path(slug)
     if not path.exists():
         raise RuntimeError(
-            f'EnableBanking private key not found at {path}. '
-            f'Download it from the EnableBanking dashboard.'
+            f'EnableBanking private key not found at {path}. Download it from the EnableBanking dashboard.'
         )
     return path.read_text()
 
@@ -132,9 +129,7 @@ def _session_id_for_bank(slug: str, bank: str) -> str:
     for entry in _load_sessions(slug):
         if entry.get('bank', '').upper() == bank.upper():
             return entry['session_id']
-    raise RuntimeError(
-        f'No {bank} bank link found. Run kbc.setup with bank="{bank}" to link your account.'
-    )
+    raise RuntimeError(f'No {bank} bank link found. Run kbc.setup with bank="{bank}" to link your account.')
 
 
 # ── HTTP helpers ────────────────────────────────────────────────────────────
@@ -195,13 +190,17 @@ async def start_authorization(
     from datetime import UTC, datetime, timedelta
 
     valid_until = (datetime.now(UTC) + timedelta(days=90)).isoformat()
-    data = await _authed_post(slug, '/auth', json={
-        'access': {'valid_until': valid_until},
-        'aspsp': {'name': bank, 'country': country},
-        'state': f'marcel-{slug}-{bank.lower()}',
-        'redirect_url': redirect_url,
-        'psu_type': 'personal',
-    })
+    data = await _authed_post(
+        slug,
+        '/auth',
+        json={
+            'access': {'valid_until': valid_until},
+            'aspsp': {'name': bank, 'country': country},
+            'state': f'marcel-{slug}-{bank.lower()}',
+            'redirect_url': redirect_url,
+            'psu_type': 'personal',
+        },
+    )
     log.info('Started %s authorization for user %s', bank, slug)
     return data
 
@@ -287,7 +286,9 @@ async def get_transactions(
     if continuation_key:
         params['continuation_key'] = continuation_key
     return await _authed_get(
-        slug, f'/accounts/{account_uid}/transactions', params=params,
+        slug,
+        f'/accounts/{account_uid}/transactions',
+        params=params,
     )
 
 
@@ -304,8 +305,10 @@ async def get_all_transactions(
 
     while True:
         data = await get_transactions(
-            slug, account_uid,
-            date_from=date_from, date_to=date_to,
+            slug,
+            account_uid,
+            date_from=date_from,
+            date_to=date_to,
             continuation_key=cont_key,
         )
         all_txs.extend(data.get('transactions', []))
