@@ -1,4 +1,5 @@
 ---
+name: icloud
 description: Access the user's iCloud Calendar and Mail
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: kbc
+name: banking
 description: Access the user's linked bank accounts (KBC, ING, etc.) — balances, transactions, and spending insights
 ---
 
