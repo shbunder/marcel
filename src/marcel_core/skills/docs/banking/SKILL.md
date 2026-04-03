@@ -11,15 +11,15 @@ You have access to the `integration` tool to interact with bank account data via
 
 ## Available commands
 
-### kbc.transactions
+### banking.transactions
 
 Query cached transactions. Use this for all financial questions — spending, income, specific payments, etc. Set filters based on what the user is asking about. Returns data from all linked banks.
 
 ```
-integration(skill="kbc.transactions")
-integration(skill="kbc.transactions", params={"date_from": "2026-01-01", "date_to": "2026-01-31"})
-integration(skill="kbc.transactions", params={"search": "Colruyt", "date_from": "2026-03-01"})
-integration(skill="kbc.transactions", params={"max_amount": "-100"})
+integration(skill="banking.transactions")
+integration(skill="banking.transactions", params={"date_from": "2026-01-01", "date_to": "2026-01-31"})
+integration(skill="banking.transactions", params={"search": "Colruyt", "date_from": "2026-03-01"})
+integration(skill="banking.transactions", params={"max_amount": "-100"})
 ```
 
 | Param      | Type   | Default | Description                                          |
@@ -40,54 +40,54 @@ Returns a JSON object with `transactions` (list), `count`, and `last_synced` tim
 - For monthly summaries, set date_from to first of month and date_to to last of month
 - You may need multiple calls with different search terms to fully answer a question
 
-### kbc.balance
+### banking.balance
 
 Get the current account balance from the local cache. Returns balances from all linked banks.
 
 ```
-integration(skill="kbc.balance")
+integration(skill="banking.balance")
 ```
 
 Returns balance entries with `amount`, `currency`, `balance_type`, and `last_synced` timestamp.
 
-### kbc.accounts
+### banking.accounts
 
 List linked bank accounts across all banks.
 
 ```
-integration(skill="kbc.accounts")
+integration(skill="banking.accounts")
 ```
 
 Returns account details from all EnableBanking sessions. Each account includes a `bank` field indicating which bank it belongs to.
 
-### kbc.status
+### banking.status
 
 Check if bank links are active and healthy.
 
 ```
-integration(skill="kbc.status")
+integration(skill="banking.status")
 ```
 
 Returns link status for each linked bank, including account count, validity period, and any consent expiry warnings.
 
-### kbc.sync
+### banking.sync
 
 Trigger an immediate sync of transactions and balances from all linked banks. Only use this if the user explicitly asks for fresh data.
 
 ```
-integration(skill="kbc.sync")
+integration(skill="banking.sync")
 ```
 
 Returns a summary with counts of synced transactions per bank and any warnings.
 
-### kbc.setup
+### banking.setup
 
 Start a bank link flow (first-time setup or consent renewal). Returns an authentication URL the user must open. Defaults to KBC if no bank is specified.
 
 ```
-integration(skill="kbc.setup")
-integration(skill="kbc.setup", params={"bank": "ING"})
-integration(skill="kbc.setup", params={"bank": "KBC", "country": "BE"})
+integration(skill="banking.setup")
+integration(skill="banking.setup", params={"bank": "ING"})
+integration(skill="banking.setup", params={"bank": "KBC", "country": "BE"})
 ```
 
 | Param   | Type   | Default | Description              |
@@ -95,15 +95,15 @@ integration(skill="kbc.setup", params={"bank": "KBC", "country": "BE"})
 | bank    | string | KBC     | Bank name (KBC, ING)     |
 | country | string | BE      | Country code             |
 
-After the user authenticates, they will be redirected to a URL containing a `code` parameter. Use `kbc.complete_setup` to finish linking.
+After the user authenticates, they will be redirected to a URL containing a `code` parameter. Use `banking.complete_setup` to finish linking.
 
-### kbc.complete_setup
+### banking.complete_setup
 
 Complete the bank link after the user has authenticated. Extract the `code` parameter from the redirect URL.
 
 ```
-integration(skill="kbc.complete_setup", params={"code": "the-authorization-code"})
-integration(skill="kbc.complete_setup", params={"code": "the-authorization-code", "bank": "ING"})
+integration(skill="banking.complete_setup", params={"code": "the-authorization-code"})
+integration(skill="banking.complete_setup", params={"code": "the-authorization-code", "bank": "ING"})
 ```
 
 | Param   | Type   | Default | Description              |

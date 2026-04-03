@@ -1,4 +1,4 @@
-"""EnableBanking API client for bank account data (KBC, ING, and others).
+"""EnableBanking API client for bank account data.
 
 Handles JWT authentication (RS256 with private key), multi-bank session
 management, and account data retrieval (balances, transactions).
@@ -129,7 +129,7 @@ def _session_id_for_bank(slug: str, bank: str) -> str:
     for entry in _load_sessions(slug):
         if entry.get('bank', '').upper() == bank.upper():
             return entry['session_id']
-    raise RuntimeError(f'No {bank} bank link found. Run kbc.setup with bank="{bank}" to link your account.')
+    raise RuntimeError(f'No {bank} bank link found. Run banking.setup with bank="{bank}" to link your account.')
 
 
 # ── HTTP helpers ────────────────────────────────────────────────────────────

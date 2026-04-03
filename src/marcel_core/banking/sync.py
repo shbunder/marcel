@@ -14,7 +14,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from marcel_core.kbc import cache, client
+from marcel_core.banking import cache, client
 from marcel_core.storage._root import data_root
 from marcel_core.storage.credentials import load_credentials
 
@@ -39,7 +39,7 @@ async def sync_account(slug: str) -> dict[str, Any]:
 
     sessions = client.get_stored_sessions(slug)
     if not sessions:
-        summary['warnings'].append('No bank links found — run kbc.setup first')
+        summary['warnings'].append('No bank links found — run banking.setup first')
         return summary
 
     # Determine date range: from last sync or last 90 days
@@ -133,7 +133,7 @@ async def check_consent_expiry(slug: str) -> list[str]:
             if days_left <= _CONSENT_WARN_DAYS:
                 warnings.append(
                     f'Your {bank_name} bank link expires in {days_left} day{"s" if days_left != 1 else ""}. '
-                    f'Ask Marcel to run "kbc.setup" with bank="{bank_name}" to re-authenticate.'
+                    f'Ask Marcel to run "banking.setup" with bank="{bank_name}" to re-authenticate.'
                 )
         except (ValueError, TypeError):
             log.warning('Could not parse session expiry for %s (%s)', slug, bank_name)

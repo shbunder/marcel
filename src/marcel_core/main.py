@@ -24,7 +24,7 @@ from marcel_core.agent.sessions import session_manager
 from marcel_core.api.chat import router as chat_router
 from marcel_core.api.conversations import router as conversations_router
 from marcel_core.api.health import router as health_router
-from marcel_core.kbc.sync import start_sync_loop, stop_sync_loop
+from marcel_core.banking.sync import start_sync_loop, stop_sync_loop
 from marcel_core.telegram import router as telegram_router
 from marcel_core.watchdog.flags import read_restart_request, write_restart_result
 

@@ -1,24 +1,24 @@
 """Banking integration — account, balance, and transaction access.
 
-Registers ``kbc.setup``, ``kbc.complete_setup``, ``kbc.accounts``,
-``kbc.balance``, ``kbc.transactions``, ``kbc.status``, and ``kbc.sync``
+Registers ``banking.setup``, ``banking.complete_setup``, ````banking.accounts``,
+````banking.balance``, ````banking.transactions``, ````banking.status``, and ````banking.sync``
 as python integration skills, callable through the ``integration`` tool.
 
 Supports multiple banks (KBC, ING, etc.) via EnableBanking. Data is
 served from a local SQLite cache that syncs every 8 hours via the
-background sync task in ``marcel_core.kbc.sync``.
+background sync task in ``marcel_core.banking.sync``.
 """
 
 from __future__ import annotations
 
 import json
 
-from marcel_core.kbc import cache, client
-from marcel_core.kbc.sync import sync_account
+from marcel_core.banking import cache, client
+from marcel_core.banking.sync import sync_account
 from marcel_core.skills.integrations import register
 
 
-@register('kbc.setup')
+@register('banking.setup')
 async def setup(params: dict, user_slug: str) -> str:
     """Start a bank link flow via EnableBanking.
 
@@ -42,14 +42,14 @@ async def setup(params: dict, user_slug: str) -> str:
                 f'Open the auth_url in your browser to link your {bank} account. '
                 f'After authenticating, you will be redirected. '
                 f'Copy the full redirect URL and provide it to complete setup '
-                f'using kbc.complete_setup with bank="{bank}".'
+                f'using banking.complete_setup with bank="{bank}".'
             ),
         },
         indent=2,
     )
 
 
-@register('kbc.complete_setup')
+@register('banking.complete_setup')
 async def complete_setup(params: dict, user_slug: str) -> str:
     """Complete the bank link by exchanging the authorization code for a session.
 
@@ -75,12 +75,12 @@ async def complete_setup(params: dict, user_slug: str) -> str:
     )
 
 
-@register('kbc.status')
+@register('banking.status')
 async def status(params: dict, user_slug: str) -> str:
     """Check the status of all linked bank sessions."""
     sessions = client.get_stored_sessions(user_slug)
     if not sessions:
-        return json.dumps({'error': 'No bank links found. Run kbc.setup to link a bank account.'})
+        return json.dumps({'error': 'No bank links found. Run banking.setup to link a bank account.'})
 
     results: list[dict] = []
     for entry in sessions:
@@ -109,14 +109,14 @@ async def status(params: dict, user_slug: str) -> str:
     return json.dumps(output, indent=2)
 
 
-@register('kbc.accounts')
+@register('banking.accounts')
 async def accounts(params: dict, user_slug: str) -> str:
     """List linked bank accounts across all banks."""
     accts = await client.list_accounts(user_slug)
     return json.dumps(accts, indent=2)
 
 
-@register('kbc.balance')
+@register('banking.balance')
 async def balance(params: dict, user_slug: str) -> str:
     """Get current balance from the local cache.
 
@@ -146,7 +146,7 @@ async def balance(params: dict, user_slug: str) -> str:
     return json.dumps({'balances': all_balances, 'source': 'live'}, indent=2)
 
 
-@register('kbc.transactions')
+@register('banking.transactions')
 async def transactions(params: dict, user_slug: str) -> str:
     """Query cached transactions.
 
@@ -175,7 +175,7 @@ async def transactions(params: dict, user_slug: str) -> str:
     return json.dumps({'transactions': rows, 'count': len(rows), 'last_synced': last_sync}, indent=2)
 
 
-@register('kbc.sync')
+@register('banking.sync')
 async def manual_sync(params: dict, user_slug: str) -> str:
     """Trigger an immediate sync of transactions and balances from all linked banks."""
     summary = await sync_account(user_slug)

@@ -13,7 +13,7 @@ nav:
   - Skills: skills.md
   - CLI: cli.md
   - Integrations:
-    - KBC Banking: integration-kbc.md
+    - Banking: integration-banking.md
   - Channels:
     - Telegram: channels/telegram.md
 

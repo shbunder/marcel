@@ -50,11 +50,11 @@ save_credentials("shaun", creds)
 
 Once credentials are stored, link each bank through Marcel:
 
-1. Ask Marcel to "set up KBC banking" (or "set up ING banking") — this calls `kbc.setup` with the appropriate bank name and returns an authentication URL.
+1. Ask Marcel to "set up KBC banking" (or "set up ING banking") — this calls `banking.setup` with the appropriate bank name and returns an authentication URL.
 2. Open the URL in your browser. You'll be redirected to the bank's login page.
 3. Authenticate with your bank's app or card reader.
 4. After authorization, you'll be redirected to a URL containing a `code` parameter.
-5. Give Marcel the full redirect URL or just the code value — it calls `kbc.complete_setup` to exchange the code for a session.
+5. Give Marcel the full redirect URL or just the code value — it calls `banking.complete_setup` to exchange the code for a session.
 
 Each bank requires its own authorization. Repeat these steps for each bank you want to link. Sessions from different banks are stored independently and don't interfere with each other.
 
@@ -67,7 +67,7 @@ After linking, ask Marcel "what's my balance?" or "show my recent transactions" 
 ## Architecture
 
 ```
-src/marcel_core/kbc/
+src/marcel_core/banking/
     __init__.py     # package init
     client.py       # EnableBanking REST client (JWT auth, multi-bank sessions)
     cache.py        # SQLite transaction/balance cache
@@ -80,7 +80,7 @@ Handles all communication with the EnableBanking API. Authentication uses RS256-
 
 ### Cache (`cache.py`)
 
-SQLite database at `data/users/{slug}/kbc_transactions.db` with WAL journaling. Three tables:
+SQLite database at `data/users/{slug}/banking_transactions.db` with WAL journaling. Three tables:
 
 - **transactions** — all synced transactions from all banks, keyed by a stable internal ID derived from the bank's transaction ID or a composite fallback. Stores signed amounts (negative for debits, positive for credits).
 - **balances** — latest balance snapshot per account and balance type (e.g. CLBD, ITAV, XPCD).
@@ -92,19 +92,19 @@ Runs as an asyncio background task, started in the FastAPI lifespan. Iterates al
 
 ## Skill handlers
 
-All handlers are in `src/marcel_core/skills/integrations/kbc.py` and registered with `@register`:
+All handlers are in `src/marcel_core/skills/integrations/banking.py` and registered with `@register`:
 
 | Skill | Description |
 |---|---|
-| `kbc.setup` | Start a bank link authorization flow (accepts `bank` param) |
-| `kbc.complete_setup` | Exchange auth code for session (accepts `bank` param) |
-| `kbc.status` | Check link health for all banks |
-| `kbc.accounts` | List accounts across all linked banks |
-| `kbc.balance` | Get cached balances from all banks |
-| `kbc.transactions` | Query cached transactions with filters (all banks) |
-| `kbc.sync` | Trigger an immediate manual sync of all banks |
+| `banking.setup` | Start a bank link authorization flow (accepts `bank` param) |
+| `banking.complete_setup` | Exchange auth code for session (accepts `bank` param) |
+| `banking.status` | Check link health for all banks |
+| `banking.accounts` | List accounts across all linked banks |
+| `banking.balance` | Get cached balances from all banks |
+| `banking.transactions` | Query cached transactions with filters (all banks) |
+| `banking.sync` | Trigger an immediate manual sync of all banks |
 
-The agent-facing documentation is in `src/marcel_core/skills/docs/kbc/SKILL.md` — this teaches Marcel how to translate natural language financial questions into the right `integration()` calls.
+The agent-facing documentation is in `src/marcel_core/skills/docs/banking/SKILL.md` — this teaches Marcel how to translate natural language financial questions into the right `integration()` calls.
 
 ## Credentials reference
 

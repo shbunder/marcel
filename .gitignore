@@ -43,7 +43,7 @@ notebooks/*.ipynb
 # Generated integration skills (installed by `make install-skills`)
 # Repo-owned skills (new-issue, finish-issue) are tracked; integration skills are not.
 .claude/skills/icloud/
-.claude/skills/kbc/
+.claude/skills/banking/
 
 # Build artifacts
 .build/
