@@ -24,6 +24,7 @@ from marcel_core.agent.sessions import session_manager
 from marcel_core.api.chat import router as chat_router
 from marcel_core.api.conversations import router as conversations_router
 from marcel_core.api.health import router as health_router
+from marcel_core.kbc.sync import start_sync_loop, stop_sync_loop
 from marcel_core.telegram import router as telegram_router
 from marcel_core.watchdog.flags import read_restart_request, write_restart_result
 
@@ -66,7 +67,9 @@ async def _restart_watcher() -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     task = asyncio.create_task(_restart_watcher())
     session_manager.start_cleanup_loop()
+    start_sync_loop()
     yield
+    stop_sync_loop()
     session_manager.stop_cleanup_loop()
     await session_manager.disconnect_all()
     task.cancel()
