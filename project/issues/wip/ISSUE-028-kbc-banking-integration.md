@@ -91,3 +91,16 @@ src/marcel_core/
 **Commands Run**: `uv run pytest tests/core/test_kbc.py` (26 passed), `uv run ruff check` (clean), `uv run pyright` (0 errors)
 **Result**: All checks passing
 **Note**: User still needs to provide GOCARDLESS_SECRET_ID — only the secret_key has been stored so far
+
+### 2026-04-03 — LLM Implementation (cont.)
+**Action**: Switched from GoCardless to EnableBanking as API provider
+**Reason**: GoCardless Bank Account Data service discontinued. EnableBanking supports KBC Belgium but requires production app activation.
+**Files Modified**:
+- `src/marcel_core/kbc/client.py` — Full rewrite: EnableBanking API with RS256 JWT signing, session-based auth flow
+- `src/marcel_core/kbc/cache.py` — Updated field mappings for EnableBanking snake_case format, credit_debit_indicator handling
+- `src/marcel_core/kbc/sync.py` — Updated for EnableBanking session model (status=AUTHORIZED, access.valid_until)
+- `src/marcel_core/skills/integrations/kbc.py` — Added kbc.complete_setup skill for two-step auth flow
+- `src/marcel_core/skills/docs/kbc/SKILL.md` — Updated for EnableBanking flow
+- `tests/core/test_kbc.py` — Updated all test fixtures to EnableBanking format (28 tests)
+**Credentials stored**: ENABLEBANKING_APP_ID (production: 8c037627-6a8e-4a28-9497-aa43c630be7f), private key at ~/.marcel/users/shaun/enablebanking.pem
+**Status**: Production app registered but awaiting activation by EnableBanking. JWT auth and sandbox access verified working.

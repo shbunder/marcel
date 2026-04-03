@@ -1,8 +1,8 @@
 """KBC banking integration — account, balance, and transaction access.
 
-Registers ``kbc.setup``, ``kbc.accounts``, ``kbc.balance``, and
-``kbc.transactions`` as python integration skills, callable through
-the ``integration`` tool.
+Registers ``kbc.setup``, ``kbc.complete_setup``, ``kbc.accounts``,
+``kbc.balance``, ``kbc.transactions``, ``kbc.status``, and ``kbc.sync``
+as python integration skills, callable through the ``integration`` tool.
 
 Data is served from a local SQLite cache that syncs every 8 hours
 via the background sync task in ``marcel_core.kbc.sync``.
@@ -19,21 +19,45 @@ from marcel_core.skills.integrations import register
 
 @register('kbc.setup')
 async def setup(params: dict, user_slug: str) -> str:
-    """Create a new KBC bank link via GoCardless.
+    """Start the KBC bank link flow via EnableBanking.
 
     Returns the authentication URL the user must open to authorize access.
     """
-    redirect = params.get('redirect_url', 'https://gocardless.com')
-    requisition = await client.create_requisition(user_slug, redirect_url=redirect)
+    redirect = params.get('redirect_url', 'https://enablebanking.com')
+    data = await client.start_authorization(user_slug, redirect_url=redirect)
     return json.dumps(
         {
-            'status': 'created',
-            'requisition_id': requisition['id'],
-            'auth_url': requisition.get('link', ''),
+            'status': 'authorization_started',
+            'auth_url': data.get('url', ''),
             'instructions': (
                 'Open the auth_url in your browser to link your KBC account. '
-                'After authenticating with KBC Mobile, your account will be linked automatically.'
+                'After authenticating with KBC Mobile, you will be redirected. '
+                'Copy the full redirect URL and provide it to complete setup '
+                'using kbc.complete_setup.'
             ),
+        },
+        indent=2,
+    )
+
+
+@register('kbc.complete_setup')
+async def complete_setup(params: dict, user_slug: str) -> str:
+    """Complete the bank link by exchanging the authorization code for a session.
+
+    The code is extracted from the redirect URL query parameter.
+    """
+    code = params.get('code', '')
+    if not code:
+        return json.dumps({'error': 'code parameter is required — extract it from the redirect URL'})
+
+    session = await client.create_session(user_slug, code)
+    accounts = session.get('accounts', [])
+    return json.dumps(
+        {
+            'status': 'linked',
+            'session_id': session.get('session_id', ''),
+            'accounts': len(accounts),
+            'message': f'Successfully linked {len(accounts)} account(s). Running initial sync...',
         },
         indent=2,
     )
@@ -43,17 +67,20 @@ async def setup(params: dict, user_slug: str) -> str:
 async def status(params: dict, user_slug: str) -> str:
     """Check the status of the KBC bank link."""
     try:
-        req = await client.get_requisition_status(user_slug)
+        session = await client.get_session(user_slug)
     except RuntimeError as e:
         return json.dumps({'error': str(e)})
 
     result = {
-        'status': req.get('status', 'unknown'),
-        'accounts': req.get('accounts', []),
-        'linked': req.get('status') == 'LN',
+        'status': session.get('status', 'unknown'),
+        'accounts': len(session.get('accounts', [])),
+        'linked': session.get('status') == 'AUTHORIZED',
     }
 
-    # Include consent expiry warning if present
+    access = session.get('access', {})
+    if access.get('valid_until'):
+        result['valid_until'] = access['valid_until']
+
     warning = cache.get_sync_meta(user_slug, 'consent_warning')
     if warning:
         result['consent_warning'] = warning
@@ -63,7 +90,7 @@ async def status(params: dict, user_slug: str) -> str:
 
 @register('kbc.accounts')
 async def accounts(params: dict, user_slug: str) -> str:
-    """List linked KBC bank accounts with details."""
+    """List linked KBC bank accounts."""
     accts = await client.list_accounts(user_slug)
     return json.dumps(accts, indent=2)
 
@@ -79,14 +106,15 @@ async def balance(params: dict, user_slug: str) -> str:
         last_sync = cache.get_sync_meta(user_slug, 'last_sync_at')
         return json.dumps({'balances': cached, 'last_synced': last_sync}, indent=2)
 
-    # Cache empty — try live (this costs an API call)
-    req = await client.get_requisition_status(user_slug)
-    account_ids: list[str] = req.get('accounts', [])
+    # Cache empty — try live
+    session = await client.get_session(user_slug)
     all_balances: list[dict] = []
-    for aid in account_ids:
-        bals = await client.get_balances(user_slug, aid)
-        cache.upsert_balances(user_slug, aid, bals)
-        all_balances.extend(bals)
+    for account in session.get('accounts', []):
+        uid = account.get('uid', '')
+        if uid:
+            bals = await client.get_balances(user_slug, uid)
+            cache.upsert_balances(user_slug, uid, bals)
+            all_balances.extend(bals)
     return json.dumps({'balances': all_balances, 'source': 'live'}, indent=2)
 
 

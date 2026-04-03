@@ -1,10 +1,11 @@
 ---
+name: kbc
 description: Access the user's KBC bank account — balances, transactions, and spending insights
 ---
 
 Help the user with: $ARGUMENTS
 
-You have access to the `integration` tool to interact with KBC banking data via GoCardless.
+You have access to the `integration` tool to interact with KBC banking data via EnableBanking.
 
 **Important:** Transaction data is cached locally and synced every 8 hours. The cache contains all historical transactions since the account was linked. Use the cached data to answer questions — do NOT trigger manual syncs unless the user explicitly asks for fresh data.
 
@@ -47,7 +48,7 @@ Get the current account balance from the local cache.
 integration(skill="kbc.balance")
 ```
 
-Returns balance entries with `amount`, `currency`, `balance_type` (e.g. closingBooked, expected), and `last_synced` timestamp.
+Returns balance entries with `amount`, `currency`, `balance_type`, and `last_synced` timestamp.
 
 ### kbc.accounts
 
@@ -57,7 +58,7 @@ List linked KBC bank accounts.
 integration(skill="kbc.accounts")
 ```
 
-Returns account details: IBAN, account type, currency, owner name.
+Returns account details from the EnableBanking session.
 
 ### kbc.status
 
@@ -67,7 +68,7 @@ Check if the KBC bank link is active and healthy.
 integration(skill="kbc.status")
 ```
 
-Returns link status and any consent expiry warnings. If the consent is expiring soon, tell the user they need to re-authenticate.
+Returns link status, account count, validity period, and any consent expiry warnings.
 
 ### kbc.sync
 
@@ -81,18 +82,26 @@ Returns a summary with counts of synced transactions and any warnings.
 
 ### kbc.setup
 
-Link a KBC bank account (first-time setup or consent renewal). Returns an authentication URL the user must open.
+Start the KBC bank link flow (first-time setup or consent renewal). Returns an authentication URL the user must open.
 
 ```
 integration(skill="kbc.setup")
 ```
 
-After the user completes authentication, their account will be linked automatically.
+After the user authenticates, they will be redirected to a URL containing a `code` parameter. Use `kbc.complete_setup` to finish linking.
+
+### kbc.complete_setup
+
+Complete the bank link after the user has authenticated. Extract the `code` parameter from the redirect URL.
+
+```
+integration(skill="kbc.complete_setup", params={"code": "the-authorization-code"})
+```
 
 ## Notes
 
 - Transactions are cached locally in SQLite and synced every 8 hours to stay within PSD2 rate limits.
 - The bank link (consent) expires after ~90 days. Marcel monitors this and warns the user proactively.
 - All amounts are in EUR. Negative = money out (spending), positive = money in (income).
-- If the user hasn't set up KBC yet, tell them to ask Marcel to "set up KBC banking" which will guide them through the GoCardless authentication.
-- Required credentials: `GOCARDLESS_SECRET_ID` and `GOCARDLESS_SECRET_KEY` in the user's credential store.
+- If the user hasn't set up KBC yet, tell them to ask Marcel to "set up KBC banking" which will guide them through the EnableBanking authentication.
+- Required: `ENABLEBANKING_APP_ID` in credential store and `enablebanking.pem` private key in user data directory.

@@ -30,26 +30,28 @@ _sync_task: asyncio.Task[None] | None = None
 async def sync_account(slug: str) -> dict[str, Any]:
     """Run a single sync cycle for the user's KBC account.
 
-    Fetches balances and recent transactions from GoCardless and upserts
+    Fetches balances and recent transactions from EnableBanking and upserts
     them into the local SQLite cache.
 
     Returns a summary dict with counts and any warnings.
     """
-    summary: dict[str, Any] = {'booked': 0, 'pending': 0, 'warnings': []}
+    summary: dict[str, Any] = {'synced': 0, 'warnings': []}
 
     try:
-        req = await client.get_requisition_status(slug)
+        session = await client.get_session(slug)
     except RuntimeError:
         summary['warnings'].append('No KBC bank link found — run kbc.setup first')
         return summary
 
-    if req.get('status') != 'LN':
-        summary['warnings'].append(f'KBC requisition status is {req.get("status", "unknown")} — expected LN (linked)')
+    if session.get('status') != 'AUTHORIZED':
+        summary['warnings'].append(
+            f'KBC session status is {session.get("status", "unknown")} — expected AUTHORIZED'
+        )
         return summary
 
-    account_ids: list[str] = req.get('accounts', [])
-    if not account_ids:
-        summary['warnings'].append('No accounts found in requisition')
+    accounts = session.get('accounts', [])
+    if not accounts:
+        summary['warnings'].append('No accounts found in session')
         return summary
 
     # Determine date range: from last sync or last 90 days
@@ -61,42 +63,30 @@ async def sync_account(slug: str) -> dict[str, Any]:
 
     date_to = date.today().isoformat()
 
-    for account_id in account_ids:
+    for account in accounts:
+        account_uid = account.get('uid', '')
+        if not account_uid:
+            continue
         try:
             # Sync balances
-            balances = await client.get_balances(slug, account_id)
-            cache.upsert_balances(slug, account_id, balances)
+            balances = await client.get_balances(slug, account_uid)
+            cache.upsert_balances(slug, account_uid, balances)
 
-            # Sync transactions
-            tx_data = await client.get_transactions(
-                slug,
-                account_id,
-                date_from=date_from,
-                date_to=date_to,
+            # Sync transactions (handles pagination)
+            txs = await client.get_all_transactions(
+                slug, account_uid, date_from=date_from, date_to=date_to,
             )
-            booked = tx_data.get('booked', [])
-            pending = tx_data.get('pending', [])
-
-            if booked:
-                cache.upsert_transactions(slug, account_id, booked, status='booked')
-                summary['booked'] += len(booked)
-
-            if pending:
-                cache.upsert_transactions(slug, account_id, pending, status='pending')
-                summary['pending'] += len(pending)
+            if txs:
+                cache.upsert_transactions(slug, account_uid, txs)
+                summary['synced'] += len(txs)
 
         except Exception:
-            log.exception('Failed to sync account %s for user %s', account_id, slug)
-            summary['warnings'].append(f'Failed to sync account {account_id}')
+            log.exception('Failed to sync account %s for user %s', account_uid, slug)
+            summary['warnings'].append(f'Failed to sync account {account_uid}')
 
     cache.set_sync_meta(slug, 'last_sync_date', date_to)
     cache.set_sync_meta(slug, 'last_sync_at', datetime.now(UTC).isoformat())
-    log.info(
-        'KBC sync complete for %s: %d booked, %d pending',
-        slug,
-        summary['booked'],
-        summary['pending'],
-    )
+    log.info('KBC sync complete for %s: %d transactions', slug, summary['synced'])
     return summary
 
 
@@ -107,23 +97,19 @@ async def check_consent_expiry(slug: str) -> str | None:
     days, or None if everything is fine.
     """
     try:
-        agreement = await client.get_agreement_details(slug)
+        session = await client.get_session(slug)
     except Exception:
         return None
 
-    if not agreement:
-        return None
+    # EnableBanking sessions have access.valid_until
+    access = session.get('access', {})
+    valid_until_str = access.get('valid_until', '')
 
-    # The agreement has 'created' and 'access_valid_for_days' fields
-    created_str = agreement.get('created', '')
-    valid_days = agreement.get('access_valid_for_days', 90)
-
-    if not created_str:
+    if not valid_until_str:
         return None
 
     try:
-        created = datetime.fromisoformat(created_str.replace('Z', '+00:00'))
-        expires = created + timedelta(days=valid_days)
+        expires = datetime.fromisoformat(valid_until_str.replace('Z', '+00:00'))
         days_left = (expires - datetime.now(tz=expires.tzinfo)).days
 
         if days_left <= _CONSENT_WARN_DAYS:
@@ -132,13 +118,13 @@ async def check_consent_expiry(slug: str) -> str | None:
                 f'Ask Marcel to run "kbc.setup" to re-authenticate.'
             )
     except (ValueError, TypeError):
-        log.warning('Could not parse agreement dates for user %s', slug)
+        log.warning('Could not parse session expiry for user %s', slug)
 
     return None
 
 
 def _get_linked_slugs() -> list[str]:
-    """Return user slugs that have GoCardless credentials configured."""
+    """Return user slugs that have EnableBanking credentials configured."""
     users_dir = data_root() / 'users'
     if not users_dir.is_dir():
         return []
@@ -147,7 +133,7 @@ def _get_linked_slugs() -> list[str]:
         if not user_dir.is_dir():
             continue
         creds = load_credentials(user_dir.name)
-        if creds.get('GOCARDLESS_SECRET_ID') and creds.get('GOCARDLESS_SECRET_KEY'):
+        if creds.get('ENABLEBANKING_APP_ID') and creds.get('ENABLEBANKING_SESSION_ID'):
             slugs.append(user_dir.name)
     return slugs
 
@@ -165,7 +151,6 @@ async def _sync_loop() -> None:
                 warning = await check_consent_expiry(slug)
                 if warning:
                     log.warning('Consent expiry alert for %s: %s', slug, warning)
-                    # Store the warning so the agent can pick it up
                     cache.set_sync_meta(slug, 'consent_warning', warning)
             except Exception:
                 log.exception('KBC sync failed for user %s', slug)

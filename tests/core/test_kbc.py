@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from marcel_core.kbc import cache
 from marcel_core.kbc.cache import (
     get_balances,
     get_sync_meta,
@@ -31,35 +30,40 @@ def _use_tmp_data_root(tmp_path, monkeypatch):
 
 def _make_tx(
     *,
-    amount: str = '-42.50',
+    amount: str = '42.50',
+    indicator: str = 'DBIT',
     counterparty: str = 'Colruyt',
     booking_date: str = '2026-04-01',
     tx_id: str = 'tx-001',
     remittance: str = 'Payment for groceries',
 ) -> dict:
+    """Create an EnableBanking-style transaction object."""
+    party_field = 'creditor' if indicator == 'DBIT' else 'debtor'
     return {
-        'internalTransactionId': tx_id,
-        'transactionId': tx_id,
-        'bookingDate': booking_date,
-        'valueDate': booking_date,
-        'transactionAmount': {'amount': amount, 'currency': 'EUR'},
-        'creditorName': counterparty,
-        'creditorAccount': {'iban': 'BE12345678901234'},
-        'remittanceInformationUnstructured': remittance,
-        'bankTransactionCode': 'PMNT',
+        'transaction_id': tx_id,
+        'booking_date': booking_date,
+        'value_date': booking_date,
+        'transaction_amount': {'amount': amount, 'currency': 'EUR'},
+        'credit_debit_indicator': indicator,
+        party_field: {'name': counterparty},
+        f'{party_field}_account': {'iban': 'BE12345678901234'},
+        'remittance_information': [remittance],
+        'status': 'BOOK',
+        'bank_transaction_code': {'description': 'Payment'},
     }
 
 
 def _make_balance(
     *,
     amount: str = '1234.56',
-    balance_type: str = 'closingBooked',
+    balance_type: str = 'CLBD',
     ref_date: str = '2026-04-01',
 ) -> dict:
+    """Create an EnableBanking-style balance object."""
     return {
-        'balanceAmount': {'amount': amount, 'currency': 'EUR'},
-        'balanceType': balance_type,
-        'referenceDate': ref_date,
+        'balance_amount': {'amount': amount, 'currency': 'EUR'},
+        'balance_type': balance_type,
+        'reference_date': ref_date,
     }
 
 
@@ -75,22 +79,28 @@ class TestCacheTransactions:
         rows = get_transactions('test')
         assert len(rows) == 1
         assert rows[0]['counterparty_name'] == 'Colruyt'
+        # DBIT with positive amount → stored as negative
         assert rows[0]['amount'] == -42.50
         assert rows[0]['booking_date'] == '2026-04-01'
+
+    def test_credit_transaction_stays_positive(self):
+        tx = _make_tx(indicator='CRDT', amount='1000.00', counterparty='Employer')
+        upsert_transactions('test', 'acct-1', [tx])
+        rows = get_transactions('test')
+        assert rows[0]['amount'] == 1000.0
 
     def test_upsert_is_idempotent(self):
         tx = _make_tx()
         upsert_transactions('test', 'acct-1', [tx])
         upsert_transactions('test', 'acct-1', [tx])
-
         rows = get_transactions('test')
         assert len(rows) == 1
 
     def test_upsert_updates_existing(self):
-        tx = _make_tx(amount='-42.50')
+        tx = _make_tx(amount='42.50')
         upsert_transactions('test', 'acct-1', [tx])
 
-        tx['transactionAmount']['amount'] = '-99.99'
+        tx['transaction_amount']['amount'] = '99.99'
         upsert_transactions('test', 'acct-1', [tx])
 
         rows = get_transactions('test')
@@ -122,8 +132,8 @@ class TestCacheTransactions:
 
     def test_filter_by_amount_range(self):
         txs = [
-            _make_tx(tx_id='tx-small', amount='-10.00'),
-            _make_tx(tx_id='tx-big', amount='-500.00'),
+            _make_tx(tx_id='tx-small', amount='10.00'),
+            _make_tx(tx_id='tx-big', amount='500.00'),
         ]
         upsert_transactions('test', 'acct-1', txs)
 
@@ -132,26 +142,25 @@ class TestCacheTransactions:
         assert rows[0]['amount'] == -500.0
 
     def test_limit(self):
-        txs = [_make_tx(tx_id=f'tx-{i}', booking_date=f'2026-01-{i+1:02d}') for i in range(10)]
+        txs = [_make_tx(tx_id=f'tx-{i}', booking_date=f'2026-01-{i + 1:02d}') for i in range(10)]
         upsert_transactions('test', 'acct-1', txs)
-
         rows = get_transactions('test', limit=3)
         assert len(rows) == 3
 
     def test_multiple_accounts(self):
         upsert_transactions('test', 'acct-1', [_make_tx(tx_id='tx-a1')])
         upsert_transactions('test', 'acct-2', [_make_tx(tx_id='tx-a2')])
-
         rows = get_transactions('test')
         assert len(rows) == 2
 
     def test_composite_id_fallback(self):
         """Transactions without IDs get a composite key."""
         tx = {
-            'bookingDate': '2026-04-01',
-            'transactionAmount': {'amount': '-25.00', 'currency': 'EUR'},
-            'creditorName': 'Test Shop',
-            'remittanceInformationUnstructured': 'Purchase',
+            'booking_date': '2026-04-01',
+            'transaction_amount': {'amount': '25.00', 'currency': 'EUR'},
+            'credit_debit_indicator': 'DBIT',
+            'creditor': {'name': 'Test Shop'},
+            'remittance_information': ['Purchase'],
         }
         count = upsert_transactions('test', 'acct-1', [tx])
         assert count == 1
@@ -170,7 +179,7 @@ class TestCacheBalances:
         rows = get_balances('test')
         assert len(rows) == 1
         assert rows[0]['amount'] == 1234.56
-        assert rows[0]['balance_type'] == 'closingBooked'
+        assert rows[0]['balance_type'] == 'CLBD'
 
     def test_upsert_updates_existing(self):
         upsert_balances('test', 'acct-1', [_make_balance(amount='100.00')])
@@ -182,11 +191,10 @@ class TestCacheBalances:
 
     def test_multiple_balance_types(self):
         bals = [
-            _make_balance(balance_type='closingBooked', amount='100.00'),
-            _make_balance(balance_type='expected', amount='150.00'),
+            _make_balance(balance_type='CLBD', amount='100.00'),
+            _make_balance(balance_type='ITAV', amount='150.00'),
         ]
         upsert_balances('test', 'acct-1', bals)
-
         rows = get_balances('test')
         assert len(rows) == 2
 
@@ -213,13 +221,11 @@ class TestSyncMeta:
 
 class TestSync:
     @pytest.mark.asyncio
-    async def test_sync_account_no_requisition(self):
+    async def test_sync_account_no_session(self):
         from marcel_core.kbc.sync import sync_account
 
-        with patch.object(
-            cache, 'get_sync_meta', return_value=None,
-        ), patch(
-            'marcel_core.kbc.sync.client.get_requisition_status',
+        with patch(
+            'marcel_core.kbc.sync.client.get_session',
             new_callable=AsyncMock,
             side_effect=RuntimeError('No KBC bank link found'),
         ):
@@ -227,47 +233,49 @@ class TestSync:
             assert any('No KBC bank link' in w for w in summary['warnings'])
 
     @pytest.mark.asyncio
-    async def test_sync_account_not_linked(self):
+    async def test_sync_account_not_authorized(self):
         from marcel_core.kbc.sync import sync_account
 
         with patch(
-            'marcel_core.kbc.sync.client.get_requisition_status',
+            'marcel_core.kbc.sync.client.get_session',
             new_callable=AsyncMock,
-            return_value={'status': 'CR', 'accounts': []},
+            return_value={'status': 'EXPIRED', 'accounts': []},
         ):
             summary = await sync_account('test')
-            assert any('expected LN' in w for w in summary['warnings'])
+            assert any('expected AUTHORIZED' in w for w in summary['warnings'])
 
     @pytest.mark.asyncio
     async def test_sync_account_success(self):
         from marcel_core.kbc.sync import sync_account
 
-        mock_req = {'status': 'LN', 'accounts': ['acct-1']}
-        mock_balances = [_make_balance()]
-        mock_txs = {
-            'booked': [_make_tx()],
-            'pending': [],
+        mock_session = {
+            'status': 'AUTHORIZED',
+            'accounts': [{'uid': 'acct-1'}],
         }
+        mock_balances = [_make_balance()]
+        mock_txs = [_make_tx()]
 
-        with patch(
-            'marcel_core.kbc.sync.client.get_requisition_status',
-            new_callable=AsyncMock,
-            return_value=mock_req,
-        ), patch(
-            'marcel_core.kbc.sync.client.get_balances',
-            new_callable=AsyncMock,
-            return_value=mock_balances,
-        ), patch(
-            'marcel_core.kbc.sync.client.get_transactions',
-            new_callable=AsyncMock,
-            return_value=mock_txs,
+        with (
+            patch(
+                'marcel_core.kbc.sync.client.get_session',
+                new_callable=AsyncMock,
+                return_value=mock_session,
+            ),
+            patch(
+                'marcel_core.kbc.sync.client.get_balances',
+                new_callable=AsyncMock,
+                return_value=mock_balances,
+            ),
+            patch(
+                'marcel_core.kbc.sync.client.get_all_transactions',
+                new_callable=AsyncMock,
+                return_value=mock_txs,
+            ),
         ):
             summary = await sync_account('test')
-            assert summary['booked'] == 1
-            assert summary['pending'] == 0
+            assert summary['synced'] == 1
             assert not summary['warnings']
 
-            # Verify data was cached
             rows = get_transactions('test')
             assert len(rows) == 1
             bals = get_balances('test')
@@ -277,17 +285,17 @@ class TestSync:
     async def test_check_consent_expiry_warns(self):
         from marcel_core.kbc.sync import check_consent_expiry
 
-        # Agreement created 85 days ago with 90-day validity → 5 days left
-        created = (datetime.now(UTC) - timedelta(days=85)).isoformat()
-        mock_agreement = {
-            'created': created,
-            'access_valid_for_days': 90,
+        # Session valid_until is 5 days from now
+        valid_until = (datetime.now(UTC) + timedelta(days=5)).isoformat()
+        mock_session = {
+            'status': 'AUTHORIZED',
+            'access': {'valid_until': valid_until},
         }
 
         with patch(
-            'marcel_core.kbc.sync.client.get_agreement_details',
+            'marcel_core.kbc.sync.client.get_session',
             new_callable=AsyncMock,
-            return_value=mock_agreement,
+            return_value=mock_session,
         ):
             warning = await check_consent_expiry('test')
             assert warning is not None
@@ -297,17 +305,17 @@ class TestSync:
     async def test_check_consent_expiry_ok(self):
         from marcel_core.kbc.sync import check_consent_expiry
 
-        # Agreement created 10 days ago → plenty of time left
-        created = (datetime.now(UTC) - timedelta(days=10)).isoformat()
-        mock_agreement = {
-            'created': created,
-            'access_valid_for_days': 90,
+        # Session valid_until is 80 days from now
+        valid_until = (datetime.now(UTC) + timedelta(days=80)).isoformat()
+        mock_session = {
+            'status': 'AUTHORIZED',
+            'access': {'valid_until': valid_until},
         }
 
         with patch(
-            'marcel_core.kbc.sync.client.get_agreement_details',
+            'marcel_core.kbc.sync.client.get_session',
             new_callable=AsyncMock,
-            return_value=mock_agreement,
+            return_value=mock_session,
         ):
             warning = await check_consent_expiry('test')
             assert warning is None
@@ -317,26 +325,26 @@ class TestSync:
 
 
 class TestClientHelpers:
-    def test_tx_internal_id_prefers_internal(self):
+    def test_tx_internal_id_prefers_transaction_id(self):
         from marcel_core.kbc.cache import _tx_internal_id
 
-        tx = {'internalTransactionId': 'internal-1', 'transactionId': 'tx-1'}
-        assert _tx_internal_id(tx, 'acct') == 'internal-1'
-
-    def test_tx_internal_id_falls_back_to_tx_id(self):
-        from marcel_core.kbc.cache import _tx_internal_id
-
-        tx = {'transactionId': 'tx-1'}
+        tx = {'transaction_id': 'tx-1', 'entry_reference': 'ref-1'}
         assert _tx_internal_id(tx, 'acct') == 'tx-1'
+
+    def test_tx_internal_id_falls_back_to_entry_reference(self):
+        from marcel_core.kbc.cache import _tx_internal_id
+
+        tx = {'entry_reference': 'ref-1'}
+        assert _tx_internal_id(tx, 'acct') == 'ref-1'
 
     def test_tx_internal_id_composite_fallback(self):
         from marcel_core.kbc.cache import _tx_internal_id
 
         tx = {
-            'bookingDate': '2026-04-01',
-            'transactionAmount': {'amount': '-25.00'},
-            'creditorName': 'Shop',
-            'remittanceInformationUnstructured': 'Purchase',
+            'booking_date': '2026-04-01',
+            'transaction_amount': {'amount': '25.00'},
+            'creditor': {'name': 'Shop'},
+            'remittance_information': ['Purchase'],
         }
         result = _tx_internal_id(tx, 'acct-1')
         assert 'acct-1' in result
@@ -345,14 +353,20 @@ class TestClientHelpers:
     def test_extract_iban_creditor(self):
         from marcel_core.kbc.cache import _extract_iban
 
-        tx = {'creditorAccount': {'iban': 'BE123'}}
+        tx = {'creditor_account': {'iban': 'BE123'}}
         assert _extract_iban(tx) == 'BE123'
 
     def test_extract_iban_debtor(self):
         from marcel_core.kbc.cache import _extract_iban
 
-        tx = {'debtorAccount': {'iban': 'BE456'}}
+        tx = {'debtor_account': {'iban': 'BE456'}}
         assert _extract_iban(tx) == 'BE456'
+
+    def test_extract_iban_identification_fallback(self):
+        from marcel_core.kbc.cache import _extract_iban
+
+        tx = {'creditor_account': {'identification': 'BE789'}}
+        assert _extract_iban(tx) == 'BE789'
 
     def test_extract_iban_none(self):
         from marcel_core.kbc.cache import _extract_iban

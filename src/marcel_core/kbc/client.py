@@ -1,106 +1,91 @@
-"""GoCardless Bank Account Data API client.
+"""EnableBanking API client for KBC bank account data.
 
-Handles authentication (secret_id + secret_key → JWT access token),
-requisition management, and account data retrieval (balances, transactions).
+Handles JWT authentication (RS256 with private key), session management,
+and account data retrieval (balances, transactions).
 
 Credentials are read from the user's credential store:
-    GOCARDLESS_SECRET_ID, GOCARDLESS_SECRET_KEY
-    GOCARDLESS_REQUISITION_ID (stored after initial bank link)
+    ENABLEBANKING_APP_ID — application UUID (also the .pem filename)
+The private key file lives at: data/users/{slug}/enablebanking.pem
+Session ID is persisted after initial bank link: ENABLEBANKING_SESSION_ID
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import httpx
+import jwt
 
+from marcel_core.storage._root import data_root
 from marcel_core.storage.credentials import load_credentials, save_credentials
 
 log = logging.getLogger(__name__)
 
-_BASE_URL = 'https://bankaccountdata.gocardless.com/api/v2'
+_BASE_URL = 'https://api.enablebanking.com'
 
-# KBC Belgium institution ID in GoCardless
-KBC_INSTITUTION_ID = 'KBC_KREDBEBB'
-
-# Access token buffer — refresh 5 minutes before actual expiry
-_TOKEN_BUFFER = 300
+# KBC Belgium
+KBC_ASPSP_NAME = 'KBC'
+KBC_COUNTRY = 'BE'
 
 
-@dataclass
-class _TokenCache:
-    """In-memory cache for the GoCardless access/refresh tokens."""
-
-    access: str = ''
-    refresh: str = ''
-    access_expires_at: float = 0.0
-    refresh_expires_at: float = 0.0
-
-
-# Per-slug token caches (process-lifetime)
-_tokens: dict[str, _TokenCache] = {}
-
-
-def _creds(slug: str) -> tuple[str, str]:
-    """Return (secret_id, secret_key) from the user's credential store."""
+def _app_id(slug: str) -> str:
+    """Return the EnableBanking application ID from the user's credential store."""
     creds = load_credentials(slug)
-    sid = creds.get('GOCARDLESS_SECRET_ID', '').strip()
-    skey = creds.get('GOCARDLESS_SECRET_KEY', '').strip()
-    if not sid or not skey:
-        raise RuntimeError(f'GOCARDLESS_SECRET_ID and GOCARDLESS_SECRET_KEY must be set in credentials for user {slug}')
-    return sid, skey
+    app_id = creds.get('ENABLEBANKING_APP_ID', '').strip()
+    if not app_id:
+        raise RuntimeError(
+            f'ENABLEBANKING_APP_ID must be set in credentials for user {slug}'
+        )
+    return app_id
 
 
-def _requisition_id(slug: str) -> str:
-    """Return the stored requisition ID, or raise if not linked yet."""
+def _private_key_path(slug: str) -> Path:
+    return data_root() / 'users' / slug / 'enablebanking.pem'
+
+
+def _load_private_key(slug: str) -> str:
+    """Load the PEM private key for JWT signing."""
+    path = _private_key_path(slug)
+    if not path.exists():
+        raise RuntimeError(
+            f'EnableBanking private key not found at {path}. '
+            f'Download it from the EnableBanking dashboard.'
+        )
+    return path.read_text()
+
+
+def _make_jwt(slug: str) -> str:
+    """Create a signed JWT for EnableBanking API authentication."""
+    app_id = _app_id(slug)
+    private_key = _load_private_key(slug)
+    now = int(time.time())
+    payload = {
+        'iss': 'enablebanking.com',
+        'aud': 'api.enablebanking.com',
+        'iat': now,
+        'exp': now + 3600,
+    }
+    return jwt.encode(payload, private_key, algorithm='RS256', headers={'kid': app_id})
+
+
+def _session_id(slug: str) -> str:
+    """Return the stored session ID, or raise if not linked yet."""
     creds = load_credentials(slug)
-    req_id = creds.get('GOCARDLESS_REQUISITION_ID', '').strip()
-    if not req_id:
-        raise RuntimeError('No KBC bank link found. Run kbc.setup first to link your bank account.')
-    return req_id
-
-
-async def _ensure_token(slug: str, client: httpx.AsyncClient) -> str:
-    """Return a valid access token, refreshing or re-authenticating as needed."""
-    cache = _tokens.get(slug, _TokenCache())
-    _tokens[slug] = cache
-    now = time.time()
-
-    # Access token still valid?
-    if cache.access and now < cache.access_expires_at - _TOKEN_BUFFER:
-        return cache.access
-
-    # Try refresh token
-    if cache.refresh and now < cache.refresh_expires_at - _TOKEN_BUFFER:
-        resp = await client.post(f'{_BASE_URL}/token/refresh/', json={'refresh': cache.refresh})
-        resp.raise_for_status()
-        data = resp.json()
-        cache.access = data['access']
-        cache.access_expires_at = now + data['access_expires']
-        return cache.access
-
-    # Full re-auth
-    secret_id, secret_key = _creds(slug)
-    resp = await client.post(
-        f'{_BASE_URL}/token/new/',
-        json={'secret_id': secret_id, 'secret_key': secret_key},
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    cache.access = data['access']
-    cache.refresh = data['refresh']
-    cache.access_expires_at = now + data['access_expires']
-    cache.refresh_expires_at = now + data['refresh_expires']
-    return cache.access
+    sid = creds.get('ENABLEBANKING_SESSION_ID', '').strip()
+    if not sid:
+        raise RuntimeError(
+            'No KBC bank link found. Run kbc.setup first to link your bank account.'
+        )
+    return sid
 
 
 async def _authed_get(slug: str, path: str, *, params: dict[str, str] | None = None) -> Any:
-    """Make an authenticated GET request to the GoCardless API."""
+    """Make an authenticated GET request to the EnableBanking API."""
+    token = _make_jwt(slug)
     async with httpx.AsyncClient(timeout=30) as client:
-        token = await _ensure_token(slug, client)
         resp = await client.get(
             f'{_BASE_URL}{path}',
             headers={'Authorization': f'Bearer {token}'},
@@ -111,9 +96,9 @@ async def _authed_get(slug: str, path: str, *, params: dict[str, str] | None = N
 
 
 async def _authed_post(slug: str, path: str, *, json: dict[str, Any]) -> Any:
-    """Make an authenticated POST request to the GoCardless API."""
+    """Make an authenticated POST request to the EnableBanking API."""
+    token = _make_jwt(slug)
     async with httpx.AsyncClient(timeout=30) as client:
-        token = await _ensure_token(slug, client)
         resp = await client.post(
             f'{_BASE_URL}{path}',
             headers={'Authorization': f'Bearer {token}'},
@@ -123,86 +108,122 @@ async def _authed_post(slug: str, path: str, *, json: dict[str, Any]) -> Any:
         return resp.json()
 
 
+async def _authed_delete(slug: str, path: str) -> None:
+    """Make an authenticated DELETE request to the EnableBanking API."""
+    token = _make_jwt(slug)
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.delete(
+            f'{_BASE_URL}{path}',
+            headers={'Authorization': f'Bearer {token}'},
+        )
+        resp.raise_for_status()
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 
-async def create_requisition(slug: str, redirect_url: str = 'https://gocardless.com') -> dict[str, Any]:
-    """Create a new requisition for KBC Belgium.
+async def start_authorization(
+    slug: str,
+    redirect_url: str = 'https://enablebanking.com',
+) -> dict[str, Any]:
+    """Start the bank authorization flow for KBC Belgium.
 
-    Returns the full requisition object including the ``link`` field that
-    the user must open to authenticate with KBC Mobile.
+    Returns a dict with ``url`` (redirect the user here) and
+    ``authorization_id``.
     """
-    data = await _authed_post(
-        slug,
-        '/requisitions/',
-        json={
-            'institution_id': KBC_INSTITUTION_ID,
-            'redirect': redirect_url,
-            'reference': f'marcel-{slug}',
-            'user_language': 'en',
-        },
-    )
-    # Persist the requisition ID
-    creds = load_credentials(slug)
-    creds['GOCARDLESS_REQUISITION_ID'] = data['id']
-    save_credentials(slug, creds)
-    log.info('Created KBC requisition %s for user %s', data['id'], slug)
+    from datetime import UTC, datetime, timedelta
+
+    valid_until = (datetime.now(UTC) + timedelta(days=90)).isoformat()
+    data = await _authed_post(slug, '/auth', json={
+        'access': {'valid_until': valid_until},
+        'aspsp': {'name': KBC_ASPSP_NAME, 'country': KBC_COUNTRY},
+        'state': f'marcel-{slug}',
+        'redirect_url': redirect_url,
+        'psu_type': 'personal',
+    })
+    log.info('Started KBC authorization for user %s', slug)
     return data
 
 
-async def get_requisition_status(slug: str) -> dict[str, Any]:
-    """Return the current requisition status and linked accounts."""
-    req_id = _requisition_id(slug)
-    return await _authed_get(slug, f'/requisitions/{req_id}/')
+async def create_session(slug: str, auth_code: str) -> dict[str, Any]:
+    """Exchange an authorization code for a session.
+
+    Persists the session_id in the user's credential store.
+    Returns the full session response including account list.
+    """
+    data = await _authed_post(slug, '/sessions', json={'code': auth_code})
+    session_id = data.get('session_id', '')
+    if session_id:
+        creds = load_credentials(slug)
+        creds['ENABLEBANKING_SESSION_ID'] = session_id
+        save_credentials(slug, creds)
+        log.info('Created EnableBanking session %s for user %s', session_id, slug)
+    return data
+
+
+async def get_session(slug: str) -> dict[str, Any]:
+    """Return the current session status and account list."""
+    sid = _session_id(slug)
+    return await _authed_get(slug, f'/sessions/{sid}')
 
 
 async def list_accounts(slug: str) -> list[dict[str, Any]]:
-    """Return metadata for all accounts linked via the current requisition."""
-    req = await get_requisition_status(slug)
-    account_ids: list[str] = req.get('accounts', [])
-    accounts = []
-    for aid in account_ids:
-        meta = await _authed_get(slug, f'/accounts/{aid}/')
-        details = await _authed_get(slug, f'/accounts/{aid}/details/')
-        merged = {**meta, **details.get('account', {})}
-        accounts.append(merged)
-    return accounts
+    """Return account data from the current session."""
+    session = await get_session(slug)
+    return session.get('accounts', [])
 
 
-async def get_balances(slug: str, account_id: str) -> list[dict[str, Any]]:
+async def get_balances(slug: str, account_uid: str) -> list[dict[str, Any]]:
     """Return balance entries for a specific account."""
-    data = await _authed_get(slug, f'/accounts/{account_id}/balances/')
+    data = await _authed_get(slug, f'/accounts/{account_uid}/balances')
     return data.get('balances', [])
 
 
 async def get_transactions(
     slug: str,
-    account_id: str,
+    account_uid: str,
     *,
     date_from: str | None = None,
     date_to: str | None = None,
-) -> dict[str, list[dict[str, Any]]]:
+    continuation_key: str | None = None,
+) -> dict[str, Any]:
     """Return transactions for an account.
 
-    Returns a dict with ``booked`` and ``pending`` transaction lists.
-    Dates should be ISO format (YYYY-MM-DD).
+    Returns a dict with ``transactions`` list and optional
+    ``continuation_key`` for pagination.
     """
     params: dict[str, str] = {}
     if date_from:
         params['date_from'] = date_from
     if date_to:
         params['date_to'] = date_to
-    data = await _authed_get(slug, f'/accounts/{account_id}/transactions/', params=params)
-    return data.get('transactions', {'booked': [], 'pending': []})
+    if continuation_key:
+        params['continuation_key'] = continuation_key
+    return await _authed_get(
+        slug, f'/accounts/{account_uid}/transactions', params=params,
+    )
 
 
-async def get_agreement_details(slug: str) -> dict[str, Any] | None:
-    """Return the end-user agreement details for the current requisition.
+async def get_all_transactions(
+    slug: str,
+    account_uid: str,
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch all transactions, handling pagination automatically."""
+    all_txs: list[dict[str, Any]] = []
+    cont_key: str | None = None
 
-    Returns None if no agreement is linked.
-    """
-    req = await get_requisition_status(slug)
-    agreement_id = req.get('agreement')
-    if not agreement_id:
-        return None
-    return await _authed_get(slug, f'/agreements/enduser/{agreement_id}/')
+    while True:
+        data = await get_transactions(
+            slug, account_uid,
+            date_from=date_from, date_to=date_to,
+            continuation_key=cont_key,
+        )
+        all_txs.extend(data.get('transactions', []))
+        cont_key = data.get('continuation_key')
+        if not cont_key:
+            break
+
+    return all_txs

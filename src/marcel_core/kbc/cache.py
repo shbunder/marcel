@@ -80,21 +80,23 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
 def _tx_internal_id(tx: dict[str, Any], account_id: str) -> str:
     """Derive a stable unique ID for a transaction.
 
-    GoCardless sometimes provides ``internalTransactionId``, sometimes
-    ``transactionId``, sometimes neither.  Fall back to a composite key.
+    EnableBanking provides ``transaction_id`` or ``entry_reference``.
+    Falls back to a composite key if neither is present.
     """
-    if tx.get('internalTransactionId'):
-        return tx['internalTransactionId']
-    if tx.get('transactionId'):
-        return tx['transactionId']
+    if tx.get('transaction_id'):
+        return tx['transaction_id']
+    if tx.get('entry_reference'):
+        return tx['entry_reference']
     # Composite fallback
-    amt = tx.get('transactionAmount', {})
+    amt = tx.get('transaction_amount', {})
+    creditor = tx.get('creditor', {})
+    debtor = tx.get('debtor', {})
     parts = [
         account_id,
-        tx.get('bookingDate', ''),
+        tx.get('booking_date', ''),
         amt.get('amount', ''),
-        tx.get('creditorName', tx.get('debtorName', '')),
-        tx.get('remittanceInformationUnstructured', ''),
+        creditor.get('name', debtor.get('name', '')),
+        '|'.join(tx.get('remittance_information', [])),
     ]
     return '|'.join(parts)
 
@@ -116,9 +118,18 @@ def upsert_transactions(
     try:
         for tx in transactions:
             internal_id = _tx_internal_id(tx, account_id)
-            amt_obj = tx.get('transactionAmount', {})
-            amount = float(amt_obj.get('amount', 0))
+            amt_obj = tx.get('transaction_amount', {})
+            raw_amount = float(amt_obj.get('amount', 0))
+            # EnableBanking uses credit_debit_indicator instead of signed amounts
+            if tx.get('credit_debit_indicator') == 'DBIT' and raw_amount > 0:
+                raw_amount = -raw_amount
             currency = amt_obj.get('currency', 'EUR')
+            creditor = tx.get('creditor', {})
+            debtor = tx.get('debtor', {})
+            counterparty = creditor.get('name', debtor.get('name', ''))
+            remittance = ' '.join(tx.get('remittance_information', []))
+            bank_tx = tx.get('bank_transaction_code', {})
+            bank_tx_str = bank_tx.get('description', '') if isinstance(bank_tx, dict) else str(bank_tx)
             conn.execute(
                 """INSERT INTO transactions
                    (internal_id, transaction_id, account_id, booking_date,
@@ -134,17 +145,17 @@ def upsert_transactions(
                 """,
                 (
                     internal_id,
-                    tx.get('transactionId', ''),
+                    tx.get('transaction_id', ''),
                     account_id,
-                    tx.get('bookingDate', ''),
-                    tx.get('valueDate', ''),
-                    amount,
+                    tx.get('booking_date', ''),
+                    tx.get('value_date', ''),
+                    raw_amount,
                     currency,
-                    tx.get('creditorName', tx.get('debtorName', '')),
+                    counterparty,
                     _extract_iban(tx),
-                    tx.get('remittanceInformationUnstructured', ''),
-                    tx.get('bankTransactionCode', ''),
-                    status,
+                    remittance,
+                    bank_tx_str,
+                    tx.get('status', status),
                     json.dumps(tx),
                     now,
                 ),
@@ -162,7 +173,7 @@ def upsert_balances(slug: str, account_id: str, balances: list[dict[str, Any]]) 
     now = datetime.now(UTC).isoformat()
     try:
         for bal in balances:
-            amt = bal.get('balanceAmount', {})
+            amt = bal.get('balance_amount', {})
             conn.execute(
                 """INSERT INTO balances (account_id, balance_type, amount, currency, reference_date, synced_at)
                    VALUES (?, ?, ?, ?, ?, ?)
@@ -174,10 +185,10 @@ def upsert_balances(slug: str, account_id: str, balances: list[dict[str, Any]]) 
                 """,
                 (
                     account_id,
-                    bal.get('balanceType', 'unknown'),
+                    bal.get('balance_type', 'unknown'),
                     float(amt.get('amount', 0)),
                     amt.get('currency', 'EUR'),
-                    bal.get('referenceDate', ''),
+                    bal.get('reference_date', ''),
                     now,
                 ),
             )
@@ -273,8 +284,11 @@ def get_sync_meta(slug: str, key: str) -> str | None:
 
 def _extract_iban(tx: dict[str, Any]) -> str:
     """Extract counterparty IBAN from a transaction object."""
-    for field in ('creditorAccount', 'debtorAccount'):
+    for field in ('creditor_account', 'debtor_account'):
         acct = tx.get(field)
-        if isinstance(acct, dict) and acct.get('iban'):
-            return acct['iban']
+        if isinstance(acct, dict):
+            # EnableBanking uses 'identification' for the account ID
+            iban = acct.get('iban', acct.get('identification', ''))
+            if iban:
+                return iban
     return ''
