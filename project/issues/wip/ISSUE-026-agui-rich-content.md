@@ -60,14 +60,18 @@ Marcel Python Backend (AG-UI event emitter)
 - [✓] ISSUE-026-j: Wire bot to send inline keyboard buttons that open the Mini App on-demand for rich content
 - [✓] ISSUE-026-k: Authentication flow for Mini App (validate Telegram initData via HMAC-SHA256, map to Marcel user)
 
+### Phase 2b — Telegram Rich HTML Output
+- [⚒] ISSUE-026-l: Switch Telegram output from MarkdownV2 to HTML with server-side markdown→HTML converter, expandable blockquotes for calendar events
+- [⚒] ISSUE-026-m: Calendar pagination with callback navigation buttons + delayed acknowledgment (10s delay before "Working on it...")
+
 ### Phase 3 — iOS / macOS App
-- [ ] ISSUE-026-l: iOS app — either native SwiftUI consuming AG-UI directly, or WKWebView wrapper around the web app
-- [ ] ISSUE-026-m: macOS app (if separate from iOS — may be a universal app)
+- [ ] ISSUE-026-n: iOS app — either native SwiftUI consuming AG-UI directly, or WKWebView wrapper around the web app
+- [ ] ISSUE-026-o: macOS app (if separate from iOS — may be a universal app)
 
 ### Phase 4 — Generative UI
-- [ ] ISSUE-026-n: Define a `Custom` event schema for typed widget specs (agent emits `{"type": "calendar_view", "events": [...]}` etc.)
-- [ ] ISSUE-026-o: Evaluate A2UI (Google's declarative UI protocol) for full generative UI — agent describes needed UI as structured JSON, frontend renders dynamically
-- [ ] ISSUE-026-p: Implement generative UI rendering pipeline if A2UI evaluation is positive
+- [ ] ISSUE-026-p: Define a `Custom` event schema for typed widget specs (agent emits `{"type": "calendar_view", "events": [...]}` etc.)
+- [ ] ISSUE-026-q: Evaluate A2UI (Google's declarative UI protocol) for full generative UI — agent describes needed UI as structured JSON, frontend renders dynamically
+- [ ] ISSUE-026-r: Implement generative UI rendering pipeline if A2UI evaluation is positive
 
 ## Relationships
 - Related to: [[ISSUE-025-slash-command-suggestions]] (TUI interaction improvements)
@@ -154,3 +158,17 @@ Conducted a thorough investigation of CopilotKit, AG-UI protocol, A2UI, and Tele
 **Commands Run**: `npm run build` (success), `uv run ruff format` + `ruff check` (clean), `uv run pytest tests/ -x -v` (185/185 pass)
 **Result**: Success — all tests passing, frontend builds clean
 **Next**: Phase 3 (iOS/macOS app) and Phase 4 (generative UI) are future work
+
+### 2026-04-03 12:00 - LLM Implementation
+**Action**: Implemented Phase 2b subtasks l+m — Telegram rich HTML output with calendar pagination
+**Files Modified**:
+- `src/marcel_core/telegram/formatting.py` — Created: markdown→Telegram HTML converter (regex-based, no dependencies). Handles bold, italic, strikethrough, code blocks, inline code, links, headers, blockquotes, table flattening. HTML entity escaping. Calendar day-group parser (ports CalendarWidget.tsx logic). Calendar page formatter with expandable blockquotes. Navigation markup builder with prev/next callback buttons.
+- `src/marcel_core/telegram/bot.py` — Switched parse_mode from MarkdownV2 to HTML. `send_message()` now returns message_id. Added `edit_message_text()` for editing existing messages (delayed ack + callback navigation). Added `answer_callback_query()` for dismissing loading spinners. Plain-text fallback now strips HTML tags instead of sending raw markdown. Imported `escape_html` and `strip_html_tags` from formatting module.
+- `src/marcel_core/telegram/webhook.py` — Replaced immediate "Got it, working on it..." with 10-second delayed ack pattern (only shows if response takes >10s, then edits with real response). Added HTML conversion pipeline: calendar responses get expandable blockquotes + navigation buttons, regular responses get markdown→HTML conversion. Added callback_query routing for calendar day navigation (parses `cal:{conversation_id}:{page}`, loads conversation, re-parses day groups, edits message). Switched /start and /new commands to HTML format. Updated `_reply()` to use `escape_html`.
+- `src/marcel_core/agent/context.py` — Changed telegram channel prompt from "Use Telegram MarkdownV2 only" to "Use standard markdown... output will be converted server-side".
+- `src/marcel_core/skills/tool.py` — Notify tool now uses `escape_html` instead of `escape_markdown_v2`.
+- `tests/core/test_formatting.py` — Created: 40 tests covering escape_html, strip_html_tags, markdown→HTML conversion, day-group parsing, calendar page formatting, navigation markup, web_app_url_for.
+- `tests/core/test_telegram.py` — Updated imports and docstring for HTML escape helper.
+**Commands Run**: `uv run pytest tests/ -v` (225/225 pass), `uv run pyright` (0 errors in changed files, 5 pre-existing errors in unrelated files)
+**Result**: Success — all tests passing, clean typecheck on changed files
+**Next**: Commit, deploy, and test E2E in Telegram

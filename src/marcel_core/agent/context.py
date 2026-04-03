@@ -24,7 +24,8 @@ _CHANNEL_FORMAT: dict[str, str] = {
     'app': 'Use full markdown. You may include structured data for card rendering.',
     'ios': 'Use markdown. Keep responses concise for mobile screens.',
     'telegram': (
-        'Use Telegram MarkdownV2 only. Avoid HTML and unsupported Markdown syntax. '
+        'Use standard markdown (bold, italic, code, code blocks, links, lists, headers, blockquotes). '
+        'Do NOT use Telegram MarkdownV2 escape syntax — output will be converted server-side. '
         'IMPORTANT: For any task that takes more than one step, call the notify tool '
         'at the start ("On it...") and after each major step so the user always knows '
         'what you are doing. Never go silent for more than a few seconds.'

@@ -12,6 +12,7 @@ Webhook URL: POST /telegram/webhook
 
 import asyncio
 import logging
+import math
 import os
 from typing import Any
 
@@ -22,6 +23,15 @@ from marcel_core.agent import extract_and_save_memories, stream_response
 from marcel_core.agent.events import TextMessageContent
 from marcel_core.agent.sessions import session_manager
 from marcel_core.telegram import bot, sessions
+from marcel_core.telegram.formatting import (
+    DAYS_PER_PAGE,
+    calendar_nav_markup,
+    escape_html,
+    format_calendar_page,
+    markdown_to_telegram_html,
+    parse_day_groups,
+    web_app_url_for,
+)
 
 log = logging.getLogger(__name__)
 
@@ -29,10 +39,13 @@ router = APIRouter()
 
 _ASSISTANT_TIMEOUT = 600.0
 
+# Delay before showing "Working on it..." acknowledgment (seconds).
+_ACK_DELAY = 10.0
 
-async def _reply(chat_id: int, text: str) -> None:
-    """Send a plain notification message, escaping special characters."""
-    await bot.send_message(chat_id, bot.escape_markdown_v2(text))
+
+async def _reply(chat_id: int, text: str) -> int | None:
+    """Send a plain notification message, escaping for HTML."""
+    return await bot.send_message(chat_id, escape_html(text))
 
 
 # ---------------------------------------------------------------------------
@@ -40,19 +53,43 @@ async def _reply(chat_id: int, text: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _process_assistant_message(chat_id: int, user_slug: str, text: str) -> None:
-    """Run the assistant agent for one message."""
+async def _process_with_delayed_ack(chat_id: int, user_slug: str, text: str) -> None:
+    """Run assistant processing with a delayed acknowledgment.
+
+    If processing takes longer than ``_ACK_DELAY`` seconds, sends a
+    "Working on it..." message first, then edits it with the final response.
+    """
+    ack: dict[str, Any] = {'message_id': None, 'sent': False, 'cancelled': False}
+
+    async def _send_delayed_ack() -> None:
+        await asyncio.sleep(_ACK_DELAY)
+        if not ack['cancelled']:
+            msg_id = await bot.send_message(chat_id, escape_html('Working on it...'))
+            ack['message_id'] = msg_id
+            ack['sent'] = True
+
+    ack_task = asyncio.create_task(_send_delayed_ack())
+
     try:
-        await _process_assistant_message_inner(chat_id, user_slug, text)
+        await _process_assistant_message(chat_id, user_slug, text, ack)
     except Exception as exc:
         log.exception('Unhandled error processing Telegram message from chat_id=%s: %s', chat_id, exc)
         try:
             await _reply(chat_id, f'Sorry, an unexpected error occurred: {exc}')
         except Exception:
             log.exception('Also failed to send error reply to chat_id=%s', chat_id)
+    finally:
+        ack['cancelled'] = True
+        ack_task.cancel()
 
 
-async def _process_assistant_message_inner(chat_id: int, user_slug: str, text: str) -> None:
+async def _process_assistant_message(
+    chat_id: int,
+    user_slug: str,
+    text: str,
+    ack: dict[str, Any],
+) -> None:
+    """Run the assistant agent for one message."""
     conversation_id = sessions.get_conversation_id(chat_id)
 
     if conversation_id is None:
@@ -91,11 +128,118 @@ async def _process_assistant_message_inner(chat_id: int, user_slug: str, text: s
 
     asyncio.create_task(extract_and_save_memories(user_slug, text, full_response, conversation_id))
 
+    # --- Format and send ---
     try:
-        markup = bot.rich_content_markup(conversation_id) if bot.has_rich_content(full_response) else None
-        await bot.send_message(chat_id, full_response, reply_markup=markup)
+        html_text, markup = _format_response(full_response, conversation_id)
+
+        if ack.get('sent') and ack.get('message_id'):
+            await bot.edit_message_text(chat_id, ack['message_id'], html_text, reply_markup=markup)
+        else:
+            await bot.send_message(chat_id, html_text, reply_markup=markup)
     except Exception as exc:
         await _reply(chat_id, f'I have a response but failed to send it: {exc}')
+
+
+def _format_response(full_response: str, conversation_id: str) -> tuple[str, dict | None]:
+    """Convert a raw markdown response to HTML and build appropriate markup.
+
+    Returns:
+        A ``(html_text, reply_markup)`` tuple.
+    """
+    has_rich = bot.has_rich_content(full_response)
+
+    # Try calendar pagination if the response has calendar-like content
+    day_groups = parse_day_groups(full_response) if has_rich else None
+
+    if day_groups and len(day_groups) > DAYS_PER_PAGE:
+        # Multi-page calendar with navigation buttons
+        html_text = format_calendar_page(day_groups, page=0)
+        total_pages = math.ceil(len(day_groups) / DAYS_PER_PAGE)
+        markup = calendar_nav_markup(
+            conversation_id,
+            page=0,
+            total_pages=total_pages,
+            web_app_url=web_app_url_for(conversation_id),
+        )
+    elif day_groups:
+        # Single-page calendar — expandable blockquotes, no nav
+        html_text = format_calendar_page(day_groups, page=0)
+        markup = bot.rich_content_markup(conversation_id)
+    else:
+        # Regular message — convert markdown to HTML
+        html_text = markdown_to_telegram_html(full_response)
+        markup = bot.rich_content_markup(conversation_id) if has_rich else None
+
+    return html_text, markup
+
+
+# ---------------------------------------------------------------------------
+# Callback query handler (calendar navigation)
+# ---------------------------------------------------------------------------
+
+
+async def _handle_callback_query(callback_query: dict[str, Any]) -> None:
+    """Handle inline keyboard button presses for calendar navigation."""
+    query_id = callback_query['id']
+    data = callback_query.get('data', '')
+    message = callback_query.get('message', {})
+    chat_id = message.get('chat', {}).get('id')
+    message_id = message.get('message_id')
+
+    # Only handle calendar navigation callbacks
+    if not data.startswith('cal:') or not chat_id or not message_id:
+        await bot.answer_callback_query(query_id)
+        return
+
+    parts = data.split(':')
+    if len(parts) != 3:
+        await bot.answer_callback_query(query_id)
+        return
+
+    _, conversation_id, page_str = parts
+
+    try:
+        page = int(page_str)
+    except ValueError:
+        await bot.answer_callback_query(query_id, 'Invalid page')
+        return
+
+    user_slug = sessions.get_user_slug(chat_id)
+    if not user_slug:
+        await bot.answer_callback_query(query_id, 'Session expired')
+        return
+
+    # Load conversation and extract last assistant message
+    raw = storage.load_conversation(user_slug, conversation_id)
+    if not raw:
+        await bot.answer_callback_query(query_id, 'Conversation not found')
+        return
+
+    from marcel_core.api.conversations import _extract_last_assistant
+
+    assistant_text = _extract_last_assistant(raw)
+    if not assistant_text:
+        await bot.answer_callback_query(query_id, 'Message not found')
+        return
+
+    day_groups = parse_day_groups(assistant_text)
+    if not day_groups:
+        await bot.answer_callback_query(query_id, 'No calendar data')
+        return
+
+    total_pages = math.ceil(len(day_groups) / DAYS_PER_PAGE)
+    page = max(0, min(page, total_pages - 1))
+
+    html_text = format_calendar_page(day_groups, page)
+    markup = calendar_nav_markup(
+        conversation_id,
+        page,
+        total_pages,
+        web_app_url=web_app_url_for(conversation_id),
+    )
+
+    await bot.edit_message_text(chat_id, message_id, html_text, reply_markup=markup)
+    await bot.answer_callback_query(query_id)
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +268,12 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
 
     update: dict[str, Any] = await request.json()
 
+    # --- Handle callback queries (inline button presses) ---
+    callback_query = update.get('callback_query')
+    if callback_query:
+        asyncio.create_task(_handle_callback_query(callback_query))
+        return {'status': 'ok'}
+
     message: dict[str, Any] | None = update.get('message') or update.get('edited_message')
     if not message:
         return {'status': 'ignored'}
@@ -136,21 +286,21 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
 
     # --- /start: show chat ID for account linking ---
     if text == '/start':
-        escaped_id = bot.escape_markdown_v2(str(chat_id))
+        escaped_id = escape_html(str(chat_id))
         await bot.send_message(
             chat_id,
-            f'Hi\\! Your Telegram chat ID is `{escaped_id}`\\.\n\n'
-            f'Share this with your Marcel admin to link your account\\.',
+            f'Hi! Your Telegram chat ID is <code>{escaped_id}</code>.\n\n'
+            f'Share this with your Marcel admin to link your account.',
         )
         return {'status': 'ok'}
 
     user_slug = sessions.get_user_slug(chat_id)
     if user_slug is None:
-        escaped_id = bot.escape_markdown_v2(str(chat_id))
+        escaped_id = escape_html(str(chat_id))
         await bot.send_message(
             chat_id,
-            f'This chat is not linked to a Marcel user\\.\n\n'
-            f'Your chat ID is `{escaped_id}`\\. Ask your admin to add it to `TELEGRAM_USER_MAP`\\.',
+            f'This chat is not linked to a Marcel user.\n\n'
+            f'Your chat ID is <code>{escaped_id}</code>. Ask your admin to add it to <code>TELEGRAM_USER_MAP</code>.',
         )
         return {'status': 'ok'}
 
@@ -170,9 +320,8 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
     # Update last-message timestamp
     sessions.touch_last_message(chat_id)
 
-    # --- Dispatch to assistant ---
-    await _reply(chat_id, 'Got it, working on it...')
+    # --- Dispatch to assistant (with delayed ack) ---
     log.info('Dispatching message from chat_id=%s user=%s: %r', chat_id, user_slug, text[:80])
-    asyncio.create_task(_process_assistant_message(chat_id, user_slug, text))
+    asyncio.create_task(_process_with_delayed_ack(chat_id, user_slug, text))
 
     return {'status': 'ok'}

@@ -1,6 +1,6 @@
 """Tests for Telegram channel integration.
 
-Covers bot.py (escape helper), sessions.py (state management),
+Covers bot.py (escape helpers), sessions.py (state management),
 and webhook.py (routing, /start, /new commands).
 """
 
@@ -18,11 +18,13 @@ from marcel_core.telegram import sessions
 from marcel_core.telegram.bot import escape_markdown_v2
 
 # ---------------------------------------------------------------------------
-# bot.py — escape_markdown_v2
+# bot.py — escape helpers
 # ---------------------------------------------------------------------------
 
 
 class TestEscapeMarkdownV2:
+    """Legacy escape function — kept for backward compatibility."""
+
     def test_escapes_dot(self):
         assert escape_markdown_v2('hello.') == r'hello\.'
 

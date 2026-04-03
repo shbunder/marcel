@@ -151,7 +151,9 @@ def build_skills_mcp_server(user_slug: str, channel: str = 'cli') -> McpSdkServe
 
                 chat_id = sessions.get_chat_id(user_slug)
                 if chat_id:
-                    await bot.send_message(int(chat_id), bot.escape_markdown_v2(message))
+                    from marcel_core.telegram.formatting import escape_html
+
+                    await bot.send_message(int(chat_id), escape_html(message))
             except Exception as exc:  # noqa: BLE001
                 return {'content': [{'type': 'text', 'text': f'notify failed: {exc}'}]}
 

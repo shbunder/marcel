@@ -1,7 +1,7 @@
 """Telegram Bot API client.
 
-Provides a thin async wrapper around the Telegram sendMessage endpoint.
-Tries MarkdownV2 parse mode first; falls back to plain text if Telegram
+Provides a thin async wrapper around the Telegram Bot API endpoints.
+Tries HTML parse mode first; falls back to plain text if Telegram
 rejects the formatting.
 """
 
@@ -9,6 +9,8 @@ import os
 import re
 
 import httpx
+
+from marcel_core.telegram.formatting import strip_html_tags
 
 _API_BASE = 'https://api.telegram.org'
 
@@ -26,23 +28,26 @@ _RICH_CALENDAR_PATTERNS: list[re.Pattern[str]] = [
     # Calendar/event emoji followed by bold text (event title pattern)
     re.compile(r'[📅🗓🏕📚🎂🎉⚠🚫]\s*\*{1,2}'),
     # Day names + month names nearby (within 30 chars)
-    re.compile(r'(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday).{0,30}(?:January|February|March|April|May|June|July|August|September|October|November|December)', re.IGNORECASE),
+    re.compile(
+        r'(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday).{0,30}(?:January|February|March|April|May|June|July|August|September|October|November|December)',
+        re.IGNORECASE,
+    ),
     # Month + day number: "April 3", "Apr 6", "5 April"
-    re.compile(r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{1,2}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*', re.IGNORECASE),
+    re.compile(
+        r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{1,2}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*',
+        re.IGNORECASE,
+    ),
 ]
 
-# Characters that must be escaped in Telegram MarkdownV2
+# Characters that must be escaped in Telegram MarkdownV2 (deprecated)
 _ESCAPE_RE = re.compile(r'([_*\[\]()~`>#+\-=|{}.!\\])')
 
 
 def escape_markdown_v2(text: str) -> str:
     """Escape a plain-text string for safe use inside a MarkdownV2 message.
 
-    Args:
-        text: Raw text that should appear literally (not interpreted as markup).
-
-    Returns:
-        Text with all MarkdownV2 special characters backslash-escaped.
+    .. deprecated::
+        Use :func:`escape_html` instead now that messages use HTML parse mode.
     """
     return _ESCAPE_RE.sub(r'\\\1', text)
 
@@ -54,17 +59,21 @@ def _token() -> str:
     return token
 
 
-async def send_message(chat_id: int | str, text: str, *, reply_markup: dict | None = None) -> None:
+async def send_message(
+    chat_id: int | str,
+    text: str,
+    *,
+    parse_mode: str = 'HTML',
+    reply_markup: dict | None = None,
+) -> int | None:
     """Send a text message to a Telegram chat.
 
-    Attempts delivery with MarkdownV2 parse mode. If Telegram rejects the
+    Attempts delivery with HTML parse mode. If Telegram rejects the
     request (e.g. malformed markup), retries with plain text so the user
     always receives a response.
 
-    Args:
-        chat_id: The Telegram chat or user ID to send to.
-        text: Message text; may contain Telegram MarkdownV2 markup.
-        reply_markup: Optional inline keyboard markup (passed through as-is).
+    Returns:
+        The ``message_id`` of the sent message on success, or ``None``.
     """
     token = _token()
     url = f'{_API_BASE}/bot{token}/sendMessage'
@@ -72,7 +81,7 @@ async def send_message(chat_id: int | str, text: str, *, reply_markup: dict | No
     payload: dict = {
         'chat_id': chat_id,
         'text': text,
-        'parse_mode': 'MarkdownV2',
+        'parse_mode': parse_mode,
     }
     if reply_markup:
         payload['reply_markup'] = reply_markup
@@ -80,15 +89,75 @@ async def send_message(chat_id: int | str, text: str, *, reply_markup: dict | No
     async with httpx.AsyncClient() as client:
         resp = await client.post(url, json=payload)
         if resp.is_success:
-            return
+            data = resp.json()
+            return data.get('result', {}).get('message_id')
 
-        # MarkdownV2 rejected — retry as plain text so the user isn't left hanging
-        plain_payload: dict = {'chat_id': chat_id, 'text': text}
+        # HTML rejected — retry as plain text so the user isn't left hanging
+        plain_text = strip_html_tags(text) if parse_mode == 'HTML' else text
+        plain_payload: dict = {'chat_id': chat_id, 'text': plain_text}
         if reply_markup:
             plain_payload['reply_markup'] = reply_markup
         plain_resp = await client.post(url, json=plain_payload)
         if not plain_resp.is_success:
             raise RuntimeError(f'Telegram sendMessage failed: {plain_resp.status_code} {plain_resp.text}')
+        data = plain_resp.json()
+        return data.get('result', {}).get('message_id')
+
+
+async def edit_message_text(
+    chat_id: int | str,
+    message_id: int,
+    text: str,
+    *,
+    parse_mode: str = 'HTML',
+    reply_markup: dict | None = None,
+) -> bool:
+    """Edit an existing message's text.
+
+    Same fallback strategy as :func:`send_message` — tries HTML first,
+    falls back to plain text.
+
+    Returns:
+        ``True`` on success, ``False`` on failure.
+    """
+    token = _token()
+    url = f'{_API_BASE}/bot{token}/editMessageText'
+
+    payload: dict = {
+        'chat_id': chat_id,
+        'message_id': message_id,
+        'text': text,
+        'parse_mode': parse_mode,
+    }
+    if reply_markup:
+        payload['reply_markup'] = reply_markup
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(url, json=payload)
+        if resp.is_success:
+            return True
+
+        plain_text = strip_html_tags(text) if parse_mode == 'HTML' else text
+        plain_payload: dict = {
+            'chat_id': chat_id,
+            'message_id': message_id,
+            'text': plain_text,
+        }
+        if reply_markup:
+            plain_payload['reply_markup'] = reply_markup
+        plain_resp = await client.post(url, json=plain_payload)
+        return plain_resp.is_success
+
+
+async def answer_callback_query(callback_query_id: str, text: str = '') -> None:
+    """Acknowledge a callback query to dismiss the loading spinner."""
+    token = _token()
+    url = f'{_API_BASE}/bot{token}/answerCallbackQuery'
+    payload: dict = {'callback_query_id': callback_query_id}
+    if text:
+        payload['text'] = text
+    async with httpx.AsyncClient() as client:
+        await client.post(url, json=payload)
 
 
 async def set_webhook(url: str, *, secret: str = '') -> dict:
@@ -145,9 +214,7 @@ def _has_calendar_content(text: str) -> bool:
 
 def has_rich_content(text: str) -> bool:
     """Return True if *text* contains patterns that render better in the Mini App."""
-    return bool(
-        _RICH_TABLE_RE.search(text) or _RICH_TASKLIST_RE.search(text) or _has_calendar_content(text)
-    )
+    return bool(_RICH_TABLE_RE.search(text) or _RICH_TASKLIST_RE.search(text) or _has_calendar_content(text))
 
 
 _BUTTON_LABELS = {
