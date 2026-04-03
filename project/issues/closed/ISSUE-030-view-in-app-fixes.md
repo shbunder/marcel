@@ -1,6 +1,6 @@
 # ISSUE-030: Fix "View in App" — Content Truncation & Wrong Message
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-03
 **Assignee:** Unassigned
 **Priority:** High
