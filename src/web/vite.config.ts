@@ -10,6 +10,7 @@ export default defineConfig({
       '/ws': { target: 'ws://localhost:7421', ws: true },
       '/health': 'http://localhost:7421',
       '/conversations': 'http://localhost:7421',
+      '/api': 'http://localhost:7421',
     },
   },
 })

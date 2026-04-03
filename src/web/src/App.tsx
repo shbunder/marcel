@@ -1,10 +1,15 @@
 import { useEffect } from 'react'
 import { Chat } from './components/Chat'
+import { Viewer } from './components/Viewer'
 import { useChat } from './hooks/useChat'
 import { getTelegramWebApp } from './telegram'
 import type { ChatConfig } from './types'
 
 const tg = getTelegramWebApp()
+
+// Check if we're in viewer mode (opened from "Show events" button with a
+// conversation ID in the URL).
+const viewConversation = new URLSearchParams(location.search).get('conversation')
 
 const config: ChatConfig = {
   wsUrl: `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/chat`,
@@ -38,8 +43,11 @@ if (tg) {
 }
 
 export function App() {
+  // In viewer mode we don't need the WebSocket chat — just render the widget.
+  // useChat is still called (hooks must be unconditional) but won't connect
+  // if we never call sendMessage.
   const { messages, streamingText, activeTools, isConnected, sendMessage, startNewConversation } =
-    useChat(config)
+    useChat(viewConversation ? { ...config, wsUrl: '' } : config)
 
   // Listen for live theme changes (user toggles dark/light mode in Telegram)
   useEffect(() => {
@@ -57,9 +65,15 @@ export function App() {
     return () => tg.offEvent('themeChanged', onThemeChanged)
   }, [])
 
-  // Wire Telegram back button
+  // Wire Telegram back button — in viewer mode, always show and close on tap
   useEffect(() => {
     if (!tg) return
+    if (viewConversation) {
+      tg.BackButton.show()
+      const handler = () => tg.close()
+      tg.BackButton.onClick(handler)
+      return () => tg.BackButton.offClick(handler)
+    }
     const hasMessages = messages.length > 0 || streamingText.length > 0
     if (hasMessages) {
       tg.BackButton.show()
@@ -76,6 +90,15 @@ export function App() {
     tg.BackButton.onClick(handler)
     return () => tg.BackButton.offClick(handler)
   }, [messages, streamingText, startNewConversation])
+
+  // Viewer mode: render the widget directly from the conversation
+  if (viewConversation && tg?.initData) {
+    return (
+      <div className="app">
+        <Viewer conversationId={viewConversation} initData={tg.initData} />
+      </div>
+    )
+  }
 
   return (
     <div className="app">

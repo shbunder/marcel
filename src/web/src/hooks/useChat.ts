@@ -25,6 +25,7 @@ export function useChat(config: ChatConfig) {
   conversationRef.current = conversationId
 
   const connect = useCallback(() => {
+    if (!config.wsUrl) return
     if (wsRef.current?.readyState === WebSocket.OPEN) return
 
     const ws = new WebSocket(config.wsUrl)

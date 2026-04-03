@@ -13,9 +13,11 @@ import httpx
 _API_BASE = 'https://api.telegram.org'
 
 # Patterns that indicate the response contains rich content worth viewing in
-# the Mini App (markdown tables → calendar widget, task lists → checklist).
+# the Mini App (calendar events, task lists, markdown tables).
 _RICH_TABLE_RE = re.compile(r'\|.+\|.+\|')
 _RICH_TASKLIST_RE = re.compile(r'^- \[[ xX]\] ', re.MULTILINE)
+# Calendar-style: lines with time ranges (10:00–12:00) or date headers (Apr 3, Monday Apr 6)
+_RICH_CALENDAR_RE = re.compile(r'\d{1,2}:\d{2}[–\-]\d{1,2}:\d{2}|(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w*\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}', re.IGNORECASE)
 
 # Characters that must be escaped in Telegram MarkdownV2
 _ESCAPE_RE = re.compile(r'([_*\[\]()~`>#+\-=|{}.!\\])')
@@ -123,16 +125,34 @@ def _public_url() -> str | None:
 
 def has_rich_content(text: str) -> bool:
     """Return True if *text* contains patterns that render better in the Mini App."""
-    return bool(_RICH_TABLE_RE.search(text) or _RICH_TASKLIST_RE.search(text))
+    return bool(
+        _RICH_TABLE_RE.search(text) or _RICH_TASKLIST_RE.search(text) or _RICH_CALENDAR_RE.search(text)
+    )
 
 
-def rich_content_markup() -> dict | None:
+def _detect_content_type(text: str) -> str:
+    """Return a label for the primary rich content type in *text*."""
+    if _RICH_CALENDAR_RE.search(text) or _RICH_TABLE_RE.search(text):
+        return 'calendar'
+    return 'checklist'
+
+
+_BUTTON_LABELS = {
+    'calendar': '📅 Show events',
+    'checklist': '☑️ Show checklist',
+}
+
+
+def rich_content_markup(conversation_id: str | None = None) -> dict | None:
     """Return an InlineKeyboardMarkup that opens the Mini App, or None."""
     url = _public_url()
     if not url:
         return None
+    app_url = url
+    if conversation_id:
+        app_url = f'{url}?conversation={conversation_id}'
     return {
-        'inline_keyboard': [[{'text': '✨ View in app', 'web_app': {'url': url}}]],
+        'inline_keyboard': [[{'text': '✨ View in app', 'web_app': {'url': app_url}}]],
     }
 
 

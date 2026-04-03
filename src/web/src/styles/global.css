@@ -361,7 +361,22 @@ body,
 .widget--calendar {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+.calendar-day {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
+}
+
+.calendar-day__header {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 4px 12px 2px;
 }
 
 .calendar-event {
@@ -370,13 +385,6 @@ body,
   padding: 10px 12px;
   background: var(--bg-widget);
   border-radius: var(--radius);
-}
-
-.calendar-event__date {
-  min-width: 70px;
-  font-weight: 600;
-  color: var(--accent);
-  font-size: 0.9em;
 }
 
 .calendar-event__details {
@@ -501,4 +509,28 @@ body.tg-mini-app .app {
 
 body.tg-mini-app .app__header {
   display: none;
+}
+
+/* ---- Viewer mode (widget-only display from inline button) ---- */
+
+.viewer {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.viewer__loading,
+.viewer__error {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--text-secondary);
+}
+
+.viewer__error {
+  color: var(--red);
+}
+
+.viewer__markdown {
+  color: var(--text-primary);
+  line-height: 1.5;
 }

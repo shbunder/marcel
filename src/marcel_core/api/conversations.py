@@ -1,12 +1,13 @@
-"""REST endpoint for listing conversations."""
+"""REST endpoints for listing and fetching conversations."""
 
 import pathlib
 
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
-from marcel_core.auth import valid_user_slug, verify_api_token
-from marcel_core.storage.conversations import _conv_dir
+from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
+from marcel_core.storage.conversations import _conv_dir, load_conversation
+from marcel_core.telegram.sessions import get_user_slug as get_telegram_user_slug
 
 router = APIRouter()
 
@@ -71,3 +72,58 @@ async def list_conversations(
             entries.append(entry)
 
     return ConversationListResponse(conversations=entries)
+
+
+def _extract_last_assistant(raw: str) -> str | None:
+    """Extract the last ``**Marcel:** ...`` block from conversation markdown."""
+    marker = '**Marcel:** '
+    idx = raw.rfind(marker)
+    if idx < 0:
+        return None
+    start = idx + len(marker)
+    # The block ends at the next turn marker or EOF
+    next_turn = raw.find('\n\n**', start)
+    return raw[start:next_turn].strip() if next_turn > 0 else raw[start:].strip()
+
+
+class MessageResponse(BaseModel):
+    content: str
+
+
+@router.get('/api/message/{conversation_id}', response_model=MessageResponse)
+async def get_last_message(
+    conversation_id: str,
+    initData: str = Query(''),
+    authorization: str = Header(''),
+) -> MessageResponse:
+    """Return the last assistant message from a conversation.
+
+    Authenticates via Telegram ``initData`` (Mini App) or Bearer token.
+    """
+    user_slug: str | None = None
+
+    # Try Telegram initData first, then Bearer token
+    if initData:
+        tg_user = verify_telegram_init_data(initData)
+        if tg_user is None:
+            raise HTTPException(status_code=401, detail='Invalid Telegram credentials')
+        user_slug = get_telegram_user_slug(tg_user['id'])
+        if user_slug is None:
+            raise HTTPException(status_code=401, detail='Telegram user not linked')
+    else:
+        token = authorization.removeprefix('Bearer ').strip()
+        if not verify_api_token(token):
+            raise HTTPException(status_code=401, detail='Unauthorized')
+        # Without initData we need a user query param — but for now this
+        # endpoint is primarily for the Mini App flow, so we require initData.
+        raise HTTPException(status_code=400, detail='initData required for this endpoint')
+
+    raw = load_conversation(user_slug, conversation_id)
+    if not raw:
+        raise HTTPException(status_code=404, detail='Conversation not found')
+
+    content = _extract_last_assistant(raw)
+    if content is None:
+        raise HTTPException(status_code=404, detail='No assistant message found')
+
+    return MessageResponse(content=content)
