@@ -1,6 +1,6 @@
 # ISSUE-020: Dockerize Marcel for Self-Restart and NUC Management
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-02
 **Assignee:** Shaun
 **Priority:** High
