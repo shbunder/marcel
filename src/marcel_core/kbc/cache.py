@@ -88,15 +88,15 @@ def _tx_internal_id(tx: dict[str, Any], account_id: str) -> str:
     if tx.get('entry_reference'):
         return tx['entry_reference']
     # Composite fallback
-    amt = tx.get('transaction_amount', {})
-    creditor = tx.get('creditor', {})
-    debtor = tx.get('debtor', {})
+    amt = tx.get('transaction_amount') or {}
+    creditor = tx.get('creditor') or {}
+    debtor = tx.get('debtor') or {}
     parts = [
         account_id,
         tx.get('booking_date', ''),
         amt.get('amount', ''),
         creditor.get('name', debtor.get('name', '')),
-        '|'.join(tx.get('remittance_information', [])),
+        '|'.join(tx.get('remittance_information') or []),
     ]
     return '|'.join(parts)
 
@@ -124,8 +124,8 @@ def upsert_transactions(
             if tx.get('credit_debit_indicator') == 'DBIT' and raw_amount > 0:
                 raw_amount = -raw_amount
             currency = amt_obj.get('currency', 'EUR')
-            creditor = tx.get('creditor', {})
-            debtor = tx.get('debtor', {})
+            creditor = tx.get('creditor') or {}
+            debtor = tx.get('debtor') or {}
             counterparty = creditor.get('name', debtor.get('name', ''))
             remittance = ' '.join(tx.get('remittance_information', []))
             bank_tx = tx.get('bank_transaction_code', {})

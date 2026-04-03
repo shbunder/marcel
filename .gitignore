@@ -60,3 +60,4 @@ tasks/
 infra/.terraform/
 infra/*.auto.tfvars
 infra/.terraform.lock.hcl
+*.pem

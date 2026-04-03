@@ -64,7 +64,8 @@ async def sync_account(slug: str) -> dict[str, Any]:
     date_to = date.today().isoformat()
 
     for account in accounts:
-        account_uid = account.get('uid', '')
+        # get_session returns UIDs as strings; create_session returns dicts
+        account_uid = account if isinstance(account, str) else account.get('uid', '')
         if not account_uid:
             continue
         try:
