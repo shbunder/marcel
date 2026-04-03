@@ -1,6 +1,6 @@
 # ISSUE-029: Multi-Bank Support (ING + KBC)
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-03
 **Assignee:** Marcel
 **Priority:** Medium
