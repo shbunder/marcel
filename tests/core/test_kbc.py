@@ -1,7 +1,8 @@
-"""Tests for KBC banking integration — client, cache, and sync."""
+"""Tests for banking integration — client, cache, and sync."""
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
@@ -167,6 +168,24 @@ class TestCacheTransactions:
         rows = get_transactions('test')
         assert len(rows) == 1
 
+    def test_null_remittance_and_bank_tx_code(self):
+        """Null remittance_information and bank_transaction_code are handled safely."""
+        tx = {
+            'transaction_id': 'tx-null-fields',
+            'booking_date': '2026-04-01',
+            'transaction_amount': {'amount': '10.00', 'currency': 'EUR'},
+            'credit_debit_indicator': 'DBIT',
+            'creditor': {'name': 'Shop'},
+            'remittance_information': None,
+            'bank_transaction_code': None,
+        }
+        count = upsert_transactions('test', 'acct-1', [tx])
+        assert count == 1
+        rows = get_transactions('test')
+        assert len(rows) == 1
+        assert rows[0]['remittance_info'] == ''
+        assert rows[0]['bank_tx_code'] == ''
+
 
 # ── Cache: balances ──────────────────────────────────────────────────────────
 
@@ -221,41 +240,44 @@ class TestSyncMeta:
 
 class TestSync:
     @pytest.mark.asyncio
-    async def test_sync_account_no_session(self):
+    async def test_sync_no_sessions(self):
         from marcel_core.kbc.sync import sync_account
 
         with patch(
-            'marcel_core.kbc.sync.client.get_session',
-            new_callable=AsyncMock,
-            side_effect=RuntimeError('No KBC bank link found'),
+            'marcel_core.kbc.sync.client.get_stored_sessions',
+            return_value=[],
         ):
             summary = await sync_account('test')
-            assert any('No KBC bank link' in w for w in summary['warnings'])
+            assert any('No bank links' in w for w in summary['warnings'])
 
     @pytest.mark.asyncio
-    async def test_sync_account_not_authorized(self):
+    async def test_sync_session_not_authorized(self):
         from marcel_core.kbc.sync import sync_account
 
-        with patch(
-            'marcel_core.kbc.sync.client.get_session',
-            new_callable=AsyncMock,
-            return_value={'status': 'EXPIRED', 'accounts': []},
+        sessions = [{'bank': 'KBC', 'country': 'BE', 'session_id': 'sid-1'}]
+        with (
+            patch('marcel_core.kbc.sync.client.get_stored_sessions', return_value=sessions),
+            patch(
+                'marcel_core.kbc.sync.client.get_session',
+                new_callable=AsyncMock,
+                return_value={'status': 'EXPIRED', 'accounts': []},
+            ),
         ):
             summary = await sync_account('test')
             assert any('expected AUTHORIZED' in w for w in summary['warnings'])
 
     @pytest.mark.asyncio
-    async def test_sync_account_success(self):
+    async def test_sync_single_bank_success(self):
         from marcel_core.kbc.sync import sync_account
 
+        sessions = [{'bank': 'KBC', 'country': 'BE', 'session_id': 'sid-1'}]
         mock_session = {
             'status': 'AUTHORIZED',
             'accounts': [{'uid': 'acct-1'}],
         }
-        mock_balances = [_make_balance()]
-        mock_txs = [_make_tx()]
 
         with (
+            patch('marcel_core.kbc.sync.client.get_stored_sessions', return_value=sessions),
             patch(
                 'marcel_core.kbc.sync.client.get_session',
                 new_callable=AsyncMock,
@@ -264,16 +286,18 @@ class TestSync:
             patch(
                 'marcel_core.kbc.sync.client.get_balances',
                 new_callable=AsyncMock,
-                return_value=mock_balances,
+                return_value=[_make_balance()],
             ),
             patch(
                 'marcel_core.kbc.sync.client.get_all_transactions',
                 new_callable=AsyncMock,
-                return_value=mock_txs,
+                return_value=[_make_tx()],
             ),
         ):
             summary = await sync_account('test')
             assert summary['synced'] == 1
+            assert len(summary['banks']) == 1
+            assert summary['banks'][0]['bank'] == 'KBC'
             assert not summary['warnings']
 
             rows = get_transactions('test')
@@ -282,43 +306,129 @@ class TestSync:
             assert len(bals) == 1
 
     @pytest.mark.asyncio
+    async def test_sync_multi_bank(self):
+        from marcel_core.kbc.sync import sync_account
+
+        sessions = [
+            {'bank': 'KBC', 'country': 'BE', 'session_id': 'sid-kbc'},
+            {'bank': 'ING', 'country': 'BE', 'session_id': 'sid-ing'},
+        ]
+        kbc_session = {'status': 'AUTHORIZED', 'accounts': ['acct-kbc']}
+        ing_session = {'status': 'AUTHORIZED', 'accounts': ['acct-ing']}
+
+        async def mock_get_session(_slug, sid):
+            return kbc_session if sid == 'sid-kbc' else ing_session
+
+        with (
+            patch('marcel_core.kbc.sync.client.get_stored_sessions', return_value=sessions),
+            patch('marcel_core.kbc.sync.client.get_session', new_callable=AsyncMock, side_effect=mock_get_session),
+            patch('marcel_core.kbc.sync.client.get_balances', new_callable=AsyncMock, return_value=[_make_balance()]),
+            patch(
+                'marcel_core.kbc.sync.client.get_all_transactions',
+                new_callable=AsyncMock,
+                return_value=[_make_tx()],
+            ),
+        ):
+            summary = await sync_account('test')
+            assert summary['synced'] == 2
+            assert len(summary['banks']) == 2
+            bank_names = {b['bank'] for b in summary['banks']}
+            assert bank_names == {'KBC', 'ING'}
+
+    @pytest.mark.asyncio
     async def test_check_consent_expiry_warns(self):
         from marcel_core.kbc.sync import check_consent_expiry
 
-        # Session valid_until is 5 days from now
+        sessions = [{'bank': 'KBC', 'country': 'BE', 'session_id': 'sid-1'}]
         valid_until = (datetime.now(UTC) + timedelta(days=5)).isoformat()
         mock_session = {
             'status': 'AUTHORIZED',
             'access': {'valid_until': valid_until},
         }
 
-        with patch(
-            'marcel_core.kbc.sync.client.get_session',
-            new_callable=AsyncMock,
-            return_value=mock_session,
+        with (
+            patch('marcel_core.kbc.sync.client.get_stored_sessions', return_value=sessions),
+            patch(
+                'marcel_core.kbc.sync.client.get_session',
+                new_callable=AsyncMock,
+                return_value=mock_session,
+            ),
         ):
-            warning = await check_consent_expiry('test')
-            assert warning is not None
-            assert 'expires' in warning
+            warnings = await check_consent_expiry('test')
+            assert len(warnings) == 1
+            assert 'KBC' in warnings[0]
+            assert 'expires' in warnings[0]
 
     @pytest.mark.asyncio
     async def test_check_consent_expiry_ok(self):
         from marcel_core.kbc.sync import check_consent_expiry
 
-        # Session valid_until is 80 days from now
+        sessions = [{'bank': 'KBC', 'country': 'BE', 'session_id': 'sid-1'}]
         valid_until = (datetime.now(UTC) + timedelta(days=80)).isoformat()
         mock_session = {
             'status': 'AUTHORIZED',
             'access': {'valid_until': valid_until},
         }
 
-        with patch(
-            'marcel_core.kbc.sync.client.get_session',
-            new_callable=AsyncMock,
-            return_value=mock_session,
+        with (
+            patch('marcel_core.kbc.sync.client.get_stored_sessions', return_value=sessions),
+            patch(
+                'marcel_core.kbc.sync.client.get_session',
+                new_callable=AsyncMock,
+                return_value=mock_session,
+            ),
         ):
-            warning = await check_consent_expiry('test')
-            assert warning is None
+            warnings = await check_consent_expiry('test')
+            assert len(warnings) == 0
+
+
+# ── Client: multi-session storage ───────────────────────────────────────────
+
+
+class TestMultiSessionStorage:
+    def test_load_sessions_empty(self):
+        from marcel_core.kbc.client import _load_sessions
+
+        with patch('marcel_core.kbc.client.load_credentials', return_value={}):
+            assert _load_sessions('test') == []
+
+    def test_load_sessions_json(self):
+        from marcel_core.kbc.client import _load_sessions
+
+        sessions = [{'bank': 'KBC', 'country': 'BE', 'session_id': 'sid-1'}]
+        creds = {'ENABLEBANKING_SESSIONS': json.dumps(sessions)}
+        with patch('marcel_core.kbc.client.load_credentials', return_value=creds):
+            result = _load_sessions('test')
+            assert len(result) == 1
+            assert result[0]['bank'] == 'KBC'
+
+    def test_load_sessions_migrates_legacy(self):
+        from marcel_core.kbc.client import _load_sessions
+
+        creds = {'ENABLEBANKING_SESSION_ID': 'legacy-sid'}
+        with (
+            patch('marcel_core.kbc.client.load_credentials', return_value=creds),
+            patch('marcel_core.kbc.client.save_credentials') as mock_save,
+        ):
+            result = _load_sessions('test')
+            assert len(result) == 1
+            assert result[0]['bank'] == 'KBC'
+            assert result[0]['session_id'] == 'legacy-sid'
+            # Verify migration was saved
+            mock_save.assert_called_once()
+
+    def test_session_id_for_bank(self):
+        from marcel_core.kbc.client import _session_id_for_bank
+
+        sessions = [
+            {'bank': 'KBC', 'country': 'BE', 'session_id': 'sid-kbc'},
+            {'bank': 'ING', 'country': 'BE', 'session_id': 'sid-ing'},
+        ]
+        with patch('marcel_core.kbc.client._load_sessions', return_value=sessions):
+            assert _session_id_for_bank('test', 'KBC') == 'sid-kbc'
+            assert _session_id_for_bank('test', 'ING') == 'sid-ing'
+            with pytest.raises(RuntimeError, match='No Belfius'):
+                _session_id_for_bank('test', 'Belfius')
 
 
 # ── Client helpers ───────────────────────────────────────────────────────────
