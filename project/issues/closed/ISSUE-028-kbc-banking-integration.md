@@ -1,6 +1,6 @@
 # ISSUE-028: KBC Banking Integration via GoCardless
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-03
 **Assignee:** Marcel
 **Priority:** Medium
