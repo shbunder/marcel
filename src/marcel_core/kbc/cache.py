@@ -2,7 +2,7 @@
 
 The cache lives at ``data/users/{slug}/kbc_transactions.db`` and stores
 all synced transactions and the latest balance snapshot.  The agent
-queries this cache instead of hitting the GoCardless API directly, so
+queries this cache instead of hitting the EnableBanking API directly, so
 we stay within PSD2 rate limits (4 requests/day without active SCA).
 """
 
@@ -127,8 +127,8 @@ def upsert_transactions(
             creditor = tx.get('creditor') or {}
             debtor = tx.get('debtor') or {}
             counterparty = creditor.get('name', debtor.get('name', ''))
-            remittance = ' '.join(tx.get('remittance_information', []))
-            bank_tx = tx.get('bank_transaction_code', {})
+            remittance = ' '.join(tx.get('remittance_information') or [])
+            bank_tx = tx.get('bank_transaction_code') or {}
             bank_tx_str = bank_tx.get('description', '') if isinstance(bank_tx, dict) else str(bank_tx)
             conn.execute(
                 """INSERT INTO transactions

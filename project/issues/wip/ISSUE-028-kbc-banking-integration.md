@@ -104,3 +104,13 @@ src/marcel_core/
 - `tests/core/test_kbc.py` — Updated all test fixtures to EnableBanking format (28 tests)
 **Credentials stored**: ENABLEBANKING_APP_ID (production: 8c037627-6a8e-4a28-9497-aa43c630be7f), private key at ~/.marcel/users/shaun/enablebanking.pem
 **Status**: Production app registered but awaiting activation by EnableBanking. JWT auth and sandbox access verified working.
+
+### 2026-04-03 — LLM Implementation (cont.)
+**Action**: Code sweep for stability + onboarding documentation
+**Files Modified**:
+- `src/marcel_core/kbc/cache.py` — Fixed stale GoCardless docstring reference; null-safe `remittance_information` and `bank_transaction_code` handling (`or []` / `or {}` pattern)
+- `src/marcel_core/skills/integrations/kbc.py` — Fixed string-vs-dict account UID handling in balance fallback (same bug previously fixed in sync.py)
+- `docs/integration-kbc.md` — New: full onboarding guide for family-admins (EnableBanking signup, credential setup, bank linking, architecture overview)
+- `mkdocs.yml` — Registered KBC integration doc page under Integrations nav section
+**Commands Run**: `uv run pytest tests/core/test_kbc.py` (28 passed), `uv run ruff check` (clean), `uv run pyright` (0 errors)
+**Result**: All checks passing, integration verified with live data (493 transactions, 3 accounts)

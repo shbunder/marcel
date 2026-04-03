@@ -110,7 +110,7 @@ async def balance(params: dict, user_slug: str) -> str:
     session = await client.get_session(user_slug)
     all_balances: list[dict] = []
     for account in session.get('accounts', []):
-        uid = account.get('uid', '')
+        uid = account if isinstance(account, str) else account.get('uid', '')
         if uid:
             bals = await client.get_balances(user_slug, uid)
             cache.upsert_balances(user_slug, uid, bals)
