@@ -14,6 +14,8 @@ export interface ChatConfig {
   wsUrl: string
   user: string
   token: string
+  /** Telegram Mini App initData — used instead of token when present. */
+  initData?: string
 }
 
 /** AG-UI event received from the WebSocket. */

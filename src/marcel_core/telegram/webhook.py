@@ -92,7 +92,8 @@ async def _process_assistant_message_inner(chat_id: int, user_slug: str, text: s
     asyncio.create_task(extract_and_save_memories(user_slug, text, full_response, conversation_id))
 
     try:
-        await bot.send_message(chat_id, full_response)
+        markup = bot.rich_content_markup() if bot.has_rich_content(full_response) else None
+        await bot.send_message(chat_id, full_response, reply_markup=markup)
     except Exception as exc:
         await _reply(chat_id, f'I have a response but failed to send it: {exc}')
 

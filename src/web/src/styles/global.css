@@ -459,3 +459,18 @@ body,
     opacity: 0.5;
   }
 }
+
+/* ---- Telegram Mini App overrides ---- */
+
+body.tg-mini-app {
+  --bg-primary: var(--tg-theme-bg-color, #1a1a2e);
+  --bg-secondary: var(--tg-theme-secondary-bg-color, #16213e);
+  --text-primary: var(--tg-theme-text-color, #e0e0e0);
+  --text-secondary: var(--tg-theme-hint-color, #a0a0b0);
+  --accent: var(--tg-theme-button-color, #cc5e76);
+  --accent-hover: var(--tg-theme-button-color, #e06880);
+}
+
+body.tg-mini-app .app__header {
+  display: none;
+}

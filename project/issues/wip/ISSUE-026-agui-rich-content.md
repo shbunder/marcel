@@ -56,9 +56,9 @@ Marcel Python Backend (AG-UI event emitter)
 ### Phase 2 — Web App + Telegram Mini App
 - [✓] ISSUE-026-g: Build minimal web app (React + Vite) consuming AG-UI event stream via WebSocket
 - [✓] ISSUE-026-h: Implement hardcoded widget renderers for initial content types: calendar view, checklist, streaming text with markdown
-- [ ] ISSUE-026-i: Wrap web app as Telegram Mini App (Telegram JS bridge adapter, theme integration, back button wiring)
-- [ ] ISSUE-026-j: Wire bot to send inline keyboard buttons that open the Mini App on-demand for rich content
-- [ ] ISSUE-026-k: Authentication flow for Mini App (validate Telegram `initData` via HMAC-SHA256, map to Marcel user)
+- [✓] ISSUE-026-i: Wrap web app as Telegram Mini App (Telegram JS bridge adapter, theme integration, back button wiring)
+- [✓] ISSUE-026-j: Wire bot to send inline keyboard buttons that open the Mini App on-demand for rich content
+- [✓] ISSUE-026-k: Authentication flow for Mini App (validate Telegram initData via HMAC-SHA256, map to Marcel user)
 
 ### Phase 3 — iOS / macOS App
 - [ ] ISSUE-026-l: iOS app — either native SwiftUI consuming AG-UI directly, or WKWebView wrapper around the web app
@@ -136,3 +136,21 @@ Conducted a thorough investigation of CopilotKit, AG-UI protocol, A2UI, and Tele
 **Commands Run**: `npm install` (166 packages, 0 vulnerabilities), `npm run build` (tsc + vite build, success)
 **Result**: Success — production build generates dist/index.html + dist/assets/
 **Next**: Phase 2 subtasks i-k (Telegram Mini App) are future work
+
+### 2026-04-03 10:00 - LLM Implementation
+**Action**: Implemented Phase 2 subtasks i+j+k — Telegram Mini App integration
+**Files Modified**:
+- `src/marcel_core/auth/__init__.py` — Added `verify_telegram_init_data()`: HMAC-SHA256 validation of Telegram initData per official spec, returns parsed user dict or None. Uses only stdlib (hmac, hashlib, urllib.parse, json, time).
+- `src/marcel_core/api/chat.py` — Added dual auth path: WebSocket handler now accepts either `token` (existing) or `initData` (Telegram Mini App). When authenticated via initData, user slug is resolved from Telegram user ID via `get_user_slug()` and locked for the connection (prevents impersonation).
+- `src/marcel_core/telegram/bot.py` — Added `reply_markup` kwarg to `send_message()` (passed to both MarkdownV2 and plain text attempts). Added `has_rich_content()` (detects markdown tables and GFM task lists), `rich_content_markup()` (returns InlineKeyboardMarkup with web_app URL), `set_menu_button()` (one-time setup for bot menu button). Added `MARCEL_PUBLIC_URL` env var support.
+- `src/marcel_core/telegram/webhook.py` — Rich content detection: when response contains tables or task lists, attaches "View in app" inline keyboard button via `rich_content_markup()`.
+- `src/web/index.html` — Added Telegram Web App JS SDK script tag
+- `src/web/src/telegram.ts` — Created: Mini App detection adapter with `getTelegramWebApp()`, TypeScript interface for `window.Telegram.WebApp`
+- `src/web/src/App.tsx` — Mini App mode: detects Telegram WebView, sets initData auth, calls tg.ready()/expand(), hides header, wires BackButton to new chat / close
+- `src/web/src/types.ts` — Added optional `initData` field to ChatConfig
+- `src/web/src/hooks/useChat.ts` — Sends `initData` instead of `token` when in Mini App mode, uses `telegram-app` channel
+- `src/web/src/styles/global.css` — Added Telegram theme CSS overrides (maps --tg-theme-* vars to app custom properties), hides header in Mini App mode
+- `.env` — Added `MARCEL_PUBLIC_URL` env var with documentation
+**Commands Run**: `npm run build` (success), `uv run ruff format` + `ruff check` (clean), `uv run pytest tests/ -x -v` (185/185 pass)
+**Result**: Success — all tests passing, frontend builds clean
+**Next**: Phase 3 (iOS/macOS app) and Phase 4 (generative UI) are future work

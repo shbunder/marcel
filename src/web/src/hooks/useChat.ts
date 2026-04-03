@@ -133,17 +133,20 @@ export function useChat(config: ChatConfig) {
         { id: genId(), role: 'user', content: text, timestamp: Date.now() },
       ])
 
-      wsRef.current.send(
-        JSON.stringify({
-          token: config.token,
-          text,
-          user: config.user,
-          conversation: conversationRef.current,
-          channel: 'app',
-        }),
-      )
+      const msg: Record<string, unknown> = {
+        text,
+        user: config.user,
+        conversation: conversationRef.current,
+        channel: config.initData ? 'telegram-app' : 'app',
+      }
+      if (config.initData) {
+        msg.initData = config.initData
+      } else {
+        msg.token = config.token
+      }
+      wsRef.current.send(JSON.stringify(msg))
     },
-    [config.token, config.user],
+    [config.token, config.user, config.initData],
   )
 
   const startNewConversation = useCallback(() => {

@@ -34,7 +34,8 @@ from marcel_core.agent.events import (
     ToolCallResult,
     ToolCallStart,
 )
-from marcel_core.auth import valid_user_slug, verify_api_token
+from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
+from marcel_core.telegram.sessions import get_user_slug as get_telegram_user_slug
 
 router = APIRouter()
 
@@ -46,22 +47,41 @@ async def chat(websocket: WebSocket) -> None:
     """Streaming chat endpoint. One WebSocket connection, many turns."""
     await websocket.accept()
     authenticated = False
+    forced_user_slug: str | None = None  # set when authenticated via Telegram initData
     try:
         while True:
             raw = await websocket.receive_text()
             data = json.loads(raw)
 
-            # Authenticate on first message (or every message if token is present)
-            token: str = data.get('token', '')
+            # Authenticate on first message
             if not authenticated:
-                if not verify_api_token(token):
+                init_data: str = data.get('initData', '')
+                token: str = data.get('token', '')
+
+                if init_data:
+                    tg_user = verify_telegram_init_data(init_data)
+                    if tg_user is None:
+                        await websocket.send_text(
+                            json.dumps({'type': 'error', 'message': 'Invalid Telegram credentials'})
+                        )
+                        await websocket.close(code=4001, reason='Unauthorized')
+                        return
+                    slug = get_telegram_user_slug(tg_user['id'])
+                    if slug is None:
+                        await websocket.send_text(
+                            json.dumps({'type': 'error', 'message': 'Telegram user not linked to a Marcel account'})
+                        )
+                        await websocket.close(code=4001, reason='Unauthorized')
+                        return
+                    forced_user_slug = slug
+                elif not verify_api_token(token):
                     await websocket.send_text(json.dumps({'type': 'error', 'message': 'Invalid or missing API token'}))
                     await websocket.close(code=4001, reason='Unauthorized')
                     return
                 authenticated = True
 
             user_text: str = data.get('text', '').strip()
-            user_slug: str = data.get('user', '') or _DEFAULT_USER
+            user_slug: str = forced_user_slug or data.get('user', '') or _DEFAULT_USER
             if not user_slug:
                 await websocket.send_text(
                     json.dumps({'type': 'error', 'message': 'No user specified and MARCEL_DEFAULT_USER is not set'})
