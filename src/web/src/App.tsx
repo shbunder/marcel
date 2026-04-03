@@ -13,16 +13,49 @@ const config: ChatConfig = {
   initData: tg?.initData,
 }
 
-// Apply Telegram Mini App body class for CSS overrides
+// Telegram Mini App initialization (runs once at load)
 if (tg) {
   document.body.classList.add('tg-mini-app')
-  tg.ready()
+
+  // Match header/background/bottom bar to our dark theme, falling back to
+  // Telegram's own theme colors when available.
+  const bg = tg.themeParams.bg_color || '#1a1a2e'
+  const secondaryBg = tg.themeParams.secondary_bg_color || '#16213e'
+  tg.setHeaderColor(bg)
+  tg.setBackgroundColor(bg)
+  if (tg.isVersionAtLeast('7.10')) {
+    tg.setBottomBarColor(secondaryBg)
+  }
+
+  // Prevent vertical swipes from accidentally closing the sheet while the
+  // user scrolls through the chat.
+  if (tg.isVersionAtLeast('7.7')) {
+    tg.disableVerticalSwipes()
+  }
+
   tg.expand()
+  tg.ready()
 }
 
 export function App() {
   const { messages, streamingText, activeTools, isConnected, sendMessage, startNewConversation } =
     useChat(config)
+
+  // Listen for live theme changes (user toggles dark/light mode in Telegram)
+  useEffect(() => {
+    if (!tg) return
+    const onThemeChanged = () => {
+      const bg = tg.themeParams.bg_color || '#1a1a2e'
+      const secondaryBg = tg.themeParams.secondary_bg_color || '#16213e'
+      tg.setHeaderColor(bg)
+      tg.setBackgroundColor(bg)
+      if (tg.isVersionAtLeast('7.10')) {
+        tg.setBottomBarColor(secondaryBg)
+      }
+    }
+    tg.onEvent('themeChanged', onThemeChanged)
+    return () => tg.offEvent('themeChanged', onThemeChanged)
+  }, [])
 
   // Wire Telegram back button
   useEffect(() => {

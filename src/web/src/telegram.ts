@@ -12,10 +12,22 @@ export interface TelegramWebApp {
   initDataUnsafe: { user?: { id: number; first_name: string } }
   colorScheme: 'light' | 'dark'
   themeParams: Record<string, string>
+  headerColor: string
+  backgroundColor: string
+  bottomBarColor: string
+  isExpanded: boolean
+  isVerticalSwipesEnabled: boolean
   ready(): void
   close(): void
   expand(): void
-  isExpanded: boolean
+  setHeaderColor(color: string): void
+  setBackgroundColor(color: string): void
+  setBottomBarColor(color: string): void
+  disableVerticalSwipes(): void
+  enableVerticalSwipes(): void
+  isVersionAtLeast(version: string): boolean
+  onEvent(event: string, cb: () => void): void
+  offEvent(event: string, cb: () => void): void
   BackButton: {
     show(): void
     hide(): void

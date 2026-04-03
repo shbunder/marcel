@@ -463,12 +463,40 @@ body,
 /* ---- Telegram Mini App overrides ---- */
 
 body.tg-mini-app {
+  /* Core colors */
   --bg-primary: var(--tg-theme-bg-color, #1a1a2e);
   --bg-secondary: var(--tg-theme-secondary-bg-color, #16213e);
+  --bg-input: var(--tg-theme-secondary-bg-color, #222244);
   --text-primary: var(--tg-theme-text-color, #e0e0e0);
   --text-secondary: var(--tg-theme-hint-color, #a0a0b0);
+  --text-dim: var(--tg-theme-subtitle-text-color, #666680);
   --accent: var(--tg-theme-button-color, #cc5e76);
-  --accent-hover: var(--tg-theme-button-color, #e06880);
+  --accent-hover: var(--tg-theme-accent-text-color, #e06880);
+  --border: var(--tg-theme-section-separator-color, #333355);
+  --red: var(--tg-theme-destructive-text-color, #ff6b6b);
+
+  /* Message bubbles — derive from Telegram theme */
+  --bg-message-assistant: var(--tg-theme-secondary-bg-color, #222244);
+  --bg-message-user: var(--tg-theme-button-color, #0f3460);
+  --bg-widget: var(--tg-theme-section-bg-color, #1e2a4a);
+}
+
+/* Safe area insets — prevent content from hiding behind notches/nav bars */
+body.tg-mini-app .app {
+  padding-top: var(--tg-safe-area-inset-top, 0px);
+  padding-bottom: var(--tg-safe-area-inset-bottom, 0px);
+  padding-left: var(--tg-safe-area-inset-left, 0px);
+  padding-right: var(--tg-safe-area-inset-right, 0px);
+}
+
+/* Content safe area — avoid Telegram UI elements */
+body.tg-mini-app .chat {
+  padding-top: var(--tg-content-safe-area-inset-top, 0px);
+}
+
+/* Use stable viewport height so the layout doesn't jump during drag gestures */
+body.tg-mini-app .app {
+  height: var(--tg-viewport-stable-height, 100vh);
 }
 
 body.tg-mini-app .app__header {
