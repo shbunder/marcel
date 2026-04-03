@@ -16,8 +16,20 @@ _API_BASE = 'https://api.telegram.org'
 # the Mini App (calendar events, task lists, markdown tables).
 _RICH_TABLE_RE = re.compile(r'\|.+\|.+\|')
 _RICH_TASKLIST_RE = re.compile(r'^- \[[ xX]\] ', re.MULTILINE)
-# Calendar-style: lines with time ranges (10:00–12:00) or date headers (Apr 3, Monday Apr 6)
-_RICH_CALENDAR_RE = re.compile(r'\d{1,2}:\d{2}[–\-]\d{1,2}:\d{2}|(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w*\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}', re.IGNORECASE)
+# Calendar-style: flexible detection — calendar emoji, time patterns, or
+# day/month names combined with event-like structure.
+_RICH_CALENDAR_PATTERNS: list[re.Pattern[str]] = [
+    # Time ranges: 10:00–12:00, 16:00-18:00
+    re.compile(r'\d{1,2}:\d{2}\s*[–\-]\s*\d{1,2}:\d{2}'),
+    # Standalone times in bold or after dash: **16:00**, — 10:00
+    re.compile(r'(?:\*{1,2}|[—\-]\s*)\d{1,2}:\d{2}'),
+    # Calendar/event emoji followed by bold text (event title pattern)
+    re.compile(r'[📅🗓🏕📚🎂🎉⚠🚫]\s*\*{1,2}'),
+    # Day names + month names nearby (within 30 chars)
+    re.compile(r'(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday).{0,30}(?:January|February|March|April|May|June|July|August|September|October|November|December)', re.IGNORECASE),
+    # Month + day number: "April 3", "Apr 6", "5 April"
+    re.compile(r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{1,2}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*', re.IGNORECASE),
+]
 
 # Characters that must be escaped in Telegram MarkdownV2
 _ESCAPE_RE = re.compile(r'([_*\[\]()~`>#+\-=|{}.!\\])')
@@ -123,18 +135,19 @@ def _public_url() -> str | None:
     return os.environ.get('MARCEL_PUBLIC_URL') or None
 
 
+def _has_calendar_content(text: str) -> bool:
+    """Return True if *text* looks like a calendar/event response."""
+    # Require at least 2 pattern matches to avoid false positives on casual
+    # mentions of dates or times.
+    matches = sum(1 for p in _RICH_CALENDAR_PATTERNS if p.search(text))
+    return matches >= 2
+
+
 def has_rich_content(text: str) -> bool:
     """Return True if *text* contains patterns that render better in the Mini App."""
     return bool(
-        _RICH_TABLE_RE.search(text) or _RICH_TASKLIST_RE.search(text) or _RICH_CALENDAR_RE.search(text)
+        _RICH_TABLE_RE.search(text) or _RICH_TASKLIST_RE.search(text) or _has_calendar_content(text)
     )
-
-
-def _detect_content_type(text: str) -> str:
-    """Return a label for the primary rich content type in *text*."""
-    if _RICH_CALENDAR_RE.search(text) or _RICH_TABLE_RE.search(text):
-        return 'calendar'
-    return 'checklist'
 
 
 _BUTTON_LABELS = {

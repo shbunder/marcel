@@ -8,41 +8,60 @@ export interface CalendarEvent {
 /**
  * Detect calendar-like content in Marcel's response format.
  *
- * Marcel outputs calendar events as structured markdown with:
- * - Date headers like "**📅 Today — Friday Apr 3**" or "**Monday Apr 6 onwards**"
- * - Event lines like "- 🪒 **Afspraak kapper** — 10:00–12:00 @ Location"
+ * Marcel outputs calendar events in varied formats:
+ * - Date headers: "**📅 Today — Friday Apr 3**", "**📅 Saturday 4 & Sunday 5 April**"
+ * - Bullet events: "- 🪒 **Afspraak kapper** — 10:00–12:00 @ Location"
+ * - Paragraph events: "🏕 **Weekend VdB** *(Kids)*\nDescription with **Friday 16:00**"
  * - Also detects markdown tables with date/event columns (legacy format).
  */
 export function detectCalendar(content: string): CalendarEvent[] | null {
-  // Try structured list format first (Marcel's actual output)
   const listEvents = parseCalendarList(content)
   if (listEvents && listEvents.length > 0) return listEvents
-
-  // Fallback: markdown table format
   return parseCalendarTable(content)
 }
 
-// Match date header lines: "**📅 Today — Friday Apr 3**", "**Monday Apr 6 onwards**", etc.
-const DATE_HEADER_RE =
-  /\*{0,2}[📅🏕️📚]*\s*(?:Today\s*[—\-]\s*)?(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w*\s+)?(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{1,2}/i
+// Date header patterns — very flexible to handle Marcel's varied formats:
+// "📅 Today — Friday Apr 3", "Saturday 4 & Sunday 5 April", "Weekend Apr 4–5",
+// "Monday Apr 6 onwards", "Ongoing all week"
+const DATE_HEADER_RE = new RegExp(
+  [
+    // Calendar/event emoji at start of line (strong signal)
+    '(?:^|\\n)\\s*\\*{0,2}[📅🗓🏕📚🏖]*\\s*',
+    '(?:',
+    // Pattern A: "Today — Friday Apr 3" or "Saturday 4 & Sunday 5 April"
+    '(?:Today|(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\\w*)[\\s,]*',
+    '(?:\\d{1,2}[\\s&,–\\-]*)*',
+    '(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\w*)?',
+    '|',
+    // Pattern B: "Apr 4–5", "April 3"
+    '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\w*\\s+\\d{1,2}',
+    '|',
+    // Pattern C: "Ongoing all week", "Also still running"
+    '(?:Ongoing|Also\\s+still)',
+    ')',
+  ].join(''),
+  'i',
+)
 
-// Match event lines: "- 🪒 **Title** (optional) — 10:00–12:00 @ Location"
-const EVENT_LINE_RE = /^[-•*]\s+(.+)/
+// Event lines: bullets "- 🪒 **Title**" or emoji-started "🏕 **Title**"
+const EVENT_LINE_RE = /^(?:[-•*]\s+|[📅🗓🏕📚🪒🏀👾🐣⚠🚫🎂🎉💊🧹🛒🔔💰🎯🏖]\s*)(.+)/u
 
-// Extract time range: "10:00–12:00" or "16:00"
+// Extract time: "10:00–12:00", "16:00", "Friday 16:00", "Sunday 10:00"
 const TIME_RE = /(\d{1,2}:\d{2}(?:\s*[–\-]\s*\d{1,2}:\d{2})?)/
 
 // Extract location after @
 const LOCATION_RE = /@\s*(.+?)(?:\s*$|\s*\()/
 
-// Strip markdown bold markers and emojis for clean titles
+// Strip markdown, emojis, times, locations for clean title
 function cleanTitle(raw: string): string {
   return raw
     .replace(/\*{1,2}/g, '')
-    .replace(/[📅🏕️📚🪒🏀👾🐣⚠️🎂🎉💊🧹🛒🔔💰🎯]/gu, '')
-    .replace(/\s*[—\-]\s*\d{1,2}:\d{2}.*/, '') // strip time suffix
+    .replace(/\p{Emoji_Presentation}/gu, '')
+    .replace(/\s*[—\-]\s*\d{1,2}:\d{2}[^,\n]*/, '') // strip time suffix
+    .replace(/(?:from|until|starts?|through)\s+\*{0,2}\w+\s+\d{1,2}:\d{2}\*{0,2}/gi, '') // "from Friday 16:00"
     .replace(/@\s*.+/, '') // strip location suffix
-    .replace(/\(.*?\)/g, '') // strip parentheticals
+    .replace(/\(.*?\)/g, '') // strip parentheticals like *(Kids)*
+    .replace(/\s{2,}/g, ' ')
     .trim()
 }
 
@@ -51,31 +70,44 @@ function parseCalendarList(content: string): CalendarEvent[] | null {
   const events: CalendarEvent[] = []
   let currentDate = ''
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+
     // Check for date header
-    const dateMatch = line.match(DATE_HEADER_RE)
-    if (dateMatch) {
-      // Extract the date portion from the header
+    if (DATE_HEADER_RE.test(line)) {
       currentDate = line
         .replace(/\*{1,2}/g, '')
-        .replace(/[📅🏕️📚]/gu, '')
+        .replace(/\p{Emoji_Presentation}/gu, '')
         .replace(/^\s*/, '')
         .replace(/\s*$/, '')
-        .replace(/\s+onwards.*/, '')
-        .replace(/\s+starts.*/, '')
+        .replace(/\s+onwards.*$/i, '')
+        .replace(/\s+starts.*$/i, '')
         .trim()
-      continue
+      // Don't skip — the line might also be an event (e.g. "🏕 **Weekend VdB** starts — 16:00")
+      // If it has a bold title pattern, fall through to event detection below
+      if (!/\*{2}.+\*{2}/.test(line)) continue
     }
 
-    // Check for event line under a date
+    // Check for event line (bullet or emoji-started)
     const eventMatch = line.match(EVENT_LINE_RE)
     if (eventMatch && currentDate) {
       const raw = eventMatch[1]
       const title = cleanTitle(raw)
-      if (!title) continue
+      if (!title || title.length < 3) continue
 
-      const timeMatch = raw.match(TIME_RE)
-      const locationMatch = raw.match(LOCATION_RE)
+      // Collect times from this line and the next line(s) of the same block
+      let fullText = raw
+      // Look ahead for continuation lines (not a new bullet or header)
+      for (let j = i + 1; j < lines.length; j++) {
+        const next = lines[j]
+        if (!next.trim() || EVENT_LINE_RE.test(next) || DATE_HEADER_RE.test(next)) break
+        if (/^[-—]/.test(next.trim())) break
+        fullText += ' ' + next.trim()
+        i = j // skip these lines
+      }
+
+      const timeMatch = fullText.match(TIME_RE)
+      const locationMatch = fullText.match(LOCATION_RE)
 
       events.push({
         date: currentDate,
@@ -143,7 +175,6 @@ interface Props {
 }
 
 export function CalendarWidget({ events }: Props) {
-  // Group events by date
   const grouped = new Map<string, CalendarEvent[]>()
   for (const event of events) {
     const existing = grouped.get(event.date) || []
