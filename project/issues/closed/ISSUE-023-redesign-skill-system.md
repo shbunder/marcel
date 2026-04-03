@@ -1,6 +1,6 @@
 # ISSUE-023: Redesign Skill System
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-02
 **Assignee:** Shaun
 **Priority:** High
@@ -34,16 +34,16 @@ The redesign introduces:
 - Auto-discovery of integration modules at startup
 
 ## Tasks
-- [ ] ISSUE-023-a: Create the integration module framework (`skills/integrations/`) with `@register` decorator and auto-discovery
-- [ ] ISSUE-023-b: Migrate iCloud from separate MCP server to a python integration module (`integrations/icloud.py`)
-- [ ] ISSUE-023-c: Rename `cmd` → `integration` in tool.py, update tool description and schema
-- [ ] ISSUE-023-d: Update executor.py to support `type: "python"` skills that dispatch to registered functions
-- [ ] ISSUE-023-e: Create `.claude/skills/icloud/SKILL.md` teaching the agent how to use iCloud via `integration`
-- [ ] ISSUE-023-f: Merge chat/coder into single assistant mode — remove coder.py, unify runner.py with generous turn limit
-- [ ] ISSUE-023-g: Remove `icloud/tool.py` (separate MCP server) and update runner.py to drop the icloud MCP server
-- [ ] ISSUE-023-h: Update existing `.claude/skills/` and CLAUDE.md files to reflect new architecture
-- [ ] ISSUE-023-i: Update docs (architecture.md, skills.md) to document new system
-- [ ] ISSUE-023-j: Run `make check` — all tests pass, lint/format/typecheck clean
+- [✓] ISSUE-023-a: Create the integration module framework (`skills/integrations/`) with `@register` decorator and auto-discovery
+- [✓] ISSUE-023-b: Migrate iCloud from separate MCP server to a python integration module (`integrations/icloud.py`)
+- [✓] ISSUE-023-c: Rename `cmd` → `integration` in tool.py, update tool description and schema
+- [✓] ISSUE-023-d: Update executor.py to support `type: "python"` skills that dispatch to registered functions
+- [✓] ISSUE-023-e: Create `.claude/skills/icloud/SKILL.md` teaching the agent how to use iCloud via `integration`
+- [✓] ISSUE-023-f: Merge chat/coder into single assistant mode — remove coder.py, unify runner.py with generous turn limit
+- [✓] ISSUE-023-g: Remove `icloud/tool.py` (separate MCP server) and update runner.py to drop the icloud MCP server
+- [✓] ISSUE-023-h: Update existing `.claude/skills/` and CLAUDE.md files to reflect new architecture
+- [✓] ISSUE-023-i: Update docs (architecture.md, skills.md) to document new system
+- [✓] ISSUE-023-j: Run `make check` — all tests pass, lint/format/typecheck clean
 
 ## Subtasks
 
