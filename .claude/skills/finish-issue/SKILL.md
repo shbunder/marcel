@@ -50,14 +50,42 @@ Add a log entry at the bottom of the issue file under `## Implementation Log`:
 **Result**: <outcome, e.g. "X tests passing">
 ```
 
-### 6. Pre-close verification
+### 6. Reflect on implementation
+
+Before closing, step back and evaluate the work:
+
+**Coverage check** — re-read the issue's Resolved intent and Tasks. For each requirement:
+- Confirm the implementation addresses it. Name the specific file/function.
+- If a requirement is NOT covered, fix it now or flag it to the user.
+
+**Shortcut check** — scan new code in the diff for:
+- `# TODO`, `# FIXME`, `# HACK` comments left behind
+- `pass` or `...` bodies that should have been implemented
+- Bare `except:` or `except Exception:` without specific handling
+- Magic numbers or hardcoded values that should be configurable
+- Generic error messages ("an error occurred" instead of specific context)
+
+**Scope drift check**:
+- Did implementation add behavior not in the requirements? (scope creep)
+- Did implementation omit behavior that is in the requirements? (missed work)
+
+Fix any gaps or shortcuts found. Then add a **Reflection** subsection to the Implementation Log entry:
+
+```markdown
+**Reflection**:
+- Coverage: X/Y requirements addressed
+- Shortcuts found: <list or "none">
+- Scope drift: <list or "none">
+```
+
+### 7. Pre-close verification
 
 Before closing, check for stragglers:
 - Run `grep -r "<key term>" .claude/skills/ docs/ project/` for key terms from the changes (convention names, emoji, format strings) to find files that reference old patterns.
 - Verify all tasks and subtasks in the issue show `[✓]`.
 - If you find missed files, commit them as a final `🔧 [ISSUE-{NNN}] impl:` commit before closing.
 
-### 7. Move to closed
+### 8. Move to closed
 
 - Update `**Status:** Closed`
 - Move the file: `project/issues/wip/ISSUE-{NNN}-{slug}.md` → `project/issues/closed/ISSUE-{NNN}-{slug}.md`
@@ -68,9 +96,38 @@ git add ./project/issues/
 git commit -m "✅ [ISSUE-{NNN}] closed: <one-line summary of what was completed>"
 ```
 
-### 8. Report back
+### 9. Capture lessons learned
+
+Read `project/lessons-learned.md` and append a new entry for the just-closed issue:
+
+```markdown
+---
+
+## ISSUE-{NNN}: Title (YYYY-MM-DD)
+
+### What worked well
+- <patterns worth repeating>
+
+### What to do differently
+- <mistakes or friction encountered>
+
+### Patterns to reuse
+- <code patterns, design decisions worth remembering>
+```
+
+Focus on things that surprised you, caused rework, or would save time next time. Keep each bullet to 1-2 sentences.
+
+Commit as a small follow-up:
+```
+git add project/lessons-learned.md
+git commit -m "🔧 [ISSUE-{NNN}] impl: capture lessons learned"
+```
+
+### 10. Report back
 
 Tell me:
 - Which tasks were marked done vs incomplete
 - Any tasks left open and why
+- Reflection findings (shortcuts found, scope drift)
+- Lessons captured
 - The final commit hash for the closure commit

@@ -26,6 +26,8 @@ Every feature or bug fix follows this procedure. Some steps are skippable for sm
 
 ## Step 1 — Capture
 
+Before starting, read `project/lessons-learned.md` to check for relevant patterns or pitfalls from past issues.
+
 Record the original request verbatim, all follow-up questions asked, and the user's answers. End with a one-paragraph **resolved intent**: what the feature actually is, in your own words.
 
 Record these in the issue file you'll create in Step 3. Hold them in working memory until then — the important thing is nothing is lost before it's written down.
