@@ -1,7 +1,7 @@
 use std::io::{self, Stdout};
 
 use crossterm::{
-    event::{DisableBracketedPaste, EnableBracketedPaste},
+    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
     execute,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -12,7 +12,12 @@ pub type Term = Terminal<CrosstermBackend<Stdout>>;
 pub fn init() -> io::Result<Term> {
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
+    execute!(
+        stdout,
+        EnterAlternateScreen,
+        EnableBracketedPaste,
+        EnableMouseCapture,
+    )?;
     let backend = CrosstermBackend::new(stdout);
     Terminal::new(backend)
 }
@@ -23,6 +28,7 @@ pub fn restore(terminal: &mut Term) -> io::Result<()> {
         terminal.backend_mut(),
         LeaveAlternateScreen,
         DisableBracketedPaste,
+        DisableMouseCapture,
     )?;
     terminal.show_cursor()?;
     Ok(())

@@ -631,6 +631,8 @@ pub struct StatusBar {
     pub model: String,
     pub session_cost: f64,
     pub turn_count: u32,
+    /// Brief flash message (e.g. "copied") shown until the caller clears it.
+    pub notification: Option<String>,
 }
 
 impl StatusBar {
@@ -640,6 +642,7 @@ impl StatusBar {
             model: model.into(),
             session_cost: 0.0,
             turn_count: 0,
+            notification: None,
         }
     }
 }
@@ -675,6 +678,11 @@ impl Renderable for StatusBar {
                 format!("  {} turns", self.turn_count),
                 Style::default().fg(DIM),
             ));
+        }
+
+        if let Some(notif) = &self.notification {
+            spans.push(sep.clone());
+            spans.push(Span::styled(notif.as_str(), Style::default().fg(GREEN)));
         }
 
         spans.push(sep);

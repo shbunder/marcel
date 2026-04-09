@@ -1,7 +1,8 @@
 use std::io;
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::Rect;
+use ratatui::style::Color;
 use tokio::sync::mpsc;
 
 use crate::Cli;
@@ -96,9 +97,6 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
     if dev_mode {
         chat_view.push_system(&format!("DEV MODE — connecting to port {port}"));
     }
-    if use_v2 {
-        chat_view.push_system("V2 HARNESS — connected to /v2/chat");
-    }
 
     // Check server health
     let version = chat::fetch_server_version(&cfg.health_url(dev_mode)).await;
@@ -129,7 +127,6 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
                 chat_view.push_system(&format!("Resumed conversation: {id}"));
             }
             None => {
-                // No ID given — fetch list and show picker
                 if header.connected {
                     match fetch_conversations(&cfg, dev_mode).await {
                         Ok(convs) if convs.is_empty() => {
@@ -141,7 +138,6 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
                             for c in &convs {
                                 chat_view.push_system(&format!("  {}  ({})", c.id, c.channel));
                             }
-                            // Auto-resume the most recent
                             if let Some(first) = convs.first() {
                                 client.set_conversation_id(&first.id);
                                 chat_view.push_system(&format!("Resumed: {}", first.id));
@@ -168,8 +164,26 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
         }
     }
 
+    // ── Mouse / selection state ────────────────────────────────────────
+    // drag_start: screen position of left-button press
+    let mut drag_start: Option<(u16, u16)> = None;
+    // selection: (start, end) screen positions while dragging or after copy
+    let mut selection: Option<((u16, u16), (u16, u16))> = None;
+    // buf_snapshot: flat text snapshot of the last frame, indexed by row
+    let mut buf_snapshot: Vec<String> = Vec::new();
+    // copy_notif_at: when we last set the "copied" notification
+    let mut copy_notif_at: Option<std::time::Instant> = None;
+
     loop {
-        // ── update chat area dimensions so scroll logic has the right values ─
+        // ── expire copy notification ───────────────────────────────────
+        if let Some(t) = copy_notif_at {
+            if t.elapsed() > std::time::Duration::from_millis(1500) {
+                status.notification = None;
+                copy_notif_at = None;
+            }
+        }
+
+        // ── update chat area dimensions ────────────────────────────────
         {
             let sz = terminal.size()?;
             chat_view.area_height = sz.height.saturating_sub(
@@ -178,6 +192,11 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
                     + status.desired_height(sz.width),
             );
             chat_view.area_width = sz.width;
+        }
+
+        // ── auto-follow: keep pinned to bottom when following ──────────
+        if chat_view.following {
+            chat_view.scroll_to_bottom();
         }
 
         // ── draw ───────────────────────────────────────────────────────
@@ -189,10 +208,9 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
             layout.push(1, &chat_view);
             layout.push(0, &input);
             layout.push(0, &status);
-
             layout.render(area, frame.buffer_mut());
 
-            // Show cursor inside input box
+            // Cursor inside input box
             let input_y = area
                 .height
                 .saturating_sub(1 + input.desired_height(area.width));
@@ -205,12 +223,38 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
             if let Some((cx, cy)) = input.cursor_pos(input_area) {
                 frame.set_cursor_position((cx, cy));
             }
+
+            // Capture text snapshot for selection extraction (before overlay).
+            // We only read symbols here; bg/fg are ignored so the snapshot is
+            // pure text and unaffected by the highlight we apply next.
+            {
+                let buf = frame.buffer_mut();
+                buf_snapshot = (0..area.height)
+                    .map(|y| {
+                        (0..area.width)
+                            .map(|x| buf[(x, y)].symbol().to_string())
+                            .collect()
+                    })
+                    .collect();
+            }
+
+            // Selection highlight overlay
+            if let Some((start, end)) = &selection {
+                let (r1, c1, r2, c2) = normalize_sel(*start, *end);
+                let buf = frame.buffer_mut();
+                for y in r1..=r2.min(area.height.saturating_sub(1)) {
+                    let x_start = if y == r1 { c1 } else { 0 };
+                    let x_end = if y == r2 { c2 } else { area.width.saturating_sub(1) };
+                    for x in x_start..=x_end.min(area.width.saturating_sub(1)) {
+                        buf[(x, y)].set_bg(Color::Rgb(0x26, 0x4F, 0x78));
+                    }
+                }
+            }
         })?;
 
-        // ── poll for events (both keyboard and streaming) ──────────────
+        // ── drain streaming events ─────────────────────────────────────
         let timeout = std::time::Duration::from_millis(50);
 
-        // Drain any pending stream events
         if let Some(rx) = &mut stream_rx {
             loop {
                 match rx.try_recv() {
@@ -222,6 +266,9 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
                     }
                     Ok(ChatEvent::Done(meta)) => {
                         chat_view.finish_stream();
+                        if chat_view.following {
+                            chat_view.scroll_to_bottom();
+                        }
                         if let Some(cost) = meta.cost_usd {
                             status.session_cost += cost;
                         }
@@ -273,33 +320,87 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
             }
         }
 
-        // Drain all pending key events (prevents queue build-up on fast typing).
-        // Wait up to `timeout` for the first event, then consume the rest immediately.
+        // ── drain keyboard + mouse events ──────────────────────────────
+        // We wait up to `timeout` for the first event, then drain the rest
+        // immediately so the queue never stalls the render loop.
         if event::poll(timeout)? {
             let mut quit = false;
             loop {
-                if let Event::Key(key) = event::read()? {
-                    match handle_key(
-                        key,
-                        &mut input,
-                        &mut chat_view,
-                        &mut header,
-                        &mut status,
-                        &mut client,
-                        &mut stream_rx,
-                        &cfg,
-                        dev_mode,
-                    )
-                    .await
-                    {
-                        Action::Continue => {}
-                        Action::Quit => {
-                            quit = true;
-                            break;
+                match event::read()? {
+                    Event::Key(key) => {
+                        // Any key clears the selection highlight
+                        selection = None;
+                        match handle_key(
+                            key,
+                            &mut input,
+                            &mut chat_view,
+                            &mut header,
+                            &mut status,
+                            &mut client,
+                            &mut stream_rx,
+                            &cfg,
+                            dev_mode,
+                        )
+                        .await
+                        {
+                            Action::Continue => {}
+                            Action::Quit => {
+                                quit = true;
+                                break;
+                            }
+                            Action::ScrollToBottom => chat_view.scroll_to_bottom(),
                         }
-                        Action::ScrollToBottom => chat_view.scroll_to_bottom(),
                     }
+
+                    Event::Mouse(mouse) => match mouse.kind {
+                        // ── Scroll wheel ──────────────────────────────
+                        MouseEventKind::ScrollUp => {
+                            chat_view.scroll_up(3);
+                        }
+                        MouseEventKind::ScrollDown => {
+                            chat_view.scroll_down(3);
+                        }
+
+                        // ── Drag-to-select ────────────────────────────
+                        MouseEventKind::Down(MouseButton::Left) => {
+                            selection = None;
+                            drag_start = Some((mouse.column, mouse.row));
+                        }
+                        MouseEventKind::Drag(MouseButton::Left) => {
+                            if let Some(start) = drag_start {
+                                let end = (mouse.column, mouse.row);
+                                if start != end {
+                                    selection = Some((start, end));
+                                }
+                            }
+                        }
+                        MouseEventKind::Up(MouseButton::Left) => {
+                            if let Some(start) = drag_start.take() {
+                                let end = (mouse.column, mouse.row);
+                                if start != end {
+                                    let text = extract_selection(&buf_snapshot, start, end);
+                                    if !text.trim().is_empty() {
+                                        copy_to_clipboard(&text);
+                                        status.notification = Some("copied".into());
+                                        copy_notif_at = Some(std::time::Instant::now());
+                                        // Keep highlight visible until next keypress
+                                        selection = Some((start, end));
+                                    } else {
+                                        selection = None;
+                                    }
+                                } else {
+                                    // Plain click — clear selection
+                                    selection = None;
+                                }
+                            }
+                        }
+
+                        _ => {}
+                    },
+
+                    _ => {}
                 }
+
                 if !event::poll(std::time::Duration::ZERO)? {
                     break;
                 }
@@ -314,11 +415,80 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
     Ok(())
 }
 
+// ── Selection helpers ─────────────────────────────────────────────────
+
+/// Normalise a selection so (r1, c1) is always the earlier position.
+fn normalize_sel(start: (u16, u16), end: (u16, u16)) -> (u16, u16, u16, u16) {
+    let (c1, r1) = start;
+    let (c2, r2) = end;
+    if r1 < r2 || (r1 == r2 && c1 <= c2) {
+        (r1, c1, r2, c2)
+    } else {
+        (r2, c2, r1, c1)
+    }
+}
+
+/// Extract the text visible at the given screen coordinates from the buffer
+/// snapshot.  Each row of the snapshot is the full width of the terminal;
+/// we trim trailing spaces so copied text is clean.
+fn extract_selection(buf: &[String], start: (u16, u16), end: (u16, u16)) -> String {
+    let (r1, c1, r2, c2) = normalize_sel(start, end);
+    let mut lines: Vec<String> = Vec::new();
+    for r in r1..=r2 {
+        if let Some(row) = buf.get(r as usize) {
+            let chars: Vec<char> = row.chars().collect();
+            let x_start = (if r == r1 { c1 as usize } else { 0 }).min(chars.len());
+            let x_end = (if r == r2 { c2 as usize + 1 } else { chars.len() }).min(chars.len());
+            let line = chars[x_start..x_end]
+                .iter()
+                .collect::<String>()
+                .trim_end()
+                .to_string();
+            lines.push(line);
+        }
+    }
+    // Drop trailing blank lines
+    while lines.last().is_some_and(|l| l.is_empty()) {
+        lines.pop();
+    }
+    lines.join("\n")
+}
+
+/// Write `text` to the system clipboard using whichever helper is available.
+fn copy_to_clipboard(text: &str) {
+    use std::io::Write;
+    let commands: &[(&str, &[&str])] = &[
+        ("wl-copy", &[]),                        // Wayland
+        ("xclip", &["-selection", "clipboard"]), // X11
+        ("xsel", &["--clipboard", "--input"]),   // X11 alt
+        ("pbcopy", &[]),                         // macOS
+    ];
+    for (cmd, args) in commands {
+        if let Ok(mut child) = std::process::Command::new(cmd)
+            .args(*args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            if let Some(stdin) = child.stdin.as_mut() {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            let _ = child.wait();
+            return;
+        }
+    }
+}
+
+// ── Action enum ───────────────────────────────────────────────────────
+
 enum Action {
     Continue,
     Quit,
     ScrollToBottom,
 }
+
+// ── Key handler ───────────────────────────────────────────────────────
 
 #[allow(clippy::too_many_arguments)]
 async fn handle_key(
@@ -332,7 +502,6 @@ async fn handle_key(
     cfg: &Config,
     dev_mode: bool,
 ) -> Action {
-    // Track whether input text changes (to refresh suggestions)
     let text_before = input.text.clone();
 
     match (key.code, key.modifiers) {
@@ -340,14 +509,13 @@ async fn handle_key(
         (KeyCode::Char('c'), KeyModifiers::CONTROL)
         | (KeyCode::Char('d'), KeyModifiers::CONTROL) => return Action::Quit,
 
-        // Escape: dismiss suggestions if visible
+        // Escape: dismiss suggestions
         (KeyCode::Esc, _) => {
             input.dismiss_suggestions();
         }
 
         // Submit
         (KeyCode::Enter, _) => {
-            // If suggestions are visible, accept the selected one instead of submitting
             if input.has_suggestions() {
                 input.accept_suggestion();
                 return Action::Continue;
@@ -366,7 +534,6 @@ async fn handle_key(
                 .await;
             }
 
-            // Send message
             if !header.connected {
                 chat.push_system("Not connected. Try /reconnect or make serve");
                 return Action::Continue;
@@ -375,22 +542,18 @@ async fn handle_key(
             chat.push_user(&text);
             chat.following = true;
             match client.send(&text).await {
-                Ok(rx) => {
-                    *stream_rx = Some(rx);
-                }
-                Err(e) => {
-                    chat.push_error(&format!("Send failed: {e}"));
-                }
+                Ok(rx) => *stream_rx = Some(rx),
+                Err(e) => chat.push_error(&format!("Send failed: {e}")),
             }
             return Action::ScrollToBottom;
         }
 
-        // Tab: accept the selected suggestion
+        // Tab: accept suggestion
         (KeyCode::Tab, _) => {
             input.accept_suggestion();
         }
 
-        // Up/Down: navigate suggestions when visible, otherwise cycle history
+        // Up/Down: suggestions or history
         (KeyCode::Up, _) => {
             if input.has_suggestions() {
                 input.suggestion_prev();
@@ -406,7 +569,7 @@ async fn handle_key(
             }
         }
 
-        // Ctrl+G: open $EDITOR for multi-line input
+        // Ctrl+G: open $EDITOR
         (KeyCode::Char('g'), KeyModifiers::CONTROL) => {
             if let Some(text) = open_editor() {
                 let text = text.trim().to_string();
@@ -432,18 +595,13 @@ async fn handle_key(
         (KeyCode::Home, _) => input.home(),
         (KeyCode::End, _) => input.end(),
 
-        // Scroll chat
-        (KeyCode::PageUp, _) => {
-            chat.scroll_up(10);
-        }
-        (KeyCode::PageDown, _) => {
-            chat.scroll_down(10);
-        }
+        // Scroll chat (keyboard)
+        (KeyCode::PageUp, _) => chat.scroll_up(10),
+        (KeyCode::PageDown, _) => chat.scroll_down(10),
 
         _ => {}
     }
 
-    // Refresh suggestions whenever the input text changes
     if input.text != text_before {
         input.update_suggestions(COMMANDS);
     }
@@ -458,16 +616,13 @@ fn open_editor() -> Option<String> {
         .unwrap_or_else(|_| "nano".into());
 
     let tmp = std::env::temp_dir().join("marcel-input.md");
-    // Write existing empty file so editor opens cleanly
     let _ = std::fs::write(&tmp, "");
 
-    // Temporarily restore terminal for the editor
     crossterm::terminal::disable_raw_mode().ok();
     crossterm::execute!(io::stdout(), crossterm::terminal::LeaveAlternateScreen).ok();
 
     let status = std::process::Command::new(&editor).arg(&tmp).status().ok();
 
-    // Re-enter TUI mode
     crossterm::terminal::enable_raw_mode().ok();
     crossterm::execute!(io::stdout(), crossterm::terminal::EnterAlternateScreen).ok();
 
@@ -477,6 +632,8 @@ fn open_editor() -> Option<String> {
         None
     }
 }
+
+// ── Command handler ───────────────────────────────────────────────────
 
 #[allow(clippy::too_many_arguments)]
 async fn handle_command(
@@ -495,9 +652,7 @@ async fn handle_command(
     match cmd.as_str() {
         "/exit" | "/quit" => return Action::Quit,
 
-        "/clear" => {
-            chat.clear();
-        }
+        "/clear" => chat.clear(),
 
         "/help" => {
             for (c, desc) in COMMANDS {
@@ -518,11 +673,7 @@ async fn handle_command(
         }
 
         "/status" => {
-            let conn = if header.connected {
-                "connected"
-            } else {
-                "offline"
-            };
+            let conn = if header.connected { "connected" } else { "offline" };
             let port = cfg.effective_port(dev_mode);
             let mode = if dev_mode { "dev" } else { "prod" };
             chat.push_system(&format!("server:  {}:{} ({})", cfg.host, port, mode));
@@ -556,7 +707,9 @@ async fn handle_command(
                 chat.push_system(&format!("user:  {}", cfg.user));
                 chat.push_system(&format!("model: {}", header.model));
             } else {
-                chat.push_system("Config editing not yet supported in Rust CLI. Edit ~/.marcel/config.toml directly.");
+                chat.push_system(
+                    "Config editing not yet supported in Rust CLI. Edit ~/.marcel/config.toml directly.",
+                );
             }
         }
 
@@ -573,9 +726,7 @@ async fn handle_command(
                 chat.push_error("/sessions requires a running server.");
             } else {
                 match fetch_conversations(cfg, dev_mode).await {
-                    Ok(convs) if convs.is_empty() => {
-                        chat.push_system("No conversations found.");
-                    }
+                    Ok(convs) if convs.is_empty() => chat.push_system("No conversations found."),
                     Ok(convs) => {
                         chat.push_system("Recent conversations:");
                         for c in &convs {
