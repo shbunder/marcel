@@ -10,6 +10,7 @@ If ``MARCEL_CREDENTIALS_KEY`` is not set, credentials fall back to plaintext
 import base64
 import hashlib
 import logging
+import os
 import pathlib
 
 from cryptography.fernet import Fernet, InvalidToken
