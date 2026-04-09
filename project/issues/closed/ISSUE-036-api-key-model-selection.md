@@ -1,6 +1,6 @@
 # ISSUE-036: API Key Auth + Per-Channel Model Selection
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-09
 **Assignee:** Shaun Bundervoet
 **Priority:** High
