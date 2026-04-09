@@ -17,6 +17,8 @@ classifiers = [
 
 dependencies = [
     "claude-agent-sdk",
+    "pydantic-ai>=0.0.14",
+    "pydantic-ai-slim[anthropic,openai]>=0.0.14",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
     "python-dotenv>=1.0.0",
