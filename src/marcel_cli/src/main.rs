@@ -43,6 +43,10 @@ pub struct Cli {
     #[arg(long)]
     dev: bool,
 
+    /// Use V2 harness endpoint (/v2/chat)
+    #[arg(long)]
+    v2: bool,
+
     /// Output format for print mode: text (default), json, stream-json
     #[arg(long, value_name = "FMT", default_value = "text")]
     output_format: String,

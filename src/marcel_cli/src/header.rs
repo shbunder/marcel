@@ -28,7 +28,7 @@ const MASCOT: &str = "     ▖▄
 
 const MASCOT_LINES: u16 = 6;
 
-const WELCOMES: &[&str] = &[
+pub const WELCOMES: &[&str] = &[
     "Welcome back!",
     "Ready when you are.",
     "At your service.",
@@ -44,17 +44,10 @@ pub struct Header {
     pub port: u16,
     pub server_version: String,
     pub connected: bool,
-    pub welcome: String,
 }
 
 impl Header {
     pub fn new(user: &str, model: &str, host: &str, port: u16) -> Self {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let idx = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as usize
-            % WELCOMES.len();
         Self {
             user: user.into(),
             model: model.into(),
@@ -62,7 +55,6 @@ impl Header {
             port,
             server_version: "offline".into(),
             connected: false,
-            welcome: WELCOMES[idx].into(),
         }
     }
 
@@ -150,7 +142,7 @@ impl Renderable for Header {
                 ])
                 .split(inner);
 
-            render_mascot_col(&self.welcome, cols[0], buf);
+            render_mascot_col(cols[0], buf);
             render_separator(cols[1], buf);
             render_col_centered(self.col2_lines(), cols[2], buf);
             render_separator(cols[3], buf);
@@ -165,45 +157,28 @@ impl Renderable for Header {
                 ])
                 .split(inner);
 
-            render_mascot_col(&self.welcome, cols[0], buf);
+            render_mascot_col(cols[0], buf);
             render_separator(cols[1], buf);
             render_col_centered(self.col2_lines(), cols[2], buf);
         } else {
-            render_mascot_col(&self.welcome, inner, buf);
+            render_mascot_col(inner, buf);
         }
     }
 
     fn desired_height(&self, _width: u16) -> u16 {
-        // welcome + blank + mascot (6 lines) = 8; plus 2 for border
-        (MASCOT_LINES + 2) + 2
+        // mascot (6 lines) + 2 for border
+        MASCOT_LINES + 2
     }
 }
 
-/// Render welcome text + mascot art, both centered in the column.
+/// Render mascot art centered in the column.
 ///
 /// All mascot lines have the same unicode-width (7), so `Alignment::Center`
 /// gives them identical x offsets, preserving internal alignment.
-fn render_mascot_col(welcome: &str, area: Rect, buf: &mut Buffer) {
-    let content_h = 1 + 1 + MASCOT_LINES;
-    let top_pad = area.height.saturating_sub(content_h) / 2;
-
-    // Welcome text
-    let welcome_y = area.y + top_pad;
-    if welcome_y < area.y + area.height {
-        let welcome_area = Rect::new(area.x, welcome_y, area.width, 1);
-        Paragraph::new(Line::from(Span::styled(
-            welcome,
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )))
-        .alignment(Alignment::Center)
-        .render(welcome_area, buf);
-    }
-
-    // Mascot — centered Paragraph, all lines equal width
-    let mascot_y = area.y + top_pad + 2;
-    let mascot_h = MASCOT_LINES.min(area.height.saturating_sub(mascot_y.saturating_sub(area.y)));
+fn render_mascot_col(area: Rect, buf: &mut Buffer) {
+    let top_pad = area.height.saturating_sub(MASCOT_LINES) / 2;
+    let mascot_y = area.y + top_pad;
+    let mascot_h = MASCOT_LINES.min(area.height.saturating_sub(top_pad));
     if mascot_y < area.y + area.height {
         let mascot_area = Rect::new(area.x, mascot_y, area.width, mascot_h);
         let style = Style::default().fg(ROSE);
