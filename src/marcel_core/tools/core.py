@@ -252,10 +252,12 @@ async def git_commit(ctx: RunContext[MarcelDeps], message: str) -> str:
         Command output or error.
     """
     # Use heredoc for proper quoting
-    cmd = f"""git commit -m "$(cat <<'EOF'
-{message}
-EOF
-)""""
+    cmd = (
+        "git commit -m \"$(cat <<'EOF'\n"
+        f"{message}\n"
+        "EOF\n"
+        ")\""
+    )
     return await bash(ctx, cmd)
 
 
