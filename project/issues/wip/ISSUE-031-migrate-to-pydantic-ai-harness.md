@@ -196,3 +196,21 @@ Detailed architecture plan saved at: `/home/sagemaker-user/.claude/plans/polishe
 **Result**: ✅ v2 endpoint fully functional - WebSocket connection, conversation creation, agent streaming, error handling all working
 **Commits**: 3 fixup commits (d0f8d18, 8898c96, 7182164)
 **Status**: Phase 1-3 COMPLETE. Ready for Phase 4 (migration scripts) or can proceed to production testing
+
+### 2026-04-09 12:37 - Claude Fixup
+**Action**: Fixed AWS Bedrock authentication for pydantic-ai v2 harness
+**Problem**: Initial implementation tried to use Bedrock proxy (localhost:9090) designed for Claude Code CLI, which uses different API endpoints (/model/{id}/invoke). Got 401 auth errors, then 404 not found.
+**Root Cause**: Pydantic-ai has native Bedrock support via boto3/SigV4 auth - doesn't need the proxy.
+**Solution**:
+- Use pydantic-ai's native `bedrock:{model_id}` format (boto3 picks up AWS_REGION from env)
+- Added `_BEDROCK_MODEL_MAP` to translate friendly names → Bedrock model IDs
+- Fixed StreamedRunResult API: `stream_text(delta=True)` and `get_output()` instead of `stream()` and `get_data()`
+- Removed `anthropic:` provider prefix from all model names for cleaner API
+**Files Modified**:
+- `src/marcel_core/harness/agent.py` - Bedrock model mapping and format
+- `src/marcel_core/harness/runner.py` - Fixed stream API usage
+- `src/marcel_core/memory/{compactor,selector}.py` - Removed provider prefixes
+- `.env.local` - Added `AWS_REGION=eu-west-1` (not tracked in git)
+**Commands Run**: `make test-v2 MSG="Hello Marcel!"` (successful), `uv run pytest tests/core/ -x` (all passing)
+**Result**: ✅ V2 endpoint now fully working with AWS Bedrock - clean streaming responses, proper usage tracking, no errors
+**Commit**: 0a68ab3

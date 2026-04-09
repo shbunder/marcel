@@ -125,22 +125,85 @@ async def stream_turn(
 
     yield RunStarted(conversation_id=conversation_id)
 
-    # Stream agent response
+    # Stream agent response - collect tool call events from event stream
     assistant_text_parts: list[str] = []
     tool_calls_made: list[ToolCall] = []
     is_error = False
     total_cost = None
 
+    # Track tool calls as they happen
+    active_tool_calls: dict[str, tuple[str, dict]] = {}  # tool_call_id -> (tool_name, args)
+    tool_events_queue: list[MarcelEvent] = []  # Queue for tool events
+
+    async def handle_events(ctx, event_stream):
+        """Handle events from the agent's execution and queue them."""
+        from pydantic_ai.messages import (
+            FunctionToolCallEvent,
+            FunctionToolResultEvent,
+        )
+
+        async for event in event_stream:
+            if isinstance(event, FunctionToolCallEvent):
+                # Tool call started - extract info from the ToolCallPart
+                tool_call_id = event.part.tool_call_id or f'call_{len(active_tool_calls)}'
+                tool_name = event.part.tool_name
+
+                tool_events_queue.append(ToolCallStarted(tool_call_id=tool_call_id, tool_name=tool_name))
+
+                # Track this tool call
+                active_tool_calls[tool_call_id] = (tool_name, event.part.args or {})
+
+            elif isinstance(event, FunctionToolResultEvent):
+                # Tool call completed - extract info from ToolReturnPart
+                from pydantic_ai.messages import ToolReturnPart
+
+                if isinstance(event.result, ToolReturnPart):
+                    tool_call_id = event.result.tool_call_id
+                    tool_info = active_tool_calls.get(tool_call_id)
+
+                    if tool_info:
+                        tool_name, args = tool_info
+
+                        # Extract result content
+                        result_str = str(event.result.content) if event.result.content else ''
+                        is_tool_error = False  # ToolReturnPart doesn't have is_error
+
+                        tool_events_queue.append(
+                            ToolCallCompleted(
+                                tool_call_id=tool_call_id,
+                                tool_name=tool_name,
+                                result=result_str[:1000],  # Truncate for display
+                                is_error=is_tool_error,
+                            )
+                        )
+
+                        # Record for history
+                        tool_calls_made.append(
+                            ToolCall(
+                                id=tool_call_id,
+                                name=tool_name,
+                                arguments=args,
+                            )
+                        )
+
     try:
-        async with agent.run_stream(user_text, deps=deps) as result:
-            # Stream text deltas
+        async with agent.run_stream(user_text, deps=deps, event_stream_handler=handle_events) as result:
+            # Stream text deltas concurrently with tool events
             async for text_delta in result.stream_text(delta=True, debounce_by=0.01):
                 if text_delta:
                     yield TextDelta(text=text_delta)
                     assistant_text_parts.append(text_delta)
 
-            # Get final result (waits for completion)
+                # Yield any queued tool events
+                while tool_events_queue:
+                    yield tool_events_queue.pop(0)
+
+            # Get final output (waits for completion)
             final_output = await result.get_output()
+
+            # Yield any remaining tool events
+            while tool_events_queue:
+                yield tool_events_queue.pop(0)
 
             # Extract usage/cost if available
             usage = result.usage()
