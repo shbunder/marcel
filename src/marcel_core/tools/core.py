@@ -109,7 +109,7 @@ async def read_file(ctx: RunContext[MarcelDeps], path: str, offset: int = 0, lim
         content = ''.join(numbered)
 
         if len(content) > MAX_OUTPUT_LENGTH:
-            content = content[:MAX_OUTPUT_LENGTH] + f'\n\n[Output truncated: use offset/limit parameters]'
+            content = content[:MAX_OUTPUT_LENGTH] + '\n\n[Output truncated: use offset/limit parameters]'
 
         return content
 
@@ -252,12 +252,7 @@ async def git_commit(ctx: RunContext[MarcelDeps], message: str) -> str:
         Command output or error.
     """
     # Use heredoc for proper quoting
-    cmd = (
-        "git commit -m \"$(cat <<'EOF'\n"
-        f"{message}\n"
-        "EOF\n"
-        ")\""
-    )
+    cmd = f'git commit -m "$(cat <<\'EOF\'\n{message}\nEOF\n)"'
     return await bash(ctx, cmd)
 
 

@@ -13,12 +13,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic_ai import models
-
 from marcel_core.harness.agent import create_marcel_agent
 from marcel_core.harness.context import MarcelDeps
-from marcel_core.memory.history import HistoryMessage, ToolCall, append_message, read_recent_turns
-from marcel_core.memory.pastes import should_store_as_paste, store_paste
+from marcel_core.memory.history import HistoryMessage, ToolCall, append_message
 
 log = logging.getLogger(__name__)
 
@@ -120,7 +117,7 @@ async def stream_turn(
     system_prompt = build_instructions(deps)
 
     # Create agent with system prompt
-    agent = create_marcel_agent(model or 'anthropic:claude-sonnet-4-6', system_prompt=system_prompt)
+    agent = create_marcel_agent(model or 'claude-sonnet-4-6', system_prompt=system_prompt)
 
     # TODO: Load conversation context from history
     # For now, just use the user prompt
@@ -137,19 +134,23 @@ async def stream_turn(
     try:
         async with agent.run_stream(user_text, deps=deps) as result:
             # Stream text deltas
-            async for text_delta in result.stream(debounce_by=0.01):
+            async for text_delta in result.stream_text(delta=True, debounce_by=0.01):
                 if text_delta:
                     yield TextDelta(text=text_delta)
                     assistant_text_parts.append(text_delta)
 
             # Get final result (waits for completion)
-            final_result = await result.get_data()
+            final_output = await result.get_output()
 
             # Extract usage/cost if available
-            if hasattr(result, 'usage') and result.usage:
-                # pydantic-ai usage tracking
-                if hasattr(result.usage, 'total_tokens'):
-                    log.debug('Turn complete: %d tokens', result.usage.total_tokens)
+            usage = result.usage()
+            if usage and usage.total_tokens:
+                log.debug(
+                    'Turn complete: %d tokens (input: %d, output: %d)',
+                    usage.total_tokens,
+                    usage.request_tokens,
+                    usage.response_tokens,
+                )
                 # TODO: Calculate cost from usage
 
     except Exception as exc:

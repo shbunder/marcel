@@ -1,6 +1,5 @@
 """Tests for JSONL history module."""
 
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch

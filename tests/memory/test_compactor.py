@@ -1,7 +1,6 @@
 """Tests for auto-compaction module."""
 
 from datetime import datetime, timezone
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -49,8 +48,9 @@ def reset_state():
 async def test_no_compaction_below_threshold(mock_messages):
     """Test that compaction doesn't run when below token threshold."""
     # Mock low token count
-    with patch('marcel_core.memory.compactor.read_recent_turns', return_value=mock_messages), patch(
-        'marcel_core.memory.compactor.count_tokens_estimate', return_value=1000
+    with (
+        patch('marcel_core.memory.compactor.read_recent_turns', return_value=mock_messages),
+        patch('marcel_core.memory.compactor.count_tokens_estimate', return_value=1000),
     ):
         result = await check_and_compact('test_user', 'conv-1')
         assert result is False  # No compaction performed
@@ -62,11 +62,12 @@ async def test_compaction_above_threshold(mock_messages):
     mock_agent_result = AsyncMock()
     mock_agent_result.data = 'This is a summary of the conversation.'
 
-    with patch('marcel_core.memory.compactor.read_recent_turns', return_value=mock_messages), patch(
-        'marcel_core.memory.compactor.count_tokens_estimate', return_value=COMPACTION_THRESHOLD + 1000
-    ), patch('marcel_core.memory.compactor.Agent') as mock_agent_class, patch(
-        'marcel_core.memory.compactor.append_message'
-    ) as mock_append:
+    with (
+        patch('marcel_core.memory.compactor.read_recent_turns', return_value=mock_messages),
+        patch('marcel_core.memory.compactor.count_tokens_estimate', return_value=COMPACTION_THRESHOLD + 1000),
+        patch('marcel_core.memory.compactor.Agent') as mock_agent_class,
+        patch('marcel_core.memory.compactor.append_message') as mock_append,
+    ):
         mock_agent_instance = AsyncMock()
         mock_agent_instance.run.return_value = mock_agent_result
         mock_agent_class.return_value = mock_agent_instance
@@ -82,10 +83,11 @@ async def test_force_compaction(mock_messages):
     mock_agent_result = AsyncMock()
     mock_agent_result.data = 'Forced summary.'
 
-    with patch('marcel_core.memory.compactor.read_recent_turns', return_value=mock_messages), patch(
-        'marcel_core.memory.compactor.count_tokens_estimate', return_value=100
-    ), patch('marcel_core.memory.compactor.Agent') as mock_agent_class, patch(
-        'marcel_core.memory.compactor.append_message'
+    with (
+        patch('marcel_core.memory.compactor.read_recent_turns', return_value=mock_messages),
+        patch('marcel_core.memory.compactor.count_tokens_estimate', return_value=100),
+        patch('marcel_core.memory.compactor.Agent') as mock_agent_class,
+        patch('marcel_core.memory.compactor.append_message'),
     ):
         mock_agent_instance = AsyncMock()
         mock_agent_instance.run.return_value = mock_agent_result
@@ -98,9 +100,11 @@ async def test_force_compaction(mock_messages):
 @pytest.mark.asyncio
 async def test_circuit_breaker_after_failures(mock_messages):
     """Test that circuit breaker stops compaction after max failures."""
-    with patch('marcel_core.memory.compactor.read_recent_turns', return_value=mock_messages), patch(
-        'marcel_core.memory.compactor.count_tokens_estimate', return_value=COMPACTION_THRESHOLD + 1000
-    ), patch('marcel_core.memory.compactor.Agent') as mock_agent_class:
+    with (
+        patch('marcel_core.memory.compactor.read_recent_turns', return_value=mock_messages),
+        patch('marcel_core.memory.compactor.count_tokens_estimate', return_value=COMPACTION_THRESHOLD + 1000),
+        patch('marcel_core.memory.compactor.Agent') as mock_agent_class,
+    ):
         mock_agent_instance = AsyncMock()
         mock_agent_instance.run.side_effect = Exception('AI failed')
         mock_agent_class.return_value = mock_agent_instance
@@ -123,10 +127,11 @@ async def test_preserves_recent_turns(mock_messages):
     mock_agent_result = AsyncMock()
     mock_agent_result.data = 'Summary of old messages.'
 
-    with patch('marcel_core.memory.compactor.read_recent_turns', return_value=mock_messages), patch(
-        'marcel_core.memory.compactor.count_tokens_estimate', return_value=COMPACTION_THRESHOLD + 1000
-    ), patch('marcel_core.memory.compactor.Agent') as mock_agent_class, patch(
-        'marcel_core.memory.compactor.append_message'
+    with (
+        patch('marcel_core.memory.compactor.read_recent_turns', return_value=mock_messages),
+        patch('marcel_core.memory.compactor.count_tokens_estimate', return_value=COMPACTION_THRESHOLD + 1000),
+        patch('marcel_core.memory.compactor.Agent') as mock_agent_class,
+        patch('marcel_core.memory.compactor.append_message'),
     ):
         mock_agent_instance = AsyncMock()
         mock_agent_instance.run.return_value = mock_agent_result
@@ -150,8 +155,9 @@ async def test_insufficient_history_for_compaction(mock_messages):
     # Only 2 turns (less than PRESERVE_RECENT_TURNS)
     short_messages = mock_messages[:4]
 
-    with patch('marcel_core.memory.compactor.read_recent_turns', return_value=short_messages), patch(
-        'marcel_core.memory.compactor.count_tokens_estimate', return_value=COMPACTION_THRESHOLD + 1000
+    with (
+        patch('marcel_core.memory.compactor.read_recent_turns', return_value=short_messages),
+        patch('marcel_core.memory.compactor.count_tokens_estimate', return_value=COMPACTION_THRESHOLD + 1000),
     ):
         result = await check_and_compact('test_user', 'conv-1')
         assert result is False  # Not enough history

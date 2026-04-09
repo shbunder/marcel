@@ -34,7 +34,7 @@ COMPACTION_THRESHOLD = 75_000
 PRESERVE_RECENT_TURNS = 5
 
 # Compaction model (fast and cheap)
-COMPACTION_MODEL = 'anthropic:claude-haiku-4-5-20251001'
+COMPACTION_MODEL = 'claude-haiku-4-5-20251001'
 
 # Circuit breaker: max consecutive failures before giving up
 MAX_COMPACTION_FAILURES = 3

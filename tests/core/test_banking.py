@@ -322,7 +322,9 @@ class TestSync:
         with (
             patch('marcel_core.banking.sync.client.get_stored_sessions', return_value=sessions),
             patch('marcel_core.banking.sync.client.get_session', new_callable=AsyncMock, side_effect=mock_get_session),
-            patch('marcel_core.banking.sync.client.get_balances', new_callable=AsyncMock, return_value=[_make_balance()]),
+            patch(
+                'marcel_core.banking.sync.client.get_balances', new_callable=AsyncMock, return_value=[_make_balance()]
+            ),
             patch(
                 'marcel_core.banking.sync.client.get_all_transactions',
                 new_callable=AsyncMock,

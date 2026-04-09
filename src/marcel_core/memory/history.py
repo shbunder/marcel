@@ -26,7 +26,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from marcel_core.storage._atomic import atomic_write
 from marcel_core.storage._root import data_root
 
 log = logging.getLogger(__name__)
@@ -65,9 +64,7 @@ class HistoryMessage:
             'conversation_id': self.conversation_id,
         }
         if self.tool_calls:
-            obj['tool_calls'] = [
-                {'id': tc.id, 'name': tc.name, 'arguments': tc.arguments} for tc in self.tool_calls
-            ]
+            obj['tool_calls'] = [{'id': tc.id, 'name': tc.name, 'arguments': tc.arguments} for tc in self.tool_calls]
         if self.tool_call_id:
             obj['tool_call_id'] = self.tool_call_id
         if self.result_ref:
@@ -208,7 +205,9 @@ def count_tokens_estimate(messages: list[HistoryMessage]) -> int:
     return total_chars // 4
 
 
-def create_compaction_summary(messages: list[HistoryMessage], summary_text: str, conversation_id: str) -> HistoryMessage:
+def create_compaction_summary(
+    messages: list[HistoryMessage], summary_text: str, conversation_id: str
+) -> HistoryMessage:
     """Create a synthetic system message representing a compaction summary.
 
     Args:

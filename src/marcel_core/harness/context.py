@@ -23,7 +23,7 @@ class MarcelDeps:
     """The originating channel: 'cli', 'telegram', 'app', 'ios', 'websocket'."""
 
     model: str | None = None
-    """Optional model override (e.g., 'anthropic:claude-opus-4-6')."""
+    """Optional model override (e.g., 'claude-opus-4-6', 'gpt-4')."""
 
 
 async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:

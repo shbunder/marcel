@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from marcel_core.memory.selector import MAX_SELECTED, SELECTION_THRESHOLD, select_relevant_memories
+from marcel_core.memory.selector import MAX_SELECTED, select_relevant_memories
 from marcel_core.storage.memory import MemoryHeader, MemoryType
 
 
@@ -40,8 +40,9 @@ def mock_headers():
 @pytest.mark.asyncio
 async def test_small_memory_set_loads_all(mock_headers):
     """Test that small memory sets skip AI selection and load everything."""
-    with patch('marcel_core.memory.selector.scan_memory_headers', return_value=mock_headers), patch(
-        'marcel_core.memory.selector.load_memory_file', return_value='Memory content'
+    with (
+        patch('marcel_core.memory.selector.scan_memory_headers', return_value=mock_headers),
+        patch('marcel_core.memory.selector.load_memory_file', return_value='Memory content'),
     ):
         results = await select_relevant_memories('test_user', 'what groceries do I like?', include_household=False)
 
@@ -58,9 +59,11 @@ async def test_large_memory_set_uses_ai_selection(mock_headers):
     mock_agent_result = AsyncMock()
     mock_agent_result.data = '["groceries.md"]'
 
-    with patch('marcel_core.memory.selector.scan_memory_headers', return_value=many_headers), patch(
-        'marcel_core.memory.selector.Agent'
-    ) as mock_agent_class, patch('marcel_core.memory.selector.load_memory_file', return_value='Memory content'):
+    with (
+        patch('marcel_core.memory.selector.scan_memory_headers', return_value=many_headers),
+        patch('marcel_core.memory.selector.Agent') as mock_agent_class,
+        patch('marcel_core.memory.selector.load_memory_file', return_value='Memory content'),
+    ):
         mock_agent_instance = AsyncMock()
         mock_agent_instance.run.return_value = mock_agent_result
         mock_agent_class.return_value = mock_agent_instance
@@ -77,9 +80,11 @@ async def test_ai_selection_failure_fallback(mock_headers):
     """Test that AI selection failures fall back to loading all."""
     many_headers = mock_headers * 5
 
-    with patch('marcel_core.memory.selector.scan_memory_headers', return_value=many_headers), patch(
-        'marcel_core.memory.selector.Agent'
-    ) as mock_agent_class, patch('marcel_core.memory.selector.load_memory_file', return_value='Memory content'):
+    with (
+        patch('marcel_core.memory.selector.scan_memory_headers', return_value=many_headers),
+        patch('marcel_core.memory.selector.Agent') as mock_agent_class,
+        patch('marcel_core.memory.selector.load_memory_file', return_value='Memory content'),
+    ):
         mock_agent_instance = AsyncMock()
         mock_agent_instance.run.side_effect = Exception('AI failed')
         mock_agent_class.return_value = mock_agent_instance
@@ -114,8 +119,9 @@ async def test_include_household_memories(mock_headers):
             return [household_header]
         return mock_headers
 
-    with patch('marcel_core.memory.selector.scan_memory_headers', side_effect=mock_scan), patch(
-        'marcel_core.memory.selector.load_memory_file', return_value='Memory content'
+    with (
+        patch('marcel_core.memory.selector.scan_memory_headers', side_effect=mock_scan),
+        patch('marcel_core.memory.selector.load_memory_file', return_value='Memory content'),
     ):
         results = await select_relevant_memories('test_user', 'family events?', include_household=True)
 
@@ -126,9 +132,11 @@ async def test_include_household_memories(mock_headers):
 @pytest.mark.asyncio
 async def test_freshness_note_appended(mock_headers):
     """Test that freshness notes are appended to old memories."""
-    with patch('marcel_core.memory.selector.scan_memory_headers', return_value=mock_headers), patch(
-        'marcel_core.memory.selector.load_memory_file', return_value='Memory content'
-    ), patch('marcel_core.memory.selector.memory_freshness_note', return_value='⚠️ Memory is 2 days old'):
+    with (
+        patch('marcel_core.memory.selector.scan_memory_headers', return_value=mock_headers),
+        patch('marcel_core.memory.selector.load_memory_file', return_value='Memory content'),
+        patch('marcel_core.memory.selector.memory_freshness_note', return_value='⚠️ Memory is 2 days old'),
+    ):
         results = await select_relevant_memories('test_user', 'query')
 
         # Check that freshness note was appended

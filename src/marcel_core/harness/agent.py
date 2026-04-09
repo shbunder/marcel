@@ -10,51 +10,69 @@ import os
 
 from pydantic_ai import Agent
 
-from marcel_core.harness.context import MarcelDeps, build_instructions
-from marcel_core.tools import core as core_tools
-from marcel_core.tools import claude_code as claude_code_tool
-from marcel_core.tools import integration as integration_tools
+from marcel_core.harness.context import MarcelDeps
+from marcel_core.tools import claude_code as claude_code_tool, core as core_tools, integration as integration_tools
 
 log = logging.getLogger(__name__)
 
+# Map friendly model names to Bedrock model IDs
+_BEDROCK_MODEL_MAP = {
+    'claude-sonnet-4-6': 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
+    'claude-opus-4-6': 'eu.anthropic.claude-opus-4-6-v1',
+    'claude-haiku-4-5-20251001': 'eu.anthropic.claude-haiku-4-5-20251001-v1:0',
+}
 
-def _resolve_model_string(model: str) -> str:
-    """Resolve model string to support Bedrock ARNs.
 
-    If AWS_REGION is set and model looks like an ARN, use Bedrock provider.
+def _create_anthropic_model(model_name: str) -> str:
+    """Create an Anthropic model identifier.
+
+    Uses AWS Bedrock if AWS_REGION is set, otherwise standard Anthropic API.
+
+    Returns:
+        Model string in format 'bedrock:{model_id}' or 'anthropic:{model}'.
     """
     aws_region = os.environ.get('AWS_REGION')
-    bedrock_base_url = os.environ.get('ANTHROPIC_BEDROCK_BASE_URL')
 
-    # If model is a Bedrock ARN and we have AWS config, use bedrock provider
-    if aws_region and 'arn:aws:bedrock' in model:
-        # pydantic-ai bedrock provider format: bedrock:{region}/{model_id}
-        # Extract region from ARN or use AWS_REGION
-        model_id = model.split('/')[-1]  # Get last part of ARN
-        return f'bedrock:{aws_region}/{model_id}'
+    # If AWS region is configured, use Bedrock
+    if aws_region:
+        # Map to Bedrock model ID if available
+        bedrock_model_id = _BEDROCK_MODEL_MAP.get(model_name, model_name)
+        log.info(
+            'Creating model with AWS Bedrock: region=%s model=%s bedrock_id=%s',
+            aws_region,
+            model_name,
+            bedrock_model_id,
+        )
+        # Pydantic-ai bedrock format: bedrock:{model_id} (region from AWS_REGION)
+        return f'bedrock:{bedrock_model_id}'
 
-    # If using bedrock base URL proxy, use anthropic provider with custom base_url
-    if bedrock_base_url:
-        # For now, just use the model as-is with anthropic provider
-        # The bedrock proxy at localhost:9090 translates to bedrock
-        return model if ':' in model else f'anthropic:{model}'
-
-    # Default: assume anthropic provider
-    return model if ':' in model else f'anthropic:{model}'
+    # Default: use standard Anthropic API
+    log.info('Creating Anthropic model with Anthropic API: model=%s', model_name)
+    return f'anthropic:{model_name}'
 
 
-def create_marcel_agent(model: str = 'anthropic:claude-sonnet-4-6', system_prompt: str = '') -> Agent[MarcelDeps, str]:
+def create_marcel_agent(model: str = 'claude-sonnet-4-6', system_prompt: str = '') -> Agent[MarcelDeps, str]:
     """Create a configured Marcel agent with all tools.
 
     Args:
-        model: The model identifier (e.g., 'anthropic:claude-sonnet-4-6', 'openai:gpt-4', ARN for Bedrock).
+        model: The model name (e.g., 'claude-sonnet-4-6', 'gpt-4').
+               The function handles provider selection (Anthropic, OpenAI, Bedrock proxy).
         system_prompt: The system prompt string (must be provided).
 
     Returns:
         Configured pydantic-ai Agent instance.
     """
-    resolved_model = _resolve_model_string(model)
-    log.info('Creating Marcel agent: input_model=%s resolved_model=%s', model, resolved_model)
+    # Strip provider prefix if present (e.g., 'anthropic:' or 'openai:')
+    clean_model = model.split(':', 1)[-1] if ':' in model else model
+
+    # Determine if we need Anthropic (default) or OpenAI
+    if 'gpt' in clean_model.lower():
+        resolved_model = f'openai:{clean_model}'
+        log.info('Creating Marcel agent with OpenAI: model=%s', resolved_model)
+    else:
+        # Use Anthropic (with Bedrock proxy if configured)
+        resolved_model = _create_anthropic_model(clean_model)
+        log.info('Creating Marcel agent with Anthropic: model=%s', clean_model)
 
     if not system_prompt:
         system_prompt = 'You are Marcel, a helpful AI assistant.'

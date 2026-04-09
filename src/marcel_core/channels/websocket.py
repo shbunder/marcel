@@ -7,7 +7,7 @@ import logging
 
 from fastapi import WebSocket
 
-from marcel_core.channels.adapter import ChannelAdapter, ChannelCapabilities
+from marcel_core.channels.adapter import ChannelCapabilities
 
 log = logging.getLogger(__name__)
 
