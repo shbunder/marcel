@@ -21,6 +21,18 @@ log = logging.getLogger(__name__)
 # Maximum output length before truncation (characters)
 MAX_OUTPUT_LENGTH = 50000
 
+# Project root — src/marcel_core/tools/core.py → parents[3] = project root
+_PROJECT_ROOT = str(Path(__file__).resolve().parents[3])
+
+
+def _effective_cwd(ctx: RunContext[MarcelDeps]) -> str:
+    """Return the effective working directory for this request.
+
+    Uses the cwd from deps if set (admin CLI sessions send the caller's pwd;
+    admin non-CLI sessions default to $HOME). Falls back to the project root.
+    """
+    return ctx.deps.cwd or _PROJECT_ROOT
+
 
 async def bash(ctx: RunContext[MarcelDeps], command: str, timeout: int = 120) -> str:
     """Execute a bash command on the server.
@@ -36,14 +48,15 @@ async def bash(ctx: RunContext[MarcelDeps], command: str, timeout: int = 120) ->
     Returns:
         Command output (stdout + stderr combined).
     """
-    log.info('[bash] user=%s cmd=%s', ctx.deps.user_slug, command[:100])
+    cwd = _effective_cwd(ctx)
+    log.info('[bash] user=%s cwd=%s cmd=%s', ctx.deps.user_slug, cwd, command[:100])
 
     try:
         proc = await asyncio.create_subprocess_shell(
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            cwd='/home/sagemaker-user/projects/marcel',  # Run from project root
+            cwd=cwd,
         )
 
         try:
@@ -87,7 +100,7 @@ async def read_file(ctx: RunContext[MarcelDeps], path: str, offset: int = 0, lim
     try:
         file_path = Path(path)
         if not file_path.is_absolute():
-            file_path = Path('/home/sagemaker-user/projects/marcel') / path
+            file_path = Path(_effective_cwd(ctx)) / path
 
         if not file_path.exists():
             return f'Error: File not found: {path}'
@@ -134,7 +147,7 @@ async def write_file(ctx: RunContext[MarcelDeps], path: str, content: str) -> st
     try:
         file_path = Path(path)
         if not file_path.is_absolute():
-            file_path = Path('/home/sagemaker-user/projects/marcel') / path
+            file_path = Path(_effective_cwd(ctx)) / path
 
         # Create parent directories if needed
         file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -164,7 +177,7 @@ async def edit_file(ctx: RunContext[MarcelDeps], path: str, old_string: str, new
     try:
         file_path = Path(path)
         if not file_path.is_absolute():
-            file_path = Path('/home/sagemaker-user/projects/marcel') / path
+            file_path = Path(_effective_cwd(ctx)) / path
 
         if not file_path.exists():
             return f'Error: File not found: {path}'

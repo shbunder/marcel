@@ -85,6 +85,7 @@ async def chat_v2(websocket: WebSocket) -> None:
             conversation_id: str | None = data.get('conversation')
             channel: str = data.get('channel', 'websocket')
             model: str | None = data.get('model') or None
+            cwd: str | None = data.get('cwd') or None
 
             if not user_text:
                 await adapter.send_error('Empty message')
@@ -108,7 +109,7 @@ async def chat_v2(websocket: WebSocket) -> None:
                 await adapter.send_text_message_start()
                 text_started = True
 
-                async for event in stream_turn(user_slug, channel, user_text, conversation_id, model=model):
+                async for event in stream_turn(user_slug, channel, user_text, conversation_id, model=model, cwd=cwd):
                     if isinstance(event, RunStarted):
                         # Turn started (already sent conversation_started if needed)
                         pass

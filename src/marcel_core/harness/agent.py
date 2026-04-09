@@ -92,13 +92,22 @@ def _create_anthropic_model(model_name: str) -> str:
     )
 
 
-def create_marcel_agent(model: str = DEFAULT_MODEL, system_prompt: str = '') -> Agent[MarcelDeps, str]:
-    """Create a configured Marcel agent with all tools.
+def create_marcel_agent(
+    model: str = DEFAULT_MODEL,
+    system_prompt: str = '',
+    role: str = 'user',
+) -> Agent[MarcelDeps, str]:
+    """Create a configured Marcel agent with a role-appropriate tool set.
+
+    Admin users receive the full suite of power tools (bash, file I/O, git, claude_code).
+    Regular users receive only integration, memory_search, and notify — enough for a
+    household assistant without exposing arbitrary shell access.
 
     Args:
         model: The model name (e.g., 'claude-sonnet-4-6', 'gpt-4o').
                The function handles provider selection (Anthropic, OpenAI, Bedrock proxy).
         system_prompt: The system prompt string (must be provided).
+        role: The user's role — ``'admin'`` or ``'user'``.
 
     Returns:
         Configured pydantic-ai Agent instance.
@@ -107,7 +116,7 @@ def create_marcel_agent(model: str = DEFAULT_MODEL, system_prompt: str = '') -> 
     clean_model = model.split(':', 1)[-1] if ':' in model else model
 
     resolved_model = _create_anthropic_model(clean_model)
-    log.info('Creating Marcel agent: model=%s resolved=%s', clean_model, resolved_model)
+    log.info('Creating Marcel agent: model=%s resolved=%s role=%s', clean_model, resolved_model, role)
 
     if not system_prompt:
         system_prompt = 'You are Marcel, a helpful AI assistant.'
@@ -119,25 +128,24 @@ def create_marcel_agent(model: str = DEFAULT_MODEL, system_prompt: str = '') -> 
         retries=2,
     )
 
-    # Register core tools (bash, files, git)
-    agent.tool(core_tools.bash)
-    agent.tool(core_tools.read_file)
-    agent.tool(core_tools.write_file)
-    agent.tool(core_tools.edit_file)
-    agent.tool(core_tools.git_status)
-    agent.tool(core_tools.git_diff)
-    agent.tool(core_tools.git_log)
-    agent.tool(core_tools.git_add)
-    agent.tool(core_tools.git_commit)
-    agent.tool(core_tools.git_push)
+    if role == 'admin':
+        # Full power tools — bash, file I/O, git, and Claude Code delegation
+        agent.tool(core_tools.bash)
+        agent.tool(core_tools.read_file)
+        agent.tool(core_tools.write_file)
+        agent.tool(core_tools.edit_file)
+        agent.tool(core_tools.git_status)
+        agent.tool(core_tools.git_diff)
+        agent.tool(core_tools.git_log)
+        agent.tool(core_tools.git_add)
+        agent.tool(core_tools.git_commit)
+        agent.tool(core_tools.git_push)
+        agent.tool(claude_code_tool.claude_code)
 
-    # Register integration tools (dispatch to skills registry)
+    # All users get integration dispatch, memory search, and notifications
     agent.tool(integration_tools.integration)
     agent.tool(integration_tools.memory_search)
     agent.tool(integration_tools.notify)
 
-    # Register claude-code delegation tool
-    agent.tool(claude_code_tool.claude_code)
-
-    log.info('Created Marcel agent with model=%s', model)
+    log.info('Created Marcel agent with model=%s role=%s', model, role)
     return agent

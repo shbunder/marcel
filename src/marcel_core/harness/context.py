@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass
@@ -24,6 +26,86 @@ class MarcelDeps:
 
     model: str | None = None
     """Optional model override (e.g., 'claude-opus-4-6', 'gpt-4')."""
+
+    role: str = field(default='user')
+    """The user's role: 'admin' or 'user'."""
+
+    cwd: str | None = None
+    """Working directory for bash and file operations.
+
+    For admin CLI sessions this is the directory where the CLI was invoked.
+    For admin non-CLI sessions this defaults to the user's home directory.
+    None falls back to the project root.
+    """
+
+
+def build_server_context(cwd: str | None = None) -> str:
+    """Build a server/environment context block for admin users.
+
+    Detects whether Marcel is running in Docker, finds the host hostname,
+    and lists the key mounts available to admin users.
+
+    Args:
+        cwd: The effective working directory (shown in the context block).
+
+    Returns:
+        Markdown string describing the server environment.
+    """
+    lines = ['## Server Context (Admin)']
+
+    # Docker detection
+    in_docker = Path('/.dockerenv').exists()
+    if in_docker:
+        lines.append('**Runtime:** Docker container')
+
+        # Host hostname from read-only host mount
+        host_hostname_path = Path('/_host/etc/hostname')
+        if host_hostname_path.exists():
+            try:
+                host_hostname = host_hostname_path.read_text(encoding='utf-8').strip()
+                lines.append(f'**Host:** `{host_hostname}`')
+            except OSError:
+                pass
+    else:
+        lines.append('**Runtime:** Bare metal / VM')
+        try:
+            hostname = Path('/etc/hostname').read_text(encoding='utf-8').strip()
+            lines.append(f'**Host:** `{hostname}`')
+        except OSError:
+            pass
+
+    # Home directory — the host home is bind-mounted at the same path inside Docker
+    home = os.environ.get('HOME', '')
+    if home:
+        lines.append(
+            f'**Home directory:** `{home}` '
+            '(host home, bind-mounted read-write at the same path — this IS the server home folder)'
+        )
+
+    # Host filesystem read-only mount
+    if Path('/_host').exists():
+        lines.append('**Host filesystem:** `/_host/...` (entire host, read-only)')
+
+    # Docker socket
+    if Path('/var/run/docker.sock').exists():
+        lines.append(
+            '**Docker:** socket at `/var/run/docker.sock` — '
+            'use `docker` CLI to list, inspect, restart, exec into containers'
+        )
+
+    # Working directory
+    effective_cwd = cwd or home or '/app'
+    lines.append(f'**Working directory:** `{effective_cwd}`')
+
+    lines += [
+        '',
+        'You have full CLI capabilities: `bash`, file I/O, `git_*`, and `claude_code` delegation.',
+        'When the user refers to "home folder", "server files", or "the NUC", '
+        'they mean the host machine — use `' + (home or '/home') + '` as the starting point.',
+        'To read host-only files not in the home mount, use `/_host/...` paths.',
+    ]
+
+    return '\n'.join(lines)
 
 
 async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
@@ -82,6 +164,9 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
         '',
     ]
 
+    if deps.role == 'admin':
+        lines += [build_server_context(deps.cwd), '']
+
     if memory_content:
         lines += ['## Memory', memory_content, '']
 
@@ -132,6 +217,12 @@ def build_instructions(deps: MarcelDeps) -> str:
         f'## What you know about {deps.user_slug}',
         profile or '(no profile information yet)',
         '',
+    ]
+
+    if deps.role == 'admin':
+        lines += [build_server_context(deps.cwd), '']
+
+    lines += [
         '## Channel',
         f'You are responding via the {deps.channel} channel. {format_hint}',
     ]

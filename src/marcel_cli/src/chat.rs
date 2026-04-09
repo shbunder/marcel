@@ -11,6 +11,10 @@ struct ChatRequest {
     model: Option<String>,
     #[serde(skip_serializing_if = "String::is_empty")]
     token: String,
+    /// Current working directory of the CLI process — used by admin users so
+    /// Marcel's bash/file tools operate relative to where the CLI was invoked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -72,16 +76,22 @@ pub struct ChatClient {
     model: String,
     token: String,
     conversation_id: Option<String>,
+    /// Working directory captured at startup — sent with every message.
+    cwd: Option<String>,
 }
 
 impl ChatClient {
     pub fn new(ws_url: &str, user: &str, model: &str, token: &str) -> Self {
+        let cwd = std::env::current_dir()
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_string()));
         Self {
             ws_url: ws_url.into(),
             user: user.into(),
             model: model.into(),
             token: token.into(),
             conversation_id: None,
+            cwd,
         }
     }
 
@@ -102,6 +112,7 @@ impl ChatClient {
             conversation: self.conversation_id.clone(),
             model: Some(self.model.clone()),
             token: self.token.clone(),
+            cwd: self.cwd.clone(),
         };
 
         let payload = serde_json::to_string(&req).unwrap();
