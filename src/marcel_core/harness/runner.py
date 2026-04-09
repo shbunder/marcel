@@ -13,9 +13,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
 
-from marcel_core.harness.agent import create_marcel_agent
+from marcel_core.harness.agent import DEFAULT_MODEL, create_marcel_agent
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.memory.history import HistoryMessage, ToolCall, append_message
+from marcel_core.storage.settings import load_channel_model
 
 log = logging.getLogger(__name__)
 
@@ -116,8 +117,11 @@ async def stream_turn(
 
     system_prompt = build_instructions(deps)
 
+    # Resolve model: explicit override > per-channel setting > default
+    resolved_model = model or load_channel_model(user_slug, channel) or DEFAULT_MODEL
+
     # Create agent with system prompt
-    agent = create_marcel_agent(model or 'claude-sonnet-4-6', system_prompt=system_prompt)
+    agent = create_marcel_agent(resolved_model, system_prompt=system_prompt)
 
     # TODO: Load conversation context from history
     # For now, just use the user prompt

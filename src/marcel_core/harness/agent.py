@@ -9,12 +9,29 @@ import logging
 import os
 
 from pydantic_ai import Agent
-from pydantic_ai.models.anthropic import AnthropicModel
 
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.tools import claude_code as claude_code_tool, core as core_tools, integration as integration_tools
 
 log = logging.getLogger(__name__)
+
+# Canonical model registry — models available to users.
+# Keys are the pydantic-ai model strings; values are human-readable display names.
+ANTHROPIC_MODELS: dict[str, str] = {
+    'claude-sonnet-4-6': 'Claude Sonnet 4.6 (fast, recommended)',
+    'claude-opus-4-6': 'Claude Opus 4.6 (most capable)',
+    'claude-haiku-4-5-20251001': 'Claude Haiku 4.5 (fastest)',
+}
+
+OPENAI_MODELS: dict[str, str] = {
+    'gpt-4o': 'GPT-4o (fast, multimodal)',
+    'gpt-4o-mini': 'GPT-4o mini (fastest, cheapest)',
+    'o1': 'o1 (reasoning)',
+    'o3-mini': 'o3-mini (fast reasoning)',
+}
+
+# Default model when no preference is set
+DEFAULT_MODEL = 'claude-sonnet-4-6'
 
 # Map friendly model names to Bedrock model IDs
 _BEDROCK_MODEL_MAP = {
@@ -24,17 +41,21 @@ _BEDROCK_MODEL_MAP = {
 }
 
 
-def _create_anthropic_model(model_name: str) -> str | AnthropicModel:
-    """Create an Anthropic model, choosing the auth method automatically.
+def all_models() -> dict[str, str]:
+    """Return all available models across all providers."""
+    return {**ANTHROPIC_MODELS, **OPENAI_MODELS}
+
+
+def _create_anthropic_model(model_name: str) -> str:
+    """Create an Anthropic model string, choosing the auth method automatically.
 
     Priority order:
-    1. ``AWS_REGION`` set → AWS Bedrock (returns model string)
-    2. ``ANTHROPIC_API_KEY`` set → Anthropic API key (returns model string)
-    3. ``~/.claude/.credentials.json`` exists → Claude Code OAuth bearer token
+    1. ``AWS_REGION`` set → AWS Bedrock (returns bedrock: model string)
+    2. ``ANTHROPIC_API_KEY`` set → Anthropic API key (returns anthropic: model string)
+    3. ``OPENAI_API_KEY`` set + OpenAI model → OpenAI (returns openai: model string)
 
     Returns:
-        A pydantic-ai model string (Bedrock / API key paths) or an
-        ``AnthropicModel`` instance (OAuth path).
+        A pydantic-ai model string.
 
     Raises:
         RuntimeError: If no authentication method is available.
@@ -51,23 +72,31 @@ def _create_anthropic_model(model_name: str) -> str | AnthropicModel:
         )
         return f'bedrock:{bedrock_model_id}'
 
-    # 2. Standard API key
+    # 2. OpenAI model with API key
+    if model_name in OPENAI_MODELS and os.environ.get('OPENAI_API_KEY'):
+        log.info('Creating OpenAI model with API key: model=%s', model_name)
+        return f'openai:{model_name}'
+
+    # 3. Anthropic API key
     if os.environ.get('ANTHROPIC_API_KEY'):
         log.info('Creating Anthropic model with API key: model=%s', model_name)
         return f'anthropic:{model_name}'
 
-    # 3. Claude Code OAuth token
-    from marcel_core.harness.oauth import build_anthropic_provider
+    # 4. OpenAI API key (fallback for OpenAI models)
+    if os.environ.get('OPENAI_API_KEY'):
+        log.info('Creating OpenAI model with API key: model=%s', model_name)
+        return f'openai:{model_name}'
 
-    log.info('Creating Anthropic model with Claude Code OAuth: model=%s', model_name)
-    return build_anthropic_provider(model_name)
+    raise RuntimeError(
+        f'No API key found for model {model_name!r}. Set ANTHROPIC_API_KEY or OPENAI_API_KEY in .env.local.'
+    )
 
 
-def create_marcel_agent(model: str = 'claude-sonnet-4-6', system_prompt: str = '') -> Agent[MarcelDeps, str]:
+def create_marcel_agent(model: str = DEFAULT_MODEL, system_prompt: str = '') -> Agent[MarcelDeps, str]:
     """Create a configured Marcel agent with all tools.
 
     Args:
-        model: The model name (e.g., 'claude-sonnet-4-6', 'gpt-4').
+        model: The model name (e.g., 'claude-sonnet-4-6', 'gpt-4o').
                The function handles provider selection (Anthropic, OpenAI, Bedrock proxy).
         system_prompt: The system prompt string (must be provided).
 
@@ -77,14 +106,8 @@ def create_marcel_agent(model: str = 'claude-sonnet-4-6', system_prompt: str = '
     # Strip provider prefix if present (e.g., 'anthropic:' or 'openai:')
     clean_model = model.split(':', 1)[-1] if ':' in model else model
 
-    # Determine if we need Anthropic (default) or OpenAI
-    if 'gpt' in clean_model.lower():
-        resolved_model = f'openai:{clean_model}'
-        log.info('Creating Marcel agent with OpenAI: model=%s', resolved_model)
-    else:
-        # Use Anthropic (with Bedrock proxy if configured)
-        resolved_model = _create_anthropic_model(clean_model)
-        log.info('Creating Marcel agent with Anthropic: model=%s', clean_model)
+    resolved_model = _create_anthropic_model(clean_model)
+    log.info('Creating Marcel agent: model=%s resolved=%s', clean_model, resolved_model)
 
     if not system_prompt:
         system_prompt = 'You are Marcel, a helpful AI assistant.'
