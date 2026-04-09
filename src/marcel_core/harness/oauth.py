@@ -2,10 +2,17 @@
 
 Reads the OAuth access token that the ``claude`` CLI stores in
 ``~/.claude/.credentials.json`` and builds a configured
-``AnthropicProvider`` that sends it as ``Authorization: Bearer``.
+``AnthropicProvider`` that sends it as ``Authorization: Bearer`` with
+the beta headers required for OAuth inference.
 
-This lets the V2 harness reuse the same login session as Claude Code —
-no separate ``ANTHROPIC_API_KEY`` needed.
+Required beta headers (discovered from openclaw/extensions/anthropic/stream-wrappers.ts):
+- ``oauth-2025-04-20`` — enables OAuth bearer auth on the messages API
+- ``claude-code-20250219`` — Claude Code session capability
+- ``fine-grained-tool-streaming-2025-05-14`` — tool streaming
+- ``interleaved-thinking-2025-05-14`` — extended thinking support
+
+Without ``oauth-2025-04-20`` the API returns "OAuth authentication is
+currently not supported" even with a valid bearer token.
 
 Token lifecycle
 ---------------
@@ -24,6 +31,7 @@ import logging
 import time
 from pathlib import Path
 
+import httpx
 from anthropic import AsyncAnthropic
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
@@ -34,6 +42,17 @@ _CREDENTIALS_FILE = Path.home() / '.claude' / '.credentials.json'
 
 # Warn if token expires within this many seconds
 _EXPIRY_WARN_SECS = 300
+
+# Beta headers required when using OAuth bearer tokens (sk-ant-oat*)
+# Source: openclaw/extensions/anthropic/stream-wrappers.ts PI_AI_OAUTH_ANTHROPIC_BETAS
+_OAUTH_BETA_HEADERS = ','.join(
+    [
+        'claude-code-20250219',
+        'oauth-2025-04-20',
+        'fine-grained-tool-streaming-2025-05-14',
+        'interleaved-thinking-2025-05-14',
+    ]
+)
 
 
 def load_oauth_token() -> str | None:
@@ -71,8 +90,9 @@ def load_oauth_token() -> str | None:
 def build_anthropic_provider(model_name: str) -> AnthropicModel:
     """Build a pydantic-ai AnthropicModel using the Claude Code OAuth token.
 
-    Returns an ``AnthropicModel`` instance configured with the OAuth token,
-    or raises ``RuntimeError`` if no token is available.
+    Creates an ``AsyncAnthropic`` client that:
+    - Sends ``Authorization: Bearer <token>`` (not ``x-api-key``)
+    - Injects the required ``anthropic-beta`` headers for OAuth inference
 
     Args:
         model_name: The Anthropic model name (e.g. ``'claude-sonnet-4-6'``).
@@ -85,5 +105,13 @@ def build_anthropic_provider(model_name: str) -> AnthropicModel:
         raise RuntimeError('No Claude Code OAuth token found. Log in once with the `claude` CLI to authenticate.')
 
     log.info('[oauth] Using Claude Code OAuth token for model=%s', model_name)
-    provider = AnthropicProvider(anthropic_client=AsyncAnthropic(auth_token=token))
+
+    # Inject the required OAuth beta headers via a custom httpx transport.
+    # The Anthropic SDK sends x-api-key for API keys and Authorization: Bearer
+    # for auth_token. The oauth-2025-04-20 beta flag is also required or the
+    # API rejects OAuth tokens even when the Authorization header is correct.
+    http_client = httpx.AsyncClient(
+        headers={'anthropic-beta': _OAUTH_BETA_HEADERS},
+    )
+    provider = AnthropicProvider(anthropic_client=AsyncAnthropic(auth_token=token, http_client=http_client))
     return AnthropicModel(model_name, provider=provider)

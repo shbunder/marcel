@@ -108,7 +108,9 @@ def test_build_provider_uses_oauth_token(tmp_path):
 
         oauth.build_anthropic_provider('claude-sonnet-4-6')
 
-    mock_anthropic.assert_called_once_with(auth_token='sk-ant-oat01-build-test')
+    call_kwargs = mock_anthropic.call_args.kwargs
+    assert call_kwargs['auth_token'] == 'sk-ant-oat01-build-test'
+    assert 'http_client' in call_kwargs  # beta headers injected via custom client
     mock_model.assert_called_once_with('claude-sonnet-4-6', provider=mock_provider.return_value)
 
 
@@ -163,7 +165,9 @@ def test_agent_falls_back_to_oauth_when_no_api_key(tmp_path, monkeypatch):
         importlib.reload(agent_mod)  # reload to pick up monkeypatched env
         agent_mod._create_anthropic_model('claude-sonnet-4-6')
 
-    mock_anthropic.assert_called_once_with(auth_token='sk-ant-oat01-fallback')
+    call_kwargs = mock_anthropic.call_args.kwargs
+    assert call_kwargs['auth_token'] == 'sk-ant-oat01-fallback'
+    assert 'http_client' in call_kwargs  # beta headers injected via custom client
 
 
 def test_agent_prefers_bedrock_over_all(tmp_path, monkeypatch):
