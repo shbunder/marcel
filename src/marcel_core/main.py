@@ -12,7 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-load_dotenv()  # loads ANTHROPIC_API_KEY and other vars from .env into the process env
+load_dotenv()           # base config from .env
+load_dotenv('.env.local', override=True)  # local overrides take precedence
 
 # Configure application-level logging so marcel_core.* loggers are visible.
 logging.basicConfig(
