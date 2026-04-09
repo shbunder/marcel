@@ -104,6 +104,18 @@ serve: install-skills ## Start marcel-core development server (uvicorn with relo
 	echo -e "$(INFO) Starting marcel-core (dev) on http://0.0.0.0:$(MARCEL_DEV_PORT) ..."
 	MARCEL_PORT=$(MARCEL_DEV_PORT) uv run uvicorn marcel_core.main:app --host 0.0.0.0 --port $(MARCEL_DEV_PORT) --reload
 
+.PHONY: test-v2
+test-v2: ## Test v2 endpoint with a message (usage: make test-v2 MSG="your message")
+	@if [ -z "$(MSG)" ]; then \
+		echo -e "$(WARNING) Usage: make test-v2 MSG=\"your message here\""; \
+		echo "Examples:"; \
+		echo "  make test-v2 MSG=\"Hello Marcel!\""; \
+		echo "  make test-v2 MSG=\"List files in current directory\""; \
+		echo "  make test-v2 MSG=\"Read README.md\""; \
+		exit 1; \
+	fi
+	@./test_v2.sh "$(MSG)"
+
 # Deployment
 .PHONY: setup
 setup: ## Full setup: systemd units + Docker build + start (one command to rule them all)
