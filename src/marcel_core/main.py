@@ -22,6 +22,7 @@ logging.basicConfig(
 
 from marcel_core.agent.sessions import session_manager
 from marcel_core.api.chat import router as chat_router
+from marcel_core.api.chat_v2 import router as chat_v2_router
 from marcel_core.api.conversations import router as conversations_router
 from marcel_core.api.health import router as health_router
 from marcel_core.banking.sync import start_sync_loop, stop_sync_loop
@@ -89,12 +90,13 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(chat_router)
+app.include_router(chat_v2_router)  # v2 harness endpoint (pydantic-ai)
 app.include_router(conversations_router)
 app.include_router(telegram_router)
 
 # Serve the built web frontend (SPA) if it exists
 _WEB_DIST = Path(__file__).resolve().parent.parent / 'web' / 'dist'
-_API_PREFIXES = ('ws', 'health', 'conversations', 'telegram', 'api')
+_API_PREFIXES = ('ws', 'v2', 'health', 'conversations', 'telegram', 'api')
 
 if _WEB_DIST.is_dir():
     _assets_dir = _WEB_DIST / 'assets'

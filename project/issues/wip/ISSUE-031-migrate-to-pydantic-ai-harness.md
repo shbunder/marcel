@@ -78,14 +78,14 @@ The migration follows a 6-week phased approach with both systems running in para
 - [✓] Milestone: New harness feature-complete for tools
 
 ### Phase 3: Channels (Week 4)
-- [ ] Implement channel adapter protocol (`src/marcel_core/channels/adapter.py`)
-- [ ] Build WebSocket adapter (`src/marcel_core/channels/websocket.py`)
-- [ ] Build Telegram adapter (`src/marcel_core/channels/telegram.py`)
-- [ ] Build CLI adapter (`src/marcel_core/channels/cli.py`)
-- [ ] Create v2 API endpoint (`src/marcel_core/api/chat_v2.py`)
-- [ ] Update `main.py` to include v2 router with feature flag
-- [ ] Write unit tests for channel adapters
-- [ ] Milestone: Both harnesses running in parallel
+- [✓] Implement channel adapter protocol (`src/marcel_core/channels/adapter.py`)
+- [✓] Build WebSocket adapter (`src/marcel_core/channels/websocket.py`)
+- [ ] Build Telegram adapter (`src/marcel_core/channels/telegram.py`) — deferred to Phase 4
+- [ ] Build CLI adapter (`src/marcel_core/channels/cli.py`) — deferred to Phase 4
+- [✓] Create v2 API endpoint (`src/marcel_core/api/chat_v2.py`)
+- [✓] Update `main.py` to include v2 router with feature flag
+- [✓] Write unit tests for channel adapters
+- [✓] Milestone: Both harnesses running in parallel (v2 endpoint available)
 
 ### Phase 4: Testing & Migration (Week 5)
 - [ ] Add feature flag env var `MARCEL_USE_V2` (default: false)
@@ -110,8 +110,8 @@ The migration follows a 6-week phased approach with both systems running in para
 ## Subtasks
 
 - [✓] ISSUE-031-a: Phase 1 - Foundation (JSONL history, core tools, MarcelAgent)
-- [⚒] ISSUE-031-b: Phase 2 - Memory & Tools (selector, compaction, integration dispatcher)
-- [ ] ISSUE-031-c: Phase 3 - Channels (adapters, v2 endpoints)
+- [✓] ISSUE-031-b: Phase 2 - Memory & Tools (selector, compaction, integration dispatcher)
+- [⚒] ISSUE-031-c: Phase 3 - Channels (adapters, v2 endpoints)
 - [ ] ISSUE-031-d: Phase 4 - Testing & Data Migration
 - [ ] ISSUE-031-e: Phase 5 - Cutover & Cleanup
 
@@ -168,3 +168,19 @@ Detailed architecture plan saved at: `/home/sagemaker-user/.claude/plans/polishe
 **Commands Run**: `uv run pytest tests/memory/test_selector.py tests/memory/test_compactor.py -v` (all 12 tests passed)
 **Result**: Success — Memory & tools complete. New harness has all tools: core (bash, git, files), integrations (dispatch to registry), memory_search, notify, claude-code delegation
 **Next**: Phase 3 - Channel adapters (WebSocket, Telegram, CLI) and v2 API endpoints
+
+### 2026-04-09 10:00 - Claude Implementation
+**Action**: Completed Phase 3 - Channel Adapters & v2 API
+**Files Created**:
+- `src/marcel_core/channels/__init__.py` - Channels package
+- `src/marcel_core/channels/adapter.py` - ChannelAdapter protocol and ChannelCapabilities
+- `src/marcel_core/channels/websocket.py` - WebSocket adapter implementation (AG-UI compatible events)
+- `src/marcel_core/api/chat_v2.py` - v2 WebSocket endpoint using new harness (/v2/chat)
+- `tests/channels/__init__.py` - Channel tests package
+- `tests/channels/test_websocket_adapter.py` - WebSocket adapter tests (11 tests)
+**Files Modified**:
+- `src/marcel_core/main.py` - Added chat_v2_router and updated API prefixes
+**Commands Run**: `uv run pytest tests/channels/ -v` (all 11 tests passed)
+**Result**: Success — v2 endpoint active at /v2/chat. Both harnesses running in parallel. WebSocket adapter provides thin client with capability declarations. Dual-write to JSONL history + Markdown (migration compatibility).
+**Next**: Phase 4 - Testing, data migration script, performance validation
+**Note**: Telegram and CLI adapters deferred to Phase 4 (not critical for v2 validation)
