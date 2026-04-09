@@ -42,11 +42,18 @@ class MarcelDeps:
 def _host_home() -> str:
     """Return the host user's home directory, even when running inside Docker.
 
-    Docker sets the container user's $HOME to /home/marcel. The actual host home
-    is passed in via HOST_HOME (set in docker-compose.yml environment). Falls back
-    to $HOME for bare-metal deployments where container and host home are the same.
+    Priority order:
+    1. HOST_HOME env var (set explicitly in docker-compose.yml environment)
+    2. Parent of MARCEL_DATA_DIR — already set to ${HOST_HOME}/.marcel in
+       docker-compose.yml, so works without container recreation
+    3. $HOME — correct for bare-metal; wrong inside Docker (resolves to
+       /home/marcel, the container user) but used as last resort
     """
-    return os.environ.get('HOST_HOME') or os.environ.get('HOME') or '/root'
+    if host_home := os.environ.get('HOST_HOME'):
+        return host_home
+    if data_dir := os.environ.get('MARCEL_DATA_DIR'):
+        return str(Path(data_dir).parent)
+    return os.environ.get('HOME') or '/root'
 
 
 def build_server_context(cwd: str | None = None) -> str:
