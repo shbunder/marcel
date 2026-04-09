@@ -54,3 +54,20 @@ Lessons captured after completed issues. Referenced at the start of new feature 
 - For any subprocess that may exit early via `return` inside a `try`, put `kill()` + `wait_for(proc.wait())` in the `finally` block — never after it — so all exit paths clean up
 - Stream-json event loop pattern: `async for raw in proc.stdout` + `json.loads(line)` + dispatch on `event.get('type')` is clean and easy to extend with new event types
 - `PAUSED:` prefix protocol: when a tool call needs to pause for user input but can't block, return a structured prefix string the agent can detect and act on, then resume with a follow-up call
+
+---
+
+## ISSUE-036: API Key Auth + Per-Channel Model Selection (2026-04-09)
+
+### What worked well
+- Stashing changes to verify pre-existing typecheck errors before blaming our code — confirmed 18 errors existed before, our changes reduced to 15
+- Putting the canonical model registry (`ANTHROPIC_MODELS`, `OPENAI_MODELS`, `DEFAULT_MODEL`) in `agent.py` means all layers (runner, integration handlers, SKILL.md) import from one place
+- The `_load_settings` / `_save_settings` split with `atomic_write` follows existing storage module patterns perfectly; easy to extend settings later
+
+### What to do differently
+- OAuth exploration added significant code that then had to be cleanly deleted; if API keys were available from the start the detour would have been skipped
+
+### Patterns to reuse
+- Per-user JSON settings at `~/.marcel/users/{slug}/settings.json` via `atomic_write` is the right pattern for lightweight user preferences that don't warrant a full DB
+- Integration handler pattern: `@register("settings.action")` + `async def fn(params: dict, user_slug: str) -> str` — clean, discoverable, testable in isolation
+- Model resolution priority chain in `_create_anthropic_model`: AWS_REGION > OPENAI (for OpenAI models) > ANTHROPIC_API_KEY > OPENAI_API_KEY — explicit ordering beats implicit detection
