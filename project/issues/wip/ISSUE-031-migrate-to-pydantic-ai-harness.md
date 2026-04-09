@@ -184,3 +184,15 @@ Detailed architecture plan saved at: `/home/sagemaker-user/.claude/plans/polishe
 **Result**: Success — v2 endpoint active at /v2/chat. Both harnesses running in parallel. WebSocket adapter provides thin client with capability declarations. Dual-write to JSONL history + Markdown (migration compatibility).
 **Next**: Phase 4 - Testing, data migration script, performance validation
 **Note**: Telegram and CLI adapters deferred to Phase 4 (not critical for v2 validation)
+
+### 2026-04-09 10:30 - Claude Testing & Fixups
+**Action**: Live testing of v2 endpoint with WebSocket client
+**Fixes Applied**:
+- Fixed git_commit syntax error (unterminated string literal in heredoc)
+- Added Bedrock ARN support to agent creation (AWS region + proxy detection)
+- Removed invalid `result_type` parameter from pydantic-ai Agent
+- Fixed system_prompt parameter (must be string, not callable)
+**Testing**: Created Python WebSocket test client, connected to /v2/chat endpoint
+**Result**: ✅ v2 endpoint fully functional - WebSocket connection, conversation creation, agent streaming, error handling all working
+**Commits**: 3 fixup commits (d0f8d18, 8898c96, 7182164)
+**Status**: Phase 1-3 COMPLETE. Ready for Phase 4 (migration scripts) or can proceed to production testing
