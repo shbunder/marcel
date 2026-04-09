@@ -58,7 +58,6 @@ def create_marcel_agent(model: str = 'anthropic:claude-sonnet-4-6') -> Agent[Mar
     agent: Agent[MarcelDeps, str] = Agent(
         resolved_model,
         deps_type=MarcelDeps,
-        result_type=str,
         system_prompt=build_instructions,  # Callable for dynamic prompts
         retries=2,
     )
