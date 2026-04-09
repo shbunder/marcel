@@ -9,6 +9,7 @@ import logging
 import os
 
 from pydantic_ai import Agent
+from pydantic_ai.models.anthropic import AnthropicModel
 
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.tools import claude_code as claude_code_tool, core as core_tools, integration as integration_tools
@@ -23,19 +24,24 @@ _BEDROCK_MODEL_MAP = {
 }
 
 
-def _create_anthropic_model(model_name: str) -> str:
-    """Create an Anthropic model identifier.
+def _create_anthropic_model(model_name: str) -> str | AnthropicModel:
+    """Create an Anthropic model, choosing the auth method automatically.
 
-    Uses AWS Bedrock if AWS_REGION is set, otherwise standard Anthropic API.
+    Priority order:
+    1. ``AWS_REGION`` set → AWS Bedrock (returns model string)
+    2. ``ANTHROPIC_API_KEY`` set → Anthropic API key (returns model string)
+    3. ``~/.claude/.credentials.json`` exists → Claude Code OAuth bearer token
 
     Returns:
-        Model string in format 'bedrock:{model_id}' or 'anthropic:{model}'.
-    """
-    aws_region = os.environ.get('AWS_REGION')
+        A pydantic-ai model string (Bedrock / API key paths) or an
+        ``AnthropicModel`` instance (OAuth path).
 
-    # If AWS region is configured, use Bedrock
+    Raises:
+        RuntimeError: If no authentication method is available.
+    """
+    # 1. AWS Bedrock
+    aws_region = os.environ.get('AWS_REGION')
     if aws_region:
-        # Map to Bedrock model ID if available
         bedrock_model_id = _BEDROCK_MODEL_MAP.get(model_name, model_name)
         log.info(
             'Creating model with AWS Bedrock: region=%s model=%s bedrock_id=%s',
@@ -43,12 +49,18 @@ def _create_anthropic_model(model_name: str) -> str:
             model_name,
             bedrock_model_id,
         )
-        # Pydantic-ai bedrock format: bedrock:{model_id} (region from AWS_REGION)
         return f'bedrock:{bedrock_model_id}'
 
-    # Default: use standard Anthropic API
-    log.info('Creating Anthropic model with Anthropic API: model=%s', model_name)
-    return f'anthropic:{model_name}'
+    # 2. Standard API key
+    if os.environ.get('ANTHROPIC_API_KEY'):
+        log.info('Creating Anthropic model with API key: model=%s', model_name)
+        return f'anthropic:{model_name}'
+
+    # 3. Claude Code OAuth token
+    from marcel_core.harness.oauth import build_anthropic_provider
+
+    log.info('Creating Anthropic model with Claude Code OAuth: model=%s', model_name)
+    return build_anthropic_provider(model_name)
 
 
 def create_marcel_agent(model: str = 'claude-sonnet-4-6', system_prompt: str = '') -> Agent[MarcelDeps, str]:
