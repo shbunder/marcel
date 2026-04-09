@@ -25,7 +25,7 @@ async def integration(
     """Execute a registered integration skill.
 
     Integrations are external services that Marcel can call: calendar, banking,
-    smart home, etc. Each integration is documented in .claude/skills/{name}/SKILL.md.
+    smart home, etc. Each integration is documented in .marcel/skills/{name}/SKILL.md.
 
     Available skills:
     - banking.setup: Initialize KBC banking integration

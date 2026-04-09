@@ -104,7 +104,7 @@ All handlers are in `src/marcel_core/skills/integrations/banking.py` and registe
 | `banking.transactions` | Query cached transactions with filters (all banks) |
 | `banking.sync` | Trigger an immediate manual sync of all banks |
 
-The agent-facing documentation is in `src/marcel_core/skills/docs/banking/SKILL.md` — this teaches Marcel how to translate natural language financial questions into the right `integration()` calls.
+The agent-facing documentation is in `.marcel/skills/banking/SKILL.md` — this teaches Marcel how to translate natural language financial questions into the right `integration()` calls. If banking is not configured for a user, the loader serves `.marcel/skills/banking/SETUP.md` instead, guiding them through setup.
 
 ## Credentials reference
 

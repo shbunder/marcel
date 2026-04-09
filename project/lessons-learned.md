@@ -18,7 +18,7 @@ Lessons captured after completed issues. Referenced at the start of new feature 
 
 ### Patterns to reuse
 - `@register("name.action")` decorator for extensibility points
-- Symlink pattern: source docs in `src/`, symlinked into `.claude/skills/` via `make install-skills`
+- Skill docs in `.marcel/skills/` with SKILL.md + SETUP.md fallback pattern, loaded from project and home dirs
 - Single-tool dispatch (`integration`) with skill routing — avoids tool proliferation
 
 ---

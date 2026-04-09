@@ -77,7 +77,7 @@ Before closing, verify:
 - All tasks and subtasks show `[✓]`
 - Dependent issues are unblocked and notified
 - Implementation Log reflects all work done
-- **All files that reference changed conventions are updated** — check skills (`.claude/skills/`), other CLAUDE.md files, and docs that may reference the patterns you modified. A `grep` for key terms from your changes is the fastest way to catch stragglers.
+- **All files that reference changed conventions are updated** — check skills (`.marcel/skills/`), other CLAUDE.md files, and docs that may reference the patterns you modified. A `grep` for key terms from your changes is the fastest way to catch stragglers.
 
 ## Git Conventions
 

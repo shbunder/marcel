@@ -81,7 +81,7 @@ Fix any gaps or shortcuts found. Then add a **Reflection** subsection to the Imp
 ### 7. Pre-close verification
 
 Before closing, check for stragglers:
-- Run `grep -r "<key term>" .claude/skills/ docs/ project/` for key terms from the changes (convention names, emoji, format strings) to find files that reference old patterns.
+- Run `grep -r "<key term>" .marcel/skills/ .claude/skills/ docs/ project/` for key terms from the changes (convention names, emoji, format strings) to find files that reference old patterns.
 - Verify all tasks and subtasks in the issue show `[✓]`.
 - If you find missed files, commit them as a final `🔧 [ISSUE-{NNN}] impl:` commit before closing.
 

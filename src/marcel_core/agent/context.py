@@ -9,6 +9,7 @@ included; for large sets only the most recent are loaded in-prompt (the agent
 can use the ``memory_search`` tool for older/less-relevant memories).
 """
 
+from marcel_core.skills.loader import format_skills_for_prompt, load_skills
 from marcel_core.storage.memory import (
     load_memory_file,
     memory_freshness_note,
@@ -50,6 +51,7 @@ def build_system_prompt(
 
     profile = storage.load_user_profile(user_slug)
     memory_content = _load_memory(user_slug)
+    skills_content = _load_skills(user_slug)
 
     lines: list[str] = [
         f'You are Marcel, a warm and capable personal assistant for {user_slug}.',
@@ -62,6 +64,9 @@ def build_system_prompt(
     if memory_content:
         lines += ['## Memory', memory_content, '']
 
+    if skills_content:
+        lines += ['## Skills', skills_content, '']
+
     format_hint = _CHANNEL_FORMAT.get(channel, _CHANNEL_FORMAT['cli'])
     lines += [
         '## Channel',
@@ -69,6 +74,17 @@ def build_system_prompt(
     ]
 
     return '\n'.join(lines)
+
+
+def _load_skills(user_slug: str) -> str:
+    """Load skill docs from .marcel/skills/ directories.
+
+    Reads from both the project directory and the user's home directory,
+    with home overriding project.  Skills whose requirements aren't met
+    get their SETUP.md fallback instead.
+    """
+    skills = load_skills(user_slug)
+    return format_skills_for_prompt(skills)
 
 
 def _load_memory(user_slug: str) -> str:

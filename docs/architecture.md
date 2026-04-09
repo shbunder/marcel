@@ -33,8 +33,10 @@ src/marcel_core/
   watchdog/        # Self-modification safety and git rollback
   telegram/        # Telegram webhook, bot client, session state
 
-.claude/skills/    # Claude Code skill docs — teach the agent how to use integrations
-  icloud/SKILL.md  # iCloud calendar and mail usage
+.marcel/skills/    # Skill docs — teach the agent how to use integrations
+  icloud/          # SKILL.md + SETUP.md (fallback for unconfigured)
+  banking/         # SKILL.md + SETUP.md
+  plex/            # SKILL.md + SETUP.md
 ```
 
 ## API endpoints

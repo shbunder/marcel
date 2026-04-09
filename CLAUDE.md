@@ -10,7 +10,7 @@ Marcel is a single unified agent. Whether the user asks it to check a calendar, 
 
 In day-to-day use Marcel acts as a butler: managing calendars, sending reminders, handling integrations (smart home, shopping, travel, communication), and generally making life easier for the household. Users are non-technical. They give instructions in plain language and expect clear, human-readable responses. Marcel should never surface implementation details unless explicitly asked.
 
-The agent has three MCP tools: `integration` (call external services), `memory_search` (search across memory files), and `notify` (send progress updates). Integration skills are documented in `.claude/skills/`; each skill's SKILL.md teaches Marcel how to call the integration with the right parameters.
+The agent has three MCP tools: `integration` (call external services), `memory_search` (search across memory files), and `notify` (send progress updates). Integration skills are documented in `.marcel/skills/`; each skill's SKILL.md teaches Marcel how to call the integration with the right parameters. Skills are loaded from both the project directory (`.marcel/skills/`) and the user's home directory (`~/.marcel/skills/`), with home overriding project. Skills with unmet requirements automatically fall back to a SETUP.md guide.
 
 ### As a Self-Rewriting Agent
 

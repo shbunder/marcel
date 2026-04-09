@@ -10,17 +10,43 @@ Integrations can be defined as:
 
 - **Python modules** with `@register` decorators — for integrations that need custom logic (API clients, stateful connections)
 - **JSON entries** in `skills.json` — for simple HTTP calls or shell commands
-- **Claude Code skills** (`.claude/skills/<name>/SKILL.md`) — prompt-driven skills that teach the agent how to use integrations
 
-All integration types are dispatched through the `integration` tool. The agent learns about available integrations from the skill docs and the tool description.
+Skill documentation lives in `.marcel/skills/<name>/SKILL.md`. These teach the agent how to use each integration. Skills are loaded from two directories and injected into the system prompt:
+
+1. **`.marcel/skills/`** (project directory) — built-in skills shipped with Marcel
+2. **`~/.marcel/skills/`** (user home / `MARCEL_DATA_DIR`) — user-level overrides and custom skills
+
+Home directory skills override project skills with the same name.
 
 ## How it works
 
 1. The agent receives a user request (e.g. "what's on my calendar?").
-2. It reads the relevant SKILL.md (loaded as a Claude Code skill) which explains how to use the integration.
+2. Its system prompt includes the relevant SKILL.md content (loaded by the skill loader).
 3. It calls `integration(skill="icloud.calendar", params={"days_ahead": "7"})`.
 4. The executor dispatches to the right handler (python function, HTTP call, or shell command).
 5. The result is returned as plain text to the agent.
+
+## Skill fallback (SETUP.md)
+
+Each integration skill can have a `SETUP.md` alongside `SKILL.md`. When the skill's requirements (credentials, env vars, files) are not met, the loader serves `SETUP.md` instead. This guides new users through first-time setup rather than failing silently.
+
+Requirements are declared in the `SKILL.md` frontmatter:
+
+```yaml
+---
+name: myservice
+description: What myservice does
+requires:
+  credentials:
+    - MY_API_KEY          # must exist in user's credential store
+  env:
+    - SOME_ENV_VAR        # must be set in the environment
+  files:
+    - signing_key.pem     # must exist in user's data directory
+---
+```
+
+When all requirements are met, the agent sees `SKILL.md`. When any are missing, it sees `SETUP.md` (marked as "not configured" in the prompt).
 
 ## Adding a Python integration
 
@@ -40,11 +66,15 @@ async def action(params: dict, user_slug: str) -> str:
     return json.dumps(result, indent=2)
 ```
 
-Then create a Claude Code skill doc at `src/marcel_core/skills/docs/myservice/SKILL.md`:
+Then create a skill doc at `.marcel/skills/myservice/SKILL.md`:
 
 ```markdown
 ---
+name: myservice
 description: Short description of what myservice does
+requires:
+  credentials:
+    - MY_API_KEY
 ---
 
 Help the user with: $ARGUMENTS
@@ -68,9 +98,22 @@ integration(skill="myservice.action", params={"key": "value"})
 Returns: description of the response format.
 ```
 
-No changes to core code are needed — the module is auto-discovered at startup.
+And a setup fallback at `.marcel/skills/myservice/SETUP.md`:
 
-Run `make install-skills` to symlink the skill doc into `.claude/skills/` where the Claude Agent SDK picks it up. This runs automatically with `make serve` (dev) and during `docker build` (prod).
+```markdown
+---
+name: myservice
+description: Guide the user through setting up myservice
+---
+
+The user is asking about myservice, but it is **not yet configured**.
+
+## How to set up myservice
+
+[Step-by-step instructions for the user...]
+```
+
+No changes to core code are needed — the module is auto-discovered at startup, and the skill docs are loaded from `.marcel/skills/` automatically.
 
 ## Adding a JSON skill (HTTP or shell)
 
@@ -111,7 +154,7 @@ For simple integrations that don't need custom Python logic, add an entry to `sr
 }
 ```
 
-JSON skills should also have a SKILL.md in `.claude/skills/` to teach the agent how to use them.
+JSON skills should also have a SKILL.md (and SETUP.md) in `.marcel/skills/` to teach the agent how to use them.
 
 ## skills.json reference
 

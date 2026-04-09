@@ -95,7 +95,7 @@ web-dev: ## Start web frontend dev server (Vite on :5173)
 MARCEL_DEV_PORT ?= 7421
 
 .PHONY: install-skills
-install-skills: ## Symlink Marcel integration skills into .claude/skills/
+install-skills: ## Symlink Marcel integration skills into .marcel/skills/
 	@echo -e "$(INFO) Installing integration skills (symlink)..."
 	@uv run python -m marcel_core.skills.install_skills
 

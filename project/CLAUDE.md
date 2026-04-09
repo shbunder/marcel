@@ -145,9 +145,11 @@ When rewriting Marcel's own code:
 New integrations follow this pattern:
 
 1. **Create a python integration module** at `src/marcel_core/skills/integrations/<name>.py`. Use the `@register("name.action")` decorator to register async handler functions. Each handler receives `(params: dict, user_slug: str)` and returns a string.
-2. **Create a skill doc** at `src/marcel_core/skills/docs/<name>/SKILL.md`. This teaches the agent how to call `integration(skill="name.action", params={...})` with inline examples, parameter tables, and usage notes. Run `make install-skills` to symlink it into `.claude/skills/` (happens automatically with `make serve`).
-3. **For simple HTTP/shell integrations**, add a JSON entry to `skills.json` instead — no Python module needed.
-4. **Add the new skill directory to `.gitignore`** — e.g. `.claude/skills/<name>/` — so the generated symlink is not tracked.
+2. **Create a skill doc** at `.marcel/skills/<name>/SKILL.md`. This teaches the agent how to call `integration(skill="name.action", params={...})` with inline examples, parameter tables, and usage notes. Add a `requires` field to the frontmatter listing credentials, env vars, or files needed.
+3. **Create a setup fallback** at `.marcel/skills/<name>/SETUP.md`. This is shown to the agent when the skill's requirements are not met, guiding new users through first-time setup.
+4. **For simple HTTP/shell integrations**, add a JSON entry to `skills.json` instead — no Python module needed. Still create SKILL.md and SETUP.md in `.marcel/skills/`.
+
+Skills are discovered from two locations: `.marcel/skills/` (project, tracked in git) and `~/.marcel/skills/` (user home, for overrides). The loader in `skills/loader.py` merges both and injects the docs into the system prompt. Home skills override project skills with the same name.
 
 All integrations are dispatched through the `integration` tool. The agent also has access to `memory_search` (keyword search across memory files) and `notify` (progress updates). These three tools are registered as MCP tools in `skills/tool.py` and passed to the `ClaudeSDKClient` session via `build_skills_mcp_server()`.
 
