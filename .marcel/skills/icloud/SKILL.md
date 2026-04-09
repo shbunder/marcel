@@ -18,8 +18,8 @@ You have access to the `integration` tool to interact with iCloud.
 Fetch upcoming calendar events.
 
 ```
-integration(skill="icloud.calendar")
-integration(skill="icloud.calendar", params={"days_ahead": "14"})
+integration(id="icloud.calendar")
+integration(id="icloud.calendar", params={"days_ahead": "14"})
 ```
 
 | Param      | Type | Default | Description                           |
@@ -33,8 +33,8 @@ Returns a JSON list of events sorted by start time. Each event has: calendar, ti
 Search the user's iCloud Mail inbox.
 
 ```
-integration(skill="icloud.mail", params={"query": "flight confirmation"})
-integration(skill="icloud.mail", params={"query": "amazon", "limit": "5"})
+integration(id="icloud.mail", params={"query": "flight confirmation"})
+integration(id="icloud.mail", params={"query": "amazon", "limit": "5"})
 ```
 
 | Param | Type   | Required | Default | Description                     |

@@ -12,7 +12,7 @@ You can change which AI model Marcel uses on any channel, or ask what models are
 List all models available to Marcel.
 
 ```
-integration(skill="settings.list_models")
+integration(id="settings.list_models")
 ```
 
 Returns a list of model IDs and their display names.
@@ -22,8 +22,8 @@ Returns a list of model IDs and their display names.
 Get the current model for a specific channel.
 
 ```
-integration(skill="settings.get_model", params={"channel": "telegram"})
-integration(skill="settings.get_model", params={"channel": "cli"})
+integration(id="settings.get_model", params={"channel": "telegram"})
+integration(id="settings.get_model", params={"channel": "cli"})
 ```
 
 | Param   | Type   | Required | Description                              |
@@ -35,8 +35,8 @@ integration(skill="settings.get_model", params={"channel": "cli"})
 Set the preferred model for a channel. The choice is saved and persists across sessions.
 
 ```
-integration(skill="settings.set_model", params={"channel": "telegram", "model": "claude-opus-4-6"})
-integration(skill="settings.set_model", params={"channel": "cli", "model": "gpt-4o"})
+integration(id="settings.set_model", params={"channel": "telegram", "model": "claude-opus-4-6"})
+integration(id="settings.set_model", params={"channel": "cli", "model": "gpt-4o"})
 ```
 
 | Param   | Type   | Required | Description                                   |

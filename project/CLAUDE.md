@@ -145,7 +145,7 @@ When rewriting Marcel's own code:
 New integrations follow this pattern:
 
 1. **Create a python integration module** at `src/marcel_core/skills/integrations/<name>.py`. Use the `@register("name.action")` decorator to register async handler functions. Each handler receives `(params: dict, user_slug: str)` and returns a string.
-2. **Create a skill doc** at `.marcel/skills/<name>/SKILL.md`. This teaches the agent how to call `integration(skill="name.action", params={...})` with inline examples, parameter tables, and usage notes. Add a `requires` field to the frontmatter listing credentials, env vars, or files needed.
+2. **Create a skill doc** at `.marcel/skills/<name>/SKILL.md`. This teaches the agent how to call `integration(id="name.action", params={...})` with inline examples, parameter tables, and usage notes. Add a `requires` field to the frontmatter listing credentials, env vars, or files needed.
 3. **Create a setup fallback** at `.marcel/skills/<name>/SETUP.md`. This is shown to the agent when the skill's requirements are not met, guiding new users through first-time setup.
 4. **For simple HTTP/shell integrations**, add a JSON entry to `skills.json` instead — no Python module needed. Still create SKILL.md and SETUP.md in `.marcel/skills/`.
 

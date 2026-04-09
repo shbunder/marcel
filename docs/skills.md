@@ -22,7 +22,7 @@ Home directory skills override project skills with the same name.
 
 1. The agent receives a user request (e.g. "what's on my calendar?").
 2. Its system prompt includes the relevant SKILL.md content (loaded by the skill loader).
-3. It calls `integration(skill="icloud.calendar", params={"days_ahead": "7"})`.
+3. It calls `integration(id="icloud.calendar", params={"days_ahead": "7"})`.
 4. The executor dispatches to the right handler (python function, HTTP call, or shell command).
 5. The result is returned as plain text to the agent.
 
@@ -88,7 +88,7 @@ You have access to the `integration` tool to interact with myservice.
 Description of what this does.
 
 \`\`\`
-integration(skill="myservice.action", params={"key": "value"})
+integration(id="myservice.action", params={"key": "value"})
 \`\`\`
 
 | Param | Type   | Required | Default | Description          |
@@ -209,7 +209,7 @@ Only `jq:` expressions are supported (requires the `jq` Python package). If jq i
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `skill` | string | yes | Dotted skill name (e.g. `"icloud.calendar"`) |
+| `id` | string | yes | Dotted integration ID (e.g. `"icloud.calendar"`) |
 | `params` | object | no | String key-value pairs passed as arguments |
 
 **On success**: returns the response as plain text.

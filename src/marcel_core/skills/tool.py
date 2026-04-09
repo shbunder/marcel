@@ -11,20 +11,20 @@ from .registry import get_skill, list_skills
 _INTEGRATION_SCHEMA: dict = {
     'type': 'object',
     'properties': {
-        'skill': {
+        'id': {
             'type': 'string',
             'description': (
-                'Dotted skill name from the registry (e.g. "icloud.calendar"). '
+                'Dotted integration ID from the registry (e.g. "icloud.calendar"). '
                 'See your skill docs for available commands and parameters.'
             ),
         },
         'params': {
             'type': 'object',
-            'description': 'Skill-specific arguments as string key-value pairs.',
+            'description': 'Integration-specific arguments as string key-value pairs.',
             'additionalProperties': {'type': 'string'},
         },
     },
-    'required': ['skill'],
+    'required': ['id'],
 }
 
 _MEMORY_SEARCH_SCHEMA: dict = {
@@ -70,14 +70,14 @@ def build_skills_mcp_server(user_slug: str, channel: str = 'cli') -> McpSdkServe
         A :class:`McpSdkServerConfig` ready for ``ClaudeAgentOptions.mcp_servers``.
     """
     available = list_skills()
-    description = 'Execute a registered integration skill.\n' + (
-        f'Available skills: {", ".join(available)}'
+    description = 'Execute a registered integration by ID.\n' + (
+        f'Available integrations: {", ".join(available)}'
         if available
-        else 'No skills are registered yet — the registry is empty.'
+        else 'No integrations are registered yet — the registry is empty.'
     )
 
     async def _integration_impl(args: dict) -> dict:
-        skill_name: str = args.get('skill', '')
+        skill_name: str = args.get('id', '')
         params: dict = args.get('params', {})
 
         try:

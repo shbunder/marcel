@@ -21,10 +21,10 @@ You have access to the `integration` tool to interact with bank account data via
 Query cached transactions. Use this for all financial questions — spending, income, specific payments, etc. Set filters based on what the user is asking about. Returns data from all linked banks.
 
 ```
-integration(skill="banking.transactions")
-integration(skill="banking.transactions", params={"date_from": "2026-01-01", "date_to": "2026-01-31"})
-integration(skill="banking.transactions", params={"search": "Colruyt", "date_from": "2026-03-01"})
-integration(skill="banking.transactions", params={"max_amount": "-100"})
+integration(id="banking.transactions")
+integration(id="banking.transactions", params={"date_from": "2026-01-01", "date_to": "2026-01-31"})
+integration(id="banking.transactions", params={"search": "Colruyt", "date_from": "2026-03-01"})
+integration(id="banking.transactions", params={"max_amount": "-100"})
 ```
 
 | Param      | Type   | Default | Description                                          |
@@ -50,7 +50,7 @@ Returns a JSON object with `transactions` (list), `count`, and `last_synced` tim
 Get the current account balance from the local cache. Returns balances from all linked banks.
 
 ```
-integration(skill="banking.balance")
+integration(id="banking.balance")
 ```
 
 Returns balance entries with `amount`, `currency`, `balance_type`, and `last_synced` timestamp.
@@ -60,7 +60,7 @@ Returns balance entries with `amount`, `currency`, `balance_type`, and `last_syn
 List linked bank accounts across all banks.
 
 ```
-integration(skill="banking.accounts")
+integration(id="banking.accounts")
 ```
 
 Returns account details from all EnableBanking sessions. Each account includes a `bank` field indicating which bank it belongs to.
@@ -70,7 +70,7 @@ Returns account details from all EnableBanking sessions. Each account includes a
 Check if bank links are active and healthy.
 
 ```
-integration(skill="banking.status")
+integration(id="banking.status")
 ```
 
 Returns link status for each linked bank, including account count, validity period, and any consent expiry warnings.
@@ -80,7 +80,7 @@ Returns link status for each linked bank, including account count, validity peri
 Trigger an immediate sync of transactions and balances from all linked banks. Only use this if the user explicitly asks for fresh data.
 
 ```
-integration(skill="banking.sync")
+integration(id="banking.sync")
 ```
 
 Returns a summary with counts of synced transactions per bank and any warnings.
@@ -90,9 +90,9 @@ Returns a summary with counts of synced transactions per bank and any warnings.
 Start a bank link flow (first-time setup or consent renewal). Returns an authentication URL the user must open. Defaults to KBC if no bank is specified.
 
 ```
-integration(skill="banking.setup")
-integration(skill="banking.setup", params={"bank": "ING"})
-integration(skill="banking.setup", params={"bank": "KBC", "country": "BE"})
+integration(id="banking.setup")
+integration(id="banking.setup", params={"bank": "ING"})
+integration(id="banking.setup", params={"bank": "KBC", "country": "BE"})
 ```
 
 | Param   | Type   | Default | Description              |
@@ -107,8 +107,8 @@ After the user authenticates, they will be redirected to a URL containing a `cod
 Complete the bank link after the user has authenticated. Extract the `code` parameter from the redirect URL.
 
 ```
-integration(skill="banking.complete_setup", params={"code": "the-authorization-code"})
-integration(skill="banking.complete_setup", params={"code": "the-authorization-code", "bank": "ING"})
+integration(id="banking.complete_setup", params={"code": "the-authorization-code"})
+integration(id="banking.complete_setup", params={"code": "the-authorization-code", "bank": "ING"})
 ```
 
 | Param   | Type   | Default | Description              |
