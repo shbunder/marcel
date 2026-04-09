@@ -1,6 +1,6 @@
 # ISSUE-032: Move Skills to .marcel/ Folder
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-09
 **Assignee:** Claude
 **Priority:** High

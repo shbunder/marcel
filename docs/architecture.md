@@ -15,7 +15,8 @@ src/marcel_core/
     health.py      # GET /health
     chat.py        # WebSocket /ws/chat
   agent/
-    context.py        # build_system_prompt — loads profile + relevance-selected memory
+    context.py        # build_system_prompt — loads MARCEL.md + profile + memory + skills
+    marcelmd.py       # MARCEL.md loader — discovers home + project instruction files
     runner.py         # stream_response — streams from persistent ClaudeSDKClient session
     sessions.py       # SessionManager — persistent session lifecycle + idle cleanup
     memory_select.py  # Relevance-based memory selection via Haiku side-query
@@ -33,10 +34,12 @@ src/marcel_core/
   watchdog/        # Self-modification safety and git rollback
   telegram/        # Telegram webhook, bot client, session state
 
-.marcel/skills/    # Skill docs — teach the agent how to use integrations
-  icloud/          # SKILL.md + SETUP.md (fallback for unconfigured)
-  banking/         # SKILL.md + SETUP.md
-  plex/            # SKILL.md + SETUP.md
+.marcel/
+  MARCEL.md        # Personal assistant instructions (persona, tone, tools overview)
+  skills/          # Skill docs — teach the agent how to use integrations
+    icloud/        # SKILL.md + SETUP.md (fallback for unconfigured)
+    banking/       # SKILL.md + SETUP.md
+    plex/          # SKILL.md + SETUP.md
 ```
 
 ## API endpoints
@@ -78,8 +81,8 @@ For each conversation turn:
 1. Client sends {"text": "...", "user": "alice", "token": "...", "conversation": null | "id"}
 2. If conversation is null → storage.new_conversation() → send {"type":"started","conversation":"id"}
 3. SessionManager.get_or_create() retrieves or creates a persistent ClaudeSDKClient session
-4. agent/context.py: scan memory headers, select top memories via relevance side-query (Haiku),
-   build system prompt = profile + selected memory + channel hint
+4. agent/context.py: load MARCEL.md files, scan memory headers, select top memories,
+   build system prompt = MARCEL.md instructions + profile + memory + skills + channel hint
    (no conversation history — SDK maintains context internally)
 5. client.query(user_text) → client.receive_response()
 6. For each StreamEvent with type=content_block_delta:

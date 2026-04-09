@@ -9,6 +9,7 @@ included; for large sets only the most recent are loaded in-prompt (the agent
 can use the ``memory_search`` tool for older/less-relevant memories).
 """
 
+from marcel_core.agent.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
 from marcel_core.skills.loader import format_skills_for_prompt, load_skills
 from marcel_core.storage.memory import (
     load_memory_file,
@@ -50,12 +51,25 @@ def build_system_prompt(
     from marcel_core import storage
 
     profile = storage.load_user_profile(user_slug)
+    marcelmd_content = _load_marcelmd()
     memory_content = _load_memory(user_slug)
     skills_content = _load_skills(user_slug)
 
-    lines: list[str] = [
-        f'You are Marcel, a warm and capable personal assistant for {user_slug}.',
-        '',
+    lines: list[str] = []
+
+    # MARCEL.md instructions (persona, behaviour, tool overview)
+    if marcelmd_content:
+        lines += [
+            '## Instructions',
+            '<!-- From MARCEL.md — codebase and user instructions. Follow these exactly. -->',
+            marcelmd_content,
+            '',
+        ]
+    else:
+        # Fallback identity line when no MARCEL.md is present
+        lines += [f'You are Marcel, a warm and capable personal assistant for {user_slug}.', '']
+
+    lines += [
         f'## What you know about {user_slug}',
         profile or '(no profile information yet)',
         '',
@@ -74,6 +88,12 @@ def build_system_prompt(
     ]
 
     return '\n'.join(lines)
+
+
+def _load_marcelmd() -> str:
+    """Load and concatenate all discovered MARCEL.md files."""
+    files = load_marcelmd_files()
+    return format_marcelmd_for_prompt(files)
 
 
 def _load_skills(user_slug: str) -> str:

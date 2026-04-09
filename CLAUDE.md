@@ -1,28 +1,21 @@
-# Marcel
+# Marcel — Developer Guide
 
 Marcel is a self-adapting personal agent built on top of Claude Code. It can observe its own behavior, identify gaps, and rewrite the code and configuration that governs how it works — including this very file.
 
-## How Marcel Works
+## Two modes, two instruction sets
 
-Marcel is a single unified agent. Whether the user asks it to check a calendar, order groceries, or rewrite its own code — it uses the same agent loop with full tool access. There is no separate "coder mode" or "assistant mode".
+- **Personal assistant mode** — governed by `MARCEL.md` files (`.marcel/MARCEL.md` and `~/.marcel/MARCEL.md`). These are read and injected by Marcel's own system prompt builder and describe how Marcel should behave as a household assistant.
+- **Developer / self-modification mode** — governed by this file and the files in `project/`. These are read by the Claude Code inner loop when Marcel modifies its own codebase.
 
-### As a Personal / Family Assistant
+You are reading CLAUDE.md, so you are in **developer mode**.
 
-In day-to-day use Marcel acts as a butler: managing calendars, sending reminders, handling integrations (smart home, shopping, travel, communication), and generally making life easier for the household. Users are non-technical. They give instructions in plain language and expect clear, human-readable responses. Marcel should never surface implementation details unless explicitly asked.
+> **Self-modification note:** Auth logic, core config, and safety rules (including these CLAUDE.md files) are off-limits unless the user explicitly grants permission for a specific change. When in doubt, ask before touching them. See [Self-Modification Safety](project/CLAUDE.md#self-modification-safety) in project/CLAUDE.md.
 
-The agent has three MCP tools: `integration` (call external services), `memory_search` (search across memory files), and `notify` (send progress updates). Integration skills are documented in `.marcel/skills/`; each skill's SKILL.md teaches Marcel how to call the integration with the right parameters. Skills are loaded from both the project directory (`.marcel/skills/`) and the user's home directory (`~/.marcel/skills/`), with home overriding project. Skills with unmet requirements automatically fall back to a SETUP.md guide.
-
-### As a Self-Rewriting Agent
-
-When asked to improve or extend itself, Marcel reads its own codebase, proposes changes, and implements them. This demands careful API design, type safety, test coverage, and thorough documentation.
-
-**When performing code changes, the following rules apply and take precedence:**
+## When performing code changes
 
 - Follow the feature development procedure in [project/CLAUDE.md](project/CLAUDE.md) — capture, requirements, create issue, design, scaffold, tests, implement, ship. The guide also covers philosophy, integration patterns, and self-modification safety. Detailed coding style rules are in [project/CODING_STANDARDS.md](project/CODING_STANDARDS.md).
 - Follow all issue management conventions in [project/issues/CLAUDE.md](project/issues/CLAUDE.md) — create an issue before starting work, log implementation activity, and use the correct git commit format.
 - Document every new feature in [docs/](docs/) per [docs/CLAUDE.md](docs/CLAUDE.md) — documentation ships in the same change as the code.
-
-> **Self-modification note:** Auth logic, core config, and safety rules (including these CLAUDE.md files) are off-limits unless the user explicitly grants permission for a specific change. When in doubt, ask before touching them. See [Self-Modification Safety](project/CLAUDE.md#self-modification-safety) in project/CLAUDE.md.
 
 ## Core Principles
 
@@ -30,3 +23,9 @@ When asked to improve or extend itself, Marcel reads its own codebase, proposes 
 - **Generic over specific** — a general extension point is better than a hardcoded one-off. Prefer strong primitives that let users build things we haven't anticipated.
 - **Human-readable over clever** — error messages, logs, and responses are read by non-technical family members as often as by developers.
 - **Recoverable over fast** — before any self-modification, commit current state to git. No change is worth an unrecoverable break.
+
+## Skill system overview
+
+Integration skills are documented in `.marcel/skills/` — each skill directory has a `SKILL.md` (full integration docs) and an optional `SETUP.md` (shown when the integration isn't configured). Skills are loaded from `.marcel/skills/` (project) and `~/.marcel/skills/` (user home). The loader is in `src/marcel_core/skills/loader.py`.
+
+Developer workflow skills (`new-issue`, `finish-issue`) remain in `.claude/skills/` — they are Claude Code skills for this developer session, not Marcel runtime skills.
