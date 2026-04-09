@@ -1,6 +1,6 @@
 # ISSUE-034: Restructure marcel_core Layout
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-09
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -34,7 +34,7 @@ All import paths across the codebase must be updated to reflect the new location
 - [✓] Delete `src/marcel_core/skills/descriptions/` (empty)
 - [✓] Delete `src/marcel_app/` (empty placeholder)
 - [✓] Run `make check` — lint and tests pass; 15 pre-existing pyright errors unchanged
-- [ ] Restart the service to verify the new layout works at runtime
+- [✓] Restart the service to verify the new layout works at runtime
 
 ## Relationships
 
