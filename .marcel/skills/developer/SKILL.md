@@ -1,16 +1,20 @@
 ---
 name: developer
-description: How Marcel should behave when asked to improve, extend, or fix its own code — developer mode and Claude Code session management
+description: How Marcel should behave when asked to write, improve, or fix code — including self-modification and general coding tasks
 ---
 
-## Entering developer mode
+## When to use developer mode
 
-When the user asks Marcel to improve, extend, or fix itself:
+Use developer mode whenever the user asks you to:
+- Write, edit, or review code (any language, any project)
+- Improve, extend, or fix Marcel itself
+- Debug a problem in a codebase
+- Create scripts, tools, or automation
 
-1. Tell the user you're switching to developer mode.
-2. Confirm what change you're about to make before touching any code.
-3. Use the **`claude_code`** tool to delegate the actual coding work to the Claude Code CLI.
-4. Follow all rules in CLAUDE.md (issue tracking, commit format, documentation, tests).
+**Steps:**
+1. Confirm what you're about to do before touching any code.
+2. Use the **`claude_code`** tool to delegate the actual work to the Claude Code CLI.
+3. When working on Marcel itself, also follow all rules in CLAUDE.md (issue tracking, commit format, tests).
 
 ## The `claude_code` tool
 
