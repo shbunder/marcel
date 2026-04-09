@@ -11,6 +11,8 @@ from pydantic_ai import Agent
 
 from marcel_core.harness.context import MarcelDeps, build_instructions
 from marcel_core.tools import core as core_tools
+from marcel_core.tools import claude_code as claude_code_tool
+from marcel_core.tools import integration as integration_tools
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +34,7 @@ def create_marcel_agent(model: str = 'anthropic:claude-sonnet-4-6') -> Agent[Mar
         retries=2,
     )
 
-    # Register core tools
+    # Register core tools (bash, files, git)
     agent.tool(core_tools.bash)
     agent.tool(core_tools.read_file)
     agent.tool(core_tools.write_file)
@@ -43,6 +45,14 @@ def create_marcel_agent(model: str = 'anthropic:claude-sonnet-4-6') -> Agent[Mar
     agent.tool(core_tools.git_add)
     agent.tool(core_tools.git_commit)
     agent.tool(core_tools.git_push)
+
+    # Register integration tools (dispatch to skills registry)
+    agent.tool(integration_tools.integration)
+    agent.tool(integration_tools.memory_search)
+    agent.tool(integration_tools.notify)
+
+    # Register claude-code delegation tool
+    agent.tool(claude_code_tool.claude_code)
 
     log.info('Created Marcel agent with model=%s', model)
     return agent

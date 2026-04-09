@@ -68,14 +68,14 @@ The migration follows a 6-week phased approach with both systems running in para
 - [✓] Milestone: New harness can handle simple tasks (no integrations yet)
 
 ### Phase 2: Memory & Tools (Week 3)
-- [ ] Port memory selector to new system (`src/marcel_core/memory/selector.py`)
-- [ ] Implement auto-compaction logic (`src/marcel_core/memory/compactor.py`)
-- [ ] Build integration dispatcher tool (`src/marcel_core/tools/integration.py`)
-- [ ] Create claude-code delegation tool (`src/marcel_core/tools/claude_code.py`)
-- [ ] Add memory_search tool (port from current MCP tool)
-- [ ] Add notify tool for progress updates
-- [ ] Write unit tests for Phase 2 components
-- [ ] Milestone: New harness feature-complete for tools
+- [✓] Port memory selector to new system (`src/marcel_core/memory/selector.py`)
+- [✓] Implement auto-compaction logic (`src/marcel_core/memory/compactor.py`)
+- [✓] Build integration dispatcher tool (`src/marcel_core/tools/integration.py`)
+- [✓] Create claude-code delegation tool (`src/marcel_core/tools/claude_code.py`)
+- [✓] Add memory_search tool (port from current MCP tool)
+- [✓] Add notify tool for progress updates
+- [✓] Write unit tests for Phase 2 components
+- [✓] Milestone: New harness feature-complete for tools
 
 ### Phase 3: Channels (Week 4)
 - [ ] Implement channel adapter protocol (`src/marcel_core/channels/adapter.py`)
@@ -109,8 +109,8 @@ The migration follows a 6-week phased approach with both systems running in para
 
 ## Subtasks
 
-- [⚒] ISSUE-031-a: Phase 1 - Foundation (JSONL history, core tools, MarcelAgent)
-- [ ] ISSUE-031-b: Phase 2 - Memory & Tools (selector, compaction, integration dispatcher)
+- [✓] ISSUE-031-a: Phase 1 - Foundation (JSONL history, core tools, MarcelAgent)
+- [⚒] ISSUE-031-b: Phase 2 - Memory & Tools (selector, compaction, integration dispatcher)
 - [ ] ISSUE-031-c: Phase 3 - Channels (adapters, v2 endpoints)
 - [ ] ISSUE-031-d: Phase 4 - Testing & Data Migration
 - [ ] ISSUE-031-e: Phase 5 - Cutover & Cleanup
@@ -152,3 +152,19 @@ Detailed architecture plan saved at: `/home/sagemaker-user/.claude/plans/polishe
 **Commands Run**: `uv sync` (installed 97 new packages), `uv run pytest tests/memory/ -v` (all 16 tests passed)
 **Result**: Success — Foundation complete with JSONL history, paste store, MarcelAgent wrapper, core tools
 **Next**: Phase 2 - Memory selector, auto-compaction, integration dispatcher, claude-code tool
+
+### 2026-04-09 09:15 - Claude Implementation
+**Action**: Completed Phase 2 - Memory & Tools
+**Files Created**:
+- `src/marcel_core/memory/selector.py` - AI-driven memory selection (ported from agent/memory_select.py, uses pydantic-ai)
+- `src/marcel_core/memory/compactor.py` - Auto-compaction with 75k token threshold, circuit breaker, preserves recent 5 turns
+- `src/marcel_core/tools/integration.py` - Integration dispatcher tool (integration, memory_search, notify)
+- `src/marcel_core/tools/claude_code.py` - Claude Code CLI delegation tool for complex coding tasks
+- `tests/memory/test_selector.py` - Unit tests for memory selector (6 tests)
+- `tests/memory/test_compactor.py` - Unit tests for compactor (6 tests)
+**Files Modified**:
+- `src/marcel_core/harness/agent.py` - Registered integration and claude-code tools
+- `src/marcel_core/harness/context.py` - Added build_instructions_async for AI-selected memories
+**Commands Run**: `uv run pytest tests/memory/test_selector.py tests/memory/test_compactor.py -v` (all 12 tests passed)
+**Result**: Success — Memory & tools complete. New harness has all tools: core (bash, git, files), integrations (dispatch to registry), memory_search, notify, claude-code delegation
+**Next**: Phase 3 - Channel adapters (WebSocket, Telegram, CLI) and v2 API endpoints
