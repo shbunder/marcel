@@ -244,7 +244,11 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
                 let buf = frame.buffer_mut();
                 for y in r1..=r2.min(area.height.saturating_sub(1)) {
                     let x_start = if y == r1 { c1 } else { 0 };
-                    let x_end = if y == r2 { c2 } else { area.width.saturating_sub(1) };
+                    let x_end = if y == r2 {
+                        c2
+                    } else {
+                        area.width.saturating_sub(1)
+                    };
                     for x in x_start..=x_end.min(area.width.saturating_sub(1)) {
                         buf[(x, y)].set_bg(Color::Rgb(0x26, 0x4F, 0x78));
                     }
@@ -438,7 +442,12 @@ fn extract_selection(buf: &[String], start: (u16, u16), end: (u16, u16)) -> Stri
         if let Some(row) = buf.get(r as usize) {
             let chars: Vec<char> = row.chars().collect();
             let x_start = (if r == r1 { c1 as usize } else { 0 }).min(chars.len());
-            let x_end = (if r == r2 { c2 as usize + 1 } else { chars.len() }).min(chars.len());
+            let x_end = (if r == r2 {
+                c2 as usize + 1
+            } else {
+                chars.len()
+            })
+            .min(chars.len());
             let line = chars[x_start..x_end]
                 .iter()
                 .collect::<String>()
@@ -673,7 +682,11 @@ async fn handle_command(
         }
 
         "/status" => {
-            let conn = if header.connected { "connected" } else { "offline" };
+            let conn = if header.connected {
+                "connected"
+            } else {
+                "offline"
+            };
             let port = cfg.effective_port(dev_mode);
             let mode = if dev_mode { "dev" } else { "prod" };
             chat.push_system(&format!("server:  {}:{} ({})", cfg.host, port, mode));
