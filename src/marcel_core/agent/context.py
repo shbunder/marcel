@@ -51,7 +51,7 @@ def build_system_prompt(
     from marcel_core import storage
 
     profile = storage.load_user_profile(user_slug)
-    marcelmd_content = _load_marcelmd()
+    marcelmd_content = _load_marcelmd(user_slug)
     memory_content = _load_memory(user_slug)
     skills_content = _load_skills(user_slug)
 
@@ -90,9 +90,9 @@ def build_system_prompt(
     return '\n'.join(lines)
 
 
-def _load_marcelmd() -> str:
-    """Load and concatenate all discovered MARCEL.md files."""
-    files = load_marcelmd_files()
+def _load_marcelmd(user_slug: str) -> str:
+    """Load and concatenate all discovered MARCEL.md files for this user."""
+    files = load_marcelmd_files(user_slug)
     return format_marcelmd_for_prompt(files)
 
 

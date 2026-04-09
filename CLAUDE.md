@@ -4,7 +4,7 @@ Marcel is a self-adapting personal agent built on top of Claude Code. It can obs
 
 ## Two modes, two instruction sets
 
-- **Personal assistant mode** — governed by `MARCEL.md` files (`.marcel/MARCEL.md` and `~/.marcel/MARCEL.md`). These are read and injected by Marcel's own system prompt builder and describe how Marcel should behave as a household assistant.
+- **Personal assistant mode** — governed by `MARCEL.md` files, loaded in order: `.marcel/MARCEL.md` (global, in git), `<data_root>/MARCEL.md` (server-wide, not in git), `<data_root>/users/<slug>/MARCEL.md` (per-user). These are injected by Marcel's own system prompt builder and describe how Marcel should behave as a household assistant.
 - **Developer / self-modification mode** — governed by this file and the files in `project/`. These are read by the Claude Code inner loop when Marcel modifies its own codebase.
 
 You are reading CLAUDE.md, so you are in **developer mode**.

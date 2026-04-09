@@ -9,109 +9,88 @@ from marcel_core.agent.marcelmd import (
 
 
 class TestLoadMarcelmdFiles:
+    def _patch(self, monkeypatch, tmp_path, data_root=None, project_root=None):
+        """Helper: patch loader internals to use tmp dirs."""
+        import marcel_core.agent.marcelmd as mod
+        import marcel_core.storage._root as root_mod
+
+        if data_root is not None:
+            monkeypatch.setattr(root_mod, '_DATA_ROOT', data_root)
+        if project_root is not None:
+            monkeypatch.setattr(mod, '_project_root', lambda: project_root)
+
     def test_empty_when_no_files_exist(self, tmp_path, monkeypatch):
-        import marcel_core.agent.marcelmd as mod
-
-        monkeypatch.setattr(mod, '_home_marcelmd', lambda: tmp_path / 'nonexistent.md')
-        monkeypatch.setattr(mod, '_dirs_from_root_to_cwd', lambda: [tmp_path / 'no' / 'such' / 'dir'])
-        result = load_marcelmd_files()
-        assert result == []
-
-    def test_home_file_loaded(self, tmp_path, monkeypatch):
-        import marcel_core.agent.marcelmd as mod
-
-        home_file = tmp_path / 'MARCEL.md'
-        home_file.write_text('Home instructions.')
-        monkeypatch.setattr(mod, '_home_marcelmd', lambda: home_file)
-        monkeypatch.setattr(mod, '_dirs_from_root_to_cwd', lambda: [])
-        files = load_marcelmd_files()
-        assert len(files) == 1
-        assert files[0] == ('user', 'Home instructions.')
+        self._patch(monkeypatch, tmp_path, data_root=tmp_path, project_root=tmp_path)
+        assert load_marcelmd_files('alice') == []
 
     def test_project_file_loaded(self, tmp_path, monkeypatch):
-        import marcel_core.agent.marcelmd as mod
-
-        project_dir = tmp_path / 'project'
-        project_dir.mkdir()
-        (project_dir / 'MARCEL.md').write_text('Project instructions.')
-        monkeypatch.setattr(mod, '_home_marcelmd', lambda: tmp_path / 'nonexistent.md')
-        monkeypatch.setattr(mod, '_dirs_from_root_to_cwd', lambda: [project_dir])
-        files = load_marcelmd_files()
+        dotmarcel = tmp_path / 'project' / '.marcel'
+        dotmarcel.mkdir(parents=True)
+        (dotmarcel / 'MARCEL.md').write_text('Project instructions.')
+        self._patch(monkeypatch, tmp_path, data_root=tmp_path, project_root=tmp_path / 'project')
+        files = load_marcelmd_files('alice')
         assert len(files) == 1
         assert files[0] == ('project', 'Project instructions.')
 
-    def test_home_loaded_before_project(self, tmp_path, monkeypatch):
-        """Home-level file comes first; project file comes after (higher priority)."""
-        import marcel_core.agent.marcelmd as mod
+    def test_server_file_loaded(self, tmp_path, monkeypatch):
+        (tmp_path / 'MARCEL.md').write_text('Server-wide instructions.')
+        self._patch(monkeypatch, tmp_path, data_root=tmp_path, project_root=tmp_path / 'no-project')
+        files = load_marcelmd_files('alice')
+        assert len(files) == 1
+        assert files[0] == ('server', 'Server-wide instructions.')
 
-        home_file = tmp_path / 'home.md'
-        home_file.write_text('Home content.')
-        project_dir = tmp_path / 'project'
-        project_dir.mkdir()
-        (project_dir / 'MARCEL.md').write_text('Project content.')
-        monkeypatch.setattr(mod, '_home_marcelmd', lambda: home_file)
-        monkeypatch.setattr(mod, '_dirs_from_root_to_cwd', lambda: [project_dir])
-        files = load_marcelmd_files()
-        assert len(files) == 2
-        assert files[0][1] == 'Home content.'
-        assert files[1][1] == 'Project content.'
+    def test_user_file_loaded(self, tmp_path, monkeypatch):
+        user_dir = tmp_path / 'users' / 'alice'
+        user_dir.mkdir(parents=True)
+        (user_dir / 'MARCEL.md').write_text('Alice instructions.')
+        self._patch(monkeypatch, tmp_path, data_root=tmp_path, project_root=tmp_path / 'no-project')
+        files = load_marcelmd_files('alice')
+        assert len(files) == 1
+        assert files[0] == ('user', 'Alice instructions.')
 
-    def test_dot_marcel_dir_also_scanned(self, tmp_path, monkeypatch):
-        """Both MARCEL.md and .marcel/MARCEL.md at each directory level are loaded."""
-        import marcel_core.agent.marcelmd as mod
-
-        project_dir = tmp_path / 'project'
-        project_dir.mkdir()
-        (project_dir / 'MARCEL.md').write_text('Root level.')
-        dotmarcel = project_dir / '.marcel'
-        dotmarcel.mkdir()
-        (dotmarcel / 'MARCEL.md').write_text('Dot-marcel level.')
-        monkeypatch.setattr(mod, '_home_marcelmd', lambda: tmp_path / 'nonexistent.md')
-        monkeypatch.setattr(mod, '_dirs_from_root_to_cwd', lambda: [project_dir])
-        files = load_marcelmd_files()
-        assert len(files) == 2
-        contents = [c for _, c in files]
-        assert 'Root level.' in contents
-        assert 'Dot-marcel level.' in contents
+    def test_loading_order_project_then_server_then_user(self, tmp_path, monkeypatch):
+        """Project < server < user, in that loading order."""
+        proj = tmp_path / 'project'
+        dotmarcel = proj / '.marcel'
+        dotmarcel.mkdir(parents=True)
+        (dotmarcel / 'MARCEL.md').write_text('Project content.')
+        (tmp_path / 'MARCEL.md').write_text('Server content.')
+        user_dir = tmp_path / 'users' / 'alice'
+        user_dir.mkdir(parents=True)
+        (user_dir / 'MARCEL.md').write_text('User content.')
+        self._patch(monkeypatch, tmp_path, data_root=tmp_path, project_root=proj)
+        files = load_marcelmd_files('alice')
+        assert len(files) == 3
+        assert files[0] == ('project', 'Project content.')
+        assert files[1] == ('server', 'Server content.')
+        assert files[2] == ('user', 'User content.')
 
     def test_empty_files_skipped(self, tmp_path, monkeypatch):
-        import marcel_core.agent.marcelmd as mod
+        user_dir = tmp_path / 'users' / 'alice'
+        user_dir.mkdir(parents=True)
+        (user_dir / 'MARCEL.md').write_text('   \n  ')  # whitespace only
+        self._patch(monkeypatch, tmp_path, data_root=tmp_path, project_root=tmp_path / 'no-project')
+        assert load_marcelmd_files('alice') == []
 
-        home_file = tmp_path / 'MARCEL.md'
-        home_file.write_text('   \n  ')  # whitespace only
-        monkeypatch.setattr(mod, '_home_marcelmd', lambda: home_file)
-        monkeypatch.setattr(mod, '_dirs_from_root_to_cwd', lambda: [])
-        files = load_marcelmd_files()
-        assert files == []
+    def test_different_users_get_different_instructions(self, tmp_path, monkeypatch):
+        for name in ('alice', 'bob'):
+            d = tmp_path / 'users' / name
+            d.mkdir(parents=True)
+            (d / 'MARCEL.md').write_text(f'{name.capitalize()} instructions.')
+        self._patch(monkeypatch, tmp_path, data_root=tmp_path, project_root=tmp_path / 'no-project')
+        alice_files = load_marcelmd_files('alice')
+        bob_files = load_marcelmd_files('bob')
+        assert alice_files[0][1] == 'Alice instructions.'
+        assert bob_files[0][1] == 'Bob instructions.'
 
-    def test_duplicate_files_deduplicated(self, tmp_path, monkeypatch):
-        """The same resolved path is never loaded twice."""
-        import marcel_core.agent.marcelmd as mod
-
-        md_file = tmp_path / 'MARCEL.md'
-        md_file.write_text('Content.')
-        # Both home and project point to the same file
-        monkeypatch.setattr(mod, '_home_marcelmd', lambda: md_file)
-        monkeypatch.setattr(mod, '_dirs_from_root_to_cwd', lambda: [tmp_path])
-        files = load_marcelmd_files()
-        assert len(files) == 1  # loaded once despite being found via both paths
-
-    def test_multiple_dirs_in_order(self, tmp_path, monkeypatch):
-        """Files from multiple dirs are returned in dir order (root → CWD)."""
-        import marcel_core.agent.marcelmd as mod
-
-        dir_a = tmp_path / 'a'
-        dir_b = tmp_path / 'b'
-        dir_a.mkdir()
-        dir_b.mkdir()
-        (dir_a / 'MARCEL.md').write_text('From a.')
-        (dir_b / 'MARCEL.md').write_text('From b.')
-        monkeypatch.setattr(mod, '_home_marcelmd', lambda: tmp_path / 'nonexistent.md')
-        monkeypatch.setattr(mod, '_dirs_from_root_to_cwd', lambda: [dir_a, dir_b])
-        files = load_marcelmd_files()
-        assert len(files) == 2
-        assert files[0][1] == 'From a.'
-        assert files[1][1] == 'From b.'
+    def test_missing_user_dir_still_loads_project(self, tmp_path, monkeypatch):
+        dotmarcel = tmp_path / 'project' / '.marcel'
+        dotmarcel.mkdir(parents=True)
+        (dotmarcel / 'MARCEL.md').write_text('Global rules.')
+        self._patch(monkeypatch, tmp_path, data_root=tmp_path, project_root=tmp_path / 'project')
+        files = load_marcelmd_files('nonexistent-user')
+        assert len(files) == 1
+        assert files[0][1] == 'Global rules.'
 
 
 class TestFormatMarcelmdForPrompt:
@@ -124,10 +103,10 @@ class TestFormatMarcelmdForPrompt:
 
     def test_multiple_files_separated_by_hr(self):
         files = [
-            ('user', 'Base instructions.'),
-            ('project', 'Project override.'),
+            ('project', 'Global rules.'),
+            ('user', 'User override.'),
         ]
         result = format_marcelmd_for_prompt(files)
-        assert 'Base instructions.' in result
-        assert 'Project override.' in result
+        assert 'Global rules.' in result
+        assert 'User override.' in result
         assert '---' in result
