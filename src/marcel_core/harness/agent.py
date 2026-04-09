@@ -6,10 +6,10 @@ Provides a configured Agent instance with tools and instructions.
 from __future__ import annotations
 
 import logging
-import os
 
 from pydantic_ai import Agent
 
+from marcel_core.config import settings
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.tools import claude_code as claude_code_tool, core as core_tools, integration as integration_tools
 
@@ -61,7 +61,7 @@ def _create_anthropic_model(model_name: str) -> str:
         RuntimeError: If no authentication method is available.
     """
     # 1. AWS Bedrock
-    aws_region = os.environ.get('AWS_REGION')
+    aws_region = settings.aws_region
     if aws_region:
         bedrock_model_id = _BEDROCK_MODEL_MAP.get(model_name, model_name)
         log.info(
@@ -73,17 +73,17 @@ def _create_anthropic_model(model_name: str) -> str:
         return f'bedrock:{bedrock_model_id}'
 
     # 2. OpenAI model with API key
-    if model_name in OPENAI_MODELS and os.environ.get('OPENAI_API_KEY'):
+    if model_name in OPENAI_MODELS and settings.openai_api_key:
         log.info('Creating OpenAI model with API key: model=%s', model_name)
         return f'openai:{model_name}'
 
     # 3. Anthropic API key
-    if os.environ.get('ANTHROPIC_API_KEY'):
+    if settings.anthropic_api_key:
         log.info('Creating Anthropic model with API key: model=%s', model_name)
         return f'anthropic:{model_name}'
 
     # 4. OpenAI API key (fallback for OpenAI models)
-    if os.environ.get('OPENAI_API_KEY'):
+    if settings.openai_api_key:
         log.info('Creating OpenAI model with API key: model=%s', model_name)
         return f'openai:{model_name}'
 

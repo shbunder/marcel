@@ -19,7 +19,6 @@ Server → client (in order):
 
 import asyncio
 import json
-import os
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -36,10 +35,11 @@ from marcel_core.agent.events import (
 )
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
 from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug
+from marcel_core.config import settings
 
 router = APIRouter()
 
-_DEFAULT_USER = os.environ.get('MARCEL_DEFAULT_USER', '')
+_DEFAULT_USER = settings.marcel_default_user
 
 
 @router.websocket('/ws/chat')

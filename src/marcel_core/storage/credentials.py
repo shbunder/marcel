@@ -10,10 +10,11 @@ If ``MARCEL_CREDENTIALS_KEY`` is not set, credentials fall back to plaintext
 import base64
 import hashlib
 import logging
-import os
 import pathlib
 
 from cryptography.fernet import Fernet, InvalidToken
+
+from marcel_core.config import settings
 
 from ._atomic import atomic_write
 from ._root import data_root
@@ -25,7 +26,7 @@ _warned_plaintext = False
 
 def _derive_key() -> bytes | None:
     """Derive a Fernet key from MARCEL_CREDENTIALS_KEY, or return None if unset."""
-    passphrase = os.environ.get('MARCEL_CREDENTIALS_KEY', '')
+    passphrase = settings.marcel_credentials_key
     if not passphrase:
         return None
     # Derive a 32-byte key via SHA-256, then base64-encode for Fernet

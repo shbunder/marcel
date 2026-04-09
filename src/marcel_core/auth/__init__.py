@@ -3,11 +3,12 @@
 import hashlib
 import hmac
 import json
-import os
 import re
 import time
 from typing import Any
 from urllib.parse import parse_qsl
+
+from marcel_core.config import settings
 
 _SLUG_RE = re.compile(r'^[a-z0-9_-]+$')
 
@@ -26,7 +27,7 @@ def verify_api_token(token: str) -> bool:
     Returns ``True`` if no token is configured (open access) or if the
     provided token matches.
     """
-    expected = os.environ.get('MARCEL_API_TOKEN', '')
+    expected = settings.marcel_api_token
     if not expected:
         return True
     return token == expected
@@ -40,7 +41,7 @@ def verify_telegram_init_data(init_data: str) -> dict[str, Any] | None:
 
     Returns the parsed ``user`` dict on success, ``None`` on failure.
     """
-    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+    bot_token = settings.telegram_bot_token
     if not bot_token:
         return None
 

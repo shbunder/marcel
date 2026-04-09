@@ -14,7 +14,6 @@ or files).  This guides new users through first-time setup.
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,10 +33,9 @@ def _home_skills_dir() -> Path:
     back to ``~/.marcel/skills/``.  This matches the data-root resolution
     in ``storage._root``.
     """
-    env = os.environ.get('MARCEL_DATA_DIR')
-    if env:
-        return Path(env) / 'skills'
-    return Path.home() / '.marcel' / 'skills'
+    from marcel_core.config import settings
+
+    return settings.data_dir / 'skills'
 
 
 @dataclass

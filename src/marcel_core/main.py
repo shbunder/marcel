@@ -6,14 +6,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
 
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-load_dotenv()           # base config from .env
-load_dotenv('.env.local', override=True)  # local overrides take precedence
+from marcel_core.config import settings
 
 # Configure application-level logging so marcel_core.* loggers are visible.
 logging.basicConfig(
@@ -80,10 +78,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title='Marcel', lifespan=lifespan)
 
 # CORS — needed for Vite dev server (different port) during development
-_cors_origins = os.environ.get('MARCEL_CORS_ORIGINS', 'http://localhost:5173').split(',')
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in _cors_origins],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=['*'],
     allow_headers=['*'],

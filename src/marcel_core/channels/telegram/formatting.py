@@ -9,9 +9,10 @@ Telegram HTML supports: <b>, <i>, <u>, <s>, <code>, <pre>,
 No <table>, <div>, <img>, <h1>, etc.
 """
 
-import os
 import re
 from dataclasses import dataclass
+
+from marcel_core.config import settings
 
 # ---------------------------------------------------------------------------
 # HTML escaping
@@ -307,7 +308,7 @@ def calendar_nav_markup(
 
 def _public_url() -> str | None:
     """Return the configured public URL, or ``None`` if not set."""
-    return os.environ.get('MARCEL_PUBLIC_URL') or None
+    return settings.marcel_public_url or None
 
 
 def web_app_url_for(conversation_id: str | None = None, turn: int | None = None) -> str | None:

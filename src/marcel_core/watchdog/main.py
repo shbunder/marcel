@@ -8,13 +8,13 @@ It is the safety net. Treat it as read-only infrastructure.
 from __future__ import annotations
 
 import logging
-import os
 import pathlib
 import signal
 import subprocess
 import sys
 import time
 
+from marcel_core.config import settings
 from marcel_core.watchdog import flags, health, rollback
 
 logging.basicConfig(
@@ -23,9 +23,9 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-PORT = int(os.environ.get('MARCEL_PORT', '8000'))
-HEALTH_TIMEOUT = float(os.environ.get('MARCEL_HEALTH_TIMEOUT', '30'))
-POLL_INTERVAL = float(os.environ.get('MARCEL_POLL_INTERVAL', '2'))
+PORT = settings.marcel_port
+HEALTH_TIMEOUT = settings.marcel_health_timeout
+POLL_INTERVAL = settings.marcel_poll_interval
 
 
 def _repo_root() -> pathlib.Path:

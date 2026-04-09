@@ -9,7 +9,6 @@ Enable with: MARCEL_USE_V2=true
 import asyncio
 import json
 import logging
-import os
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -18,6 +17,7 @@ from marcel_core.agent import extract_and_save_memories
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
 from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug
 from marcel_core.channels.websocket import WebSocketAdapter
+from marcel_core.config import settings
 from marcel_core.harness.runner import (
     RunFinished,
     RunStarted,
@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_DEFAULT_USER = os.environ.get('MARCEL_DEFAULT_USER', '')
+_DEFAULT_USER = settings.marcel_default_user
 
 
 @router.websocket('/v2/chat')
@@ -132,17 +132,23 @@ async def chat_v2(websocket: WebSocket) -> None:
                     await adapter.send_text_message_end()
 
             except Exception as exc:
-                log.exception('[chat_v2] Turn execution failed')
-                await adapter.send_error(str(exc))
+                log.exception('[chat_v2] Turn execution failed: %s', type(exc).__name__)
+                try:
+                    await adapter.send_error(str(exc))
+                except Exception:
+                    pass
                 continue
 
             full_response = ''.join(response_parts)
 
             # Persist to old Markdown format (dual-write during migration)
             # The new harness already wrote to JSONL history
-            async with storage.get_lock(user_slug):
-                storage.append_turn(user_slug, conversation_id, 'user', user_text)
-                storage.append_turn(user_slug, conversation_id, 'assistant', full_response)
+            try:
+                async with storage.get_lock(user_slug):
+                    storage.append_turn(user_slug, conversation_id, 'user', user_text)
+                    storage.append_turn(user_slug, conversation_id, 'assistant', full_response)
+            except Exception:
+                log.exception('[chat_v2] Failed to persist conversation turn')
 
             # Fire-and-forget memory extraction
             asyncio.create_task(extract_and_save_memories(user_slug, user_text, full_response, conversation_id))
@@ -154,3 +160,5 @@ async def chat_v2(websocket: WebSocket) -> None:
 
     except WebSocketDisconnect:
         log.info('[chat_v2] WebSocket disconnected')
+    except BaseException as exc:
+        log.exception('[chat_v2] Unexpected error (%s) — WebSocket will close', type(exc).__name__)

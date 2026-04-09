@@ -1,6 +1,6 @@
 # ISSUE-038: Centralize config via pydantic-settings
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-09
 **Assignee:** Shaun Bundervoet
 **Priority:** Medium
@@ -39,3 +39,22 @@ The fix: introduce `src/marcel_core/config.py` with a `pydantic-settings` `BaseS
 ## Relationships
 
 ## Implementation Log
+
+### 2026-04-09 - LLM Implementation
+**Action**: Implemented full pydantic-settings migration
+**Files Modified**:
+- `pyproject.toml` — added `pydantic-settings>=2.0.0` dependency
+- `src/marcel_core/config.py` — NEW: `Settings` BaseSettings class + `settings` singleton
+- `src/marcel_core/main.py` — removed `load_dotenv`, import `settings` for CORS
+- `src/marcel_core/auth/__init__.py` — use `settings` for API token + Telegram token
+- `src/marcel_core/storage/_root.py` — lazy import `settings.data_dir` (avoids circular)
+- `src/marcel_core/storage/credentials.py` — use `settings.marcel_credentials_key`
+- `src/marcel_core/channels/telegram/bot.py` — use `settings` for bot token + public URL
+- `src/marcel_core/channels/telegram/formatting.py` — use `settings.marcel_public_url`
+- `src/marcel_core/channels/telegram/webhook.py` — use `settings.telegram_webhook_secret`
+- `src/marcel_core/watchdog/main.py` — use `settings` for port + health/poll intervals
+- `src/marcel_core/harness/agent.py` — use `settings` for AWS region + API keys
+- `src/marcel_core/api/chat.py` — use `settings.marcel_default_user`
+- `src/marcel_core/api/chat_v2.py` — use `settings.marcel_default_user`
+- `src/marcel_core/skills/loader.py` — use `settings.data_dir / 'skills'`
+**Result**: All 21 `os.environ.get()` calls for static config replaced; dynamic skill env lookups intentionally preserved

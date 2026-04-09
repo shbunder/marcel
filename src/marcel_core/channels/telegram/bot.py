@@ -5,12 +5,12 @@ Tries HTML parse mode first; falls back to plain text if Telegram
 rejects the formatting.
 """
 
-import os
 import re
 
 import httpx
 
 from marcel_core.channels.telegram.formatting import strip_html_tags
+from marcel_core.config import settings
 
 _API_BASE = 'https://api.telegram.org'
 
@@ -53,7 +53,7 @@ def escape_markdown_v2(text: str) -> str:
 
 
 def _token() -> str:
-    token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+    token = settings.telegram_bot_token
     if not token:
         raise RuntimeError('TELEGRAM_BOT_TOKEN is not set in the environment')
     return token
@@ -201,7 +201,7 @@ async def delete_webhook() -> dict:
 
 def _public_url() -> str | None:
     """Return the configured public URL, or None if not set."""
-    return os.environ.get('MARCEL_PUBLIC_URL') or None
+    return settings.marcel_public_url or None
 
 
 def _has_calendar_content(text: str) -> bool:

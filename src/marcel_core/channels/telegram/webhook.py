@@ -13,7 +13,6 @@ Webhook URL: POST /telegram/webhook
 import asyncio
 import logging
 import math
-import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -32,6 +31,7 @@ from marcel_core.channels.telegram.formatting import (
     parse_day_groups,
     web_app_url_for,
 )
+from marcel_core.config import settings
 
 log = logging.getLogger(__name__)
 
@@ -270,7 +270,7 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
         ``{"status": "ok"}`` for handled updates, ``{"status": "ignored"}``
         for updates without an actionable message.
     """
-    secret = os.environ.get('TELEGRAM_WEBHOOK_SECRET', '')
+    secret = settings.telegram_webhook_secret
     if not secret:
         raise HTTPException(status_code=503, detail='TELEGRAM_WEBHOOK_SECRET is not configured')
     token_header = request.headers.get('x-telegram-bot-api-secret-token', '')
