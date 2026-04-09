@@ -193,12 +193,15 @@ async def claude_code(
             proc.kill()
         return f'Error: Claude Code task timed out after {timeout}s. Consider breaking it into smaller tasks.'
     finally:
+        # Ensure the process is always reaped — covers normal exit, timeout,
+        # and early PAUSED: returns so we never leave zombie processes.
         if proc.returncode is None:
             proc.kill()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                pass
         await _flush()
-
-    # Drain the process so pipes don't block
-    await asyncio.wait_for(proc.wait(), timeout=10)
 
     if proc.returncode not in (0, None, -9):
         stderr_data = b''
