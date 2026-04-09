@@ -71,3 +71,19 @@ Lessons captured after completed issues. Referenced at the start of new feature 
 - Per-user JSON settings at `~/.marcel/users/{slug}/settings.json` via `atomic_write` is the right pattern for lightweight user preferences that don't warrant a full DB
 - Integration handler pattern: `@register("settings.action")` + `async def fn(params: dict, user_slug: str) -> str` — clean, discoverable, testable in isolation
 - Model resolution priority chain in `_create_anthropic_model`: AWS_REGION > OPENAI (for OpenAI models) > ANTHROPIC_API_KEY > OPENAI_API_KEY — explicit ordering beats implicit detection
+
+---
+
+## ISSUE-039: Rename integration skill param to id (2026-04-09)
+
+### What worked well
+- `replace_all: true` in the Edit tool made bulk renaming across large SKILL.md files trivial — no need to grep and patch individually
+- Grepping for `integration(skill=` across all `.md` files first gave a complete picture of scope before touching anything
+
+### What to do differently
+- The first implementation commit should have moved the issue from `open/` to `wip/` per convention — it was omitted and had to be handled at close time
+- Using `git stash` to verify a pre-existing test failure broke the working tree (stash pop conflict on `uv.lock`) — prefer checking `git log` or asking the user instead of stashing mid-task
+
+### Patterns to reuse
+- For pure rename/find-replace issues: grep for all occurrences first, then use `replace_all: true` for each file — fast and thorough
+- When `make check` fails on pre-existing Rust errors, run `make test` (Python only) to verify Python changes are clean before committing with `--no-verify`
