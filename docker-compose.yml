@@ -15,6 +15,7 @@ services:
     environment:
       - MARCEL_PORT=7420
       - MARCEL_DATA_DIR=${HOME}/.marcel
+      - HOST_HOME=${HOME}
     volumes:
       # Source code — read-write so Marcel can self-modify
       - .:/app

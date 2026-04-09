@@ -8,14 +8,13 @@ JSONL history and dynamically selected memories.
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
 
 from marcel_core.harness.agent import DEFAULT_MODEL, create_marcel_agent
-from marcel_core.harness.context import MarcelDeps
+from marcel_core.harness.context import MarcelDeps, _host_home
 from marcel_core.memory.history import HistoryMessage, append_message
 from marcel_core.storage.settings import load_channel_model
 from marcel_core.storage.users import get_user_role
@@ -107,7 +106,7 @@ async def stream_turn(
     # For CLI sessions, cwd comes from the client's current directory.
     effective_cwd = cwd
     if role == 'admin' and not effective_cwd and channel != 'cli':
-        effective_cwd = os.environ.get('HOME') or None
+        effective_cwd = _host_home()
 
     deps = MarcelDeps(
         user_slug=user_slug,

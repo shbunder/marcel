@@ -45,6 +45,13 @@ pub struct ChatView {
     pub scroll_offset: u16,
     /// Tools currently executing (shown as activity indicators).
     pub active_tools: Vec<ToolActivity>,
+    /// Visible height of the chat area (rows); updated each frame by the main loop.
+    pub area_height: u16,
+    /// Visible width of the chat area (cols); updated each frame by the main loop.
+    pub area_width: u16,
+    /// When true, new content automatically scrolls to the bottom.
+    /// Disabled when the user scrolls up; re-enabled when they reach the bottom or send.
+    pub following: bool,
 }
 
 impl ChatView {
@@ -54,6 +61,9 @@ impl ChatView {
             streaming_tokens: Vec::new(),
             scroll_offset: 0,
             active_tools: Vec::new(),
+            area_height: 24,
+            area_width: 80,
+            following: true,
         }
     }
 
@@ -115,6 +125,7 @@ impl ChatView {
         self.streaming_tokens.clear();
         self.active_tools.clear();
         self.scroll_offset = 0;
+        self.following = true;
     }
 
     fn to_lines(&self, _width: u16) -> Vec<Line<'_>> {
@@ -209,14 +220,53 @@ impl ChatView {
         lines
     }
 
-    pub fn scroll_to_bottom(&mut self, area_height: u16) {
-        let total = self.content_height(area_height.saturating_sub(2));
-        let visible = area_height.saturating_sub(2);
-        self.scroll_offset = total.saturating_sub(visible);
+    /// Scroll up by `lines`, disabling auto-follow.
+    pub fn scroll_up(&mut self, lines: u16) {
+        self.following = false;
+        self.scroll_offset = self.scroll_offset.saturating_sub(lines);
     }
 
+    /// Scroll down by `lines`. Re-enables auto-follow when the bottom is reached.
+    pub fn scroll_down(&mut self, lines: u16) {
+        let max = self
+            .content_height(self.area_width)
+            .saturating_sub(self.area_height);
+        let new = self.scroll_offset.saturating_add(lines).min(max);
+        self.scroll_offset = new;
+        if new >= max {
+            self.following = true;
+        }
+    }
+
+    /// Scroll to the bottom and re-enable auto-follow.
+    pub fn scroll_to_bottom(&mut self) {
+        self.following = true;
+        let total = self.content_height(self.area_width);
+        self.scroll_offset = total.saturating_sub(self.area_height);
+    }
+
+    /// Count visual rows after word-wrapping at `width` columns.
     fn content_height(&self, width: u16) -> u16 {
-        self.to_lines(width).len() as u16
+        if width == 0 {
+            return 0;
+        }
+        self.to_lines(width)
+            .iter()
+            .map(|line| {
+                let line_width: usize = line
+                    .spans
+                    .iter()
+                    .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
+                    .sum();
+                // An empty line still occupies one visual row.
+                let rows = if line_width == 0 {
+                    1
+                } else {
+                    line_width.div_ceil(width as usize)
+                };
+                rows as u16
+            })
+            .sum()
     }
 }
 
@@ -642,5 +692,268 @@ impl Renderable for StatusBar {
 
     fn desired_height(&self, _width: u16) -> u16 {
         1
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{buffer::Buffer, layout::Rect};
+
+    use super::*;
+    use crate::render::Renderable;
+
+    // ── helpers ──────────────────────────────────────────────────────────
+
+    fn make_chat(area_width: u16, area_height: u16) -> ChatView {
+        let mut chat = ChatView::new();
+        chat.area_width = area_width;
+        chat.area_height = area_height;
+        chat
+    }
+
+    /// Render the chat into a fresh buffer and return each row as a trimmed string.
+    fn render_rows(chat: &ChatView) -> Vec<String> {
+        let area = Rect::new(0, 0, chat.area_width, chat.area_height);
+        let mut buf = Buffer::empty(area);
+        chat.render(area, &mut buf);
+        (0..chat.area_height)
+            .map(|y| {
+                (0..chat.area_width)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect()
+    }
+
+    fn visible(chat: &ChatView) -> String {
+        render_rows(chat).join("\n")
+    }
+
+    // ── logic tests (no rendering) ────────────────────────────────────────
+
+    #[test]
+    fn new_starts_following_at_top() {
+        let chat = ChatView::new();
+        assert_eq!(chat.scroll_offset, 0);
+        assert!(chat.following);
+    }
+
+    #[test]
+    fn scroll_up_disables_following() {
+        let mut chat = make_chat(80, 10);
+        for i in 0..30 {
+            chat.push_assistant(&format!("msg{i}"));
+        }
+        chat.scroll_to_bottom();
+        assert!(chat.following);
+
+        chat.scroll_up(5);
+        assert!(!chat.following);
+        assert!(chat.scroll_offset < chat.content_height(chat.area_width).saturating_sub(10));
+    }
+
+    #[test]
+    fn scroll_to_bottom_sets_correct_offset() {
+        let mut chat = make_chat(80, 10);
+        for i in 0..30 {
+            chat.push_assistant(&format!("msg{i}"));
+        }
+        chat.scroll_to_bottom();
+        let total = chat.content_height(chat.area_width);
+        assert_eq!(chat.scroll_offset, total.saturating_sub(10));
+        assert!(chat.following);
+    }
+
+    #[test]
+    fn scroll_down_to_bottom_re_enables_following() {
+        let mut chat = make_chat(80, 10);
+        for i in 0..30 {
+            chat.push_assistant(&format!("msg{i}"));
+        }
+        chat.scroll_to_bottom();
+        chat.scroll_up(20);
+        assert!(!chat.following);
+
+        chat.scroll_down(100);
+        assert!(chat.following);
+    }
+
+    #[test]
+    fn scroll_down_mid_content_stays_not_following() {
+        let mut chat = make_chat(80, 10);
+        for i in 0..50 {
+            chat.push_assistant(&format!("msg{i}"));
+        }
+        chat.scroll_to_bottom();
+        chat.scroll_up(30);
+        assert!(!chat.following);
+
+        chat.scroll_down(5);
+        assert!(!chat.following);
+    }
+
+    #[test]
+    fn following_false_caller_skips_auto_scroll() {
+        let mut chat = make_chat(80, 10);
+        for i in 0..20 {
+            chat.push_assistant(&format!("msg{i}"));
+        }
+        chat.scroll_to_bottom();
+        chat.scroll_up(10);
+        let saved = chat.scroll_offset;
+        assert!(!chat.following);
+
+        chat.push_token("new token");
+        if chat.following {
+            chat.scroll_to_bottom();
+        }
+        assert_eq!(chat.scroll_offset, saved);
+    }
+
+    #[test]
+    fn clear_resets_following_and_offset() {
+        let mut chat = make_chat(80, 10);
+        for i in 0..30 {
+            chat.push_assistant(&format!("msg{i}"));
+        }
+        chat.scroll_to_bottom();
+        chat.scroll_up(5);
+        assert!(!chat.following);
+
+        chat.clear();
+        assert!(chat.following);
+        assert_eq!(chat.scroll_offset, 0);
+    }
+
+    // ── content_height: wrapping arithmetic ──────────────────────────────
+
+    #[test]
+    fn short_message_is_two_visual_rows() {
+        // Each assistant message → "  {text}" + blank line = 2 rows when text fits width.
+        let mut chat = make_chat(40, 20);
+        chat.push_assistant("hello");
+        assert_eq!(chat.content_height(40), 2, "short msg should be 2 rows");
+    }
+
+    #[test]
+    fn long_message_wraps_into_extra_rows() {
+        // "  " (2) + 38 a's = 40 chars → exactly 2 visual rows + 1 blank = 3
+        let mut chat = make_chat(20, 20);
+        chat.push_assistant(&"a".repeat(18)); // "  " + 18 = 20 → 1 row + blank = 2
+        assert_eq!(chat.content_height(20), 2, "fits exactly in 1 row");
+
+        let mut chat2 = make_chat(20, 20);
+        chat2.push_assistant(&"a".repeat(19)); // "  " + 19 = 21 → ceil(21/20)=2 rows + blank = 3
+        assert_eq!(chat2.content_height(20), 3, "one char over wraps to 3 rows");
+    }
+
+    #[test]
+    fn content_height_matches_render_line_count() {
+        // Verify our estimate equals what ratatui actually renders by checking
+        // that scroll_to_bottom lands the last message at the bottom of the viewport.
+        let mut chat = make_chat(30, 4);
+        chat.push_assistant("short"); // 2 rows
+        chat.push_assistant(&"b".repeat(29)); // "  " + 29 = 31 → 2 rows + blank = 3
+
+        // total = 5, area_height = 4 → max_scroll = 1
+        assert_eq!(chat.content_height(30), 5);
+        chat.scroll_to_bottom();
+        assert_eq!(chat.scroll_offset, 1);
+
+        let screen = visible(&chat);
+        assert!(
+            screen.contains("bbb"),
+            "long msg should be visible: {screen}"
+        );
+    }
+
+    // ── rendering: what's actually on screen ─────────────────────────────
+
+    #[test]
+    fn renders_first_message_at_top_when_no_scroll() {
+        let mut chat = make_chat(40, 6);
+        chat.push_assistant("hello world");
+
+        let rows = render_rows(&chat);
+        assert!(
+            rows[0].contains("hello world"),
+            "expected 'hello world' in row 0, got: {:?}",
+            rows[0]
+        );
+    }
+
+    #[test]
+    fn scroll_to_bottom_shows_last_message_on_screen() {
+        // 10 messages × 2 rows = 20 total; area_height = 4; max_scroll = 16
+        let mut chat = make_chat(40, 4);
+        for i in 0..10 {
+            chat.push_assistant(&format!("msg{i:02}"));
+        }
+        chat.scroll_to_bottom();
+        assert_eq!(chat.scroll_offset, 16);
+
+        let screen = visible(&chat);
+        assert!(screen.contains("msg09"), "last msg not visible:\n{screen}");
+        assert!(
+            !screen.contains("msg00"),
+            "first msg wrongly visible:\n{screen}"
+        );
+    }
+
+    #[test]
+    fn scroll_up_reveals_earlier_content() {
+        // 10 messages × 2 rows = 20; area = 4; max_scroll = 16
+        // After scroll_up(10) from bottom: offset = 6 → rows 6-9 visible
+        // Row 6 = msg03 text, row 7 = blank, row 8 = msg04 text, row 9 = blank
+        let mut chat = make_chat(40, 4);
+        for i in 0..10 {
+            chat.push_assistant(&format!("msg{i:02}"));
+        }
+        chat.scroll_to_bottom();
+        chat.scroll_up(10);
+        assert_eq!(chat.scroll_offset, 6);
+
+        let screen = visible(&chat);
+        assert!(screen.contains("msg03"), "msg03 not visible:\n{screen}");
+    }
+
+    #[test]
+    fn scroll_to_bottom_after_long_message_shows_long_message() {
+        let mut chat = make_chat(20, 4);
+        chat.push_assistant("short"); // 2 rows
+        let long = "b".repeat(19); // "  " + 19 = 21 → 2 rows + blank = 3
+        chat.push_assistant(&long);
+        // total = 5, max_scroll = 5 - 4 = 1
+        chat.scroll_to_bottom();
+
+        let screen = visible(&chat);
+        assert!(screen.contains("bbb"), "long msg not visible:\n{screen}");
+    }
+
+    #[test]
+    fn user_message_visible_at_top() {
+        let mut chat = make_chat(40, 6);
+        chat.push_user("what is the weather?");
+
+        let rows = render_rows(&chat);
+        assert!(
+            rows[0].contains("what is the weather?"),
+            "user msg not in row 0: {:?}",
+            rows[0]
+        );
+    }
+
+    #[test]
+    fn no_content_overflow_past_max_scroll() {
+        // scroll_down(u16::MAX) should clamp at max, not wrap around
+        let mut chat = make_chat(40, 4);
+        for i in 0..5 {
+            chat.push_assistant(&format!("m{i}"));
+        }
+        let max = chat.content_height(40).saturating_sub(4);
+        chat.scroll_down(u16::MAX);
+        assert_eq!(chat.scroll_offset, max, "offset clamped to max");
     }
 }

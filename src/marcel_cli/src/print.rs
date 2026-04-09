@@ -7,6 +7,7 @@ use crate::config::Config;
 /// Non-interactive print mode: send prompt, stream response to stdout, exit.
 pub async fn run(cli: &Cli, cfg: &Config) -> io::Result<()> {
     let dev_mode = cli.dev;
+    let use_v2 = true; // Always use v2 harness; --v2 flag retained for compatibility
 
     // Resolve prompt: CLI argument or stdin
     let prompt = match &cli.prompt {
@@ -29,7 +30,12 @@ pub async fn run(cli: &Cli, cfg: &Config) -> io::Result<()> {
     }
 
     // Connect and send
-    let mut client = ChatClient::new(&cfg.ws_url(dev_mode), &cfg.user, &cfg.model, &cfg.token);
+    let mut client = ChatClient::new(
+        &cfg.ws_url(dev_mode, use_v2),
+        &cfg.user,
+        &cfg.model,
+        &cfg.token,
+    );
     let rx = match client.send(&prompt).await {
         Ok(rx) => rx,
         Err(e) => {

@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use crate::Cli;
 use crate::chat::{self, ChatClient, ChatEvent};
 use crate::config::Config;
-use crate::header::Header;
+use crate::header::{Header, WELCOMES};
 use crate::render::{FlexLayout, Renderable};
 use crate::tui;
 use crate::ui::{ChatView, InputBox, StatusBar};
@@ -66,18 +66,38 @@ async fn fetch_conversations(
 
 pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
     let dev_mode = cli.dev;
+    let use_v2 = true; // Always use v2 harness; --v2 flag retained for compatibility
     let mut terminal = tui::init()?;
 
     // State
     let port = cfg.effective_port(dev_mode);
     let mut header = Header::new(&cfg.user, &cfg.model, &cfg.host, port);
     let mut chat_view = ChatView::new();
+
+    // Show welcome as the first assistant message
+    {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let idx = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as usize
+            % WELCOMES.len();
+        chat_view.push_assistant(WELCOMES[idx]);
+    }
     let mut input = InputBox::new();
     let mut status = StatusBar::new(&cfg.model);
-    let mut client = ChatClient::new(&cfg.ws_url(dev_mode), &cfg.user, &cfg.model, &cfg.token);
+    let mut client = ChatClient::new(
+        &cfg.ws_url(dev_mode, use_v2),
+        &cfg.user,
+        &cfg.model,
+        &cfg.token,
+    );
 
     if dev_mode {
         chat_view.push_system(&format!("DEV MODE — connecting to port {port}"));
+    }
+    if use_v2 {
+        chat_view.push_system("V2 HARNESS — connected to /v2/chat");
     }
 
     // Check server health
@@ -149,6 +169,17 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
     }
 
     loop {
+        // ── update chat area dimensions so scroll logic has the right values ─
+        {
+            let sz = terminal.size()?;
+            chat_view.area_height = sz.height.saturating_sub(
+                header.desired_height(sz.width)
+                    + input.desired_height(sz.width)
+                    + status.desired_height(sz.width),
+            );
+            chat_view.area_width = sz.width;
+        }
+
         // ── draw ───────────────────────────────────────────────────────
         terminal.draw(|frame| {
             let area = frame.area();
@@ -185,12 +216,9 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
                 match rx.try_recv() {
                     Ok(ChatEvent::Token(t)) => {
                         chat_view.push_token(&t);
-                        let h = terminal.size()?.height;
-                        chat_view.scroll_to_bottom(h.saturating_sub(
-                            header.desired_height(80)
-                                + input.desired_height(80)
-                                + status.desired_height(80),
-                        ));
+                        if chat_view.following {
+                            chat_view.scroll_to_bottom();
+                        }
                     }
                     Ok(ChatEvent::Done(meta)) => {
                         chat_view.finish_stream();
@@ -228,12 +256,9 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
                         tool_name,
                     }) => {
                         chat_view.start_tool(tool_call_id, tool_name);
-                        let h = terminal.size()?.height;
-                        chat_view.scroll_to_bottom(h.saturating_sub(
-                            header.desired_height(80)
-                                + input.desired_height(80)
-                                + status.desired_height(80),
-                        ));
+                        if chat_view.following {
+                            chat_view.scroll_to_bottom();
+                        }
                     }
                     Ok(ChatEvent::ToolCallEnd { tool_call_id }) => {
                         chat_view.end_tool(&tool_call_id);
@@ -248,25 +273,39 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
             }
         }
 
-        // Poll keyboard
-        if event::poll(timeout)?
-            && let Event::Key(key) = event::read()?
-        {
-            match handle_key(
-                key,
-                &mut input,
-                &mut chat_view,
-                &mut header,
-                &mut status,
-                &mut client,
-                &mut stream_rx,
-                &cfg,
-                dev_mode,
-            )
-            .await
-            {
-                Action::Continue => {}
-                Action::Quit => break,
+        // Drain all pending key events (prevents queue build-up on fast typing).
+        // Wait up to `timeout` for the first event, then consume the rest immediately.
+        if event::poll(timeout)? {
+            let mut quit = false;
+            loop {
+                if let Event::Key(key) = event::read()? {
+                    match handle_key(
+                        key,
+                        &mut input,
+                        &mut chat_view,
+                        &mut header,
+                        &mut status,
+                        &mut client,
+                        &mut stream_rx,
+                        &cfg,
+                        dev_mode,
+                    )
+                    .await
+                    {
+                        Action::Continue => {}
+                        Action::Quit => {
+                            quit = true;
+                            break;
+                        }
+                        Action::ScrollToBottom => chat_view.scroll_to_bottom(),
+                    }
+                }
+                if !event::poll(std::time::Duration::ZERO)? {
+                    break;
+                }
+            }
+            if quit {
+                break;
             }
         }
     }
@@ -278,6 +317,7 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
 enum Action {
     Continue,
     Quit,
+    ScrollToBottom,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -333,6 +373,7 @@ async fn handle_key(
             }
 
             chat.push_user(&text);
+            chat.following = true;
             match client.send(&text).await {
                 Ok(rx) => {
                     *stream_rx = Some(rx);
@@ -341,6 +382,7 @@ async fn handle_key(
                     chat.push_error(&format!("Send failed: {e}"));
                 }
             }
+            return Action::ScrollToBottom;
         }
 
         // Tab: accept the selected suggestion
@@ -392,10 +434,10 @@ async fn handle_key(
 
         // Scroll chat
         (KeyCode::PageUp, _) => {
-            chat.scroll_offset = chat.scroll_offset.saturating_sub(10);
+            chat.scroll_up(10);
         }
         (KeyCode::PageDown, _) => {
-            chat.scroll_offset = chat.scroll_offset.saturating_add(10);
+            chat.scroll_down(10);
         }
 
         _ => {}

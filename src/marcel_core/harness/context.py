@@ -39,6 +39,16 @@ class MarcelDeps:
     """
 
 
+def _host_home() -> str:
+    """Return the host user's home directory, even when running inside Docker.
+
+    Docker sets the container user's $HOME to /home/marcel. The actual host home
+    is passed in via HOST_HOME (set in docker-compose.yml environment). Falls back
+    to $HOME for bare-metal deployments where container and host home are the same.
+    """
+    return os.environ.get('HOST_HOME') or os.environ.get('HOME') or '/root'
+
+
 def build_server_context(cwd: str | None = None) -> str:
     """Build a server/environment context block for admin users.
 
@@ -52,6 +62,8 @@ def build_server_context(cwd: str | None = None) -> str:
         Markdown string describing the server environment.
     """
     lines = ['## Server Context (Admin)']
+
+    host_home = _host_home()
 
     # Docker detection
     in_docker = Path('/.dockerenv').exists()
@@ -74,13 +86,11 @@ def build_server_context(cwd: str | None = None) -> str:
         except OSError:
             pass
 
-    # Home directory — the host home is bind-mounted at the same path inside Docker
-    home = os.environ.get('HOME', '')
-    if home:
-        lines.append(
-            f'**Home directory:** `{home}` '
-            '(host home, bind-mounted read-write at the same path — this IS the server home folder)'
-        )
+    # Host home — bind-mounted at the same path inside Docker
+    lines.append(
+        f'**Home directory:** `{host_home}` '
+        '(host home, bind-mounted read-write at the same path — this IS the server home folder)'
+    )
 
     # Host filesystem read-only mount
     if Path('/_host').exists():
@@ -94,14 +104,14 @@ def build_server_context(cwd: str | None = None) -> str:
         )
 
     # Working directory
-    effective_cwd = cwd or home or '/app'
+    effective_cwd = cwd or host_home
     lines.append(f'**Working directory:** `{effective_cwd}`')
 
     lines += [
         '',
         'You have full CLI capabilities: `bash`, file I/O, `git_*`, and `claude_code` delegation.',
-        'When the user refers to "home folder", "server files", or "the NUC", '
-        'they mean the host machine — use `' + (home or '/home') + '` as the starting point.',
+        f'When the user refers to "home folder", "server files", or "the NUC", '
+        f'they mean the host machine — start from `{host_home}`.',
         'To read host-only files not in the home mount, use `/_host/...` paths.',
     ]
 
