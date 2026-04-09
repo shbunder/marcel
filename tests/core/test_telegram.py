@@ -12,10 +12,10 @@ import respx
 from fastapi.testclient import TestClient
 from httpx import Response
 
+from marcel_core.channels.telegram import sessions
+from marcel_core.channels.telegram.bot import escape_markdown_v2
 from marcel_core.main import app
 from marcel_core.storage import _root
-from marcel_core.telegram import sessions
-from marcel_core.telegram.bot import escape_markdown_v2
 
 # ---------------------------------------------------------------------------
 # bot.py — escape helpers
@@ -150,9 +150,9 @@ def _mock_stream(monkeypatch, tokens: list[str]) -> None:
         for t in tokens:
             yield t
 
-    monkeypatch.setattr('marcel_core.telegram.webhook.stream_response', fake_stream)
+    monkeypatch.setattr('marcel_core.channels.telegram.webhook.stream_response', fake_stream)
     monkeypatch.setattr(
-        'marcel_core.telegram.webhook.extract_and_save_memories',
+        'marcel_core.channels.telegram.webhook.extract_and_save_memories',
         lambda *a, **k: asyncio.sleep(0),
     )
 

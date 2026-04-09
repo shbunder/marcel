@@ -199,7 +199,7 @@ async def stream_turn(
                     yield tool_events_queue.pop(0)
 
             # Get final output (waits for completion)
-            final_output = await result.get_output()
+            await result.get_output()
 
             # Yield any remaining tool events
             while tool_events_queue:

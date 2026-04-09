@@ -1,21 +1,21 @@
 """Banking integration — account, balance, and transaction access.
 
-Registers ``banking.setup``, ``banking.complete_setup``, ````banking.accounts``,
-````banking.balance``, ````banking.transactions``, ````banking.status``, and ````banking.sync``
+Registers ``banking.setup``, ``banking.complete_setup``, ``banking.accounts``,
+``banking.balance``, ``banking.transactions``, ``banking.status``, and ``banking.sync``
 as python integration skills, callable through the ``integration`` tool.
 
 Supports multiple banks (KBC, ING, etc.) via EnableBanking. Data is
 served from a local SQLite cache that syncs every 8 hours via the
-background sync task in ``marcel_core.banking.sync``.
+background sync task in ``marcel_core.skills.integrations.banking.sync``.
 """
 
 from __future__ import annotations
 
 import json
 
-from marcel_core.banking import cache, client
-from marcel_core.banking.sync import sync_account
 from marcel_core.skills.integrations import register
+from marcel_core.skills.integrations.banking import cache, client
+from marcel_core.skills.integrations.banking.sync import sync_account
 
 
 @register('banking.setup')

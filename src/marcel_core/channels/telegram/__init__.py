@@ -6,7 +6,7 @@ Bot API and routes them through the Marcel agent loop.
 Setup summary:
 1. Create a bot via @BotFather and copy the token.
 2. Set ``TELEGRAM_BOT_TOKEN`` and ``TELEGRAM_USER_MAP`` in ``.env``.
-3. Register the webhook: ``python -m marcel_core.telegram.setup <public_url>``.
+3. Register the webhook: ``python -m marcel_core.channels.telegram.setup <public_url>``.
 
 See ``docs/channels/telegram.md`` for the full setup guide.
 """

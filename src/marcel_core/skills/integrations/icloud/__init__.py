@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import json
 
-from marcel_core.icloud.client import get_calendar_events, search_mail
 from marcel_core.skills.integrations import register
+from marcel_core.skills.integrations.icloud.client import get_calendar_events, search_mail
 
 
 @register('icloud.calendar')

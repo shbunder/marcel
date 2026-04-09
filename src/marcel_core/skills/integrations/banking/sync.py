@@ -14,7 +14,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from marcel_core.banking import cache, client
+from marcel_core.skills.integrations.banking import cache, client
 from marcel_core.storage._root import data_root
 from marcel_core.storage.credentials import load_credentials
 

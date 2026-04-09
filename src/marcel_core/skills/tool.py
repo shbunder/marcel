@@ -147,11 +147,11 @@ def build_skills_mcp_server(user_slug: str, channel: str = 'cli') -> McpSdkServe
 
         if channel == 'telegram':
             try:
-                from marcel_core.telegram import bot, sessions
+                from marcel_core.channels.telegram import bot, sessions
 
                 chat_id = sessions.get_chat_id(user_slug)
                 if chat_id:
-                    from marcel_core.telegram.formatting import escape_html
+                    from marcel_core.channels.telegram.formatting import escape_html
 
                     await bot.send_message(int(chat_id), escape_html(message))
             except Exception as exc:  # noqa: BLE001

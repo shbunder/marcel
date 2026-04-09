@@ -25,8 +25,8 @@ from marcel_core.api.chat import router as chat_router
 from marcel_core.api.chat_v2 import router as chat_v2_router
 from marcel_core.api.conversations import router as conversations_router
 from marcel_core.api.health import router as health_router
-from marcel_core.banking.sync import start_sync_loop, stop_sync_loop
-from marcel_core.telegram import router as telegram_router
+from marcel_core.channels.telegram import router as telegram_router
+from marcel_core.skills.integrations.banking.sync import start_sync_loop, stop_sync_loop
 from marcel_core.watchdog.flags import read_restart_request, write_restart_result
 
 log = logging.getLogger(__name__)

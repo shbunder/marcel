@@ -144,8 +144,8 @@ async def notify(ctx: RunContext[MarcelDeps], message: str) -> str:
     # For Telegram, send real-time notification
     if ctx.deps.channel == 'telegram':
         try:
-            from marcel_core.telegram import bot, sessions
-            from marcel_core.telegram.formatting import escape_html
+            from marcel_core.channels.telegram import bot, sessions
+            from marcel_core.channels.telegram.formatting import escape_html
 
             chat_id = sessions.get_chat_id(ctx.deps.user_slug)
             if chat_id:

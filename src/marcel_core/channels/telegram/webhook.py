@@ -22,8 +22,8 @@ from marcel_core import storage
 from marcel_core.agent import extract_and_save_memories, stream_response
 from marcel_core.agent.events import TextMessageContent
 from marcel_core.agent.sessions import session_manager
-from marcel_core.telegram import bot, sessions
-from marcel_core.telegram.formatting import (
+from marcel_core.channels.telegram import bot, sessions
+from marcel_core.channels.telegram.formatting import (
     DAYS_PER_PAGE,
     calendar_nav_markup,
     escape_html,

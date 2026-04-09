@@ -35,7 +35,7 @@ from marcel_core.agent.events import (
     ToolCallStart,
 )
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
-from marcel_core.telegram.sessions import get_user_slug as get_telegram_user_slug
+from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug
 
 router = APIRouter()
 

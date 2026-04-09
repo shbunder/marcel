@@ -137,7 +137,7 @@ async def test_preserves_recent_turns(mock_messages):
         mock_agent_instance.run.return_value = mock_agent_result
         mock_agent_class.return_value = mock_agent_instance
 
-        result = await check_and_compact('test_user', 'conv-1')
+        await check_and_compact('test_user', 'conv-1')
 
         # Check that summarizer was called with correct split
         call_args = mock_agent_instance.run.call_args

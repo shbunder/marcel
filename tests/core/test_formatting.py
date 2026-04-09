@@ -4,7 +4,7 @@ Covers markdown→HTML conversion, calendar day-group parsing,
 calendar page formatting, and navigation markup generation.
 """
 
-from marcel_core.telegram.formatting import (
+from marcel_core.channels.telegram.formatting import (
     DayGroup,
     calendar_nav_markup,
     escape_html,

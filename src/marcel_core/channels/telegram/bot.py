@@ -10,7 +10,7 @@ import re
 
 import httpx
 
-from marcel_core.telegram.formatting import strip_html_tags
+from marcel_core.channels.telegram.formatting import strip_html_tags
 
 _API_BASE = 'https://api.telegram.org'
 

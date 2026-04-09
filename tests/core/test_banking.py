@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from marcel_core.banking.cache import (
+from marcel_core.skills.integrations.banking.cache import (
     get_balances,
     get_sync_meta,
     get_transactions,
@@ -241,10 +241,10 @@ class TestSyncMeta:
 class TestSync:
     @pytest.mark.asyncio
     async def test_sync_no_sessions(self):
-        from marcel_core.banking.sync import sync_account
+        from marcel_core.skills.integrations.banking.sync import sync_account
 
         with patch(
-            'marcel_core.banking.sync.client.get_stored_sessions',
+            'marcel_core.skills.integrations.banking.sync.client.get_stored_sessions',
             return_value=[],
         ):
             summary = await sync_account('test')
@@ -252,13 +252,13 @@ class TestSync:
 
     @pytest.mark.asyncio
     async def test_sync_session_not_authorized(self):
-        from marcel_core.banking.sync import sync_account
+        from marcel_core.skills.integrations.banking.sync import sync_account
 
         sessions = [{'bank': 'KBC', 'country': 'BE', 'session_id': 'sid-1'}]
         with (
-            patch('marcel_core.banking.sync.client.get_stored_sessions', return_value=sessions),
+            patch('marcel_core.skills.integrations.banking.sync.client.get_stored_sessions', return_value=sessions),
             patch(
-                'marcel_core.banking.sync.client.get_session',
+                'marcel_core.skills.integrations.banking.sync.client.get_session',
                 new_callable=AsyncMock,
                 return_value={'status': 'EXPIRED', 'accounts': []},
             ),
@@ -268,7 +268,7 @@ class TestSync:
 
     @pytest.mark.asyncio
     async def test_sync_single_bank_success(self):
-        from marcel_core.banking.sync import sync_account
+        from marcel_core.skills.integrations.banking.sync import sync_account
 
         sessions = [{'bank': 'KBC', 'country': 'BE', 'session_id': 'sid-1'}]
         mock_session = {
@@ -277,19 +277,19 @@ class TestSync:
         }
 
         with (
-            patch('marcel_core.banking.sync.client.get_stored_sessions', return_value=sessions),
+            patch('marcel_core.skills.integrations.banking.sync.client.get_stored_sessions', return_value=sessions),
             patch(
-                'marcel_core.banking.sync.client.get_session',
+                'marcel_core.skills.integrations.banking.sync.client.get_session',
                 new_callable=AsyncMock,
                 return_value=mock_session,
             ),
             patch(
-                'marcel_core.banking.sync.client.get_balances',
+                'marcel_core.skills.integrations.banking.sync.client.get_balances',
                 new_callable=AsyncMock,
                 return_value=[_make_balance()],
             ),
             patch(
-                'marcel_core.banking.sync.client.get_all_transactions',
+                'marcel_core.skills.integrations.banking.sync.client.get_all_transactions',
                 new_callable=AsyncMock,
                 return_value=[_make_tx()],
             ),
@@ -307,7 +307,7 @@ class TestSync:
 
     @pytest.mark.asyncio
     async def test_sync_multi_bank(self):
-        from marcel_core.banking.sync import sync_account
+        from marcel_core.skills.integrations.banking.sync import sync_account
 
         sessions = [
             {'bank': 'KBC', 'country': 'BE', 'session_id': 'sid-kbc'},
@@ -320,13 +320,19 @@ class TestSync:
             return kbc_session if sid == 'sid-kbc' else ing_session
 
         with (
-            patch('marcel_core.banking.sync.client.get_stored_sessions', return_value=sessions),
-            patch('marcel_core.banking.sync.client.get_session', new_callable=AsyncMock, side_effect=mock_get_session),
+            patch('marcel_core.skills.integrations.banking.sync.client.get_stored_sessions', return_value=sessions),
             patch(
-                'marcel_core.banking.sync.client.get_balances', new_callable=AsyncMock, return_value=[_make_balance()]
+                'marcel_core.skills.integrations.banking.sync.client.get_session',
+                new_callable=AsyncMock,
+                side_effect=mock_get_session,
             ),
             patch(
-                'marcel_core.banking.sync.client.get_all_transactions',
+                'marcel_core.skills.integrations.banking.sync.client.get_balances',
+                new_callable=AsyncMock,
+                return_value=[_make_balance()],
+            ),
+            patch(
+                'marcel_core.skills.integrations.banking.sync.client.get_all_transactions',
                 new_callable=AsyncMock,
                 return_value=[_make_tx()],
             ),
@@ -339,7 +345,7 @@ class TestSync:
 
     @pytest.mark.asyncio
     async def test_check_consent_expiry_warns(self):
-        from marcel_core.banking.sync import check_consent_expiry
+        from marcel_core.skills.integrations.banking.sync import check_consent_expiry
 
         sessions = [{'bank': 'KBC', 'country': 'BE', 'session_id': 'sid-1'}]
         valid_until = (datetime.now(UTC) + timedelta(days=5)).isoformat()
@@ -349,9 +355,9 @@ class TestSync:
         }
 
         with (
-            patch('marcel_core.banking.sync.client.get_stored_sessions', return_value=sessions),
+            patch('marcel_core.skills.integrations.banking.sync.client.get_stored_sessions', return_value=sessions),
             patch(
-                'marcel_core.banking.sync.client.get_session',
+                'marcel_core.skills.integrations.banking.sync.client.get_session',
                 new_callable=AsyncMock,
                 return_value=mock_session,
             ),
@@ -363,7 +369,7 @@ class TestSync:
 
     @pytest.mark.asyncio
     async def test_check_consent_expiry_ok(self):
-        from marcel_core.banking.sync import check_consent_expiry
+        from marcel_core.skills.integrations.banking.sync import check_consent_expiry
 
         sessions = [{'bank': 'KBC', 'country': 'BE', 'session_id': 'sid-1'}]
         valid_until = (datetime.now(UTC) + timedelta(days=80)).isoformat()
@@ -373,9 +379,9 @@ class TestSync:
         }
 
         with (
-            patch('marcel_core.banking.sync.client.get_stored_sessions', return_value=sessions),
+            patch('marcel_core.skills.integrations.banking.sync.client.get_stored_sessions', return_value=sessions),
             patch(
-                'marcel_core.banking.sync.client.get_session',
+                'marcel_core.skills.integrations.banking.sync.client.get_session',
                 new_callable=AsyncMock,
                 return_value=mock_session,
             ),
@@ -389,28 +395,28 @@ class TestSync:
 
 class TestMultiSessionStorage:
     def test_load_sessions_empty(self):
-        from marcel_core.banking.client import _load_sessions
+        from marcel_core.skills.integrations.banking.client import _load_sessions
 
-        with patch('marcel_core.banking.client.load_credentials', return_value={}):
+        with patch('marcel_core.skills.integrations.banking.client.load_credentials', return_value={}):
             assert _load_sessions('test') == []
 
     def test_load_sessions_json(self):
-        from marcel_core.banking.client import _load_sessions
+        from marcel_core.skills.integrations.banking.client import _load_sessions
 
         sessions = [{'bank': 'KBC', 'country': 'BE', 'session_id': 'sid-1'}]
         creds = {'ENABLEBANKING_SESSIONS': json.dumps(sessions)}
-        with patch('marcel_core.banking.client.load_credentials', return_value=creds):
+        with patch('marcel_core.skills.integrations.banking.client.load_credentials', return_value=creds):
             result = _load_sessions('test')
             assert len(result) == 1
             assert result[0]['bank'] == 'KBC'
 
     def test_load_sessions_migrates_legacy(self):
-        from marcel_core.banking.client import _load_sessions
+        from marcel_core.skills.integrations.banking.client import _load_sessions
 
         creds = {'ENABLEBANKING_SESSION_ID': 'legacy-sid'}
         with (
-            patch('marcel_core.banking.client.load_credentials', return_value=creds),
-            patch('marcel_core.banking.client.save_credentials') as mock_save,
+            patch('marcel_core.skills.integrations.banking.client.load_credentials', return_value=creds),
+            patch('marcel_core.skills.integrations.banking.client.save_credentials') as mock_save,
         ):
             result = _load_sessions('test')
             assert len(result) == 1
@@ -420,13 +426,13 @@ class TestMultiSessionStorage:
             mock_save.assert_called_once()
 
     def test_session_id_for_bank(self):
-        from marcel_core.banking.client import _session_id_for_bank
+        from marcel_core.skills.integrations.banking.client import _session_id_for_bank
 
         sessions = [
             {'bank': 'KBC', 'country': 'BE', 'session_id': 'sid-kbc'},
             {'bank': 'ING', 'country': 'BE', 'session_id': 'sid-ing'},
         ]
-        with patch('marcel_core.banking.client._load_sessions', return_value=sessions):
+        with patch('marcel_core.skills.integrations.banking.client._load_sessions', return_value=sessions):
             assert _session_id_for_bank('test', 'KBC') == 'sid-kbc'
             assert _session_id_for_bank('test', 'ING') == 'sid-ing'
             with pytest.raises(RuntimeError, match='No Belfius'):
@@ -438,19 +444,19 @@ class TestMultiSessionStorage:
 
 class TestClientHelpers:
     def test_tx_internal_id_prefers_transaction_id(self):
-        from marcel_core.banking.cache import _tx_internal_id
+        from marcel_core.skills.integrations.banking.cache import _tx_internal_id
 
         tx = {'transaction_id': 'tx-1', 'entry_reference': 'ref-1'}
         assert _tx_internal_id(tx, 'acct') == 'tx-1'
 
     def test_tx_internal_id_falls_back_to_entry_reference(self):
-        from marcel_core.banking.cache import _tx_internal_id
+        from marcel_core.skills.integrations.banking.cache import _tx_internal_id
 
         tx = {'entry_reference': 'ref-1'}
         assert _tx_internal_id(tx, 'acct') == 'ref-1'
 
     def test_tx_internal_id_composite_fallback(self):
-        from marcel_core.banking.cache import _tx_internal_id
+        from marcel_core.skills.integrations.banking.cache import _tx_internal_id
 
         tx = {
             'booking_date': '2026-04-01',
@@ -463,24 +469,24 @@ class TestClientHelpers:
         assert '2026-04-01' in result
 
     def test_extract_iban_creditor(self):
-        from marcel_core.banking.cache import _extract_iban
+        from marcel_core.skills.integrations.banking.cache import _extract_iban
 
         tx = {'creditor_account': {'iban': 'BE123'}}
         assert _extract_iban(tx) == 'BE123'
 
     def test_extract_iban_debtor(self):
-        from marcel_core.banking.cache import _extract_iban
+        from marcel_core.skills.integrations.banking.cache import _extract_iban
 
         tx = {'debtor_account': {'iban': 'BE456'}}
         assert _extract_iban(tx) == 'BE456'
 
     def test_extract_iban_identification_fallback(self):
-        from marcel_core.banking.cache import _extract_iban
+        from marcel_core.skills.integrations.banking.cache import _extract_iban
 
         tx = {'creditor_account': {'identification': 'BE789'}}
         assert _extract_iban(tx) == 'BE789'
 
     def test_extract_iban_none(self):
-        from marcel_core.banking.cache import _extract_iban
+        from marcel_core.skills.integrations.banking.cache import _extract_iban
 
         assert _extract_iban({}) == ''
