@@ -114,8 +114,13 @@ async def stream_turn(
     )
     append_message(user_slug, user_msg)
 
-    # Create agent
-    agent = create_marcel_agent(model or 'anthropic:claude-sonnet-4-6')
+    # Build system prompt with context
+    from marcel_core.harness.context import build_instructions
+
+    system_prompt = build_instructions(deps)
+
+    # Create agent with system prompt
+    agent = create_marcel_agent(model or 'anthropic:claude-sonnet-4-6', system_prompt=system_prompt)
 
     # TODO: Load conversation context from history
     # For now, just use the user prompt

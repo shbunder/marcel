@@ -43,11 +43,12 @@ def _resolve_model_string(model: str) -> str:
     return model if ':' in model else f'anthropic:{model}'
 
 
-def create_marcel_agent(model: str = 'anthropic:claude-sonnet-4-6') -> Agent[MarcelDeps, str]:
+def create_marcel_agent(model: str = 'anthropic:claude-sonnet-4-6', system_prompt: str = '') -> Agent[MarcelDeps, str]:
     """Create a configured Marcel agent with all tools.
 
     Args:
         model: The model identifier (e.g., 'anthropic:claude-sonnet-4-6', 'openai:gpt-4', ARN for Bedrock).
+        system_prompt: The system prompt string (must be provided).
 
     Returns:
         Configured pydantic-ai Agent instance.
@@ -55,10 +56,13 @@ def create_marcel_agent(model: str = 'anthropic:claude-sonnet-4-6') -> Agent[Mar
     resolved_model = _resolve_model_string(model)
     log.info('Creating Marcel agent: input_model=%s resolved_model=%s', model, resolved_model)
 
+    if not system_prompt:
+        system_prompt = 'You are Marcel, a helpful AI assistant.'
+
     agent: Agent[MarcelDeps, str] = Agent(
         resolved_model,
         deps_type=MarcelDeps,
-        system_prompt=build_instructions,  # Callable for dynamic prompts
+        system_prompt=system_prompt,
         retries=2,
     )
 
