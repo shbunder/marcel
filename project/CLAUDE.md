@@ -87,6 +87,16 @@ Run `make check` — this runs format, lint, typecheck, and tests with coverage.
 make check
 ```
 
+A git pre-commit hook automatically enforces this requirement — any attempt to commit code that doesn't pass `make check` will be blocked. The hook runs with a 120-second timeout and displays helpful error messages on failure.
+
+**Bypass for emergencies:** If you need to commit despite failing checks (e.g., the hook itself is broken, or you're committing a WIP state for backup), use:
+
+```bash
+git commit --no-verify
+```
+
+Use this sparingly — it bypasses quality gates and can introduce broken code into the git history.
+
 Log implementation work in the issue file (Implementation Log section).
 
 **Pre-close verification.** Before creating the closing commit, run through the verification checklist in [./issues/CLAUDE.md](./issues/CLAUDE.md) — especially check that all files referencing changed conventions (skills, docs, other CLAUDE.md files) have been updated. This prevents post-close fixups.
