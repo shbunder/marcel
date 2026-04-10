@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from pydantic_ai import UsageLimits
+from pydantic_ai.usage import UsageLimits
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
