@@ -1,6 +1,6 @@
 # ISSUE-050: Artifact-Based Telegram Mini App
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-10
 **Assignee:** Claude
 **Priority:** High
