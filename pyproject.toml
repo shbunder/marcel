@@ -3,7 +3,7 @@ name = "marcel"
 description = "A self-adapting agent build on top of claude-code that can rewrite itself."
 readme = "README.md"
 license = {text = "MIT"}
-version = "1.5.0"
+version = "2.0.0"
 authors = [
     { name="Shaun Bundervoet", email = "shaun.bundervoet@me.com"},
 ]
@@ -16,7 +16,6 @@ classifiers = [
 ]
 
 dependencies = [
-    "claude-agent-sdk",
     "pydantic-ai>=0.0.14",
     "pydantic-ai-slim[anthropic,openai]>=0.0.14",
     "fastapi>=0.115.0",
@@ -28,6 +27,7 @@ dependencies = [
     "vobject>=0.9.9",
     "cryptography>=44.0.0",
     "croniter>=2.0.0",
+    "matplotlib>=3.9.0",
 ]
 
 [project.optional-dependencies]

@@ -12,7 +12,12 @@ from pydantic_ai import Agent
 from marcel_core.config import settings
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.jobs import tool as job_tools
-from marcel_core.tools import claude_code as claude_code_tool, core as core_tools, integration as integration_tools
+from marcel_core.tools import (
+    charts as chart_tools,
+    claude_code as claude_code_tool,
+    core as core_tools,
+    integration as integration_tools,
+)
 from marcel_core.tools.browser import is_available as browser_is_available
 
 log = logging.getLogger(__name__)
@@ -67,27 +72,22 @@ def _resolve_model_string(model_name: str) -> str:
     aws_region = settings.aws_region
     if aws_region:
         bedrock_model_id = _BEDROCK_MODEL_MAP.get(model_name, model_name)
-        log.info(
-            'Creating model with AWS Bedrock: region=%s model=%s bedrock_id=%s',
-            aws_region,
-            model_name,
-            bedrock_model_id,
-        )
+        log.info('resolving model via Bedrock: region=%s model=%s bedrock_id=%s', aws_region, model_name, bedrock_model_id)
         return f'bedrock:{bedrock_model_id}'
 
     # 2. OpenAI model with API key
     if model_name in OPENAI_MODELS and settings.openai_api_key:
-        log.info('Creating OpenAI model with API key: model=%s', model_name)
+        log.info('resolving model via OpenAI: model=%s', model_name)
         return f'openai:{model_name}'
 
     # 3. Anthropic API key
     if settings.anthropic_api_key:
-        log.info('Creating Anthropic model with API key: model=%s', model_name)
+        log.info('resolving model via Anthropic: model=%s', model_name)
         return f'anthropic:{model_name}'
 
     # 4. OpenAI API key (fallback for OpenAI models)
     if settings.openai_api_key:
-        log.info('Creating OpenAI model with API key: model=%s', model_name)
+        log.info('resolving model via OpenAI: model=%s', model_name)
         return f'openai:{model_name}'
 
     raise RuntimeError(
@@ -119,7 +119,7 @@ def create_marcel_agent(
     clean_model = model.split(':', 1)[-1] if ':' in model else model
 
     resolved_model = _resolve_model_string(clean_model)
-    log.info('Creating Marcel agent: model=%s resolved=%s role=%s', clean_model, resolved_model, role)
+    log.info('creating agent: model=%s resolved=%s role=%s', clean_model, resolved_model, role)
 
     if not system_prompt:
         system_prompt = 'You are Marcel, a helpful AI assistant.'
@@ -170,6 +170,9 @@ def create_marcel_agent(
         agent.tool(core_tools.git_push)
         agent.tool(claude_code_tool.claude_code)
 
+    # Chart/image generation — available to all users
+    agent.tool(chart_tools.generate_chart)
+
     # All users get integration dispatch, memory tools, and notifications
     agent.tool(integration_tools.integration)
     agent.tool(integration_tools.memory_search)
@@ -188,5 +191,5 @@ def create_marcel_agent(
     agent.tool(job_tools.job_cache_write)
     agent.tool(job_tools.job_cache_read)
 
-    log.info('Created Marcel agent with model=%s role=%s', model, role)
+    log.info('agent ready: model=%s role=%s', model, role)
     return agent

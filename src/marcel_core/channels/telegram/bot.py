@@ -149,6 +149,59 @@ async def edit_message_text(
         return plain_resp.is_success
 
 
+async def send_photo(
+    chat_id: int | str,
+    photo: bytes | str,
+    *,
+    caption: str = '',
+    parse_mode: str = 'HTML',
+    reply_markup: dict | None = None,
+) -> int | None:
+    """Send a photo to a Telegram chat.
+
+    Args:
+        chat_id: The target chat ID.
+        photo: Either raw bytes (file upload) or a file_id / URL string.
+        caption: Optional caption text (supports HTML).
+        parse_mode: Parse mode for caption.
+        reply_markup: Optional inline keyboard markup.
+
+    Returns:
+        The ``message_id`` of the sent message on success, or ``None``.
+    """
+    token = _token()
+    url = f'{_API_BASE}/bot{token}/sendPhoto'
+
+    if isinstance(photo, bytes):
+        # Upload as multipart form data
+        data: dict = {'chat_id': str(chat_id)}
+        if caption:
+            data['caption'] = caption
+            data['parse_mode'] = parse_mode
+        if reply_markup:
+            import json
+
+            data['reply_markup'] = json.dumps(reply_markup)
+        files = {'photo': ('chart.png', photo, 'image/png')}
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, data=data, files=files)
+    else:
+        # Send by file_id or URL
+        payload: dict = {'chat_id': chat_id, 'photo': photo}
+        if caption:
+            payload['caption'] = caption
+            payload['parse_mode'] = parse_mode
+        if reply_markup:
+            payload['reply_markup'] = reply_markup
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, json=payload)
+
+    if resp.is_success:
+        result_data = resp.json()
+        return result_data.get('result', {}).get('message_id')
+    return None
+
+
 async def answer_callback_query(callback_query_id: str, text: str = '') -> None:
     """Acknowledge a callback query to dismiss the loading spinner."""
     token = _token()
@@ -213,8 +266,17 @@ def _has_calendar_content(text: str) -> bool:
 
 
 def has_rich_content(text: str) -> bool:
-    """Return True if *text* contains patterns that render better in the Mini App."""
+    """Return True if *text* contains rich formatting (calendars, tables, checklists)."""
     return bool(_RICH_TABLE_RE.search(text) or _RICH_TASKLIST_RE.search(text) or _has_calendar_content(text))
+
+
+def needs_mini_app(text: str) -> bool:
+    """Return True if the content genuinely benefits from the Mini App viewer.
+
+    Only interactive content (checklists) warrants a "View in app" button.
+    Calendars and tables render well enough in Telegram's native HTML.
+    """
+    return bool(_RICH_TASKLIST_RE.search(text))
 
 
 _BUTTON_LABELS = {

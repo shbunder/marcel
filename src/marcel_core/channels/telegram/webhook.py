@@ -76,11 +76,11 @@ async def _process_with_delayed_ack(chat_id: int, user_slug: str, text: str) -> 
     try:
         await _process_assistant_message(chat_id, user_slug, text, ack)
     except Exception as exc:
-        log.exception('Unhandled error processing Telegram message from chat_id=%s: %s', chat_id, exc)
+        log.exception('%s-telegram: unhandled error processing message', user_slug)
         try:
             await _reply(chat_id, f'Sorry, an unexpected error occurred: {exc}')
         except Exception:
-            log.exception('Also failed to send error reply to chat_id=%s', chat_id)
+            log.exception('%s-telegram: also failed to send error reply', user_slug)
     finally:
         ack['cancelled'] = True
         ack_task.cancel()
@@ -95,7 +95,7 @@ async def _run_forget(chat_id: int, user_slug: str) -> None:
         else:
             await _reply(chat_id, 'Compression failed — please try again later.')
     except Exception as exc:
-        log.exception('Failed to run /forget for chat_id=%s: %s', chat_id, exc)
+        log.exception('%s-telegram: /forget failed', user_slug)
         await _reply(chat_id, 'Something went wrong while compressing the conversation.')
 
 
@@ -126,7 +126,7 @@ async def _process_assistant_message(
             await _reply(chat_id, 'Sorry, that took too long and I had to give up. Please try again.')
         return
     except Exception as exc:
-        log.exception('Error processing message from chat_id=%s', chat_id)
+        log.exception('%s-telegram: error processing message', user_slug)
         partial = ''.join(response_parts).strip()
         if partial:
             await _reply(chat_id, partial + '\n\n(response may be incomplete due to an error)')
@@ -155,7 +155,7 @@ async def _process_assistant_message(
             title = bot.extract_title(full_response)
             artifact_id = create_artifact(user_slug, conversation_id, content_type, full_response, title)
     except Exception:
-        log.exception('Failed to create artifact for chat_id=%s', chat_id)
+        log.exception('%s-telegram: failed to create artifact', user_slug)
 
     # --- Format and send ---
     try:
@@ -186,10 +186,11 @@ def _format_response(
         A ``(html_text, reply_markup)`` tuple.
     """
     has_rich = bot.has_rich_content(full_response)
+    show_button = bot.needs_mini_app(full_response) and artifact_id is not None
 
-    # Build the "View in app" markup — artifact-based when available
+    # Build the "View in app" markup — only for genuinely interactive content
     def _view_markup() -> dict | None:
-        if artifact_id:
+        if show_button and artifact_id:
             return bot.artifact_markup(artifact_id)
         return None
 
@@ -197,23 +198,23 @@ def _format_response(
     day_groups = parse_day_groups(full_response) if has_rich else None
 
     if day_groups and len(day_groups) > DAYS_PER_PAGE:
-        # Multi-page calendar with navigation buttons
+        # Multi-page calendar with navigation buttons (no "View in app")
         html_text = format_calendar_page(day_groups, page=0)
         total_pages = math.ceil(len(day_groups) / DAYS_PER_PAGE)
         markup = calendar_nav_markup(
             conversation_id,
             page=0,
             total_pages=total_pages,
-            web_app_url=web_app_url_for(conversation_id, artifact_id=artifact_id),
+            web_app_url=web_app_url_for(conversation_id, artifact_id=artifact_id) if show_button else None,
         )
     elif day_groups:
-        # Single-page calendar — expandable blockquotes, no nav
+        # Single-page calendar — expandable blockquotes, no button
         html_text = format_calendar_page(day_groups, page=0)
-        markup = _view_markup()
+        markup = None
     else:
         # Regular message — convert markdown to HTML
         html_text = markdown_to_telegram_html(full_response)
-        markup = _view_markup() if has_rich else None
+        markup = _view_markup()
 
     return html_text, markup
 
@@ -360,7 +361,7 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
     sessions.touch_last_message(chat_id)
 
     # --- Dispatch to assistant (with delayed ack) ---
-    log.info('Dispatching message from chat_id=%s user=%s: %r', chat_id, user_slug, text[:80])
+    log.info('%s-telegram: incoming message: %r', user_slug, text[:80])
     asyncio.create_task(_process_with_delayed_ack(chat_id, user_slug, text))
 
     return {'status': 'ok'}

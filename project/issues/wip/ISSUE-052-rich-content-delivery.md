@@ -1,6 +1,6 @@
 # ISSUE-052: Rich Content Delivery
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-10
 **Assignee:** Claude
 **Priority:** High
@@ -23,13 +23,13 @@ This issue adds three things:
 3. **Tighter button logic** — "View in app" only appears for checklists (interactive checkboxes). Calendars and tables render well enough in Telegram's native HTML and no longer trigger the button.
 
 ## Tasks
-- [ ] Add `matplotlib>=3.9.0` to pyproject.toml dependencies
-- [ ] Add `send_photo()` to `src/marcel_core/channels/telegram/bot.py`
-- [ ] Create `src/marcel_core/tools/charts.py` with `generate_chart` tool
-- [ ] Register `generate_chart` in `src/marcel_core/harness/agent.py`
-- [ ] Add `needs_mini_app()` to bot.py — only returns True for checklists
-- [ ] Update `_format_response()` in webhook.py to use `needs_mini_app()` for button decisions
-- [ ] Verify: tests pass, frontend builds
+- [✓] Add `matplotlib>=3.9.0` to pyproject.toml dependencies
+- [✓] Add `send_photo()` to `src/marcel_core/channels/telegram/bot.py`
+- [✓] Create `src/marcel_core/tools/charts.py` with `generate_chart` tool
+- [✓] Register `generate_chart` in `src/marcel_core/harness/agent.py`
+- [✓] Add `needs_mini_app()` to bot.py — only returns True for checklists
+- [✓] Update `_format_response()` in webhook.py to use `needs_mini_app()` for button decisions
+- [✓] Verify: tests pass (679), frontend builds
 
 ## Relationships
 - Depends on: [[ISSUE-050-artifact-mini-app]] (artifact storage and mini-app viewer)
