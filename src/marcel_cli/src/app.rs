@@ -176,11 +176,11 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
 
     loop {
         // ── expire copy notification ───────────────────────────────────
-        if let Some(t) = copy_notif_at {
-            if t.elapsed() > std::time::Duration::from_millis(1500) {
-                status.notification = None;
-                copy_notif_at = None;
-            }
+        if let Some(t) = copy_notif_at
+            && t.elapsed() > std::time::Duration::from_millis(1500)
+        {
+            status.notification = None;
+            copy_notif_at = None;
         }
 
         // ── update chat area dimensions ────────────────────────────────

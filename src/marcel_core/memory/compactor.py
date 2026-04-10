@@ -186,7 +186,7 @@ async def _summarize_messages(messages: list[HistoryMessage]) -> str:
     )
 
     result = await summarizer.run(prompt)
-    return result.data.strip()
+    return result.output.strip()
 
 
 def reset_compaction_state(conversation_id: str) -> None:

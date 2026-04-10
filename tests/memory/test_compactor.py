@@ -1,7 +1,7 @@
 """Tests for auto-compaction module."""
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -59,8 +59,8 @@ async def test_no_compaction_below_threshold(mock_messages):
 @pytest.mark.asyncio
 async def test_compaction_above_threshold(mock_messages):
     """Test that compaction runs when above token threshold."""
-    mock_agent_result = AsyncMock()
-    mock_agent_result.data = 'This is a summary of the conversation.'
+    mock_agent_result = MagicMock()
+    mock_agent_result.output = 'This is a summary of the conversation.'
 
     with (
         patch('marcel_core.memory.compactor.read_recent_turns', return_value=mock_messages),
@@ -80,8 +80,8 @@ async def test_compaction_above_threshold(mock_messages):
 @pytest.mark.asyncio
 async def test_force_compaction(mock_messages):
     """Test that force=True bypasses threshold check."""
-    mock_agent_result = AsyncMock()
-    mock_agent_result.data = 'Forced summary.'
+    mock_agent_result = MagicMock()
+    mock_agent_result.output = 'Forced summary.'
 
     with (
         patch('marcel_core.memory.compactor.read_recent_turns', return_value=mock_messages),
@@ -124,8 +124,8 @@ async def test_circuit_breaker_after_failures(mock_messages):
 @pytest.mark.asyncio
 async def test_preserves_recent_turns(mock_messages):
     """Test that recent turns are preserved during compaction."""
-    mock_agent_result = AsyncMock()
-    mock_agent_result.data = 'Summary of old messages.'
+    mock_agent_result = MagicMock()
+    mock_agent_result.output = 'Summary of old messages.'
 
     with (
         patch('marcel_core.memory.compactor.read_recent_turns', return_value=mock_messages),

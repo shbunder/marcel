@@ -33,7 +33,7 @@ class MarcelEvent:
 class RunStarted(MarcelEvent):
     """Turn execution started."""
 
-    type: Literal['run_started'] = 'run_started'
+    type: Literal['run_started'] = 'run_started'  # type: ignore[assignment]
     conversation_id: str = ''
 
 
@@ -41,7 +41,7 @@ class RunStarted(MarcelEvent):
 class TextDelta(MarcelEvent):
     """Incremental text from assistant."""
 
-    type: Literal['text_delta'] = 'text_delta'
+    type: Literal['text_delta'] = 'text_delta'  # type: ignore[assignment]
     text: str = ''
 
 
@@ -49,7 +49,7 @@ class TextDelta(MarcelEvent):
 class ToolCallStarted(MarcelEvent):
     """Tool invocation started."""
 
-    type: Literal['tool_call_started'] = 'tool_call_started'
+    type: Literal['tool_call_started'] = 'tool_call_started'  # type: ignore[assignment]
     tool_call_id: str = ''
     tool_name: str = ''
 
@@ -58,7 +58,7 @@ class ToolCallStarted(MarcelEvent):
 class ToolCallCompleted(MarcelEvent):
     """Tool invocation completed."""
 
-    type: Literal['tool_call_completed'] = 'tool_call_completed'
+    type: Literal['tool_call_completed'] = 'tool_call_completed'  # type: ignore[assignment]
     tool_call_id: str = ''
     tool_name: str = ''
     result: str = ''
@@ -69,7 +69,7 @@ class ToolCallCompleted(MarcelEvent):
 class RunFinished(MarcelEvent):
     """Turn execution finished."""
 
-    type: Literal['run_finished'] = 'run_finished'
+    type: Literal['run_finished'] = 'run_finished'  # type: ignore[assignment]
     total_cost_usd: float | None = None
     is_error: bool = False
 

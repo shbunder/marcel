@@ -113,7 +113,7 @@ async def _select_via_model(
 
     try:
         result = await selector_agent.run(prompt)
-        response = result.data.strip()
+        response = result.output.strip()
         filenames = _parse_selection(response)
 
         # Map back to headers

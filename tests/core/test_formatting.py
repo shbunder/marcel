@@ -14,6 +14,7 @@ from marcel_core.channels.telegram.formatting import (
     strip_html_tags,
     web_app_url_for,
 )
+from marcel_core.config import settings
 
 # ---------------------------------------------------------------------------
 # escape_html
@@ -273,13 +274,13 @@ class TestCalendarNavMarkup:
 
 class TestWebAppUrlFor:
     def test_returns_none_without_env(self, monkeypatch):
-        monkeypatch.delenv('MARCEL_PUBLIC_URL', raising=False)
+        # conftest already resets marcel_public_url to None
         assert web_app_url_for('conv-1') is None
 
     def test_returns_url_with_conversation(self, monkeypatch):
-        monkeypatch.setenv('MARCEL_PUBLIC_URL', 'https://marcel-bot.com')
+        monkeypatch.setattr(settings, 'marcel_public_url', 'https://marcel-bot.com')
         assert web_app_url_for('conv-1') == 'https://marcel-bot.com?conversation=conv-1'
 
     def test_returns_base_url_without_conversation(self, monkeypatch):
-        monkeypatch.setenv('MARCEL_PUBLIC_URL', 'https://marcel-bot.com')
+        monkeypatch.setattr(settings, 'marcel_public_url', 'https://marcel-bot.com')
         assert web_app_url_for() == 'https://marcel-bot.com'

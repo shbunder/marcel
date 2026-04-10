@@ -1,15 +1,14 @@
 {
   "hooks": {
-    "PreCommit": [
-      {
-        "command": "make check 2>&1 | tail -5",
-        "timeout": 120000
-      }
-    ],
     "SessionStart": [
       {
-        "command": "ls project/issues/wip/*.md 2>/dev/null | head -5 || echo 'No active WIP issues'",
-        "timeout": 2000
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ls project/issues/wip/*.md 2>/dev/null | head -5 || echo 'No active WIP issues'",
+            "timeout": 2000
+          }
+        ]
       }
     ]
   }

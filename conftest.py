@@ -4,17 +4,21 @@ Resets environment variables that are set in .env.local but would
 break test isolation if they were loaded at import time.
 """
 
-import os
-
 import pytest
 
 
 @pytest.fixture(autouse=True)
-def reset_auth_token_for_tests(monkeypatch):
-    """Ensure MARCEL_API_TOKEN is unset during tests.
+def reset_settings_for_tests(monkeypatch):
+    """Reset settings singleton fields that .env.local may override.
 
-    main.py loads .env.local (which may set a real token) before tests run.
-    Without this fixture, WebSocket tests that don't send a token would fail
-    auth checks.
+    pydantic-settings loads .env.local once at import time into a singleton.
+    monkeypatch.setenv/delenv only affects os.environ — it does not re-read
+    the singleton. Patch the singleton fields directly so individual tests
+    start from a clean baseline and can override with monkeypatch.setattr.
     """
+    from marcel_core.config import settings
+
     monkeypatch.delenv('MARCEL_API_TOKEN', raising=False)
+    monkeypatch.setattr(settings, 'marcel_api_token', '')
+    monkeypatch.setattr(settings, 'telegram_webhook_secret', '')
+    monkeypatch.setattr(settings, 'marcel_public_url', None)

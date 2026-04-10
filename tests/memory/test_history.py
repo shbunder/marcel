@@ -175,6 +175,7 @@ def test_create_compaction_summary():
     summary = create_compaction_summary(messages, 'User discussed project plans.', 'conv-1')
 
     assert summary.role == 'system'
+    assert summary.text is not None
     assert 'Context summary' in summary.text
     assert 'project plans' in summary.text
     assert summary.conversation_id == 'conv-1'

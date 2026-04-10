@@ -37,7 +37,7 @@ def _repo_root() -> pathlib.Path:
     raise RuntimeError('Could not find repo root')
 
 
-def _start_uvicorn() -> subprocess.Popen:  # type: ignore[type-arg]
+def _start_uvicorn() -> subprocess.Popen[bytes]:
     return subprocess.Popen(
         [
             sys.executable,
@@ -53,7 +53,7 @@ def _start_uvicorn() -> subprocess.Popen:  # type: ignore[type-arg]
     )
 
 
-def _stop(proc: subprocess.Popen, timeout: float = 10.0) -> None:  # type: ignore[type-arg]
+def _stop(proc: subprocess.Popen[bytes], timeout: float = 10.0) -> None:
     """Send SIGTERM to *proc* and wait up to *timeout* seconds; SIGKILL if needed."""
     proc.send_signal(signal.SIGTERM)
     try:

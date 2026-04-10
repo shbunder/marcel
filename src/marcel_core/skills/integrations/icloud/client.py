@@ -37,7 +37,7 @@ def _credentials(slug: str) -> tuple[str, str]:
 def _fetch_calendar_events(slug: str, days_ahead: int = 7) -> list[dict[str, Any]]:
     """Synchronously fetch calendar events for the next `days_ahead` days via CalDAV."""
     apple_id, password = _credentials(slug)
-    client = caldav.DAVClient(
+    client = caldav.DAVClient(  # type: ignore[misc]
         url='https://caldav.icloud.com/',
         username=apple_id,
         password=password,
@@ -106,10 +106,10 @@ def _search_mail_imap(slug: str, query: str, limit: int = 10) -> list[dict[str, 
             if msg.is_multipart():
                 for part in msg.walk():
                     if part.get_content_type() == 'text/plain':
-                        body = part.get_payload(decode=True).decode('utf-8', errors='replace')[:500]
+                        body = part.get_payload(decode=True).decode('utf-8', errors='replace')[:500]  # type: ignore[union-attr]
                         break
             else:
-                body = msg.get_payload(decode=True).decode('utf-8', errors='replace')[:500]
+                body = msg.get_payload(decode=True).decode('utf-8', errors='replace')[:500]  # type: ignore[union-attr]
 
             results.append(
                 {

@@ -14,6 +14,8 @@ from httpx import Response
 
 from marcel_core.channels.telegram import sessions
 from marcel_core.channels.telegram.bot import escape_markdown_v2
+from marcel_core.config import settings
+from marcel_core.harness.runner import TextDelta
 from marcel_core.main import app
 from marcel_core.storage import _root
 
@@ -148,9 +150,9 @@ def _make_update(chat_id: int, text: str) -> dict:
 def _mock_stream(monkeypatch, tokens: list[str]) -> None:
     async def fake_stream(*args, **kwargs):
         for t in tokens:
-            yield t
+            yield TextDelta(text=t)
 
-    monkeypatch.setattr('marcel_core.channels.telegram.webhook.stream_response', fake_stream)
+    monkeypatch.setattr('marcel_core.channels.telegram.webhook.stream_turn', fake_stream)
     monkeypatch.setattr(
         'marcel_core.channels.telegram.webhook.extract_and_save_memories',
         lambda *a, **k: asyncio.sleep(0),
@@ -170,7 +172,7 @@ class TestTelegramWebhook:
 
     def test_ignores_update_without_message(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
+        monkeypatch.setattr(settings, 'telegram_webhook_secret', 'test-secret')
         client = TestClient(app)
         resp = client.post('/telegram/webhook', json={'update_id': 1}, headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
@@ -178,7 +180,7 @@ class TestTelegramWebhook:
 
     def test_ignores_empty_text(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
+        monkeypatch.setattr(settings, 'telegram_webhook_secret', 'test-secret')
         update = _make_update(123, '')
         update['message']['text'] = ''
         client = TestClient(app)
@@ -189,8 +191,8 @@ class TestTelegramWebhook:
     @respx.mock
     def test_start_command_sends_chat_id(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
-        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
+        monkeypatch.setattr(settings, 'telegram_bot_token', 'test-token')
+        monkeypatch.setattr(settings, 'telegram_webhook_secret', 'test-secret')
 
         sent_payload = {}
 
@@ -210,8 +212,8 @@ class TestTelegramWebhook:
     def test_unlinked_chat_sends_explanation(self, tmp_path, monkeypatch):
         # No telegram.json written for any user — chat is unlinked
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
-        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
+        monkeypatch.setattr(settings, 'telegram_bot_token', 'test-token')
+        monkeypatch.setattr(settings, 'telegram_webhook_secret', 'test-secret')
 
         sent_payload = {}
 
@@ -229,7 +231,7 @@ class TestTelegramWebhook:
 
     def test_rejects_bad_webhook_secret(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'my-secret')
+        monkeypatch.setattr(settings, 'telegram_webhook_secret', 'my-secret')
 
         client = TestClient(app)
         resp = client.post(
@@ -241,8 +243,8 @@ class TestTelegramWebhook:
 
     def test_accepts_correct_webhook_secret(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'my-secret')
-        monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+        monkeypatch.setattr(settings, 'telegram_webhook_secret', 'my-secret')
+        monkeypatch.setattr(settings, 'telegram_bot_token', 'test-token')
 
         with respx.mock:
             respx.post('https://api.telegram.org/bottest-token/sendMessage').mock(
@@ -259,8 +261,8 @@ class TestTelegramWebhook:
     @respx.mock
     def test_linked_chat_dispatches_to_agent(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
-        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
+        monkeypatch.setattr(settings, 'telegram_bot_token', 'test-token')
+        monkeypatch.setattr(settings, 'telegram_webhook_secret', 'test-secret')
         sessions.link_user('shaun', 555)
         _mock_stream(monkeypatch, ['Hello', ' Shaun'])
 
@@ -338,8 +340,8 @@ class TestNewCommand:
     @respx.mock
     def test_new_command_resets_session(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
-        monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
+        monkeypatch.setattr(settings, 'telegram_bot_token', 'test-token')
+        monkeypatch.setattr(settings, 'telegram_webhook_secret', 'test-secret')
         sessions.link_user('shaun', 555)
         sessions.set_conversation_id(555, 'old-conv')
 
