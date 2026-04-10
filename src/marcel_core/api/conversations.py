@@ -133,7 +133,7 @@ class HistoryResponse(BaseModel):
     messages: list[HistoryMessage]
 
 
-@router.get('/v2/history', response_model=HistoryResponse)
+@router.get('/api/history', response_model=HistoryResponse)
 async def get_conversation_history(
     user: str = Query(..., description='User slug'),
     channel: str = Query('cli', description='Channel name'),
@@ -168,7 +168,7 @@ class ForgetResponse(BaseModel):
     message: str
 
 
-@router.post('/v2/forget', response_model=ForgetResponse)
+@router.post('/api/forget', response_model=ForgetResponse)
 async def forget_conversation(
     user: str = Query(..., description='User slug'),
     channel: str = Query('cli', description='Channel name'),

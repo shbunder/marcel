@@ -88,7 +88,7 @@ struct ForgetResponse {
 /// Trigger conversation compaction via the server.
 async fn forget_conversation(cfg: &Config, dev_mode: bool) -> Result<String, String> {
     let base = cfg.base_url(dev_mode);
-    let url = format!("{base}/v2/forget?user={}&channel=cli", cfg.user);
+    let url = format!("{base}/api/forget?user={}&channel=cli", cfg.user);
 
     let mut req = reqwest::Client::new().post(&url);
     if !cfg.token.is_empty() {
@@ -110,7 +110,7 @@ async fn fetch_history(
     channel: &str,
 ) -> Result<HistoryResponse, String> {
     let base = cfg.base_url(dev_mode);
-    let url = format!("{base}/v2/history?user={}&channel={channel}", cfg.user);
+    let url = format!("{base}/api/history?user={}&channel={channel}", cfg.user);
 
     let mut req = reqwest::Client::new().get(&url);
     if !cfg.token.is_empty() {

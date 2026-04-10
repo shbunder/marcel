@@ -1,8 +1,7 @@
 """Agent runner — streams events from pydantic-ai for one conversation turn.
 
-Replaces the old agent/runner.py which used ClaudeSDKClient sessions.
-This version creates a stateless agent per turn, building context from
-segment-based conversation history and dynamically selected memories.
+Creates a stateless agent per turn, building context from segment-based
+conversation history and dynamically selected memories.
 """
 
 from __future__ import annotations
@@ -188,7 +187,7 @@ async def build_context(
     idle_minutes = settings.marcel_idle_summarize_minutes
     summarized = await summarize_if_idle(user_slug, channel, idle_minutes)
     if summarized:
-        log.info('[runner] Idle summarization completed for %s/%s before turn', user_slug, channel)
+        log.info('%s-%s: idle summarization completed before turn', user_slug, channel)
 
     # 2. Load latest summary
     latest_summary = load_latest_summary(user_slug, channel)
@@ -209,12 +208,6 @@ async def build_context(
         model_messages.insert(0, summary_msg)
 
     return model_messages
-
-
-# Keep backward-compatible alias for existing callers during migration
-def history_to_messages(messages: list[HistoryMessage], num_turns: int | None = None) -> list[ModelMessage]:
-    """Convert HistoryMessage list to ModelMessage list (backward-compatible alias)."""
-    return _messages_to_model(messages, num_turns=num_turns)
 
 
 @dataclass
@@ -445,7 +438,7 @@ async def stream_turn(
             message_history=message_history,
             usage_limits=UsageLimits(request_limit=15),
         ) as result:
-            log.debug('[runner] stream started for user=%s', user_slug)
+            log.info('%s-%s: stream started model=%s', user_slug, channel, resolved_model)
             async for text_delta in result.stream_text(delta=True, debounce_by=0.01):
                 if text_delta:
                     yield TextDelta(text=text_delta)
@@ -453,7 +446,7 @@ async def stream_turn(
 
             # Wait for full completion (runs on_complete, processes trailing tool calls)
             await result.get_output()
-            log.debug('[runner] stream finished for user=%s', user_slug)
+            log.debug('%s-%s: stream finished', user_slug, channel)
 
             # Capture all messages for tool call extraction
             all_messages = result.all_messages()
@@ -461,7 +454,9 @@ async def stream_turn(
             usage = result.usage()
             if usage and usage.total_tokens:
                 log.info(
-                    'Turn complete: %d tokens (input: %d, output: %d, requests: %d)',
+                    '%s-%s: turn complete — %d tokens (in: %d, out: %d, requests: %d)',
+                    user_slug,
+                    channel,
                     usage.total_tokens,
                     usage.request_tokens,
                     usage.response_tokens,
@@ -469,7 +464,7 @@ async def stream_turn(
                 )
 
     except Exception as exc:
-        log.exception('[runner] turn execution failed for user=%s', user_slug)
+        log.exception('%s-%s: turn execution failed', user_slug, channel)
         is_error = True
         error_text = f'Error: {exc}'
         yield TextDelta(text=error_text)

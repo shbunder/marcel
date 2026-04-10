@@ -134,7 +134,7 @@ async def summarize_active_segment(
     # Circuit breaker
     if state.consecutive_failures >= MAX_SUMMARIZATION_FAILURES:
         log.warning(
-            '[summarizer] Circuit breaker active for %s/%s after %d failures',
+            '%s-%s: circuit breaker active after %d failures',
             user_slug,
             channel,
             state.consecutive_failures,
@@ -142,7 +142,7 @@ async def summarize_active_segment(
         return False
 
     if not has_active_content(user_slug, channel):
-        log.debug('[summarizer] No active content to summarize for %s/%s', user_slug, channel)
+        log.debug('%s-%s: no active content to summarize', user_slug, channel)
         return False
 
     meta = load_channel_meta(user_slug, channel)
@@ -156,10 +156,10 @@ async def summarize_active_segment(
         return False
 
     log.info(
-        '[summarizer] Starting %s summarization for %s/%s segment=%s (%d messages)',
-        trigger,
+        '%s-%s: starting %s summarization segment=%s (%d messages)',
         user_slug,
         channel,
+        trigger,
         segment_id,
         len(messages),
     )
@@ -170,7 +170,7 @@ async def summarize_active_segment(
 
         # 2. Strip tool results from the sealed segment
         stripped = strip_tool_results_from_segment(user_slug, channel, sealed_id)
-        log.debug('[summarizer] Stripped %d tool results from %s', stripped, sealed_id)
+        log.debug('%s-%s: stripped %d tool results from %s', user_slug, channel, stripped, sealed_id)
 
         # 3. Generate summary via Haiku
         previous_summary = load_latest_summary(user_slug, channel)
@@ -198,17 +198,17 @@ async def summarize_active_segment(
         state.last_attempt = datetime.now(tz=timezone.utc)
 
         log.info(
-            '[summarizer] Completed %s summarization for %s/%s: %d messages → %d char summary',
-            trigger,
+            '%s-%s: %s summarization complete — %d messages → %d char summary',
             user_slug,
             channel,
+            trigger,
             len(messages),
             len(summary_text),
         )
         return True
 
     except Exception:
-        log.exception('[summarizer] Failed for %s/%s', user_slug, channel)
+        log.exception('%s-%s: summarization failed', user_slug, channel)
         state.consecutive_failures += 1
         state.last_attempt = datetime.now(tz=timezone.utc)
         return False

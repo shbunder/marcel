@@ -94,7 +94,7 @@ async def _run_forget(chat_id: int, user_slug: str) -> None:
             await _reply(chat_id, "Got it — I've compressed our recent conversation. I'll remember the key points.")
         else:
             await _reply(chat_id, 'Compression failed — please try again later.')
-    except Exception as exc:
+    except Exception:
         log.exception('%s-telegram: /forget failed', user_slug)
         await _reply(chat_id, 'Something went wrong while compressing the conversation.')
 

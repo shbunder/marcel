@@ -15,8 +15,8 @@ from marcel_core.harness.runner import (
     ToolCallCompleted,
     ToolCallStarted,
     _extract_tool_history,
+    _messages_to_model,
     _tool_result_for_context,
-    history_to_messages,
     stream_turn,
 )
 from marcel_core.memory.history import HistoryMessage, MessageRole, ToolCall
@@ -189,7 +189,7 @@ class TestStreamTurn:
 
 
 # ---------------------------------------------------------------------------
-# history_to_messages tests
+# _messages_to_model tests
 # ---------------------------------------------------------------------------
 
 
@@ -205,7 +205,7 @@ class TestHistoryToMessages:
 
     def test_converts_user_and_assistant(self):
         history = [self._msg('user', 'hello'), self._msg('assistant', 'hi there')]
-        result = history_to_messages(history)
+        result = _messages_to_model(history)
         assert len(result) == 2
         assert isinstance(result[0], ModelRequest)
         assert isinstance(result[1], ModelResponse)
@@ -217,7 +217,7 @@ class TestHistoryToMessages:
             self._msg('tool', 'file1\nfile2', tool_call_id='tc-1', tool_name='bash'),
             self._msg('assistant', 'Here are the files.'),
         ]
-        result = history_to_messages(history)
+        result = _messages_to_model(history)
         assert len(result) == 4
         # assistant with tool call
         assert isinstance(result[1], ModelResponse)
@@ -235,7 +235,7 @@ class TestHistoryToMessages:
             self._msg('user', 'hello'),
             self._msg('assistant', 'reply'),
         ]
-        result = history_to_messages(history)
+        result = _messages_to_model(history)
         assert len(result) == 3
         # System messages become UserPromptPart in a ModelRequest
         assert isinstance(result[0], ModelRequest)
@@ -243,15 +243,15 @@ class TestHistoryToMessages:
 
     def test_skips_empty_text(self):
         history = [self._msg('user', None), self._msg('user', ''), self._msg('user', 'real')]
-        result = history_to_messages(history)
+        result = _messages_to_model(history)
         assert len(result) == 1
 
     def test_empty_history(self):
-        assert history_to_messages([]) == []
+        assert _messages_to_model([]) == []
 
     def test_preserves_content(self):
         history = [self._msg('user', 'what is 2+2?'), self._msg('assistant', '4')]
-        result = history_to_messages(history)
+        result = _messages_to_model(history)
         assert isinstance(result[0], ModelRequest)
         assert isinstance(result[1], ModelResponse)
         user_part = result[0].parts[0]
@@ -270,7 +270,7 @@ class TestHistoryToMessages:
                 tool_calls=[ToolCall(id='tc-1', name='bash', arguments={'command': 'ls'})],
             ),
         ]
-        result = history_to_messages(history)
+        result = _messages_to_model(history)
         assert len(result) == 2
         response = result[1]
         assert isinstance(response, ModelResponse)
@@ -294,7 +294,7 @@ class TestHistoryToMessages:
             self._msg('tool', '/home', tool_call_id='tc-2', tool_name='bash'),
             self._msg('assistant', 'Done.'),
         ]
-        result = history_to_messages(history)
+        result = _messages_to_model(history)
         assert len(result) == 4  # user, assistant+tools, request(2 returns), assistant
         # The tool returns should be in a single ModelRequest
         tool_request = result[2]
