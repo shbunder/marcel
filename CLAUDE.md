@@ -4,7 +4,7 @@ Marcel is a self-adapting personal agent built on top of Claude Code. It can obs
 
 ## Two modes, two instruction sets
 
-- **Personal assistant mode** — governed by `MARCEL.md` files, loaded in order: `.marcel/MARCEL.md` (global, in git), `<data_root>/MARCEL.md` (server-wide, not in git), `<data_root>/users/<slug>/MARCEL.md` (per-user). These are injected by Marcel's own system prompt builder and describe how Marcel should behave as a household assistant.
+- **Personal assistant mode** — governed by `MARCEL.md` files under the data root (`~/.marcel/` or `$MARCEL_DATA_DIR`), loaded in order: `<data_root>/MARCEL.md` (global), `<data_root>/users/<slug>/MARCEL.md` (per-user). These are injected by Marcel's own system prompt builder and describe how Marcel should behave as a household assistant.
 - **Developer / self-modification mode** — governed by this file and the files in `project/`. These are read by the Claude Code inner loop when Marcel modifies its own codebase.
 
 You are reading CLAUDE.md, so you are in **developer mode**.
@@ -26,6 +26,6 @@ You are reading CLAUDE.md, so you are in **developer mode**.
 
 ## Skill system overview
 
-Integration skills are documented in `.marcel/skills/` — each skill directory has a `SKILL.md` (full integration docs) and an optional `SETUP.md` (shown when the integration isn't configured). Skills are loaded from `.marcel/skills/` (project) and `~/.marcel/skills/` (user home). The loader is in `src/marcel_core/skills/loader.py`.
+Integration skills are documented in `<data_root>/skills/` (`~/.marcel/skills/`) — each skill directory has a `SKILL.md` (full integration docs) and an optional `SETUP.md` (shown when the integration isn't configured). Default skills are bundled in `src/marcel_core/defaults/skills/` and seeded to the data root on first startup. The loader is in `src/marcel_core/skills/loader.py`.
 
 Developer workflow skills (`new-issue`, `finish-issue`) remain in `.claude/skills/` — they are Claude Code skills for this developer session, not Marcel runtime skills.

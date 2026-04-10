@@ -1,0 +1,47 @@
+"""Default MARCEL.md and skill files seeded on first startup.
+
+If the data root does not yet contain a MARCEL.md or skills/ directory,
+the bundled defaults are copied from this package.  Existing files are
+never overwritten — the data root is the authoritative source.
+"""
+
+import logging
+import shutil
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+_DEFAULTS_DIR = Path(__file__).resolve().parent
+
+
+def seed_defaults(data_root: Path) -> None:
+    """Copy bundled defaults to *data_root* if they don't already exist.
+
+    Only files that are missing are copied; existing files are left intact.
+    This runs once at startup to ensure a fresh install has working config.
+    """
+    # Seed MARCEL.md
+    target_marcel = data_root / 'MARCEL.md'
+    if not target_marcel.exists():
+        src = _DEFAULTS_DIR / 'MARCEL.md'
+        if src.exists():
+            target_marcel.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, target_marcel)
+            log.info('Seeded %s from defaults', target_marcel)
+
+    # Seed skills directory
+    src_skills = _DEFAULTS_DIR / 'skills'
+    if not src_skills.is_dir():
+        return
+
+    target_skills = data_root / 'skills'
+    target_skills.mkdir(parents=True, exist_ok=True)
+
+    for skill_dir in sorted(src_skills.iterdir()):
+        if not skill_dir.is_dir() or skill_dir.name.startswith(('_', '.')):
+            continue
+        target_skill = target_skills / skill_dir.name
+        if target_skill.exists():
+            continue  # Don't overwrite existing skill customizations
+        shutil.copytree(skill_dir, target_skill)
+        log.info('Seeded skill %s from defaults', skill_dir.name)

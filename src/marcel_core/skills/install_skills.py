@@ -1,19 +1,15 @@
-"""Install Marcel integration skills into .marcel/skills/.
+"""Seed default skills into the data root.
 
-Skills now live directly in ``.marcel/skills/`` in the repository and are
-tracked in git.  This script is a no-op kept for backwards compatibility with
-the ``make install-skills`` target; it can be safely called and will exit
-cleanly without modifying any files.
+Skills live at ``<data_root>/skills/`` (``~/.marcel/skills/``).  Default
+skills are bundled in ``src/marcel_core/defaults/skills/`` and seeded
+automatically on server startup if not already present.
 
-Previously this script symlinked or copied files from
-``src/marcel_core/skills/docs/`` into ``.claude/skills/``.  That pattern was
-replaced in ISSUE-032: skills now live in ``.marcel/skills/`` and are loaded
-directly by the skill loader without any install step.
-
-Usage:
-    python -m marcel_core.skills.install_skills       # no-op
-    python -m marcel_core.skills.install_skills --copy # no-op
+This script can be run manually to force-seed defaults.
 """
 
 if __name__ == '__main__':
-    print('Skills are managed directly in .marcel/skills/ — no install step needed.')
+    from marcel_core.defaults import seed_defaults
+    from marcel_core.storage._root import data_root
+
+    seed_defaults(data_root())
+    print(f'Defaults seeded to {data_root()}')

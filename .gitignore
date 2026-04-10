@@ -40,8 +40,9 @@ notebooks/*.ipynb
 # Downloaded installers
 *.deb
 
-# Integration skills are now in .marcel/skills/ (tracked in git).
-# Developer workflow skills (new-issue, finish-issue) remain in .claude/skills/.
+# Runtime config lives in ~/.marcel/ (data root), not in the repo.
+# Defaults are bundled in src/marcel_core/defaults/ and seeded on first startup.
+.marcel/
 
 # Build artifacts
 .build/

@@ -108,19 +108,33 @@ def build_server_context(cwd: str | None = None) -> str:
 async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
     """Build dynamic system instructions with AI-selected memories.
 
-    This is an async version that can call the memory selector.
+    Assembles the full system prompt from:
+    1. MARCEL.md files (global + per-user instructions)
+    2. User profile
+    3. Server context (admin only)
+    4. Skill documentation
+    5. AI-selected memories
+    6. Channel format hints
 
     Args:
         deps: The MarcelDeps context.
         query: The user's query (for memory selection).
 
     Returns:
-        Complete system prompt string with selected memories.
+        Complete system prompt string.
     """
+    from marcel_core.agent.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
     from marcel_core.memory.selector import select_relevant_memories
+    from marcel_core.skills.loader import format_skills_for_prompt, load_skills
     from marcel_core.storage import load_user_profile
 
     profile = load_user_profile(deps.user_slug)
+
+    # Load MARCEL.md instructions
+    marcelmd = format_marcelmd_for_prompt(load_marcelmd_files(deps.user_slug))
+
+    # Load skill documentation
+    skills = format_skills_for_prompt(load_skills(deps.user_slug))
 
     # Select relevant memories if we have a query
     memory_content = ''
@@ -131,16 +145,20 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
                 memory_parts = [content for _, content in selected_memories]
                 memory_content = '\n\n---\n\n'.join(memory_parts)
         except Exception as exc:
-            # Fall back gracefully if memory selection fails
             import logging
 
             logging.getLogger(__name__).warning('Memory selection failed: %s', exc)
 
     format_hint = CHANNEL_FORMAT_HINTS.get(deps.channel, CHANNEL_FORMAT_HINTS['cli'])
 
-    lines = [
-        f'You are Marcel, a warm and capable personal assistant for {deps.user_slug}.',
-        '',
+    lines: list[str] = []
+
+    # MARCEL.md instructions (identity, role, tone, tools, response modes)
+    if marcelmd:
+        lines += [marcelmd, '']
+
+    # User profile
+    lines += [
         f'## What you know about {deps.user_slug}',
         profile or '(no profile information yet)',
         '',
@@ -148,6 +166,10 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
 
     if deps.role == 'admin':
         lines += [build_server_context(deps.cwd), '']
+
+    # Skill documentation
+    if skills:
+        lines += ['## Available Skills', '', skills, '']
 
     if memory_content:
         lines += ['## Memory', memory_content, '']
