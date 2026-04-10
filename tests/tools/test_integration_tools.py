@@ -212,6 +212,52 @@ class TestMarcelReadSkill:
 
 
 # ---------------------------------------------------------------------------
+# marcel tool — settings actions
+# ---------------------------------------------------------------------------
+
+
+class TestMarcelSettings:
+    @pytest.mark.asyncio
+    async def test_list_models_returns_models(self):
+        result = await marcel(_ctx(), 'list_models')
+        assert 'Available models' in result
+        assert 'claude-sonnet-4-6' in result
+
+    @pytest.mark.asyncio
+    async def test_get_model_defaults_to_current_channel(self):
+        result = await marcel(_ctx(channel='telegram'), 'get_model')
+        assert 'telegram' in result
+
+    @pytest.mark.asyncio
+    async def test_get_model_with_explicit_channel(self):
+        result = await marcel(_ctx(), 'get_model', name='cli')
+        assert 'cli' in result
+
+    @pytest.mark.asyncio
+    async def test_set_model_valid(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        result = await marcel(_ctx(), 'set_model', name='telegram:claude-sonnet-4-6')
+        assert 'telegram' in result
+        assert 'claude-sonnet-4-6' in result
+
+    @pytest.mark.asyncio
+    async def test_set_model_unknown_model(self):
+        result = await marcel(_ctx(), 'set_model', name='telegram:nonexistent-model')
+        assert 'Error' in result
+        assert 'unknown model' in result
+
+    @pytest.mark.asyncio
+    async def test_set_model_missing_colon(self):
+        result = await marcel(_ctx(), 'set_model', name='telegram')
+        assert 'Error' in result
+
+    @pytest.mark.asyncio
+    async def test_set_model_missing_value(self):
+        result = await marcel(_ctx(), 'set_model')
+        assert 'Error' in result
+
+
+# ---------------------------------------------------------------------------
 # marcel tool — unknown action
 # ---------------------------------------------------------------------------
 

@@ -5,50 +5,42 @@ description: Manage Marcel's preferences — change the AI model per channel, li
 
 You can change which AI model Marcel uses on any channel, or ask what models are available.
 
-## Available commands
+## Available actions
 
-### settings.list_models
+### list_models
 
 List all models available to Marcel.
 
 ```
-integration(id="settings.list_models")
+marcel(action="list_models")
 ```
 
 Returns a list of model IDs and their display names.
 
-### settings.get_model
+### get_model
 
-Get the current model for a specific channel.
+Get the current model for a specific channel. Defaults to the current channel if name is omitted.
 
 ```
-integration(id="settings.get_model", params={"channel": "telegram"})
-integration(id="settings.get_model", params={"channel": "cli"})
+marcel(action="get_model", name="telegram")
+marcel(action="get_model")
 ```
 
-| Param   | Type   | Required | Description                              |
-|---------|--------|----------|------------------------------------------|
-| channel | string | yes      | Channel name: telegram, cli, app, websocket |
-
-### settings.set_model
+### set_model
 
 Set the preferred model for a channel. The choice is saved and persists across sessions.
+Pass `name` as `"channel:model"`.
 
 ```
-integration(id="settings.set_model", params={"channel": "telegram", "model": "claude-opus-4-6"})
-integration(id="settings.set_model", params={"channel": "cli", "model": "gpt-4o"})
+marcel(action="set_model", name="telegram:claude-opus-4-6")
+marcel(action="set_model", name="cli:gpt-4o")
 ```
-
-| Param   | Type   | Required | Description                                   |
-|---------|--------|----------|-----------------------------------------------|
-| channel | string | yes      | Channel name: telegram, cli, app, websocket   |
-| model   | string | yes      | Model ID from the list_models output          |
 
 ## Usage patterns
 
-- User asks "what models are available?" → call `settings.list_models`, present the list clearly
-- User says "use opus" / "switch to opus" → clarify which channel if ambiguous, then call `settings.set_model`
-- User says "what model are you using?" → call `settings.get_model` for the current channel
+- User asks "what models are available?" -> call `list_models`, present the list clearly
+- User says "use opus" / "switch to opus" -> clarify which channel if ambiguous, then call `set_model`
+- User says "what model are you using?" -> call `get_model` (defaults to current channel)
 - When channel is clear from context (e.g., user is in Telegram), use that channel directly without asking
 
 **Current channel** is available in your context as the originating channel for this conversation.

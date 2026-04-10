@@ -1,7 +1,8 @@
 """Unified internal utilities tool for Marcel.
 
 Consolidates Marcel's self-management operations into a single tool:
-read_skill, search_memory, search_conversations, compact, and notify.
+read_skill, search_memory, search_conversations, compact, notify,
+and settings (model selection).
 
 External capabilities (browser, bash, file I/O, charts) and integration
 dispatch remain as separate tools.
@@ -27,7 +28,7 @@ async def marcel(
     type_filter: str | None = None,
     max_results: int | None = None,
 ) -> str:
-    """Marcel's internal utilities for managing skills, memory, and conversations.
+    """Marcel's internal utilities for managing skills, memory, conversations, and settings.
 
     Actions:
       read_skill           Load full documentation for a skill (name= required).
@@ -35,11 +36,14 @@ async def marcel(
       search_conversations Search past conversation history (query= required).
       compact              Compress current conversation segment into a summary.
       notify               Send a progress update to the user (message= required).
+      list_models          List all available AI models.
+      get_model            Get the current model for a channel (name= required, pass channel name).
+      set_model            Set the model for a channel (name= required as "channel:model", e.g. "telegram:claude-opus-4-6").
 
     Args:
         ctx: Agent context with user and conversation info.
         action: The action to perform (see above).
-        name: Skill name for read_skill action.
+        name: Skill name for read_skill; channel name for get_model; "channel:model" for set_model.
         query: Search query for search_memory / search_conversations.
         message: Progress message for notify action.
         type_filter: Optional memory type filter for search_memory.
@@ -59,10 +63,17 @@ async def marcel(
             return await _compact(ctx)
         case 'notify':
             return await _notify(ctx, message)
+        case 'list_models':
+            return _list_models()
+        case 'get_model':
+            return _get_model(ctx, name)
+        case 'set_model':
+            return _set_model(ctx, name)
         case _:
             return (
                 f'Unknown action: {action!r}. '
-                f'Available: read_skill, search_memory, search_conversations, compact, notify'
+                f'Available: read_skill, search_memory, search_conversations, '
+                f'compact, notify, list_models, get_model, set_model'
             )
 
 
@@ -231,3 +242,64 @@ async def _notify(ctx: RunContext[MarcelDeps], message: str | None) -> str:
 
     # For other channels, just log (they'll see it in the response stream)
     return 'ok'
+
+
+# ---------------------------------------------------------------------------
+# Settings actions
+# ---------------------------------------------------------------------------
+
+
+def _list_models() -> str:
+    """Return a formatted list of available models."""
+    from marcel_core.harness.agent import DEFAULT_MODEL, all_models
+
+    models = all_models()
+    lines = ['Available models:\n']
+    for model_id, display_name in models.items():
+        lines.append(f'  {model_id} \u2014 {display_name}')
+    lines.append(f'\nDefault: {DEFAULT_MODEL}')
+    return '\n'.join(lines)
+
+
+def _get_model(ctx: RunContext[MarcelDeps], channel: str | None) -> str:
+    """Return the active model for the given channel."""
+    if not channel:
+        # Default to the current channel
+        channel = ctx.deps.channel
+
+    from marcel_core.harness.agent import DEFAULT_MODEL
+    from marcel_core.storage.settings import load_channel_model
+
+    log.info('[marcel:get_model] user=%s channel=%s', ctx.deps.user_slug, channel)
+    model = load_channel_model(ctx.deps.user_slug, channel) or DEFAULT_MODEL
+    return f'Current model for {channel}: {model}'
+
+
+def _set_model(ctx: RunContext[MarcelDeps], value: str | None) -> str:
+    """Set the preferred model for a channel.
+
+    Args:
+        value: "channel:model" string, e.g. "telegram:claude-opus-4-6".
+    """
+    if not value or ':' not in value:
+        return 'Error: name= must be "channel:model" (e.g. "telegram:claude-opus-4-6").'
+
+    channel, model = value.split(':', 1)
+    channel = channel.strip()
+    model = model.strip()
+
+    if not channel or not model:
+        return 'Error: both channel and model are required (e.g. "telegram:claude-opus-4-6").'
+
+    from marcel_core.harness.agent import all_models
+    from marcel_core.storage.settings import save_channel_model
+
+    available = all_models()
+    if model not in available:
+        model_list = ', '.join(available.keys())
+        return f'Error: unknown model {model!r}. Available: {model_list}'
+
+    log.info('[marcel:set_model] user=%s channel=%s model=%s', ctx.deps.user_slug, channel, model)
+    save_channel_model(ctx.deps.user_slug, channel, model)
+    display_name = available[model]
+    return f'Model for {channel} set to {model} ({display_name})'
