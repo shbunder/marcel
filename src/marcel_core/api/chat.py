@@ -22,7 +22,6 @@ import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from marcel_core import storage
 from marcel_core.agent import extract_and_save_memories, stream_response
 from marcel_core.agent.events import (
     RunFinished,
@@ -36,6 +35,7 @@ from marcel_core.agent.events import (
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
 from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug
 from marcel_core.config import settings
+from marcel_core.memory.history import HistoryMessage, append_message, create_session
 
 router = APIRouter()
 
@@ -102,8 +102,8 @@ async def chat(websocket: WebSocket) -> None:
 
             # Start a new conversation if none was provided
             if conversation_id is None:
-                async with storage.get_lock(user_slug):
-                    conversation_id = storage.new_conversation(user_slug, channel)
+                meta = create_session(user_slug, channel)
+                conversation_id = meta.session_id
                 await websocket.send_text(json.dumps({'type': 'started', 'conversation': conversation_id}))
 
             # Stream the agent response as AG-UI events
@@ -126,10 +126,30 @@ async def chat(websocket: WebSocket) -> None:
 
             full_response = ''.join(response_parts)
 
-            # Persist the turn as an audit log (lock only for file writes)
-            async with storage.get_lock(user_slug):
-                storage.append_turn(user_slug, conversation_id, 'user', user_text)
-                storage.append_turn(user_slug, conversation_id, 'assistant', full_response)
+            # Persist the turn to JSONL history
+            from datetime import datetime, timezone
+
+            now = datetime.now(tz=timezone.utc)
+            append_message(
+                user_slug,
+                HistoryMessage(
+                    role='user',
+                    text=user_text,
+                    timestamp=now,
+                    conversation_id=conversation_id,
+                ),
+                channel=channel,
+            )
+            append_message(
+                user_slug,
+                HistoryMessage(
+                    role='assistant',
+                    text=full_response,
+                    timestamp=now,
+                    conversation_id=conversation_id,
+                ),
+                channel=channel,
+            )
 
             # Fire-and-forget memory extraction
             asyncio.create_task(extract_and_save_memories(user_slug, user_text, full_response, conversation_id))

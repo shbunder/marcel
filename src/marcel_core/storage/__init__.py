@@ -1,16 +1,15 @@
 """Flat-file storage layer for Marcel.
 
-All read/write operations for users, conversations, and distilled memory.
+All read/write operations for users and distilled memory.
 Files are plain markdown; no database is required.
+
+Conversation history is managed by :mod:`marcel_core.memory.history` (JSONL
+session files), not by this module.
 
 Public API
 ----------
 Users:
     :func:`user_exists`, :func:`load_user_profile`, :func:`save_user_profile`
-
-Conversations:
-    :func:`new_conversation`, :func:`append_turn`, :func:`load_conversation`,
-    :func:`load_conversation_index`, :func:`update_conversation_index`
 
 Memory:
     :func:`load_memory_index`, :func:`load_memory_file`,
@@ -21,14 +20,6 @@ Concurrency helpers:
 """
 
 from ._locks import get_lock
-from .conversations import (
-    append_turn,
-    conv_dir,
-    load_conversation,
-    load_conversation_index,
-    new_conversation,
-    update_conversation_index,
-)
 from .memory import (
     MemoryHeader,
     MemorySearchResult,
@@ -53,13 +44,6 @@ __all__ = [
     'user_exists',
     'load_user_profile',
     'save_user_profile',
-    # conversations
-    'conv_dir',
-    'new_conversation',
-    'append_turn',
-    'load_conversation',
-    'load_conversation_index',
-    'update_conversation_index',
     # memory
     'MemoryHeader',
     'MemorySearchResult',

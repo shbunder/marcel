@@ -12,7 +12,6 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from marcel_core import storage
 from marcel_core.agent import extract_and_save_memories
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
 from marcel_core.channels.adapter import dispatch_event
@@ -93,9 +92,6 @@ async def chat_v2(websocket: WebSocket) -> None:
             if conversation_id is None:
                 meta = create_session(user_slug, channel)
                 conversation_id = meta.session_id
-                # Also create legacy conversation file (dual-write during migration)
-                async with storage.get_lock(user_slug):
-                    storage.new_conversation(user_slug, channel)
                 await adapter.send_conversation_started(conversation_id)
 
             # Check if compaction is needed before processing
@@ -120,15 +116,6 @@ async def chat_v2(websocket: WebSocket) -> None:
                 continue
 
             full_response = ''.join(response_parts)
-
-            # Persist to old Markdown format (dual-write during migration)
-            # The new harness already wrote to JSONL history
-            try:
-                async with storage.get_lock(user_slug):
-                    storage.append_turn(user_slug, conversation_id, 'user', user_text)
-                    storage.append_turn(user_slug, conversation_id, 'assistant', full_response)
-            except Exception:
-                log.exception('[chat_v2] Failed to persist conversation turn')
 
             # Fire-and-forget memory extraction
             asyncio.create_task(extract_and_save_memories(user_slug, user_text, full_response, conversation_id))

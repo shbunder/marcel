@@ -1,10 +1,13 @@
 """Tests for api/conversations.py — list and message retrieval endpoints."""
 
+from datetime import datetime, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 
 from marcel_core.main import app
-from marcel_core.storage import _root, append_turn, new_conversation
+from marcel_core.memory.history import HistoryMessage, append_message, create_session
+from marcel_core.storage import _root
 
 
 @pytest.fixture(autouse=True)
@@ -25,36 +28,62 @@ class TestListConversations:
         assert resp.status_code == 200
         assert resp.json() == {'conversations': []}
 
-    def test_returns_conversation_list(self, tmp_path):
-        conv_id = new_conversation('shaun', 'cli')
-        append_turn('shaun', conv_id, 'user', 'Hello')
-        append_turn('shaun', conv_id, 'assistant', 'Hi there!')
+    def test_returns_conversation_list(self):
+        meta = create_session('shaun', 'cli')
+        append_message(
+            'shaun',
+            HistoryMessage(
+                role='user',
+                text='Hello',
+                timestamp=datetime.now(tz=timezone.utc),
+                conversation_id=meta.session_id,
+            ),
+            channel='cli',
+        )
 
         client = TestClient(app)
         resp = client.get('/conversations?user=shaun')
         assert resp.status_code == 200
         data = resp.json()
         assert len(data['conversations']) == 1
-        assert data['conversations'][0]['id'] == conv_id
+        assert data['conversations'][0]['id'] == meta.session_id
 
-    def test_respects_limit(self, tmp_path):
-        for _ in range(5):
-            conv_id = new_conversation('shaun', 'cli')
-            append_turn('shaun', conv_id, 'user', 'msg')
+    def test_respects_limit(self):
+        for i in range(5):
+            meta = create_session('shaun', 'cli', session_id=f'sess-{i}')
+            append_message(
+                'shaun',
+                HistoryMessage(
+                    role='user',
+                    text='msg',
+                    timestamp=datetime.now(tz=timezone.utc),
+                    conversation_id=meta.session_id,
+                ),
+                channel='cli',
+            )
 
         client = TestClient(app)
         resp = client.get('/conversations?user=shaun&limit=3')
         assert resp.status_code == 200
         assert len(resp.json()['conversations']) <= 3
 
-    def test_channel_parsed_from_header(self, tmp_path):
-        conv_id = new_conversation('shaun', 'telegram')
-        append_turn('shaun', conv_id, 'user', 'hi')
+    def test_channel_in_response(self):
+        meta = create_session('shaun', 'telegram')
+        append_message(
+            'shaun',
+            HistoryMessage(
+                role='user',
+                text='hi',
+                timestamp=datetime.now(tz=timezone.utc),
+                conversation_id=meta.session_id,
+            ),
+            channel='telegram',
+        )
 
         client = TestClient(app)
         resp = client.get('/conversations?user=shaun')
         data = resp.json()
-        conv = next((c for c in data['conversations'] if c['id'] == conv_id), None)
+        conv = next((c for c in data['conversations'] if c['id'] == meta.session_id), None)
         assert conv is not None
         assert conv['channel'] == 'telegram'
 
@@ -70,7 +99,7 @@ class TestGetLastMessage:
         resp = client.get('/api/message/some-conv?initData=garbage')
         assert resp.status_code == 401
 
-    def test_missing_conversation_returns_404(self, tmp_path, monkeypatch):
+    def test_missing_conversation_returns_404(self, monkeypatch):
         import hashlib
         import hmac
         import json
@@ -83,7 +112,7 @@ class TestGetLastMessage:
         bot_token = 'test-bot-token'
         monkeypatch.setattr(settings, 'telegram_bot_token', bot_token)
 
-        # Build valid initData string (same as in test_auth.py helper)
+        # Build valid initData string
         auth_date = str(int(time.time()))
         user_json = json.dumps({'id': 12345})
         pairs = sorted([('auth_date', auth_date), ('user', user_json)])
@@ -92,10 +121,8 @@ class TestGetLastMessage:
         hash_val = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
         raw_init_data = urlencode(pairs + [('hash', hash_val)])
 
-        # Link user before making request
         link_user('shaun', 12345)
 
         client = TestClient(app)
-        # URL-encode initData so the embedded & and = are preserved as a single param
         resp = client.get(f'/api/message/nonexistent-conv?initData={quote(raw_init_data)}')
         assert resp.status_code == 404

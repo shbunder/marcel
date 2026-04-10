@@ -71,6 +71,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     clear_all_sessions()
 
+    # Migrate any legacy history.jsonl files to per-session files
+    from marcel_core.memory.history import migrate_legacy_history
+    from marcel_core.storage._root import data_root
+
+    users_dir = data_root() / 'users'
+    if users_dir.exists():
+        for user_dir in users_dir.iterdir():
+            if user_dir.is_dir() and not user_dir.name.startswith('_'):
+                legacy = user_dir / 'history.jsonl'
+                if legacy.exists():
+                    count = migrate_legacy_history(user_dir.name, default_channel='telegram')
+                    if count:
+                        log.info('Migrated %d sessions for user %s', count, user_dir.name)
+
     task = asyncio.create_task(_restart_watcher())
     session_manager.start_cleanup_loop()
     start_sync_loop()

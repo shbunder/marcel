@@ -17,7 +17,6 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from marcel_core import storage
 from marcel_core.agent import extract_and_save_memories
 from marcel_core.agent.sessions import session_manager
 from marcel_core.channels.telegram import bot, sessions
@@ -32,6 +31,7 @@ from marcel_core.channels.telegram.formatting import (
 )
 from marcel_core.config import settings
 from marcel_core.harness.runner import TextDelta, stream_turn
+from marcel_core.memory.history import create_session, read_history
 
 log = logging.getLogger(__name__)
 
@@ -93,8 +93,8 @@ async def _process_assistant_message(
     conversation_id = sessions.get_conversation_id(chat_id)
 
     if conversation_id is None:
-        async with storage.get_lock(user_slug):
-            conversation_id = storage.new_conversation(user_slug, 'telegram')
+        meta = create_session(user_slug, 'telegram')
+        conversation_id = meta.session_id
         sessions.set_conversation_id(chat_id, conversation_id)
 
     response_parts: list[str] = []
@@ -122,14 +122,12 @@ async def _process_assistant_message(
         )
         return
 
-    async with storage.get_lock(user_slug):
-        # Count existing assistant turns before appending, so we know this
-        # message's 0-based turn index for the "View in app" button.
-        existing = storage.load_conversation(user_slug, conversation_id)
-        assistant_turn = existing.count('**Marcel:** ')
-
-        storage.append_turn(user_slug, conversation_id, 'user', text)
-        storage.append_turn(user_slug, conversation_id, 'assistant', full_response)
+    # Count existing assistant turns for the "View in app" button index.
+    # History is already written by stream_turn, so we count from JSONL.
+    history = read_history(user_slug, conversation_id=conversation_id)
+    assistant_turn = sum(1 for m in history if m.role == 'assistant') - 1  # 0-based, current turn already saved
+    if assistant_turn < 0:
+        assistant_turn = 0
 
     asyncio.create_task(extract_and_save_memories(user_slug, text, full_response, conversation_id))
 
@@ -220,15 +218,14 @@ async def _handle_callback_query(callback_query: dict[str, Any]) -> None:
         await bot.answer_callback_query(query_id, 'Session expired')
         return
 
-    # Load conversation and extract last assistant message
-    raw = storage.load_conversation(user_slug, conversation_id)
-    if not raw:
+    # Load last assistant message from JSONL history
+    history = read_history(user_slug, conversation_id=conversation_id)
+    assistant_msgs = [m for m in history if m.role == 'assistant' and m.text]
+    if not assistant_msgs:
         await bot.answer_callback_query(query_id, 'Conversation not found')
         return
 
-    from marcel_core.api.conversations import _extract_assistant_message
-
-    assistant_text = _extract_assistant_message(raw)
+    assistant_text = assistant_msgs[-1].text
     if not assistant_text:
         await bot.answer_callback_query(query_id, 'Message not found')
         return

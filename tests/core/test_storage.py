@@ -14,24 +14,19 @@ import marcel_core.storage._root as _root_mod
 from marcel_core.storage import (
     MemoryHeader,
     MemoryType,
-    append_turn,
     enforce_index_cap,
     format_memory_manifest,
-    load_conversation,
-    load_conversation_index,
     load_memory_file,
     load_memory_index,
     load_user_profile,
     memory_age_days,
     memory_freshness_note,
-    new_conversation,
     parse_frontmatter,
     prune_expired_memories,
     save_memory_file,
     save_user_profile,
     scan_memory_headers,
     search_memory_files,
-    update_conversation_index,
     update_memory_index,
     user_exists,
 )
@@ -133,97 +128,6 @@ class TestSetUserRole:
     def test_raises_on_invalid_role(self) -> None:
         with pytest.raises(ValueError, match="'admin' or 'user'"):
             set_user_role('dave', 'superuser')
-
-
-# ---------------------------------------------------------------------------
-# conversations
-# ---------------------------------------------------------------------------
-
-
-class TestNewConversation:
-    def test_returns_filename_stem(self) -> None:
-        stem = new_conversation('shaun', 'cli')
-        # Format: YYYY-MM-DDTHH-MM
-        assert len(stem) == len('2026-03-26T14-32')
-        assert stem[10] == 'T'
-        assert stem[13] == '-'
-
-    def test_creates_file(self, tmp_path: pathlib.Path) -> None:
-        stem = new_conversation('shaun', 'cli')
-        path = tmp_path / 'users' / 'shaun' / 'conversations' / f'{stem}.md'
-        assert path.exists()
-
-    def test_file_contains_header(self, tmp_path: pathlib.Path) -> None:
-        stem = new_conversation('shaun', 'telegram')
-        path = tmp_path / 'users' / 'shaun' / 'conversations' / f'{stem}.md'
-        content = path.read_text(encoding='utf-8')
-        assert '# Conversation —' in content
-        assert 'channel: telegram' in content
-
-
-class TestAppendTurn:
-    def test_appends_user_turn(self, tmp_path: pathlib.Path) -> None:
-        stem = new_conversation('shaun', 'cli')
-        append_turn('shaun', stem, 'user', 'Hello!')
-        content = load_conversation('shaun', stem)
-        assert '**User:** Hello!' in content
-
-    def test_appends_assistant_turn(self, tmp_path: pathlib.Path) -> None:
-        stem = new_conversation('shaun', 'cli')
-        append_turn('shaun', stem, 'assistant', 'Hi there!')
-        content = load_conversation('shaun', stem)
-        assert '**Marcel:** Hi there!' in content
-
-    def test_multiple_turns_in_order(self) -> None:
-        stem = new_conversation('shaun', 'cli')
-        append_turn('shaun', stem, 'user', 'First')
-        append_turn('shaun', stem, 'assistant', 'Second')
-        content = load_conversation('shaun', stem)
-        assert content.index('**User:** First') < content.index('**Marcel:** Second')
-
-
-class TestLoadConversation:
-    def test_returns_empty_string_when_missing(self) -> None:
-        assert load_conversation('shaun', '2099-01-01T00-00') == ''
-
-    def test_returns_full_transcript(self) -> None:
-        stem = new_conversation('shaun', 'cli')
-        append_turn('shaun', stem, 'user', 'Ping')
-        append_turn('shaun', stem, 'assistant', 'Pong')
-        content = load_conversation('shaun', stem)
-        assert '**User:** Ping' in content
-        assert '**Marcel:** Pong' in content
-
-
-class TestLoadConversationIndex:
-    def test_returns_empty_string_when_no_index(self) -> None:
-        assert load_conversation_index('nobody') == ''
-
-    def test_returns_index_content(self, tmp_path: pathlib.Path) -> None:
-        idx = tmp_path / 'users' / 'shaun' / 'conversations' / 'index.md'
-        idx.parent.mkdir(parents=True)
-        idx.write_text('# Conversations\n', encoding='utf-8')
-        assert load_conversation_index('shaun') == '# Conversations\n'
-
-
-class TestUpdateConversationIndex:
-    def test_creates_index_if_missing(self, tmp_path: pathlib.Path) -> None:
-        update_conversation_index('shaun', '2026-03-26T14-32', 'calendar check')
-        idx = tmp_path / 'users' / 'shaun' / 'conversations' / 'index.md'
-        assert idx.exists()
-
-    def test_appends_entry(self) -> None:
-        update_conversation_index('shaun', '2026-03-26T14-32', 'calendar check')
-        content = load_conversation_index('shaun')
-        assert '[2026-03-26T14-32]' in content
-        assert 'calendar check' in content
-
-    def test_appends_multiple_entries(self) -> None:
-        update_conversation_index('shaun', '2026-03-25T09-11', 'first session')
-        update_conversation_index('shaun', '2026-03-26T14-32', 'second session')
-        content = load_conversation_index('shaun')
-        assert '2026-03-25T09-11' in content
-        assert '2026-03-26T14-32' in content
 
 
 # ---------------------------------------------------------------------------

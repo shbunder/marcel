@@ -15,10 +15,7 @@ synchronous Python API for reading and writing users, conversations, and memory.
     {user_slug}/
       profile.md              # display name, preferences, known facts (free-form markdown)
       channel_ids.json        # {"cli": "fingerprint", "telegram": "12345"}
-      conversations/          # legacy markdown conversation logs (v1)
-        index.md              # one line per conversation: date, filename, short description
-        2026-03-26T14-32.md   # full turn-by-turn transcript
-      history/                # per-session JSONL history (v2)
+      history/                # per-session JSONL history
         {channel}/            # one directory per channel (telegram, cli, ios, websocket)
           {session_id}.jsonl  # JSONL messages for one session
           {session_id}.meta.json  # session metadata (title, timestamps, count)
@@ -45,31 +42,6 @@ environment variable to override at runtime, or patch
 ---
 
 ## File format specifications
-
-### Conversation file (`conversations/YYYY-MM-DDTHH-MM.md`)
-
-The filename uses dashes for the time part (`HH-MM`) for filesystem safety.
-The header displays the time with a colon.
-
-```markdown
-# Conversation — 2026-03-26T14:32 (channel: cli)
-
-**User:** What's on my calendar this week?
-**Marcel:** You have a dentist appointment Tuesday at 10am and a team lunch Thursday.
-
-**User:** Move the dentist to Thursday afternoon.
-**Marcel:** Done — dentist moved to Thursday at 3pm.
-```
-
-### Conversation index (`conversations/index.md`)
-
-One line per conversation, appended chronologically.
-
-```markdown
-- [2026-03-26T14-32](2026-03-26T14-32.md) — calendar check, moved dentist appointment
-- [2026-03-25T09-11](2026-03-25T09-11.md) — set up Google Calendar connection
-- [2026-03-24T20-44](2026-03-24T20-44.md) — weekly schedule overview
-```
 
 ### JSONL history (`history/{channel}/{session_id}.jsonl`)
 
@@ -281,38 +253,6 @@ def migrate_legacy_history(user_slug: str, default_channel: str = 'default') -> 
 ```
 Splits a legacy flat `history.jsonl` into per-session files.  Returns the
 number of sessions migrated.
-
----
-
-### Conversations (legacy)
-
-```python
-def new_conversation(slug: str, channel: str) -> str
-```
-Creates a new conversation file and returns the filename stem
-(e.g. `"2026-03-26T14-32"`).
-
-```python
-def append_turn(slug: str, filename: str, role: str, text: str) -> None
-```
-Appends a turn to an existing conversation file.  `role` should be `"user"` or
-`"assistant"`; assistant turns are displayed as `**Marcel:**`.
-
-```python
-def load_conversation(slug: str, filename: str) -> str
-```
-Returns the raw markdown of the conversation file, or empty string if missing.
-
-```python
-def load_conversation_index(slug: str) -> str
-```
-Returns the raw markdown of `conversations/index.md`, or empty string if
-missing.
-
-```python
-def update_conversation_index(slug: str, filename: str, description: str) -> None
-```
-Appends a new entry to `conversations/index.md`.  Creates the file if needed.
 
 ---
 

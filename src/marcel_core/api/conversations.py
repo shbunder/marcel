@@ -1,14 +1,15 @@
-"""REST endpoints for listing and fetching conversations."""
+"""REST endpoints for listing and fetching conversations.
 
-import pathlib
-import re
+Uses the JSONL session history system (v2). Legacy markdown conversations
+are no longer read or written.
+"""
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
 from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug
-from marcel_core.storage.conversations import conv_dir, load_conversation
+from marcel_core.memory.history import list_sessions, read_history
 
 router = APIRouter()
 
@@ -21,25 +22,6 @@ class ConversationEntry(BaseModel):
 
 class ConversationListResponse(BaseModel):
     conversations: list[ConversationEntry]
-
-
-def _parse_conv_file(path: pathlib.Path) -> ConversationEntry | None:
-    """Extract metadata from a conversation file's header line."""
-    try:
-        first_line = path.read_text(encoding='utf-8').split('\n', 1)[0]
-    except OSError:
-        return None
-
-    # Header format: # Conversation — 2026-03-26T14:32 (channel: cli)
-    channel = 'unknown'
-    if '(channel: ' in first_line:
-        channel = first_line.split('(channel: ')[1].rstrip(')')
-
-    return ConversationEntry(
-        id=path.stem,
-        channel=channel,
-        first_line=first_line.lstrip('# ').strip(),
-    )
 
 
 @router.get('/conversations', response_model=ConversationListResponse)
@@ -56,56 +38,20 @@ async def list_conversations(
     if not valid_user_slug(user):
         return ConversationListResponse(conversations=[])
 
-    user_conv_dir = conv_dir(user)
-    if not user_conv_dir.exists():
-        return ConversationListResponse(conversations=[])
-
-    # List .md files (excluding index.md), sort by name descending (newest first)
-    files = sorted(
-        (f for f in user_conv_dir.glob('*.md') if f.name != 'index.md'),
-        key=lambda p: p.name,
-        reverse=True,
-    )
+    sessions = list_sessions(user, limit=limit)
 
     entries = []
-    for f in files[:limit]:
-        if entry := _parse_conv_file(f):
-            entries.append(entry)
+    for s in sessions:
+        first_line = s.title or f'Conversation — {s.created_at.strftime("%Y-%m-%dT%H:%M")} (channel: {s.channel})'
+        entries.append(
+            ConversationEntry(
+                id=s.session_id,
+                channel=s.channel,
+                first_line=first_line,
+            )
+        )
 
     return ConversationListResponse(conversations=entries)
-
-
-_TURN_MARKER_RE = re.compile(r'\n\n\*\*(?:Marcel|User):\*\* ')
-
-
-def _extract_assistant_message(raw: str, turn: int | None = None) -> str | None:
-    """Extract an assistant message from conversation markdown.
-
-    Args:
-        raw: Full conversation markdown text.
-        turn: 0-based index of the assistant turn to extract. When ``None``,
-            returns the last assistant message (backwards-compatible default).
-    """
-    marker = '**Marcel:** '
-    if turn is None:
-        # Last assistant message
-        idx = raw.rfind(marker)
-        if idx < 0:
-            return None
-        start = idx + len(marker)
-    else:
-        # Find the nth assistant message (0-based)
-        offset = 0
-        for _ in range(turn + 1):
-            idx = raw.find(marker, offset)
-            if idx < 0:
-                return None
-            offset = idx + len(marker)
-        start = offset
-
-    # The block ends at the next turn marker (**Marcel:** or **User:**) or EOF
-    m = _TURN_MARKER_RE.search(raw, start)
-    return raw[start : m.start()].strip() if m else raw[start:].strip()
 
 
 class MessageResponse(BaseModel):
@@ -144,12 +90,20 @@ async def get_last_message(
         # endpoint is primarily for the Mini App flow, so we require initData.
         raise HTTPException(status_code=400, detail='initData required for this endpoint')
 
-    raw = load_conversation(user_slug, conversation_id)
-    if not raw:
+    messages = read_history(user_slug, conversation_id=conversation_id)
+    assistant_msgs = [m for m in messages if m.role == 'assistant' and m.text]
+
+    if not assistant_msgs:
         raise HTTPException(status_code=404, detail='Conversation not found')
 
-    content = _extract_assistant_message(raw, turn=turn)
-    if content is None:
+    if turn is not None:
+        if turn >= len(assistant_msgs):
+            raise HTTPException(status_code=404, detail='No assistant message at that turn index')
+        content = assistant_msgs[turn].text
+    else:
+        content = assistant_msgs[-1].text
+
+    if not content:
         raise HTTPException(status_code=404, detail='No assistant message found')
 
     return MessageResponse(content=content)
