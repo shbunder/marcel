@@ -15,8 +15,8 @@ from dataclasses import dataclass, field
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
 from marcel_core.agent.context import build_system_prompt
-from marcel_core.browser import browser_manager, build_browser_mcp_server, is_available as browser_available
 from marcel_core.skills import build_skills_mcp_server
+from marcel_core.tools.browser import browser_manager, build_browser_mcp_server, is_available as browser_available
 
 log = logging.getLogger(__name__)
 

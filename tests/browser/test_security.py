@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from marcel_core.browser.security import _hostname_matches, _is_private_ip, is_url_allowed
+from marcel_core.tools.browser.security import _hostname_matches, _is_private_ip, is_url_allowed
 
 
 class TestIsPrivateIp:
@@ -61,7 +61,7 @@ class TestHostnameMatches:
 
 class TestIsUrlAllowed:
     def test_http_public(self):
-        with patch('marcel_core.browser.security._resolve_hostname', return_value=['93.184.216.34']):
+        with patch('marcel_core.tools.browser.security._resolve_hostname', return_value=['93.184.216.34']):
             allowed, reason = is_url_allowed('https://example.com')
             assert allowed is True
 
@@ -95,13 +95,13 @@ class TestIsUrlAllowed:
         assert 'Unsupported scheme' in reason
 
     def test_private_ip_blocked(self):
-        with patch('marcel_core.browser.security._resolve_hostname', return_value=['192.168.1.1']):
+        with patch('marcel_core.tools.browser.security._resolve_hostname', return_value=['192.168.1.1']):
             allowed, reason = is_url_allowed('http://internal.local')
             assert allowed is False
             assert 'private IP' in reason
 
     def test_localhost_blocked(self):
-        with patch('marcel_core.browser.security._resolve_hostname', return_value=['127.0.0.1']):
+        with patch('marcel_core.tools.browser.security._resolve_hostname', return_value=['127.0.0.1']):
             allowed, reason = is_url_allowed('http://localhost:8080')
             assert allowed is False
             assert 'private IP' in reason
@@ -115,7 +115,7 @@ class TestIsUrlAllowed:
         assert allowed is True
 
     def test_unresolvable_host_blocked(self):
-        with patch('marcel_core.browser.security._resolve_hostname', return_value=[]):
+        with patch('marcel_core.tools.browser.security._resolve_hostname', return_value=[]):
             allowed, reason = is_url_allowed('http://nonexistent.invalid')
             assert allowed is False
             assert 'Could not resolve' in reason

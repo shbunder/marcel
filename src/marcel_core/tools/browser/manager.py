@@ -15,7 +15,7 @@ from io import BytesIO
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from playwright.async_api import Browser, BrowserContext, Page, Playwright  # pyright: ignore[reportMissingImports]
+    from playwright.async_api import Browser, BrowserContext, Playwright
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class BrowserManager:
             if self._browser is not None and self._browser.is_connected():
                 return self._browser
 
-            from playwright.async_api import async_playwright  # pyright: ignore[reportMissingImports]
+            from playwright.async_api import async_playwright
 
             from marcel_core.config import settings
 
@@ -81,7 +81,7 @@ class BrowserManager:
         log.info('Created browser context for session %s', session_key)
         return ctx
 
-    async def get_active_page(self, session_key: str) -> Page:
+    async def get_active_page(self, session_key: str) -> Any:
         """Return the active page for a session, creating one if needed."""
         ctx = await self.get_or_create_context(session_key)
         pages = ctx.pages
@@ -135,7 +135,7 @@ class BrowserManager:
         return len(self._contexts) > 0
 
 
-async def take_screenshot(page: Page, full_page: bool = False, selector: str | None = None) -> str:
+async def take_screenshot(page: Any, full_page: bool = False, selector: str | None = None) -> str:
     """Take a screenshot and return it as a base64-encoded PNG.
 
     Resizes to fit within VIEWPORT_WIDTH x VIEWPORT_HEIGHT if needed.
@@ -164,7 +164,7 @@ async def take_screenshot(page: Page, full_page: bool = False, selector: str | N
     return base64.b64encode(screenshot_bytes).decode('ascii')
 
 
-async def build_snapshot(page: Page) -> tuple[str, dict[int, dict[str, Any]]]:
+async def build_snapshot(page: Any) -> tuple[str, dict[int, dict[str, Any]]]:
     """Build an accessibility-tree snapshot of the page.
 
     Returns:

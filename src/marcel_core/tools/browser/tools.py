@@ -13,11 +13,11 @@ from typing import TYPE_CHECKING
 from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server, tool
 from claude_agent_sdk.types import McpSdkServerConfig
 
-from marcel_core.browser.manager import _build_aria_selector, build_snapshot, take_screenshot
-from marcel_core.browser.security import is_url_allowed
+from marcel_core.tools.browser.manager import _build_aria_selector, build_snapshot, take_screenshot
+from marcel_core.tools.browser.security import is_url_allowed
 
 if TYPE_CHECKING:
-    from marcel_core.browser.manager import BrowserManager
+    from marcel_core.tools.browser.manager import BrowserManager
 
 log = logging.getLogger(__name__)
 

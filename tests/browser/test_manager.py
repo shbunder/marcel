@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from marcel_core.browser.manager import _build_aria_selector, build_snapshot
+from marcel_core.tools.browser.manager import _build_aria_selector, build_snapshot
 
 
 def _mock_page(snapshot_return=None, snapshot_error=None):
