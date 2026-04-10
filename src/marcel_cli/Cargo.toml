@@ -34,6 +34,9 @@ textwrap = "0.16"
 toml = "0.8"
 dirs = "6"
 
+# Clipboard (OSC 52 fallback)
+base64 = "0.22"
+
 # CLI argument parsing
 clap = { version = "4", features = ["derive"] }
 

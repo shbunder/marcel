@@ -520,6 +520,8 @@ fn extract_selection(buf: &[String], start: (u16, u16), end: (u16, u16)) -> Stri
 }
 
 /// Write `text` to the system clipboard using whichever helper is available.
+/// Falls back to OSC 52 escape sequence for remote/SSH sessions (supported by
+/// VS Code, iTerm2, Alacritty, kitty, WezTerm, and most modern terminals).
 fn copy_to_clipboard(text: &str) {
     use std::io::Write;
     let commands: &[(&str, &[&str])] = &[
@@ -543,6 +545,12 @@ fn copy_to_clipboard(text: &str) {
             return;
         }
     }
+    // Fallback: OSC 52 escape sequence — tells the terminal emulator to set
+    // the system clipboard.  Works over SSH when the outer terminal supports it.
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+    let _ = std::io::stdout().write_all(format!("\x1b]52;c;{encoded}\x07").as_bytes());
+    let _ = std::io::stdout().flush();
 }
 
 // ── Action enum ───────────────────────────────────────────────────────
