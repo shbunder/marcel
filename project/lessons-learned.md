@@ -106,3 +106,24 @@ Lessons captured after completed issues. Referenced at the start of new feature 
 - Per-session resource management: create lazily in `get_or_create`, clean up in `_disconnect_session` — follows the `BrowserContext` lifecycle pattern
 - Accessibility tree snapshot with integer refs for LLM interaction — compact, structured, and gives the model a way to target elements without CSS selectors
 - SSRF protection module (`is_url_allowed`) with hostname resolution + private IP range checks — reusable for any tool that accepts URLs
+
+---
+
+## ISSUE-051: Continuous Conversation Model (2026-04-10)
+
+### What worked well
+- Researching ClawCode and OpenClaw first gave concrete inspiration — ClawCode's microcompaction (selective tool result stripping) and OpenClaw's staged summarization directly shaped the design
+- The segment-based storage architecture cleanly separates concerns: active segment (append-only), sealed segments (immutable + summary), search index (append-only). Each file has a clear lifecycle
+- Rolling summary chain ("each summary absorbs predecessor") is a simple mechanism that mimics human memory — recent things vivid, old things faded — with no complex data structures
+- Aggressive tool lifecycle (2 turns instead of 8) was the single biggest token savings and trivial to implement — just changing two constants and adjusting the trimming function
+
+### What to do differently
+- The old `compactor.py` and session management functions in `history.py` were left as dead code rather than deleted — should have removed them in the same commit or created a follow-up cleanup task. Dead code accumulates confusion
+- The CLI history loading was requested as a follow-up mid-issue — would have been cleaner as its own subtask from the start. Adding REST endpoints (/api/history, /api/forget) late in the process felt bolted-on
+- Route naming started as `/v2/history` then was renamed to `/api/history` in a polish commit — should have picked the final name upfront
+
+### Patterns to reuse
+- Segment-based append-only storage with seal+summarize lifecycle — applicable to any system that needs bounded growth with long-term recall
+- Keyword search index as a separate append-only JSONL — cheap to build, no external dependencies, good enough for "remember when we talked about X?" queries
+- Circuit breaker pattern for background operations (max N consecutive failures) — prevents infinite retry loops on persistent errors
+- REST endpoints for CLI state operations (/api/history, /api/forget) — lets the CLI be stateless while the server manages conversation lifecycle
