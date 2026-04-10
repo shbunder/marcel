@@ -6,7 +6,7 @@
           {
             "type": "command",
             "command": "ls project/issues/wip/*.md 2>/dev/null | head -5 || echo 'No active WIP issues'",
-            "timeout": 2000
+            "timeout": 2
           }
         ]
       }

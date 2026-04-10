@@ -1,7 +1,22 @@
 {
-  "plex.restart": {
-    "type": "shell",
-    "description": "Restart the Plex Media Server Docker container on the NUC.",
-    "command": "docker restart plex-server"
+  "docker.list": {
+    "type": "python",
+    "handler": "docker.list",
+    "description": "List all Docker containers and their status."
+  },
+  "docker.status": {
+    "type": "python",
+    "handler": "docker.status",
+    "description": "Check the status of a specific Docker container."
+  },
+  "docker.restart": {
+    "type": "python",
+    "handler": "docker.restart",
+    "description": "Restart a Docker container."
+  },
+  "docker.logs": {
+    "type": "python",
+    "handler": "docker.logs",
+    "description": "Fetch recent logs from a Docker container."
   }
 }

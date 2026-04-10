@@ -119,11 +119,11 @@ test-v2: ## Test v2 endpoint with a message (usage: make test-v2 MSG="your messa
 # Deployment
 .PHONY: setup
 setup: ## Full setup: systemd units + Docker build + start (one command to rule them all)
-	@./deploy/setup.sh
+	@./scripts/setup.sh
 
 .PHONY: teardown
 teardown: ## Stop Marcel and remove systemd units
-	@./deploy/teardown.sh
+	@./scripts/teardown.sh
 
 # Docker targets
 .PHONY: docker-build
@@ -147,7 +147,7 @@ docker-logs: ## Tail Marcel Docker logs
 .PHONY: docker-restart
 docker-restart: ## Rebuild and restart Marcel Docker container
 	echo -e "$(INFO) Redeploying Marcel..."
-	./redeploy.sh
+	./scripts/redeploy.sh
 
 .PHONY: check
 check: format lint typecheck test-cov ## Run format, lint, typecheck, and tests

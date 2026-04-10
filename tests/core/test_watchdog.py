@@ -143,3 +143,62 @@ def test_do_rollback_propagates_error(tmp_path: pathlib.Path):
     ):
         with pytest.raises(subprocess.CalledProcessError):
             rollback.do_rollback(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# flags.py — env-var-based data dir
+# ---------------------------------------------------------------------------
+
+
+def test_data_dir_uses_env_var(tmp_path: pathlib.Path, monkeypatch):
+    """When MARCEL_DATA_DIR is set, watchdog writes to <DATA_DIR>/watchdog/."""
+    flags._set_data_dir(None)  # disable override
+    monkeypatch.setenv('MARCEL_DATA_DIR', str(tmp_path))
+
+    d = flags.data_dir()
+    assert str(tmp_path) in str(d)
+    assert d.exists()
+
+    # Restore override so other tests stay isolated
+    flags._set_data_dir(tmp_path)
+
+
+def test_data_dir_fallback_to_home(tmp_path: pathlib.Path, monkeypatch):
+    """Without MARCEL_DATA_DIR, data_dir uses ~/.marcel/watchdog."""
+    flags._set_data_dir(None)
+    monkeypatch.delenv('MARCEL_DATA_DIR', raising=False)
+    monkeypatch.setenv('HOME', str(tmp_path))
+
+    d = flags.data_dir()
+    # Should be inside HOME
+    assert str(tmp_path) in str(d)
+
+    flags._set_data_dir(tmp_path)
+
+
+def test_atomic_write_error_is_reraised(tmp_path: pathlib.Path, monkeypatch):
+    """If atomic_write fails midway, temp file is cleaned up and error re-raised."""
+    flags._set_data_dir(tmp_path)
+
+    import os
+
+    def broken_replace(src, dst):
+        raise OSError('simulated rename failure')
+
+    monkeypatch.setattr(os, 'replace', broken_replace)
+
+    with pytest.raises(OSError, match='simulated rename failure'):
+        flags._atomic_write(tmp_path / 'test.txt', 'content')
+
+
+def test_atomic_write_unlink_fails_during_exception(tmp_path: pathlib.Path, monkeypatch):
+    """If unlink also fails during exception cleanup, original error still propagates."""
+    flags._set_data_dir(tmp_path)
+
+    import os
+
+    monkeypatch.setattr(os, 'replace', lambda src, dst: (_ for _ in ()).throw(OSError('replace failed')))
+    monkeypatch.setattr(os, 'unlink', lambda path: (_ for _ in ()).throw(OSError('unlink failed')))
+
+    with pytest.raises(OSError, match='replace failed'):
+        flags._atomic_write(tmp_path / 'test.txt', 'content')

@@ -178,6 +178,44 @@ class TestBuildSystemPrompt:
         assert 'telegram' in prompt.lower()
         assert 'MarkdownV2' in prompt
 
+    def test_fallback_identity_when_no_marcelmd(self, tmp_path, monkeypatch):
+        """When no MARCEL.md is found, fallback identity line is used."""
+        import marcel_core.agent.context as ctx
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(ctx, '_load_marcelmd', lambda slug: '')
+        prompt = build_system_prompt('shaun', 'cli')
+        assert 'You are Marcel' in prompt
+
+    def test_empty_memory_content_skipped(self, tmp_path, monkeypatch):
+        """Memory files with whitespace-only content are excluded from prompt."""
+        import marcel_core.agent.context as ctx
+        from marcel_core.storage import save_memory_file
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        save_memory_file('shaun', 'empty_mem', '   \n   ')
+        monkeypatch.setattr(ctx, '_load_marcelmd', lambda slug: '')
+        prompt = build_system_prompt('shaun', 'cli')
+        assert '## Memory' not in prompt
+
+    def test_old_memory_gets_freshness_note(self, tmp_path, monkeypatch):
+        """Old memories get a freshness note appended."""
+        import os
+        import time
+
+        import marcel_core.agent.context as ctx
+        from marcel_core.storage import save_memory_file
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        save_memory_file('shaun', 'old_mem', 'Old content here.')
+        # Set mtime to 10 days ago
+        mem_path = tmp_path / 'users' / 'shaun' / 'memory' / 'old_mem.md'
+        old_time = time.time() - (10 * 86400)
+        os.utime(mem_path, (old_time, old_time))
+        monkeypatch.setattr(ctx, '_load_marcelmd', lambda slug: '')
+        prompt = build_system_prompt('shaun', 'cli')
+        assert 'days old' in prompt
+
 
 # ---------------------------------------------------------------------------
 # sessions.py — SessionManager
@@ -738,6 +776,76 @@ class TestChatWebSocket:
             assert msg2['type'] == 'tool_call_end'
             done = json.loads(ws.receive_text())
             assert done['type'] == 'done'
+
+    def test_wrong_api_token_rejected(self, tmp_path, monkeypatch):
+        from marcel_core.config import settings
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(settings, 'marcel_api_token', 'my-secret')
+        self._mock_stream(monkeypatch, ['ok'])
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text(json.dumps({'text': 'hi', 'user': 'shaun', 'token': 'wrong'}))
+            msg = json.loads(ws.receive_text())
+            assert msg['type'] == 'error'
+
+    def test_no_user_and_no_default_returns_error(self, tmp_path, monkeypatch):
+        from marcel_core.config import settings
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(settings, 'marcel_default_user', '')
+        self._mock_stream(monkeypatch, [])
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text(json.dumps({'text': 'hello'}))  # no user field, no default
+            msg = json.loads(ws.receive_text())
+            assert msg['type'] == 'error'
+            assert 'user' in msg['message'].lower()
+
+    def test_invalid_user_slug_returns_error(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        self._mock_stream(monkeypatch, [])
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text(json.dumps({'text': 'hello', 'user': 'INVALID SLUG!'}))
+            msg = json.loads(ws.receive_text())
+            assert msg['type'] == 'error'
+
+    def test_stream_exception_sends_error(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        async def broken_stream(*args, **kwargs):
+            raise RuntimeError('stream crashed')
+            yield  # make it a generator
+
+        monkeypatch.setattr('marcel_core.api.chat.stream_response', broken_stream)
+        monkeypatch.setattr('marcel_core.api.chat.extract_and_save_memories', lambda *a, **k: asyncio.sleep(0))
+
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text(json.dumps({'text': 'hi', 'user': 'shaun', 'conversation': None}))
+            ws.receive_text()  # started
+            err = json.loads(ws.receive_text())
+            assert err['type'] == 'error'
+
+    def test_done_includes_turns_when_set(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        async def fake_stream(*args, **kwargs):
+            yield RunStarted()
+            yield TextMessageStart()
+            yield TextMessageContent(text='hi')
+            yield TextMessageEnd()
+            yield RunFinished(total_cost_usd=0.01, num_turns=3)
+
+        monkeypatch.setattr('marcel_core.api.chat.stream_response', fake_stream)
+        monkeypatch.setattr('marcel_core.api.chat.extract_and_save_memories', lambda *a, **k: asyncio.sleep(0))
+
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text(json.dumps({'text': 'hi', 'user': 'shaun', 'conversation': None}))
+            ws.receive_text()  # started
+            ws.receive_text()  # text_message_start
+            ws.receive_text()  # token
+            ws.receive_text()  # text_message_end
+            done = json.loads(ws.receive_text())
+            assert done['type'] == 'done'
+            assert done.get('turns') == 3
 
 
 # ---------------------------------------------------------------------------

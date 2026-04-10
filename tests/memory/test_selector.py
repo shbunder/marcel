@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from marcel_core.memory.selector import MAX_SELECTED, select_relevant_memories
+from marcel_core.memory.selector import MAX_SELECTED, _parse_selection, select_relevant_memories
 from marcel_core.storage.memory import MemoryHeader, MemoryType
 
 
@@ -142,3 +142,62 @@ async def test_freshness_note_appended(mock_headers):
         # Check that freshness note was appended
         for _, content in results:
             assert '⚠️ Memory is 2 days old' in content
+
+
+@pytest.mark.asyncio
+async def test_empty_content_skipped(mock_headers):
+    """Files with empty content are skipped from results."""
+    with (
+        patch('marcel_core.memory.selector.scan_memory_headers', return_value=mock_headers),
+        patch('marcel_core.memory.selector.load_memory_file', return_value='   '),  # whitespace only
+    ):
+        results = await select_relevant_memories('test_user', 'query', include_household=False)
+        assert results == []
+
+
+@pytest.mark.asyncio
+async def test_no_freshness_note_when_fresh(mock_headers):
+    """Fresh memories (mtime = now) do not get a freshness note appended."""
+    import time
+
+    fresh_header = MemoryHeader(
+        filename='fresh.md',
+        filepath=Path('/data/users/test_user/memory/fresh.md'),
+        type=MemoryType.PREFERENCE,
+        description='Fresh memory',
+        mtime=time.time(),
+    )
+    with (
+        patch('marcel_core.memory.selector.scan_memory_headers', return_value=[fresh_header]),
+        patch('marcel_core.memory.selector.load_memory_file', return_value='Fresh content'),
+    ):
+        results = await select_relevant_memories('test_user', 'query', include_household=False)
+        assert len(results) == 1
+        _, content = results[0]
+        assert content == 'Fresh content'  # no freshness note appended
+
+
+# ---------------------------------------------------------------------------
+# _parse_selection (memory/selector.py version)
+# ---------------------------------------------------------------------------
+
+
+class TestParseSelection:
+    def test_plain_json_array(self):
+        assert _parse_selection('["a.md", "b.md"]') == ['a.md', 'b.md']
+
+    def test_empty_array(self):
+        assert _parse_selection('[]') == []
+
+    def test_code_fence_with_closing(self):
+        assert _parse_selection('```json\n["foo.md"]\n```') == ['foo.md']
+
+    def test_code_fence_without_closing(self):
+        # Last line isn't ``` so lines[1:] is used
+        assert _parse_selection('```\n["bar.md"]') == ['bar.md']
+
+    def test_invalid_json_returns_empty(self):
+        assert _parse_selection('not valid json') == []
+
+    def test_non_array_returns_empty(self):
+        assert _parse_selection('{"key": "value"}') == []

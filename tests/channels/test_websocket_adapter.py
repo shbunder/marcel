@@ -145,3 +145,28 @@ def test_format_text(adapter):
     text = 'Hello **world**'
     formatted = adapter.format_text(text)
     assert formatted == text  # No transformation for WebSocket
+
+
+from marcel_core.channels.adapter import ChannelAdapter, ChannelCapabilities
+
+
+def test_channel_adapter_format_text_default():
+    class MinimalAdapter(ChannelAdapter):
+        @property
+        def capabilities(self) -> ChannelCapabilities:
+            return ChannelCapabilities()
+
+        async def send_text_delta(self, text):
+            pass
+
+        async def send_tool_call_started(self, tool_call_id, tool_name):
+            pass
+
+        async def send_tool_call_completed(self, tool_call_id, tool_name, result, is_error):
+            pass
+
+        async def send_run_finished(self, cost_usd, is_error):
+            pass
+
+    adapter = MinimalAdapter()
+    assert adapter.format_text('hello') == 'hello'

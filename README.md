@@ -1,95 +1,153 @@
 # Marcel
 
-A self-adapting personal agent built on top of Claude Code that can observe its own behavior, identify gaps, and rewrite the code and configuration that governs how it works.
+Marcel is a personal assistant for families and small organisations. A technically inclined person sets it up once on a home server or NUC; everyone else — partners, kids, parents, colleagues — uses it through Telegram on their phone or a terminal on their laptop.
 
-## Install the CLI
+Marcel is built on Claude (Anthropic's AI) and can understand natural language, access calendars, track family events, and adapt over time. Because it has access to its own codebase, the person who runs it can ask Marcel to add new behaviours or integrations, and Marcel will modify and redeploy itself.
 
-The Marcel CLI is a native Rust terminal interface. Install it with a single command:
+## Who is it for?
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/shbunder/marcel/main/install.sh | bash
+| Role | What they do |
+|------|-------------|
+| **Admin** (tech-savvy) | Installs the server once, adds family members, connects integrations |
+| **Users** (non-technical) | Chat with Marcel over Telegram or the CLI — no setup required |
+
+For the full admin setup walkthrough, see [SETUP.md](SETUP.md).
+
+## Architecture
+
+Marcel runs as a central server. All clients are thin — they connect over WebSocket and stream responses back.
+
+```
+scripts/            # All setup and deployment scripts
+src/
+  marcel_core/      # Python — FastAPI backend, agent engine, skills, watchdog
+  marcel_cli/       # Rust  — native TUI client (ratatui + crossterm)
 ```
 
-To configure the server connection during install:
+See [docs/architecture.md](docs/architecture.md) for the full architecture overview.
+
+## Quick start (server)
+
+### Prerequisites
+
+- Linux with Docker and Docker Compose
+- `docker` group membership (`sudo usermod -aG docker $USER`)
+- Systemd user session with lingering enabled (`sudo loginctl enable-linger $USER`)
+
+### 1. Clone and configure
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shbunder/marcel/main/install.sh | bash -s -- \
+git clone https://github.com/shbunder/marcel.git
+cd marcel
+cp .env.example .env
+nano .env          # add your ANTHROPIC_API_KEY and other secrets
+```
+
+### 2. Install and start
+
+```bash
+./scripts/setup.sh
+```
+
+This checks prerequisites, installs systemd units, builds the Docker image, and starts Marcel. Marcel will be running at `http://localhost:7420`.
+
+Run `./scripts/setup.sh --check` to verify prerequisites without starting anything.
+
+### 3. Add users
+
+```bash
+mkdir -p ~/.marcel/users/alice
+mkdir -p ~/.marcel/users/bob
+```
+
+Then distribute the CLI to each user (see below).
+
+## Scripts
+
+All operational scripts live in `scripts/`:
+
+| Script | What it does |
+|--------|-------------|
+| `scripts/install.sh` | Install the Rust CLI binary on a client machine |
+| `scripts/setup.sh` | Full server setup — systemd + Docker + health check |
+| `scripts/teardown.sh` | Stop Marcel and remove systemd units |
+| `scripts/redeploy.sh` | Rebuild and restart the Docker container (with rollback) |
+
+The systemd unit templates (`*.tmpl`) in `scripts/` are rendered and installed to `~/.config/systemd/user/` by `setup.sh`.
+
+## Install the CLI (on client machines)
+
+The Marcel CLI is a native Rust terminal interface. Install it with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/shbunder/marcel/main/scripts/install.sh | bash
+```
+
+To pre-configure the server connection:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/shbunder/marcel/main/scripts/install.sh | bash -s -- \
   --host 192.168.1.50 \
   --port 7420 \
   --user alice
 ```
 
-This will:
-1. Install the Rust toolchain (if not already present)
-2. Clone the repository and build the `marcel` binary
-3. Install it to `~/.cargo/bin/marcel`
-4. Create a config file at `~/.marcel/config.toml`
-
-After installation, run:
+Or from a local clone:
 
 ```bash
-marcel
+./scripts/install.sh --host 192.168.1.50 --user alice
 ```
 
-### Requirements
+After installation, run `marcel` to connect.
 
-- Linux or macOS
-- Git
-- Internet connection (for Rust toolchain and crate downloads)
-
-### Manual install (from source)
-
-```bash
-git clone https://github.com/shbunder/marcel.git
-cd marcel
-./install.sh
-```
-
-## Configuration
-
-Edit `~/.marcel/config.toml` to configure the server connection:
+### CLI config (`~/.marcel/config.toml`)
 
 ```toml
-host = "localhost"
-port = 7420
-user = "alice"
+host  = "192.168.1.50"       # Marcel server address
+port  = 7420
+user  = "alice"              # Your user slug
+token = ""                   # API token (must match MARCEL_API_TOKEN on the server)
 model = "claude-sonnet-4-6"
-token = ""
 ```
 
-For a complete setup guide (including Telegram, security, and multi-user configuration), see [SETUP.md](SETUP.md).
+## Common operations
 
-## Goal
+```bash
+# View logs
+docker compose logs -f marcel
 
-This project tests the limits of vibe-coding by building a light agent framework on top of Claude Code. The agent has access to its own codebase and can rewrite and redeploy itself.
+# Check service status
+systemctl --user status marcel
 
-The idea originated with creating an agent that assists families in their day-to-day organization:
-- tracking family events
-- setting group reminders
-- organizing day planning
-- giving reminders for activities
+# Restart (manual)
+systemctl --user restart marcel
 
-By giving the agent the ability to rewrite itself, non-developer users in the family can more easily adapt Marcel to their needs.
+# Rebuild and restart (e.g. after a code change)
+./scripts/redeploy.sh
 
-## Architecture
+# Stop Marcel
+systemctl --user stop marcel
 
-Marcel is structured as a central API server (`marcel-core`) that all clients connect to via REST and WebSocket. The agent runs server-side; clients are thin.
-
-```
-src/
-  marcel_core/    # Python — FastAPI backend, agent engine, skills, watchdog
-  marcel_cli/     # Rust — native TUI client (ratatui + crossterm)
+# Remove all systemd units
+./scripts/teardown.sh
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the full architecture overview and [docs/cli.md](docs/cli.md) for CLI documentation.
+Or via Make:
+
+```bash
+make setup          # Install and start
+make teardown       # Stop and remove units
+make docker-restart # Rebuild and restart container
+make docker-logs    # Tail logs
+```
 
 ## Development
 
 ```bash
-make serve      # Start the backend server
-make cli-dev    # Build and run CLI (debug mode)
-make cli        # Build and run CLI (release mode)
-make check      # Format, lint, typecheck, and test
+make serve          # Start the backend dev server (uvicorn --reload on :7421)
+make cli-dev        # Build and run CLI (debug mode)
+make cli            # Build and run CLI (release mode)
+make check          # Format, lint, typecheck, and test
 ```
 
 ## License

@@ -274,7 +274,7 @@ class TestCalendarNavMarkup:
 
 class TestWebAppUrlFor:
     def test_returns_none_without_env(self, monkeypatch):
-        # conftest already resets marcel_public_url to None
+        # autouse fixture already resets settings.marcel_public_url to None
         assert web_app_url_for('conv-1') is None
 
     def test_returns_url_with_conversation(self, monkeypatch):

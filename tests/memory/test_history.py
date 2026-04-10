@@ -185,3 +185,122 @@ def test_read_nonexistent_user(temp_data_root: Path):
     """Test reading history for user with no history file."""
     messages = read_history('nonexistent_user')
     assert messages == []
+
+
+def test_message_with_tool_call_id_and_result_ref(temp_data_root: Path):
+    """to_jsonl/from_jsonl roundtrip with tool_call_id, result_ref, and is_error."""
+    msg = HistoryMessage(
+        role='tool',
+        text='result',
+        timestamp=datetime(2026, 4, 9, tzinfo=timezone.utc),
+        conversation_id='conv-1',
+        tool_call_id='tc-x',
+        result_ref='paste-abc',
+        is_error=True,
+    )
+    line = msg.to_jsonl()
+    assert '"tool_call_id"' in line
+    assert '"result_ref"' in line
+    assert '"is_error"' in line
+
+    restored = HistoryMessage.from_jsonl(line)
+    assert restored.tool_call_id == 'tc-x'
+    assert restored.result_ref == 'paste-abc'
+    assert restored.is_error is True
+
+
+def test_read_history_skips_blank_lines(temp_data_root: Path):
+    """Blank lines in history file should be skipped."""
+    user_dir = temp_data_root / 'users' / 'george'
+    user_dir.mkdir(parents=True)
+    history_file = user_dir / 'history.jsonl'
+    good_line = HistoryMessage(
+        role='user',
+        text='hello',
+        timestamp=datetime(2026, 4, 9, tzinfo=timezone.utc),
+        conversation_id='c1',
+    ).to_jsonl()
+    history_file.write_text(f'{good_line}\n\n   \n', encoding='utf-8')
+
+    messages = read_history('george')
+    assert len(messages) == 1
+
+
+def test_read_recent_turns_no_limit_when_few_turns(temp_data_root: Path):
+    """When num_turns >= available turns, all messages are returned."""
+    from datetime import timedelta
+
+    base = datetime(2026, 4, 9, tzinfo=timezone.utc)
+    for i in range(2):
+        append_message(
+            'user',
+            HistoryMessage(role='user', text=f'u{i}', timestamp=base + timedelta(seconds=i * 2), conversation_id='c1'),
+        )
+        append_message(
+            'user',
+            HistoryMessage(
+                role='assistant', text=f'a{i}', timestamp=base + timedelta(seconds=i * 2 + 1), conversation_id='c1'
+            ),
+        )
+
+    messages = read_recent_turns('user', 'c1', num_turns=10)
+    assert len(messages) == 4  # all 4 messages returned
+
+
+def test_read_history_skips_malformed_lines(temp_data_root: Path):
+    """Lines that aren't valid JSON should be skipped with a warning."""
+    user_dir = temp_data_root / 'users' / 'frank'
+    user_dir.mkdir(parents=True)
+    history_file = user_dir / 'history.jsonl'
+    # Write one valid line and one malformed line
+    good_line = HistoryMessage(
+        role='user',
+        text='hi',
+        timestamp=datetime(2026, 4, 9, tzinfo=timezone.utc),
+        conversation_id='c1',
+    ).to_jsonl()
+    history_file.write_text(f'{good_line}\nnot-valid-json\n', encoding='utf-8')
+
+    messages = read_history('frank')
+    assert len(messages) == 1
+    assert messages[0].text == 'hi'
+
+
+def test_read_recent_turns_limits_correctly(temp_data_root: Path):
+    """read_recent_turns should return only the last num_turns pairs."""
+    from datetime import timedelta
+
+    base = datetime(2026, 4, 9, tzinfo=timezone.utc)
+    for i in range(5):
+        append_message(
+            'user',
+            HistoryMessage(
+                role='user', text=f'msg {i}', timestamp=base + timedelta(seconds=i * 2), conversation_id='c1'
+            ),
+        )
+        append_message(
+            'user',
+            HistoryMessage(
+                role='assistant', text=f'reply {i}', timestamp=base + timedelta(seconds=i * 2 + 1), conversation_id='c1'
+            ),
+        )
+
+    messages = read_recent_turns('user', 'c1', num_turns=2)
+    # Should contain only the last 2 user+assistant pairs = 4 messages
+    user_msgs = [m for m in messages if m.role == 'user']
+    assert len(user_msgs) == 2
+    assert user_msgs[-1].text == 'msg 4'
+
+
+def test_count_tokens_estimate_with_tool_calls():
+    """count_tokens_estimate should include tool call sizes."""
+    tool_call = ToolCall(id='tc-1', name='bash', arguments={'command': 'ls'})
+    msg = HistoryMessage(
+        role='assistant',
+        text='Checking...',
+        timestamp=datetime(2026, 4, 9, tzinfo=timezone.utc),
+        conversation_id='c1',
+        tool_calls=[tool_call],
+    )
+    count = count_tokens_estimate([msg])
+    assert count > 0  # At least some tokens from text + tool call

@@ -9,7 +9,7 @@ Built with **ratatui** + **crossterm** — the same stack used by [codex-cli](ht
 Build and install from source (requires Rust toolchain):
 
 ```bash
-./install.sh
+./scripts/install.sh
 ```
 
 Or build manually:
@@ -29,7 +29,7 @@ make cli        # release build + run
 
 ## Configuration
 
-Marcel reads its configuration from `~/.marcel/config.toml`. If the file does not exist, it is created automatically with defaults on first run (via `install.sh`).
+Marcel reads its configuration from `~/.marcel/config.toml`. If the file does not exist, it is created automatically with defaults on first run (via `scripts/install.sh`).
 
 ```toml
 host = "localhost"
@@ -53,7 +53,7 @@ port = 7420
 Or pass flags to the installer:
 
 ```bash
-./install.sh --host 192.168.1.50 --port 7420
+./scripts/install.sh --host 192.168.1.50 --port 7420
 ```
 
 ## Usage

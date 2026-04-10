@@ -51,7 +51,7 @@ cp .env.example .env    # fill in ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, etc.
 make setup              # installs systemd units, builds container, starts everything
 ```
 
-`make setup` runs `deploy/setup.sh` which:
+`make setup` runs `scripts/setup.sh` which:
 
 1. Checks prerequisites (docker, docker compose, systemd, docker group membership)
 2. Creates `.env` from `.env.example` if missing
