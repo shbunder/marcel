@@ -13,6 +13,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 import os
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,6 +38,8 @@ class SkillDoc:
     content: str
     is_setup: bool  # True if this is the SETUP.md fallback
     source: str  # 'project' or 'home'
+    credential_keys: list[str] = dataclasses.field(default_factory=list)
+    """Credential keys declared in requires.credentials (for auto-injection)."""
 
 
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -142,6 +145,7 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
         name = fm.get('name', skill_path.name)
         description = fm.get('description', '')
         requires = fm.get('requires', {})
+        cred_keys = requires.get('credentials', []) if requires else []
 
         if _check_requirements(requires, user_slug):
             return SkillDoc(
@@ -150,6 +154,7 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
                 content=body,
                 is_setup=False,
                 source=source,
+                credential_keys=cred_keys,
             )
 
         # Requirements not met — fall back to SETUP.md
@@ -162,6 +167,7 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
                 content=setup_body,
                 is_setup=True,
                 source=source,
+                credential_keys=cred_keys,
             )
 
         # No SETUP.md — still return SKILL.md (agent can handle the error at runtime)
@@ -171,6 +177,7 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
             content=body,
             is_setup=False,
             source=source,
+            credential_keys=cred_keys,
         )
 
     # Only SETUP.md exists (no SKILL.md) — unusual but supported

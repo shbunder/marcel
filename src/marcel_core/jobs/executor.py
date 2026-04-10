@@ -19,50 +19,78 @@ from marcel_core.jobs.models import JobDefinition, JobRun, NotifyPolicy, RunStat
 
 log = logging.getLogger(__name__)
 
-# Credential prefixes to inject per skill reference in job definition.
-# Maps a keyword found in job.skills or job.task to credential key prefixes.
-_SKILL_CREDENTIAL_PREFIXES: dict[str, list[str]] = {
-    'banking': ['ENABLEBANKING_'],
-    'icloud': ['ICLOUD_'],
-    'detijd': ['DETIJD_'],
-    'tijd': ['DETIJD_'],
-}
 
+def _resolve_job_skills(job: JobDefinition) -> list:
+    """Load full SkillDoc objects for skills referenced by a job.
 
-def _credential_block(job: JobDefinition) -> str:
-    """Build a credentials section for injection into the job system prompt.
-
-    Scans the job's skills list and task text for known keywords, then loads
-    matching credentials from the user's encrypted vault.
+    Job skills may use integration IDs like ``"icloud.calendar"`` — the skill
+    name is the part before the dot (or the whole string if no dot).
     """
+    from marcel_core.skills.loader import load_skills
+
+    all_skills = load_skills(job.user_slug)
+    skill_map = {s.name: s for s in all_skills}
+
+    # Extract unique skill names from job.skills (e.g. "icloud.calendar" -> "icloud")
+    wanted: set[str] = set()
+    for ref in job.skills:
+        wanted.add(ref.split('.')[0])
+
+    return [skill_map[name] for name in sorted(wanted) if name in skill_map]
+
+
+def _build_job_context(job: JobDefinition) -> str:
+    """Build the system prompt context for a job agent.
+
+    Assembles: job system prompt + skill docs + credentials + channel prompt.
+    Deliberately lean — no MARCEL.md, skill index, or memory selection.
+    """
+    from marcel_core.harness.context import load_channel_prompt
     from marcel_core.storage.credentials import load_credentials
 
-    # Collect which credential prefixes are relevant
-    prefixes: set[str] = set()
-    search_text = ' '.join(job.skills).lower() + ' ' + job.task.lower() + ' ' + job.system_prompt.lower()
-    for keyword, prefs in _SKILL_CREDENTIAL_PREFIXES.items():
-        if keyword in search_text:
-            prefixes.update(prefs)
+    parts = [job.system_prompt]
 
-    if not prefixes:
-        return ''
+    # Auto-inject full docs for referenced skills
+    skills = _resolve_job_skills(job)
+    if skills:
+        skill_sections = []
+        for skill in skills:
+            if not skill.is_setup:
+                skill_sections.append(f'### {skill.name}\n\n{skill.content}')
+        if skill_sections:
+            parts.append('## Skill reference\n\n' + '\n\n---\n\n'.join(skill_sections))
 
-    creds = load_credentials(job.user_slug)
-    relevant = {k: v for k, v in creds.items() if any(k.startswith(p) for p in prefixes)}
+    # Inject credentials: from skill requirements + any referenced in system_prompt
+    cred_keys: set[str] = set()
+    for skill in skills:
+        cred_keys.update(skill.credential_keys)
 
-    if not relevant:
-        return ''
+    # Also check vault for keys mentioned literally in the job text
+    # (covers credentials not tied to a skill, e.g. DETIJD_ in the scraper prompt)
+    all_creds = load_credentials(job.user_slug)
+    job_text = job.system_prompt + ' ' + job.task
+    for key in all_creds:
+        if key in job_text:
+            cred_keys.add(key)
 
-    lines = ['## Credentials (injected from vault)']
-    for key, value in sorted(relevant.items()):
-        lines.append(f'- **{key}**: `{value}`')
-    return '\n'.join(lines)
+    relevant = {k: all_creds[k] for k in sorted(cred_keys) if k in all_creds}
+    if relevant:
+        lines = ['## Credentials (injected from vault)']
+        for key, value in sorted(relevant.items()):
+            lines.append(f'- **{key}**: `{value}`')
+        parts.append('\n'.join(lines))
+
+    # Channel delivery guidance
+    channel_prompt = load_channel_prompt('job')
+    parts.append(f'## Channel\n{channel_prompt}')
+
+    return '\n\n---\n\n'.join(parts)
 
 
 async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> JobRun:
     """Execute a single job and return the run record."""
     from marcel_core.harness.agent import create_marcel_agent
-    from marcel_core.harness.context import MarcelDeps, build_instructions_async
+    from marcel_core.harness.context import MarcelDeps
 
     run = JobRun(
         job_id=job.id,
@@ -79,16 +107,8 @@ async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> 
         role='user',
     )
 
-    # Inject credentials referenced by the job's skills into the system prompt
-    cred_block = _credential_block(job)
-
-    # Build system prompt: job's own prompt + credentials + user profile context
-    base_instructions = await build_instructions_async(deps, query=job.task)
-    parts = [job.system_prompt]
-    if cred_block:
-        parts.append(cred_block)
-    parts.append(f'---\n\n{base_instructions}')
-    system_prompt = '\n\n'.join(parts)
+    # Build lean system prompt: task + skill docs + credentials + channel
+    system_prompt = _build_job_context(job)
 
     agent = create_marcel_agent(job.model, system_prompt=system_prompt, role='user')
 
