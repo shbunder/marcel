@@ -24,6 +24,7 @@ from marcel_core.harness.runner import (
     stream_turn,
 )
 from marcel_core.memory.compactor import check_and_compact
+from marcel_core.memory.history import create_session
 
 log = logging.getLogger(__name__)
 
@@ -90,8 +91,11 @@ async def chat_v2(websocket: WebSocket) -> None:
 
             # Start a new conversation if none was provided
             if conversation_id is None:
+                meta = create_session(user_slug, channel)
+                conversation_id = meta.session_id
+                # Also create legacy conversation file (dual-write during migration)
                 async with storage.get_lock(user_slug):
-                    conversation_id = storage.new_conversation(user_slug, channel)
+                    storage.new_conversation(user_slug, channel)
                 await adapter.send_conversation_started(conversation_id)
 
             # Check if compaction is needed before processing

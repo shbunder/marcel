@@ -15,15 +15,20 @@ synchronous Python API for reading and writing users, conversations, and memory.
     {user_slug}/
       profile.md              # display name, preferences, known facts (free-form markdown)
       channel_ids.json        # {"cli": "fingerprint", "telegram": "12345"}
-      conversations/
+      conversations/          # legacy markdown conversation logs (v1)
         index.md              # one line per conversation: date, filename, short description
         2026-03-26T14-32.md   # full turn-by-turn transcript
-        2026-03-25T09-11.md
+      history/                # per-session JSONL history (v2)
+        {channel}/            # one directory per channel (telegram, cli, ios, websocket)
+          {session_id}.jsonl  # JSONL messages for one session
+          {session_id}.meta.json  # session metadata (title, timestamps, count)
       memory/
         index.md              # one line per topic file: filename, one-liner (capped at 200 lines)
         calendar.md           # distilled facts about calendar preferences (with frontmatter)
         family.md             # family members, relationships, birthdays
         shopping.md           # shopping habits, preferred stores
+      .pastes/                # large tool result content (SHA-256 hashed)
+        {hash}                # content referenced by result_ref in history
     _household/               # shared family memories (included in all users' context)
       memory/
         wifi.md               # household wifi credentials
@@ -65,6 +70,59 @@ One line per conversation, appended chronologically.
 - [2026-03-25T09-11](2026-03-25T09-11.md) — set up Google Calendar connection
 - [2026-03-24T20-44](2026-03-24T20-44.md) — weekly schedule overview
 ```
+
+### JSONL history (`history/{channel}/{session_id}.jsonl`)
+
+The v2 history system stores conversation turns as line-delimited JSON, one
+message per line.  Each session gets its own file, organized by channel:
+
+```
+history/
+  telegram/
+    2026-04-10T09-44.jsonl
+    2026-04-10T09-44.meta.json
+  cli/
+    2026-04-10T14-22.jsonl
+    2026-04-10T14-22.meta.json
+```
+
+Each JSONL line contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `role` | string | `user`, `assistant`, `tool`, or `system` |
+| `text` | string? | Message content (null if `result_ref` used) |
+| `timestamp` | string | ISO 8601 UTC |
+| `conversation_id` | string | Session identifier |
+| `tool_calls` | array? | For assistant: `[{id, name, arguments}]` |
+| `tool_call_id` | string? | For tool results: matches a tool call ID |
+| `tool_name` | string? | For tool results: which tool produced this |
+| `result_ref` | string? | `sha256:{hash}` pointer to paste store |
+| `is_error` | bool | Whether this tool result was an error |
+
+### Session metadata (`history/{channel}/{session_id}.meta.json`)
+
+```json
+{
+  "session_id": "2026-04-10T09-44",
+  "channel": "telegram",
+  "created_at": "2026-04-10T09:44:08+00:00",
+  "last_active": "2026-04-10T09:49:22+00:00",
+  "message_count": 12,
+  "title": null
+}
+```
+
+Session metadata is updated on every `append_message` call.  Clients can
+list sessions via `GET /v2/sessions`, create via `POST /v2/sessions`, and
+delete via `DELETE /v2/sessions/{id}`.
+
+### Legacy migration
+
+Existing flat `history.jsonl` files are read transparently as a fallback.
+Call `migrate_legacy_history(user_slug, default_channel)` to split them
+into per-session files.  The original file is renamed to
+`history.jsonl.migrated`.
 
 ### Memory file (`memory/{topic}.md`)
 
@@ -185,7 +243,48 @@ needed.
 
 ---
 
-### Conversations
+### Sessions (v2 history)
+
+```python
+from marcel_core.memory.history import (
+    append_message, read_history, read_recent_turns,
+    create_session, list_sessions, delete_session, get_session_meta,
+    migrate_legacy_history,
+    SessionMeta, HistoryMessage, ToolCall,
+)
+```
+
+```python
+def append_message(user_slug: str, message: HistoryMessage, channel: str = 'default') -> None
+```
+Appends a message to the session's JSONL file.  Uses `message.conversation_id`
+as the session ID and creates the session directory if needed.
+
+```python
+def read_history(user_slug: str, conversation_id: str | None = None, limit: int | None = None) -> list[HistoryMessage]
+```
+Reads messages from per-session files, falling back to legacy flat file.
+
+```python
+def create_session(user_slug: str, channel: str, session_id: str | None = None, title: str | None = None) -> SessionMeta
+```
+Creates a new session.  If no `session_id` is given, generates one from the
+current UTC timestamp.
+
+```python
+def list_sessions(user_slug: str, channel: str | None = None, limit: int = 50) -> list[SessionMeta]
+```
+Lists sessions sorted by `last_active` (newest first).
+
+```python
+def migrate_legacy_history(user_slug: str, default_channel: str = 'default') -> int
+```
+Splits a legacy flat `history.jsonl` into per-session files.  Returns the
+number of sessions migrated.
+
+---
+
+### Conversations (legacy)
 
 ```python
 def new_conversation(slug: str, channel: str) -> str

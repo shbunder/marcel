@@ -366,7 +366,7 @@ async def stream_turn(
         timestamp=datetime.now(tz=timezone.utc),
         conversation_id=conversation_id,
     )
-    append_message(user_slug, user_msg)
+    append_message(user_slug, user_msg, channel=channel)
 
     # Build system prompt with context (async version includes AI-selected memories)
     from marcel_core.harness.context import build_instructions_async
@@ -423,7 +423,7 @@ async def stream_turn(
     if all_messages:
         tool_entries = _extract_tool_history(all_messages, user_slug, conversation_id)
         for entry in tool_entries:
-            append_message(user_slug, entry)
+            append_message(user_slug, entry, channel=channel)
             # Yield events for tool calls so channels can show progress
             if entry.role == 'assistant' and entry.tool_calls:
                 for tc in entry.tool_calls:
@@ -445,6 +445,6 @@ async def stream_turn(
             timestamp=datetime.now(tz=timezone.utc),
             conversation_id=conversation_id,
         )
-        append_message(user_slug, assistant_msg)
+        append_message(user_slug, assistant_msg, channel=channel)
 
     yield RunFinished(total_cost_usd=total_cost, is_error=is_error)

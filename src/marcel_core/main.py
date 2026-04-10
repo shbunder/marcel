@@ -24,6 +24,7 @@ from marcel_core.api.chat import router as chat_router
 from marcel_core.api.chat_v2 import router as chat_v2_router
 from marcel_core.api.conversations import router as conversations_router
 from marcel_core.api.health import router as health_router
+from marcel_core.api.sessions import router as sessions_router
 from marcel_core.channels.telegram import router as telegram_router
 from marcel_core.skills.integrations.banking.sync import start_sync_loop, stop_sync_loop
 from marcel_core.watchdog.flags import read_restart_request, write_restart_result
@@ -95,6 +96,7 @@ app.include_router(health_router)
 app.include_router(chat_router)
 app.include_router(chat_v2_router)  # v2 harness endpoint (pydantic-ai)
 app.include_router(conversations_router)
+app.include_router(sessions_router)  # v2 session management
 app.include_router(telegram_router)
 
 # Serve the built web frontend (SPA) if it exists
