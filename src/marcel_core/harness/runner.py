@@ -12,6 +12,7 @@ import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Literal
 
 from pydantic_ai.messages import (
@@ -26,7 +27,7 @@ from pydantic_ai.messages import (
 )
 
 from marcel_core.harness.agent import DEFAULT_MODEL, create_marcel_agent
-from marcel_core.harness.context import MarcelDeps, _host_home
+from marcel_core.harness.context import MarcelDeps
 from marcel_core.memory.history import HistoryMessage, ToolCall, append_message, read_recent_turns
 from marcel_core.memory.pastes import PASTE_THRESHOLD, store_paste
 from marcel_core.storage.settings import load_channel_model
@@ -338,12 +339,11 @@ async def stream_turn(
     """
     role = get_user_role(user_slug)
 
-    # For admin users on non-CLI channels, default cwd to the user's home directory
-    # ($HOME is bind-mounted at the same path as on the host, so this IS the server home).
+    # For admin users on non-CLI channels, default cwd to the user's home directory.
     # For CLI sessions, cwd comes from the client's current directory.
     effective_cwd = cwd
     if role == 'admin' and not effective_cwd and channel != 'cli':
-        effective_cwd = _host_home()
+        effective_cwd = str(Path.home())
 
     deps = MarcelDeps(
         user_slug=user_slug,

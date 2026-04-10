@@ -133,9 +133,9 @@ class TestStreamTurn:
         assert finished[0].is_error is True
 
     @pytest.mark.asyncio
-    async def test_admin_user_gets_host_home_cwd(self, tmp_path, monkeypatch):
+    async def test_admin_user_gets_home_cwd(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setenv('HOST_HOME', '/host/home')
+        monkeypatch.setenv('HOME', '/home/testuser')
 
         # Write admin role
         import json
@@ -168,8 +168,8 @@ class TestStreamTurn:
                 pass
 
         assert len(captured_deps) == 1
-        # Admin on non-CLI channel should get host home as cwd
-        assert captured_deps[0].cwd == '/host/home'
+        # Admin on non-CLI channel should get $HOME as cwd
+        assert captured_deps[0].cwd == '/home/testuser'
 
     @pytest.mark.asyncio
     async def test_explicit_model_used(self, tmp_path, monkeypatch):

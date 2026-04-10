@@ -13,9 +13,9 @@ services:
       - .env
       - .env.local
     environment:
+      - HOME=${HOME}
       - MARCEL_PORT=7420
       - MARCEL_DATA_DIR=${HOME}/.marcel
-      - HOST_HOME=${HOME}
     volumes:
       # Source code — read-write so Marcel can self-modify
       - .:/app
@@ -23,14 +23,9 @@ services:
       - ${HOME}:${HOME}
       # Marcel runtime data (users, conversations, memory, watchdog flags)
       - ${HOME}/.marcel:${HOME}/.marcel
-      # Claude SDK auth (OAuth credentials from host's `claude login`)
-      - ${HOME}/.claude:/home/marcel/.claude
-      - ${HOME}/.claude.json:/home/marcel/.claude.json
       # Docker socket — for managing other containers (Plex, Home Assistant, etc.)
       # Self-restart is handled by host-side systemd, not via this socket.
       - /var/run/docker.sock:/var/run/docker.sock
-      # Host filesystem — read-only for inspecting logs, configs, etc.
-      - /:/_host:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7420/health"]
       interval: 10s

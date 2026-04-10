@@ -8,37 +8,11 @@ import pytest
 
 from marcel_core.harness.context import (
     MarcelDeps,
-    _host_home,
     build_instructions,
     build_instructions_async,
     build_server_context,
 )
 from marcel_core.storage import _root
-
-# ---------------------------------------------------------------------------
-# _host_home
-# ---------------------------------------------------------------------------
-
-
-class TestHostHome:
-    def test_returns_host_home_env(self, monkeypatch):
-        monkeypatch.setenv('HOST_HOME', '/host/home/user')
-        monkeypatch.delenv('MARCEL_DATA_DIR', raising=False)
-        assert _host_home() == '/host/home/user'
-
-    def test_derives_from_data_dir(self, monkeypatch):
-        monkeypatch.delenv('HOST_HOME', raising=False)
-        monkeypatch.setenv('MARCEL_DATA_DIR', '/data/user/.marcel')
-        result = _host_home()
-        assert result == '/data/user'
-
-    def test_falls_back_to_home(self, monkeypatch):
-        monkeypatch.delenv('HOST_HOME', raising=False)
-        monkeypatch.delenv('MARCEL_DATA_DIR', raising=False)
-        monkeypatch.setenv('HOME', '/home/testuser')
-        result = _host_home()
-        assert result == '/home/testuser'
-
 
 # ---------------------------------------------------------------------------
 # build_server_context
@@ -55,112 +29,54 @@ class TestBuildServerContext:
         result = build_server_context(cwd='/some/path')
         assert '/some/path' in result
 
-    def test_includes_home_directory(self, monkeypatch):
-        monkeypatch.setenv('HOST_HOME', '/host/shaun')
-        monkeypatch.delenv('MARCEL_DATA_DIR', raising=False)
-        result = build_server_context()
-        assert '/host/shaun' in result
-
-    def test_mentions_bare_metal_when_not_in_docker(self, tmp_path, monkeypatch):
-        # /.dockerenv doesn't exist in test environment
-        result = build_server_context()
-        assert 'Bare metal' in result or 'Docker' in result
-
-    def test_in_docker_path(self, monkeypatch):
-        """When /.dockerenv exists, shows Docker runtime info."""
+    def test_includes_home_directory(self):
         from pathlib import Path
 
-        original_exists = Path.exists
-
-        def patched_exists(self):
-            if str(self) == '/.dockerenv':
-                return True
-            if str(self) in ('/_host/etc/hostname', '/_host', '/var/run/docker.sock'):
-                return False
-            return original_exists(self)
-
-        monkeypatch.setattr(Path, 'exists', patched_exists)
         result = build_server_context()
-        assert 'Docker container' in result
+        assert str(Path.home()) in result
 
-    def test_in_docker_with_hostname_and_host_fs(self, monkeypatch):
-        """Tests docker path with hostname file and /_host and docker.sock."""
+    def test_includes_hostname_when_available(self, monkeypatch):
         from pathlib import Path
 
-        original_exists = Path.exists
         original_read_text = Path.read_text
-
-        def patched_exists(self):
-            if str(self) == '/.dockerenv':
-                return True
-            if str(self) == '/_host/etc/hostname':
-                return True
-            if str(self) == '/_host':
-                return True
-            if str(self) == '/var/run/docker.sock':
-                return True
-            return original_exists(self)
 
         def patched_read_text(self, *args, **kwargs):
-            if str(self) == '/_host/etc/hostname':
-                return 'myhost\n'
+            if str(self) == '/etc/hostname':
+                return 'myserver\n'
             return original_read_text(self, *args, **kwargs)
 
-        monkeypatch.setattr(Path, 'exists', patched_exists)
         monkeypatch.setattr(Path, 'read_text', patched_read_text)
         result = build_server_context()
-        assert 'Docker container' in result
-        assert 'myhost' in result
-        assert 'Host filesystem' in result
-        assert 'docker.sock' in result
+        assert 'myserver' in result
 
-    def test_docker_hostname_oserror_is_swallowed(self, monkeypatch):
-        """OSError reading /_host/etc/hostname in Docker is silently ignored."""
+    def test_hostname_oserror_is_swallowed(self, monkeypatch):
+        """OSError reading /etc/hostname is silently skipped."""
         from pathlib import Path
 
-        original_exists = Path.exists
         original_read_text = Path.read_text
-
-        def patched_exists(self):
-            if str(self) == '/.dockerenv':
-                return True
-            if str(self) == '/_host/etc/hostname':
-                return True
-            if str(self) in ('/_host', '/var/run/docker.sock'):
-                return False
-            return original_exists(self)
-
-        def patched_read_text(self, *args, **kwargs):
-            if str(self) == '/_host/etc/hostname':
-                raise OSError('no permission')
-            return original_read_text(self, *args, **kwargs)
-
-        monkeypatch.setattr(Path, 'exists', patched_exists)
-        monkeypatch.setattr(Path, 'read_text', patched_read_text)
-        result = build_server_context()
-        assert 'Docker container' in result
-
-    def test_bare_metal_hostname_oserror(self, monkeypatch):
-        """OSError reading /etc/hostname on bare metal is silently skipped."""
-        from pathlib import Path
-
-        original_exists = Path.exists
-        original_read_text = Path.read_text
-
-        def patched_exists(self):
-            if str(self) == '/.dockerenv':
-                return False
-            return original_exists(self)
 
         def patched_read_text(self, *args, **kwargs):
             if str(self) == '/etc/hostname':
                 raise OSError('no permission')
             return original_read_text(self, *args, **kwargs)
 
-        monkeypatch.setattr(Path, 'exists', patched_exists)
         monkeypatch.setattr(Path, 'read_text', patched_read_text)
         result = build_server_context()
-        assert 'Bare metal' in result
+        assert '## Server Context (Admin)' in result
+
+    def test_docker_socket_shown_when_available(self, monkeypatch):
+        from pathlib import Path
+
+        original_exists = Path.exists
+
+        def patched_exists(self):
+            if str(self) == '/var/run/docker.sock':
+                return True
+            return original_exists(self)
+
+        monkeypatch.setattr(Path, 'exists', patched_exists)
+        result = build_server_context()
+        assert 'docker' in result.lower()
 
 
 # ---------------------------------------------------------------------------

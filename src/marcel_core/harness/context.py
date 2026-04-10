@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from pydantic import dataclasses as pydantic_dc
@@ -66,28 +65,11 @@ class MarcelDeps:
     """
 
 
-def _host_home() -> str:
-    """Return the host user's home directory, even when running inside Docker.
-
-    Priority order:
-    1. HOST_HOME env var (set explicitly in docker-compose.yml environment)
-    2. Parent of MARCEL_DATA_DIR — already set to ${HOST_HOME}/.marcel in
-       docker-compose.yml, so works without container recreation
-    3. $HOME — correct for bare-metal; wrong inside Docker (resolves to
-       /home/marcel, the container user) but used as last resort
-    """
-    if host_home := os.environ.get('HOST_HOME'):
-        return host_home
-    if data_dir := os.environ.get('MARCEL_DATA_DIR'):
-        return str(Path(data_dir).parent)
-    return os.environ.get('HOME') or '/root'
-
-
 def build_server_context(cwd: str | None = None) -> str:
     """Build a server/environment context block for admin users.
 
-    Detects whether Marcel is running in Docker, finds the host hostname,
-    and lists the key mounts available to admin users.
+    Describes the server environment: hostname, home directory, working
+    directory, and available tools.
 
     Args:
         cwd: The effective working directory (shown in the context block).
@@ -95,58 +77,29 @@ def build_server_context(cwd: str | None = None) -> str:
     Returns:
         Markdown string describing the server environment.
     """
+    home = str(Path.home())
     lines = ['## Server Context (Admin)']
 
-    host_home = _host_home()
+    try:
+        hostname = Path('/etc/hostname').read_text(encoding='utf-8').strip()
+        lines.append(f'**Host:** `{hostname}`')
+    except OSError:
+        pass
 
-    # Docker detection
-    in_docker = Path('/.dockerenv').exists()
-    if in_docker:
-        lines.append('**Runtime:** Docker container')
+    lines.append(f'**Home directory:** `{home}`')
 
-        # Host hostname from read-only host mount
-        host_hostname_path = Path('/_host/etc/hostname')
-        if host_hostname_path.exists():
-            try:
-                host_hostname = host_hostname_path.read_text(encoding='utf-8').strip()
-                lines.append(f'**Host:** `{host_hostname}`')
-            except OSError:
-                pass
-    else:
-        lines.append('**Runtime:** Bare metal / VM')
-        try:
-            hostname = Path('/etc/hostname').read_text(encoding='utf-8').strip()
-            lines.append(f'**Host:** `{hostname}`')
-        except OSError:
-            pass
-
-    # Host home — bind-mounted at the same path inside Docker
-    lines.append(
-        f'**Home directory:** `{host_home}` '
-        '(host home, bind-mounted read-write at the same path — this IS the server home folder)'
-    )
-
-    # Host filesystem read-only mount
-    if Path('/_host').exists():
-        lines.append('**Host filesystem:** `/_host/...` (entire host, read-only)')
-
-    # Docker socket
+    # Docker socket — available when managing sibling containers
     if Path('/var/run/docker.sock').exists():
-        lines.append(
-            '**Docker:** socket at `/var/run/docker.sock` — '
-            'use `docker` CLI to list, inspect, restart, exec into containers'
-        )
+        lines.append('**Docker:** socket available — use `docker` CLI to list, inspect, restart, exec into containers')
 
-    # Working directory
-    effective_cwd = cwd or host_home
+    effective_cwd = cwd or home
     lines.append(f'**Working directory:** `{effective_cwd}`')
 
     lines += [
         '',
         'You have full CLI capabilities: `bash`, file I/O, `git_*`, and `claude_code` delegation.',
         f'When the user refers to "home folder", "server files", or "the NUC", '
-        f'they mean the host machine — start from `{host_home}`.',
-        'To read host-only files not in the home mount, use `/_host/...` paths.',
+        f'they mean this machine — start from `{home}`.',
     ]
 
     return '\n'.join(lines)
