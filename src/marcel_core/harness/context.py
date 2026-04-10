@@ -2,32 +2,16 @@
 
 from __future__ import annotations
 
+import dataclasses
+import logging
 from pathlib import Path
 
 from pydantic import dataclasses as pydantic_dc
 
-# ---------------------------------------------------------------------------
-# Channel format hints — single source of truth for all prompt builders.
-# ---------------------------------------------------------------------------
+log = logging.getLogger(__name__)
 
-CHANNEL_FORMAT_HINTS: dict[str, str] = {
-    'cli': 'Use rich markdown: headers, bold, code blocks, and bullet lists freely.',
-    'app': 'Use full markdown. You may include structured data for card rendering.',
-    'ios': 'Use markdown. Keep responses concise for mobile screens.',
-    'telegram': (
-        'Use standard markdown (bold, italic, code, code blocks, links, lists, headers, blockquotes). '
-        'Do NOT use Telegram MarkdownV2 escape syntax — output will be converted server-side. '
-        'IMPORTANT: For any task that takes more than one step, call the notify tool '
-        'at the start ("On it...") and after each major step so the user always knows '
-        'what you are doing. Never go silent for more than a few seconds.'
-    ),
-    'websocket': 'Use rich markdown. Streaming is supported, so you can send progressive updates.',
-    'job': (
-        'You are running as a background job. Be concise and factual. '
-        'Use the notify tool to send results to the user. '
-        'Do not use markdown formatting — plain text only.'
-    ),
-}
+# Path to bundled default channel prompt files.
+_DEFAULTS_CHANNELS = Path(__file__).resolve().parent.parent / 'defaults' / 'channels'
 
 
 @pydantic_dc.dataclass
@@ -63,6 +47,9 @@ class MarcelDeps:
     For admin non-CLI sessions this defaults to the user's home directory.
     None falls back to the project root.
     """
+
+    read_skills: set[str] = dataclasses.field(default_factory=set)
+    """Skills whose full docs have been loaded this turn (for auto-inject dedup)."""
 
 
 def build_server_context(cwd: str | None = None) -> str:
@@ -105,6 +92,42 @@ def build_server_context(cwd: str | None = None) -> str:
     return '\n'.join(lines)
 
 
+def load_channel_prompt(channel: str) -> str:
+    """Load channel-specific prompt from the data root, falling back to defaults.
+
+    Looks for ``<data_root>/channels/<channel>.md`` first (user-editable),
+    then falls back to the bundled default at
+    ``src/marcel_core/defaults/channels/<channel>.md``.
+
+    Args:
+        channel: The channel name (e.g., 'telegram', 'cli').
+
+    Returns:
+        The channel prompt body text (frontmatter stripped).
+    """
+    from marcel_core.skills.loader import _parse_frontmatter
+
+    # 1. User-editable override in data root
+    try:
+        from marcel_core.config import settings
+
+        data_channel = settings.data_dir / 'channels' / f'{channel}.md'
+        if data_channel.exists():
+            _, body = _parse_frontmatter(data_channel.read_text(encoding='utf-8'))
+            return body
+    except Exception:
+        log.debug('Could not check data root channel prompt for %s', channel, exc_info=True)
+
+    # 2. Bundled default
+    default = _DEFAULTS_CHANNELS / f'{channel}.md'
+    if default.exists():
+        _, body = _parse_frontmatter(default.read_text(encoding='utf-8'))
+        return body
+
+    # 3. Generic fallback
+    return f'You are responding via the {channel} channel.'
+
+
 async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
     """Build dynamic system instructions with AI-selected memories.
 
@@ -125,7 +148,7 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
     """
     from marcel_core.agent.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
     from marcel_core.memory.selector import select_relevant_memories
-    from marcel_core.skills.loader import format_skills_for_prompt, load_skills
+    from marcel_core.skills.loader import format_skill_index, load_skills
     from marcel_core.storage import load_user_profile
 
     profile = load_user_profile(deps.user_slug)
@@ -133,8 +156,8 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
     # Load MARCEL.md instructions
     marcelmd = format_marcelmd_for_prompt(load_marcelmd_files(deps.user_slug))
 
-    # Load skill documentation
-    skills = format_skills_for_prompt(load_skills(deps.user_slug))
+    # Load skill index (compact — full docs loaded on demand via marcel tool)
+    skills = format_skill_index(load_skills(deps.user_slug))
 
     # Select relevant memories if we have a query
     memory_content = ''
@@ -149,11 +172,11 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
 
             logging.getLogger(__name__).warning('Memory selection failed: %s', exc)
 
-    format_hint = CHANNEL_FORMAT_HINTS.get(deps.channel, CHANNEL_FORMAT_HINTS['cli'])
+    channel_prompt = load_channel_prompt(deps.channel)
 
     lines: list[str] = []
 
-    # MARCEL.md instructions (identity, role, tone, tools, response modes)
+    # MARCEL.md instructions (identity, role, tone)
     if marcelmd:
         lines += [marcelmd, '']
 
@@ -167,17 +190,22 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
     if deps.role == 'admin':
         lines += [build_server_context(deps.cwd), '']
 
-    # Skill documentation
+    # Skill index (compact — use marcel(action="read_skill") for full docs)
     if skills:
-        lines += ['## Available Skills', '', skills, '']
+        lines += [
+            '## Skills',
+            'Before calling an integration for the first time, '
+            'use `marcel(action="read_skill", name="...")` to load its full documentation.',
+            '',
+            skills,
+            '',
+        ]
 
     if memory_content:
         lines += ['## Memory', memory_content, '']
 
-    lines += [
-        '## Channel',
-        f'You are responding via the {deps.channel} channel. {format_hint}',
-    ]
+    # Channel-specific delivery guidance
+    lines += ['## Channel', channel_prompt]
 
     return '\n'.join(lines)
 
@@ -198,7 +226,7 @@ def build_instructions(deps: MarcelDeps) -> str:
 
     profile = load_user_profile(deps.user_slug)
 
-    format_hint = CHANNEL_FORMAT_HINTS.get(deps.channel, CHANNEL_FORMAT_HINTS['cli'])
+    channel_prompt = load_channel_prompt(deps.channel)
 
     lines = [
         f'You are Marcel, a warm and capable personal assistant for {deps.user_slug}.',
@@ -211,9 +239,7 @@ def build_instructions(deps: MarcelDeps) -> str:
     if deps.role == 'admin':
         lines += [build_server_context(deps.cwd), '']
 
-    lines += [
-        '## Channel',
-        f'You are responding via the {deps.channel} channel. {format_hint}',
-    ]
+    # Channel-specific delivery guidance
+    lines += ['## Channel', channel_prompt]
 
     return '\n'.join(lines)

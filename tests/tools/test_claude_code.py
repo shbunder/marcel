@@ -113,7 +113,7 @@ async def test_normal_completion():
     with (
         patch('marcel_core.tools.claude_code._claude_binary', return_value='claude'),
         patch('asyncio.create_subprocess_exec', new=AsyncMock(return_value=proc)),
-        patch('marcel_core.tools.claude_code.notify', new=AsyncMock(return_value='ok')),
+        patch('marcel_core.tools.claude_code.send_notify', new=AsyncMock(return_value='ok')),
     ):
         result = await claude_code(_ctx(), 'Refactor foo.py')
 
@@ -135,7 +135,7 @@ async def test_ask_user_question_returns_paused():
     with (
         patch('marcel_core.tools.claude_code._claude_binary', return_value='claude'),
         patch('asyncio.create_subprocess_exec', new=AsyncMock(return_value=proc)),
-        patch('marcel_core.tools.claude_code.notify', new=AsyncMock(return_value='ok')),
+        patch('marcel_core.tools.claude_code.send_notify', new=AsyncMock(return_value='ok')),
     ):
         result = await claude_code(_ctx(), 'Do some work')
 
@@ -159,7 +159,7 @@ async def test_resume_passes_session_flag():
     with (
         patch('marcel_core.tools.claude_code._claude_binary', return_value='claude'),
         patch('asyncio.create_subprocess_exec', new=_fake_exec),
-        patch('marcel_core.tools.claude_code.notify', new=AsyncMock(return_value='ok')),
+        patch('marcel_core.tools.claude_code.send_notify', new=AsyncMock(return_value='ok')),
     ):
         result = await claude_code(_ctx(), 'the answer', resume_session='sess-abc')
 
@@ -194,7 +194,7 @@ async def test_timeout_kills_process():
     with (
         patch('marcel_core.tools.claude_code._claude_binary', return_value='claude'),
         patch('asyncio.create_subprocess_exec', new=AsyncMock(return_value=proc)),
-        patch('marcel_core.tools.claude_code.notify', new=AsyncMock(return_value='ok')),
+        patch('marcel_core.tools.claude_code.send_notify', new=AsyncMock(return_value='ok')),
     ):
         result = await claude_code(_ctx(), 'slow task', timeout=1)
 
@@ -230,7 +230,7 @@ async def test_nonzero_exit_logs_but_returns_result():
     with (
         patch('marcel_core.tools.claude_code._claude_binary', return_value='claude'),
         patch('asyncio.create_subprocess_exec', new=AsyncMock(return_value=proc)),
-        patch('marcel_core.tools.claude_code.notify', new=AsyncMock(return_value='ok')),
+        patch('marcel_core.tools.claude_code.send_notify', new=AsyncMock(return_value='ok')),
     ):
         result = await claude_code(_ctx(), 'failing task')
 
@@ -246,7 +246,7 @@ async def test_empty_output_fallback():
     with (
         patch('marcel_core.tools.claude_code._claude_binary', return_value='claude'),
         patch('asyncio.create_subprocess_exec', new=AsyncMock(return_value=proc)),
-        patch('marcel_core.tools.claude_code.notify', new=AsyncMock(return_value='ok')),
+        patch('marcel_core.tools.claude_code.send_notify', new=AsyncMock(return_value='ok')),
     ):
         result = await claude_code(_ctx(), 'empty task')
 
@@ -270,7 +270,7 @@ async def test_notify_called_for_text_blocks():
     with (
         patch('marcel_core.tools.claude_code._claude_binary', return_value='claude'),
         patch('asyncio.create_subprocess_exec', new=AsyncMock(return_value=proc)),
-        patch('marcel_core.tools.claude_code.notify', mock_notify),
+        patch('marcel_core.tools.claude_code.send_notify', mock_notify),
     ):
         await claude_code(_ctx(), 'long task')
 

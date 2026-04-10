@@ -125,7 +125,7 @@ async def summarize_active_segment(
     This is the main summarization entry point. Used by:
     - summarize_if_idle (trigger='idle')
     - /forget command (trigger='manual')
-    - compact_now tool (trigger='manual')
+    - marcel(action="compact") tool (trigger='manual')
 
     Returns True if summarization succeeded.
     """

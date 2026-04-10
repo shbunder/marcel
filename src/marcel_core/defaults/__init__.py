@@ -45,3 +45,18 @@ def seed_defaults(data_root: Path) -> None:
             continue  # Don't overwrite existing skill customizations
         shutil.copytree(skill_dir, target_skill)
         log.info('Seeded skill %s from defaults', skill_dir.name)
+
+    # Seed channel prompt files
+    src_channels = _DEFAULTS_DIR / 'channels'
+    if not src_channels.is_dir():
+        return
+
+    target_channels = data_root / 'channels'
+    target_channels.mkdir(parents=True, exist_ok=True)
+
+    for channel_file in sorted(src_channels.glob('*.md')):
+        target_file = target_channels / channel_file.name
+        if target_file.exists():
+            continue  # Don't overwrite existing channel customizations
+        shutil.copy2(channel_file, target_file)
+        log.info('Seeded channel prompt %s from defaults', channel_file.name)

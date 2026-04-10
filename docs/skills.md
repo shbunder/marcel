@@ -1,10 +1,9 @@
 # Skills & Integrations
 
-Marcel has three MCP tools available to the agent:
+Marcel has two primary tools available to the agent:
 
 1. **`integration`** — call registered integrations (iCloud, HTTP APIs, shell commands)
-2. **`memory_search`** — search existing memories by keyword
-3. **`notify`** — send progress updates to the user mid-task
+2. **`marcel`** — internal utilities: `read_skill`, `search_memory`, `search_conversations`, `compact`, `notify`
 
 Integrations can be defined as:
 
@@ -215,35 +214,37 @@ Only `jq:` expressions are supported (requires the `jq` Python package). If jq i
 **On success**: returns the response as plain text.
 **On error**: returns an error message with `is_error: true`.
 
-## The memory_search tool contract
+## The marcel tool contract
 
-Searches the user's memory files by keyword. Use this when pre-loaded memory
-context isn't enough and the agent needs to find specific information
-mid-conversation.
+The `marcel` tool provides internal utilities via action-based dispatch.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `query` | string | yes | Search query — matches filenames, frontmatter fields, and body content |
-| `type` | string | no | Filter by memory type: `schedule`, `preference`, `person`, `reference`, `household` |
-| `max_results` | string | no | Maximum results to return (default: `"10"`) |
+| `action` | string | yes | One of: `read_skill`, `search_memory`, `search_conversations`, `compact`, `notify` |
+| `name` | string | for `read_skill` | Skill name to load full documentation for |
+| `query` | string | for `search_*` | Search query — matches filenames, frontmatter fields, and body content |
+| `message` | string | for `notify` | Short plain-text progress update |
+| `type_filter` | string | no | Filter by memory type (for `search_memory`) |
+| `max_results` | int | no | Maximum results (default: 10 for memory, 5 for conversations) |
 
-**On success**: returns matching memories formatted as markdown, with type
-tags, filenames, and content snippets.
-**On no results**: returns `No memories found matching "..."`.
-**On error**: returns an error message with `is_error: true`.
+### read_skill
 
-Results are ranked: metadata matches (filename, name, description) first,
-then body content matches, both sorted by recency.
+Loads the full SKILL.md documentation for a skill. The system prompt only contains a compact index (name + description per skill); use this action to get full docs before calling an unfamiliar integration.
 
-## The notify tool contract
+### search_memory
 
-Sends a short progress update to the user. On the Telegram channel, this
-sends a real-time message to the user's chat. On other channels, it's a
-no-op that returns `"ok"`.
+Searches the user's memory files by keyword. Results are ranked: metadata matches first, then body content, sorted by recency.
 
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `message` | string | yes | Short plain-text progress update |
+### search_conversations
 
-The agent should call `notify` at the start of any multi-step task and after
-each major step, so the user always knows what's happening.
+Searches past conversation segments by keyword. Returns matching messages with surrounding context.
+
+### compact
+
+Compresses the current conversation segment into a summary and opens a fresh segment.
+
+### notify
+
+Sends a short progress update to the user. On Telegram, this sends a real-time message. On other channels, it returns `"ok"` (the user sees streaming output).
+
+The agent should call `notify` at the start of any multi-step task and after each major step.

@@ -218,6 +218,10 @@ def format_skills_for_prompt(skills: list[SkillDoc]) -> str:
     Each skill becomes a section with its name and content.  Setup docs
     are clearly marked so the agent knows to guide setup rather than
     attempt to use the integration.
+
+    .. deprecated::
+        Use :func:`format_skill_index` for the system prompt and
+        :func:`get_skill_content` for on-demand loading.
     """
     if not skills:
         return ''
@@ -230,3 +234,35 @@ def format_skills_for_prompt(skills: list[SkillDoc]) -> str:
             sections.append(f'### {skill.name}\n\n{skill.content}')
 
     return '\n\n---\n\n'.join(sections)
+
+
+def format_skill_index(skills: list[SkillDoc]) -> str:
+    """Format a compact one-line-per-skill index for the system prompt.
+
+    Only names and descriptions are included — full docs are loaded
+    on-demand via ``marcel(action="read_skill", name="...")``.
+    """
+    if not skills:
+        return ''
+
+    lines: list[str] = []
+    for skill in skills:
+        status = ' (not configured)' if skill.is_setup else ''
+        lines.append(f'- **{skill.name}**{status} — {skill.description}')
+    return '\n'.join(lines)
+
+
+def get_skill_content(skill_name: str, user_slug: str) -> str | None:
+    """Load the full content of a single skill by name.
+
+    Used by the ``marcel`` tool's ``read_skill`` action to serve skill
+    docs on demand.
+
+    Returns:
+        The skill's full markdown body, or None if not found.
+    """
+    skills = load_skills(user_slug)
+    for s in skills:
+        if s.name == skill_name:
+            return s.content
+    return None

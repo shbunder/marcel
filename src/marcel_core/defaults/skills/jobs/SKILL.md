@@ -65,10 +65,10 @@ create_job(
 ```
 create_job(
     name="Good morning digest",
-    task="Compose a good morning message. Include: 1) Today's calendar events (use icloud.calendar), 2) Important reminders. Be warm and concise. Send via notify.",
+    task="Compose a good morning message. Include: 1) Today's calendar events (use icloud.calendar), 2) Important reminders. Be warm and concise. Send via marcel(action='notify').",
     trigger_type="cron",
     cron="0 7 * * *",
-    system_prompt="You are Marcel's morning digest composer. Gather information and compose a single, well-formatted morning message. Use the notify tool to send it.",
+    system_prompt="You are Marcel's morning digest composer. Gather information and compose a single, well-formatted morning message. Use marcel(action='notify', message='...') to send it.",
     template="digest",
     model="claude-sonnet-4-6",
     notify="always",

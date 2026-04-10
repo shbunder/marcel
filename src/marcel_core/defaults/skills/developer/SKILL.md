@@ -31,7 +31,7 @@ claude_code(task="<user's answer>", resume_session="<session_id>")
 | `timeout`        | Max seconds to wait (default 600)                              |
 | `resume_session` | Session ID from a prior `PAUSED:` return — resumes that session |
 
-Claude Code streams progress as it works. You will see intermediate output via `notify` as the task runs.
+Claude Code streams progress as it works. You will see intermediate output via `marcel(action="notify")` as the task runs.
 
 ## Handling questions mid-task (PAUSED: protocol)
 

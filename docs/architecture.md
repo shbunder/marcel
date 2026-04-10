@@ -23,7 +23,7 @@ src/marcel_core/
     memory_extract.py # Agent-based memory extraction (Haiku + claude_code tools)
   storage/         # Flat-file read/write helpers (typed memory with frontmatter)
   skills/
-    tool.py        # integration + memory_search + notify MCP tools
+    tool.py        # integration dispatcher (external service calls)
     registry.py    # Merges skills.json with auto-discovered python integrations
     executor.py    # Routes to shell/http/python handlers
     skills.json    # Shell and HTTP skill configs
@@ -102,7 +102,7 @@ Runs after every turn without blocking the response. Launches a lightweight agen
 
 ### Memory system
 
-Memory files use YAML frontmatter with typed metadata (`schedule`, `preference`, `person`, `reference`, `household`). At conversation start, a Haiku side-query selects the most relevant memories from a manifest of headers (up to 8 for large sets; all for small sets). The `memory_search` MCP tool enables mid-conversation keyword search. Schedule memories auto-expire past their date. The `_household` pseudo-user holds shared family memories included in all users' context.
+Memory files use YAML frontmatter with typed metadata (`schedule`, `preference`, `person`, `reference`, `household`). At conversation start, a Haiku side-query selects the most relevant memories from a manifest of headers (up to 8 for large sets; all for small sets). The unified `marcel` tool provides `search_memory` and `search_conversations` actions for mid-conversation keyword search. Schedule memories auto-expire past their date. The `_household` pseudo-user holds shared family memories included in all users' context.
 
 ## Running locally
 

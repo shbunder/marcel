@@ -17,6 +17,7 @@ from marcel_core.tools import (
     claude_code as claude_code_tool,
     core as core_tools,
     integration as integration_tools,
+    marcel as marcel_tools,
 )
 from marcel_core.tools.browser import is_available as browser_is_available
 from marcel_core.tracing import get_instrumentation_settings
@@ -106,8 +107,8 @@ def create_marcel_agent(
     """Create a configured Marcel agent with a role-appropriate tool set.
 
     Admin users receive the full suite of power tools (bash, file I/O, git, claude_code).
-    Regular users receive only integration, memory_search, and notify — enough for a
-    household assistant without exposing arbitrary shell access.
+    Regular users receive only integration and the unified marcel utils tool — enough
+    for a household assistant without exposing arbitrary shell access.
 
     Args:
         model: The model name (e.g., 'claude-sonnet-4-6', 'gpt-4o').
@@ -130,7 +131,7 @@ def create_marcel_agent(
     agent: Agent[MarcelDeps, str] = Agent(
         resolved_model,
         deps_type=MarcelDeps,
-        system_prompt=system_prompt,
+        instructions=system_prompt,
         retries=2,
         end_strategy='exhaustive',
         instrument=get_instrumentation_settings(),
@@ -177,12 +178,9 @@ def create_marcel_agent(
     # Chart/image generation — available to all users
     agent.tool(chart_tools.generate_chart)
 
-    # All users get integration dispatch, memory tools, and notifications
+    # All users get integration dispatch and the unified marcel utils tool
     agent.tool(integration_tools.integration)
-    agent.tool(integration_tools.memory_search)
-    agent.tool(integration_tools.conversation_search)
-    agent.tool(integration_tools.compact_now)
-    agent.tool(integration_tools.notify)
+    agent.tool(marcel_tools.marcel)
 
     # Job management tools
     agent.tool(job_tools.create_job)

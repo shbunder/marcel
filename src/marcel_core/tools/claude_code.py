@@ -28,7 +28,7 @@ from pathlib import Path
 from pydantic_ai import RunContext
 
 from marcel_core.harness.context import MarcelDeps
-from marcel_core.tools.integration import notify
+from marcel_core.tools.marcel import send_notify
 
 log = logging.getLogger(__name__)
 
@@ -136,7 +136,7 @@ async def claude_code(
         if notify_buf:
             text = ''.join(notify_buf).strip()
             if text:
-                await notify(ctx, text[:500])
+                await send_notify(ctx, text[:500])
             notify_buf = []
             notify_len = 0
 

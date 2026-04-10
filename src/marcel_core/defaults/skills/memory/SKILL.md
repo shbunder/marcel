@@ -6,28 +6,28 @@ requires: {}
 
 # Memory Management
 
-Marcel has three memory tools that work together to give you both short-term conversational recall and long-term fact memory.
+Marcel has memory actions via the `marcel` tool that work together to give you both short-term conversational recall and long-term fact memory.
 
-## Tools
+## Actions
 
-### memory_search(query)
+### marcel(action="search_memory", query="...")
 Search extracted facts (preferences, contacts, decisions, schedules).
 **Use when:** the user asks "what's my...", "do you remember my...", or any factual recall.
 
-### conversation_search(query)
+### marcel(action="search_conversations", query="...")
 Search past conversation segments by keyword. Returns matching messages with surrounding context from older (summarized) conversation segments.
 **Use when:** the user asks "remember when we talked about...", "what did you say about...", or when you need context from a past discussion that isn't in your current context window.
 
-### compact_now()
+### marcel(action="compact")
 Manually compress the current conversation segment into a summary. Opens a fresh segment.
 **Use when:** the topic has shifted significantly, the user asks to "clean up" or "compress", or the context feels cluttered.
 
 ## Patterns
 
-- When the user references something from the past, try `memory_search` first (fast, factual). If that misses, fall back to `conversation_search` (broader, contextual).
+- When the user references something from the past, try `search_memory` first (fast, factual). If that misses, fall back to `search_conversations` (broader, contextual).
 - Don't search proactively — only when the user's question requires historical context that isn't already in your conversation summary.
 - After compaction, briefly mention what key points were preserved so the user knows what you'll remember.
-- The `/forget` command (Telegram) triggers the same compaction as `compact_now`.
+- The `/forget` command (Telegram) triggers the same compaction as `marcel(action="compact")`.
 
 ## How memory works
 

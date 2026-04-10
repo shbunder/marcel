@@ -254,7 +254,7 @@ Memory files use YAML frontmatter with typed metadata (`schedule`, `preference`,
 7. Append both turns to conversation file as audit log (not loaded into context)
 8. Schedule-type memories auto-pruned past their `expires` date; index capped at 200 lines
 
-The `memory_search` MCP tool enables mid-conversation keyword search when pre-loaded context isn't enough.
+The `marcel(action="search_memory")` tool action enables mid-conversation keyword search when pre-loaded context isn't enough.
 
 Concurrent writes from two channels for the same user: write-then-rename for atomic file updates + per-user asyncio lock in the server process.
 

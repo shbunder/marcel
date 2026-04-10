@@ -47,7 +47,7 @@ log = logging.getLogger(__name__)
 _TOOL_RESULT_PREVIEW_LEN = 200
 
 # Tools whose results should always be kept in full (regardless of age)
-_ALWAYS_KEEP_TOOLS = frozenset({'memory_search', 'notify', 'conversation_search'})
+_ALWAYS_KEEP_TOOLS = frozenset({'marcel'})
 
 # Aggressive tool lifecycle: only current turn (0) and previous turn (1).
 _FULL_RESULT_TURNS = 1  # turn 0 = current

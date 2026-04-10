@@ -336,17 +336,13 @@ class TestToolResultForContext:
 
     def test_always_keep_tools(self):
         content = 'x' * 5000
-        result = _tool_result_for_context(content, 'memory_search', 20)
+        result = _tool_result_for_context(content, 'marcel', 20)
         assert result == content  # kept in full regardless of age
 
-    def test_notify_always_kept(self):
-        result = _tool_result_for_context('sent notification', 'notify', 20)
-        assert result == 'sent notification'
-
-    def test_conversation_search_always_kept(self):
-        content = 'x' * 5000
-        result = _tool_result_for_context(content, 'conversation_search', 20)
-        assert result == content  # kept in full regardless of age
+    def test_marcel_tool_always_kept_long(self):
+        """Marcel tool results (search_memory, read_skill, etc.) are kept in full."""
+        result = _tool_result_for_context('search results here', 'marcel', 20)
+        assert result == 'search results here'
 
 
 class TestExtractToolHistory:

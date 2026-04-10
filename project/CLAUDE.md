@@ -151,7 +151,7 @@ New integrations follow this pattern:
 
 Skills live at `<data_root>/skills/` (`~/.marcel/skills/`). Default skills are bundled in `src/marcel_core/defaults/skills/` and seeded on first startup if not already present. The loader in `skills/loader.py` reads from the data root and injects docs into the system prompt.
 
-All integrations are dispatched through the `integration` tool. The agent also has access to `memory_search`, `conversation_search`, `notify` (progress updates), and `generate_chart` (visualization).
+All integrations are dispatched through the `integration` tool. Internal utilities (memory search, conversation search, skill docs, notifications, compaction) are consolidated in the `marcel` tool. External capabilities like `generate_chart` and `browser_*` remain separate tools.
 
 Integrations must be self-contained — they should not require changes to core Marcel code (tool.py, executor.py, runner.py). When adding an integration, verify the pattern works end-to-end before committing.
 
@@ -165,7 +165,7 @@ When a user requests a code change or feature **via Telegram**, the following ru
    - The exact `git log --oneline -1` output (commit hash + message)
    - A brief summary of the Implementation Log from the issue file (what changed and why)
 
-   Use the `notify` tool or the Telegram bot directly to deliver this. The user should not need to check git to know what happened.
+   Use `marcel(action="notify", message="...")` or the Telegram bot directly to deliver this. The user should not need to check git to know what happened.
 
 This rule exists so that all work is traceable, the project history is readable, and the user always knows what changed in response to their request.
 
