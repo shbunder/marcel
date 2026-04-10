@@ -2,7 +2,12 @@ FROM python:3.12-slim
 
 # System dependencies + Docker CLI (to manage sibling containers via mounted socket)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends git curl gnupg libglib2.0-0 && \
+    apt-get install -y --no-install-recommends git curl gnupg \
+        # Chromium/Playwright runtime dependencies
+        libglib2.0-0 libnspr4 libnss3 libatk1.0-0 libatk-bridge2.0-0 \
+        libcups2 libxdamage1 libxkbcommon0 libpango-1.0-0 libcairo2 \
+        libasound2 libdrm2 libgbm1 libxrandr2 libxcomposite1 libxfixes3 \
+        libdbus-1-3 libexpat1 libxext6 && \
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list && \
     apt-get update && \
