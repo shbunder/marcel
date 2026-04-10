@@ -165,6 +165,27 @@ app.include_router(telegram_router)
 # Serve the built web frontend (SPA) if it exists
 _WEB_DIST = Path(__file__).resolve().parent.parent / 'web' / 'dist'
 _API_PREFIXES = ('ws', 'health', 'conversations', 'telegram', 'api')
+# File extensions that are never valid SPA routes — reject with 404 to avoid
+# making the server look interesting to automated vulnerability scanners.
+_PROBE_EXTENSIONS = frozenset(
+    (
+        '.php',
+        '.asp',
+        '.aspx',
+        '.jsp',
+        '.cgi',
+        '.env',
+        '.xml',
+        '.sql',
+        '.bak',
+        '.old',
+        '.orig',
+        '.swp',
+        '.config',
+        '.ini',
+        '.log',
+    )
+)
 
 if _WEB_DIST.is_dir():
     _assets_dir = _WEB_DIST / 'assets'
@@ -178,4 +199,11 @@ if _WEB_DIST.is_dir():
             from fastapi import HTTPException
 
             raise HTTPException(status_code=404)
+        # Reject paths with file extensions commonly targeted by scanners
+        if path:
+            dot = path.rfind('.')
+            if dot != -1 and path[dot:].lower() in _PROBE_EXTENSIONS:
+                from fastapi import HTTPException
+
+                raise HTTPException(status_code=404)
         return FileResponse(str(_WEB_DIST / 'index.html'))
