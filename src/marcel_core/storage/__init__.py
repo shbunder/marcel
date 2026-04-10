@@ -23,6 +23,7 @@ Concurrency helpers:
 from ._locks import get_lock
 from .conversations import (
     append_turn,
+    conv_dir,
     load_conversation,
     load_conversation_index,
     new_conversation,
@@ -53,6 +54,7 @@ __all__ = [
     'load_user_profile',
     'save_user_profile',
     # conversations
+    'conv_dir',
     'new_conversation',
     'append_turn',
     'load_conversation',

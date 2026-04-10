@@ -7,16 +7,16 @@ from ._atomic import atomic_write
 from ._root import data_root
 
 
-def _conv_dir(slug: str) -> pathlib.Path:
+def conv_dir(slug: str) -> pathlib.Path:
     return data_root() / 'users' / slug / 'conversations'
 
 
 def _conv_path(slug: str, filename: str) -> pathlib.Path:
-    return _conv_dir(slug) / f'{filename}.md'
+    return conv_dir(slug) / f'{filename}.md'
 
 
 def _index_path(slug: str) -> pathlib.Path:
-    return _conv_dir(slug) / 'index.md'
+    return conv_dir(slug) / 'index.md'
 
 
 def new_conversation(slug: str, channel: str) -> str:

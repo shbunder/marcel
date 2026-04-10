@@ -18,6 +18,7 @@ class TestRegistry:
         # Point registry at an empty JSON file — python integrations still show up
         import marcel_core.skills.registry as reg
 
+        reg.reload()
         empty = tmp_path / 'skills.json'
         empty.write_text('{}')
         monkeypatch.setattr(reg, '_SKILLS_JSON', empty)
@@ -29,6 +30,7 @@ class TestRegistry:
     def test_list_skills_returns_json_and_python_names(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
 
+        reg.reload()
         f = tmp_path / 'skills.json'
         f.write_text(json.dumps({'a.b': {}, 'c.d': {}}))
         monkeypatch.setattr(reg, '_SKILLS_JSON', f)
@@ -39,6 +41,7 @@ class TestRegistry:
     def test_get_skill_returns_config(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
 
+        reg.reload()
         cfg = {'url': 'https://example.com', 'method': 'GET'}
         f = tmp_path / 'skills.json'
         f.write_text(json.dumps({'test.skill': cfg}))
@@ -48,6 +51,7 @@ class TestRegistry:
     def test_get_skill_unknown_raises_key_error(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
 
+        reg.reload()
         f = tmp_path / 'skills.json'
         f.write_text('{}')
         monkeypatch.setattr(reg, '_SKILLS_JSON', f)
@@ -57,6 +61,7 @@ class TestRegistry:
     def test_get_skill_suggests_available(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
 
+        reg.reload()
         f = tmp_path / 'skills.json'
         f.write_text(json.dumps({'a.b': {}}))
         monkeypatch.setattr(reg, '_SKILLS_JSON', f)
@@ -326,6 +331,7 @@ class TestRegistryMerge:
     def test_list_skills_includes_python_integrations(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
 
+        reg.reload()
         f = tmp_path / 'skills.json'
         f.write_text(json.dumps({'shell.test': {'type': 'shell', 'command': 'echo hi'}}))
         monkeypatch.setattr(reg, '_SKILLS_JSON', f)
@@ -338,6 +344,7 @@ class TestRegistryMerge:
     def test_get_skill_returns_python_config(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
 
+        reg.reload()
         f = tmp_path / 'skills.json'
         f.write_text('{}')
         monkeypatch.setattr(reg, '_SKILLS_JSON', f)

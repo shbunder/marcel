@@ -1,13 +1,18 @@
-"""Tests for agent/memory_select.py — legacy SDK-based memory selector."""
+"""Tests for memory/selector.py — AI-driven memory selection.
+
+Note: agent/memory_select.py re-exports from memory/selector.py.
+These tests target the canonical implementation directly.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from marcel_core.agent.memory_select import (
+from marcel_core.memory.selector import (
+    MAX_SELECTED,
     SELECTION_THRESHOLD,
     _parse_selection,
     _select_via_model,
@@ -73,17 +78,15 @@ class TestSelectViaModel:
     async def test_returns_selected_headers(self):
         headers = [_make_header('u', 'a.md'), _make_header('u', 'b.md')]
 
-        from claude_agent_sdk import AssistantMessage, TextBlock
+        # Mock pydantic-ai Agent.run() to return a selection
+        mock_result = AsyncMock()
+        mock_result.output = '["a.md"]'
 
-        mock_msg = MagicMock(spec=AssistantMessage)
-        mock_block = MagicMock(spec=TextBlock)
-        mock_block.text = '["a.md"]'
-        mock_msg.content = [mock_block]
+        with patch('marcel_core.memory.selector.Agent') as MockAgent:
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.run = AsyncMock(return_value=mock_result)
+            MockAgent.return_value = mock_agent_instance
 
-        async def fake_query(*args, **kwargs):
-            yield mock_msg
-
-        with patch('claude_agent_sdk.query', fake_query):
             result = await _select_via_model('find a', headers)
 
         assert len(result) == 1
@@ -93,11 +96,11 @@ class TestSelectViaModel:
     async def test_fallback_on_exception(self):
         headers = [_make_header('u', f'{i}.md') for i in range(5)]
 
-        async def fail_query(*args, **kwargs):
-            raise RuntimeError('SDK down')
-            yield
+        with patch('marcel_core.memory.selector.Agent') as MockAgent:
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.run = AsyncMock(side_effect=RuntimeError('Model down'))
+            MockAgent.return_value = mock_agent_instance
 
-        with patch('claude_agent_sdk.query', fail_query):
             result = await _select_via_model('query', headers)
 
         # Falls back to first MAX_SELECTED headers
@@ -105,24 +108,19 @@ class TestSelectViaModel:
 
     @pytest.mark.asyncio
     async def test_limits_to_max_selected(self):
-        from claude_agent_sdk import AssistantMessage, TextBlock
-
-        from marcel_core.agent.memory_select import MAX_SELECTED
+        import json
 
         headers = [_make_header('u', f'{i}.md') for i in range(20)]
         filenames = [f'{i}.md' for i in range(20)]
 
-        mock_msg = MagicMock(spec=AssistantMessage)
-        mock_block = MagicMock(spec=TextBlock)
-        import json
+        mock_result = AsyncMock()
+        mock_result.output = json.dumps(filenames)
 
-        mock_block.text = json.dumps(filenames)
-        mock_msg.content = [mock_block]
+        with patch('marcel_core.memory.selector.Agent') as MockAgent:
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.run = AsyncMock(return_value=mock_result)
+            MockAgent.return_value = mock_agent_instance
 
-        async def fake_query(*args, **kwargs):
-            yield mock_msg
-
-        with patch('claude_agent_sdk.query', fake_query):
             result = await _select_via_model('query', headers)
 
         assert len(result) <= MAX_SELECTED
@@ -136,7 +134,7 @@ class TestSelectViaModel:
 class TestSelectRelevantMemories:
     @pytest.mark.asyncio
     async def test_empty_headers_returns_empty(self):
-        with patch('marcel_core.agent.memory_select.scan_memory_headers', return_value=[]):
+        with patch('marcel_core.memory.selector.scan_memory_headers', return_value=[]):
             result = await select_relevant_memories('user', 'anything')
         assert result == []
 
@@ -144,9 +142,9 @@ class TestSelectRelevantMemories:
     async def test_small_set_loads_all_without_model(self):
         headers = [_make_header('u', f'{i}.md') for i in range(3)]
 
-        with patch('marcel_core.agent.memory_select.scan_memory_headers', return_value=headers):
-            with patch('marcel_core.agent.memory_select.load_memory_file', return_value='content'):
-                with patch('marcel_core.agent.memory_select._select_via_model') as mock_select:
+        with patch('marcel_core.memory.selector.scan_memory_headers', return_value=headers):
+            with patch('marcel_core.memory.selector.load_memory_file', return_value='content'):
+                with patch('marcel_core.memory.selector._select_via_model') as mock_select:
                     result = await select_relevant_memories('u', 'query', include_household=False)
 
         mock_select.assert_not_called()
@@ -156,10 +154,10 @@ class TestSelectRelevantMemories:
     async def test_large_set_uses_model(self):
         headers = [_make_header('u', f'{i}.md') for i in range(SELECTION_THRESHOLD + 2)]
 
-        with patch('marcel_core.agent.memory_select.scan_memory_headers', return_value=headers):
-            with patch('marcel_core.agent.memory_select.load_memory_file', return_value='content'):
+        with patch('marcel_core.memory.selector.scan_memory_headers', return_value=headers):
+            with patch('marcel_core.memory.selector.load_memory_file', return_value='content'):
                 with patch(
-                    'marcel_core.agent.memory_select._select_via_model', AsyncMock(return_value=headers[:2])
+                    'marcel_core.memory.selector._select_via_model', AsyncMock(return_value=headers[:2])
                 ) as mock_select:
                     result = await select_relevant_memories('u', 'query', include_household=False)
 
@@ -170,9 +168,9 @@ class TestSelectRelevantMemories:
     async def test_freshness_note_appended_when_set(self):
         headers = [_make_header('u', 'old.md', mtime=1.0)]
 
-        with patch('marcel_core.agent.memory_select.scan_memory_headers', return_value=headers):
-            with patch('marcel_core.agent.memory_select.load_memory_file', return_value='content'):
-                with patch('marcel_core.agent.memory_select.memory_freshness_note', return_value='(old)'):
+        with patch('marcel_core.memory.selector.scan_memory_headers', return_value=headers):
+            with patch('marcel_core.memory.selector.load_memory_file', return_value='content'):
+                with patch('marcel_core.memory.selector.memory_freshness_note', return_value='(old)'):
                     result = await select_relevant_memories('u', 'q', include_household=False)
 
         assert len(result) == 1
@@ -183,8 +181,8 @@ class TestSelectRelevantMemories:
     async def test_empty_content_skipped(self):
         headers = [_make_header('u', 'empty.md')]
 
-        with patch('marcel_core.agent.memory_select.scan_memory_headers', return_value=headers):
-            with patch('marcel_core.agent.memory_select.load_memory_file', return_value='   '):
+        with patch('marcel_core.memory.selector.scan_memory_headers', return_value=headers):
+            with patch('marcel_core.memory.selector.load_memory_file', return_value='   '):
                 result = await select_relevant_memories('u', 'q', include_household=False)
 
         assert result == []
@@ -197,8 +195,8 @@ class TestSelectRelevantMemories:
         def fake_scan(slug):
             return household_headers if slug == '_household' else user_headers
 
-        with patch('marcel_core.agent.memory_select.scan_memory_headers', side_effect=fake_scan):
-            with patch('marcel_core.agent.memory_select.load_memory_file', return_value='content'):
+        with patch('marcel_core.memory.selector.scan_memory_headers', side_effect=fake_scan):
+            with patch('marcel_core.memory.selector.load_memory_file', return_value='content'):
                 result = await select_relevant_memories('u', 'q', include_household=True)
 
         assert len(result) == 2

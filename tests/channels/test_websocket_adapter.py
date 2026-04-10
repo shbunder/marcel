@@ -159,6 +159,12 @@ def test_channel_adapter_format_text_default():
         async def send_text_delta(self, text):
             pass
 
+        async def send_text_message_start(self):
+            pass
+
+        async def send_text_message_end(self):
+            pass
+
         async def send_tool_call_started(self, tool_call_id, tool_name):
             pass
 
@@ -166,6 +172,9 @@ def test_channel_adapter_format_text_default():
             pass
 
         async def send_run_finished(self, cost_usd, is_error):
+            pass
+
+        async def send_error(self, message):
             pass
 
     adapter = MinimalAdapter()

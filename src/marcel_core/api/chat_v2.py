@@ -15,15 +15,12 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from marcel_core import storage
 from marcel_core.agent import extract_and_save_memories
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
+from marcel_core.channels.adapter import dispatch_event
 from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug
 from marcel_core.channels.websocket import WebSocketAdapter
 from marcel_core.config import settings
 from marcel_core.harness.runner import (
-    RunFinished,
-    RunStarted,
     TextDelta,
-    ToolCallCompleted,
-    ToolCallStarted,
     stream_turn,
 )
 from marcel_core.memory.compactor import check_and_compact
@@ -102,35 +99,13 @@ async def chat_v2(websocket: WebSocket) -> None:
 
             # Stream the agent response using new harness
             response_parts: list[str] = []
-            run_finished: RunFinished | None = None
             text_started = False
 
             try:
-                await adapter.send_text_message_start()
-                text_started = True
-
                 async for event in stream_turn(user_slug, channel, user_text, conversation_id, model=model, cwd=cwd):
-                    if isinstance(event, RunStarted):
-                        # Turn started (already sent conversation_started if needed)
-                        pass
-                    elif isinstance(event, TextDelta):
+                    if isinstance(event, TextDelta):
                         response_parts.append(event.text)
-                        await adapter.send_text_delta(event.text)
-                    elif isinstance(event, ToolCallStarted):
-                        # Close text message block if open
-                        if text_started:
-                            await adapter.send_text_message_end()
-                            text_started = False
-                        await adapter.send_tool_call_started(event.tool_call_id, event.tool_name)
-                    elif isinstance(event, ToolCallCompleted):
-                        await adapter.send_tool_call_completed(
-                            event.tool_call_id, event.tool_name, event.result, event.is_error
-                        )
-                    elif isinstance(event, RunFinished):
-                        run_finished = event
-
-                if text_started:
-                    await adapter.send_text_message_end()
+                    text_started = await dispatch_event(adapter, event, text_started=text_started)
 
             except Exception as exc:
                 log.exception('[chat_v2] Turn execution failed: %s', type(exc).__name__)
@@ -153,11 +128,6 @@ async def chat_v2(websocket: WebSocket) -> None:
 
             # Fire-and-forget memory extraction
             asyncio.create_task(extract_and_save_memories(user_slug, user_text, full_response, conversation_id))
-
-            # Send done message
-            cost = run_finished.total_cost_usd if run_finished else None
-            is_error = run_finished.is_error if run_finished else False
-            await adapter.send_run_finished(cost, is_error)
 
     except WebSocketDisconnect:
         log.info('[chat_v2] WebSocket disconnected')

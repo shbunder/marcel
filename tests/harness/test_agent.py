@@ -9,7 +9,7 @@ from marcel_core.harness.agent import (
     ANTHROPIC_MODELS,
     DEFAULT_MODEL,
     OPENAI_MODELS,
-    _create_anthropic_model,
+    _resolve_model_string,
     all_models,
     create_marcel_agent,
 )
@@ -28,24 +28,24 @@ class TestAllModels:
             assert key in result
 
 
-class TestCreateAnthropicModel:
+class TestResolveModelString:
     def test_uses_bedrock_when_aws_region_set(self, monkeypatch):
         monkeypatch.setattr(settings, 'aws_region', 'eu-west-1')
-        result = _create_anthropic_model('claude-sonnet-4-6')
+        result = _resolve_model_string('claude-sonnet-4-6')
         assert result.startswith('bedrock:')
 
     def test_uses_anthropic_api_key_when_set(self, monkeypatch):
         monkeypatch.setattr(settings, 'aws_region', None)
         monkeypatch.setattr(settings, 'anthropic_api_key', 'sk-ant-test')
         monkeypatch.setattr(settings, 'openai_api_key', None)
-        result = _create_anthropic_model('claude-sonnet-4-6')
+        result = _resolve_model_string('claude-sonnet-4-6')
         assert result == 'anthropic:claude-sonnet-4-6'
 
     def test_uses_openai_for_openai_model(self, monkeypatch):
         monkeypatch.setattr(settings, 'aws_region', None)
         monkeypatch.setattr(settings, 'anthropic_api_key', None)
         monkeypatch.setattr(settings, 'openai_api_key', 'sk-oai-test')
-        result = _create_anthropic_model('gpt-4o')
+        result = _resolve_model_string('gpt-4o')
         assert result == 'openai:gpt-4o'
 
     def test_raises_when_no_api_key(self, monkeypatch):
@@ -53,14 +53,14 @@ class TestCreateAnthropicModel:
         monkeypatch.setattr(settings, 'anthropic_api_key', None)
         monkeypatch.setattr(settings, 'openai_api_key', None)
         with pytest.raises(RuntimeError, match='No API key'):
-            _create_anthropic_model('claude-sonnet-4-6')
+            _resolve_model_string('claude-sonnet-4-6')
 
     def test_openai_fallback_when_openai_key_only(self, monkeypatch):
         monkeypatch.setattr(settings, 'aws_region', None)
         monkeypatch.setattr(settings, 'anthropic_api_key', None)
         monkeypatch.setattr(settings, 'openai_api_key', 'sk-oai-test')
         # Anthropic model with only openai key → falls through to openai fallback
-        result = _create_anthropic_model('claude-sonnet-4-6')
+        result = _resolve_model_string('claude-sonnet-4-6')
         assert result.startswith('openai:')
 
 

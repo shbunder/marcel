@@ -10,6 +10,7 @@ can use the ``memory_search`` tool for older/less-relevant memories).
 """
 
 from marcel_core.agent.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
+from marcel_core.harness.context import CHANNEL_FORMAT_HINTS
 from marcel_core.skills.loader import format_skills_for_prompt, load_skills
 from marcel_core.storage.memory import (
     load_memory_file,
@@ -20,19 +21,6 @@ from marcel_core.storage.memory import (
 # Maximum memory files to include in the system prompt.
 # Beyond this, the agent should use the memory_search tool.
 _MAX_MEMORY_FILES = 15
-
-_CHANNEL_FORMAT: dict[str, str] = {
-    'cli': 'Use rich markdown: headers, bold, code blocks, and bullet lists freely.',
-    'app': 'Use full markdown. You may include structured data for card rendering.',
-    'ios': 'Use markdown. Keep responses concise for mobile screens.',
-    'telegram': (
-        'Use standard markdown (bold, italic, code, code blocks, links, lists, headers, blockquotes). '
-        'Do NOT use Telegram MarkdownV2 escape syntax — output will be converted server-side. '
-        'IMPORTANT: For any task that takes more than one step, call the notify tool '
-        'at the start ("On it...") and after each major step so the user always knows '
-        'what you are doing. Never go silent for more than a few seconds.'
-    ),
-}
 
 
 def build_system_prompt(
@@ -81,7 +69,7 @@ def build_system_prompt(
     if skills_content:
         lines += ['## Skills', skills_content, '']
 
-    format_hint = _CHANNEL_FORMAT.get(channel, _CHANNEL_FORMAT['cli'])
+    format_hint = CHANNEL_FORMAT_HINTS.get(channel, CHANNEL_FORMAT_HINTS['cli'])
     lines += [
         '## Channel',
         f'You are responding via the {channel} channel. {format_hint}',

@@ -3,16 +3,38 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
 
+from pydantic import dataclasses as pydantic_dc
 
-@dataclass
+# ---------------------------------------------------------------------------
+# Channel format hints — single source of truth for all prompt builders.
+# ---------------------------------------------------------------------------
+
+CHANNEL_FORMAT_HINTS: dict[str, str] = {
+    'cli': 'Use rich markdown: headers, bold, code blocks, and bullet lists freely.',
+    'app': 'Use full markdown. You may include structured data for card rendering.',
+    'ios': 'Use markdown. Keep responses concise for mobile screens.',
+    'telegram': (
+        'Use standard markdown (bold, italic, code, code blocks, links, lists, headers, blockquotes). '
+        'Do NOT use Telegram MarkdownV2 escape syntax — output will be converted server-side. '
+        'IMPORTANT: For any task that takes more than one step, call the notify tool '
+        'at the start ("On it...") and after each major step so the user always knows '
+        'what you are doing. Never go silent for more than a few seconds.'
+    ),
+    'websocket': 'Use rich markdown. Streaming is supported, so you can send progressive updates.',
+}
+
+
+@pydantic_dc.dataclass
 class MarcelDeps:
     """Dependencies injected into Marcel agent tools via RunContext.
 
     This is the deps_type for pydantic-ai Agent. Tools receive RunContext[MarcelDeps]
     which provides access to user context, conversation state, and channel information.
+
+    Uses ``pydantic.dataclasses.dataclass`` for validation while keeping the
+    dataclass-style API that pydantic-ai expects for ``deps_type``.
     """
 
     user_slug: str
@@ -27,7 +49,7 @@ class MarcelDeps:
     model: str | None = None
     """Optional model override (e.g., 'claude-opus-4-6', 'gpt-4')."""
 
-    role: str = field(default='user')
+    role: str = 'user'
     """The user's role: 'admin' or 'user'."""
 
     cwd: str | None = None
@@ -156,22 +178,7 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
 
             logging.getLogger(__name__).warning('Memory selection failed: %s', exc)
 
-    # Channel-specific formatting hints
-    channel_hints = {
-        'cli': 'Use rich markdown: headers, bold, code blocks, and bullet lists freely.',
-        'app': 'Use full markdown. You may include structured data for card rendering.',
-        'ios': 'Use markdown. Keep responses concise for mobile screens.',
-        'telegram': (
-            'Use standard markdown (bold, italic, code, code blocks, links, lists, headers, blockquotes). '
-            'Do NOT use Telegram MarkdownV2 escape syntax — output will be converted server-side. '
-            'IMPORTANT: For any task that takes more than one step, call the notify tool '
-            'at the start ("On it...") and after each major step so the user always knows '
-            'what you are doing. Never go silent for more than a few seconds.'
-        ),
-        'websocket': 'Use rich markdown. Streaming is supported, so you can send progressive updates.',
-    }
-
-    format_hint = channel_hints.get(deps.channel, channel_hints['cli'])
+    format_hint = CHANNEL_FORMAT_HINTS.get(deps.channel, CHANNEL_FORMAT_HINTS['cli'])
 
     lines = [
         f'You are Marcel, a warm and capable personal assistant for {deps.user_slug}.',
@@ -211,22 +218,7 @@ def build_instructions(deps: MarcelDeps) -> str:
 
     profile = load_user_profile(deps.user_slug)
 
-    # Channel-specific formatting hints
-    channel_hints = {
-        'cli': 'Use rich markdown: headers, bold, code blocks, and bullet lists freely.',
-        'app': 'Use full markdown. You may include structured data for card rendering.',
-        'ios': 'Use markdown. Keep responses concise for mobile screens.',
-        'telegram': (
-            'Use standard markdown (bold, italic, code, code blocks, links, lists, headers, blockquotes). '
-            'Do NOT use Telegram MarkdownV2 escape syntax — output will be converted server-side. '
-            'IMPORTANT: For any task that takes more than one step, call the notify tool '
-            'at the start ("On it...") and after each major step so the user always knows '
-            'what you are doing. Never go silent for more than a few seconds.'
-        ),
-        'websocket': 'Use rich markdown. Streaming is supported, so you can send progressive updates.',
-    }
-
-    format_hint = channel_hints.get(deps.channel, channel_hints['cli'])
+    format_hint = CHANNEL_FORMAT_HINTS.get(deps.channel, CHANNEL_FORMAT_HINTS['cli'])
 
     lines = [
         f'You are Marcel, a warm and capable personal assistant for {deps.user_slug}.',

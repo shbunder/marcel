@@ -117,20 +117,25 @@ class TestChatV2WebSocket:
         with TestClient(app).websocket_connect('/v2/chat') as ws:
             ws.send_text(json.dumps({'text': 'run bash', 'user': 'shaun', 'conversation': None}))
             ws.receive_text()  # started
-            # chat_v2 sends text_message_start before the loop, then closes
-            # it when the first ToolCallStarted event arrives
-            msg_start = json.loads(ws.receive_text())
-            assert msg_start['type'] == 'text_message_start'
-            msg_end = json.loads(ws.receive_text())
-            assert msg_end['type'] == 'text_message_end'
+            # Tool events come first (no TextDelta before them, so no text block wrapper)
             tc_start = json.loads(ws.receive_text())
             assert tc_start['type'] == 'tool_call_start'
             assert tc_start['tool_name'] == 'bash'
+            # ToolCallCompleted sends tool_call_end + tool_call_result
             tc_end = json.loads(ws.receive_text())
             assert tc_end['type'] == 'tool_call_end'
-            # TextDelta is sent as a bare token (no wrapping text block after tools)
-            ws.receive_text()  # token
-            ws.receive_text()  # done
+            tc_result = json.loads(ws.receive_text())
+            assert tc_result['type'] == 'tool_call_result'
+            # Then TextDelta triggers text_message_start
+            msg_start = json.loads(ws.receive_text())
+            assert msg_start['type'] == 'text_message_start'
+            token = json.loads(ws.receive_text())
+            assert token['type'] == 'token'
+            # RunFinished closes the text block and sends done
+            msg_end = json.loads(ws.receive_text())
+            assert msg_end['type'] == 'text_message_end'
+            done = json.loads(ws.receive_text())
+            assert done['type'] == 'done'
 
     def test_stream_exception_sends_error(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
@@ -147,8 +152,7 @@ class TestChatV2WebSocket:
         with TestClient(app).websocket_connect('/v2/chat') as ws:
             ws.send_text(json.dumps({'text': 'hi', 'user': 'shaun', 'conversation': None}))
             ws.receive_text()  # started
-            ws.receive_text()  # text_message_start
-            # After exception, error is sent and loop continues
+            # Exception happens before any TextDelta, so error is sent directly
             err = json.loads(ws.receive_text())
             assert err['type'] == 'error'
 

@@ -21,10 +21,10 @@ from marcel_core.agent.events import (
     ToolCallStart,
 )
 from marcel_core.agent.memory_extract import extract_and_save_memories
-from marcel_core.agent.memory_select import _parse_selection, select_relevant_memories
 from marcel_core.agent.runner import stream_response
 from marcel_core.agent.sessions import ActiveSession, SessionManager
 from marcel_core.main import app
+from marcel_core.memory.selector import _parse_selection, select_relevant_memories
 from marcel_core.storage import _root
 
 # ---------------------------------------------------------------------------

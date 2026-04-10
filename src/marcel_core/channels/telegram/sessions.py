@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import TypedDict
+
+from pydantic import BaseModel
 
 from marcel_core.storage._atomic import atomic_write
 from marcel_core.storage._root import data_root
@@ -29,9 +30,11 @@ from marcel_core.storage._root import data_root
 AUTO_NEW_HOURS = 6
 
 
-class SessionState(TypedDict, total=False):
-    conversation_id: str | None
-    last_message_at: str | None
+class SessionState(BaseModel):
+    """Per-chat Telegram session state."""
+
+    conversation_id: str | None = None
+    last_message_at: str | None = None
 
 
 def _sessions_path():
@@ -52,47 +55,31 @@ def _load_sessions() -> dict[str, SessionState]:
     sessions: dict[str, SessionState] = {}
     for key, value in raw.items():
         if isinstance(value, str):
-            sessions[key] = SessionState(
-                conversation_id=value,
-                last_message_at=None,
-            )
+            sessions[key] = SessionState(conversation_id=value)
         elif isinstance(value, dict):
-            # Drop legacy coder fields if present
-            sessions[key] = SessionState(
-                conversation_id=value.get('conversation_id'),
-                last_message_at=value.get('last_message_at'),
-            )
+            sessions[key] = SessionState.model_validate(value)
         # Skip malformed entries
     return sessions
 
 
 def _save_sessions(sessions: dict[str, SessionState]) -> None:
-    atomic_write(_sessions_path(), json.dumps(sessions, indent=2))
+    serialized = {k: v.model_dump(exclude_none=True) for k, v in sessions.items()}
+    atomic_write(_sessions_path(), json.dumps(serialized, indent=2))
 
 
 def _get_state(chat_id: int | str) -> SessionState:
     """Return the session state for a chat, or a default if none exists."""
-    return _load_sessions().get(
-        str(chat_id),
-        SessionState(
-            conversation_id=None,
-            last_message_at=None,
-        ),
-    )
+    return _load_sessions().get(str(chat_id), SessionState())
 
 
 def _update_state(chat_id: int | str, **updates: object) -> SessionState:
     """Merge *updates* into the session state for *chat_id* and persist."""
     sessions = _load_sessions()
     key = str(chat_id)
-    state = sessions.get(
-        key,
-        SessionState(
-            conversation_id=None,
-            last_message_at=None,
-        ),
-    )
-    state.update(updates)  # type: ignore[typeddict-item]
+    state = sessions.get(key, SessionState())
+    # Apply updates to the model
+    for field_name, value in updates.items():
+        setattr(state, field_name, value)
     sessions[key] = state
     _save_sessions(sessions)
     return state
@@ -151,7 +138,7 @@ def get_chat_id(user_slug: str) -> str | None:
 
 def get_conversation_id(chat_id: int | str) -> str | None:
     """Return the active conversation ID for a chat, or None if none exists."""
-    return _get_state(chat_id).get('conversation_id')
+    return _get_state(chat_id).conversation_id
 
 
 def set_conversation_id(chat_id: int | str, conversation_id: str) -> None:
@@ -166,7 +153,7 @@ def touch_last_message(chat_id: int | str) -> None:
 
 def should_auto_new(chat_id: int | str) -> bool:
     """Return True if the chat has been inactive for longer than AUTO_NEW_HOURS."""
-    last = _get_state(chat_id).get('last_message_at')
+    last = _get_state(chat_id).last_message_at
     if not last:
         return False
     try:
@@ -179,7 +166,4 @@ def should_auto_new(chat_id: int | str) -> bool:
 
 def reset_session(chat_id: int | str) -> None:
     """Clear conversation — used by /new command."""
-    _update_state(
-        chat_id,
-        conversation_id=None,
-    )
+    _update_state(chat_id, conversation_id=None)

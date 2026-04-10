@@ -46,16 +46,17 @@ def all_models() -> dict[str, str]:
     return {**ANTHROPIC_MODELS, **OPENAI_MODELS}
 
 
-def _create_anthropic_model(model_name: str) -> str:
-    """Create an Anthropic model string, choosing the auth method automatically.
+def _resolve_model_string(model_name: str) -> str:
+    """Resolve a short model name to a fully-qualified pydantic-ai model string.
 
-    Priority order:
-    1. ``AWS_REGION`` set → AWS Bedrock (returns bedrock: model string)
-    2. ``ANTHROPIC_API_KEY`` set → Anthropic API key (returns anthropic: model string)
-    3. ``OPENAI_API_KEY`` set + OpenAI model → OpenAI (returns openai: model string)
+    Selects the provider automatically based on available credentials:
+    1. ``AWS_REGION`` set → AWS Bedrock (``bedrock:…``)
+    2. OpenAI model + ``OPENAI_API_KEY`` → OpenAI (``openai:…``)
+    3. ``ANTHROPIC_API_KEY`` set → Anthropic (``anthropic:…``)
+    4. ``OPENAI_API_KEY`` set → OpenAI fallback (``openai:…``)
 
     Returns:
-        A pydantic-ai model string.
+        A pydantic-ai model string (e.g. ``'anthropic:claude-sonnet-4-6'``).
 
     Raises:
         RuntimeError: If no authentication method is available.
@@ -115,7 +116,7 @@ def create_marcel_agent(
     # Strip provider prefix if present (e.g., 'anthropic:' or 'openai:')
     clean_model = model.split(':', 1)[-1] if ':' in model else model
 
-    resolved_model = _create_anthropic_model(clean_model)
+    resolved_model = _resolve_model_string(clean_model)
     log.info('Creating Marcel agent: model=%s resolved=%s role=%s', clean_model, resolved_model, role)
 
     if not system_prompt:

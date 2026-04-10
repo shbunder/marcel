@@ -131,7 +131,7 @@ class TestSetUserRole:
         assert get_user_role('bob') == 'user'
 
     def test_raises_on_invalid_role(self) -> None:
-        with pytest.raises(ValueError, match='Invalid role'):
+        with pytest.raises(ValueError, match="'admin' or 'user'"):
             set_user_role('dave', 'superuser')
 
 

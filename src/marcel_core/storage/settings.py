@@ -10,6 +10,8 @@ import json
 import logging
 import pathlib
 
+from pydantic import BaseModel
+
 from ._atomic import atomic_write
 from ._root import data_root
 
@@ -18,24 +20,31 @@ log = logging.getLogger(__name__)
 _SETTINGS_FILE = 'settings.json'
 
 
+class UserSettings(BaseModel):
+    """Typed schema for per-user settings.json."""
+
+    channel_models: dict[str, str] = {}
+
+
 def _settings_path(user_slug: str) -> pathlib.Path:
     return data_root() / 'users' / user_slug / _SETTINGS_FILE
 
 
-def _load_settings(user_slug: str) -> dict:
+def _load_settings(user_slug: str) -> UserSettings:
     path = _settings_path(user_slug)
     if not path.exists():
-        return {}
+        return UserSettings()
     try:
-        return json.loads(path.read_text(encoding='utf-8'))
-    except (OSError, json.JSONDecodeError):
+        raw = json.loads(path.read_text(encoding='utf-8'))
+        return UserSettings.model_validate(raw)
+    except (OSError, json.JSONDecodeError, ValueError):
         log.warning('Could not read settings for user %s; returning defaults', user_slug)
-        return {}
+        return UserSettings()
 
 
-def _save_settings(user_slug: str, data: dict) -> None:
+def _save_settings(user_slug: str, data: UserSettings) -> None:
     path = _settings_path(user_slug)
-    atomic_write(path, json.dumps(data, indent=2), mode=0o600)
+    atomic_write(path, data.model_dump_json(indent=2), mode=0o600)
 
 
 def load_channel_model(user_slug: str, channel: str) -> str | None:
@@ -49,7 +58,7 @@ def load_channel_model(user_slug: str, channel: str) -> str | None:
         Model name string, or ``None`` if no preference is stored.
     """
     settings = _load_settings(user_slug)
-    return settings.get('channel_models', {}).get(channel)
+    return settings.channel_models.get(channel)
 
 
 def save_channel_model(user_slug: str, channel: str, model: str) -> None:
@@ -61,8 +70,6 @@ def save_channel_model(user_slug: str, channel: str, model: str) -> None:
         model: The model name to store (e.g. ``"claude-sonnet-4-6"``).
     """
     settings = _load_settings(user_slug)
-    if 'channel_models' not in settings:
-        settings['channel_models'] = {}
-    settings['channel_models'][channel] = model
+    settings.channel_models[channel] = model
     _save_settings(user_slug, settings)
     log.info('Saved model preference: user=%s channel=%s model=%s', user_slug, channel, model)

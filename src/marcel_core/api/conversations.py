@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
 from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug
-from marcel_core.storage.conversations import _conv_dir, load_conversation
+from marcel_core.storage.conversations import conv_dir, load_conversation
 
 router = APIRouter()
 
@@ -56,13 +56,13 @@ async def list_conversations(
     if not valid_user_slug(user):
         return ConversationListResponse(conversations=[])
 
-    conv_dir = _conv_dir(user)
-    if not conv_dir.exists():
+    user_conv_dir = conv_dir(user)
+    if not user_conv_dir.exists():
         return ConversationListResponse(conversations=[])
 
     # List .md files (excluding index.md), sort by name descending (newest first)
     files = sorted(
-        (f for f in conv_dir.glob('*.md') if f.name != 'index.md'),
+        (f for f in user_conv_dir.glob('*.md') if f.name != 'index.md'),
         key=lambda p: p.name,
         reverse=True,
     )

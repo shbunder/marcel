@@ -126,10 +126,10 @@ async def stream_turn(
     )
     append_message(user_slug, user_msg)
 
-    # Build system prompt with context
-    from marcel_core.harness.context import build_instructions
+    # Build system prompt with context (async version includes AI-selected memories)
+    from marcel_core.harness.context import build_instructions_async
 
-    system_prompt = build_instructions(deps)
+    system_prompt = await build_instructions_async(deps, query=user_text)
 
     # Resolve model: explicit override > per-channel setting > default
     resolved_model = model or load_channel_model(user_slug, channel) or DEFAULT_MODEL
