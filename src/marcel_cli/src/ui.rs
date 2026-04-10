@@ -246,27 +246,17 @@ impl ChatView {
     }
 
     /// Count visual rows after word-wrapping at `width` columns.
+    ///
+    /// Delegates to Ratatui's own `Paragraph::line_count` so the measurement
+    /// matches the actual word-boundary wrapping used in `render()`.
     fn content_height(&self, width: u16) -> u16 {
         if width == 0 {
             return 0;
         }
-        self.to_lines(width)
-            .iter()
-            .map(|line| {
-                let line_width: usize = line
-                    .spans
-                    .iter()
-                    .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
-                    .sum();
-                // An empty line still occupies one visual row.
-                let rows = if line_width == 0 {
-                    1
-                } else {
-                    line_width.div_ceil(width as usize)
-                };
-                rows as u16
-            })
-            .sum()
+        let lines = self.to_lines(width);
+        let text = Text::from(lines);
+        let paragraph = Paragraph::new(text).wrap(Wrap { trim: false });
+        paragraph.line_count(width) as u16
     }
 }
 
@@ -963,5 +953,24 @@ mod tests {
         let max = chat.content_height(40).saturating_sub(4);
         chat.scroll_down(u16::MAX);
         assert_eq!(chat.scroll_offset, max, "offset clamped to max");
+    }
+
+    #[test]
+    fn word_wrap_scroll_to_bottom_shows_last_line() {
+        // Regression: content_height must match Ratatui's word-boundary wrapping.
+        // A line like "  word1 word2 word3" at narrow width wraps on word boundaries,
+        // producing more visual rows than naive div_ceil would predict.
+        let mut chat = make_chat(15, 4);
+        // "  hello world ok" = 16 chars at width 15:
+        //   naive div_ceil(16,15) = 2 rows, but word-wrap breaks before "ok" → 3 rows
+        chat.push_assistant("hello world ok");
+        chat.push_assistant("final");
+
+        chat.scroll_to_bottom();
+        let screen = visible(&chat);
+        assert!(
+            screen.contains("final"),
+            "last message should be visible after scroll_to_bottom:\n{screen}"
+        );
     }
 }

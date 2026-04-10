@@ -11,7 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 # TUI framework
-ratatui = "0.29"
+ratatui = { version = "0.29", features = ["unstable-rendered-line-info"] }
 crossterm = { version = "0.28", features = ["bracketed-paste", "event-stream"] }
 
 # Async runtime

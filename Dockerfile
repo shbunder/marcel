@@ -27,8 +27,8 @@ COPY src/ ./src/
 # Install the project itself
 RUN uv sync --frozen --all-extras --no-dev
 
-# Install integration skills into .marcel/skills/ (copy mode for Docker)
-COPY .marcel/skills/ .marcel/skills/
+# Skills are seeded from src/marcel_core/defaults/skills/ at first startup
+# via the data root (~/.marcel/skills/), no build-time copy needed.
 
 # Create non-root user matching the host user (UID/GID passed at build time)
 ARG USER_UID=1000

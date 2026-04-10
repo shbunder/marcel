@@ -20,6 +20,18 @@ def _get_tracer_provider():
 
     resource = Resource.create({'service.name': 'marcel'})
     provider = TracerProvider(resource=resource)
+
+    # OpenInference span processor — converts pydantic-ai's gen_ai.* attributes
+    # to OpenInference format for rich Phoenix rendering (tabbed messages, etc.)
+    # Must be added BEFORE the exporter so spans are transformed before export.
+    try:
+        from openinference.instrumentation.pydantic_ai import OpenInferenceSpanProcessor
+
+        provider.add_span_processor(OpenInferenceSpanProcessor())
+        log.info('tracing: OpenInference pydantic-ai span processor registered')
+    except Exception:
+        log.debug('tracing: OpenInference pydantic-ai span processor not available', exc_info=True)
+
     exporter = OTLPSpanExporter(endpoint=f'{settings.marcel_tracing_endpoint}/v1/traces')
     provider.add_span_processor(BatchSpanProcessor(exporter))
     log.info('tracing: OTLP exporter configured -> %s', settings.marcel_tracing_endpoint)
@@ -33,4 +45,4 @@ def get_instrumentation_settings():
 
     from pydantic_ai.models.instrumented import InstrumentationSettings
 
-    return InstrumentationSettings(tracer_provider=_get_tracer_provider())
+    return InstrumentationSettings(tracer_provider=_get_tracer_provider(), version=5)
