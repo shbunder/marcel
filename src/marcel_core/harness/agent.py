@@ -129,6 +129,7 @@ def create_marcel_agent(
         deps_type=MarcelDeps,
         system_prompt=system_prompt,
         retries=2,
+        end_strategy='exhaustive',
     )
 
     # Browser tools — available to all users when playwright is installed
