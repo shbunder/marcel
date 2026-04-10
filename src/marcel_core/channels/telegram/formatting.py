@@ -311,11 +311,21 @@ def _public_url() -> str | None:
     return settings.marcel_public_url or None
 
 
-def web_app_url_for(conversation_id: str | None = None, turn: int | None = None) -> str | None:
-    """Return the Mini App URL for a conversation, or ``None``."""
+def web_app_url_for(
+    conversation_id: str | None = None,
+    turn: int | None = None,
+    artifact_id: str | None = None,
+) -> str | None:
+    """Return the Mini App URL for an artifact or conversation, or ``None``.
+
+    When *artifact_id* is provided it takes precedence over the
+    conversation/turn parameters.
+    """
     url = _public_url()
     if not url:
         return None
+    if artifact_id:
+        return f'{url}?artifact={artifact_id}'
     if conversation_id:
         result = f'{url}?conversation={conversation_id}'
         if turn is not None:

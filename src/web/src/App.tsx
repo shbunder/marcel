@@ -1,31 +1,20 @@
-import { useEffect } from 'react'
-import { Chat } from './components/Chat'
-import { Viewer } from './components/Viewer'
-import { useChat } from './hooks/useChat'
+import { useCallback, useEffect, useState } from 'react'
+import { Gallery } from './components/Gallery'
+import { LegacyViewer, Viewer } from './components/Viewer'
 import { getTelegramWebApp } from './telegram'
-import type { ChatConfig } from './types'
 
 const tg = getTelegramWebApp()
 
-// Check if we're in viewer mode (opened from "Show events" button with a
-// conversation ID in the URL).
+// Parse URL params to determine initial view
 const searchParams = new URLSearchParams(location.search)
-const viewConversation = searchParams.get('conversation')
-const viewTurn = searchParams.get('turn')
-
-const config: ChatConfig = {
-  wsUrl: `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/chat`,
-  user: tg ? 'tg' : localStorage.getItem('marcel_user') || 'web',
-  token: tg ? '' : localStorage.getItem('marcel_token') || '',
-  initData: tg?.initData,
-}
+const initialArtifact = searchParams.get('artifact')
+const initialConversation = searchParams.get('conversation')
+const initialTurn = searchParams.get('turn')
 
 // Telegram Mini App initialization (runs once at load)
 if (tg) {
   document.body.classList.add('tg-mini-app')
 
-  // Match header/background/bottom bar to our dark theme, falling back to
-  // Telegram's own theme colors when available.
   const bg = tg.themeParams.bg_color || '#1a1a2e'
   const secondaryBg = tg.themeParams.secondary_bg_color || '#16213e'
   tg.setHeaderColor(bg)
@@ -34,8 +23,6 @@ if (tg) {
     tg.setBottomBarColor(secondaryBg)
   }
 
-  // Prevent vertical swipes from accidentally closing the sheet while the
-  // user scrolls through the chat.
   if (tg.isVersionAtLeast('7.7')) {
     tg.disableVerticalSwipes()
   }
@@ -44,12 +31,31 @@ if (tg) {
   tg.ready()
 }
 
+type View =
+  | { mode: 'gallery' }
+  | { mode: 'viewer'; artifactId: string }
+  | { mode: 'legacy'; conversationId: string; turn: string | null }
+
+function getInitialView(): View {
+  if (initialArtifact) {
+    return { mode: 'viewer', artifactId: initialArtifact }
+  }
+  if (initialConversation && initialTurn !== undefined) {
+    return { mode: 'legacy', conversationId: initialConversation, turn: initialTurn }
+  }
+  return { mode: 'gallery' }
+}
+
 export function App() {
-  // In viewer mode we don't need the WebSocket chat — just render the widget.
-  // useChat is still called (hooks must be unconditional) but won't connect
-  // if we never call sendMessage.
-  const { messages, streamingText, activeTools, isConnected, sendMessage, startNewConversation } =
-    useChat(viewConversation ? { ...config, wsUrl: '' } : config)
+  const [view, setView] = useState<View>(getInitialView)
+
+  const navigateToArtifact = useCallback((id: string) => {
+    setView({ mode: 'viewer', artifactId: id })
+  }, [])
+
+  const navigateToGallery = useCallback(() => {
+    setView({ mode: 'gallery' })
+  }, [])
 
   // Listen for live theme changes (user toggles dark/light mode in Telegram)
   useEffect(() => {
@@ -67,62 +73,53 @@ export function App() {
     return () => tg.offEvent('themeChanged', onThemeChanged)
   }, [])
 
-  // Wire Telegram back button — in viewer mode, always show and close on tap
+  // Wire Telegram back button
   useEffect(() => {
     if (!tg) return
-    if (viewConversation) {
+
+    if (view.mode === 'gallery') {
+      // Gallery is root — back closes the app
       tg.BackButton.show()
       const handler = () => tg.close()
       tg.BackButton.onClick(handler)
       return () => tg.BackButton.offClick(handler)
     }
-    const hasMessages = messages.length > 0 || streamingText.length > 0
-    if (hasMessages) {
-      tg.BackButton.show()
-    } else {
-      tg.BackButton.hide()
-    }
+
+    // Viewer/legacy — back goes to gallery (if opened from menu button)
+    // or closes (if opened from inline button directly)
+    tg.BackButton.show()
     const handler = () => {
-      if (messages.length > 0) {
-        startNewConversation()
-      } else {
+      if (initialArtifact || (initialConversation && initialTurn !== undefined)) {
+        // Opened from inline button — back closes
         tg.close()
+      } else {
+        // Opened from menu button, navigated to artifact — back goes to gallery
+        navigateToGallery()
       }
     }
     tg.BackButton.onClick(handler)
     return () => tg.BackButton.offClick(handler)
-  }, [messages, streamingText, startNewConversation])
+  }, [view, navigateToGallery])
 
-  // Viewer mode: render the widget directly from the conversation
-  if (viewConversation && tg?.initData) {
-    return (
-      <div className="app">
-        <Viewer conversationId={viewConversation} initData={tg.initData} turn={viewTurn} />
-      </div>
-    )
-  }
+  const initData = tg?.initData || ''
 
   return (
     <div className="app">
-      {!tg && (
-        <header className="app__header">
-          <span className="app__title">Marcel</span>
-          <div className="app__status">
-            <span className={`app__status-dot ${isConnected ? 'app__status-dot--on' : 'app__status-dot--off'}`} />
-            {isConnected ? 'Connected' : 'Disconnected'}
-          </div>
-          <button className="app__new-btn" onClick={startNewConversation}>
-            New chat
-          </button>
-        </header>
+      {view.mode === 'viewer' && initData && <Viewer artifactId={view.artifactId} initData={initData} />}
+
+      {view.mode === 'legacy' && initData && (
+        <LegacyViewer conversationId={view.conversationId} initData={initData} turn={view.turn} />
       )}
-      <Chat
-        messages={messages}
-        streamingText={streamingText}
-        activeTools={activeTools}
-        isConnected={isConnected}
-        onSend={sendMessage}
-      />
+
+      {view.mode === 'gallery' && initData && (
+        <Gallery initData={initData} conversationId={initialConversation} onSelectArtifact={navigateToArtifact} />
+      )}
+
+      {!initData && (
+        <div className="viewer">
+          <div className="viewer__error">This app requires Telegram Mini App context.</div>
+        </div>
+      )}
     </div>
   )
 }

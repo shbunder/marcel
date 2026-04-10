@@ -1,31 +1,14 @@
-export interface Message {
+export interface Artifact {
   id: string
-  role: 'user' | 'assistant' | 'system' | 'error'
+  content_type: 'markdown' | 'image' | 'chart_data' | 'html' | 'checklist' | 'calendar'
   content: string
-  timestamp: number
+  title: string
+  created_at: string
 }
 
-export interface ActiveTool {
+export interface ArtifactSummary {
   id: string
-  name: string
+  title: string
+  content_type: string
+  created_at: string
 }
-
-export interface ChatConfig {
-  wsUrl: string
-  user: string
-  token: string
-  /** Telegram Mini App initData — used instead of token when present. */
-  initData?: string
-}
-
-/** AG-UI event received from the WebSocket. */
-export type ServerEvent =
-  | { type: 'started'; conversation: string }
-  | { type: 'text_message_start' }
-  | { type: 'token'; text: string }
-  | { type: 'text_message_end' }
-  | { type: 'tool_call_start'; tool_call_id: string; tool_name: string }
-  | { type: 'tool_call_end'; tool_call_id: string }
-  | { type: 'tool_call_result'; tool_call_id: string; is_error: boolean; summary: string }
-  | { type: 'done'; cost_usd?: number; turns?: number }
-  | { type: 'error'; message: string }

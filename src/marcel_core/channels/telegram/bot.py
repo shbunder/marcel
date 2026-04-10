@@ -223,8 +223,51 @@ _BUTTON_LABELS = {
 }
 
 
+def detect_content_type(text: str) -> str:
+    """Classify rich content as ``'calendar'``, ``'checklist'``, or ``'markdown'``."""
+    if _has_calendar_content(text):
+        return 'calendar'
+    if _RICH_TASKLIST_RE.search(text):
+        return 'checklist'
+    return 'markdown'
+
+
+def extract_title(text: str) -> str:
+    """Extract a short title from the first bold header or first line."""
+    # Try first bold header
+    m = re.search(r'\*\*(.+?)\*\*', text)
+    if m:
+        title = m.group(1).strip()
+        # Strip leading emoji
+        title = re.sub(r'^[\U0001F300-\U0001FAFF\U00002702-\U000027B0\s]+', '', title)
+        if title:
+            return title[:60]
+    # Fall back to first non-empty line
+    for line in text.split('\n'):
+        line = line.strip().lstrip('#').strip()
+        if line:
+            return line[:60]
+    return 'Rich content'
+
+
+def artifact_markup(artifact_id: str) -> dict | None:
+    """Return an InlineKeyboardMarkup that opens the Mini App for a specific artifact."""
+    url = _public_url()
+    if not url:
+        return None
+    app_url = f'{url}?artifact={artifact_id}'
+    return {
+        'inline_keyboard': [[{'text': '✨ View in app', 'web_app': {'url': app_url}}]],
+    }
+
+
 def rich_content_markup(conversation_id: str | None = None, turn: int | None = None) -> dict | None:
-    """Return an InlineKeyboardMarkup that opens the Mini App, or None."""
+    """Return an InlineKeyboardMarkup that opens the Mini App, or None.
+
+    .. deprecated::
+        Use :func:`artifact_markup` for new messages. This function is kept
+        for backward compatibility with calendar navigation callbacks.
+    """
     url = _public_url()
     if not url:
         return None

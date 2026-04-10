@@ -4,8 +4,12 @@ Uses the JSONL session history system (v2). Legacy markdown conversations
 are no longer read or written.
 """
 
+import logging
+
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
+
+log = logging.getLogger(__name__)
 
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
 from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug
@@ -67,11 +71,16 @@ async def get_last_message(
 ) -> MessageResponse:
     """Return an assistant message from a conversation.
 
+    .. deprecated::
+        Use ``GET /api/artifact/{id}`` instead. This endpoint is kept for
+        backward compatibility with old "View in app" buttons.
+
     When *turn* is provided (0-based), returns that specific assistant
     message.  Otherwise returns the last one (backwards compatible).
 
     Authenticates via Telegram ``initData`` (Mini App) or Bearer token.
     """
+    log.warning('Deprecated /api/message/ endpoint called for conversation=%s', conversation_id)
     user_slug: str | None = None
 
     # Try Telegram initData first, then Bearer token
