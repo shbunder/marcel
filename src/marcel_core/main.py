@@ -19,7 +19,7 @@ logging.basicConfig(
     format='%(asctime)s %(name)s %(levelname)s: %(message)s',
 )
 
-from marcel_core.agent.sessions import session_manager
+from marcel_core.api.artifacts import router as artifacts_router
 from marcel_core.api.chat import router as chat_router
 from marcel_core.api.chat_v2 import router as chat_v2_router
 from marcel_core.api.conversations import router as conversations_router
@@ -27,6 +27,7 @@ from marcel_core.api.health import router as health_router
 from marcel_core.api.sessions import router as sessions_router
 from marcel_core.channels.telegram import router as telegram_router
 from marcel_core.jobs.scheduler import scheduler
+from marcel_core.skills.integrations.banking.sync import start_sync_loop, stop_sync_loop
 from marcel_core.watchdog.flags import read_restart_request, write_restart_result
 
 log = logging.getLogger(__name__)
@@ -86,12 +87,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                         log.info('Migrated %d sessions for user %s', count, user_dir.name)
 
     task = asyncio.create_task(_restart_watcher())
-    session_manager.start_cleanup_loop()
+    start_sync_loop()
     scheduler.start()
     yield
     scheduler.stop()
-    session_manager.stop_cleanup_loop()
-    await session_manager.disconnect_all()
+    stop_sync_loop()
     task.cancel()
 
 
@@ -107,6 +107,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
+app.include_router(artifacts_router)
 app.include_router(chat_router)
 app.include_router(chat_v2_router)  # v2 harness endpoint (pydantic-ai)
 app.include_router(conversations_router)

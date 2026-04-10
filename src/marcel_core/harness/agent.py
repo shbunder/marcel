@@ -13,6 +13,7 @@ from marcel_core.config import settings
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.jobs import tool as job_tools
 from marcel_core.tools import claude_code as claude_code_tool, core as core_tools, integration as integration_tools
+from marcel_core.tools.browser import is_available as browser_is_available
 
 log = logging.getLogger(__name__)
 
@@ -129,6 +130,30 @@ def create_marcel_agent(
         system_prompt=system_prompt,
         retries=2,
     )
+
+    # Browser tools — available to all users when playwright is installed
+    if browser_is_available():
+        from marcel_core.tools.browser.pydantic_tools import (
+            browser_click,
+            browser_close,
+            browser_navigate,
+            browser_press_key,
+            browser_screenshot,
+            browser_scroll,
+            browser_snapshot,
+            browser_tab,
+            browser_type,
+        )
+
+        agent.tool(browser_navigate)
+        agent.tool(browser_screenshot)
+        agent.tool(browser_snapshot)
+        agent.tool(browser_click)
+        agent.tool(browser_type)
+        agent.tool(browser_scroll)
+        agent.tool(browser_press_key)
+        agent.tool(browser_tab)
+        agent.tool(browser_close)
 
     if role == 'admin':
         # Full power tools — bash, file I/O, git, and Claude Code delegation

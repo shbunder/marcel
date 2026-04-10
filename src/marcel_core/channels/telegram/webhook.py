@@ -18,7 +18,6 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from marcel_core.agent import extract_and_save_memories
-from marcel_core.agent.sessions import session_manager
 from marcel_core.channels.telegram import bot, sessions
 from marcel_core.channels.telegram.formatting import (
     DAYS_PER_PAGE,
@@ -32,6 +31,7 @@ from marcel_core.channels.telegram.formatting import (
 from marcel_core.config import settings
 from marcel_core.harness.runner import TextDelta, stream_turn
 from marcel_core.memory.history import create_session, read_history
+from marcel_core.storage.artifacts import create_artifact
 
 log = logging.getLogger(__name__)
 
@@ -122,18 +122,20 @@ async def _process_assistant_message(
         )
         return
 
-    # Count existing assistant turns for the "View in app" button index.
-    # History is already written by stream_turn, so we count from JSONL.
-    history = read_history(user_slug, conversation_id=conversation_id)
-    assistant_turn = sum(1 for m in history if m.role == 'assistant') - 1  # 0-based, current turn already saved
-    if assistant_turn < 0:
-        assistant_turn = 0
-
     asyncio.create_task(extract_and_save_memories(user_slug, text, full_response, conversation_id))
+
+    # Create an artifact if the response has rich content
+    artifact_id: str | None = None
+    if bot.has_rich_content(full_response):
+        from marcel_core.storage.artifacts import ContentType
+
+        content_type: ContentType = bot.detect_content_type(full_response)  # type: ignore[assignment]
+        title = bot.extract_title(full_response)
+        artifact_id = create_artifact(user_slug, conversation_id, content_type, full_response, title)
 
     # --- Format and send ---
     try:
-        html_text, markup = _format_response(full_response, conversation_id, turn=assistant_turn)
+        html_text, markup = _format_response(full_response, conversation_id, artifact_id=artifact_id)
 
         if ack.get('sent') and ack.get('message_id'):
             await bot.edit_message_text(chat_id, ack['message_id'], html_text, reply_markup=markup)
@@ -143,19 +145,29 @@ async def _process_assistant_message(
         await _reply(chat_id, f'I have a response but failed to send it: {exc}')
 
 
-def _format_response(full_response: str, conversation_id: str, *, turn: int | None = None) -> tuple[str, dict | None]:
+def _format_response(
+    full_response: str,
+    conversation_id: str,
+    *,
+    artifact_id: str | None = None,
+) -> tuple[str, dict | None]:
     """Convert a raw markdown response to HTML and build appropriate markup.
 
     Args:
         full_response: The raw markdown response text.
         conversation_id: The conversation filename stem.
-        turn: 0-based assistant turn index, embedded in the "View in app" URL
-            so the Mini App can fetch this specific message.
+        artifact_id: If set, the "View in app" button links to this artifact.
 
     Returns:
         A ``(html_text, reply_markup)`` tuple.
     """
     has_rich = bot.has_rich_content(full_response)
+
+    # Build the "View in app" markup — artifact-based when available
+    def _view_markup() -> dict | None:
+        if artifact_id:
+            return bot.artifact_markup(artifact_id)
+        return None
 
     # Try calendar pagination if the response has calendar-like content
     day_groups = parse_day_groups(full_response) if has_rich else None
@@ -168,16 +180,16 @@ def _format_response(full_response: str, conversation_id: str, *, turn: int | No
             conversation_id,
             page=0,
             total_pages=total_pages,
-            web_app_url=web_app_url_for(conversation_id, turn=turn),
+            web_app_url=web_app_url_for(conversation_id, artifact_id=artifact_id),
         )
     elif day_groups:
         # Single-page calendar — expandable blockquotes, no nav
         html_text = format_calendar_page(day_groups, page=0)
-        markup = bot.rich_content_markup(conversation_id, turn=turn)
+        markup = _view_markup()
     else:
         # Regular message — convert markdown to HTML
         html_text = markdown_to_telegram_html(full_response)
-        markup = bot.rich_content_markup(conversation_id, turn=turn) if has_rich else None
+        markup = _view_markup() if has_rich else None
 
     return html_text, markup
 
@@ -314,14 +326,12 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
 
     # --- /new: reset session, start fresh ---
     if text == '/new':
-        await session_manager.reset_user(user_slug)
         sessions.reset_session(chat_id)
         await _reply(chat_id, 'Fresh start! Previous conversation cleared.')
         return {'status': 'ok'}
 
     # --- Auto-new on inactivity ---
     if sessions.should_auto_new(chat_id):
-        await session_manager.reset_user(user_slug)
         sessions.reset_session(chat_id)
         log.info('Auto-new conversation for chat_id=%s (inactivity)', chat_id)
 

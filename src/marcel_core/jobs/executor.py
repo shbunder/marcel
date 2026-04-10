@@ -19,6 +19,45 @@ from marcel_core.jobs.models import JobDefinition, JobRun, NotifyPolicy, RunStat
 
 log = logging.getLogger(__name__)
 
+# Credential prefixes to inject per skill reference in job definition.
+# Maps a keyword found in job.skills or job.task to credential key prefixes.
+_SKILL_CREDENTIAL_PREFIXES: dict[str, list[str]] = {
+    'banking': ['ENABLEBANKING_'],
+    'icloud': ['ICLOUD_'],
+    'detijd': ['DETIJD_'],
+    'tijd': ['DETIJD_'],
+}
+
+
+def _credential_block(job: JobDefinition) -> str:
+    """Build a credentials section for injection into the job system prompt.
+
+    Scans the job's skills list and task text for known keywords, then loads
+    matching credentials from the user's encrypted vault.
+    """
+    from marcel_core.storage.credentials import load_credentials
+
+    # Collect which credential prefixes are relevant
+    prefixes: set[str] = set()
+    search_text = ' '.join(job.skills).lower() + ' ' + job.task.lower() + ' ' + job.system_prompt.lower()
+    for keyword, prefs in _SKILL_CREDENTIAL_PREFIXES.items():
+        if keyword in search_text:
+            prefixes.update(prefs)
+
+    if not prefixes:
+        return ''
+
+    creds = load_credentials(job.user_slug)
+    relevant = {k: v for k, v in creds.items() if any(k.startswith(p) for p in prefixes)}
+
+    if not relevant:
+        return ''
+
+    lines = ['## Credentials (injected from vault)']
+    for key, value in sorted(relevant.items()):
+        lines.append(f'- **{key}**: `{value}`')
+    return '\n'.join(lines)
+
 
 async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> JobRun:
     """Execute a single job and return the run record."""
@@ -40,9 +79,16 @@ async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> 
         role='user',
     )
 
-    # Build system prompt: job's own prompt prepended to user profile context
+    # Inject credentials referenced by the job's skills into the system prompt
+    cred_block = _credential_block(job)
+
+    # Build system prompt: job's own prompt + credentials + user profile context
     base_instructions = await build_instructions_async(deps, query=job.task)
-    system_prompt = f'{job.system_prompt}\n\n---\n\n{base_instructions}'
+    parts = [job.system_prompt]
+    if cred_block:
+        parts.append(cred_block)
+    parts.append(f'---\n\n{base_instructions}')
+    system_prompt = '\n\n'.join(parts)
 
     agent = create_marcel_agent(job.model, system_prompt=system_prompt, role='user')
 

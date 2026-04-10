@@ -1,4 +1,4 @@
-"""WebSocket chat endpoint.
+"""WebSocket chat endpoint — uses the pydantic-ai harness.
 
 Protocol (defined in docs/architecture.md):
 
@@ -7,13 +7,12 @@ Client → server (first message must authenticate):
 
 Server → client (in order):
     {"type": "started", "conversation": "2026-03-26T14-32"}           # only when conversation was null
-    {"type": "text_message_start"}                                     # AG-UI: text block opened
+    {"type": "text_message_start"}                                     # text block opened
     {"type": "token", "text": "..."}                                   # streamed, one or many
-    {"type": "text_message_end"}                                       # AG-UI: text block closed
-    {"type": "tool_call_start", "tool_call_id": "...", "tool_name": "..."}  # AG-UI
-    {"type": "tool_call_end", "tool_call_id": "..."}                        # AG-UI
-    {"type": "tool_call_result", "tool_call_id": "...", ...}                # AG-UI
-    {"type": "done", "cost_usd": 0.012, "turns": 3}                   # end of turn
+    {"type": "text_message_end"}                                       # text block closed
+    {"type": "tool_call_start", "tool_call_id": "...", "tool_name": "..."}
+    {"type": "tool_call_end", "tool_call_id": "..."}
+    {"type": "done", "cost_usd": 0.012}                               # end of turn
     {"type": "error", "message": "..."}                                # on failure (replaces done)
 """
 
@@ -22,20 +21,17 @@ import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from marcel_core.agent import extract_and_save_memories, stream_response
-from marcel_core.agent.events import (
-    RunFinished,
-    TextMessageContent,
-    TextMessageEnd,
-    TextMessageStart,
-    ToolCallEnd,
-    ToolCallResult,
-    ToolCallStart,
-)
+from marcel_core.agent import extract_and_save_memories
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
+from marcel_core.channels.adapter import dispatch_event
 from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug
+from marcel_core.channels.websocket import WebSocketAdapter
 from marcel_core.config import settings
-from marcel_core.memory.history import HistoryMessage, append_message, create_session
+from marcel_core.harness.runner import (
+    TextDelta,
+    stream_turn,
+)
+from marcel_core.memory.history import create_session
 
 router = APIRouter()
 
@@ -46,8 +42,10 @@ _DEFAULT_USER = settings.marcel_default_user
 async def chat(websocket: WebSocket) -> None:
     """Streaming chat endpoint. One WebSocket connection, many turns."""
     await websocket.accept()
+    adapter = WebSocketAdapter(websocket)
     authenticated = False
-    forced_user_slug: str | None = None  # set when authenticated via Telegram initData
+    forced_user_slug: str | None = None
+
     try:
         while True:
             raw = await websocket.receive_text()
@@ -61,21 +59,17 @@ async def chat(websocket: WebSocket) -> None:
                 if init_data:
                     tg_user = verify_telegram_init_data(init_data)
                     if tg_user is None:
-                        await websocket.send_text(
-                            json.dumps({'type': 'error', 'message': 'Invalid Telegram credentials'})
-                        )
+                        await adapter.send_error('Invalid Telegram credentials')
                         await websocket.close(code=4001, reason='Unauthorized')
                         return
                     slug = get_telegram_user_slug(tg_user['id'])
                     if slug is None:
-                        await websocket.send_text(
-                            json.dumps({'type': 'error', 'message': 'Telegram user not linked to a Marcel account'})
-                        )
+                        await adapter.send_error('Telegram user not linked to a Marcel account')
                         await websocket.close(code=4001, reason='Unauthorized')
                         return
                     forced_user_slug = slug
                 elif not verify_api_token(token):
-                    await websocket.send_text(json.dumps({'type': 'error', 'message': 'Invalid or missing API token'}))
+                    await adapter.send_error('Invalid or missing API token')
                     await websocket.close(code=4001, reason='Unauthorized')
                     return
                 authenticated = True
@@ -83,83 +77,47 @@ async def chat(websocket: WebSocket) -> None:
             user_text: str = data.get('text', '').strip()
             user_slug: str = forced_user_slug or data.get('user', '') or _DEFAULT_USER
             if not user_slug:
-                await websocket.send_text(
-                    json.dumps({'type': 'error', 'message': 'No user specified and MARCEL_DEFAULT_USER is not set'})
-                )
+                await adapter.send_error('No user specified and MARCEL_DEFAULT_USER is not set')
                 continue
             if not valid_user_slug(user_slug):
-                await websocket.send_text(
-                    json.dumps({'type': 'error', 'message': 'Invalid user slug — only a-z, 0-9, _ and - are allowed'})
-                )
+                await adapter.send_error('Invalid user slug — only a-z, 0-9, _ and - are allowed')
                 continue
             conversation_id: str | None = data.get('conversation')
             channel: str = data.get('channel', 'cli')
             model: str | None = data.get('model') or None
+            cwd: str | None = data.get('cwd') or None
 
             if not user_text:
-                await websocket.send_text(json.dumps({'type': 'error', 'message': 'Empty message'}))
+                await adapter.send_error('Empty message')
                 continue
 
             # Start a new conversation if none was provided
             if conversation_id is None:
                 meta = create_session(user_slug, channel)
                 conversation_id = meta.session_id
-                await websocket.send_text(json.dumps({'type': 'started', 'conversation': conversation_id}))
+                await adapter.send_conversation_started(conversation_id)
 
-            # Stream the agent response as AG-UI events
+            # Stream the agent response using pydantic-ai harness
             response_parts: list[str] = []
-            run_finished = RunFinished()
+            text_started = False
+
             try:
-                async for event in stream_response(user_slug, channel, user_text, conversation_id, model=model):
-                    if isinstance(event, TextMessageContent):
+                async for event in stream_turn(user_slug, channel, user_text, conversation_id, model=model, cwd=cwd):
+                    if isinstance(event, TextDelta):
                         response_parts.append(event.text)
-                        await websocket.send_text(json.dumps({'type': 'token', 'text': event.text}))
-                    elif isinstance(event, RunFinished):
-                        run_finished = event
-                    elif isinstance(
-                        event, (TextMessageStart, TextMessageEnd, ToolCallStart, ToolCallEnd, ToolCallResult)
-                    ):
-                        await websocket.send_text(json.dumps(event.to_dict()))
+                    text_started = await dispatch_event(adapter, event, text_started=text_started)
+
             except Exception as exc:
-                await websocket.send_text(json.dumps({'type': 'error', 'message': str(exc)}))
+                try:
+                    await adapter.send_error(str(exc))
+                except Exception:
+                    pass
                 continue
 
             full_response = ''.join(response_parts)
 
-            # Persist the turn to JSONL history
-            from datetime import datetime, timezone
-
-            now = datetime.now(tz=timezone.utc)
-            append_message(
-                user_slug,
-                HistoryMessage(
-                    role='user',
-                    text=user_text,
-                    timestamp=now,
-                    conversation_id=conversation_id,
-                ),
-                channel=channel,
-            )
-            append_message(
-                user_slug,
-                HistoryMessage(
-                    role='assistant',
-                    text=full_response,
-                    timestamp=now,
-                    conversation_id=conversation_id,
-                ),
-                channel=channel,
-            )
-
             # Fire-and-forget memory extraction
             asyncio.create_task(extract_and_save_memories(user_slug, user_text, full_response, conversation_id))
-
-            done_msg: dict[str, object] = {'type': 'done'}
-            if run_finished.total_cost_usd is not None:
-                done_msg['cost_usd'] = run_finished.total_cost_usd
-            if run_finished.num_turns:
-                done_msg['turns'] = run_finished.num_turns
-            await websocket.send_text(json.dumps(done_msg))
 
     except WebSocketDisconnect:
         pass

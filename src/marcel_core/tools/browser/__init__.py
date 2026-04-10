@@ -1,15 +1,15 @@
 """Browser automation package — Playwright-based web interaction for Marcel.
 
-Provides a process-wide :class:`BrowserManager` singleton and an MCP server
-builder that exposes browser tools (navigate, screenshot, snapshot, click,
-type, scroll, press_key, tab, close) to the agent.
+Provides a process-wide :class:`BrowserManager` singleton and pydantic-ai
+tool functions for browser automation (navigate, screenshot, snapshot, click,
+type, scroll, press_key, tab, close).
 
 Usage::
 
-    from marcel_core.tools.browser import browser_manager, build_browser_mcp_server
+    from marcel_core.tools.browser import is_available
 
-    # In session creation:
-    server = build_browser_mcp_server(session_key, browser_manager)
+    if is_available():
+        from marcel_core.tools.browser.pydantic_tools import browser_navigate, ...
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from __future__ import annotations
 import importlib.util
 
 from marcel_core.tools.browser.manager import BrowserManager
-from marcel_core.tools.browser.tools import build_browser_mcp_server
 
 # Module-level singleton — shared across all sessions.
 browser_manager = BrowserManager()
@@ -28,4 +27,4 @@ def is_available() -> bool:
     return importlib.util.find_spec('playwright') is not None
 
 
-__all__ = ['BrowserManager', 'browser_manager', 'build_browser_mcp_server', 'is_available']
+__all__ = ['BrowserManager', 'browser_manager', 'is_available']

@@ -69,13 +69,13 @@ class TestFormatResponse:
         html, markup = _format_response(days, 'conv-multi')
         assert isinstance(html, str)
 
-    def test_turn_number_embedded_in_markup(self, monkeypatch):
+    def test_artifact_id_embedded_in_markup(self, monkeypatch):
         monkeypatch.setattr(settings, 'marcel_public_url', 'https://example.com')
         md = '| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n'
-        html, markup = _format_response(md, 'conv-1', turn=3)
+        html, markup = _format_response(md, 'conv-1', artifact_id='art-123')
         if markup and 'inline_keyboard' in markup:
             buttons_text = json.dumps(markup)
-            assert 'conv-1' in buttons_text
+            assert 'art-123' in buttons_text
 
 
 # ---------------------------------------------------------------------------
