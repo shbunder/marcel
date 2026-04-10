@@ -36,15 +36,14 @@ With ISSUE-045 shipping per-session JSONL history, the legacy markdown conversat
 
 ## Tasks
 
-- [ ] Remove dual-write code from `chat_v2.py` (storage.new_conversation, storage.append_turn)
-- [ ] Rewrite `telegram/webhook.py` to use `create_session()` instead of `storage.new_conversation()`
-- [ ] Rewrite `telegram/webhook.py` to read conversation context from JSONL instead of `load_conversation()`
-- [ ] Rewrite `api/conversations.py` endpoints to use `list_sessions()` and `read_history()`
-- [ ] Update or deprecate `chat.py` (v1) — either add JSONL writes or mark as deprecated
-- [ ] Remove `storage/conversations.py` and its re-exports from `storage/__init__.py`
-- [ ] Remove `tests/core/test_conversations.py` or rewrite for JSONL-backed endpoints
-- [ ] Update `docs/storage.md` — remove legacy conversation format sections, mark as archived
-- [ ] Add startup migration hook: auto-run `migrate_legacy_history()` for all users on first boot
+- [✓] Remove dual-write code from `chat_v2.py`
+- [✓] Rewrite `telegram/webhook.py` to use `create_session()` and `read_history()`
+- [✓] Rewrite `api/conversations.py` endpoints to use `list_sessions()` and `read_history()`
+- [✓] Update `chat.py` (v1) — writes JSONL history instead of markdown
+- [✓] Remove `storage/conversations.py` and its re-exports from `storage/__init__.py`
+- [✓] Rewrite `tests/core/test_conversations.py` for JSONL-backed endpoints
+- [✓] Update `docs/storage.md` — removed legacy conversation format sections
+- [✓] Add startup migration hook: auto-run `migrate_legacy_history()` for all users on first boot
 - [ ] Verify end-to-end: Telegram messages, WebSocket chat, and Mini App all work without legacy files
 
 ## Subtasks
@@ -56,3 +55,17 @@ With ISSUE-045 shipping per-session JSONL history, the legacy markdown conversat
 ## Comments
 
 ## Implementation Log
+### 2026-04-10 — LLM Implementation
+**Action**: Removed legacy markdown conversation system, unified on JSONL
+**Files Modified**:
+- `src/marcel_core/storage/conversations.py` — deleted
+- `src/marcel_core/storage/__init__.py` — removed conversation re-exports
+- `src/marcel_core/api/chat_v2.py` — removed dual-write, removed storage import
+- `src/marcel_core/api/chat.py` — replaced storage.append_turn with JSONL append_message
+- `src/marcel_core/api/conversations.py` — rewrote to use list_sessions/read_history
+- `src/marcel_core/channels/telegram/webhook.py` — switched to create_session/read_history
+- `src/marcel_core/main.py` — added startup migration hook
+- `docs/storage.md` — removed legacy conversation docs
+- `tests/` — removed 20+ legacy tests, updated 3 test files
+**Commands Run**: `make check`
+**Result**: 743 tests passing, 0 pyright errors
