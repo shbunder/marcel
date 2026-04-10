@@ -112,8 +112,15 @@ async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> 
 
     agent = create_marcel_agent(job.model, system_prompt=system_prompt, role='user')
 
+    # Apply usage limits if configured on the job
+    usage_limits = None
+    if job.request_limit is not None:
+        from pydantic_ai.usage import UsageLimits
+
+        usage_limits = UsageLimits(request_limit=job.request_limit)
+
     try:
-        result = await agent.run(job.task, deps=deps)
+        result = await agent.run(job.task, deps=deps, usage_limits=usage_limits)
         run.output = result.output
         run.status = RunStatus.COMPLETED
     except Exception as exc:

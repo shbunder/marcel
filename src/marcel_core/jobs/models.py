@@ -98,6 +98,9 @@ class JobDefinition(BaseModel):
     # Skills the job needs — full docs + credentials are auto-injected into the prompt
     skills: list[str] = Field(default_factory=list)
 
+    # pydantic-ai usage limits (None = pydantic-ai default of 50)
+    request_limit: int | None = None
+
     # Notification
     notify: NotifyPolicy = NotifyPolicy.ON_OUTPUT
     channel: str = 'telegram'
