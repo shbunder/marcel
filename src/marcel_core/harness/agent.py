@@ -182,6 +182,8 @@ def create_marcel_agent(
     agent.tool(job_tools.delete_job)
     agent.tool(job_tools.run_job_now)
     agent.tool(job_tools.job_templates)
+    agent.tool(job_tools.job_cache_write)
+    agent.tool(job_tools.job_cache_read)
 
     log.info('Created Marcel agent with model=%s role=%s', model, role)
     return agent

@@ -327,3 +327,54 @@ async def job_templates(ctx: RunContext[MarcelDeps]) -> str:
     for tpl in templates:
         lines.append(f'- **{tpl["name"]}**: {tpl["description"]}')
     return '\n'.join(lines)
+
+
+async def job_cache_write(ctx: RunContext[MarcelDeps], key: str, data: str) -> str:
+    """Store data in the job cache for other jobs to read later.
+
+    Use this to share data between jobs. For example, a scraping job can
+    cache news articles, and a digest job can read them later.
+
+    Args:
+        ctx: Agent context.
+        key: Cache key name (e.g. "news", "bank_summary").
+        data: JSON string of data to store.
+
+    Returns:
+        Confirmation message.
+    """
+    import json as _json
+
+    from marcel_core.jobs.cache import write_cache
+
+    try:
+        parsed = _json.loads(data)
+    except (ValueError, TypeError):
+        parsed = data
+
+    write_cache(ctx.deps.user_slug, key, parsed)
+    return f'Cached data under key "{key}".'
+
+
+async def job_cache_read(ctx: RunContext[MarcelDeps], key: str) -> str:
+    """Read cached data written by another job.
+
+    Use this to retrieve data stored by a previous job run (e.g. scraped
+    news articles, sync summaries).
+
+    Args:
+        ctx: Agent context.
+        key: Cache key name to read.
+
+    Returns:
+        The cached data as JSON, or an error if the key doesn't exist.
+    """
+    import json as _json
+
+    from marcel_core.jobs.cache import read_cache
+
+    entry = read_cache(ctx.deps.user_slug, key)
+    if entry is None:
+        return f'No cached data found for key "{key}".'
+
+    return _json.dumps(entry, ensure_ascii=False, indent=2)
