@@ -1,6 +1,6 @@
 # ISSUE-043: Browser/Web Interaction Skill
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-10
 **Assignee:** Claude
 **Priority:** High

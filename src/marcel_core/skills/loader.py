@@ -13,6 +13,7 @@ or files).  This guides new users through first-time setup.
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import os
 from dataclasses import dataclass
@@ -106,6 +107,13 @@ def _check_requirements(requires: dict, user_slug: str) -> bool:
     for key in env_keys:
         if not os.environ.get(key):
             log.debug('Skill requirement not met: env var %s not set', key)
+            return False
+
+    # Check Python packages
+    packages = requires.get('packages', [])
+    for pkg in packages:
+        if importlib.util.find_spec(pkg) is None:
+            log.debug('Skill requirement not met: package %s not installed', pkg)
             return False
 
     # Check files in user data directory

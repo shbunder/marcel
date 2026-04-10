@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
 from marcel_core.agent.context import build_system_prompt
+from marcel_core.browser import browser_manager, build_browser_mcp_server, is_available as browser_available
 from marcel_core.skills import build_skills_mcp_server
 
 log = logging.getLogger(__name__)
@@ -68,10 +69,15 @@ class SessionManager:
 
         system_prompt = build_system_prompt(user_slug, channel)
 
+        mcp_servers: dict = {'skills': build_skills_mcp_server(user_slug, channel)}
+        if browser_available():
+            session_key = f'{user_slug}:{conversation_id}'
+            mcp_servers['browser'] = build_browser_mcp_server(session_key, browser_manager)
+
         options = ClaudeAgentOptions(
             system_prompt=system_prompt,
             tools={'type': 'preset', 'preset': 'claude_code'},
-            mcp_servers={'skills': build_skills_mcp_server(user_slug, channel)},
+            mcp_servers=mcp_servers,
             permission_mode='bypassPermissions',
             max_turns=75,
             model=model,
@@ -153,6 +159,10 @@ class SessionManager:
     # ------------------------------------------------------------------
 
     async def _disconnect_session(self, session: ActiveSession) -> None:
+        # Clean up browser context for this session
+        session_key = f'{session.user_slug}:{session.conversation_id}'
+        await browser_manager.close_context(session_key)
+
         try:
             await session.client.disconnect()
         except Exception:

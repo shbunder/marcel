@@ -29,6 +29,9 @@ dependencies = [
     "cryptography>=44.0.0",
 ]
 
+[project.optional-dependencies]
+browser = ["playwright>=1.40.0"]
+
 # Local package sources for editable installation
 [tool.uv.sources]
 
@@ -168,6 +171,9 @@ omit = [
     "*/skills/integrations/icloud/__init__.py",
     "*/skills/integrations/docker/__init__.py",
     "*/skills/tool.py",
+    "*/browser/manager.py",
+    "*/browser/tools.py",
+    "*/browser/__init__.py",
     "*/main.py",
 ]
 
