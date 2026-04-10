@@ -188,23 +188,26 @@ def test_read_nonexistent_user(temp_data_root: Path):
 
 
 def test_message_with_tool_call_id_and_result_ref(temp_data_root: Path):
-    """to_jsonl/from_jsonl roundtrip with tool_call_id, result_ref, and is_error."""
+    """to_jsonl/from_jsonl roundtrip with tool_call_id, tool_name, result_ref, and is_error."""
     msg = HistoryMessage(
         role='tool',
         text='result',
         timestamp=datetime(2026, 4, 9, tzinfo=timezone.utc),
         conversation_id='conv-1',
         tool_call_id='tc-x',
+        tool_name='bash',
         result_ref='paste-abc',
         is_error=True,
     )
     line = msg.to_jsonl()
     assert '"tool_call_id"' in line
+    assert '"tool_name"' in line
     assert '"result_ref"' in line
     assert '"is_error"' in line
 
     restored = HistoryMessage.from_jsonl(line)
     assert restored.tool_call_id == 'tc-x'
+    assert restored.tool_name == 'bash'
     assert restored.result_ref == 'paste-abc'
     assert restored.is_error is True
 

@@ -52,6 +52,7 @@ class HistoryMessage:
     conversation_id: str
     tool_calls: list[ToolCall] | None = None
     tool_call_id: str | None = None
+    tool_name: str | None = None  # tool name for role='tool' messages
     result_ref: str | None = None
     is_error: bool = False
 
@@ -67,6 +68,8 @@ class HistoryMessage:
             obj['tool_calls'] = [{'id': tc.id, 'name': tc.name, 'arguments': tc.arguments} for tc in self.tool_calls]
         if self.tool_call_id:
             obj['tool_call_id'] = self.tool_call_id
+        if self.tool_name:
+            obj['tool_name'] = self.tool_name
         if self.result_ref:
             obj['result_ref'] = self.result_ref
         if self.is_error:
@@ -87,6 +90,7 @@ class HistoryMessage:
             conversation_id=obj['conversation_id'],
             tool_calls=tool_calls,
             tool_call_id=obj.get('tool_call_id'),
+            tool_name=obj.get('tool_name'),
             result_ref=obj.get('result_ref'),
             is_error=obj.get('is_error', False),
         )

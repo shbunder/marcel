@@ -172,6 +172,19 @@ async def _summarize_messages(messages: list[HistoryMessage]) -> str:
         role_label = msg.role.capitalize()
         if msg.role == 'assistant':
             role_label = 'Marcel'
+            # Include tool call names for context
+            if msg.tool_calls:
+                tool_names = ', '.join(tc.name for tc in msg.tool_calls)
+                lines.append(f'{role_label}: [called tools: {tool_names}]')
+                continue
+        elif msg.role == 'tool':
+            # Compact representation: tool name + truncated result
+            tool_label = msg.tool_name or 'tool'
+            text = msg.text or '(no output)'
+            if len(text) > 500:
+                text = text[:500] + '...'
+            lines.append(f'Tool ({tool_label}): {text}')
+            continue
         text = msg.text or '(no text)'
         lines.append(f'{role_label}: {text}')
 
