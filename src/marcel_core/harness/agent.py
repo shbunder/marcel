@@ -19,6 +19,7 @@ from marcel_core.tools import (
     integration as integration_tools,
 )
 from marcel_core.tools.browser import is_available as browser_is_available
+from marcel_core.tracing import get_instrumentation_settings
 
 log = logging.getLogger(__name__)
 
@@ -132,6 +133,7 @@ def create_marcel_agent(
         system_prompt=system_prompt,
         retries=2,
         end_strategy='exhaustive',
+        instrument=get_instrumentation_settings(),
     )
 
     # Browser tools — available to all users when playwright is installed

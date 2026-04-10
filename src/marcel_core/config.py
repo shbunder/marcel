@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     marcel_bash_max_output: int = 30000
 
     # ---------------------------------------------------------------------------
+    # Observability / Tracing
+    # ---------------------------------------------------------------------------
+    marcel_tracing_enabled: bool = False
+    marcel_tracing_endpoint: str = 'http://localhost:6006'
+
+    # ---------------------------------------------------------------------------
     # Watchdog
     # ---------------------------------------------------------------------------
     marcel_health_timeout: float = 30.0
