@@ -47,6 +47,7 @@ pub fn set_last_conversation(user: &str, conversation_id: &str) {
     save(&state);
 }
 
+#[allow(dead_code)]
 pub fn get_last_conversation(user: &str) -> Option<String> {
     let state = load();
     state.last_conversation.get(user).cloned()

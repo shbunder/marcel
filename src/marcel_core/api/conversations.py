@@ -1,7 +1,6 @@
 """REST endpoints for listing and fetching conversations.
 
-Uses the JSONL session history system (v2). Legacy markdown conversations
-are no longer read or written.
+Includes the history endpoint for loading conversation context on CLI startup.
 """
 
 import logging
@@ -13,6 +12,7 @@ log = logging.getLogger(__name__)
 
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
 from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug
+from marcel_core.memory.conversation import load_latest_summary, read_active_segment
 from marcel_core.memory.history import list_sessions, read_history
 
 router = APIRouter()
@@ -116,3 +116,89 @@ async def get_last_message(
         raise HTTPException(status_code=404, detail='No assistant message found')
 
     return MessageResponse(content=content)
+
+
+# ---------------------------------------------------------------------------
+# Conversation history for CLI startup
+# ---------------------------------------------------------------------------
+
+
+class HistoryMessage(BaseModel):
+    role: str
+    text: str
+
+
+class HistoryResponse(BaseModel):
+    summary: str | None = None
+    messages: list[HistoryMessage]
+
+
+@router.get('/v2/history', response_model=HistoryResponse)
+async def get_conversation_history(
+    user: str = Query(..., description='User slug'),
+    channel: str = Query('cli', description='Channel name'),
+    authorization: str = Header(''),
+) -> HistoryResponse:
+    """Return conversation history for the CLI to display on startup.
+
+    Returns the latest rolling summary (if any) and all user/assistant
+    text messages from the active segment. Tool calls are excluded.
+    """
+    token = authorization.removeprefix('Bearer ').strip()
+    if not verify_api_token(token):
+        raise HTTPException(status_code=401, detail='Unauthorized')
+    if not valid_user_slug(user):
+        raise HTTPException(status_code=400, detail='Invalid user slug')
+
+    # Load latest summary
+    latest = load_latest_summary(user, channel)
+    summary_text = latest.summary if latest else None
+
+    # Load active segment — only user/assistant text (skip tool, system)
+    active = read_active_segment(user, channel)
+    messages = [
+        HistoryMessage(role=m.role, text=m.text or '') for m in active if m.role in ('user', 'assistant') and m.text
+    ]
+
+    return HistoryResponse(summary=summary_text, messages=messages)
+
+
+class ForgetResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@router.post('/v2/forget', response_model=ForgetResponse)
+async def forget_conversation(
+    user: str = Query(..., description='User slug'),
+    channel: str = Query('cli', description='Channel name'),
+    authorization: str = Header(''),
+) -> ForgetResponse:
+    """Trigger summarization of the active conversation segment.
+
+    Equivalent to the Telegram /forget command. Seals the active segment,
+    generates a summary, and opens a new active segment.
+    """
+    from marcel_core.memory.conversation import has_active_content
+    from marcel_core.memory.summarizer import summarize_active_segment
+
+    token = authorization.removeprefix('Bearer ').strip()
+    if not verify_api_token(token):
+        raise HTTPException(status_code=401, detail='Unauthorized')
+    if not valid_user_slug(user):
+        raise HTTPException(status_code=400, detail='Invalid user slug')
+
+    if not has_active_content(user, channel):
+        return ForgetResponse(success=True, message='Nothing to compress — conversation is already fresh.')
+
+    success = await summarize_active_segment(user, channel, trigger='manual')
+    if success:
+        latest = load_latest_summary(user, channel)
+        summary_preview = (
+            latest.summary[:200] + '...' if latest and len(latest.summary) > 200 else (latest.summary if latest else '')
+        )
+        return ForgetResponse(
+            success=True,
+            message=f'Compressed. Key points preserved:\n{summary_preview}',
+        )
+    return ForgetResponse(success=False, message='Compression failed — please try again later.')

@@ -192,6 +192,7 @@ impl ChatClient {
         self.conversation_id = Some(id.into());
     }
 
+    #[allow(dead_code)]
     pub fn clear_conversation(&mut self) {
         self.conversation_id = None;
     }

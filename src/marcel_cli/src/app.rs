@@ -14,7 +14,7 @@ use crate::tui;
 use crate::ui::{ChatView, InputBox, StatusBar};
 
 const COMMANDS: &[(&str, &str)] = &[
-    ("/clear", "Clear the chat history"),
+    ("/clear", "Clear the chat display"),
     (
         "/compact",
         "Compact conversation context  [requires server]",
@@ -22,10 +22,11 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/config", "Show or set config  (/config host <value>)"),
     ("/cost", "Show token usage and cost     [requires server]"),
     ("/export", "Export conversation to file   (/export [path])"),
+    ("/forget", "Compress recent conversation  [requires server]"),
     ("/help", "Show available commands"),
     ("/memory", "Show Marcel's memory          [requires server]"),
     ("/model", "Show or set the current model"),
-    ("/new", "Start a new conversation"),
+    ("/new", "Alias for /forget"),
     ("/reconnect", "Reconnect to the Marcel server"),
     ("/resume", "Resume a conversation        (/resume <id>)"),
     (
@@ -48,11 +49,23 @@ struct ConversationListResponse {
     conversations: Vec<ConversationInfo>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct HistoryMessageEntry {
+    role: String,
+    text: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct HistoryResponse {
+    summary: Option<String>,
+    messages: Vec<HistoryMessageEntry>,
+}
+
 async fn fetch_conversations(
     cfg: &Config,
     dev_mode: bool,
 ) -> Result<Vec<ConversationInfo>, String> {
-    let base = cfg.health_url(dev_mode).replace("/health", "");
+    let base = cfg.base_url(dev_mode);
     let url = format!("{base}/conversations?user={}&limit=20", cfg.user);
 
     let mut req = reqwest::Client::new().get(&url);
@@ -65,6 +78,53 @@ async fn fetch_conversations(
     Ok(body.conversations)
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct ForgetResponse {
+    #[allow(dead_code)]
+    success: bool,
+    message: String,
+}
+
+/// Trigger conversation compaction via the server.
+async fn forget_conversation(cfg: &Config, dev_mode: bool) -> Result<String, String> {
+    let base = cfg.base_url(dev_mode);
+    let url = format!("{base}/v2/forget?user={}&channel=cli", cfg.user);
+
+    let mut req = reqwest::Client::new().post(&url);
+    if !cfg.token.is_empty() {
+        req = req.header("Authorization", format!("Bearer {}", cfg.token));
+    }
+
+    let resp = req.send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let body: ForgetResponse = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(body.message)
+}
+
+/// Fetch conversation history from the server to display on CLI startup.
+async fn fetch_history(
+    cfg: &Config,
+    dev_mode: bool,
+    channel: &str,
+) -> Result<HistoryResponse, String> {
+    let base = cfg.base_url(dev_mode);
+    let url = format!("{base}/v2/history?user={}&channel={channel}", cfg.user);
+
+    let mut req = reqwest::Client::new().get(&url);
+    if !cfg.token.is_empty() {
+        req = req.header("Authorization", format!("Bearer {}", cfg.token));
+    }
+
+    let resp = req.send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let body: HistoryResponse = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(body)
+}
+
 pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
     let dev_mode = cli.dev;
     let use_v2 = true; // Always use v2 harness; --v2 flag retained for compatibility
@@ -74,17 +134,6 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
     let port = cfg.effective_port(dev_mode);
     let mut header = Header::new(&cfg.user, &cfg.model, &cfg.host, port);
     let mut chat_view = ChatView::new();
-
-    // Show welcome as the first assistant message
-    {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let idx = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as usize
-            % WELCOMES.len();
-        chat_view.push_assistant(WELCOMES[idx]);
-    }
     let mut input = InputBox::new();
     let mut status = StatusBar::new(&cfg.model);
     let mut client = ChatClient::new(
@@ -112,44 +161,51 @@ pub async fn run(cfg: Config, cli: &Cli) -> io::Result<()> {
     // Channel for receiving streaming events
     let mut stream_rx: Option<mpsc::Receiver<ChatEvent>> = None;
 
-    // Resume a previous conversation if requested
-    if cli.r#continue {
-        if let Some(id) = crate::state::get_last_conversation(&cfg.user) {
-            client.set_conversation_id(&id);
-            chat_view.push_system(&format!("Continuing conversation: {id}"));
-        } else {
-            chat_view.push_system("No previous conversation to continue.");
-        }
-    } else if let Some(ref resume) = cli.resume {
-        match resume {
-            Some(id) => {
-                client.set_conversation_id(id);
-                chat_view.push_system(&format!("Resumed conversation: {id}"));
-            }
-            None => {
-                if header.connected {
-                    match fetch_conversations(&cfg, dev_mode).await {
-                        Ok(convs) if convs.is_empty() => {
-                            chat_view.push_system("No conversations found.");
-                        }
-                        Ok(convs) => {
-                            chat_view
-                                .push_system("Recent conversations (use /resume <id> to pick):");
-                            for c in &convs {
-                                chat_view.push_system(&format!("  {}  ({})", c.id, c.channel));
-                            }
-                            if let Some(first) = convs.first() {
-                                client.set_conversation_id(&first.id);
-                                chat_view.push_system(&format!("Resumed: {}", first.id));
-                            }
-                        }
-                        Err(e) => {
-                            chat_view.push_error(&format!("Failed to list conversations: {e}"));
+    // Load conversation history on startup — like opening a chat app.
+    // If history is available, show it. Otherwise, show a welcome message.
+    let mut loaded_history = false;
+    if header.connected {
+        match fetch_history(&cfg, dev_mode, "cli").await {
+            Ok(history) => {
+                let has_content = history.summary.is_some() || !history.messages.is_empty();
+                if has_content {
+                    if let Some(summary) = &history.summary {
+                        chat_view.push_system(summary);
+                    }
+                    for msg in &history.messages {
+                        match msg.role.as_str() {
+                            "user" => chat_view.push_user(&msg.text),
+                            "assistant" => chat_view.push_assistant(&msg.text),
+                            _ => {}
                         }
                     }
+                    chat_view.scroll_to_bottom();
+                    loaded_history = true;
                 }
             }
+            Err(_) => {
+                // Silent — just start fresh if history unavailable
+            }
         }
+    }
+
+    // Show a welcome message only if no history was loaded
+    if !loaded_history {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let idx = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as usize
+            % WELCOMES.len();
+        chat_view.push_assistant(WELCOMES[idx]);
+    }
+
+    // Legacy resume support (if explicitly requested)
+    if let Some(ref resume) = cli.resume
+        && let Some(id) = resume
+    {
+        client.set_conversation_id(id);
+        chat_view.push_system(&format!("Resumed conversation: {id}"));
     }
 
     // If a prompt was given on the command line, send it immediately
@@ -726,12 +782,19 @@ async fn handle_command(
             }
         }
 
-        "/new" => {
-            client.clear_conversation();
-            status.session_cost = 0.0;
-            status.turn_count = 0;
-            chat.clear();
-            chat.push_system("New conversation started.");
+        "/new" | "/forget" => {
+            if !header.connected {
+                chat.push_error(&format!("{cmd} requires a running server."));
+            } else {
+                chat.push_system("Compressing conversation...");
+                match forget_conversation(cfg, dev_mode).await {
+                    Ok(msg) => {
+                        chat.clear();
+                        chat.push_system(&msg);
+                    }
+                    Err(e) => chat.push_error(&format!("Failed: {e}")),
+                }
+            }
         }
 
         "/sessions" => {

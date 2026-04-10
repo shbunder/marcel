@@ -67,6 +67,10 @@ impl Config {
             self.effective_port(dev_mode)
         )
     }
+
+    pub fn base_url(&self, dev_mode: bool) -> String {
+        format!("http://{}:{}", self.host, self.effective_port(dev_mode))
+    }
 }
 
 fn config_path() -> PathBuf {
