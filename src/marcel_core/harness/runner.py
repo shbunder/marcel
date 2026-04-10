@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from pydantic_ai.usage import UsageLimits
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -25,6 +24,7 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+from pydantic_ai.usage import UsageLimits
 
 from marcel_core.config import settings
 from marcel_core.harness.agent import DEFAULT_MODEL, create_marcel_agent

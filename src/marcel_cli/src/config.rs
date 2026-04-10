@@ -55,8 +55,8 @@ impl Config {
         if dev_mode { self.dev_port } else { self.port }
     }
 
-    pub fn ws_url(&self, dev_mode: bool, use_v2: bool) -> String {
-        let path = if use_v2 { "/v2/chat" } else { "/ws/chat" };
+    pub fn ws_url(&self, dev_mode: bool, _use_v2: bool) -> String {
+        let path = "/ws/chat";
         format!("ws://{}:{}{path}", self.host, self.effective_port(dev_mode))
     }
 
