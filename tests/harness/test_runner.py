@@ -317,18 +317,18 @@ class TestToolResultForContext:
 
     def test_medium_age_truncated(self):
         content = 'x' * 5000
-        result = _tool_result_for_context(content, 'bash', 8)
+        result = _tool_result_for_context(content, 'bash', 5)
         assert len(result) < len(content)
         assert 'truncated' in result
 
     def test_medium_age_small_kept(self):
         content = 'short result'
-        result = _tool_result_for_context(content, 'bash', 8)
+        result = _tool_result_for_context(content, 'bash', 5)
         assert result == content
 
     def test_old_turn_names_only(self):
         content = 'x' * 5000
-        result = _tool_result_for_context(content, 'bash', 20)
+        result = _tool_result_for_context(content, 'bash', 10)
         assert result.startswith('[bash result:')
 
     def test_always_keep_tools(self):

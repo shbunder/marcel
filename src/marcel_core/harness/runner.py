@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+from pydantic_ai import UsageLimits
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -36,23 +37,22 @@ from marcel_core.storage.users import get_user_role
 log = logging.getLogger(__name__)
 
 # Number of recent turns to load as conversation context, per channel.
-# Telegram sessions are long-lived, so we load a generous window.
 _HISTORY_TURNS: dict[str, int] = {
-    'telegram': 50,
+    'telegram': 15,
     'cli': 20,
 }
-_DEFAULT_HISTORY_TURNS = 20
+_DEFAULT_HISTORY_TURNS = 15
 
 # Tool result preview length for older turns
-_TOOL_RESULT_PREVIEW_LEN = 2000
+_TOOL_RESULT_PREVIEW_LEN = 800
 
 # Tools whose results should always be kept in full (regardless of age)
 _ALWAYS_KEEP_TOOLS = frozenset({'memory_search', 'notify'})
 
 # Turns threshold: results in the last N turns are kept in full,
 # older turns get previews, very old turns get names-only.
-_FULL_RESULT_TURNS = 5
-_PREVIEW_RESULT_TURNS = 15
+_FULL_RESULT_TURNS = 3
+_PREVIEW_RESULT_TURNS = 8
 
 
 def _tool_result_for_context(
@@ -387,7 +387,12 @@ async def stream_turn(
     all_messages: list[ModelMessage] = []
 
     try:
-        async with agent.run_stream(user_text, deps=deps, message_history=message_history) as result:
+        async with agent.run_stream(
+            user_text,
+            deps=deps,
+            message_history=message_history,
+            usage_limits=UsageLimits(request_limit=15),
+        ) as result:
             log.debug('[runner] stream started for user=%s', user_slug)
             async for text_delta in result.stream_text(delta=True, debounce_by=0.01):
                 if text_delta:
@@ -403,11 +408,12 @@ async def stream_turn(
 
             usage = result.usage()
             if usage and usage.total_tokens:
-                log.debug(
-                    'Turn complete: %d tokens (input: %d, output: %d)',
+                log.info(
+                    'Turn complete: %d tokens (input: %d, output: %d, requests: %d)',
                     usage.total_tokens,
                     usage.request_tokens,
                     usage.response_tokens,
+                    usage.requests,
                 )
 
     except Exception as exc:
