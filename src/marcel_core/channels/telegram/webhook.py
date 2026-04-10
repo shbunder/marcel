@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_ASSISTANT_TIMEOUT = 600.0
+_ASSISTANT_TIMEOUT = 120.0
 
 # Delay before showing "Working on it..." acknowledgment (seconds).
 _ACK_DELAY = 10.0
@@ -107,10 +107,19 @@ async def _process_assistant_message(
 
         await asyncio.wait_for(_collect(), timeout=_ASSISTANT_TIMEOUT)
     except asyncio.TimeoutError:
-        await _reply(chat_id, 'Sorry, that took too long and I had to give up. Please try again.')
+        partial = ''.join(response_parts).strip()
+        if partial:
+            await _reply(chat_id, partial + '\n\n(response cut short — took too long)')
+        else:
+            await _reply(chat_id, 'Sorry, that took too long and I had to give up. Please try again.')
         return
     except Exception as exc:
-        await _reply(chat_id, f'Sorry, something went wrong: {exc}')
+        log.exception('Error processing message from chat_id=%s', chat_id)
+        partial = ''.join(response_parts).strip()
+        if partial:
+            await _reply(chat_id, partial + '\n\n(response may be incomplete due to an error)')
+        else:
+            await _reply(chat_id, f'Sorry, something went wrong: {exc}')
         return
 
     full_response = ''.join(response_parts)
@@ -126,12 +135,15 @@ async def _process_assistant_message(
 
     # Create an artifact if the response has rich content
     artifact_id: str | None = None
-    if bot.has_rich_content(full_response):
-        from marcel_core.storage.artifacts import ContentType
+    try:
+        if bot.has_rich_content(full_response):
+            from marcel_core.storage.artifacts import ContentType
 
-        content_type: ContentType = bot.detect_content_type(full_response)  # type: ignore[assignment]
-        title = bot.extract_title(full_response)
-        artifact_id = create_artifact(user_slug, conversation_id, content_type, full_response, title)
+            content_type: ContentType = bot.detect_content_type(full_response)  # type: ignore[assignment]
+            title = bot.extract_title(full_response)
+            artifact_id = create_artifact(user_slug, conversation_id, content_type, full_response, title)
+    except Exception:
+        log.exception('Failed to create artifact for chat_id=%s', chat_id)
 
     # --- Format and send ---
     try:
