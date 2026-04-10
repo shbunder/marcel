@@ -1,4 +1,4 @@
-"""WebSocket channel adapter for Marcel v2 harness."""
+"""WebSocket channel adapter for Marcel."""
 
 from __future__ import annotations
 

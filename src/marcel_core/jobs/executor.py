@@ -97,7 +97,7 @@ async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> 
         run.output = result.output
         run.status = RunStatus.COMPLETED
     except Exception as exc:
-        log.exception('Job %s (%s) failed for user %s', job.id, job.name, job.user_slug)
+        log.exception('%s-job: job %s (%s) failed', job.user_slug, job.id, job.name)
         run.error = str(exc)
         run.status = RunStatus.FAILED
 
@@ -113,7 +113,9 @@ async def execute_job_with_retries(job: JobDefinition, trigger_reason: str = 'sc
     attempt = 0
     while run.status == RunStatus.FAILED and attempt < job.max_retries:
         attempt += 1
-        log.info('Retrying job %s (%s), attempt %d/%d', job.id, job.name, attempt, job.max_retries)
+        log.info(
+            '%s-job: retrying job %s (%s) attempt %d/%d', job.user_slug, job.id, job.name, attempt, job.max_retries
+        )
         await asyncio.sleep(job.retry_delay_seconds)
         run = await execute_job(job, trigger_reason)
         run.retry_count = attempt
@@ -148,7 +150,7 @@ async def _notify_if_needed(job: JobDefinition, run: JobRun) -> None:
     if job.channel == 'telegram':
         await _notify_telegram(job.user_slug, message)
     else:
-        log.info('[job-notify] channel=%s user=%s msg=%s', job.channel, job.user_slug, message[:100])
+        log.info('%s-job: notification channel=%s msg=%s', job.user_slug, job.channel, message[:100])
 
 
 async def _notify_telegram(user_slug: str, message: str) -> None:
@@ -161,6 +163,6 @@ async def _notify_telegram(user_slug: str, message: str) -> None:
         if chat_id:
             await bot.send_message(int(chat_id), escape_html(message))
         else:
-            log.warning('[job-notify] No Telegram chat ID for user %s', user_slug)
+            log.warning('%s-job: no Telegram chat ID found', user_slug)
     except Exception:
-        log.exception('[job-notify] Telegram notification failed for user %s', user_slug)
+        log.exception('%s-job: Telegram notification failed', user_slug)

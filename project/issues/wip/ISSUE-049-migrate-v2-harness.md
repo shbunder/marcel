@@ -1,6 +1,6 @@
 # ISSUE-049: Full Migration to v2 Pydantic-AI Harness
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-10
 **Assignee:** Unassigned
 **Priority:** High
@@ -28,20 +28,20 @@ The 9 Playwright browser tools (`navigate`, `screenshot`, `snapshot`, `click`, `
 
 ## Tasks
 
-- [ ] Port browser tools from MCP server to pydantic-ai tools in `harness/agent.py`
-- [ ] Migrate `/ws/chat` (`api/chat.py`) from `stream_response` to `stream_turn` with v2 event mapping
-- [ ] Remove manual history append from `chat.py` (v2 handles this automatically)
-- [ ] Remove `session_manager` startup/cleanup from `main.py` lifespan
-- [ ] Remove `session_manager.reset_user()` call from `telegram/webhook.py` (no-op with v2)
-- [ ] Delete `agent/runner.py` (v1 stream_response)
-- [ ] Delete `agent/sessions.py` (v1 SessionManager + ClaudeSDKClient)
-- [ ] Delete `agent/context.py::build_system_prompt()` (replaced by `harness/context.py`)
-- [ ] Delete `agent/events.py` (AG-UI events, replaced by v2 MarcelEvent types)
-- [ ] Delete `skills/__init__.py::build_skills_mcp_server()` (v2 registers tools directly)
-- [ ] Delete `tools/browser/tools.py::build_browser_mcp_server()` (replaced by pydantic-ai tools)
-- [ ] Update `agent/__init__.py` re-exports
-- [ ] Update or remove tests for deleted code (`test_agent.py`, `test_sessions.py`, `test_agent_events.py`)
-- [ ] Run `make check`
+- [✓] Port browser tools from MCP server to pydantic-ai tools in `harness/agent.py`
+- [✓] Migrate `/ws/chat` (`api/chat.py`) from `stream_response` to `stream_turn` with v2 event mapping
+- [✓] Remove manual history append from `chat.py` (v2 handles this automatically)
+- [✓] Remove `session_manager` startup/cleanup from `main.py` lifespan
+- [✓] Remove `session_manager.reset_user()` call from `telegram/webhook.py` (no-op with v2)
+- [✓] Delete `agent/runner.py` (v1 stream_response)
+- [✓] Delete `agent/sessions.py` (v1 SessionManager + ClaudeSDKClient)
+- [✓] Delete `agent/context.py::build_system_prompt()` (replaced by `harness/context.py`)
+- [✓] Delete `agent/events.py` (AG-UI events, replaced by v2 MarcelEvent types)
+- [✓] Delete `skills/__init__.py::build_skills_mcp_server()` (v2 registers tools directly)
+- [✓] Delete `tools/browser/tools.py::build_browser_mcp_server()` (replaced by pydantic-ai tools)
+- [✓] Update `agent/__init__.py` re-exports
+- [✓] Update or remove tests for deleted code (`test_agent.py`, `test_sessions.py`, `test_agent_events.py`)
+- [✓] Run `make check`
 
 ## Subtasks
 
@@ -54,3 +54,36 @@ The 9 Playwright browser tools (`navigate`, `screenshot`, `snapshot`, `click`, `
 ## Comments
 
 ## Implementation Log
+
+### 2026-04-10 - LLM Implementation
+**Action**: Complete v2 migration — removed claude-agent-sdk dependency, consolidated endpoints, rewrote memory extraction, added consistent logging
+**Files Modified**:
+- `src/marcel_core/agent/memory_extract.py` — rewrote from claude_agent_sdk to pydantic-ai Agent (returns JSON operations applied to disk)
+- `src/marcel_core/agent/__init__.py` — removed memory_select re-export
+- `src/marcel_core/agent/memory_select.py` — deleted (backward-compat shim)
+- `src/marcel_core/api/chat.py` — now the single WebSocket endpoint, added logging
+- `src/marcel_core/api/chat_v2.py` — deleted (was duplicate of chat.py)
+- `src/marcel_core/api/sessions.py` — deleted (session-based model obsolete)
+- `src/marcel_core/api/conversations.py` — renamed /v2/ routes to /api/
+- `src/marcel_core/main.py` — removed v2 routers, legacy migration, added log formatting and health check filter
+- `src/marcel_core/harness/agent.py` — cleaned up log messages
+- `src/marcel_core/harness/runner.py` — removed backward-compat alias, added trace logging
+- `src/marcel_core/memory/summarizer.py` — consistent log format
+- `src/marcel_core/channels/telegram/webhook.py` — trace format logs
+- `src/marcel_core/channels/websocket.py` — removed v2 reference
+- `src/marcel_core/jobs/executor.py` — consistent log format
+- `src/marcel_core/tools/claude_code.py` — removed claude_agent_sdk fallback
+- `src/marcel_core/__init__.py` — version 1.5.0 → 2.0.0
+- `pyproject.toml` — removed claude-agent-sdk dependency, version 2.0.0
+- `uv.lock` — updated (claude-agent-sdk uninstalled)
+- `src/marcel_cli/src/app.rs` — updated /v2/ → /api/ endpoints
+- `tests/core/test_agent.py` — rewrote for pydantic-ai based extraction
+- `tests/core/test_chat_v2.py` — retargeted to /ws/chat endpoint
+- `tests/core/test_agent_memory_select.py` — removed v1 reference
+- `tests/harness/test_runner.py` — updated to use _messages_to_model
+**Result**: 685 tests passing, claude-agent-sdk fully removed
+
+**Reflection**:
+- Coverage: 14/14 tasks addressed (all marked ✓)
+- Shortcuts found: none
+- Scope drift: added logging format improvements and health check filtering (requested by user alongside migration)

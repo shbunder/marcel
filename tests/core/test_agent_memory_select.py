@@ -1,8 +1,4 @@
-"""Tests for memory/selector.py — AI-driven memory selection.
-
-Note: agent/memory_select.py re-exports from memory/selector.py.
-These tests target the canonical implementation directly.
-"""
+"""Tests for memory/selector.py — AI-driven memory selection."""
 
 from __future__ import annotations
 

@@ -72,7 +72,9 @@ def _resolve_model_string(model_name: str) -> str:
     aws_region = settings.aws_region
     if aws_region:
         bedrock_model_id = _BEDROCK_MODEL_MAP.get(model_name, model_name)
-        log.info('resolving model via Bedrock: region=%s model=%s bedrock_id=%s', aws_region, model_name, bedrock_model_id)
+        log.info(
+            'resolving model via Bedrock: region=%s model=%s bedrock_id=%s', aws_region, model_name, bedrock_model_id
+        )
         return f'bedrock:{bedrock_model_id}'
 
     # 2. OpenAI model with API key

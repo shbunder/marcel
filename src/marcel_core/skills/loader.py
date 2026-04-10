@@ -1,10 +1,7 @@
-"""Skill document loader — discovers SKILL.md files from .marcel/skills/ directories.
+"""Skill document loader — discovers SKILL.md files from the data root.
 
-Reads skills from two locations (in order of precedence):
-1. ``~/.marcel/skills/`` — user-level overrides and custom skills
-2. ``<project>/.marcel/skills/`` — built-in skills shipped with Marcel
-
-When a skill exists in both locations, the home directory version wins.
+Skills live at ``<data_root>/skills/`` (``~/.marcel/skills/`` or
+``$MARCEL_DATA_DIR/skills/`` in Docker).
 
 Each integration skill can have a ``SETUP.md`` fallback that activates when
 the integration's requirements are not met (missing credentials, env vars,
@@ -23,18 +20,9 @@ import yaml
 
 log = logging.getLogger(__name__)
 
-# Project root: assumes the loader is at src/marcel_core/skills/loader.py
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_PROJECT_SKILLS = _PROJECT_ROOT / '.marcel' / 'skills'
 
-
-def _home_skills_dir() -> Path:
-    """Return the user-level skills directory.
-
-    Uses ``MARCEL_DATA_DIR`` when set (Docker/production), otherwise falls
-    back to ``~/.marcel/skills/``.  This matches the data-root resolution
-    in ``storage._root``.
-    """
+def _skills_dir() -> Path:
+    """Return the skills directory under the data root."""
     from marcel_core.config import settings
 
     return settings.data_dir / 'skills'
@@ -201,10 +189,9 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
 
 
 def load_skills(user_slug: str) -> list[SkillDoc]:
-    """Discover and load all skills from .marcel/skills/ directories.
+    """Discover and load all skills from the data root skills directory.
 
-    Scans both the project directory and the user's home directory.
-    Home directory skills override project skills with the same name.
+    Scans ``<data_root>/skills/`` for skill directories.
 
     Args:
         user_slug: The user slug, used for per-user requirement checks.
@@ -214,20 +201,11 @@ def load_skills(user_slug: str) -> list[SkillDoc]:
     """
     skills: dict[str, SkillDoc] = {}
 
-    # Load project skills first (base layer)
-    if _PROJECT_SKILLS.is_dir():
-        for entry in sorted(_PROJECT_SKILLS.iterdir()):
+    skills_path = _skills_dir()
+    if skills_path.is_dir():
+        for entry in sorted(skills_path.iterdir()):
             if entry.is_dir() and not entry.name.startswith(('_', '.')):
-                doc = _load_skill_dir(entry, user_slug, source='project')
-                if doc:
-                    skills[doc.name] = doc
-
-    # Load home skills (override layer)
-    home_skills = _home_skills_dir()
-    if home_skills.is_dir():
-        for entry in sorted(home_skills.iterdir()):
-            if entry.is_dir() and not entry.name.startswith(('_', '.')):
-                doc = _load_skill_dir(entry, user_slug, source='home')
+                doc = _load_skill_dir(entry, user_slug, source='data')
                 if doc:
                     skills[doc.name] = doc
 

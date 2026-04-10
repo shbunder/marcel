@@ -1,4 +1,4 @@
-"""WebSocket chat endpoint — uses the pydantic-ai harness.
+"""WebSocket chat endpoint — pydantic-ai harness.
 
 Protocol (defined in docs/architecture.md):
 
@@ -18,6 +18,7 @@ Server → client (in order):
 
 import asyncio
 import json
+import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -32,6 +33,8 @@ from marcel_core.harness.runner import (
     stream_turn,
 )
 from marcel_core.memory.conversation import ensure_channel
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -97,7 +100,7 @@ async def chat(websocket: WebSocket) -> None:
                 conversation_id = f'{channel}-default'
                 await adapter.send_conversation_started(conversation_id)
 
-            # Stream the agent response using pydantic-ai harness
+            # Stream the agent response
             response_parts: list[str] = []
             text_started = False
 
@@ -108,6 +111,7 @@ async def chat(websocket: WebSocket) -> None:
                     text_started = await dispatch_event(adapter, event, text_started=text_started)
 
             except Exception as exc:
+                log.exception('chat: turn execution failed: %s', type(exc).__name__)
                 try:
                     await adapter.send_error(str(exc))
                 except Exception:
@@ -120,4 +124,6 @@ async def chat(websocket: WebSocket) -> None:
             asyncio.create_task(extract_and_save_memories(user_slug, user_text, full_response, conversation_id))
 
     except WebSocketDisconnect:
-        pass
+        log.info('chat: websocket disconnected')
+    except BaseException as exc:
+        log.exception('chat: unexpected error (%s) — websocket will close', type(exc).__name__)

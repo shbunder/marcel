@@ -1,90 +1,105 @@
 """Tests for agent module — memory extraction and selection."""
 
 import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
-import claude_agent_sdk
-from claude_agent_sdk import ResultMessage
-
-from marcel_core.agent.memory_extract import extract_and_save_memories
+from marcel_core.agent.memory_extract import _parse_operations, extract_and_save_memories
 from marcel_core.memory.selector import _parse_selection, select_relevant_memories
 from marcel_core.storage import _root
 
 # ---------------------------------------------------------------------------
-# memory_extract.py — agent-based extraction
+# memory_extract.py — pydantic-ai agent-based extraction
 # ---------------------------------------------------------------------------
 
 
 class TestExtractAndSaveMemories:
-    def test_calls_query_with_correct_options(self, tmp_path, monkeypatch):
+    def test_writes_memory_files(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        captured_kwargs = {}
 
-        async def capture_query(**kwargs):
-            captured_kwargs.update(kwargs)
-            yield ResultMessage(
-                subtype='success',
-                duration_ms=50,
-                duration_api_ms=40,
-                is_error=False,
-                num_turns=1,
-                session_id='extract-1',
-                total_cost_usd=0.001,
-            )
+        mock_result = MagicMock()
+        mock_result.output = '[{"action": "create", "filename": "tea.md", "content": "---\\nname: tea\\ntype: preference\\n---\\nLikes tea."}]'
 
-        monkeypatch.setattr(claude_agent_sdk, 'query', capture_query)
-        asyncio.run(extract_and_save_memories('shaun', 'I like tea', 'Noted!', 'conv-1'))
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(return_value=mock_result)
 
-        # Verify correct model and tools preset.
-        opts = captured_kwargs.get('options')
-        assert opts is not None
-        assert opts.model == 'claude-haiku-4-5-20251001'
-        assert opts.tools == {'type': 'preset', 'preset': 'claude_code'}
-        assert opts.max_turns == 3
-        # CWD should be user's memory dir.
-        expected_cwd = str(tmp_path / 'users' / 'shaun' / 'memory')
-        assert opts.cwd == expected_cwd
-        # Prompt should include the user/assistant text.
-        assert 'I like tea' in captured_kwargs.get('prompt', '')
-        assert 'Noted!' in captured_kwargs.get('prompt', '')
+        with patch('marcel_core.agent.memory_extract.Agent', return_value=mock_agent):
+            asyncio.run(extract_and_save_memories('shaun', 'I like tea', 'Noted!', 'conv-1'))
 
-    def test_includes_manifest_in_system_prompt(self, tmp_path, monkeypatch):
+        # Memory file should be written
+        mem_file = tmp_path / 'users' / 'shaun' / 'memory' / 'tea.md'
+        assert mem_file.exists()
+        assert 'Likes tea' in mem_file.read_text()
+
+    def test_includes_manifest_in_prompt(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         from marcel_core.storage import save_memory_file
 
         save_memory_file('shaun', 'prefs', '---\nname: prefs\ntype: preference\n---\nLikes tea.')
 
-        captured_kwargs = {}
+        captured_prompt = {}
+        mock_result = MagicMock()
+        mock_result.output = '[]'
 
-        async def capture_query(**kwargs):
-            captured_kwargs.update(kwargs)
-            yield ResultMessage(
-                subtype='success',
-                duration_ms=50,
-                duration_api_ms=40,
-                is_error=False,
-                num_turns=1,
-                session_id='s',
-                total_cost_usd=0.001,
-            )
+        mock_agent = MagicMock()
 
-        monkeypatch.setattr(claude_agent_sdk, 'query', capture_query)
-        asyncio.run(extract_and_save_memories('shaun', 'hello', 'hi', 'conv-1'))
+        async def _capture_run(prompt, **kwargs):
+            captured_prompt['text'] = prompt
+            return mock_result
 
-        # System prompt should contain the existing memory manifest.
-        system = captured_kwargs['options'].system_prompt
-        assert 'prefs.md' in system
-        assert '[preference]' in system
+        mock_agent.run = _capture_run
+
+        with patch('marcel_core.agent.memory_extract.Agent', return_value=mock_agent):
+            asyncio.run(extract_and_save_memories('shaun', 'hello', 'hi', 'conv-1'))
+
+        assert 'prefs.md' in captured_prompt['text']
 
     def test_swallows_exceptions(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
-        async def boom(**_):
-            raise RuntimeError('api down')
-            yield  # make it an async generator  # noqa: RET503
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(side_effect=RuntimeError('api down'))
 
-        monkeypatch.setattr(claude_agent_sdk, 'query', boom)
-        # Should not raise
-        asyncio.run(extract_and_save_memories('shaun', 'x', 'y', 'conv-1'))
+        with patch('marcel_core.agent.memory_extract.Agent', return_value=mock_agent):
+            # Should not raise
+            asyncio.run(extract_and_save_memories('shaun', 'x', 'y', 'conv-1'))
+
+    def test_empty_response_no_files(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        mock_result = MagicMock()
+        mock_result.output = '[]'
+
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(return_value=mock_result)
+
+        with patch('marcel_core.agent.memory_extract.Agent', return_value=mock_agent):
+            asyncio.run(extract_and_save_memories('shaun', 'hello', 'hi', 'conv-1'))
+
+        mem_dir = tmp_path / 'users' / 'shaun' / 'memory'
+        if mem_dir.exists():
+            files = list(mem_dir.glob('*.md'))
+            assert len(files) == 0
+
+
+class TestParseOperations:
+    def test_parses_json_array(self):
+        ops = _parse_operations('[{"action": "create", "filename": "test.md", "content": "hello"}]')
+        assert len(ops) == 1
+        assert ops[0]['filename'] == 'test.md'
+
+    def test_handles_empty_array(self):
+        assert _parse_operations('[]') == []
+
+    def test_handles_code_fences(self):
+        response = '```json\n[{"action": "create", "filename": "test.md", "content": "hello"}]\n```'
+        ops = _parse_operations(response)
+        assert len(ops) == 1
+
+    def test_handles_non_json(self):
+        assert _parse_operations('no memories to save') == []
+
+    def test_filters_non_dicts(self):
+        assert _parse_operations('[42, "string", null]') == []
 
 
 # ---------------------------------------------------------------------------

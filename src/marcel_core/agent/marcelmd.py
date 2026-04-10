@@ -6,15 +6,13 @@ code changes (which are read by the inner Claude Code loop).
 
 ## Loading order (lowest to highest priority)
 
-1. ``<project>/.marcel/MARCEL.md`` — global instructions for all users, shipped
-   with the codebase.
-2. ``<data_root>/MARCEL.md`` — server-wide runtime overrides (not tracked in git,
-   for ops-level customisations applied to all users).
-3. ``<data_root>/users/<slug>/MARCEL.md`` — per-user instructions (who this user
+1. ``<data_root>/MARCEL.md`` — global instructions for all users.
+2. ``<data_root>/users/<slug>/MARCEL.md`` — per-user instructions (who this user
    is, preferences, household role).
 
-All discovered files are concatenated; later files take precedence in models
-that weight later context more.
+All files live under the data root (``~/.marcel/`` or ``$MARCEL_DATA_DIR``).
+They are concatenated; later files take precedence in models that weight
+later context more.
 
 ## Separation from CLAUDE.md
 
@@ -38,12 +36,6 @@ def _data_root() -> Path:
     return data_root()
 
 
-def _project_root() -> Path:
-    """Return the Marcel project root."""
-    # src/marcel_core/agent/marcelmd.py → parents[3] = project root
-    return Path(__file__).resolve().parents[3]
-
-
 def load_marcelmd_files(user_slug: str) -> list[tuple[str, str]]:
     """Discover and load all MARCEL.md files for ``user_slug``.
 
@@ -55,7 +47,7 @@ def load_marcelmd_files(user_slug: str) -> list[tuple[str, str]]:
 
     Returns:
         List of (label, content) tuples where label is one of
-        'project', 'server', or 'user'.
+        'global' or 'user'.
     """
     results: list[tuple[str, str]] = []
     seen: set[Path] = set()
@@ -75,14 +67,12 @@ def load_marcelmd_files(user_slug: str) -> list[tuple[str, str]]:
             results.append((label, content))
             log.debug('Loaded MARCEL.md (%s) from %s', label, path)
 
-    # 1. Project-level — global rules for all users, shipped with codebase
-    _add(_project_root() / '.marcel' / 'MARCEL.md', 'project')
-
-    # 2. Server-wide runtime overrides — not tracked in git
     data = _data_root()
-    _add(data / 'MARCEL.md', 'server')
 
-    # 3. Per-user instructions
+    # 1. Global instructions for all users
+    _add(data / 'MARCEL.md', 'global')
+
+    # 2. Per-user instructions
     _add(data / 'users' / user_slug / 'MARCEL.md', 'user')
 
     return results

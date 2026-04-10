@@ -155,62 +155,36 @@ class TestLoadSkillDir:
 
 
 class TestLoadSkills:
-    def test_project_skills_loaded(self, tmp_path, monkeypatch):
+    def test_skills_loaded(self, tmp_path, monkeypatch):
         import marcel_core.skills.loader as loader
 
-        project_skills = tmp_path / 'project' / '.marcel' / 'skills'
-        project_skills.mkdir(parents=True)
-        skill_a = project_skills / 'alpha'
+        skills_dir = tmp_path / 'skills'
+        skills_dir.mkdir(parents=True)
+        skill_a = skills_dir / 'alpha'
         skill_a.mkdir()
         (skill_a / 'SKILL.md').write_text('---\nname: alpha\ndescription: First\n---\n\nAlpha body.')
 
-        monkeypatch.setattr(loader, '_PROJECT_SKILLS', project_skills)
-        monkeypatch.setattr(loader, '_home_skills_dir', lambda: tmp_path / 'nonexistent')
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
 
         docs = load_skills('user')
         assert len(docs) == 1
         assert docs[0].name == 'alpha'
 
-    def test_home_overrides_project(self, tmp_path, monkeypatch):
+    def test_multiple_skills_loaded(self, tmp_path, monkeypatch):
         import marcel_core.skills.loader as loader
 
-        project_skills = tmp_path / 'project' / '.marcel' / 'skills'
-        home_skills = tmp_path / 'home' / '.marcel' / 'skills'
-        project_skills.mkdir(parents=True)
-        home_skills.mkdir(parents=True)
+        skills_dir = tmp_path / 'skills'
+        skills_dir.mkdir(parents=True)
 
-        # Same skill in both locations
-        for base, content in [(project_skills, 'Project version'), (home_skills, 'Home version')]:
-            d = base / 'shared'
-            d.mkdir()
-            (d / 'SKILL.md').write_text(f'---\nname: shared\n---\n\n{content}')
-
-        monkeypatch.setattr(loader, '_PROJECT_SKILLS', project_skills)
-        monkeypatch.setattr(loader, '_home_skills_dir', lambda: home_skills)
-
-        docs = load_skills('user')
-        assert len(docs) == 1
-        assert docs[0].content == 'Home version'
-        assert docs[0].source == 'home'
-
-    def test_skills_merged_from_both_dirs(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-
-        project_skills = tmp_path / 'project' / '.marcel' / 'skills'
-        home_skills = tmp_path / 'home' / '.marcel' / 'skills'
-        project_skills.mkdir(parents=True)
-        home_skills.mkdir(parents=True)
-
-        d1 = project_skills / 'alpha'
+        d1 = skills_dir / 'alpha'
         d1.mkdir()
         (d1 / 'SKILL.md').write_text('---\nname: alpha\n---\n\nAlpha.')
 
-        d2 = home_skills / 'beta'
+        d2 = skills_dir / 'beta'
         d2.mkdir()
         (d2 / 'SKILL.md').write_text('---\nname: beta\n---\n\nBeta.')
 
-        monkeypatch.setattr(loader, '_PROJECT_SKILLS', project_skills)
-        monkeypatch.setattr(loader, '_home_skills_dir', lambda: home_skills)
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
 
         docs = load_skills('user')
         assert len(docs) == 2
@@ -221,14 +195,13 @@ class TestLoadSkills:
     def test_hidden_dirs_skipped(self, tmp_path, monkeypatch):
         import marcel_core.skills.loader as loader
 
-        project_skills = tmp_path / 'project' / '.marcel' / 'skills'
-        project_skills.mkdir(parents=True)
-        hidden = project_skills / '.hidden'
+        skills_dir = tmp_path / 'skills'
+        skills_dir.mkdir(parents=True)
+        hidden = skills_dir / '.hidden'
         hidden.mkdir()
         (hidden / 'SKILL.md').write_text('---\nname: hidden\n---\n\nShould not load.')
 
-        monkeypatch.setattr(loader, '_PROJECT_SKILLS', project_skills)
-        monkeypatch.setattr(loader, '_home_skills_dir', lambda: tmp_path / 'nonexistent')
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
 
         docs = load_skills('user')
         assert len(docs) == 0
@@ -328,45 +301,24 @@ class TestLoadSkillsEdgeCases:
         """A visible skill dir with no SKILL.md or SETUP.md is skipped (doc is None)."""
         import marcel_core.skills.loader as loader
 
-        project_skills = tmp_path / '.marcel' / 'skills'
-        project_skills.mkdir(parents=True)
-        # Valid dir but empty — _load_skill_dir returns None
-        (project_skills / 'empty-skill').mkdir()
-        # Also add a valid one
-        valid = project_skills / 'valid'
+        skills_dir = tmp_path / 'skills'
+        skills_dir.mkdir(parents=True)
+        (skills_dir / 'empty-skill').mkdir()
+        valid = skills_dir / 'valid'
         valid.mkdir()
         (valid / 'SKILL.md').write_text('---\nname: valid\n---\n\nContent.')
 
-        monkeypatch.setattr(loader, '_PROJECT_SKILLS', project_skills)
-        monkeypatch.setattr(loader, '_home_skills_dir', lambda: tmp_path / 'nonexistent')
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
 
         docs = load_skills('user')
         assert len(docs) == 1
         assert docs[0].name == 'valid'
 
-    def test_empty_home_skill_dir_skipped(self, tmp_path, monkeypatch):
-        """Empty skill dir in home directory is skipped."""
+    def test_nonexistent_skills_dir_skipped(self, tmp_path, monkeypatch):
+        """If skills dir doesn't exist, no error."""
         import marcel_core.skills.loader as loader
 
-        home_skills = tmp_path / 'home' / '.marcel' / 'skills'
-        home_skills.mkdir(parents=True)
-        (home_skills / 'empty-home').mkdir()
-        (home_skills / 'valid-home').mkdir()
-        (home_skills / 'valid-home' / 'SKILL.md').write_text('---\nname: valid-home\n---\n\nContent.')
-
-        monkeypatch.setattr(loader, '_PROJECT_SKILLS', tmp_path / 'nonexistent')
-        monkeypatch.setattr(loader, '_home_skills_dir', lambda: home_skills)
-
-        docs = load_skills('user')
-        assert len(docs) == 1
-        assert docs[0].name == 'valid-home'
-
-    def test_nonexistent_project_skills_dir_skipped(self, tmp_path, monkeypatch):
-        """If project skills dir doesn't exist, no error."""
-        import marcel_core.skills.loader as loader
-
-        monkeypatch.setattr(loader, '_PROJECT_SKILLS', tmp_path / 'nonexistent')
-        monkeypatch.setattr(loader, '_home_skills_dir', lambda: tmp_path / 'also-nonexistent')
+        monkeypatch.setattr(loader, '_skills_dir', lambda: tmp_path / 'nonexistent')
 
         docs = load_skills('user')
         assert docs == []
@@ -375,14 +327,13 @@ class TestLoadSkillsEdgeCases:
         """Dirs starting with _ should be skipped."""
         import marcel_core.skills.loader as loader
 
-        project_skills = tmp_path / '.marcel' / 'skills'
-        project_skills.mkdir(parents=True)
-        hidden = project_skills / '_internal'
+        skills_dir = tmp_path / 'skills'
+        skills_dir.mkdir(parents=True)
+        hidden = skills_dir / '_internal'
         hidden.mkdir()
         (hidden / 'SKILL.md').write_text('---\nname: internal\n---\n\nInternal.')
 
-        monkeypatch.setattr(loader, '_PROJECT_SKILLS', project_skills)
-        monkeypatch.setattr(loader, '_home_skills_dir', lambda: tmp_path / 'nonexistent')
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
 
         docs = load_skills('user')
         assert docs == []

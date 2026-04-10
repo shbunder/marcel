@@ -52,16 +52,6 @@ def _claude_binary() -> str:
         if found:
             return found
 
-    # Fall back to the SDK-bundled binary (inside the claude_agent_sdk package)
-    try:
-        import claude_agent_sdk  # noqa: F811
-
-        bundled = Path(claude_agent_sdk.__file__).parent / '_bundled' / 'claude'
-        if bundled.is_file():
-            return str(bundled)
-    except Exception:
-        pass
-
     return 'claude'  # will raise FileNotFoundError at runtime if missing
 
 
@@ -105,12 +95,7 @@ async def claude_code(
         Claude Code's final output, or ``PAUSED:{session_id}:{question}`` if Claude
         Code needs user input before it can continue.
     """
-    log.info(
-        '[claude_code] user=%s resume=%s task=%.100s',
-        ctx.deps.user_slug,
-        resume_session,
-        task,
-    )
+    log.info('delegating to claude_code: user=%s resume=%s task=%.100s', ctx.deps.user_slug, resume_session, task)
 
     binary = _claude_binary()
     cmd = [binary, '-p']
@@ -138,7 +123,7 @@ async def claude_code(
             'Install: npm install -g @anthropic-ai/claude-code'
         )
     except Exception as exc:
-        log.exception('[claude_code] failed to start subprocess')
+        log.exception('claude_code: failed to start subprocess')
         return f'Error starting Claude Code: {exc}'
 
     session_id: str | None = None
@@ -190,7 +175,7 @@ async def claude_code(
                         elif btype == 'tool_use' and block.get('name') == 'AskUserQuestion':
                             question = block.get('input', {}).get('question', '').strip()
                             if question and session_id:
-                                log.info('[claude_code] question from Claude Code: %s', question)
+                                log.info('claude_code paused — question: %s', question)
                                 proc.kill()
                                 return f'{PAUSED_PREFIX}{session_id}:{question}'
 
@@ -222,7 +207,7 @@ async def claude_code(
             except asyncio.TimeoutError:
                 pass
         err = stderr_data.decode('utf-8', errors='replace').strip()
-        log.warning('[claude_code] exit %d stderr=%s', proc.returncode, err[:200])
+        log.warning('claude_code: exit %d stderr=%s', proc.returncode, err[:200])
 
     output = result_text or '(no output from Claude Code)'
     if len(output) > MAX_OUTPUT_LENGTH:

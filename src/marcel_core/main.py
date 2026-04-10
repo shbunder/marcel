@@ -11,20 +11,38 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from marcel_core import __version__
 from marcel_core.config import settings
 
-# Configure application-level logging so marcel_core.* loggers are visible.
+# Configure application-level logging.
+# Format: [LOG-TYPE] [timestamp] module: message
+_LOG_FORMAT = '[%(levelname)-8s] [%(asctime)s] %(name)s: %(message)s'
+_LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s %(name)s %(levelname)s: %(message)s',
+    format=_LOG_FORMAT,
+    datefmt=_LOG_DATE_FORMAT,
 )
+
+
+# Suppress noisy health-check spam from uvicorn access logs
+class _HealthCheckFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return '/health' not in msg
+
+
+logging.getLogger('uvicorn.access').addFilter(_HealthCheckFilter())
+
+# Quieten noisy third-party loggers
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('httpcore').setLevel(logging.WARNING)
 
 from marcel_core.api.artifacts import router as artifacts_router
 from marcel_core.api.chat import router as chat_router
-from marcel_core.api.chat_v2 import router as chat_v2_router
 from marcel_core.api.conversations import router as conversations_router
 from marcel_core.api.health import router as health_router
-from marcel_core.api.sessions import router as sessions_router
 from marcel_core.channels.telegram import router as telegram_router
 from marcel_core.jobs.scheduler import scheduler
 from marcel_core.skills.integrations.banking.sync import start_sync_loop, stop_sync_loop
@@ -98,37 +116,33 @@ async def _background_summarization_loop() -> None:
                     channel = channel_dir.name
                     idle_minutes = cfg.marcel_idle_summarize_minutes
                     if is_idle(user_slug, channel, idle_minutes) and has_active_content(user_slug, channel):
-                        log.info('[bg-summarizer] Summarizing idle channel %s/%s', user_slug, channel)
+                        log.info('%s-%s: background idle summarization triggered', user_slug, channel)
                         await summarize_active_segment(user_slug, channel, trigger='idle')
         except Exception:
-            log.exception('[bg-summarizer] Error in background summarization loop')
+            log.exception('background summarization loop error')
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Migrate any legacy history.jsonl files to per-session files
-    from marcel_core.memory.history import migrate_legacy_history
+    log.info('main: starting Marcel v%s', __version__)
+
+    # Seed default MARCEL.md and skills if not present
+    from marcel_core.defaults import seed_defaults
     from marcel_core.storage._root import data_root
 
-    users_dir = data_root() / 'users'
-    if users_dir.exists():
-        for user_dir in users_dir.iterdir():
-            if user_dir.is_dir() and not user_dir.name.startswith('_'):
-                legacy = user_dir / 'history.jsonl'
-                if legacy.exists():
-                    count = migrate_legacy_history(user_dir.name, default_channel='telegram')
-                    if count:
-                        log.info('Migrated %d sessions for user %s', count, user_dir.name)
+    seed_defaults(data_root())
 
     restart_task = asyncio.create_task(_restart_watcher())
     summarize_task = asyncio.create_task(_background_summarization_loop())
     start_sync_loop()
     scheduler.start()
+    log.info('main: all background tasks started')
     yield
     scheduler.stop()
     stop_sync_loop()
     summarize_task.cancel()
     restart_task.cancel()
+    log.info('main: shutdown complete')
 
 
 app = FastAPI(title='Marcel', lifespan=lifespan)
@@ -145,14 +159,12 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(artifacts_router)
 app.include_router(chat_router)
-app.include_router(chat_v2_router)  # v2 harness endpoint (pydantic-ai)
 app.include_router(conversations_router)
-app.include_router(sessions_router)  # v2 session management
 app.include_router(telegram_router)
 
 # Serve the built web frontend (SPA) if it exists
 _WEB_DIST = Path(__file__).resolve().parent.parent / 'web' / 'dist'
-_API_PREFIXES = ('ws', 'v2', 'health', 'conversations', 'telegram', 'api')
+_API_PREFIXES = ('ws', 'health', 'conversations', 'telegram', 'api')
 
 if _WEB_DIST.is_dir():
     _assets_dir = _WEB_DIST / 'assets'
