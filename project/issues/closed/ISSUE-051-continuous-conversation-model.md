@@ -1,6 +1,6 @@
 # ISSUE-051: Continuous Conversation Model
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-10
 **Assignee:** Claude
 **Priority:** High
@@ -85,3 +85,22 @@ Key changes:
 - `tests/harness/test_runner.py` — Updated for segment-based storage and aggressive tool lifecycle
 **Commands Run**: `make check`
 **Result**: 679 tests pass, all linting/typecheck clean
+
+### 2026-04-10 — CLI continuous conversation + polish
+**Action**: CLI now loads conversation history on startup; /forget and /new trigger server-side compaction; API routes renamed
+**Files Created**:
+- `GET /api/history` endpoint — returns active segment + rolling summary for CLI startup
+- `POST /api/forget` endpoint — triggers server-side summarization from CLI
+**Files Modified**:
+- `src/marcel_cli/src/app.rs` — Auto-load history on startup; /new and /forget call server-side compaction; welcome only shown when no history
+- `src/marcel_cli/src/config.rs` — Added `base_url()` helper
+- `src/marcel_core/api/conversations.py` — Added /api/history and /api/forget endpoints
+- `src/marcel_core/memory/summarizer.py` — Log format cleanup
+- `src/marcel_core/harness/runner.py` — Removed backward-compat alias, log format cleanup
+**Commands Run**: `make check`
+**Result**: 685 tests pass, all checks clean
+
+**Reflection**:
+- Coverage: 6/6 original requirements addressed — (1) active conversation in full context via active segment, (2) tool calls trimmed to current+previous turn, (3) idle summarization at 1 hour, (4) memory skill with conversation_search/memory_search/compact_now, (5) /forget command on Telegram and CLI, (6) segmented storage with 500KB/500msg rotation
+- Shortcuts found: none — old compactor.py and history.py session functions are dead code but left for backward compat during migration period
+- Scope drift: added CLI history loading and REST endpoints for /api/history and /api/forget — requested by user as follow-up ("let's update the CLI to have the same behaviour")
