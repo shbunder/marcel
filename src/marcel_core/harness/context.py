@@ -23,6 +23,11 @@ CHANNEL_FORMAT_HINTS: dict[str, str] = {
         'what you are doing. Never go silent for more than a few seconds.'
     ),
     'websocket': 'Use rich markdown. Streaming is supported, so you can send progressive updates.',
+    'job': (
+        'You are running as a background job. Be concise and factual. '
+        'Use the notify tool to send results to the user. '
+        'Do not use markdown formatting — plain text only.'
+    ),
 }
 
 

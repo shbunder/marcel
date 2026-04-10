@@ -11,6 +11,7 @@ from pydantic_ai import Agent
 
 from marcel_core.config import settings
 from marcel_core.harness.context import MarcelDeps
+from marcel_core.jobs import tool as job_tools
 from marcel_core.tools import claude_code as claude_code_tool, core as core_tools, integration as integration_tools
 
 log = logging.getLogger(__name__)
@@ -147,6 +148,15 @@ def create_marcel_agent(
     agent.tool(integration_tools.integration)
     agent.tool(integration_tools.memory_search)
     agent.tool(integration_tools.notify)
+
+    # Job management tools
+    agent.tool(job_tools.create_job)
+    agent.tool(job_tools.list_jobs)
+    agent.tool(job_tools.get_job)
+    agent.tool(job_tools.update_job)
+    agent.tool(job_tools.delete_job)
+    agent.tool(job_tools.run_job_now)
+    agent.tool(job_tools.job_templates)
 
     log.info('Created Marcel agent with model=%s role=%s', model, role)
     return agent

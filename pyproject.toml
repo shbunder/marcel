@@ -27,6 +27,7 @@ dependencies = [
     "caldav>=3.1.0",
     "vobject>=0.9.9",
     "cryptography>=44.0.0",
+    "croniter>=2.0.0",
 ]
 
 [project.optional-dependencies]

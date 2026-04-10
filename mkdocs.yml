@@ -11,6 +11,7 @@ nav:
   - Storage: storage.md
   - Self-Modification: self-modification.md
   - Skills: skills.md
+  - Jobs: jobs.md
   - CLI: cli.md
   - Integrations:
     - Banking: integration-banking.md
