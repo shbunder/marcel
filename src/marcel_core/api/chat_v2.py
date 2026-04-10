@@ -22,8 +22,7 @@ from marcel_core.harness.runner import (
     TextDelta,
     stream_turn,
 )
-from marcel_core.memory.compactor import check_and_compact
-from marcel_core.memory.history import create_session
+from marcel_core.memory.conversation import ensure_channel
 
 log = logging.getLogger(__name__)
 
@@ -88,14 +87,11 @@ async def chat_v2(websocket: WebSocket) -> None:
                 await adapter.send_error('Empty message')
                 continue
 
-            # Start a new conversation if none was provided
+            # Ensure continuous conversation exists for this channel
             if conversation_id is None:
-                meta = create_session(user_slug, channel)
-                conversation_id = meta.session_id
+                ensure_channel(user_slug, channel)
+                conversation_id = f'{channel}-default'
                 await adapter.send_conversation_started(conversation_id)
-
-            # Check if compaction is needed before processing
-            asyncio.create_task(check_and_compact(user_slug, conversation_id))
 
             # Stream the agent response using new harness
             response_parts: list[str] = []

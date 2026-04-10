@@ -1,19 +1,16 @@
-"""Telegram session state: maps chat IDs to Marcel users and active conversations.
+"""Telegram session state: maps chat IDs to Marcel users and tracks activity.
 
 User linking is stored per-user in ``data/users/{slug}/telegram.json``::
 
     {"chat_id": "556632386"}
 
 This keeps Telegram config with the rest of the user's data. To link a user,
-call :func:`link_user`. Session state is persisted per-chat in
-``data/telegram/sessions.json`` so conversation context survives server restarts.
+call :func:`link_user`.
 
-Session state per chat::
-
-    {
-        "conversation_id": "2026-03-29T14-00",
-        "last_message_at": "2026-03-29T14:32:00"
-    }
+Conversation model: one continuous conversation per channel. No session
+creation/destruction — the conversation lives forever, segmented and
+summarized by the idle summarization system. Session state only tracks
+the last-message timestamp (for idle detection).
 """
 
 from __future__ import annotations
@@ -26,16 +23,10 @@ from pydantic import BaseModel
 from marcel_core.storage._atomic import atomic_write
 from marcel_core.storage._root import data_root
 
-# Hours of inactivity after which a new conversation is started automatically.
-# Set high (48h) so Telegram feels like one continuous conversation.
-# New sessions are created explicitly via /new or on Marcel restart.
-AUTO_NEW_HOURS = 48
-
 
 class SessionState(BaseModel):
     """Per-chat Telegram session state."""
 
-    conversation_id: str | None = None
     last_message_at: str | None = None
 
 
@@ -57,9 +48,10 @@ def _load_sessions() -> dict[str, SessionState]:
     sessions: dict[str, SessionState] = {}
     for key, value in raw.items():
         if isinstance(value, str):
-            sessions[key] = SessionState(conversation_id=value)
+            # Legacy format: bare conversation_id string — just keep timestamp
+            sessions[key] = SessionState()
         elif isinstance(value, dict):
-            sessions[key] = SessionState.model_validate(value)
+            sessions[key] = SessionState(last_message_at=value.get('last_message_at'))
         # Skip malformed entries
     return sessions
 
@@ -138,46 +130,6 @@ def get_chat_id(user_slug: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def get_conversation_id(chat_id: int | str) -> str | None:
-    """Return the active conversation ID for a chat, or None if none exists."""
-    return _get_state(chat_id).conversation_id
-
-
-def set_conversation_id(chat_id: int | str, conversation_id: str) -> None:
-    """Persist the active conversation ID for a chat."""
-    _update_state(chat_id, conversation_id=conversation_id)
-
-
 def touch_last_message(chat_id: int | str) -> None:
     """Update the last-message timestamp for a chat to now (UTC)."""
     _update_state(chat_id, last_message_at=datetime.now(timezone.utc).isoformat())
-
-
-def should_auto_new(chat_id: int | str) -> bool:
-    """Return True if the chat has been inactive for longer than AUTO_NEW_HOURS."""
-    last = _get_state(chat_id).last_message_at
-    if not last:
-        return False
-    try:
-        last_dt = datetime.fromisoformat(last)
-    except ValueError:
-        return False
-    elapsed = datetime.now(timezone.utc) - last_dt
-    return elapsed.total_seconds() > AUTO_NEW_HOURS * 3600
-
-
-def reset_session(chat_id: int | str) -> None:
-    """Clear conversation — used by /new command."""
-    _update_state(chat_id, conversation_id=None)
-
-
-def clear_all_sessions() -> None:
-    """Clear all conversation IDs — called on Marcel startup.
-
-    Preserves user linking (chat_id → user_slug) but resets conversation
-    state so every user starts a fresh session after a restart.
-    """
-    sessions = _load_sessions()
-    for state in sessions.values():
-        state.conversation_id = None
-    _save_sessions(sessions)

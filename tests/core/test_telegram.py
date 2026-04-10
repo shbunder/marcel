@@ -1,12 +1,11 @@
 """Tests for Telegram channel integration.
 
 Covers bot.py (escape helpers), sessions.py (state management),
-and webhook.py (routing, /start, /new commands).
+and webhook.py (routing, /start, /forget commands).
 """
 
 import asyncio
 import json
-from datetime import datetime, timedelta, timezone
 
 import respx
 from fastapi.testclient import TestClient
@@ -53,7 +52,7 @@ class TestEscapeMarkdownV2:
 
 
 # ---------------------------------------------------------------------------
-# sessions.py — state management
+# sessions.py — state management (simplified: no more conversation IDs)
 # ---------------------------------------------------------------------------
 
 
@@ -98,36 +97,20 @@ class TestGetUserSlug:
         assert data['chat_id'] == '556632386'
 
 
-class TestConversationState:
-    def test_returns_none_when_no_session(self, tmp_path, monkeypatch):
+class TestTouchLastMessage:
+    def test_sets_last_message_at(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        assert sessions.get_conversation_id(999) is None
-
-    def test_set_and_get_conversation(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        sessions.set_conversation_id(123, '2026-03-29T12-00')
-        assert sessions.get_conversation_id(123) == '2026-03-29T12-00'
+        sessions.touch_last_message(123)
+        state = sessions._get_state(123)
+        assert state.last_message_at is not None
 
     def test_persists_across_reloads(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        sessions.set_conversation_id(456, 'conv-abc')
+        sessions.touch_last_message(456)
         # Verify the file was actually written
         sessions_path = tmp_path / 'telegram' / 'sessions.json'
         data = json.loads(sessions_path.read_text())
-        assert data['456']['conversation_id'] == 'conv-abc'
-
-    def test_multiple_chats_independent(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        sessions.set_conversation_id(1, 'conv-1')
-        sessions.set_conversation_id(2, 'conv-2')
-        assert sessions.get_conversation_id(1) == 'conv-1'
-        assert sessions.get_conversation_id(2) == 'conv-2'
-
-    def test_overwrites_existing_conversation(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        sessions.set_conversation_id(1, 'old-conv')
-        sessions.set_conversation_id(1, 'new-conv')
-        assert sessions.get_conversation_id(1) == 'new-conv'
+        assert 'last_message_at' in data['456']
 
 
 # ---------------------------------------------------------------------------
@@ -276,45 +259,17 @@ class TestTelegramWebhook:
         assert resp.json() == {'status': 'ok'}
 
 
-# ---------------------------------------------------------------------------
-# sessions.py — auto-new on inactivity
-# ---------------------------------------------------------------------------
-
-
-class TestAutoNewOnInactivity:
-    def test_no_last_message_returns_false(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        assert sessions.should_auto_new(123) is False
-
-    def test_recent_message_returns_false(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        sessions.touch_last_message(123)
-        assert sessions.should_auto_new(123) is False
-
-    def test_old_message_returns_true(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        # Write a timestamp 49 hours ago (AUTO_NEW_HOURS is 48)
-        old_time = (datetime.now(timezone.utc) - timedelta(hours=49)).isoformat()
-        sessions._update_state(123, last_message_at=old_time)
-        assert sessions.should_auto_new(123) is True
-
-    def test_exactly_at_threshold_returns_false(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        # Write a timestamp just below 48h
-        recent_time = (datetime.now(timezone.utc) - timedelta(hours=47, minutes=59)).isoformat()
-        sessions._update_state(123, last_message_at=recent_time)
-        assert sessions.should_auto_new(123) is False
-
-
 class TestLegacySessionMigration:
     def test_migrates_string_value_to_session_state(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        # Write legacy format directly
+        # Write legacy format directly — should migrate cleanly
         sessions_path = tmp_path / 'telegram' / 'sessions.json'
         sessions_path.parent.mkdir(parents=True, exist_ok=True)
         sessions_path.write_text(json.dumps({'123': 'old-conv-id'}))
 
-        assert sessions.get_conversation_id(123) == 'old-conv-id'
+        # Should not crash when loading legacy format
+        state = sessions._get_state(123)
+        assert state.last_message_at is None  # Legacy string had no timestamp
 
     def test_migrates_dict_with_legacy_coder_fields(self, tmp_path, monkeypatch):
         """Legacy sessions with coder fields should be migrated cleanly."""
@@ -333,41 +288,35 @@ class TestLegacySessionMigration:
                 }
             )
         )
-        assert sessions.get_conversation_id(123) == 'conv-1'
+        state = sessions._get_state(123)
+        assert state.last_message_at == '2026-03-29T14:32:00'
 
 
-class TestClearAllSessions:
-    def test_clears_conversation_ids(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        sessions.set_conversation_id(111, 'conv-a')
-        sessions.set_conversation_id(222, 'conv-b')
-        sessions.clear_all_sessions()
-        assert sessions.get_conversation_id(111) is None
-        assert sessions.get_conversation_id(222) is None
-
-    def test_preserves_last_message_at(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        sessions.set_conversation_id(111, 'conv-a')
-        sessions.touch_last_message(111)
-        sessions.clear_all_sessions()
-        # last_message_at should still be set
-        state = sessions._get_state(111)
-        assert state.last_message_at is not None
-
-    def test_noop_when_no_sessions(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        # Should not raise
-        sessions.clear_all_sessions()
-
-
-class TestNewCommand:
+class TestForgetCommand:
     @respx.mock
-    def test_new_command_resets_session(self, tmp_path, monkeypatch):
+    def test_forget_command_responds(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         monkeypatch.setattr(settings, 'telegram_bot_token', 'test-token')
         monkeypatch.setattr(settings, 'telegram_webhook_secret', 'test-secret')
         sessions.link_user('shaun', 555)
-        sessions.set_conversation_id(555, 'old-conv')
+
+        # No active content — should reply "nothing to compress"
+        respx.post('https://api.telegram.org/bottest-token/sendMessage').mock(
+            return_value=Response(200, json={'ok': True})
+        )
+
+        client = TestClient(app)
+        resp = client.post('/telegram/webhook', json=_make_update(555, '/forget'), headers=_WEBHOOK_HEADERS)
+        assert resp.status_code == 200
+        assert resp.json() == {'status': 'ok'}
+
+    @respx.mock
+    def test_new_command_acts_as_forget(self, tmp_path, monkeypatch):
+        """The /new command should behave identically to /forget."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(settings, 'telegram_bot_token', 'test-token')
+        monkeypatch.setattr(settings, 'telegram_webhook_secret', 'test-secret')
+        sessions.link_user('shaun', 555)
 
         respx.post('https://api.telegram.org/bottest-token/sendMessage').mock(
             return_value=Response(200, json={'ok': True})
@@ -376,4 +325,4 @@ class TestNewCommand:
         client = TestClient(app)
         resp = client.post('/telegram/webhook', json=_make_update(555, '/new'), headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
-        assert sessions.get_conversation_id(555) is None
+        assert resp.json() == {'status': 'ok'}

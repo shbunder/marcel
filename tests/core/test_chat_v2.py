@@ -24,10 +24,6 @@ def _mock_v2_stream(monkeypatch, tokens: list[str], cost: float | None = None):
         'marcel_core.api.chat_v2.extract_and_save_memories',
         lambda *a, **k: asyncio.sleep(0),
     )
-    monkeypatch.setattr(
-        'marcel_core.api.chat_v2.check_and_compact',
-        lambda *a, **k: asyncio.sleep(0),
-    )
 
 
 class TestChatV2WebSocket:
@@ -113,7 +109,7 @@ class TestChatV2WebSocket:
 
         monkeypatch.setattr('marcel_core.api.chat_v2.stream_turn', fake_stream)
         monkeypatch.setattr('marcel_core.api.chat_v2.extract_and_save_memories', lambda *a, **k: asyncio.sleep(0))
-        monkeypatch.setattr('marcel_core.api.chat_v2.check_and_compact', lambda *a, **k: asyncio.sleep(0))
+        # check_and_compact removed — idle summarization now handled by runner.build_context()
 
         with TestClient(app).websocket_connect('/v2/chat') as ws:
             ws.send_text(json.dumps({'text': 'run bash', 'user': 'shaun', 'conversation': None}))
@@ -148,7 +144,7 @@ class TestChatV2WebSocket:
 
         monkeypatch.setattr('marcel_core.api.chat_v2.stream_turn', boom)
         monkeypatch.setattr('marcel_core.api.chat_v2.extract_and_save_memories', lambda *a, **k: asyncio.sleep(0))
-        monkeypatch.setattr('marcel_core.api.chat_v2.check_and_compact', lambda *a, **k: asyncio.sleep(0))
+        # check_and_compact removed — idle summarization now handled by runner.build_context()
 
         with TestClient(app).websocket_connect('/v2/chat') as ws:
             ws.send_text(json.dumps({'text': 'hi', 'user': 'shaun', 'conversation': None}))

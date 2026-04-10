@@ -117,6 +117,98 @@ async def memory_search(
     return '\n'.join(lines).strip()
 
 
+async def conversation_search(
+    ctx: RunContext[MarcelDeps],
+    query: str,
+    max_results: int = 5,
+) -> str:
+    """Search past conversation history by keyword.
+
+    Use this when you need to recall a past discussion, find something the user
+    mentioned before, or look up context from earlier in the conversation.
+
+    This searches across all sealed (summarized) conversation segments, not just
+    the current active segment. Returns matching messages with surrounding context.
+
+    Examples:
+    - User: "Remember when we talked about the dentist?"
+    - User: "What was that restaurant you recommended?"
+    - User: "What did we decide about the kitchen renovation?"
+
+    Args:
+        ctx: Agent context.
+        query: Search query (keywords to match against conversation history).
+        max_results: Maximum number of results to return (default: 5).
+
+    Returns:
+        Matching conversation excerpts with surrounding context.
+    """
+    from marcel_core.memory.conversation import search_conversations
+
+    log.info('[conversation_search] user=%s query=%s', ctx.deps.user_slug, query)
+
+    results = search_conversations(
+        ctx.deps.user_slug,
+        ctx.deps.channel,
+        query,
+        max_results=max_results,
+    )
+
+    if not results:
+        return f'No past conversation found matching "{query}".'
+
+    lines: list[str] = []
+    for entry, context_msgs in results:
+        lines.append(f'### Match in {entry.segment} ({entry.timestamp[:10]})')
+        for msg in context_msgs:
+            role = 'User' if msg.role == 'user' else 'Marcel' if msg.role == 'assistant' else msg.role
+            text = msg.text or '(no text)'
+            if len(text) > 300:
+                text = text[:300] + '...'
+            marker = '→ ' if msg.text and query.lower() in msg.text.lower() else '  '
+            lines.append(f'{marker}{role}: {text}')
+        lines.append('')
+
+    return '\n'.join(lines).strip()
+
+
+async def compact_now(ctx: RunContext[MarcelDeps]) -> str:
+    """Manually compress the current conversation segment into a summary.
+
+    Use this when the conversation topic has shifted significantly, the context
+    feels cluttered, or the user explicitly asks to compress/compact the conversation.
+
+    This seals the current segment, generates a summary via a fast model, and
+    opens a new active segment. The summary becomes part of the rolling context.
+
+    Returns:
+        Confirmation with what was preserved in the summary.
+    """
+    from marcel_core.memory.summarizer import summarize_active_segment
+
+    log.info('[compact_now] user=%s channel=%s', ctx.deps.user_slug, ctx.deps.channel)
+
+    success = await summarize_active_segment(
+        ctx.deps.user_slug,
+        ctx.deps.channel,
+        trigger='manual',
+    )
+
+    if success:
+        from marcel_core.memory.conversation import load_latest_summary
+
+        summary = load_latest_summary(ctx.deps.user_slug, ctx.deps.channel)
+        if summary:
+            return (
+                f'Conversation compressed. Summary of {summary.message_count} messages '
+                f'({summary.time_span_from.strftime("%H:%M")}–{summary.time_span_to.strftime("%H:%M")}):\n\n'
+                f'{summary.summary}'
+            )
+        return 'Conversation compressed successfully.'
+
+    return 'Nothing to compress — the current conversation segment is empty or compaction failed.'
+
+
 async def notify(ctx: RunContext[MarcelDeps], message: str) -> str:
     """Send a short progress update to the user mid-task.
 

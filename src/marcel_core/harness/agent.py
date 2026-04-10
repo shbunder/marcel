@@ -170,9 +170,11 @@ def create_marcel_agent(
         agent.tool(core_tools.git_push)
         agent.tool(claude_code_tool.claude_code)
 
-    # All users get integration dispatch, memory search, and notifications
+    # All users get integration dispatch, memory tools, and notifications
     agent.tool(integration_tools.integration)
     agent.tool(integration_tools.memory_search)
+    agent.tool(integration_tools.conversation_search)
+    agent.tool(integration_tools.compact_now)
     agent.tool(integration_tools.notify)
 
     # Job management tools

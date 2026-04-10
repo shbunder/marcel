@@ -2,7 +2,7 @@
 
 Replaces the old agent/runner.py which used ClaudeSDKClient sessions.
 This version creates a stateless agent per turn, building context from
-JSONL history and dynamically selected memories.
+segment-based conversation history and dynamically selected memories.
 """
 
 from __future__ import annotations
@@ -27,32 +27,32 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
+from marcel_core.config import settings
 from marcel_core.harness.agent import DEFAULT_MODEL, create_marcel_agent
 from marcel_core.harness.context import MarcelDeps
-from marcel_core.memory.history import HistoryMessage, ToolCall, append_message, read_recent_turns
+from marcel_core.memory.conversation import (
+    MAX_SUMMARY_CHARS,
+    append_to_segment,
+    load_latest_summary,
+    read_active_segment,
+)
+from marcel_core.memory.history import HistoryMessage, ToolCall
 from marcel_core.memory.pastes import PASTE_THRESHOLD, store_paste
+from marcel_core.memory.summarizer import summarize_if_idle
 from marcel_core.storage.settings import load_channel_model
 from marcel_core.storage.users import get_user_role
 
 log = logging.getLogger(__name__)
 
-# Number of recent turns to load as conversation context, per channel.
-_HISTORY_TURNS: dict[str, int] = {
-    'telegram': 15,
-    'cli': 20,
-}
-_DEFAULT_HISTORY_TURNS = 15
-
-# Tool result preview length for older turns
-_TOOL_RESULT_PREVIEW_LEN = 800
+# Tool result preview length for the previous turn
+_TOOL_RESULT_PREVIEW_LEN = 200
 
 # Tools whose results should always be kept in full (regardless of age)
-_ALWAYS_KEEP_TOOLS = frozenset({'memory_search', 'notify'})
+_ALWAYS_KEEP_TOOLS = frozenset({'memory_search', 'notify', 'conversation_search'})
 
-# Turns threshold: results in the last N turns are kept in full,
-# older turns get previews, very old turns get names-only.
-_FULL_RESULT_TURNS = 3
-_PREVIEW_RESULT_TURNS = 8
+# Aggressive tool lifecycle: only current turn (0) and previous turn (1).
+_FULL_RESULT_TURNS = 1  # turn 0 = current
+_PREVIEW_RESULT_TURNS = 2  # turn 1 = previous
 
 
 def _tool_result_for_context(
@@ -60,7 +60,11 @@ def _tool_result_for_context(
     tool_name: str | None,
     turn_age: int,
 ) -> str:
-    """Apply tiered trimming to a tool result based on turn age.
+    """Apply aggressive tool result lifecycle based on turn age.
+
+    - Current turn (age 0): full result
+    - Previous turn (age 1): 200-char preview
+    - Older (age 2+): inline name-only note
 
     Args:
         text: The tool result content.
@@ -77,31 +81,33 @@ def _tool_result_for_context(
     if tool_name and tool_name in _ALWAYS_KEEP_TOOLS:
         return text
 
-    # Recent turns: full result
+    # Current turn: full result
     if turn_age < _FULL_RESULT_TURNS:
         return text
 
-    # Medium-age turns: preview
+    # Previous turn: short preview
     if turn_age < _PREVIEW_RESULT_TURNS:
         if len(text) > _TOOL_RESULT_PREVIEW_LEN:
             return text[:_TOOL_RESULT_PREVIEW_LEN] + f'\n... ({len(text)} chars total, truncated)'
         return text
 
-    # Old turns: name-only summary
-    preview = text[:200] + '...' if len(text) > 200 else text
-    return f'[{tool_name or "tool"} result: {preview}]'
+    # Older turns: name-only note
+    return f'[Used {tool_name or "tool"}]'
 
 
-def history_to_messages(messages: list[HistoryMessage], num_turns: int | None = None) -> list[ModelMessage]:
+def _messages_to_model(
+    messages: list[HistoryMessage],
+    num_turns: int | None = None,
+) -> list[ModelMessage]:
     """Convert internal HistoryMessage objects to pydantic-ai ModelMessage format.
 
     Handles user, assistant (with tool calls), and tool result messages.
-    Applies tiered trimming to tool results based on turn age.
+    Applies aggressive tool lifecycle trimming based on turn age.
 
     Args:
         messages: The history messages to convert.
-        num_turns: Total number of turns being loaded (for age calculation).
-                   If None, all results are kept in full.
+        num_turns: Total number of turns for age calculation.
+                   If None, count from the messages themselves.
     """
     # Count turns (user messages) to compute age for tiered trimming
     turn_count = sum(1 for m in messages if m.role == 'user') if num_turns is None else num_turns
@@ -161,6 +167,54 @@ def history_to_messages(messages: list[HistoryMessage], num_turns: int | None = 
 
     _flush_tool_returns()
     return result
+
+
+async def build_context(
+    user_slug: str,
+    channel: str,
+) -> list[ModelMessage]:
+    """Build the context window for a conversation turn.
+
+    Loads the rolling summary (if any) and active segment messages,
+    applies tool lifecycle trimming, and returns ModelMessage list.
+
+    1. Check for idle summarization (seals segment if idle >1 hour)
+    2. Load latest summary from sealed segments
+    3. Load active segment messages
+    4. Apply tool result lifecycle
+    5. Prepend summary as context
+    """
+    # 1. Check for idle summarization before building context
+    idle_minutes = settings.marcel_idle_summarize_minutes
+    summarized = await summarize_if_idle(user_slug, channel, idle_minutes)
+    if summarized:
+        log.info('[runner] Idle summarization completed for %s/%s before turn', user_slug, channel)
+
+    # 2. Load latest summary
+    latest_summary = load_latest_summary(user_slug, channel)
+
+    # 3. Load active segment messages
+    active_messages = read_active_segment(user_slug, channel)
+
+    # 4. Convert to model messages with tool lifecycle applied
+    model_messages = _messages_to_model(active_messages)
+
+    # 5. Prepend summary as context if it exists
+    if latest_summary:
+        summary_text = latest_summary.summary
+        # Cap summary to avoid blowing the token budget
+        if len(summary_text) > MAX_SUMMARY_CHARS:
+            summary_text = summary_text[:MAX_SUMMARY_CHARS] + '\n... (summary truncated)'
+        summary_msg = ModelRequest(parts=[UserPromptPart(content=f'[Previous conversation summary: {summary_text}]')])
+        model_messages.insert(0, summary_msg)
+
+    return model_messages
+
+
+# Keep backward-compatible alias for existing callers during migration
+def history_to_messages(messages: list[HistoryMessage], num_turns: int | None = None) -> list[ModelMessage]:
+    """Convert HistoryMessage list to ModelMessage list (backward-compatible alias)."""
+    return _messages_to_model(messages, num_turns=num_turns)
 
 
 @dataclass
@@ -354,19 +408,17 @@ async def stream_turn(
         cwd=effective_cwd,
     )
 
-    # Load prior conversation history BEFORE appending the current message
-    num_turns = _HISTORY_TURNS.get(channel, _DEFAULT_HISTORY_TURNS)
-    prior_messages = read_recent_turns(user_slug, conversation_id, num_turns=num_turns)
-    message_history = history_to_messages(prior_messages, num_turns=num_turns)
+    # Build context from continuous conversation (handles idle summarization)
+    message_history = await build_context(user_slug, channel)
 
-    # Append user message to history (after loading, so it's not duplicated)
+    # Append user message to segment (after loading context, so it's not duplicated)
     user_msg = HistoryMessage(
         role='user',
         text=user_text,
         timestamp=datetime.now(tz=timezone.utc),
         conversation_id=conversation_id,
     )
-    append_message(user_slug, user_msg, channel=channel)
+    append_to_segment(user_slug, channel, user_msg)
 
     # Build system prompt with context (async version includes AI-selected memories)
     from marcel_core.harness.context import build_instructions_async
@@ -429,7 +481,7 @@ async def stream_turn(
     if all_messages:
         tool_entries = _extract_tool_history(all_messages, user_slug, conversation_id)
         for entry in tool_entries:
-            append_message(user_slug, entry, channel=channel)
+            append_to_segment(user_slug, channel, entry)
             # Yield events for tool calls so channels can show progress
             if entry.role == 'assistant' and entry.tool_calls:
                 for tc in entry.tool_calls:
@@ -442,7 +494,7 @@ async def stream_turn(
                     is_error=entry.is_error,
                 )
 
-    # Save final assistant text response to history
+    # Save final assistant text response to segment
     assistant_text = ''.join(assistant_text_parts)
     if assistant_text:
         assistant_msg = HistoryMessage(
@@ -451,6 +503,6 @@ async def stream_turn(
             timestamp=datetime.now(tz=timezone.utc),
             conversation_id=conversation_id,
         )
-        append_message(user_slug, assistant_msg, channel=channel)
+        append_to_segment(user_slug, channel, assistant_msg)
 
     yield RunFinished(total_cost_usd=total_cost, is_error=is_error)

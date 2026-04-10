@@ -5,7 +5,8 @@ Marcel agent loop. Responds to each message after streaming completes.
 
 Commands:
     /start  — show chat ID for account linking
-    /new    — start a fresh conversation
+    /forget — compress recent conversation into a summary
+    /new    — alias for /forget (backward compatibility)
 
 Webhook URL: POST /telegram/webhook
 """
@@ -30,7 +31,9 @@ from marcel_core.channels.telegram.formatting import (
 )
 from marcel_core.config import settings
 from marcel_core.harness.runner import TextDelta, stream_turn
-from marcel_core.memory.history import create_session, read_history
+from marcel_core.memory.conversation import has_active_content
+from marcel_core.memory.history import read_history
+from marcel_core.memory.summarizer import summarize_active_segment
 from marcel_core.storage.artifacts import create_artifact
 
 log = logging.getLogger(__name__)
@@ -83,6 +86,19 @@ async def _process_with_delayed_ack(chat_id: int, user_slug: str, text: str) -> 
         ack_task.cancel()
 
 
+async def _run_forget(chat_id: int, user_slug: str) -> None:
+    """Run /forget: summarize the active segment and notify the user."""
+    try:
+        success = await summarize_active_segment(user_slug, 'telegram', trigger='manual')
+        if success:
+            await _reply(chat_id, "Got it — I've compressed our recent conversation. I'll remember the key points.")
+        else:
+            await _reply(chat_id, 'Compression failed — please try again later.')
+    except Exception as exc:
+        log.exception('Failed to run /forget for chat_id=%s: %s', chat_id, exc)
+        await _reply(chat_id, 'Something went wrong while compressing the conversation.')
+
+
 async def _process_assistant_message(
     chat_id: int,
     user_slug: str,
@@ -90,12 +106,8 @@ async def _process_assistant_message(
     ack: dict[str, Any],
 ) -> None:
     """Run the assistant agent for one message."""
-    conversation_id = sessions.get_conversation_id(chat_id)
-
-    if conversation_id is None:
-        meta = create_session(user_slug, 'telegram')
-        conversation_id = meta.session_id
-        sessions.set_conversation_id(chat_id, conversation_id)
+    # Continuous conversation: use a stable conversation ID per channel
+    conversation_id = f'telegram-{chat_id}'
 
     response_parts: list[str] = []
     try:
@@ -336,16 +348,13 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
         )
         return {'status': 'ok'}
 
-    # --- /new: reset session, start fresh ---
-    if text == '/new':
-        sessions.reset_session(chat_id)
-        await _reply(chat_id, 'Fresh start! Previous conversation cleared.')
+    # --- /forget or /new: compress conversation and start fresh segment ---
+    if text in ('/forget', '/new'):
+        if has_active_content(user_slug, 'telegram'):
+            asyncio.create_task(_run_forget(chat_id, user_slug))
+        else:
+            await _reply(chat_id, 'Nothing to compress — the conversation is already fresh.')
         return {'status': 'ok'}
-
-    # --- Auto-new on inactivity ---
-    if sessions.should_auto_new(chat_id):
-        sessions.reset_session(chat_id)
-        log.info('Auto-new conversation for chat_id=%s (inactivity)', chat_id)
 
     # Update last-message timestamp
     sessions.touch_last_message(chat_id)

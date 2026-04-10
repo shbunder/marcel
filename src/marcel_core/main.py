@@ -65,13 +65,47 @@ async def _restart_watcher() -> None:
                 os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
+async def _background_summarization_loop() -> None:
+    """Periodically check all channels for idle conversations and summarize them.
+
+    Runs every 15 minutes. This ensures summaries are ready before the user
+    returns, rather than waiting for the next message.
+    """
+    from marcel_core.config import settings as cfg
+    from marcel_core.memory.conversation import (
+        has_active_content,
+        is_idle,
+    )
+    from marcel_core.memory.summarizer import summarize_active_segment
+    from marcel_core.storage._root import data_root
+
+    while True:
+        await asyncio.sleep(15 * 60)  # 15 minutes
+        try:
+            users_dir = data_root() / 'users'
+            if not users_dir.exists():
+                continue
+            for user_dir in users_dir.iterdir():
+                if not user_dir.is_dir() or user_dir.name.startswith(('_', '.')):
+                    continue
+                conv_dir = user_dir / 'conversation'
+                if not conv_dir.exists():
+                    continue
+                for channel_dir in conv_dir.iterdir():
+                    if not channel_dir.is_dir():
+                        continue
+                    user_slug = user_dir.name
+                    channel = channel_dir.name
+                    idle_minutes = cfg.marcel_idle_summarize_minutes
+                    if is_idle(user_slug, channel, idle_minutes) and has_active_content(user_slug, channel):
+                        log.info('[bg-summarizer] Summarizing idle channel %s/%s', user_slug, channel)
+                        await summarize_active_segment(user_slug, channel, trigger='idle')
+        except Exception:
+            log.exception('[bg-summarizer] Error in background summarization loop')
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Clear Telegram sessions so every user starts fresh after a restart
-    from marcel_core.channels.telegram.sessions import clear_all_sessions
-
-    clear_all_sessions()
-
     # Migrate any legacy history.jsonl files to per-session files
     from marcel_core.memory.history import migrate_legacy_history
     from marcel_core.storage._root import data_root
@@ -86,13 +120,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     if count:
                         log.info('Migrated %d sessions for user %s', count, user_dir.name)
 
-    task = asyncio.create_task(_restart_watcher())
+    restart_task = asyncio.create_task(_restart_watcher())
+    summarize_task = asyncio.create_task(_background_summarization_loop())
     start_sync_loop()
     scheduler.start()
     yield
     scheduler.stop()
     stop_sync_loop()
-    task.cancel()
+    summarize_task.cancel()
+    restart_task.cancel()
 
 
 app = FastAPI(title='Marcel', lifespan=lifespan)

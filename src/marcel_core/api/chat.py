@@ -31,7 +31,7 @@ from marcel_core.harness.runner import (
     TextDelta,
     stream_turn,
 )
-from marcel_core.memory.history import create_session
+from marcel_core.memory.conversation import ensure_channel
 
 router = APIRouter()
 
@@ -91,10 +91,10 @@ async def chat(websocket: WebSocket) -> None:
                 await adapter.send_error('Empty message')
                 continue
 
-            # Start a new conversation if none was provided
+            # Ensure continuous conversation exists for this channel
             if conversation_id is None:
-                meta = create_session(user_slug, channel)
-                conversation_id = meta.session_id
+                ensure_channel(user_slug, channel)
+                conversation_id = f'{channel}-default'
                 await adapter.send_conversation_started(conversation_id)
 
             # Stream the agent response using pydantic-ai harness

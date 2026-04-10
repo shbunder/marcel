@@ -332,13 +332,14 @@ class TestWebhookCallbackQuery:
 
 
 # ---------------------------------------------------------------------------
-# Auto-new on inactivity via webhook
+# Continuous conversation — idle messages still dispatch normally
 # ---------------------------------------------------------------------------
 
 
-class TestAutoNewViaWebhook:
+class TestContinuousConversation:
     @respx.mock
-    def test_auto_new_dispatches_and_resets(self, tmp_path, monkeypatch):
+    def test_idle_chat_dispatches_normally(self, tmp_path, monkeypatch):
+        """After a long idle period, the next message should still dispatch normally."""
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         monkeypatch.setattr(settings, 'telegram_bot_token', 'test-token')
         monkeypatch.setattr(settings, 'telegram_webhook_secret', 'test-secret')
@@ -348,7 +349,6 @@ class TestAutoNewViaWebhook:
 
         old_time = (datetime.now(timezone.utc) - timedelta(hours=7)).isoformat()
         sessions._update_state(555, last_message_at=old_time)
-        sessions.set_conversation_id(555, 'old-conv')
 
         from marcel_core.harness.runner import TextDelta
 

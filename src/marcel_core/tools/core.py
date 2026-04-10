@@ -18,8 +18,13 @@ from marcel_core.harness.context import MarcelDeps
 
 log = logging.getLogger(__name__)
 
-# Maximum output length before truncation (characters)
-MAX_OUTPUT_LENGTH = 50000
+# Maximum output length before truncation (characters).
+# Matches ClawCode's default (30K). Large outputs are stored in paste store.
+MAX_OUTPUT_LENGTH = 30000
+
+# Threshold for offloading large bash output to the paste store.
+# Above this, only a head+tail preview is kept in history.
+_BASH_PASTE_THRESHOLD = 15000
 
 # Project root — src/marcel_core/tools/core.py → parents[3] = project root
 _PROJECT_ROOT = str(Path(__file__).resolve().parents[3])
@@ -75,6 +80,11 @@ async def bash(ctx: RunContext[MarcelDeps], command: str, timeout: int = 120) ->
 
         if len(output) > MAX_OUTPUT_LENGTH:
             output = output[:MAX_OUTPUT_LENGTH] + f'\n\n[Output truncated: {len(output)} chars total]'
+        elif len(output) > _BASH_PASTE_THRESHOLD:
+            # Keep a head+tail preview for context; full output is in JSONL
+            head = output[:500]
+            tail = output[-500:]
+            output = f'{head}\n\n... [{len(output)} chars total — middle omitted for brevity] ...\n\n{tail}'
 
         return output or '(no output)'
 

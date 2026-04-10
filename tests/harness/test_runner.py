@@ -102,13 +102,13 @@ class TestStreamTurn:
     async def test_appends_to_history(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
-        from marcel_core.memory.history import read_history
+        from marcel_core.memory.conversation import read_active_segment
 
         with patch('marcel_core.harness.runner.create_marcel_agent', return_value=_make_mock_agent(['reply'])):
             async for _ in stream_turn('shaun', 'cli', 'what is 2+2?', 'conv-1'):
                 pass
 
-        messages = read_history('shaun', limit=10)
+        messages = read_active_segment('shaun', 'cli')
         texts = [m.text for m in messages]
         assert 'what is 2+2?' in texts
         assert 'reply' in texts
@@ -304,32 +304,35 @@ class TestHistoryToMessages:
 
 
 class TestToolResultForContext:
-    """Tests for tiered tool result trimming."""
+    """Tests for aggressive tool result lifecycle.
+
+    Lifecycle: current turn (0) = full, previous turn (1) = preview, older (2+) = name-only.
+    """
 
     def test_empty_result(self):
         assert _tool_result_for_context(None, 'bash', 0) == '(bash completed with no output)'
         assert _tool_result_for_context('', 'bash', 0) == '(bash completed with no output)'
 
-    def test_recent_turn_full_result(self):
+    def test_current_turn_full_result(self):
         content = 'x' * 5000
-        result = _tool_result_for_context(content, 'bash', 2)
+        result = _tool_result_for_context(content, 'bash', 0)
         assert result == content  # kept in full
 
-    def test_medium_age_truncated(self):
+    def test_previous_turn_truncated(self):
         content = 'x' * 5000
-        result = _tool_result_for_context(content, 'bash', 5)
+        result = _tool_result_for_context(content, 'bash', 1)
         assert len(result) < len(content)
         assert 'truncated' in result
 
-    def test_medium_age_small_kept(self):
+    def test_previous_turn_small_kept(self):
         content = 'short result'
-        result = _tool_result_for_context(content, 'bash', 5)
+        result = _tool_result_for_context(content, 'bash', 1)
         assert result == content
 
-    def test_old_turn_names_only(self):
+    def test_old_turn_name_only(self):
         content = 'x' * 5000
-        result = _tool_result_for_context(content, 'bash', 10)
-        assert result.startswith('[bash result:')
+        result = _tool_result_for_context(content, 'bash', 2)
+        assert result == '[Used bash]'
 
     def test_always_keep_tools(self):
         content = 'x' * 5000
@@ -339,6 +342,11 @@ class TestToolResultForContext:
     def test_notify_always_kept(self):
         result = _tool_result_for_context('sent notification', 'notify', 20)
         assert result == 'sent notification'
+
+    def test_conversation_search_always_kept(self):
+        content = 'x' * 5000
+        result = _tool_result_for_context(content, 'conversation_search', 20)
+        assert result == content  # kept in full regardless of age
 
 
 class TestExtractToolHistory:
@@ -458,9 +466,9 @@ class TestStreamTurnWithToolCalls:
             async for _ in stream_turn('shaun', 'cli', 'list files', 'conv-1'):
                 pass
 
-        from marcel_core.memory.history import read_history
+        from marcel_core.memory.conversation import read_active_segment
 
-        messages = read_history('shaun')
+        messages = read_active_segment('shaun', 'cli')
         roles = [m.role for m in messages]
         assert 'tool' in roles
         tool_msgs = [m for m in messages if m.role == 'tool']
@@ -504,11 +512,12 @@ class TestStreamTurnWithHistory:
         """Verify that prior conversation history is passed to run_stream."""
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
-        # Seed history with a prior turn
-        from marcel_core.memory.history import append_message
+        # Seed history with a prior turn (via segment-based storage)
+        from marcel_core.memory.conversation import append_to_segment
 
-        append_message(
+        append_to_segment(
             'shaun',
+            'cli',
             HistoryMessage(
                 role='user',
                 text='previous question',
@@ -516,8 +525,9 @@ class TestStreamTurnWithHistory:
                 conversation_id='conv-1',
             ),
         )
-        append_message(
+        append_to_segment(
             'shaun',
+            'cli',
             HistoryMessage(
                 role='assistant',
                 text='previous answer',
