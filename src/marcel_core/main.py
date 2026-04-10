@@ -65,6 +65,11 @@ async def _restart_watcher() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Clear Telegram sessions so every user starts fresh after a restart
+    from marcel_core.channels.telegram.sessions import clear_all_sessions
+
+    clear_all_sessions()
+
     task = asyncio.create_task(_restart_watcher())
     session_manager.start_cleanup_loop()
     start_sync_loop()

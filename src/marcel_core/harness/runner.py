@@ -13,13 +13,41 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
 
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
+
 from marcel_core.harness.agent import DEFAULT_MODEL, create_marcel_agent
 from marcel_core.harness.context import MarcelDeps, _host_home
-from marcel_core.memory.history import HistoryMessage, append_message
+from marcel_core.memory.history import HistoryMessage, append_message, read_recent_turns
 from marcel_core.storage.settings import load_channel_model
 from marcel_core.storage.users import get_user_role
 
 log = logging.getLogger(__name__)
+
+# Number of recent turns to load as conversation context, per channel.
+# Telegram sessions are long-lived, so we load a generous window.
+_HISTORY_TURNS: dict[str, int] = {
+    'telegram': 50,
+    'cli': 20,
+}
+_DEFAULT_HISTORY_TURNS = 20
+
+
+def history_to_messages(messages: list[HistoryMessage]) -> list[ModelMessage]:
+    """Convert internal HistoryMessage objects to pydantic-ai ModelMessage format.
+
+    Only user and assistant messages are converted — tool and system messages
+    are skipped since we don't track full tool call/response round-trips in
+    the JSONL history yet.
+    """
+    result: list[ModelMessage] = []
+    for msg in messages:
+        if not msg.text:
+            continue
+        if msg.role == 'user':
+            result.append(ModelRequest(parts=[UserPromptPart(content=msg.text, timestamp=msg.timestamp)]))
+        elif msg.role == 'assistant':
+            result.append(ModelResponse(parts=[TextPart(content=msg.text)], timestamp=msg.timestamp))
+    return result
 
 
 @dataclass
@@ -117,7 +145,12 @@ async def stream_turn(
         cwd=effective_cwd,
     )
 
-    # Append user message to history
+    # Load prior conversation history BEFORE appending the current message
+    num_turns = _HISTORY_TURNS.get(channel, _DEFAULT_HISTORY_TURNS)
+    prior_messages = read_recent_turns(user_slug, conversation_id, num_turns=num_turns)
+    message_history = history_to_messages(prior_messages)
+
+    # Append user message to history (after loading, so it's not duplicated)
     user_msg = HistoryMessage(
         role='user',
         text=user_text,
@@ -137,9 +170,6 @@ async def stream_turn(
     # Create agent with role-appropriate tool set
     agent = create_marcel_agent(resolved_model, system_prompt=system_prompt, role=role)
 
-    # TODO: Load conversation context from history
-    # In Phase 2, we'll add memory selection and history context
-
     yield RunStarted(conversation_id=conversation_id)
 
     assistant_text_parts: list[str] = []
@@ -150,7 +180,7 @@ async def stream_turn(
         # NOTE: Do NOT pass event_stream_handler to run_stream() — pydantic-ai docs
         # explicitly recommend against mixing event_stream_handler with stream_text().
         # Tool call visibility will be added via agent.iter() in a future iteration.
-        async with agent.run_stream(user_text, deps=deps) as result:
+        async with agent.run_stream(user_text, deps=deps, message_history=message_history) as result:
             log.debug('[runner] stream started for user=%s', user_slug)
             async for text_delta in result.stream_text(delta=True, debounce_by=0.01):
                 if text_delta:

@@ -27,7 +27,9 @@ from marcel_core.storage._atomic import atomic_write
 from marcel_core.storage._root import data_root
 
 # Hours of inactivity after which a new conversation is started automatically.
-AUTO_NEW_HOURS = 6
+# Set high (48h) so Telegram feels like one continuous conversation.
+# New sessions are created explicitly via /new or on Marcel restart.
+AUTO_NEW_HOURS = 48
 
 
 class SessionState(BaseModel):
@@ -167,3 +169,15 @@ def should_auto_new(chat_id: int | str) -> bool:
 def reset_session(chat_id: int | str) -> None:
     """Clear conversation — used by /new command."""
     _update_state(chat_id, conversation_id=None)
+
+
+def clear_all_sessions() -> None:
+    """Clear all conversation IDs — called on Marcel startup.
+
+    Preserves user linking (chat_id → user_slug) but resets conversation
+    state so every user starts a fresh session after a restart.
+    """
+    sessions = _load_sessions()
+    for state in sessions.values():
+        state.conversation_id = None
+    _save_sessions(sessions)

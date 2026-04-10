@@ -293,15 +293,15 @@ class TestAutoNewOnInactivity:
 
     def test_old_message_returns_true(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        # Write a timestamp 7 hours ago
-        old_time = (datetime.now(timezone.utc) - timedelta(hours=7)).isoformat()
+        # Write a timestamp 49 hours ago (AUTO_NEW_HOURS is 48)
+        old_time = (datetime.now(timezone.utc) - timedelta(hours=49)).isoformat()
         sessions._update_state(123, last_message_at=old_time)
         assert sessions.should_auto_new(123) is True
 
     def test_exactly_at_threshold_returns_false(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        # Write a timestamp exactly at the boundary (5h59m — below 6h)
-        recent_time = (datetime.now(timezone.utc) - timedelta(hours=5, minutes=59)).isoformat()
+        # Write a timestamp just below 48h
+        recent_time = (datetime.now(timezone.utc) - timedelta(hours=47, minutes=59)).isoformat()
         sessions._update_state(123, last_message_at=recent_time)
         assert sessions.should_auto_new(123) is False
 
@@ -334,6 +334,30 @@ class TestLegacySessionMigration:
             )
         )
         assert sessions.get_conversation_id(123) == 'conv-1'
+
+
+class TestClearAllSessions:
+    def test_clears_conversation_ids(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        sessions.set_conversation_id(111, 'conv-a')
+        sessions.set_conversation_id(222, 'conv-b')
+        sessions.clear_all_sessions()
+        assert sessions.get_conversation_id(111) is None
+        assert sessions.get_conversation_id(222) is None
+
+    def test_preserves_last_message_at(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        sessions.set_conversation_id(111, 'conv-a')
+        sessions.touch_last_message(111)
+        sessions.clear_all_sessions()
+        # last_message_at should still be set
+        state = sessions._get_state(111)
+        assert state.last_message_at is not None
+
+    def test_noop_when_no_sessions(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        # Should not raise
+        sessions.clear_all_sessions()
 
 
 class TestNewCommand:
