@@ -51,6 +51,17 @@ def _claude_binary() -> str:
         found = shutil.which(name)
         if found:
             return found
+
+    # Fall back to the SDK-bundled binary (inside the claude_agent_sdk package)
+    try:
+        import claude_agent_sdk  # noqa: F811
+
+        bundled = Path(claude_agent_sdk.__file__).parent / '_bundled' / 'claude'
+        if bundled.is_file():
+            return str(bundled)
+    except Exception:
+        pass
+
     return 'claude'  # will raise FileNotFoundError at runtime if missing
 
 
