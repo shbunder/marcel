@@ -87,3 +87,22 @@ Lessons captured after completed issues. Referenced at the start of new feature 
 ### Patterns to reuse
 - For pure rename/find-replace issues: grep for all occurrences first, then use `replace_all: true` for each file — fast and thorough
 - When `make check` fails on pre-existing Rust errors, run `make test` (Python only) to verify Python changes are clean before committing with `--no-verify`
+
+---
+
+## ISSUE-043: Browser/Web Interaction Skill (2026-04-10)
+
+### What worked well
+- Following the exact `skills/tool.py` MCP server pattern made integration seamless — the browser tools plugged into `sessions.py` with just 4 lines of changes
+- Making playwright an optional dependency with `is_available()` gate means Marcel works fine without it — graceful degradation by default
+- The `_mock_page` factory pattern using `SimpleNamespace` + `AsyncMock` kept test code clean and avoided N801 lint issues from inline mock classes
+
+### What to do differently
+- The `TYPE_CHECKING` guard for optional playwright imports still triggered pyright `reportMissingImports` — needed `# pyright: ignore` comments. Future optional deps should be added to pyright's exclude list in `pyproject.toml` instead
+- Should have added `packages` requirement type to the skill loader earlier (as its own small issue) — it's a general-purpose feature, not browser-specific
+
+### Patterns to reuse
+- In-process MCP server pattern for tools that need rich schemas or image content: `create_sdk_mcp_server` + `tool()` closures over session state
+- Per-session resource management: create lazily in `get_or_create`, clean up in `_disconnect_session` — follows the `BrowserContext` lifecycle pattern
+- Accessibility tree snapshot with integer refs for LLM interaction — compact, structured, and gives the model a way to target elements without CSS selectors
+- SSRF protection module (`is_url_allowed`) with hostname resolution + private IP range checks — reusable for any tool that accepts URLs
