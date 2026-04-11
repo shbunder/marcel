@@ -1,6 +1,6 @@
 # ISSUE-061: Harden Job Scheduler
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-11
 **Assignee:** Shaun
 **Priority:** Medium

@@ -12,12 +12,36 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import UTC, datetime
 
 from marcel_core.jobs import append_run
 from marcel_core.jobs.models import JobDefinition, JobRun, NotifyPolicy, RunStatus
 
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Transient error classification
+# ---------------------------------------------------------------------------
+
+_TRANSIENT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r'rate.?limit|429|too many requests', re.I), 'rate_limit'),
+    (re.compile(r'timeout|timed?\s*out|etimedout', re.I), 'timeout'),
+    (re.compile(r'connect|network|dns|socket|econnr', re.I), 'network'),
+    (re.compile(r'50[0-4]|server error|internal error|bad gateway|overloaded', re.I), 'server_error'),
+]
+
+
+def classify_error(error: str) -> tuple[bool, str]:
+    """Classify an error as transient or permanent.
+
+    Returns ``(is_transient, category)``.  Category is one of the pattern
+    names above, or ``"permanent"`` for non-retryable errors.
+    """
+    for pattern, category in _TRANSIENT_PATTERNS:
+        if pattern.search(error):
+            return True, category
+    return False, 'permanent'
 
 
 def _resolve_job_skills(job: JobDefinition) -> list:
@@ -120,12 +144,22 @@ async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> 
         usage_limits = UsageLimits(request_limit=job.request_limit)
 
     try:
-        result = await agent.run(job.task, deps=deps, usage_limits=usage_limits)
+        result = await asyncio.wait_for(
+            agent.run(job.task, deps=deps, usage_limits=usage_limits),
+            timeout=job.timeout_seconds,
+        )
         run.output = result.output
         run.status = RunStatus.COMPLETED
+    except asyncio.TimeoutError:
+        log.warning('%s-job: job %s (%s) timed out after %ds', job.user_slug, job.id, job.name, job.timeout_seconds)
+        run.error = f'Job timed out after {job.timeout_seconds}s'
+        run.error_category = 'timeout'
+        run.status = RunStatus.TIMED_OUT
     except Exception as exc:
         log.exception('%s-job: job %s (%s) failed', job.user_slug, job.id, job.name)
         run.error = str(exc)
+        is_transient, category = classify_error(str(exc))
+        run.error_category = category
         run.status = RunStatus.FAILED
 
     run.finished_at = datetime.now(UTC)
@@ -134,50 +168,112 @@ async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> 
 
 
 async def execute_job_with_retries(job: JobDefinition, trigger_reason: str = 'scheduled') -> JobRun:
-    """Execute a job with retry logic on failure."""
+    """Execute a job with retry logic on failure.
+
+    Uses exponential backoff from ``job.backoff_schedule`` and only retries
+    transient errors (network, rate-limit, timeout, 5xx).  Permanent errors
+    break out immediately.
+    """
+    from marcel_core.jobs import save_job
+
     run = await execute_job(job, trigger_reason)
 
     attempt = 0
-    while run.status == RunStatus.FAILED and attempt < job.max_retries:
+    while run.status in (RunStatus.FAILED, RunStatus.TIMED_OUT) and attempt < job.max_retries:
+        # Only retry transient errors
+        is_transient = run.error_category in ('rate_limit', 'timeout', 'network', 'server_error')
+        if not is_transient:
+            log.info('%s-job: permanent error for %s, skipping retries', job.user_slug, job.id)
+            break
+
         attempt += 1
+        delay = job.backoff_schedule[min(attempt - 1, len(job.backoff_schedule) - 1)]
         log.info(
-            '%s-job: retrying job %s (%s) attempt %d/%d', job.user_slug, job.id, job.name, attempt, job.max_retries
+            '%s-job: retrying job %s (%s) attempt %d/%d (backoff %ds)',
+            job.user_slug,
+            job.id,
+            job.name,
+            attempt,
+            job.max_retries,
+            delay,
         )
-        await asyncio.sleep(job.retry_delay_seconds)
+        await asyncio.sleep(delay)
         run = await execute_job(job, trigger_reason)
         run.retry_count = attempt
 
-    # Notify based on policy
-    await _notify_if_needed(job, run)
+    # Update consecutive error tracking on the job definition
+    if run.status in (RunStatus.FAILED, RunStatus.TIMED_OUT):
+        job.consecutive_errors += 1
+        job.last_error_at = datetime.now(UTC)
+    else:
+        job.consecutive_errors = 0
+        job.last_error_at = None
+        job.last_failure_alert_at = None
+    save_job(job)
+
+    # Notify based on policy + deliver tracking
+    delivery_status, delivery_error = await _notify_if_needed(job, run)
+    run.delivery_status = delivery_status
+    run.delivery_error = delivery_error
+    append_run(job.user_slug, job.id, run)
 
     return run
 
 
-async def _notify_if_needed(job: JobDefinition, run: JobRun) -> None:
-    """Send a notification to the user based on the job's notify policy."""
+async def _notify_if_needed(job: JobDefinition, run: JobRun) -> tuple[str, str | None]:
+    """Send a notification to the user based on the job's notify policy.
+
+    Returns ``(delivery_status, delivery_error)`` where status is one of
+    ``"sent"``, ``"failed"``, or ``"skipped"``.
+    """
+    from marcel_core.jobs import save_job
+
     should_notify = False
 
     if job.notify == NotifyPolicy.ALWAYS:
         should_notify = True
-    elif job.notify == NotifyPolicy.ON_FAILURE and run.status == RunStatus.FAILED:
-        should_notify = True
+    elif job.notify == NotifyPolicy.ON_FAILURE and run.status in (RunStatus.FAILED, RunStatus.TIMED_OUT):
+        # Apply alert cooldown: suppress until enough consecutive failures,
+        # then respect cooldown between alerts.
+        if job.consecutive_errors < job.alert_after_consecutive_failures:
+            should_notify = False
+        elif job.last_failure_alert_at:
+            elapsed = (datetime.now(UTC) - job.last_failure_alert_at).total_seconds()
+            should_notify = elapsed >= job.alert_cooldown_seconds
+        else:
+            should_notify = True
     elif job.notify == NotifyPolicy.ON_OUTPUT and run.output.strip():
         should_notify = True
     # SILENT: never notify
 
     if not should_notify:
-        return
+        return 'skipped', None
 
     # Build notification message
     if run.status == RunStatus.COMPLETED:
         message = run.output.strip() if run.output.strip() else f'Job "{job.name}" completed.'
+    elif run.status == RunStatus.TIMED_OUT:
+        message = f'Job "{job.name}" timed out after {job.timeout_seconds}s'
     else:
-        message = f'Job "{job.name}" failed: {run.error or "unknown error"}'
+        error_detail = run.error or 'unknown error'
+        if job.consecutive_errors > 1:
+            error_detail += f' ({job.consecutive_errors} consecutive failures)'
+        message = f'Job "{job.name}" failed: {error_detail}'
 
-    if job.channel == 'telegram':
-        await _notify_telegram(job.user_slug, message)
-    else:
-        log.info('%s-job: notification channel=%s msg=%s', job.user_slug, job.channel, message[:100])
+    try:
+        if job.channel == 'telegram':
+            await _notify_telegram(job.user_slug, message)
+        else:
+            log.info('%s-job: notification channel=%s msg=%s', job.user_slug, job.channel, message[:100])
+
+        # Track that we sent a failure alert (for cooldown)
+        if run.status in (RunStatus.FAILED, RunStatus.TIMED_OUT):
+            job.last_failure_alert_at = datetime.now(UTC)
+            save_job(job)
+
+        return 'sent', None
+    except Exception as exc:
+        return 'failed', str(exc)
 
 
 async def _notify_telegram(user_slug: str, message: str) -> None:

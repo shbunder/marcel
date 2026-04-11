@@ -123,3 +123,40 @@ def last_run(user_slug: str, job_id: str) -> JobRun | None:
     """Return the most recent run for a job, or None."""
     runs = read_runs(user_slug, job_id, limit=1)
     return runs[0] if runs else None
+
+
+def cleanup_old_runs(user_slug: str, job_id: str, retention_days: int) -> int:
+    """Remove run records older than *retention_days*.
+
+    Rewrites ``runs.jsonl`` in place, keeping only runs whose ``finished_at``
+    is within the retention window (or have no ``finished_at``).
+
+    Returns the number of records removed.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    path = _job_dir(user_slug, job_id) / 'runs.jsonl'
+    if not path.exists():
+        return 0
+
+    cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+    kept: list[str] = []
+    removed = 0
+
+    for line in path.read_text(encoding='utf-8').splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            run = JobRun.model_validate(json.loads(line))
+            if run.finished_at and run.finished_at < cutoff:
+                removed += 1
+                continue
+        except Exception:
+            pass  # keep malformed lines to avoid data loss
+        kept.append(line)
+
+    if removed > 0:
+        path.write_text('\n'.join(kept) + '\n' if kept else '', encoding='utf-8')
+
+    return removed

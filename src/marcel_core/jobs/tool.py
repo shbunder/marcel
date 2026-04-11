@@ -38,6 +38,7 @@ async def create_job(
     model: str | None = None,
     channel: str | None = None,
     skills: list[str] | None = None,
+    timeout_minutes: float | None = None,
 ) -> str:
     """Create a new background job for the user.
 
@@ -60,6 +61,7 @@ async def create_job(
         model: Model to use (default: claude-haiku-4-5-20251001).
         channel: Notification channel (default: telegram).
         skills: List of skill names the job uses (documentation only).
+        timeout_minutes: Max minutes the job can run before being killed (default: 10).
 
     Returns:
         Confirmation message with the job ID and next run time.
@@ -91,6 +93,7 @@ async def create_job(
         notify=notify_policy,
         channel=channel or 'telegram',
         template=template,
+        timeout_seconds=int(timeout_minutes * 60) if timeout_minutes else 600,
     )
 
     save_job(job)
@@ -166,7 +169,14 @@ async def get_job(ctx: RunContext[MarcelDeps], job_id: str) -> str:
         f'Next run: {next_str}',
         f'Model: {job.model}',
         f'Notify: {job.notify.value}',
+        f'Timeout: {job.timeout_seconds // 60}m',
         f'Template: {job.template or "custom"}',
+    ]
+
+    if job.consecutive_errors > 0:
+        lines.append(f'\u26a0\ufe0f Consecutive errors: {job.consecutive_errors}')
+
+    lines += [
         '',
         f'**Task:** {job.task}',
         '',
@@ -182,6 +192,7 @@ async def get_job(ctx: RunContext[MarcelDeps], job_id: str) -> str:
             status_icon = {
                 'completed': '\u2705',
                 'failed': '\u274c',
+                'timed_out': '\u23f0',
                 'running': '\u23f3',
                 'pending': '\u23f3',
             }.get(run.status.value, '')
@@ -203,6 +214,7 @@ async def update_job(
     system_prompt: str | None = None,
     notify: str | None = None,
     model: str | None = None,
+    timeout_minutes: float | None = None,
 ) -> str:
     """Update a job's configuration.
 
@@ -219,6 +231,7 @@ async def update_job(
         system_prompt: New system prompt.
         notify: New notify policy.
         model: New model name.
+        timeout_minutes: Max minutes the job can run before being killed.
 
     Returns:
         Confirmation of the update.
@@ -246,6 +259,8 @@ async def update_job(
         job.notify = NotifyPolicy(notify)
     if model is not None:
         job.model = model
+    if timeout_minutes is not None:
+        job.timeout_seconds = int(timeout_minutes * 60)
 
     job.updated_at = datetime.now(UTC)
     save_job(job)

@@ -38,6 +38,7 @@ class RunStatus(str, enum.Enum):
     RUNNING = 'running'
     COMPLETED = 'completed'
     FAILED = 'failed'
+    TIMED_OUT = 'timed_out'
 
 
 class NotifyPolicy(str, enum.Enum):
@@ -108,6 +109,23 @@ class JobDefinition(BaseModel):
     # Retry
     max_retries: int = 2
     retry_delay_seconds: int = 60
+    backoff_schedule: list[int] = Field(default_factory=lambda: [30, 60, 300, 900, 3600])
+
+    # Timeout — kills the job agent if it exceeds this duration
+    timeout_seconds: int = 600
+
+    # Failure tracking (persisted across runs for alerting/backoff)
+    consecutive_errors: int = 0
+    last_error_at: datetime | None = None
+    schedule_errors: int = 0
+
+    # Failure alert cooldown (for ON_FAILURE notify policy)
+    alert_after_consecutive_failures: int = 3
+    alert_cooldown_seconds: int = 3600
+    last_failure_alert_at: datetime | None = None
+
+    # Housekeeping
+    retention_days: int = 30
 
     # Template origin (for display/editing)
     template: str | None = None
@@ -127,5 +145,8 @@ class JobRun(BaseModel):
     finished_at: datetime | None = None
     output: str = ''
     error: str | None = None
+    error_category: str | None = None
     trigger_reason: str = ''
     retry_count: int = 0
+    delivery_status: str | None = None
+    delivery_error: str | None = None
