@@ -251,3 +251,23 @@ Lessons captured after completed issues. Referenced at the start of new feature 
 ### Patterns to reuse
 - `ZoneInfo` + `astimezone()` for timezone-aware cron: convert UTC `now` to local, run croniter in local time, convert result back to UTC. Simple and handles DST correctly
 - Additive schema changes with `None` defaults for backward compatibility — existing job.json files deserialize without migration
+
+---
+
+## ISSUE-065: News Sync Integration (2026-04-11)
+
+### What worked well
+- Following the `banking.sync` pattern made the design obvious ��� fetch in code, store in cache, expose single integration call
+- Extracting `fetch_feed()` from `rss_fetch()` cleanly separated the reusable library from the agent tool, allowing sync code to import it directly
+- Concurrent feed fetching with `asyncio.create_task` keeps sync fast despite 20 feeds
+- Feed config in YAML makes it trivial for users to add/remove sources without touching code or job prompts
+
+### What to do differently
+- The original `rss_fetch` should never have been an agent tool — it was always doing deterministic work (HTTP + XML parsing) that code handles better. When designing tools, ask: "does this need LLM judgment?" If no, make it a code path, not a tool
+- The job system prompt mixed two calling conventions (`rss_fetch(...)` and `integration(id=...)`) which confused the model. System prompts for jobs should use exactly one tool-calling pattern
+- Default seeding only copied whole directories, so adding new files to existing skills required manual copying. The fix (seed individual missing files) should have been the original design
+
+### Patterns to reuse
+- `news.sync` pattern: YAML config for data sources → async fetch all → deduplicate → filter known → upsert new. Reusable for any periodic data collection integration
+- Fall-back config loading: check user data dir first, then bundled defaults. Lets code work out-of-the-box while allowing user customization
+- When removing an agent tool but keeping its logic: extract the core function (no `RunContext` dependency), keep the tool function as a thin wrapper. This preserves testability and allows internal reuse
