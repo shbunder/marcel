@@ -234,3 +234,20 @@ Lessons captured after completed issues. Referenced at the start of new feature 
 ### Patterns to reuse
 - `deps.notified` flag pattern: lightweight in-run state tracking between tools and executor without modifying the agent loop — useful for any "did the agent already do X?" checks
 - `run.agent_notified` on `JobRun`: persisting tool-side state into the run record so post-execution logic can make decisions — avoids passing deps objects through the retry/notify chain
+
+---
+
+## ISSUE-064: Job Scheduler Timezone Support (2026-04-11)
+
+### What worked well
+- The fix was minimal: one new field on `TriggerSpec`, a timezone branch in `_compute_next_run`, and job data updates. No schema migration needed thanks to `None` default
+- `ZoneInfo` from the stdlib handles DST transitions automatically — no third-party timezone library needed
+- Checking the tool layer (create_job/update_job) during reflection caught a gap that would have required a follow-up fix
+
+### What to do differently
+- Timezone support should have been considered when the cron scheduler was first built (ISSUE-061). Any system that interprets cron expressions for end users should default to local time, not UTC
+- The user's profile already had `Europe/Brussels` — could have used that as a default for new jobs instead of requiring explicit timezone on each job
+
+### Patterns to reuse
+- `ZoneInfo` + `astimezone()` for timezone-aware cron: convert UTC `now` to local, run croniter in local time, convert result back to UTC. Simple and handles DST correctly
+- Additive schema changes with `None` defaults for backward compatibility — existing job.json files deserialize without migration
