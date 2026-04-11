@@ -106,6 +106,22 @@ def upsert_articles(slug: str, articles: list[dict[str, Any]]) -> int:
     return count
 
 
+def filter_new_links(slug: str, links: list[str]) -> list[str]:
+    """Return only the links that are NOT already in the database."""
+    if not links:
+        return []
+    conn = _connect(slug)
+    try:
+        ids = [article_id(link) for link in links]
+        placeholders = ','.join('?' for _ in ids)
+        existing = {
+            row[0] for row in conn.execute(f'SELECT id FROM articles WHERE id IN ({placeholders})', ids).fetchall()
+        }
+        return [link for link, aid in zip(links, ids) if aid not in existing]
+    finally:
+        conn.close()
+
+
 # -- Read operations ----------------------------------------------------------
 
 

@@ -47,6 +47,16 @@ integration(id="news.search", params={"topic": "politiek", "limit": "10"})
 
 Returns a JSON object with `articles` (list) and `count`. Each article has: `title`, `source`, `link`, `topic`, `description`, `published_at`, `scraped_at`.
 
+### news.filter_new
+
+Check which article links are not yet in the database. Use this before storing to avoid re-processing known articles.
+
+```
+integration(id="news.filter_new", params={"links": ["https://...", "https://..."]})
+```
+
+Returns `{"new_links": [...], "count": N}` — only the links not already stored.
+
 ### news.store
 
 Store one or more articles (used by scraping jobs, not typically called directly).
@@ -60,5 +70,6 @@ Each article object requires `title`, `source`, and `link`. Optional fields: `to
 ## Notes
 
 - Articles are deduplicated by URL — re-scraping the same article updates it in place.
-- The news scraping job runs every 8 hours and covers VRT NWS and De Tijd.
+- The news scraping job runs at 6am and 6pm and covers VRT NWS and De Tijd (nieuws, ondernemen, politiek, opinie, sabato).
+- Use `news.filter_new` before storing to skip articles already in the database.
 - Topics/categories are assigned by the scraping job based on the source's own categorization.

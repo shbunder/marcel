@@ -31,6 +31,21 @@ async def store(params: dict, user_slug: str) -> str:
     return json.dumps({'stored': count})
 
 
+@register('news.filter_new')
+async def filter_new(params: dict, user_slug: str) -> str:
+    """Filter a list of links to only those not already stored.
+
+    Expects ``links`` — a list of URL strings.
+    Returns ``{"new_links": [...]}`` containing only unknown links.
+    """
+    links = params.get('links', [])
+    if not links:
+        return json.dumps({'new_links': [], 'count': 0})
+
+    new = cache.filter_new_links(user_slug, links)
+    return json.dumps({'new_links': new, 'count': len(new)})
+
+
 @register('news.search')
 async def search(params: dict, user_slug: str) -> str:
     """Query stored articles with optional filters.
