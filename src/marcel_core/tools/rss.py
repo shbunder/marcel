@@ -75,18 +75,45 @@ def _parse_atom(root: ET.Element) -> list[dict[str, str]]:
         if len(articles) >= _MAX_ARTICLES:
             break
         article: dict[str, str] = {}
+        links: list[tuple[str, str]] = []
         for child in entry:
             tag = _strip_ns(child.tag).lower()
             if tag == 'title':
                 article['title'] = (child.text or '').strip()
             elif tag == 'link':
-                article['link'] = child.get('href', '')
-            elif tag == 'summary' or tag == 'content':
+                rel = child.get('rel', 'alternate')
+                href = child.get('href', '')
+                links.append((rel, href))
+            elif tag == 'id':
+                # Atom <id> is often the canonical article URL
+                article.setdefault('id', (child.text or '').strip())
+            elif tag in ('summary', 'content'):
                 article.setdefault('description', (child.text or '').strip()[:200])
             elif tag in ('published', 'updated'):
                 article.setdefault('published', (child.text or '').strip())
             elif tag == 'category':
                 article.setdefault('category', child.get('term', ''))
+            elif tag in ('nstag',):
+                # VRT custom category tag (vrtns:nstag)
+                text = (child.text or '').strip()
+                if text:
+                    article.setdefault('category', text)
+        # Pick best link: prefer rel=alternate, then first non-enclosure
+        link = ''
+        for rel, href in links:
+            if rel == 'alternate':
+                link = href
+                break
+        if not link:
+            for rel, href in links:
+                if rel != 'enclosure':
+                    link = href
+                    break
+        # Fall back to Atom <id> if it looks like a URL
+        if not link and article.get('id', '').startswith('http'):
+            link = article.pop('id')
+        article['link'] = link
+        article.pop('id', None)
         if article.get('title'):
             articles.append(article)
     return articles
