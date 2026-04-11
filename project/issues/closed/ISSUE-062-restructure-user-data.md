@@ -1,6 +1,6 @@
 # ISSUE-062: Restructure user data directory — consolidate config, organize caches
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-11
 **Assignee:** Claude
 **Priority:** Medium
@@ -120,3 +120,7 @@ Key insight: conversation channel metadata (`conversation/telegram/channel.meta.
 - Removed user.json, telegram.json, global telegram/sessions.json
 **Commands Run**: `make check`
 **Result**: 690 tests passing, 0 errors, 0 lint/typecheck issues
+**Reflection**:
+- Coverage: 8/8 tasks addressed — all requirements from resolved intent covered
+- Shortcuts found: none
+- Scope drift: none
