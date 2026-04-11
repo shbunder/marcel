@@ -1,6 +1,6 @@
 # ISSUE-047: Remove Legacy Markdown Conversations
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-10
 **Assignee:** Unassigned
 **Priority:** Medium

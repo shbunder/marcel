@@ -1,6 +1,6 @@
 # ISSUE-037: User Roles System with Admin CLI Capabilities
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-09
 **Assignee:** Shaun Bundervoet
 **Priority:** High

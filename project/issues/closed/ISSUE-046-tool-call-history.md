@@ -1,6 +1,6 @@
 # ISSUE-046: Track Tool Calls in Conversation History
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-10
 **Assignee:** Unassigned
 **Priority:** High

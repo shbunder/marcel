@@ -1,6 +1,6 @@
 # ISSUE-044: Telegram Session History
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-10
 **Assignee:** Claude
 **Priority:** High

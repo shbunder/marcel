@@ -1,6 +1,6 @@
 # ISSUE-054: Add Phoenix (Arize) LLM Tracing
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-10
 **Assignee:** Shaun
 **Priority:** Medium

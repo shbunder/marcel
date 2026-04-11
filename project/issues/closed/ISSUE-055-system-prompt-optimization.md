@@ -1,6 +1,6 @@
 # ISSUE-055: System Prompt Optimization — Skill Index, Marcel Utils Tool, Channel Prompts
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-10
 **Assignee:** Unassigned
 **Priority:** High

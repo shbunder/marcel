@@ -1,6 +1,6 @@
 # ISSUE-045: Per-Session History Storage
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-10
 **Assignee:** Unassigned
 **Priority:** Medium
