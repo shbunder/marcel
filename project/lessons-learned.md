@@ -201,3 +201,20 @@ Lessons captured after completed issues. Referenced at the start of new feature 
 - Profile.md frontmatter for per-user structured config: `_parse_profile()` + `_serialize_profile()` + `_update_profile_field()` — simple, no dependencies, works with any key-value pair
 - Delegating session state to an existing metadata store (conversation channel meta) instead of maintaining a separate state file — reduces moving parts and avoids multi-user isolation issues
 - `cache/` subdirectory convention for SQLite databases — keeps caches separate from identity/config files, easy to exclude from backups or clear
+
+---
+
+## ISSUE-058: Improve memory system and learning from feedback (2026-04-11)
+
+### What worked well
+- Renaming `_human_age` → `human_age` to make it a proper public function was cleaner than importing a private function cross-module
+- Adding memory consolidation to the existing `_cleanup_loop` rather than creating a separate module kept the scheduler simple
+- The `_format_memory_label` helper produces clean `### [type] name (age)` headers that integrate naturally with the existing `## Memory` section structure
+
+### What to do differently
+- The issue had earlier commits (stale issue cleanup, guardrails) that weren't related to the memory improvements — this made the diff noisier during review. Future issues should stay tightly scoped to their stated intent.
+
+### Patterns to reuse
+- `_load_job_memories` pattern: loading a subset of memories by type for injection into job agents — avoids full AI-driven selection when there's no user query to match against
+- `rebuild_memory_index` as a disk-scan-based index rebuilder — eliminates index drift from background extractors that may crash mid-write
+- Structured feedback memory format (rule + **Why:** + **How to apply:**) — gives the agent enough context to judge edge cases rather than blindly following rules
