@@ -1,8 +1,7 @@
-"""RSS feed fetcher tool — fetch and parse RSS/Atom feeds into structured JSON.
+"""RSS feed fetcher — fetch and parse RSS/Atom feeds into structured data.
 
-Returns articles as a compact JSON array with title, link, description,
-published, and category fields. Much cheaper than browser-based scraping
-for sites that expose feeds.
+Provides ``fetch_feed()`` for programmatic use (returns a list of dicts)
+and ``rss_fetch()`` as a pydantic-ai agent tool (returns JSON string).
 """
 
 from __future__ import annotations
@@ -135,6 +134,27 @@ def _parse_feed(xml_text: str) -> list[dict[str, str]]:
         return _parse_rss(root)
 
 
+async def fetch_feed(url: str, max_articles: int = 50) -> list[dict[str, str]]:
+    """Fetch and parse an RSS/Atom feed, returning structured articles.
+
+    This is the programmatic entry point — used by ``news.sync`` and other
+    code that needs parsed feed data without going through the agent tool.
+
+    Raises on network or parse errors (callers should handle exceptions).
+    """
+    async with httpx.AsyncClient(
+        headers={'User-Agent': _USER_AGENT},
+        timeout=_TIMEOUT,
+        follow_redirects=True,
+    ) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+
+    articles = _parse_feed(resp.text)
+    clamped = min(max_articles, _MAX_ARTICLES)
+    return articles[:clamped]
+
+
 async def rss_fetch(ctx: RunContext[MarcelDeps], url: str, max_articles: int = 10) -> str:
     """Fetch and parse an RSS or Atom feed URL. Returns structured JSON articles.
 
@@ -142,25 +162,12 @@ async def rss_fetch(ctx: RunContext[MarcelDeps], url: str, max_articles: int = 1
     Much faster and cheaper than browser-based scraping for sites with feeds.
     """
     try:
-        async with httpx.AsyncClient(
-            headers={'User-Agent': _USER_AGENT},
-            timeout=_TIMEOUT,
-            follow_redirects=True,
-        ) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
+        articles = await fetch_feed(url, max_articles)
     except httpx.HTTPStatusError as exc:
         return f'Error: HTTP {exc.response.status_code} fetching {url}'
-    except Exception as exc:
-        return f'Error: Failed to fetch feed — {exc}'
-
-    try:
-        articles = _parse_feed(resp.text)
     except ET.ParseError as exc:
         return f'Error: Failed to parse feed XML — {exc}'
-
-    # Clamp to requested max
-    clamped = min(max_articles, _MAX_ARTICLES)
-    articles = articles[:clamped]
+    except Exception as exc:
+        return f'Error: Failed to fetch feed — {exc}'
 
     return json.dumps(articles, ensure_ascii=False, indent=None, separators=(',', ':'))

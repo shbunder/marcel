@@ -1,10 +1,10 @@
-"""News integration — structured article storage and retrieval.
+"""News integration — article sync, storage, and retrieval.
 
-Registers ``news.store``, ``news.search``, and ``news.recent`` as
+Registers ``news.sync``, ``news.search``, and ``news.recent`` as
 python integration skills, callable through the ``integration`` tool.
 
 Articles are stored per-user in a SQLite database at
-``data/users/{slug}/news.db``.
+``data/users/{slug}/cache/news.db``.
 """
 
 from __future__ import annotations
@@ -15,35 +15,17 @@ from marcel_core.skills.integrations import register
 from marcel_core.skills.integrations.news import cache
 
 
-@register('news.store')
-async def store(params: dict, user_slug: str) -> str:
-    """Store one or more scraped articles.
+@register('news.sync')
+async def sync(params: dict, user_slug: str) -> str:
+    """Fetch all configured RSS feeds, deduplicate, and store new articles.
 
-    Expects ``articles`` — a list of objects with fields:
-    ``title``, ``source``, ``link``, ``topic``, ``description``,
-    and optionally ``published_at``.
+    No parameters required — feed URLs are loaded from feeds.yaml.
+    Returns a summary with counts per source and total new articles.
     """
-    articles = params.get('articles', [])
-    if not articles:
-        return json.dumps({'error': 'articles list is required'})
+    from marcel_core.skills.integrations.news.sync import sync_feeds
 
-    count = cache.upsert_articles(user_slug, articles)
-    return json.dumps({'stored': count})
-
-
-@register('news.filter_new')
-async def filter_new(params: dict, user_slug: str) -> str:
-    """Filter a list of links to only those not already stored.
-
-    Expects ``links`` — a list of URL strings.
-    Returns ``{"new_links": [...]}`` containing only unknown links.
-    """
-    links = params.get('links', [])
-    if not links:
-        return json.dumps({'new_links': [], 'count': 0})
-
-    new = cache.filter_new_links(user_slug, links)
-    return json.dumps({'new_links': new, 'count': len(new)})
+    summary = await sync_feeds(user_slug)
+    return json.dumps(summary, indent=2)
 
 
 @register('news.search')

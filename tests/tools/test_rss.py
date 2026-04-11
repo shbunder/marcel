@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from marcel_core.harness.context import MarcelDeps
-from marcel_core.tools.rss import _parse_feed, rss_fetch
+from marcel_core.tools.rss import _parse_feed, fetch_feed, rss_fetch
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -270,3 +270,64 @@ class TestRssFetch:
             result = await rss_fetch(_ctx(), 'https://example.com/big.xml', max_articles=3)
             articles = json.loads(result)
         assert len(articles) == 3
+
+
+# ---------------------------------------------------------------------------
+# fetch_feed (programmatic API)
+# ---------------------------------------------------------------------------
+
+
+class TestFetchFeed:
+    @pytest.mark.asyncio
+    async def test_returns_list(self):
+        mock_resp = MagicMock()
+        mock_resp.text = _RSS_FEED
+        mock_resp.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch('marcel_core.tools.rss.httpx.AsyncClient', return_value=mock_client):
+            articles = await fetch_feed('https://example.com/feed.xml')
+
+        assert isinstance(articles, list)
+        assert len(articles) == 2
+        assert articles[0]['title'] == 'Article One'
+
+    @pytest.mark.asyncio
+    async def test_raises_on_http_error(self):
+        import httpx
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        exc = httpx.HTTPStatusError('Not found', request=MagicMock(), response=mock_resp)
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=exc)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch('marcel_core.tools.rss.httpx.AsyncClient', return_value=mock_client):
+            with pytest.raises(httpx.HTTPStatusError):
+                await fetch_feed('https://example.com/bad')
+
+    @pytest.mark.asyncio
+    async def test_respects_max_articles(self):
+        items = '\n'.join(f'<item><title>Art {i}</title><link>https://example.com/{i}</link></item>' for i in range(20))
+        feed = f'<?xml version="1.0"?><rss version="2.0"><channel>{items}</channel></rss>'
+
+        mock_resp = MagicMock()
+        mock_resp.text = feed
+        mock_resp.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch('marcel_core.tools.rss.httpx.AsyncClient', return_value=mock_client):
+            articles = await fetch_feed('https://example.com/big.xml', max_articles=5)
+
+        assert len(articles) == 5

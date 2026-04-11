@@ -1,6 +1,6 @@
 # ISSUE-065: News Sync Integration
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-11
 **Assignee:** LLM Implementation
 **Priority:** High
@@ -34,24 +34,24 @@ The current news scraping architecture has the LLM agent orchestrate 20 HTTP req
 - News SQLite cache in `cache.py` — unchanged
 
 ## Tasks
-- [ ] ISSUE-065-a: Create `src/marcel_core/defaults/skills/news/feeds.yaml` with the 20 feed URLs grouped by source, including source name and optional exclude_categories
-- [ ] ISSUE-065-b: Create `src/marcel_core/skills/integrations/news/sync.py` — `sync_feeds(user_slug)` function that loads feeds.yaml, fetches all feeds (reusing `rss.py` parsing), deduplicates, filters new via `cache.filter_new_links()`, stores via `cache.upsert_articles()`, returns summary dict
-- [ ] ISSUE-065-c: Register `news.sync` handler in `news/__init__.py`, remove `news.store` and `news.filter_new` from integration registry
-- [ ] ISSUE-065-d: Remove `rss_fetch` from agent tool registration in `agent.py`; keep `rss.py` as internal library
-- [ ] ISSUE-065-e: Update `src/marcel_core/defaults/skills/news/SKILL.md` — document `news.sync`, remove `news.store`/`news.filter_new`/`rss_fetch` sections
-- [ ] ISSUE-065-f: Update the news scraper job (`341e749bde4b/job.json`) — simplify system prompt to just call `integration(id="news.sync")`, downgrade model to haiku
-- [ ] ISSUE-065-g: Update tests in `tests/tools/test_news.py` and add tests for sync logic
-- [ ] ISSUE-065-h: Seed `feeds.yaml` to user data dir on startup (verify loader handles this)
+- [✓] ISSUE-065-a: Create `src/marcel_core/defaults/skills/news/feeds.yaml` with the 20 feed URLs grouped by source, including source name and optional exclude_categories
+- [✓] ISSUE-065-b: Create `src/marcel_core/skills/integrations/news/sync.py` — `sync_feeds(user_slug)` function that loads feeds.yaml, fetches all feeds (reusing `rss.py` parsing), deduplicates, filters new via `cache.filter_new_links()`, stores via `cache.upsert_articles()`, returns summary dict
+- [✓] ISSUE-065-c: Register `news.sync` handler in `news/__init__.py`, remove `news.store` and `news.filter_new` from integration registry
+- [✓] ISSUE-065-d: Remove `rss_fetch` from agent tool registration in `agent.py`; keep `rss.py` as internal library
+- [✓] ISSUE-065-e: Update `src/marcel_core/defaults/skills/news/SKILL.md` — document `news.sync`, remove `news.store`/`news.filter_new`/`rss_fetch` sections
+- [✓] ISSUE-065-f: Update the news scraper job (`341e749bde4b/job.json`) — simplify system prompt to just call `integration(id="news.sync")`, downgrade model to haiku
+- [✓] ISSUE-065-g: Update tests in `tests/tools/test_news.py` and add tests for sync logic
+- [✓] ISSUE-065-h: Seed `feeds.yaml` to user data dir on startup (verify loader handles this)
 
 ## Subtasks
-- [ ] ISSUE-065-a: Feed config file
-- [ ] ISSUE-065-b: Sync implementation
-- [ ] ISSUE-065-c: Integration registry changes
-- [ ] ISSUE-065-d: Remove rss_fetch agent tool
-- [ ] ISSUE-065-e: Update skill docs
-- [ ] ISSUE-065-f: Simplify scraper job
-- [ ] ISSUE-065-g: Tests
-- [ ] ISSUE-065-h: Seed feeds.yaml on startup
+- [✓] ISSUE-065-a: Feed config file
+- [✓] ISSUE-065-b: Sync implementation
+- [✓] ISSUE-065-c: Integration registry changes
+- [✓] ISSUE-065-d: Remove rss_fetch agent tool
+- [✓] ISSUE-065-e: Update skill docs
+- [✓] ISSUE-065-f: Simplify scraper job
+- [✓] ISSUE-065-g: Tests
+- [✓] ISSUE-065-h: Seed feeds.yaml on startup
 
 ## Relationships
 - Related to: [[ISSUE-056-rss-browser-tools-news-scraper]] (original implementation of RSS tooling)
@@ -59,3 +59,18 @@ The current news scraping architecture has the LLM agent orchestrate 20 HTTP req
 ## Comments
 
 ## Implementation Log
+
+### 2026-04-11 - LLM Implementation
+**Action**: Implemented news.sync integration replacing LLM-driven scraping
+**Files Modified**:
+- `src/marcel_core/defaults/skills/news/feeds.yaml` — Created: 20 RSS feed URLs for 7 Belgian sources
+- `src/marcel_core/skills/integrations/news/sync.py` — Created: sync_feeds() fetches feeds concurrently, deduplicates, filters, stores
+- `src/marcel_core/skills/integrations/news/__init__.py` — Registered news.sync, removed news.store and news.filter_new
+- `src/marcel_core/tools/rss.py` — Extracted fetch_feed() as reusable async function; rss_fetch agent tool delegates to it
+- `src/marcel_core/harness/agent.py` — Removed rss_fetch from agent tool registration
+- `src/marcel_core/defaults/skills/news/SKILL.md` — Updated docs: news.sync, removed old sections
+- `src/marcel_core/defaults/__init__.py` — Enhanced seeding to copy individual missing files into existing skill dirs
+- `tests/tools/test_news.py` — Rewrote: removed store/filter_new handler tests, added 8 sync tests
+- `tests/tools/test_rss.py` — Added 3 tests for fetch_feed()
+**Commands Run**: `make check`
+**Result**: All 1077 tests pass, 93% coverage, all checks green

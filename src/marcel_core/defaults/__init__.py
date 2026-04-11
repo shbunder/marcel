@@ -41,10 +41,17 @@ def seed_defaults(data_root: Path) -> None:
         if not skill_dir.is_dir() or skill_dir.name.startswith(('_', '.')):
             continue
         target_skill = target_skills / skill_dir.name
-        if target_skill.exists():
-            continue  # Don't overwrite existing skill customizations
-        shutil.copytree(skill_dir, target_skill)
-        log.info('Seeded skill %s from defaults', skill_dir.name)
+        if not target_skill.exists():
+            shutil.copytree(skill_dir, target_skill)
+            log.info('Seeded skill %s from defaults', skill_dir.name)
+        else:
+            # Seed individual missing files into existing skill directories
+            for src_file in skill_dir.iterdir():
+                if src_file.is_file():
+                    target_file = target_skill / src_file.name
+                    if not target_file.exists():
+                        shutil.copy2(src_file, target_file)
+                        log.info('Seeded %s into existing skill %s', src_file.name, skill_dir.name)
 
     # Seed channel prompt files
     src_channels = _DEFAULTS_DIR / 'channels'
