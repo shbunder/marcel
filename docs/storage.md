@@ -168,7 +168,7 @@ Frontmatter fields:
 |-------|----------|-------------|
 | `name` | yes | Short identifier (snake_case) |
 | `description` | recommended | One-line summary — used for relevance selection |
-| `type` | yes | One of: `schedule`, `preference`, `person`, `reference`, `household` |
+| `type` | yes | One of: `schedule`, `preference`, `person`, `reference`, `household`, `feedback` |
 | `expires` | schedule only | ISO date (`YYYY-MM-DD`) — memory auto-deleted after this date |
 | `confidence` | no | `told` (user stated), `observed`, or `inferred` |
 
@@ -183,6 +183,7 @@ Files without frontmatter still work — they're treated as untyped memories.
 | `person` | People the user knows — contacts, family | Permanent |
 | `reference` | Credentials, addresses, account info | Permanent |
 | `household` | Shared facts for the `_household` pseudo-user | Permanent, included in all users' context |
+| `feedback` | Behavioral guidance from user corrections/confirmations | Permanent; injected into job agents |
 
 #### Household memories
 
@@ -233,8 +234,8 @@ from marcel_core.storage import (
     # Memory — search and selection
     search_memory_files,
     # Memory — lifecycle
-    prune_expired_memories, enforce_index_cap,
-    memory_age_days, memory_freshness_note,
+    prune_expired_memories, rebuild_memory_index, enforce_index_cap,
+    memory_age_days, memory_freshness_note, human_age,
     # Concurrency
     get_lock,
 )
@@ -364,6 +365,12 @@ def prune_expired_memories(slug: str, today=None) -> list[str]
 ```
 Deletes schedule-type memories whose `expires` date has passed.  Returns
 list of pruned filenames.
+
+```python
+def rebuild_memory_index(slug: str) -> None
+```
+Rebuilds `memory/index.md` from actual files on disk — removes entries for
+deleted files, adds entries for new ones.
 
 ```python
 def enforce_index_cap(slug: str, max_lines=200) -> bool

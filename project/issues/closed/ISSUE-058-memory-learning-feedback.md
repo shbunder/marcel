@@ -1,6 +1,6 @@
 # ISSUE-058: Improve memory system and learning from feedback
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-11
 **Assignee:** Claude
 **Priority:** Medium
@@ -67,3 +67,7 @@ The confusing "X days old" warning comes from `memory_freshness_note()` in `stor
 - `tests/memory/test_selector.py` — Updated test assertion to account for new memory labels
 **Commands Run**: `make check`
 **Result**: Success — 690 tests passed
+**Reflection**:
+- Coverage: 5/5 requirements addressed
+- Shortcuts found: none
+- Scope drift: none — docs updated for new API and feedback type
