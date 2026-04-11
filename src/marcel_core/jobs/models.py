@@ -68,6 +68,9 @@ class TriggerSpec(BaseModel):
     # oneshot trigger — optional scheduled time, or run immediately
     run_at: datetime | None = None
 
+    # timezone for cron expressions (e.g. "Europe/Brussels") — None means UTC
+    timezone: str | None = None
+
 
 def _job_id() -> str:
     return uuid.uuid4().hex[:12]

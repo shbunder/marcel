@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from marcel_core.jobs.models import JobDefinition, JobStatus, TriggerType
 
@@ -59,12 +60,25 @@ def _compute_next_run(
             return None
         from croniter import croniter
 
-        base = last_run_at or now
-        cron = croniter(job.trigger.cron, base)
-        next_dt: datetime = cron.get_next(datetime)
-        # If computed next is in the past (e.g. after restart), advance to next future occurrence
-        while next_dt <= now:
+        # If a timezone is set, compute the cron schedule in local time
+        # then convert back to UTC for the scheduler
+        if job.trigger.timezone:
+            tz = ZoneInfo(job.trigger.timezone)
+            local_now = now.astimezone(tz)
+            local_base = (last_run_at or now).astimezone(tz)
+            cron = croniter(job.trigger.cron, local_base)
+            next_local: datetime = cron.get_next(datetime)
+            while next_local <= local_now:
+                next_local = cron.get_next(datetime)
+            # Convert back to UTC
+            next_dt: datetime = next_local.astimezone(UTC)
+        else:
+            base = last_run_at or now
+            cron = croniter(job.trigger.cron, base)
             next_dt = cron.get_next(datetime)
+            # If computed next is in the past (e.g. after restart), advance to next future occurrence
+            while next_dt <= now:
+                next_dt = cron.get_next(datetime)
         # Deterministic stagger to avoid thundering herd
         return next_dt + timedelta(seconds=_stagger_offset(job.id))
 
