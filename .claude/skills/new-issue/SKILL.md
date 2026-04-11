@@ -10,8 +10,9 @@ Create a new issue for: $ARGUMENTS
    Read `project/issues/CLAUDE.md` to refresh yourself on the issue template, file naming, and git commit format.
 
 2. **Find the next issue number**
-   Run: `find ./project/issues -name 'ISSUE-*.md' | grep -oE 'ISSUE-[0-9]+' | sort -t- -k2 -n | tail -1`
+   Run: `find ./project/issues -name 'ISSUE-*.md' | grep -oE 'ISSUE-[0-9]+' | sort -u -t- -k2 -n | tail -1`
    Increment the number by 1. Zero-pad to 3 digits.
+   **Important:** The `-u` flag deduplicates (same issue number may appear in multiple dirs). Always verify the chosen number doesn't already exist: `ls project/issues/*/ISSUE-{NNN}-* 2>/dev/null` — if any match, increment again.
 
 3. **Derive title slug**
    Produce a short kebab-case slug from the request (3–5 words, no stop words).

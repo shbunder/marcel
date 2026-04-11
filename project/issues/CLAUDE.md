@@ -79,6 +79,10 @@ Before closing, verify:
 - Implementation Log reflects all work done
 - **All files that reference changed conventions are updated** — check skills (`~/.marcel/skills/`), defaults (`src/marcel_core/defaults/`), other CLAUDE.md files, and docs that may reference the patterns you modified. A `grep` for key terms from your changes is the fastest way to catch stragglers.
 
+**Closing is mandatory, not optional.** Every issue that reaches "code complete" must be formally closed in the same conversation — do not end a session with issues left in `wip/`. If the work spans multiple sessions, the last implementation commit must be followed by the closing commit. Use the `/finish-issue` skill to close issues correctly.
+
+**Guardrail:** Before ending any conversation where you committed `🔧 [ISSUE-XXX] impl:` commits, check whether the issue is still in `wip/`. If it is, close it now — or explicitly tell the user it remains open and why.
+
 ## Git Conventions
 
 Every issue produces a clean, predictable sequence of commits. This is **mandatory** — no shortcuts, no combining steps that should be separate.

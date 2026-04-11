@@ -109,6 +109,8 @@ Log implementation work in the issue file (Implementation Log section).
 
 If you discover a missed item after closing, use a `🩹 fixup` commit — see [./issues/CLAUDE.md](./issues/CLAUDE.md) for rules.
 
+**Never leave an issue in `wip/` at the end of a conversation.** If you shipped code under an issue, close it before the session ends. Use `/finish-issue {number}` — it handles task status updates, implementation logging, verification, and the closing commit. An issue left in `wip/` is invisible debt that accumulates silently.
+
 **Push to the user branch.** After committing, push the changes to a remote branch named after the requesting user. This lets the user review and merge to `main` at their own pace:
 
 ```bash
