@@ -34,6 +34,7 @@ async def create_job(
     cron: str | None = None,
     interval_hours: float | None = None,
     after_job: str | None = None,
+    timezone: str | None = None,
     notify: str = 'on_output',
     model: str | None = None,
     channel: str | None = None,
@@ -57,6 +58,7 @@ async def create_job(
         cron: Cron expression for cron triggers (e.g. "0 7 * * *").
         interval_hours: Hours between runs for interval triggers.
         after_job: Job ID that triggers this job (for event triggers).
+        timezone: IANA timezone for cron expressions (e.g. "Europe/Brussels"). If not set, cron runs in UTC.
         notify: Notification policy: "always", "on_failure", "on_output", "silent".
         model: Model to use (default: claude-haiku-4-5-20251001).
         channel: Notification channel (default: telegram).
@@ -74,6 +76,7 @@ async def create_job(
         cron=cron,
         interval_seconds=int(interval_hours * 3600) if interval_hours else None,
         after_job=after_job,
+        timezone=timezone,
     )
 
     try:
@@ -214,6 +217,7 @@ async def update_job(
     system_prompt: str | None = None,
     notify: str | None = None,
     model: str | None = None,
+    timezone: str | None = None,
     timeout_minutes: float | None = None,
 ) -> str:
     """Update a job's configuration.
@@ -231,6 +235,7 @@ async def update_job(
         system_prompt: New system prompt.
         notify: New notify policy.
         model: New model name.
+        timezone: IANA timezone for cron expressions (e.g. "Europe/Brussels").
         timeout_minutes: Max minutes the job can run before being killed.
 
     Returns:
@@ -259,6 +264,8 @@ async def update_job(
         job.notify = NotifyPolicy(notify)
     if model is not None:
         job.model = model
+    if timezone is not None:
+        job.trigger.timezone = timezone
     if timeout_minutes is not None:
         job.timeout_seconds = int(timeout_minutes * 60)
 
