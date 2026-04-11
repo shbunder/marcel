@@ -298,6 +298,63 @@ async def browser_tab(
         return f'Error: Tab operation failed — {exc}'
 
 
+async def browser_evaluate(ctx: RunContext[MarcelDeps], script: str) -> str:
+    """Run JavaScript in the page and return the result as a string.
+
+    Use this when browser_snapshot returns an empty accessibility tree (common
+    with JS-heavy SPAs). You can extract data directly from the DOM:
+
+        browser_evaluate(script="[...document.querySelectorAll('h2 a')].map(a => ({title: a.textContent.trim(), href: a.href}))")
+
+    The script is passed to page.evaluate(). The return value is JSON-serialized.
+    Keep scripts short and focused — extract only what you need.
+    """
+    import json as _json
+
+    mgr = _get_manager()
+    key = _session_key(ctx)
+    try:
+        page = await mgr.get_active_page(key)
+        result = await page.evaluate(script)
+        # Serialize to compact JSON string
+        if isinstance(result, (dict, list)):
+            text = _json.dumps(result, ensure_ascii=False, indent=None, separators=(',', ':'))
+        else:
+            text = str(result) if result is not None else '(null)'
+        # Truncate to avoid blowing up context
+        if len(text) > 12000:
+            text = text[:12000] + '\n\n... (truncated)'
+        return text
+    except Exception as exc:
+        return f'Error: Evaluate failed — {exc}'
+
+
+async def browser_content(ctx: RunContext[MarcelDeps], selector: str | None = None) -> str:
+    """Return the raw HTML content of the page or a specific element.
+
+    Use this as a lightweight fallback when browser_snapshot returns an empty
+    accessibility tree. For structured data, prefer browser_evaluate with a
+    targeted DOM query. Pass a CSS selector to get HTML of a specific element.
+    """
+    mgr = _get_manager()
+    key = _session_key(ctx)
+    max_chars = 12000
+    try:
+        page = await mgr.get_active_page(key)
+        if selector:
+            element = await page.query_selector(selector)
+            if element is None:
+                return f'Error: No element matches selector: {selector}'
+            html = await element.inner_html()
+        else:
+            html = await page.content()
+        if len(html) > max_chars:
+            html = html[:max_chars] + '\n\n... (truncated)'
+        return html
+    except Exception as exc:
+        return f'Error: Content retrieval failed — {exc}'
+
+
 async def browser_close(ctx: RunContext[MarcelDeps]) -> str:
     """Close the browser session entirely. Use this when you are done browsing."""
     mgr = _get_manager()

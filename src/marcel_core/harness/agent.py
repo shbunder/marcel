@@ -18,6 +18,7 @@ from marcel_core.tools import (
     core as core_tools,
     integration as integration_tools,
     marcel as marcel_tools,
+    rss as rss_tools,
 )
 from marcel_core.tools.browser import is_available as browser_is_available
 from marcel_core.tracing import get_instrumentation_settings
@@ -142,6 +143,8 @@ def create_marcel_agent(
         from marcel_core.tools.browser.pydantic_tools import (
             browser_click,
             browser_close,
+            browser_content,
+            browser_evaluate,
             browser_navigate,
             browser_press_key,
             browser_screenshot,
@@ -159,6 +162,8 @@ def create_marcel_agent(
         agent.tool(browser_scroll)
         agent.tool(browser_press_key)
         agent.tool(browser_tab)
+        agent.tool(browser_evaluate)
+        agent.tool(browser_content)
         agent.tool(browser_close)
 
     if role == 'admin':
@@ -177,6 +182,9 @@ def create_marcel_agent(
 
     # Chart/image generation — available to all users
     agent.tool(chart_tools.generate_chart)
+
+    # RSS feed fetcher — available to all users
+    agent.tool(rss_tools.rss_fetch)
 
     # All users get integration dispatch and the unified marcel utils tool
     agent.tool(integration_tools.integration)

@@ -10,10 +10,10 @@ or files).  This guides new users through first-time setup.
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import logging
 import os
-import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 

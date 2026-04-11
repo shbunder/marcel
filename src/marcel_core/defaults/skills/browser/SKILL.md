@@ -31,6 +31,8 @@ The typical pattern is:
 | `browser_scroll` | Scroll the page (up/down/left/right). |
 | `browser_press_key` | Press a keyboard key (Enter, Escape, Tab, arrows, etc.). |
 | `browser_tab` | Manage tabs (list, new, switch, close). |
+| `browser_evaluate` | Run JavaScript in the page and return the result. |
+| `browser_content` | Get raw HTML of the page or a CSS-selected element. |
 | `browser_close` | Close the browser session when done. |
 
 ### Snapshot vs Screenshot
@@ -59,5 +61,6 @@ You can then use `browser_click(ref="4")` to click the Sign In button, or `brows
 - Always close the browser when done with `browser_close` to free resources.
 - If a page requires scrolling to see more content, use `browser_scroll` then `browser_snapshot`.
 - For multi-step flows (login, form filling), snapshot after each step to confirm the page state.
-- Some elements may not appear in the accessibility tree. Fall back to `browser_screenshot` + coordinate-based clicking.
+- Some elements may not appear in the accessibility tree. Use `browser_evaluate` to extract data via JavaScript, or `browser_content` to read raw HTML. Only fall back to `browser_screenshot` as a last resort.
+- When `browser_snapshot` returns "(Could not read page accessibility tree)", use `browser_evaluate` with a DOM query to extract the data you need. Example: `browser_evaluate(script="[...document.querySelectorAll('article h2')].map(h => h.textContent.trim())")`
 - Navigation to private networks (localhost, 10.x, 192.168.x, etc.) is blocked for security.
