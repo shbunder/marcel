@@ -41,6 +41,7 @@ logging.getLogger('httpcore').setLevel(logging.WARNING)
 
 from marcel_core.api.artifacts import router as artifacts_router
 from marcel_core.api.chat import router as chat_router
+from marcel_core.api.components import router as components_router
 from marcel_core.api.conversations import router as conversations_router
 from marcel_core.api.health import router as health_router
 from marcel_core.channels.telegram import router as telegram_router
@@ -159,6 +160,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(artifacts_router)
 app.include_router(chat_router)
+app.include_router(components_router)
 app.include_router(conversations_router)
 app.include_router(telegram_router)
 

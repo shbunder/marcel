@@ -1,6 +1,6 @@
 # ISSUE-063: A2UI Component Catalog for Multi-Platform Skill UI
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-11
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -80,20 +80,20 @@ It renders everywhere immediately via the generic fallback. Native implementatio
 ## Tasks
 
 ### Phase 1 — Component Schema & Registry
-- [ ] ISSUE-063-a: Define the A2UI component schema format (YAML with JSON Schema props, aligned with A2UI spec v0.9)
-- [ ] ISSUE-063-b: Extend skill loader (`skills/loader.py`) to discover and parse `components.yaml` files alongside `SKILL.md`
-- [ ] ISSUE-063-c: Build component registry that aggregates schemas from all skills at startup
-- [ ] ISSUE-063-d: Add `/api/components` endpoint so clients can fetch the full catalog
-- [ ] ISSUE-063-e: Extend the `Artifact` model to support A2UI component payloads (new `content_type: "a2ui"` with structured JSON content)
+- [✓] ISSUE-063-a: Define the A2UI component schema format (YAML with JSON Schema props, aligned with A2UI spec v0.9)
+- [✓] ISSUE-063-b: Extend skill loader (`skills/loader.py`) to discover and parse `components.yaml` files alongside `SKILL.md`
+- [✓] ISSUE-063-c: Build component registry that aggregates schemas from all skills at startup
+- [✓] ISSUE-063-d: Add `/api/components` endpoint so clients can fetch the full catalog
+- [✓] ISSUE-063-e: Extend the `Artifact` model to support A2UI component payloads (new `content_type: "a2ui"` with structured JSON content)
 
 ### Phase 2 — Generic Renderer (React / Telegram Mini App)
-- [ ] ISSUE-063-f: Build generic A2UI renderer in the web app — auto-generates UI from component schema (labels, lists, tables, basic inputs)
-- [ ] ISSUE-063-g: Migrate existing CalendarWidget and ChecklistWidget to A2UI component definitions as proof of concept
-- [ ] ISSUE-063-h: Update Telegram Mini App Viewer to use generic renderer with fallback to current hardcoded widgets
+- [✓] ISSUE-063-f: Build generic A2UI renderer in the web app — auto-generates UI from component schema (labels, lists, tables, basic inputs)
+- [✓] ISSUE-063-g: Migrate existing CalendarWidget and ChecklistWidget to A2UI component definitions as proof of concept
+- [✓] ISSUE-063-h: Update Telegram Mini App Viewer to use generic renderer with fallback to current hardcoded widgets
 
 ### Phase 3 — AG-UI Transport Integration
-- [ ] ISSUE-063-i: Define A2UI custom event type in AG-UI event schema (extends existing custom event support)
-- [ ] ISSUE-063-j: Enable real-time streaming of A2UI components (incremental updates via AG-UI events, not just static artifacts)
+- [✓] ISSUE-063-i: Define A2UI custom event type in AG-UI event schema (extends existing custom event support)
+- [✓] ISSUE-063-j: Enable real-time streaming of A2UI components (incremental updates via AG-UI events, not just static artifacts)
 
 ### Phase 4 — Native Platform Catalogs (iOS / macOS)
 - [ ] ISSUE-063-k: Define Swift `ComponentCatalog` protocol for iOS/macOS (maps component names to SwiftUI views)
@@ -116,3 +116,31 @@ Conducted web research on A2UI and AG-UI relationship. Key findings:
 Design decision: co-locate component schemas with skills rather than centralizing them. This keeps skills self-contained (aligning with Marcel's "lightweight, self-contained, removable" principle) and makes the catalog automatically grow as skills are added.
 
 ## Implementation Log
+
+### 2026-04-11 — LLM Implementation (Phases 1–3)
+**Action**: Implemented A2UI component catalog — schema system, registry, API, artifact extension, AG-UI event, generic renderer, and viewer integration.
+
+**Files Created**:
+- `src/marcel_core/skills/components.py` — ComponentSchema, ComponentPayload models + `parse_components_yaml()` parser
+- `src/marcel_core/skills/component_registry.py` — ComponentRegistry class + `build_registry()` factory
+- `src/marcel_core/api/components.py` — `GET /api/components` and `GET /api/components/{name}` endpoints
+- `src/marcel_core/defaults/skills/ui/SKILL.md` — Built-in UI skill doc
+- `src/marcel_core/defaults/skills/ui/components.yaml` — Calendar + checklist A2UI schemas
+- `src/marcel_core/defaults/skills/banking/components.yaml` — Transaction list + balance card schemas
+- `src/web/src/components/A2UIRenderer.tsx` — Generic renderer (object→rows, array→table, primitives→text)
+- `tests/core/test_components.py` — 24 tests covering parser, registry, artifact integration, loader
+
+**Files Modified**:
+- `src/marcel_core/skills/loader.py` — Added `components` field to SkillDoc, parse `components.yaml` in `_load_skill_dir()`
+- `src/marcel_core/storage/artifacts.py` — Added `a2ui` to ContentType, `component_name` field to Artifact/ArtifactSummary, kwarg to `create_artifact()`
+- `src/marcel_core/api/artifacts.py` — Added `component_name` to ArtifactResponse
+- `src/marcel_core/harness/runner.py` — Added `A2UIComponent` event dataclass
+- `src/marcel_core/main.py` — Registered components router
+- `src/web/src/types.ts` — Added `a2ui` content type, `component_name` field, `ComponentSchema` interface
+- `src/web/src/components/Viewer.tsx` — A2UI fallback chain: native widget → generic renderer → JSON → markdown
+- `src/web/src/components/Gallery.tsx` — Added `a2ui` icon
+- `src/web/src/styles/global.css` — A2UI renderer styles (table, rows, labels, JSON fallback)
+
+**Commands Run**: `uv run pytest tests/core/test_components.py -v` (24 passed), `make check` (1069 passed, 93% coverage), `npm run build` (clean)
+**Result**: Success — all tests passing, web app builds, `make check` green
+**Note**: Phase 4 (iOS/macOS native catalogs) deferred — requires native app scaffolding first

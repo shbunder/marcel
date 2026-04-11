@@ -19,6 +19,8 @@ from pathlib import Path
 
 import yaml
 
+from marcel_core.skills.components import ComponentSchema, parse_components_yaml
+
 log = logging.getLogger(__name__)
 
 
@@ -40,6 +42,8 @@ class SkillDoc:
     source: str  # 'project' or 'home'
     credential_keys: list[str] = dataclasses.field(default_factory=list)
     """Credential keys declared in requires.credentials (for auto-injection)."""
+    components: list[ComponentSchema] = dataclasses.field(default_factory=list)
+    """A2UI component schemas declared in this skill's components.yaml."""
 
 
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -134,9 +138,16 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
     """
     skill_md = skill_path / 'SKILL.md'
     setup_md = skill_path / 'SETUP.md'
+    components_yaml = skill_path / 'components.yaml'
 
     if not skill_md.exists() and not setup_md.exists():
         return None
+
+    # Parse A2UI component schemas if present (attached to whichever doc is returned)
+    components: list[ComponentSchema] = []
+    if components_yaml.exists():
+        skill_name = skill_path.name  # tentative — overridden below if frontmatter has name
+        components = parse_components_yaml(components_yaml, skill_name)
 
     # Try SKILL.md first
     if skill_md.exists():
@@ -147,6 +158,10 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
         requires = fm.get('requires', {})
         cred_keys = requires.get('credentials', []) if requires else []
 
+        # Update component skill names to match the resolved skill name
+        for c in components:
+            c.skill = name
+
         if _check_requirements(requires, user_slug):
             return SkillDoc(
                 name=name,
@@ -155,6 +170,7 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
                 is_setup=False,
                 source=source,
                 credential_keys=cred_keys,
+                components=components,
             )
 
         # Requirements not met — fall back to SETUP.md
@@ -168,6 +184,7 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
                 is_setup=True,
                 source=source,
                 credential_keys=cred_keys,
+                components=components,
             )
 
         # No SETUP.md — still return SKILL.md (agent can handle the error at runtime)
@@ -178,6 +195,7 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
             is_setup=False,
             source=source,
             credential_keys=cred_keys,
+            components=components,
         )
 
     # Only SETUP.md exists (no SKILL.md) — unusual but supported
@@ -190,6 +208,7 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
             content=body,
             is_setup=True,
             source=source,
+            components=components,
         )
 
     return None

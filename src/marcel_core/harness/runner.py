@@ -254,6 +254,20 @@ class ToolCallCompleted(MarcelEvent):
 
 
 @dataclass
+class A2UIComponent(MarcelEvent):
+    """A2UI component payload emitted by the agent.
+
+    Carries a declarative component description for the frontend to render.
+    Part of the A2UI protocol — see ISSUE-063 for details.
+    """
+
+    type: Literal['a2ui_component'] = 'a2ui_component'  # type: ignore[assignment]
+    component: str = ''
+    props: dict[str, object] | None = None
+    artifact_id: str | None = None
+
+
+@dataclass
 class RunFinished(MarcelEvent):
     """Turn execution finished."""
 

@@ -382,3 +382,85 @@ body.tg-mini-app .app {
   font-size: 12px;
   color: var(--text-dim);
 }
+
+/* A2UI generic renderer */
+
+.a2ui {
+  font-family: var(--font);
+  color: var(--text-primary);
+}
+
+.a2ui__label {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.a2ui__section-label {
+  font-weight: 600;
+  font-size: 14px;
+  margin: 12px 0 6px;
+  color: var(--text-primary);
+}
+
+.a2ui__row {
+  padding: 4px 0;
+}
+
+.a2ui__nested {
+  margin-left: 12px;
+  padding: 4px 0;
+}
+
+.a2ui__table-container {
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.a2ui__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.a2ui__table th {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.a2ui__table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(51, 51, 85, 0.5);
+}
+
+.a2ui__table tr:last-child td {
+  border-bottom: none;
+}
+
+.a2ui__list ul {
+  list-style: disc;
+  padding-left: 20px;
+}
+
+.a2ui__list li {
+  padding: 2px 0;
+}
+
+.a2ui__json {
+  background: var(--bg-secondary);
+  padding: 12px;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  overflow-x: auto;
+}
+
+.a2ui__empty {
+  color: var(--text-dim);
+  font-style: italic;
+}

@@ -58,6 +58,7 @@ class ArtifactResponse(BaseModel):
     content: str
     title: str
     created_at: str
+    component_name: str | None = None
 
 
 class ArtifactListResponse(BaseModel):
@@ -83,6 +84,7 @@ async def get_artifact(
         content=artifact.content,
         title=artifact.title,
         created_at=artifact.created_at.isoformat(),
+        component_name=artifact.component_name,
     )
 
 

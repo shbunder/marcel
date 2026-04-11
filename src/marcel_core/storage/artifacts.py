@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from marcel_core.storage._atomic import atomic_write
 from marcel_core.storage._root import data_root
 
-ContentType = Literal['markdown', 'image', 'chart_data', 'html', 'checklist', 'calendar']
+ContentType = Literal['markdown', 'image', 'chart_data', 'html', 'checklist', 'calendar', 'a2ui']
 
 
 class Artifact(BaseModel):
@@ -27,6 +27,8 @@ class Artifact(BaseModel):
     content: str
     title: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    component_name: str | None = None
+    """A2UI component name — only set when content_type is 'a2ui'."""
 
 
 class ArtifactSummary(BaseModel):
@@ -36,6 +38,7 @@ class ArtifactSummary(BaseModel):
     title: str
     content_type: ContentType
     created_at: datetime
+    component_name: str | None = None
 
 
 def _artifacts_dir() -> pathlib.Path:
@@ -103,6 +106,7 @@ def list_artifacts(
             title=a.title,
             content_type=a.content_type,
             created_at=a.created_at,
+            component_name=a.component_name,
         )
         for a in results[:limit]
     ]
@@ -114,6 +118,8 @@ def create_artifact(
     content_type: ContentType,
     content: str,
     title: str,
+    *,
+    component_name: str | None = None,
 ) -> str:
     """Create and persist a new artifact. Returns the artifact ID."""
     artifact = Artifact(
@@ -122,5 +128,6 @@ def create_artifact(
         content_type=content_type,
         content=content,
         title=title,
+        component_name=component_name,
     )
     return save_artifact(artifact)

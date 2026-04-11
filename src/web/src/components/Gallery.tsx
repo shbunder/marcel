@@ -8,6 +8,7 @@ const CONTENT_TYPE_ICONS: Record<string, string> = {
   image: '🖼️',
   chart_data: '📊',
   html: '🌐',
+  a2ui: '🧩',
 }
 
 function formatDate(iso: string): string {
