@@ -18,7 +18,6 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from marcel_core.memory import extract_and_save_memories
 from marcel_core.channels.telegram import bot, sessions
 from marcel_core.channels.telegram.formatting import (
     DAYS_PER_PAGE,
@@ -31,6 +30,7 @@ from marcel_core.channels.telegram.formatting import (
 )
 from marcel_core.config import settings
 from marcel_core.harness.runner import TextDelta, stream_turn
+from marcel_core.memory import extract_and_save_memories
 from marcel_core.memory.conversation import has_active_content, read_active_segment
 from marcel_core.memory.summarizer import summarize_active_segment
 from marcel_core.storage.artifacts import create_artifact
