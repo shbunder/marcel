@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from marcel_core.agent.marcelmd import (
+from marcel_core.harness.marcelmd import (
     format_marcelmd_for_prompt,
     load_marcelmd_files,
 )

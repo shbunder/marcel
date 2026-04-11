@@ -18,7 +18,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from marcel_core.agent import extract_and_save_memories
+from marcel_core.memory import extract_and_save_memories
 from marcel_core.channels.telegram import bot, sessions
 from marcel_core.channels.telegram.formatting import (
     DAYS_PER_PAGE,

@@ -1,6 +1,6 @@
 # ISSUE-066: Post-065 Audit Cleanup
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-11
 **Assignee:** Marcel (self)
 **Priority:** Medium

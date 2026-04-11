@@ -15,6 +15,28 @@ _DEFAULTS_CHANNELS = Path(__file__).resolve().parent.parent / 'defaults' / 'chan
 
 
 @pydantic_dc.dataclass
+class TurnState:
+    """Mutable state accumulated during a single agent turn.
+
+    Kept separate from ``MarcelDeps`` so the dependency container stays
+    immutable identity/config and all per-turn state lives in one place.
+    Tools mutate fields on ``ctx.deps.turn`` (e.g. ``turn.read_skills``,
+    ``turn.notified``); post-run code (like the job executor) reads them
+    to decide what to do next.
+    """
+
+    read_skills: set[str] = dataclasses.field(default_factory=set)
+    """Skills whose full docs have been loaded this turn (for auto-inject dedup)."""
+
+    notified: bool = False
+    """Set to True when the agent sends a notification via ``marcel(action="notify")``.
+
+    Used by the job executor to skip its own automatic notification when the
+    agent already delivered a message to the user during the run.
+    """
+
+
+@pydantic_dc.dataclass
 class MarcelDeps:
     """Dependencies injected into Marcel agent tools via RunContext.
 
@@ -23,6 +45,10 @@ class MarcelDeps:
 
     Uses ``pydantic.dataclasses.dataclass`` for validation while keeping the
     dataclass-style API that pydantic-ai expects for ``deps_type``.
+
+    Fields are either immutable identity/config (``user_slug``, ``channel``,
+    ``model``, ``role``, ``cwd``) or the per-turn state holder ``turn``.
+    Do not add stateful flags directly here — add them to :class:`TurnState`.
     """
 
     user_slug: str
@@ -48,15 +74,8 @@ class MarcelDeps:
     None falls back to the project root.
     """
 
-    read_skills: set[str] = dataclasses.field(default_factory=set)
-    """Skills whose full docs have been loaded this turn (for auto-inject dedup)."""
-
-    notified: bool = False
-    """Set to True when the agent sends a notification via ``marcel(action="notify")``.
-
-    Used by the job executor to skip its own automatic notification when the
-    agent already delivered a message to the user during the run.
-    """
+    turn: TurnState = dataclasses.field(default_factory=TurnState)
+    """Per-turn mutable state (tools mutate this, never the parent deps)."""
 
 
 def build_server_context(cwd: str | None = None) -> str:
@@ -153,7 +172,7 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
     Returns:
         Complete system prompt string.
     """
-    from marcel_core.agent.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
+    from marcel_core.harness.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
     from marcel_core.memory.selector import select_relevant_memories
     from marcel_core.skills.loader import format_skill_index, load_skills
     from marcel_core.storage import load_user_profile

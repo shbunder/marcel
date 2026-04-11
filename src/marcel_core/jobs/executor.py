@@ -185,7 +185,7 @@ async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> 
         )
         run.output = result.output
         run.status = RunStatus.COMPLETED
-        run.agent_notified = deps.notified
+        run.agent_notified = deps.turn.notified
     except asyncio.TimeoutError:
         log.warning('%s-job: job %s (%s) timed out after %ds', job.user_slug, job.id, job.name, job.timeout_seconds)
         run.error = f'Job timed out after {job.timeout_seconds}s'

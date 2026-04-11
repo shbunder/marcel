@@ -22,7 +22,7 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from marcel_core.agent import extract_and_save_memories
+from marcel_core.memory import extract_and_save_memories
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
 from marcel_core.channels.adapter import dispatch_event
 from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug

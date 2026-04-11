@@ -59,13 +59,13 @@ async def integration(
     # docs so the model has full context for interpreting the result.
     prefix = ''
     skill_family = id.split('.')[0]
-    if skill_family not in ctx.deps.read_skills:
+    if skill_family not in ctx.deps.turn.read_skills:
         from marcel_core.skills.loader import get_skill_content
 
         content = get_skill_content(skill_family, ctx.deps.user_slug)
         if content:
             prefix = f'[Auto-loaded {skill_family} skill docs]\n{content}\n\n---\n\n'
-        ctx.deps.read_skills.add(skill_family)
+        ctx.deps.turn.read_skills.add(skill_family)
 
     try:
         result = await run(config, params, ctx.deps.user_slug)

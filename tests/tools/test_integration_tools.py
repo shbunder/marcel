@@ -79,13 +79,13 @@ class TestIntegrationTool:
         assert 'Full banking docs here' in result
         assert 'result-data' in result
         # Second call should NOT auto-inject
-        assert 'banking' in ctx.deps.read_skills
+        assert 'banking' in ctx.deps.turn.read_skills
 
     @pytest.mark.asyncio
     async def test_no_duplicate_inject_after_read_skill(self):
         """If skill was read via marcel tool first, integration doesn't re-inject."""
         ctx = _ctx()
-        ctx.deps.read_skills.add('banking')
+        ctx.deps.turn.read_skills.add('banking')
         with patch('marcel_core.tools.integration.get_skill', return_value={'type': 'python', 'handler': 'x'}):
             with patch('marcel_core.tools.integration.run', AsyncMock(return_value='result-data')):
                 result = await integration(ctx, 'banking.balance', {})
@@ -196,7 +196,7 @@ class TestMarcelReadSkill:
         with patch('marcel_core.skills.loader.get_skill_content', return_value='Full skill documentation here'):
             result = await marcel(ctx, 'read_skill', name='banking')
         assert 'Full skill documentation here' in result
-        assert 'banking' in ctx.deps.read_skills
+        assert 'banking' in ctx.deps.turn.read_skills
 
     @pytest.mark.asyncio
     async def test_unknown_skill_returns_error(self):

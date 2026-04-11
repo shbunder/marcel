@@ -3,7 +3,7 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from marcel_core.agent.memory_extract import _parse_operations, extract_and_save_memories
+from marcel_core.memory.extract import _parse_operations, extract_and_save_memories
 from marcel_core.memory.selector import _parse_selection, select_relevant_memories
 from marcel_core.storage import _root
 
@@ -22,7 +22,7 @@ class TestExtractAndSaveMemories:
         mock_agent = MagicMock()
         mock_agent.run = AsyncMock(return_value=mock_result)
 
-        with patch('marcel_core.agent.memory_extract.Agent', return_value=mock_agent):
+        with patch('marcel_core.memory.extract.Agent', return_value=mock_agent):
             asyncio.run(extract_and_save_memories('shaun', 'I like tea', 'Noted!', 'conv-1'))
 
         # Memory file should be written
@@ -48,7 +48,7 @@ class TestExtractAndSaveMemories:
 
         mock_agent.run = _capture_run
 
-        with patch('marcel_core.agent.memory_extract.Agent', return_value=mock_agent):
+        with patch('marcel_core.memory.extract.Agent', return_value=mock_agent):
             asyncio.run(extract_and_save_memories('shaun', 'hello', 'hi', 'conv-1'))
 
         assert 'prefs.md' in captured_prompt['text']
@@ -59,7 +59,7 @@ class TestExtractAndSaveMemories:
         mock_agent = MagicMock()
         mock_agent.run = AsyncMock(side_effect=RuntimeError('api down'))
 
-        with patch('marcel_core.agent.memory_extract.Agent', return_value=mock_agent):
+        with patch('marcel_core.memory.extract.Agent', return_value=mock_agent):
             # Should not raise
             asyncio.run(extract_and_save_memories('shaun', 'x', 'y', 'conv-1'))
 
@@ -72,7 +72,7 @@ class TestExtractAndSaveMemories:
         mock_agent = MagicMock()
         mock_agent.run = AsyncMock(return_value=mock_result)
 
-        with patch('marcel_core.agent.memory_extract.Agent', return_value=mock_agent):
+        with patch('marcel_core.memory.extract.Agent', return_value=mock_agent):
             asyncio.run(extract_and_save_memories('shaun', 'hello', 'hi', 'conv-1'))
 
         mem_dir = tmp_path / 'users' / 'shaun' / 'memory'
