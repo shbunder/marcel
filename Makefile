@@ -54,9 +54,9 @@ test-core: ## Run core package tests
 	uv run pytest tests/core/ -x -v
 
 .PHONY: test-cov
-test-cov: ## Run tests with coverage report
+test-cov: ## Run tests with coverage report (fails below 90%)
 	echo -e "$(INFO) Running all tests with coverage..."
-	uv run pytest tests/ --cov=marcel_core --cov-report=term-missing
+	uv run pytest tests/ --cov=marcel_core --cov-report=term-missing --cov-fail-under=90
 
 .PHONY: install-cli
 install-cli: ## Install the Marcel CLI binary (Rust) to ~/.cargo/bin

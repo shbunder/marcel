@@ -1,0 +1,256 @@
+"""Scenario-based tests for the news integration and SQLite cache.
+
+Covers: news.store, news.filter_new, news.search, news.recent through
+realistic scraping and querying workflows, plus cache edge cases.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from marcel_core.storage import _root
+
+
+@pytest.fixture(autouse=True)
+def _isolate(tmp_path, monkeypatch):
+    monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Cache layer (direct)
+# ---------------------------------------------------------------------------
+
+
+class TestNewsCache:
+    def test_upsert_and_query(self):
+        from marcel_core.skills.integrations.news.cache import get_articles, upsert_articles
+
+        articles = [
+            {
+                'title': 'AI Boom',
+                'source': 'VRT NWS',
+                'link': 'https://vrt.be/1',
+                'topic': 'Tech',
+                'description': 'AI is booming',
+            },
+            {
+                'title': 'Markets Up',
+                'source': 'De Tijd',
+                'link': 'https://tijd.be/1',
+                'topic': 'Finance',
+                'description': 'Markets rally',
+            },
+        ]
+        count = upsert_articles('alice', articles)
+        assert count == 2
+
+        all_articles = get_articles('alice')
+        assert len(all_articles) == 2
+
+    def test_upsert_deduplication(self):
+        from marcel_core.skills.integrations.news.cache import get_articles, upsert_articles
+
+        article = [{'title': 'Same', 'source': 'VRT', 'link': 'https://vrt.be/same', 'topic': 'Tech'}]
+        upsert_articles('alice', article)
+        upsert_articles('alice', article)  # same link
+
+        all_articles = get_articles('alice')
+        assert len(all_articles) == 1
+
+    def test_upsert_skips_no_link(self):
+        from marcel_core.skills.integrations.news.cache import upsert_articles
+
+        articles = [{'title': 'No Link', 'source': 'VRT'}]
+        count = upsert_articles('alice', articles)
+        assert count == 0
+
+    def test_upsert_uses_url_field(self):
+        from marcel_core.skills.integrations.news.cache import get_articles, upsert_articles
+
+        articles = [{'title': 'URL field', 'source': 'VRT', 'url': 'https://vrt.be/url-field'}]
+        count = upsert_articles('alice', articles)
+        assert count == 1
+        all_arts = get_articles('alice')
+        assert all_arts[0]['link'] == 'https://vrt.be/url-field'
+
+    def test_filter_by_source(self):
+        from marcel_core.skills.integrations.news.cache import get_articles, upsert_articles
+
+        upsert_articles(
+            'alice',
+            [
+                {'title': 'A', 'source': 'VRT', 'link': 'https://vrt.be/a'},
+                {'title': 'B', 'source': 'Tijd', 'link': 'https://tijd.be/b'},
+            ],
+        )
+        results = get_articles('alice', source='VRT')
+        assert len(results) == 1
+        assert results[0]['source'] == 'VRT'
+
+    def test_filter_by_topic(self):
+        from marcel_core.skills.integrations.news.cache import get_articles, upsert_articles
+
+        upsert_articles(
+            'alice',
+            [
+                {'title': 'A', 'source': 'VRT', 'link': 'https://1', 'topic': 'Tech'},
+                {'title': 'B', 'source': 'VRT', 'link': 'https://2', 'topic': 'Sports'},
+            ],
+        )
+        results = get_articles('alice', topic='Tech')
+        assert len(results) == 1
+
+    def test_keyword_search(self):
+        from marcel_core.skills.integrations.news.cache import get_articles, upsert_articles
+
+        upsert_articles(
+            'alice',
+            [
+                {
+                    'title': 'AI Revolution',
+                    'source': 'VRT',
+                    'link': 'https://1',
+                    'description': 'Artificial intelligence',
+                },
+                {'title': 'Weather', 'source': 'VRT', 'link': 'https://2', 'description': 'Rain tomorrow'},
+            ],
+        )
+        results = get_articles('alice', search='Revolution')
+        assert len(results) == 1
+        assert results[0]['title'] == 'AI Revolution'
+
+    def test_date_filters(self):
+        from marcel_core.skills.integrations.news.cache import get_articles, upsert_articles
+
+        upsert_articles(
+            'alice',
+            [
+                {'title': 'Old', 'source': 'VRT', 'link': 'https://1'},
+                {'title': 'New', 'source': 'VRT', 'link': 'https://2'},
+            ],
+        )
+        # Both should appear with no date filter
+        results = get_articles('alice')
+        assert len(results) == 2
+
+        # With date range
+        results = get_articles('alice', date_from='2020-01-01', date_to='2099-12-31')
+        assert len(results) == 2
+
+    def test_limit(self):
+        from marcel_core.skills.integrations.news.cache import get_articles, upsert_articles
+
+        arts = [{'title': f'Art {i}', 'source': 'VRT', 'link': f'https://vrt.be/{i}'} for i in range(10)]
+        upsert_articles('alice', arts)
+        results = get_articles('alice', limit=3)
+        assert len(results) == 3
+
+    def test_filter_new_links(self):
+        from marcel_core.skills.integrations.news.cache import filter_new_links, upsert_articles
+
+        upsert_articles('alice', [{'title': 'Existing', 'source': 'VRT', 'link': 'https://vrt.be/exists'}])
+        new = filter_new_links('alice', ['https://vrt.be/exists', 'https://vrt.be/new'])
+        assert new == ['https://vrt.be/new']
+
+    def test_filter_new_links_empty(self):
+        from marcel_core.skills.integrations.news.cache import filter_new_links
+
+        assert filter_new_links('alice', []) == []
+
+    def test_article_id_stable(self):
+        from marcel_core.skills.integrations.news.cache import article_id
+
+        assert article_id('https://vrt.be/1') == article_id('https://vrt.be/1')
+        assert article_id('https://vrt.be/1') != article_id('https://vrt.be/2')
+
+
+# ---------------------------------------------------------------------------
+# Integration handlers
+# ---------------------------------------------------------------------------
+
+
+class TestNewsIntegration:
+    @pytest.mark.asyncio
+    async def test_store(self):
+        from marcel_core.skills.integrations.news import store
+
+        result = await store(
+            {
+                'articles': [
+                    {'title': 'Test', 'source': 'VRT', 'link': 'https://vrt.be/test'},
+                ]
+            },
+            'alice',
+        )
+        data = json.loads(result)
+        assert data['stored'] == 1
+
+    @pytest.mark.asyncio
+    async def test_store_empty(self):
+        from marcel_core.skills.integrations.news import store
+
+        result = await store({}, 'alice')
+        data = json.loads(result)
+        assert 'error' in data
+
+    @pytest.mark.asyncio
+    async def test_filter_new(self):
+        from marcel_core.skills.integrations.news import filter_new, store
+
+        await store(
+            {
+                'articles': [
+                    {'title': 'Old', 'source': 'VRT', 'link': 'https://vrt.be/old'},
+                ]
+            },
+            'alice',
+        )
+
+        result = await filter_new({'links': ['https://vrt.be/old', 'https://vrt.be/new']}, 'alice')
+        data = json.loads(result)
+        assert data['count'] == 1
+        assert 'https://vrt.be/new' in data['new_links']
+
+    @pytest.mark.asyncio
+    async def test_filter_new_empty(self):
+        from marcel_core.skills.integrations.news import filter_new
+
+        result = await filter_new({'links': []}, 'alice')
+        data = json.loads(result)
+        assert data['count'] == 0
+
+    @pytest.mark.asyncio
+    async def test_search(self):
+        from marcel_core.skills.integrations.news import search, store
+
+        await store(
+            {
+                'articles': [
+                    {'title': 'AI News', 'source': 'VRT', 'link': 'https://vrt.be/ai', 'topic': 'Tech'},
+                ]
+            },
+            'alice',
+        )
+
+        result = await search({'source': 'VRT', 'topic': 'Tech', 'limit': '10'}, 'alice')
+        data = json.loads(result)
+        assert data['count'] == 1
+
+    @pytest.mark.asyncio
+    async def test_recent(self):
+        from marcel_core.skills.integrations.news import recent, store
+
+        await store(
+            {
+                'articles': [
+                    {'title': 'Latest', 'source': 'VRT', 'link': 'https://vrt.be/latest'},
+                ]
+            },
+            'alice',
+        )
+
+        result = await recent({'limit': '5'}, 'alice')
+        data = json.loads(result)
+        assert data['count'] == 1

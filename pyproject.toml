@@ -182,6 +182,9 @@ omit = [
     "*/main.py",
 ]
 
+[tool.coverage.report]
+fail_under = 90
+
 [tool.pyright]
 pythonVersion = "3.12"
 reportMissingTypeStubs = false
