@@ -164,3 +164,22 @@ Lessons captured after completed issues. Referenced at the start of new feature 
 - When removing a module's public API: grep all imports, update all callers and tests first, then delete the functions in a single commit — ensures no dead import errors
 - For data migrations: backup first, dry-run, then execute. The `shutil.copytree` with `copy_function=_copy_ignore_errors` pattern handles permission issues gracefully
 - Memory file cleanup criteria: (1) derivable from codebase → delete, (2) ephemeral/stale data → delete, (3) duplicate content → merge into one file with frontmatter, (4) missing frontmatter → add it
+
+---
+
+## ISSUE-061: Harden Job Scheduler (2026-04-11)
+
+### What worked well
+- Deep-exploring a reference codebase (OpenClaw) before designing gave concrete, battle-tested patterns to adopt rather than inventing from scratch — the plan practically wrote itself
+- All schema changes were additive with defaults, so existing job.json files deserialize without migration — zero backward compatibility risk
+- Implementing all 12 features in a single pass was efficient because they share state (e.g. `consecutive_errors` is used by both backoff and alert cooldown)
+
+### What to do differently
+- The `_notify_if_needed` refactor changed the return type from `None` to `tuple[str, str | None]` and added a second `append_run` call in `execute_job_with_retries` for delivery tracking — this means each run gets two lines in `runs.jsonl` (one from `execute_job`, one from `execute_job_with_retries`). Should have moved `append_run` entirely to `execute_job_with_retries` instead of appending twice. Worth a follow-up fix.
+- No integration test for the full timeout path (would need a mock agent that hangs) — the unit tests cover the model and classification, but end-to-end timeout is untested
+
+### Patterns to reuse
+- `classify_error()` with compiled regex patterns for transient detection — simple, fast, extensible. Add new patterns to `_TRANSIENT_PATTERNS` list as new error shapes appear in production
+- `_stagger_offset(job_id)` using SHA-256 hash mod window — deterministic, no state, avoids thundering herd. Applicable anywhere multiple items share a schedule
+- `_resolve_stuck_runs()` on startup — scan for orphaned RUNNING records and append corrected FAILED records. Good pattern for any append-only log that can be interrupted mid-write
+- `asyncio.Semaphore` for bounding concurrent dispatches — one line of state, wraps the execution block cleanly, no complex queuing needed
