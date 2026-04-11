@@ -183,3 +183,21 @@ Lessons captured after completed issues. Referenced at the start of new feature 
 - `_stagger_offset(job_id)` using SHA-256 hash mod window — deterministic, no state, avoids thundering herd. Applicable anywhere multiple items share a schedule
 - `_resolve_stuck_runs()` on startup — scan for orphaned RUNNING records and append corrected FAILED records. Good pattern for any append-only log that can be interrupted mid-write
 - `asyncio.Semaphore` for bounding concurrent dispatches — one line of state, wraps the execution block cleanly, no complex queuing needed
+
+---
+
+## ISSUE-062: Restructure User Data Directory (2026-04-11)
+
+### What worked well
+- Profile.md frontmatter as a key-value store for small config fields (role, chat_id) avoids single-field JSON files — one file per user instead of three
+- Reusing the existing `channel.meta.json` `last_active` field for telegram idle detection eliminated the global `sessions.json` entirely — no new code needed, just removed the old
+- The migration script pattern from ISSUE-059 (dry-run first, then execute) was directly reusable here
+
+### What to do differently
+- The frontmatter parser strips quotes but doesn't handle all edge cases (e.g., values with colons inside quotes). For now this is fine since all values are simple strings, but if profile.md grows more complex fields, a proper YAML parser might be needed
+- Should have checked `uv.lock` changes earlier — the version bump from issue 061 on main caused a diff that was distracting during pre-close verification
+
+### Patterns to reuse
+- Profile.md frontmatter for per-user structured config: `_parse_profile()` + `_serialize_profile()` + `_update_profile_field()` — simple, no dependencies, works with any key-value pair
+- Delegating session state to an existing metadata store (conversation channel meta) instead of maintaining a separate state file — reduces moving parts and avoids multi-user isolation issues
+- `cache/` subdirectory convention for SQLite databases — keeps caches separate from identity/config files, easy to exclude from backups or clear
