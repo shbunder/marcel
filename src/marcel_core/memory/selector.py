@@ -18,6 +18,7 @@ from pydantic_ai import Agent
 from marcel_core.storage.memory import (
     MemoryHeader,
     format_memory_manifest,
+    human_age,
     load_memory_file,
     memory_freshness_note,
     scan_memory_headers,
@@ -88,12 +89,25 @@ async def select_relevant_memories(
         content = load_memory_file(slug, topic)
         if not content.strip():
             continue
+        # Build a labeled block: ### header + content + optional freshness warning
+        label = _format_memory_label(header)
         freshness = memory_freshness_note(header.mtime)
         if freshness:
             content = f'{content.rstrip()}\n\n{freshness}'
+        content = f'{label}\n{content}'
         results.append((header, content))
 
     return results
+
+
+def _format_memory_label(header: MemoryHeader) -> str:
+    """Format a ``### [type] name (age)`` header for a memory block."""
+    parts: list[str] = ['###']
+    if header.type:
+        parts.append(f'[{header.type.value}]')
+    parts.append(header.name or header.filename.removesuffix('.md'))
+    parts.append(f'({human_age(header.mtime)})')
+    return ' '.join(parts)
 
 
 async def _select_via_model(

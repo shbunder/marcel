@@ -174,7 +174,9 @@ async def test_no_freshness_note_when_fresh(mock_headers):
         results = await select_relevant_memories('test_user', 'query', include_household=False)
         assert len(results) == 1
         _, content = results[0]
-        assert content == 'Fresh content'  # no freshness note appended
+        assert '### [preference] fresh (today)' in content
+        assert 'Fresh content' in content
+        assert '⚠' not in content  # no freshness warning appended
 
 
 # ---------------------------------------------------------------------------

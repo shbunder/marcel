@@ -405,7 +405,7 @@ class JobScheduler:
             return {}
 
     async def _cleanup_loop(self) -> None:
-        """Daily cleanup of old run records based on job retention settings."""
+        """Daily cleanup of old run records and memory consolidation."""
         try:
             while True:
                 await asyncio.sleep(_CLEANUP_INTERVAL)
@@ -420,8 +420,42 @@ class JobScheduler:
                             log.info('Cleaned %d old runs for job %s', removed, job.id)
                     except Exception:
                         log.exception('Cleanup failed for job %s', job.id)
+
+                # Memory consolidation: prune expired + rebuild index
+                _consolidate_memories()
         except asyncio.CancelledError:
             pass
+
+
+def _consolidate_memories() -> None:
+    """Prune expired memories and rebuild the index for all users.
+
+    Called daily by the cleanup loop. Removes schedule-type memories past
+    their expiry date and enforces the index line cap.
+    """
+    from marcel_core.storage._root import data_root
+    from marcel_core.storage.memory import (
+        enforce_index_cap,
+        prune_expired_memories,
+        rebuild_memory_index,
+    )
+
+    users_dir = data_root() / 'users'
+    if not users_dir.is_dir():
+        return
+
+    for user_dir in users_dir.iterdir():
+        if not user_dir.is_dir():
+            continue
+        slug = user_dir.name
+        try:
+            pruned = prune_expired_memories(slug)
+            if pruned:
+                log.info('Memory consolidation: pruned %d expired memories for user=%s', len(pruned), slug)
+            rebuild_memory_index(slug)
+            enforce_index_cap(slug)
+        except Exception:
+            log.exception('Memory consolidation failed for user=%s', slug)
 
 
 def _resolve_stuck_runs() -> None:

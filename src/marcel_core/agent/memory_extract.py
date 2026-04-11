@@ -40,6 +40,9 @@ can be auto-pruned after the date passes.
 5. Keep memory files focused — one topic per file. Use descriptive filenames \
 like `dentist_april.md`, `coffee_preference.md`, `sister_emily.md`.
 6. If there are NO new facts worth saving, return an empty array: []
+7. Pay special attention to user corrections ("no not that", "don't do X", \
+"stop doing Y") and confirmations of non-obvious approaches ("yes exactly", \
+"perfect, keep doing that"). These are `feedback` type memories.
 
 ## Output format
 
@@ -48,7 +51,7 @@ Return a JSON array of operations. Each operation is an object with:
 - "filename": e.g. "coffee_preference.md"
 - "content": full file content including YAML frontmatter
 
-Example frontmatter:
+Example frontmatter for a preference:
 ```
 ---
 name: coffee_preference
@@ -59,7 +62,21 @@ type: preference
 Prefers oat milk flat white, no sugar.
 ```
 
-Valid types: schedule, preference, person, reference, household
+Example frontmatter for feedback (behavioral guidance from the user):
+```
+---
+name: feedback_no_summaries
+description: User does not want trailing summaries after each response
+type: feedback
+---
+
+Do not summarize what you just did at the end of every response.
+
+**Why:** User finds it redundant — they can read the diff themselves.
+**How to apply:** After completing a task, just stop. No recap paragraph.
+```
+
+Valid types: schedule, preference, person, reference, household, feedback
 
 Return ONLY the JSON array, no other text."""
 

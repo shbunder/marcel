@@ -41,6 +41,7 @@ class MemoryType(str, Enum):
     PERSON = 'person'
     REFERENCE = 'reference'
     HOUSEHOLD = 'household'
+    FEEDBACK = 'feedback'
 
 
 # ---------------------------------------------------------------------------
@@ -168,13 +169,13 @@ def format_memory_manifest(headers: list[MemoryHeader]) -> str:
     lines: list[str] = []
     for h in headers:
         tag = f'[{h.type.value}] ' if h.type else ''
-        age = _human_age(h.mtime)
+        age = human_age(h.mtime)
         desc = f': {h.description}' if h.description else ''
         lines.append(f'- {tag}{h.filename} ({age}){desc}')
     return '\n'.join(lines)
 
 
-def _human_age(mtime: float) -> str:
+def human_age(mtime: float) -> str:
     days = memory_age_days(mtime)
     if days == 0:
         return 'today'
@@ -406,6 +407,30 @@ def prune_expired_memories(slug: str, today: datetime.date | None = None) -> lis
                 log.warning('Failed to prune %s for user=%s', header.filename, slug)
 
     return pruned
+
+
+def rebuild_memory_index(slug: str) -> None:
+    """Rebuild the memory index from actual files on disk.
+
+    Scans all memory files, reads their frontmatter, and writes a fresh
+    index. Removes entries for deleted files and adds entries for new ones.
+    """
+    headers = scan_memory_headers(slug)
+    if not headers:
+        # No memory files — remove stale index if present
+        path = _index_path(slug)
+        if path.exists():
+            atomic_write(path, '')
+        return
+
+    lines: list[str] = []
+    for h in headers:
+        desc = h.description or h.name or h.filename.removesuffix('.md').replace('_', ' ')
+        tag = f'[{h.type.value}] ' if h.type else ''
+        lines.append(f'- {tag}[{h.filename}]({h.filename}) — {desc}')
+
+    atomic_write(_index_path(slug), '\n'.join(lines) + '\n')
+    log.info('Rebuilt memory index for user=%s (%d entries)', slug, len(lines))
 
 
 def enforce_index_cap(slug: str, max_lines: int = _INDEX_CAP) -> bool:

@@ -33,6 +33,7 @@ async def marcel(
     Actions:
       read_skill           Load full documentation for a skill (name= required).
       search_memory        Search memory files by keyword (query= required).
+      save_memory          Save a memory file (name= required as filename, message= required as file content including frontmatter).
       search_conversations Search past conversation history (query= required).
       compact              Compress current conversation segment into a summary.
       notify               Send a progress update to the user (message= required).
@@ -43,9 +44,9 @@ async def marcel(
     Args:
         ctx: Agent context with user and conversation info.
         action: The action to perform (see above).
-        name: Skill name for read_skill; channel name for get_model; "channel:model" for set_model.
+        name: Skill name for read_skill; filename for save_memory; channel name for get_model; "channel:model" for set_model.
         query: Search query for search_memory / search_conversations.
-        message: Progress message for notify action.
+        message: Progress message for notify; file content for save_memory.
         type_filter: Optional memory type filter for search_memory.
         max_results: Max results for search actions (default: 10 for memory, 5 for conversations).
 
@@ -57,6 +58,8 @@ async def marcel(
             return await _read_skill(ctx, name)
         case 'search_memory':
             return await _search_memory(ctx, query, type_filter, max_results)
+        case 'save_memory':
+            return _save_memory(ctx, name, message)
         case 'search_conversations':
             return await _search_conversations(ctx, query, max_results)
         case 'compact':
@@ -72,7 +75,7 @@ async def marcel(
         case _:
             return (
                 f'Unknown action: {action!r}. '
-                f'Available: read_skill, search_memory, search_conversations, '
+                f'Available: read_skill, search_memory, save_memory, search_conversations, '
                 f'compact, notify, list_models, get_model, set_model'
             )
 
@@ -143,6 +146,36 @@ async def _search_memory(
         lines.append('')
 
     return '\n'.join(lines).strip()
+
+
+def _save_memory(ctx: RunContext[MarcelDeps], name: str | None, content: str | None) -> str:
+    """Save a memory file directly. name= is the filename, message= is the content."""
+    if not name:
+        return 'Error: name= is required for save_memory (the filename, e.g. "coffee_preference.md").'
+    if not content:
+        return 'Error: message= is required for save_memory (the full file content including YAML frontmatter).'
+
+    from pathlib import Path
+
+    from marcel_core.storage.memory import save_memory_file, update_memory_index
+
+    # Sanitize filename
+    safe_name = Path(name).name
+    if not safe_name.endswith('.md'):
+        safe_name += '.md'
+    topic = safe_name.removesuffix('.md')
+
+    log.info('[marcel:save_memory] user=%s file=%s', ctx.deps.user_slug, safe_name)
+    save_memory_file(ctx.deps.user_slug, topic, content)
+
+    # Extract description from frontmatter for the index
+    from marcel_core.storage.memory import parse_frontmatter
+
+    metadata, _ = parse_frontmatter(content)
+    description = metadata.get('description', topic.replace('_', ' '))
+    update_memory_index(ctx.deps.user_slug, topic, description)
+
+    return f'Saved memory file: {safe_name}'
 
 
 async def _search_conversations(

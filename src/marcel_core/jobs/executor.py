@@ -44,6 +44,36 @@ def classify_error(error: str) -> tuple[bool, str]:
     return False, 'permanent'
 
 
+def _load_job_memories(user_slug: str) -> str:
+    """Load preference and feedback memories for injection into a job agent.
+
+    Jobs don't get full memory selection (no query to match against), but
+    they should still respect user preferences and behavioral feedback.
+    Returns a formatted ``## User preferences`` section, or empty string.
+    """
+    from marcel_core.storage.memory import MemoryType, load_memory_file, scan_memory_headers
+
+    headers = scan_memory_headers(user_slug)
+    relevant = [h for h in headers if h.type in (MemoryType.PREFERENCE, MemoryType.FEEDBACK)]
+    if not relevant:
+        return ''
+
+    blocks: list[str] = []
+    for header in relevant:
+        topic = header.filename.removesuffix('.md')
+        content = load_memory_file(user_slug, topic)
+        if not content.strip():
+            continue
+        label = header.name or topic.replace('_', ' ')
+        tag = f'[{header.type.value}]' if header.type else ''
+        blocks.append(f'### {tag} {label}\n{content.strip()}')
+
+    if not blocks:
+        return ''
+
+    return '## User preferences & feedback\n\n' + '\n\n'.join(blocks)
+
+
 def _resolve_job_skills(job: JobDefinition) -> list:
     """Load full SkillDoc objects for skills referenced by a job.
 
@@ -103,6 +133,11 @@ def _build_job_context(job: JobDefinition) -> str:
         for key, value in sorted(relevant.items()):
             lines.append(f'- **{key}**: `{value}`')
         parts.append('\n'.join(lines))
+
+    # Inject preference + feedback memories so jobs adapt to user behavior
+    memory_section = _load_job_memories(job.user_slug)
+    if memory_section:
+        parts.append(memory_section)
 
     # Channel delivery guidance
     channel_prompt = load_channel_prompt('job')
