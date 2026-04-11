@@ -86,10 +86,10 @@ class TestChatWebSocket:
 
     def test_continue_existing_conversation(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        from marcel_core.memory.history import create_session
+        from marcel_core.memory.conversation import ensure_channel
 
-        meta = create_session('shaun', 'websocket')
-        conv_id = meta.session_id
+        ensure_channel('shaun', 'websocket')
+        conv_id = 'websocket-default'
         _mock_stream(monkeypatch, ['reply'])
         with TestClient(app).websocket_connect('/ws/chat') as ws:
             ws.send_text(json.dumps({'text': 'hi', 'user': 'shaun', 'conversation': conv_id}))

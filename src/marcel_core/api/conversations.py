@@ -12,8 +12,11 @@ log = logging.getLogger(__name__)
 
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
 from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug
-from marcel_core.memory.conversation import load_latest_summary, read_active_segment
-from marcel_core.memory.history import list_sessions, read_history
+from marcel_core.memory.conversation import (
+    list_channels,
+    load_latest_summary,
+    read_active_segment,
+)
 
 router = APIRouter()
 
@@ -42,15 +45,15 @@ async def list_conversations(
     if not valid_user_slug(user):
         return ConversationListResponse(conversations=[])
 
-    sessions = list_sessions(user, limit=limit)
+    channels = list_channels(user)
 
     entries = []
-    for s in sessions:
-        first_line = s.title or f'Conversation — {s.created_at.strftime("%Y-%m-%dT%H:%M")} (channel: {s.channel})'
+    for ch in channels[:limit]:
+        first_line = f'Conversation — {ch.created_at.strftime("%Y-%m-%dT%H:%M")} (channel: {ch.channel})'
         entries.append(
             ConversationEntry(
-                id=s.session_id,
-                channel=s.channel,
+                id=ch.channel,
+                channel=ch.channel,
                 first_line=first_line,
             )
         )
@@ -99,7 +102,11 @@ async def get_last_message(
         # endpoint is primarily for the Mini App flow, so we require initData.
         raise HTTPException(status_code=400, detail='initData required for this endpoint')
 
-    messages = read_history(user_slug, conversation_id=conversation_id)
+    # Try reading from conversation segments (new system).
+    # The conversation_id from old buttons was a session ID; for new messages
+    # it's the channel-based ID (e.g. "telegram-{chat_id}"). Best-effort:
+    # read from the telegram channel's active segment.
+    messages = read_active_segment(user_slug, 'telegram')
     assistant_msgs = [m for m in messages if m.role == 'assistant' and m.text]
 
     if not assistant_msgs:

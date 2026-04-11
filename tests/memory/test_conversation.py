@@ -14,6 +14,7 @@ from marcel_core.memory.conversation import (
     extract_keywords,
     has_active_content,
     is_idle,
+    list_channels,
     load_latest_summary,
     load_summary,
     read_active_segment,
@@ -365,3 +366,31 @@ class TestIdleDetection:
         )
         append_to_segment('shaun', 'telegram', msg)
         assert has_active_content('shaun', 'telegram') is True
+
+
+# ---------------------------------------------------------------------------
+# list_channels
+# ---------------------------------------------------------------------------
+
+
+class TestListChannels:
+    def test_empty_user(self, temp_data_root):
+        assert list_channels('nobody') == []
+
+    def test_lists_channels_sorted_by_last_active(self, temp_data_root):
+        ensure_channel('shaun', 'cli')
+        ensure_channel('shaun', 'telegram')
+
+        # Append a message to telegram to make it more recent
+        msg = HistoryMessage(
+            role='user',
+            text='hi',
+            timestamp=datetime.now(tz=timezone.utc),
+            conversation_id='tg-conv',
+        )
+        append_to_segment('shaun', 'telegram', msg)
+
+        channels = list_channels('shaun')
+        assert len(channels) == 2
+        assert channels[0].channel == 'telegram'  # most recent
+        assert channels[1].channel == 'cli'

@@ -31,8 +31,7 @@ from marcel_core.channels.telegram.formatting import (
 )
 from marcel_core.config import settings
 from marcel_core.harness.runner import TextDelta, stream_turn
-from marcel_core.memory.conversation import has_active_content
-from marcel_core.memory.history import read_history
+from marcel_core.memory.conversation import has_active_content, read_active_segment
 from marcel_core.memory.summarizer import summarize_active_segment
 from marcel_core.storage.artifacts import create_artifact
 
@@ -255,9 +254,9 @@ async def _handle_callback_query(callback_query: dict[str, Any]) -> None:
         await bot.answer_callback_query(query_id, 'Session expired')
         return
 
-    # Load last assistant message from JSONL history
-    history = read_history(user_slug, conversation_id=conversation_id)
-    assistant_msgs = [m for m in history if m.role == 'assistant' and m.text]
+    # Load last assistant message from conversation segments
+    messages = read_active_segment(user_slug, 'telegram')
+    assistant_msgs = [m for m in messages if m.role == 'assistant' and m.text]
     if not assistant_msgs:
         await bot.answer_callback_query(query_id, 'Conversation not found')
         return

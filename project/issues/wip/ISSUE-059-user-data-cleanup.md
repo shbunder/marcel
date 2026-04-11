@@ -1,6 +1,6 @@
 # ISSUE-059: Clean up user data directory — consolidate and migrate
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-11
 **Assignee:** Claude
 **Priority:** Medium
@@ -60,23 +60,23 @@ The 20 files in `memory/` have significant overlap:
 The user data directory has accumulated cruft from multiple system iterations. Three different conversation stores coexist, memory files are fragmented and duplicated, and dead data takes up space and causes confusion. This cleanup will leave a leaner, consistent data layout.
 
 ## Tasks
-- [ ] ISSUE-059-a: Migrate telegram history — convert `history/telegram/*.jsonl` sessions into `conversation/telegram/` segments, then remove `history/telegram/`
-- [ ] ISSUE-059-b: Delete dead data — remove `conversations.archived/`, `history.jsonl.migrated`
-- [ ] ISSUE-059-c: Fix telegram webhook — update `webhook.py` to read from `conversation` system instead of legacy `read_history()`
-- [ ] ISSUE-059-d: Consolidate memory files — merge the 5 infrastructure/server files into one, merge calendar+calendars, remove identity.md (in profile.md), remove marcel_capabilities.md (derivable), add frontmatter to all remaining files
-- [ ] ISSUE-059-e: Reconcile profile.md vs memory — decide on single source of truth, deduplicate
-- [ ] ISSUE-059-f: Clean up dead code — remove `append_message()`, `_read_session_file()`, `read_history()`, `list_sessions()` from `history.py` if no longer needed after webhook fix; remove `conversations.py` API endpoints that depend on them
-- [ ] ISSUE-059-g: Write migration script to perform data moves safely (backup first)
-- [ ] Run `make check` — all passes
+- [✓] ISSUE-059-a: Migrate telegram history — convert `history/telegram/*.jsonl` sessions into `conversation/telegram/` segments, then remove `history/telegram/`
+- [✓] ISSUE-059-b: Delete dead data — remove `conversations.archived/`, `history.jsonl.migrated`
+- [✓] ISSUE-059-c: Fix telegram webhook — update `webhook.py` to read from `conversation` system instead of legacy `read_history()`
+- [✓] ISSUE-059-d: Consolidate memory files — merge the 5 infrastructure/server files into one, merge calendar+calendars, remove identity.md (in profile.md), remove marcel_capabilities.md (derivable), add frontmatter to all remaining files
+- [✓] ISSUE-059-e: Reconcile profile.md vs memory — decide on single source of truth, deduplicate
+- [✓] ISSUE-059-f: Clean up dead code — remove `append_message()`, `_read_session_file()`, `read_history()`, `list_sessions()` from `history.py` if no longer needed after webhook fix; remove `conversations.py` API endpoints that depend on them
+- [✓] ISSUE-059-g: Write migration script to perform data moves safely (backup first)
+- [✓] Run `make check` — all passes
 
 ## Subtasks
-- [ ] ISSUE-059-a: Migrate telegram history to conversation system
-- [ ] ISSUE-059-b: Delete dead data
-- [ ] ISSUE-059-c: Fix telegram webhook to use new conversation system
-- [ ] ISSUE-059-d: Consolidate memory files
-- [ ] ISSUE-059-e: Reconcile profile.md vs memory
-- [ ] ISSUE-059-f: Clean up dead history code
-- [ ] ISSUE-059-g: Write migration script
+- [✓] ISSUE-059-a: Migrate telegram history to conversation system
+- [✓] ISSUE-059-b: Delete dead data
+- [✓] ISSUE-059-c: Fix telegram webhook to use new conversation system
+- [✓] ISSUE-059-d: Consolidate memory files
+- [✓] ISSUE-059-e: Reconcile profile.md vs memory
+- [✓] ISSUE-059-f: Clean up dead history code
+- [✓] ISSUE-059-g: Write migration script
 
 ## Relationships
 - Related to: [[ISSUE-058-memory-learning-feedback]] (memory system improvements — do 059 cleanup first, then 058 enhancements build on clean foundation)
@@ -95,3 +95,28 @@ Full audit of `~/.marcel/users/shaun/` performed. Key findings:
 - `marcel_capabilities.md` lists features derivable from the codebase — not a useful memory
 
 ## Implementation Log
+### 2026-04-11 18:45 - LLM Implementation
+**Action**: Full cleanup — code changes, migration script, data migration
+**Files Modified**:
+- `src/marcel_core/memory/history.py` — Removed all session-based storage functions (append_message, read_history, list_sessions, create_session, SessionMeta, etc). Kept only HistoryMessage, ToolCall, MessageRole data types.
+- `src/marcel_core/memory/conversation.py` — Added `list_channels()` function to list conversation channels for a user.
+- `src/marcel_core/channels/telegram/webhook.py` — Replaced `read_history()` call with `read_active_segment()` from conversation system.
+- `src/marcel_core/api/conversations.py` — Updated `list_conversations` to use `list_channels()`, updated `get_last_message` to use `read_active_segment()`. Removed dependency on old history functions.
+- `tests/memory/test_history.py` — Removed all session-based storage tests, kept serialization tests.
+- `tests/core/test_conversations.py` — Rewritten to use conversation system (ensure_channel, append_to_segment) instead of old session functions.
+- `tests/core/test_chat_v2.py` — Updated test_continue_existing_conversation to use ensure_channel instead of create_session.
+- `tests/memory/test_conversation.py` — Added TestListChannels tests.
+- `scripts/migrate_059_cleanup.py` — New migration script: backs up data, migrates telegram history, deletes dead data, consolidates memory files, adds frontmatter, rewrites index.
+**Data Migration**:
+- Migrated 138 telegram messages from `history/telegram/` (25 sessions) → `conversation/telegram/seg-0001.jsonl`
+- Removed `conversations.archived/` (38 orphaned markdown exports)
+- Removed `history.jsonl.migrated` (dead migration artifact)
+- Removed `history/` directory (empty after telegram migration)
+- Consolidated 5 infrastructure files → `home_infrastructure.md`
+- Merged `calendar.md` + `calendars.md` → `calendars.md`
+- Removed 8 files: identity.md, preferences.md, marcel_capabilities.md, location.md, filesystem.md, vending_machine_spending.md, plex_samsung_tv_audio_issue.md, home_server.md, infrastructure.md
+- Added frontmatter to 6 files: apple_integration, credentials_policy, data_storage_preferences, family, travel, work
+- Rewrote memory index (22 files → 10 files)
+- profile.md confirmed as single source of truth for identity/location
+**Commands Run**: `make check`
+**Result**: Success — 660 tests passing, 0 errors, 0 lint/typecheck issues

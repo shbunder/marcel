@@ -146,13 +146,6 @@ recall. Entries are compact JSONL:
 {"seg":"seg-0001","line":15,"ts":"2026-04-10T09:30:00","kw":["banking","kbc","setup"],"role":"user","preview":"Can you set up my KBC banking..."}
 ```
 
-### Legacy history (`history/{channel}/`)
-
-The legacy per-session JSONL history format is still supported for backward
-compatibility. The `list_sessions` and `read_history` functions in
-`memory/history.py` read from this format. New conversations use the
-continuous conversation model above.
-
 ### Memory file (`memory/{topic}.md`)
 
 Memory files use YAML frontmatter for typed metadata, followed by free-form

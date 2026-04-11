@@ -6,7 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from marcel_core.main import app
-from marcel_core.memory.history import HistoryMessage, append_message, create_session
+from marcel_core.memory.conversation import append_to_segment, ensure_channel
+from marcel_core.memory.history import HistoryMessage
 from marcel_core.storage import _root
 
 
@@ -29,16 +30,16 @@ class TestListConversations:
         assert resp.json() == {'conversations': []}
 
     def test_returns_conversation_list(self):
-        meta = create_session('shaun', 'cli')
-        append_message(
+        ensure_channel('shaun', 'cli')
+        append_to_segment(
             'shaun',
+            'cli',
             HistoryMessage(
                 role='user',
                 text='Hello',
                 timestamp=datetime.now(tz=timezone.utc),
-                conversation_id=meta.session_id,
+                conversation_id='cli-default',
             ),
-            channel='cli',
         )
 
         client = TestClient(app)
@@ -46,21 +47,11 @@ class TestListConversations:
         assert resp.status_code == 200
         data = resp.json()
         assert len(data['conversations']) == 1
-        assert data['conversations'][0]['id'] == meta.session_id
+        assert data['conversations'][0]['channel'] == 'cli'
 
     def test_respects_limit(self):
-        for i in range(5):
-            meta = create_session('shaun', 'cli', session_id=f'sess-{i}')
-            append_message(
-                'shaun',
-                HistoryMessage(
-                    role='user',
-                    text='msg',
-                    timestamp=datetime.now(tz=timezone.utc),
-                    conversation_id=meta.session_id,
-                ),
-                channel='cli',
-            )
+        for ch in ['cli', 'telegram', 'ios', 'web', 'sms']:
+            ensure_channel('shaun', ch)
 
         client = TestClient(app)
         resp = client.get('/conversations?user=shaun&limit=3')
@@ -68,22 +59,22 @@ class TestListConversations:
         assert len(resp.json()['conversations']) <= 3
 
     def test_channel_in_response(self):
-        meta = create_session('shaun', 'telegram')
-        append_message(
+        ensure_channel('shaun', 'telegram')
+        append_to_segment(
             'shaun',
+            'telegram',
             HistoryMessage(
                 role='user',
                 text='hi',
                 timestamp=datetime.now(tz=timezone.utc),
-                conversation_id=meta.session_id,
+                conversation_id='telegram-123',
             ),
-            channel='telegram',
         )
 
         client = TestClient(app)
         resp = client.get('/conversations?user=shaun')
         data = resp.json()
-        conv = next((c for c in data['conversations'] if c['id'] == meta.session_id), None)
+        conv = next((c for c in data['conversations'] if c['channel'] == 'telegram'), None)
         assert conv is not None
         assert conv['channel'] == 'telegram'
 

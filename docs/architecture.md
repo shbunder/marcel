@@ -29,7 +29,7 @@ src/marcel_core/
     conversation.py  # Segment-based continuous conversation storage
     summarizer.py    # Idle summarization — seals segments, generates rolling summaries
     selector.py      # Relevance-based memory selection via Haiku side-query
-    history.py       # Message types (HistoryMessage, ToolCall) + legacy session lookup
+    history.py       # Message types (HistoryMessage, ToolCall)
     pastes.py        # Content-addressed paste store for large tool results
   channels/
     adapter.py     # ChannelAdapter protocol — generic event dispatch

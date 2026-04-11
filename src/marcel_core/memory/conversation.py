@@ -265,6 +265,22 @@ def _make_segment_id(num: int) -> str:
 # ---------------------------------------------------------------------------
 
 
+def list_channels(user_slug: str) -> list[ChannelMeta]:
+    """List all conversation channels for a user, sorted by last_active (newest first)."""
+    conv_root = data_root() / 'users' / user_slug / 'conversation'
+    if not conv_root.exists():
+        return []
+    channels: list[ChannelMeta] = []
+    for channel_dir in conv_root.iterdir():
+        if not channel_dir.is_dir():
+            continue
+        meta = load_channel_meta(user_slug, channel_dir.name)
+        if meta is not None:
+            channels.append(meta)
+    channels.sort(key=lambda m: m.last_active, reverse=True)
+    return channels
+
+
 def load_channel_meta(user_slug: str, channel: str) -> ChannelMeta | None:
     """Load channel metadata, or None if no conversation exists."""
     path = _meta_path(user_slug, channel)
