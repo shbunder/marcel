@@ -1,22 +1,10 @@
-"""JSONL conversation history — structured, parseable turn-by-turn log.
+"""JSONL conversation history — message types and legacy session lookup.
 
-History is stored per-session in individual JSONL files::
-
-    data/users/{slug}/history/{channel}/{session_id}.jsonl
-    data/users/{slug}/history/{channel}/{session_id}.meta.json
-
-Each JSONL line is a JSON object with:
-- role: 'user' | 'assistant' | 'tool' | 'system'
-- text: message content (or None if result_ref used)
-- timestamp: ISO 8601 UTC
-- conversation_id: session identifier (kept for backwards compatibility)
-- tool_calls: list of {id, name, arguments} for assistant messages
-- tool_call_id: reference for tool messages
-- tool_name: tool name for tool-role messages
-- result_ref: content hash for large tool results (stored in paste store)
-- is_error: boolean for tool errors
-
-Legacy flat ``history.jsonl`` files are read transparently as a fallback.
+Core data types (``HistoryMessage``, ``ToolCall``) are used across the
+codebase. Session-based storage functions (``list_sessions``,
+``read_history``) remain for backward compatibility with the
+``/conversations`` and ``/api/message`` endpoints; new code should use
+``memory/conversation.py`` (segment-based continuous conversations).
 """
 
 from __future__ import annotations
@@ -167,11 +155,7 @@ def _legacy_history_path(user_slug: str) -> Path:
 
 
 def _resolve_channel(user_slug: str, conversation_id: str) -> str | None:
-    """Find which channel directory contains a given session_id.
-
-    Scans channel directories under the user's history root.
-    Returns None if not found.
-    """
+    """Find which channel directory contains a given session_id."""
     sessions_root = _sessions_dir(user_slug)
     if not sessions_root.exists():
         return None
@@ -188,18 +172,6 @@ def _resolve_channel(user_slug: str, conversation_id: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _load_meta(user_slug: str, channel: str, session_id: str) -> SessionMeta | None:
-    """Load session metadata, or None if it doesn't exist."""
-    path = _session_meta_path(user_slug, channel, session_id)
-    if not path.exists():
-        return None
-    try:
-        obj = json.loads(path.read_text(encoding='utf-8'))
-        return SessionMeta.from_dict(obj)
-    except (json.JSONDecodeError, KeyError, OSError):
-        return None
-
-
 def _save_meta(user_slug: str, channel: str, meta: SessionMeta) -> None:
     """Write session metadata to disk."""
     path = _session_meta_path(user_slug, channel, meta.session_id)
@@ -208,12 +180,16 @@ def _save_meta(user_slug: str, channel: str, meta: SessionMeta) -> None:
 
 
 def _touch_meta(user_slug: str, channel: str, session_id: str) -> None:
-    """Update last_active and increment message_count on an existing session.
-
-    Creates a minimal meta file if none exists.
-    """
-    meta = _load_meta(user_slug, channel, session_id)
+    """Update last_active and increment message_count on an existing session."""
+    path = _session_meta_path(user_slug, channel, session_id)
     now = datetime.now(tz=timezone.utc)
+    meta: SessionMeta | None = None
+    if path.exists():
+        try:
+            obj = json.loads(path.read_text(encoding='utf-8'))
+            meta = SessionMeta.from_dict(obj)
+        except (json.JSONDecodeError, KeyError, OSError):
+            meta = None
     if meta is None:
         meta = SessionMeta(
             session_id=session_id,
@@ -269,11 +245,7 @@ def create_session(
     session_id: str | None = None,
     title: str | None = None,
 ) -> SessionMeta:
-    """Create a new session and return its metadata.
-
-    If *session_id* is not provided, one is generated from the current
-    UTC timestamp (``YYYY-MM-DDTHH-MM``).
-    """
+    """Create a new session and return its metadata."""
     now = datetime.now(tz=timezone.utc)
     if session_id is None:
         session_id = now.strftime('%Y-%m-%dT%H-%M')
@@ -287,7 +259,6 @@ def create_session(
     )
     _save_meta(user_slug, channel, meta)
 
-    # Create the (empty) JSONL file so _resolve_channel can find it
     path = _session_path(user_slug, channel, session_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
@@ -296,44 +267,14 @@ def create_session(
     return meta
 
 
-def delete_session(user_slug: str, channel: str, session_id: str) -> bool:
-    """Delete a session's JSONL and metadata files. Returns True if deleted."""
-    jsonl = _session_path(user_slug, channel, session_id)
-    meta = _session_meta_path(user_slug, channel, session_id)
-    deleted = False
-    if jsonl.exists():
-        jsonl.unlink()
-        deleted = True
-    if meta.exists():
-        meta.unlink()
-        deleted = True
-    return deleted
-
-
-def get_session_meta(user_slug: str, channel: str, session_id: str) -> SessionMeta | None:
-    """Return metadata for a session, or None if not found."""
-    return _load_meta(user_slug, channel, session_id)
-
-
 # ---------------------------------------------------------------------------
 # Message read/write — per-session files with legacy fallback
 # ---------------------------------------------------------------------------
 
 
 def append_message(user_slug: str, message: HistoryMessage, channel: str = 'default') -> None:
-    """Append a message to the session's JSONL file.
-
-    Uses ``message.conversation_id`` as the session ID.
-    Creates the session directory and meta file if needed.
-
-    Args:
-        user_slug: The user's slug.
-        message: The message to append.
-        channel: The originating channel (used for directory placement).
-    """
+    """Append a message to the session's JSONL file."""
     session_id = message.conversation_id
-
-    # Resolve channel: check if session already exists in some channel dir
     resolved_channel = _resolve_channel(user_slug, session_id) or channel
 
     path = _session_path(user_slug, resolved_channel, session_id)
@@ -394,28 +335,17 @@ def read_history(
     """Read history messages for a user, optionally filtered by conversation.
 
     Tries per-session files first, falls back to legacy flat file.
-
-    Args:
-        user_slug: The user's slug.
-        conversation_id: If provided, only return messages from this conversation.
-        limit: Maximum number of messages to return (most recent first).
-
-    Returns:
-        List of messages, newest first if limit is provided, otherwise chronological order.
     """
     messages: list[HistoryMessage] = []
 
     if conversation_id:
-        # Try per-session file first
         channel = _resolve_channel(user_slug, conversation_id)
         if channel:
             path = _session_path(user_slug, channel, conversation_id)
             messages = _read_session_file(path)
         else:
-            # Fall back to legacy flat file
             messages = _read_legacy_history(user_slug, conversation_id)
     else:
-        # Read all sessions — scan all channel dirs
         sessions_root = _sessions_dir(user_slug)
         if sessions_root.exists():
             for channel_dir in sorted(sessions_root.iterdir()):
@@ -424,7 +354,6 @@ def read_history(
                 for jsonl_file in sorted(channel_dir.glob('*.jsonl')):
                     messages.extend(_read_session_file(jsonl_file))
         if not messages:
-            # Fall back to legacy
             messages = _read_legacy_history(user_slug)
         messages.sort(key=lambda m: m.timestamp)
 
@@ -432,124 +361,3 @@ def read_history(
         messages = messages[-limit:]
 
     return messages
-
-
-def read_recent_turns(user_slug: str, conversation_id: str, num_turns: int = 10) -> list[HistoryMessage]:
-    """Read the most recent N turns (user + assistant pairs) for a conversation.
-
-    Args:
-        user_slug: The user's slug.
-        conversation_id: The conversation identifier.
-        num_turns: Number of turns to retrieve (default: 10).
-
-    Returns:
-        List of messages from the last N turns, chronological order.
-    """
-    messages = read_history(user_slug, conversation_id=conversation_id)
-
-    # Count turns (user messages start turns)
-    turn_starts: list[int] = []
-    for i, msg in enumerate(messages):
-        if msg.role == 'user':
-            turn_starts.append(i)
-
-    # Take last N turn starts
-    if len(turn_starts) > num_turns:
-        start_idx = turn_starts[-num_turns]
-        messages = messages[start_idx:]
-
-    return messages
-
-
-def count_tokens_estimate(messages: list[HistoryMessage]) -> int:
-    """Estimate token count for a list of messages.
-
-    Uses a simple heuristic: ~4 characters per token.
-    """
-    total_chars = 0
-    for msg in messages:
-        if msg.text:
-            total_chars += len(msg.text)
-        if msg.tool_calls:
-            for tc in msg.tool_calls:
-                total_chars += len(tc.name) + len(json.dumps(tc.arguments))
-    return total_chars // 4
-
-
-def create_compaction_summary(
-    messages: list[HistoryMessage], summary_text: str, conversation_id: str
-) -> HistoryMessage:
-    """Create a synthetic system message representing a compaction summary."""
-    return HistoryMessage(
-        role='system',
-        text=f'[Context summary: {summary_text}]',
-        timestamp=datetime.now(tz=timezone.utc),
-        conversation_id=conversation_id,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Migration utility
-# ---------------------------------------------------------------------------
-
-
-def migrate_legacy_history(user_slug: str, default_channel: str = 'default') -> int:
-    """Split a legacy flat history.jsonl into per-session files.
-
-    Reads the legacy file, groups messages by conversation_id, and writes
-    each group to its own session file with metadata.
-
-    Args:
-        user_slug: The user's slug.
-        default_channel: Channel to assign to sessions (since the legacy file
-                         doesn't track channel per message).
-
-    Returns:
-        Number of sessions migrated.
-    """
-    legacy_path = _legacy_history_path(user_slug)
-    if not legacy_path.exists():
-        return 0
-
-    messages = _read_legacy_history(user_slug)
-    if not messages:
-        return 0
-
-    # Group by conversation_id
-    sessions: dict[str, list[HistoryMessage]] = {}
-    for msg in messages:
-        sessions.setdefault(msg.conversation_id, []).append(msg)
-
-    count = 0
-    for session_id, session_messages in sessions.items():
-        # Skip if already migrated
-        if _resolve_channel(user_slug, session_id):
-            continue
-
-        # Create session directory and files
-        path = _session_path(user_slug, default_channel, session_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(path, 'w', encoding='utf-8') as f:
-            for msg in session_messages:
-                f.write(msg.to_jsonl() + '\n')
-
-        # Create metadata
-        first_ts = session_messages[0].timestamp
-        last_ts = session_messages[-1].timestamp
-        meta = SessionMeta(
-            session_id=session_id,
-            channel=default_channel,
-            created_at=first_ts,
-            last_active=last_ts,
-            message_count=len(session_messages),
-        )
-        _save_meta(user_slug, default_channel, meta)
-        count += 1
-
-    # Rename legacy file to mark as migrated
-    if count > 0:
-        legacy_path.rename(legacy_path.with_suffix('.jsonl.migrated'))
-        log.info('Migrated %d sessions from legacy history for user %s', count, user_slug)
-
-    return count

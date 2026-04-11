@@ -11,15 +11,9 @@ from marcel_core.memory.history import (
     SessionMeta,
     ToolCall,
     append_message,
-    count_tokens_estimate,
-    create_compaction_summary,
     create_session,
-    delete_session,
-    get_session_meta,
     list_sessions,
-    migrate_legacy_history,
     read_history,
-    read_recent_turns,
 )
 
 
@@ -183,113 +177,10 @@ def test_read_with_limit(temp_data_root: Path):
     assert messages[-1].text == 'Message 9'  # Most recent
 
 
-def test_read_recent_turns(temp_data_root: Path):
-    """Test reading recent turns (user + assistant pairs)."""
-    for i in range(3):
-        user_msg = HistoryMessage(
-            role='user',
-            text=f'User {i}',
-            timestamp=datetime.now(tz=timezone.utc),
-            conversation_id='conv-1',
-        )
-        assistant_msg = HistoryMessage(
-            role='assistant',
-            text=f'Assistant {i}',
-            timestamp=datetime.now(tz=timezone.utc),
-            conversation_id='conv-1',
-        )
-        append_message('test_user', user_msg)
-        append_message('test_user', assistant_msg)
-
-    messages = read_recent_turns('test_user', 'conv-1', num_turns=2)
-    assert len(messages) == 4
-    assert messages[0].text == 'User 1'
-
-
 def test_read_nonexistent_user(temp_data_root: Path):
     """Test reading history for user with no history."""
     messages = read_history('nonexistent_user')
     assert messages == []
-
-
-def test_read_recent_turns_no_limit_when_few_turns(temp_data_root: Path):
-    """When num_turns >= available turns, all messages are returned."""
-    base = datetime(2026, 4, 9, tzinfo=timezone.utc)
-    for i in range(2):
-        append_message(
-            'user',
-            HistoryMessage(role='user', text=f'u{i}', timestamp=base + timedelta(seconds=i * 2), conversation_id='c1'),
-        )
-        append_message(
-            'user',
-            HistoryMessage(
-                role='assistant', text=f'a{i}', timestamp=base + timedelta(seconds=i * 2 + 1), conversation_id='c1'
-            ),
-        )
-
-    messages = read_recent_turns('user', 'c1', num_turns=10)
-    assert len(messages) == 4
-
-
-def test_read_recent_turns_limits_correctly(temp_data_root: Path):
-    """read_recent_turns should return only the last num_turns pairs."""
-    base = datetime(2026, 4, 9, tzinfo=timezone.utc)
-    for i in range(5):
-        append_message(
-            'user',
-            HistoryMessage(
-                role='user', text=f'msg {i}', timestamp=base + timedelta(seconds=i * 2), conversation_id='c1'
-            ),
-        )
-        append_message(
-            'user',
-            HistoryMessage(
-                role='assistant', text=f'reply {i}', timestamp=base + timedelta(seconds=i * 2 + 1), conversation_id='c1'
-            ),
-        )
-
-    messages = read_recent_turns('user', 'c1', num_turns=2)
-    user_msgs = [m for m in messages if m.role == 'user']
-    assert len(user_msgs) == 2
-    assert user_msgs[-1].text == 'msg 4'
-
-
-# ---------------------------------------------------------------------------
-# Token estimation
-# ---------------------------------------------------------------------------
-
-
-def test_token_count_estimate():
-    """Test token count estimation."""
-    messages = [
-        HistoryMessage(role='user', text='a' * 400, timestamp=datetime.now(tz=timezone.utc), conversation_id='c1'),
-        HistoryMessage(role='assistant', text='b' * 800, timestamp=datetime.now(tz=timezone.utc), conversation_id='c1'),
-    ]
-    estimate = count_tokens_estimate(messages)
-    assert 250 <= estimate <= 350
-
-
-def test_count_tokens_estimate_with_tool_calls():
-    """count_tokens_estimate should include tool call sizes."""
-    tool_call = ToolCall(id='tc-1', name='bash', arguments={'command': 'ls'})
-    msg = HistoryMessage(
-        role='assistant',
-        text='Checking...',
-        timestamp=datetime(2026, 4, 9, tzinfo=timezone.utc),
-        conversation_id='c1',
-        tool_calls=[tool_call],
-    )
-    count = count_tokens_estimate([msg])
-    assert count > 0
-
-
-def test_create_compaction_summary():
-    """Test creating compaction summary message."""
-    summary = create_compaction_summary([], 'User discussed project plans.', 'conv-1')
-    assert summary.role == 'system'
-    assert summary.text is not None
-    assert 'Context summary' in summary.text
-    assert 'project plans' in summary.text
 
 
 # ---------------------------------------------------------------------------
@@ -321,9 +212,7 @@ def test_list_sessions(temp_data_root: Path):
     """list_sessions returns sessions sorted by last_active."""
     base = datetime(2026, 4, 9, tzinfo=timezone.utc)
 
-    # Create two sessions with different timestamps
     create_session('alice', 'telegram', session_id='old-sess')
-    # Append to make it older
     append_message(
         'alice',
         HistoryMessage(
@@ -360,34 +249,6 @@ def test_list_sessions_filter_by_channel(temp_data_root: Path):
     tg_sessions = list_sessions('alice', channel='telegram')
     assert len(tg_sessions) == 1
     assert tg_sessions[0].channel == 'telegram'
-
-
-def test_delete_session(temp_data_root: Path):
-    """delete_session removes JSONL and meta files."""
-    create_session('alice', 'telegram', session_id='doomed')
-    assert delete_session('alice', 'telegram', 'doomed') is True
-
-    # Files gone
-    assert not (temp_data_root / 'users' / 'alice' / 'history' / 'telegram' / 'doomed.jsonl').exists()
-    assert not (temp_data_root / 'users' / 'alice' / 'history' / 'telegram' / 'doomed.meta.json').exists()
-
-
-def test_delete_session_not_found(temp_data_root: Path):
-    """delete_session returns False for nonexistent session."""
-    assert delete_session('alice', 'telegram', 'nope') is False
-
-
-def test_get_session_meta(temp_data_root: Path):
-    """get_session_meta returns metadata for existing session."""
-    create_session('alice', 'cli', session_id='s1', title='My session')
-    meta = get_session_meta('alice', 'cli', 's1')
-    assert meta is not None
-    assert meta.title == 'My session'
-
-
-def test_get_session_meta_not_found(temp_data_root: Path):
-    """get_session_meta returns None for nonexistent session."""
-    assert get_session_meta('alice', 'cli', 'nope') is None
 
 
 # ---------------------------------------------------------------------------
@@ -446,85 +307,6 @@ def test_legacy_skips_malformed_lines(temp_data_root: Path):
     messages = read_history('frank')
     assert len(messages) == 1
     assert messages[0].text == 'hi'
-
-
-# ---------------------------------------------------------------------------
-# Migration
-# ---------------------------------------------------------------------------
-
-
-def test_migrate_legacy_history(temp_data_root: Path):
-    """migrate_legacy_history splits flat file into per-session files."""
-    user_dir = temp_data_root / 'users' / 'bob'
-    user_dir.mkdir(parents=True)
-    legacy_file = user_dir / 'history.jsonl'
-
-    # Write messages from two conversations
-    base = datetime(2026, 4, 9, tzinfo=timezone.utc)
-    lines = []
-    for i in range(4):
-        conv_id = 'conv-A' if i < 2 else 'conv-B'
-        msg = HistoryMessage(
-            role='user',
-            text=f'msg {i}',
-            timestamp=base + timedelta(seconds=i),
-            conversation_id=conv_id,
-        )
-        lines.append(msg.to_jsonl())
-    legacy_file.write_text('\n'.join(lines) + '\n', encoding='utf-8')
-
-    count = migrate_legacy_history('bob', default_channel='telegram')
-    assert count == 2
-
-    # Legacy file renamed
-    assert not legacy_file.exists()
-    assert (user_dir / 'history.jsonl.migrated').exists()
-
-    # Per-session files created
-    sess_a = temp_data_root / 'users' / 'bob' / 'history' / 'telegram' / 'conv-A.jsonl'
-    sess_b = temp_data_root / 'users' / 'bob' / 'history' / 'telegram' / 'conv-B.jsonl'
-    assert sess_a.exists()
-    assert sess_b.exists()
-
-    # Read via new API
-    messages_a = read_history('bob', conversation_id='conv-A')
-    assert len(messages_a) == 2
-
-    messages_b = read_history('bob', conversation_id='conv-B')
-    assert len(messages_b) == 2
-
-    # Meta files created
-    meta_a = get_session_meta('bob', 'telegram', 'conv-A')
-    assert meta_a is not None
-    assert meta_a.message_count == 2
-
-
-def test_migrate_no_legacy_file(temp_data_root: Path):
-    """migrate_legacy_history returns 0 when no legacy file exists."""
-    count = migrate_legacy_history('nobody')
-    assert count == 0
-
-
-def test_migrate_idempotent(temp_data_root: Path):
-    """Running migration twice doesn't duplicate data."""
-    user_dir = temp_data_root / 'users' / 'carol'
-    user_dir.mkdir(parents=True)
-    legacy_file = user_dir / 'history.jsonl'
-
-    msg = HistoryMessage(
-        role='user',
-        text='hello',
-        timestamp=datetime.now(tz=timezone.utc),
-        conversation_id='conv-1',
-    )
-    legacy_file.write_text(msg.to_jsonl() + '\n', encoding='utf-8')
-
-    count1 = migrate_legacy_history('carol')
-    assert count1 == 1
-
-    # Second run: legacy file is renamed, should return 0
-    count2 = migrate_legacy_history('carol')
-    assert count2 == 0
 
 
 # ---------------------------------------------------------------------------

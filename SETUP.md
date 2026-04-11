@@ -217,7 +217,12 @@ systemctl --user stop marcel
 | `MARCEL_DEFAULT_USER` | No | Fallback user when client doesn't specify one |
 | `TELEGRAM_BOT_TOKEN` | For Telegram | Bot token from @BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | For Telegram | Secret for validating webhook requests |
-| `MARCEL_PORT` | No | Server port (default: `7420`) |
+| `MARCEL_PORT` | No | Server port (default: `8000`) |
+| `MARCEL_PUBLIC_URL` | For Mini App | Public HTTPS URL for Telegram Mini App buttons |
+| `MARCEL_DATA_DIR` | No | Data directory (default: `~/.marcel/`) |
+| `MARCEL_IDLE_SUMMARIZE_MINUTES` | No | Idle threshold before auto-summarization (default: `60`) |
+| `MARCEL_TRACING_ENABLED` | No | Enable OpenTelemetry LLM tracing (default: `false`) |
+| `MARCEL_TRACING_ENDPOINT` | No | OTLP endpoint for traces (default: `http://localhost:6006`) |
 
 ### Client config (`~/.marcel/config.toml`)
 

@@ -1,6 +1,6 @@
 # ISSUE-057: Post-050 Deep Audit — Dead Code, Docs, Dependencies
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-11
 **Assignee:** Claude
 **Priority:** Medium

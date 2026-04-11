@@ -1,6 +1,6 @@
 # Telegram Channel
 
-Marcel can receive and respond to messages via Telegram. This works like any other channel: the same agent loop runs with persistent `ClaudeSDKClient` sessions, the same typed memory system is used, and responses are formatted for Telegram's MarkdownV2 syntax.
+Marcel can receive and respond to messages via Telegram. This works like any other channel: the same agent loop runs with pydantic-ai, the same typed memory system is used, and responses are formatted as Telegram HTML with an automatic plain-text fallback.
 
 ## How it works
 
@@ -12,32 +12,33 @@ Telegram Bot API
     │  POST /telegram/webhook
     ▼
 Marcel server (webhook.py)
-    │  look up user from TELEGRAM_USER_MAP
-    │  load/create conversation
+    │  look up user from telegram.json
+    │  load continuous conversation
     ▼
-Agent loop (same as CLI, persistent ClaudeSDKClient session)
-    │  stream_response(user_slug, channel="telegram", ...)
-    │  yields TurnResult with cost/usage metadata
+Agent loop (same as CLI, pydantic-ai harness)
+    │  stream_turn(user_slug, channel="telegram", ...)
+    │  yields TextDelta / ToolCallEvent
     ▼
 bot.send_message()
-    │  POST to Telegram sendMessage
+    │  POST to Telegram sendMessage (HTML format)
     ▼
 Telegram user
-    receives reply
+    receives reply (with "View in app" button for rich content)
 ```
 
-Messages are buffered (not streamed) before sending — Telegram does not support real-time streaming. Responses use MarkdownV2 with an automatic plain-text fallback if formatting is rejected.
+Messages are buffered (not streamed) before sending — Telegram does not support real-time streaming. Responses use HTML with an automatic plain-text fallback if formatting is rejected. Rich content (calendars, tables, charts) triggers a "View in app" button that opens the Mini App.
 
 ## Commands
 
 | Command | Effect |
 |---------|--------|
 | `/start` | Show your chat ID for account linking |
-| `/new` | Start a fresh conversation |
+| `/new` | Summarize and start a fresh conversation segment |
+| `/forget` | Same as `/new` — compress context and start fresh |
 
-### Auto-new on inactivity
+### Auto-summarize on inactivity
 
-If no message is sent for 6 hours, Marcel automatically starts a fresh conversation on the next message. This prevents stale context from accumulating in long-lived Telegram chats.
+If no message is sent for 1 hour, Marcel automatically seals the current conversation segment and generates a rolling summary on the next message. This prevents stale context from accumulating while preserving long-term awareness through summary chains. See [architecture.md](../architecture.md) for details on the continuous conversation model.
 
 ## Prerequisites
 
@@ -78,7 +79,7 @@ Start your bot in Telegram and send `/start`. It will reply with your chat ID. T
 ```bash
 uv run python - <<'EOF'
 from dotenv import load_dotenv; load_dotenv('.env.local')
-from marcel_core.telegram.sessions import link_user
+from marcel_core.channels.telegram.sessions import link_user
 link_user('shaun', 556632386)   # replace with your actual chat ID
 print('Linked.')
 EOF
@@ -171,7 +172,7 @@ Run this once after the tunnel and service are both running:
 ```bash
 cd ~/projects/marcel && uv run python -c "
 from dotenv import load_dotenv; load_dotenv('.env.local')
-from marcel_core.telegram.bot import set_webhook
+from marcel_core.channels.telegram.bot import set_webhook
 import asyncio, os
 result = asyncio.run(set_webhook(
     'https://your-domain.com/telegram/webhook',
@@ -198,7 +199,7 @@ Each family member or household user needs their own Telegram account linked. Th
 
 ```bash
 uv run python -c "
-from marcel_core.telegram.sessions import link_user
+from marcel_core.channels.telegram.sessions import link_user
 link_user('alice', 987654321)
 "
 ```
@@ -216,7 +217,7 @@ python - <<'EOF'
 import asyncio
 from dotenv import load_dotenv
 load_dotenv()
-from marcel_core.telegram.bot import delete_webhook
+from marcel_core.channels.telegram.bot import delete_webhook
 print(asyncio.run(delete_webhook()))
 EOF
 ```
@@ -233,8 +234,8 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ## Module reference
 
-::: marcel_core.telegram.bot
+::: marcel_core.channels.telegram.bot
 
-::: marcel_core.telegram.sessions
+::: marcel_core.channels.telegram.sessions
 
-::: marcel_core.telegram.webhook
+::: marcel_core.channels.telegram.webhook

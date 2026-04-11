@@ -67,6 +67,19 @@ integration(id="news.store", params={"articles": [{"title": "...", "source": "VR
 
 Each article object requires `title`, `source`, and `link`. Optional fields: `topic`, `description`, `published_at`.
 
+## RSS feed tool
+
+You also have access to the `rss_fetch` tool for fetching and parsing RSS/Atom feeds directly. This is useful for checking feeds that aren't part of the scheduled scraping, or for one-off lookups.
+
+```
+rss_fetch(url="https://www.vrt.be/vrtnws/nl.rss.articles.xml")
+rss_fetch(url="https://www.tijd.be/rss/nieuws.xml", max_articles=5)
+```
+
+Returns a JSON array of articles, each with: `title`, `link`, `description`, `published`, `category`. Auto-detects RSS 2.0, Atom, and RSS 1.0 (RDF) formats.
+
+The `rss_fetch` tool is much cheaper than browser-based scraping for sites that expose feeds. Use it for quick lookups; use the `integration(id="news.recent")` commands above for querying the scraped article database.
+
 ## Notes
 
 - Articles are deduplicated by URL — re-scraping the same article updates it in place.

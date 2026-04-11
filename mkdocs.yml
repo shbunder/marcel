@@ -9,6 +9,7 @@ nav:
   - index.md
   - Architecture: architecture.md
   - Storage: storage.md
+  - Artifacts: artifacts.md
   - Self-Modification: self-modification.md
   - Skills: skills.md
   - Jobs: jobs.md

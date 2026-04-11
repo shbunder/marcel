@@ -24,31 +24,22 @@ from marcel_core.storage import _root
 
 
 class TestEscapeMarkdownV2:
-    """Legacy escape function — kept for backward compatibility."""
-
-    def test_escapes_dot(self):
-        assert escape_markdown_v2('hello.') == r'hello\.'
-
-    def test_escapes_exclamation(self):
-        assert escape_markdown_v2('hi!') == r'hi\!'
-
-    def test_escapes_parens(self):
-        assert escape_markdown_v2('(ok)') == r'\(ok\)'
-
-    def test_escapes_underscore(self):
-        assert escape_markdown_v2('some_name') == r'some\_name'
-
-    def test_plain_text_unchanged(self):
-        assert escape_markdown_v2('hello world') == 'hello world'
-
-    def test_empty_string(self):
-        assert escape_markdown_v2('') == ''
-
-    def test_all_special_chars(self):
+    def test_escapes_all_special_chars(self):
+        """All MarkdownV2 special characters are backslash-escaped."""
         result = escape_markdown_v2('_*[]()~`>#+-=|{}.!\\')
-        assert '\\' in result
         # Every special char should be preceded by a backslash
         assert result.count('\\') >= len('_*[]()~`>#+-=|{}.!\\')
+
+    def test_individual_special_chars(self):
+        """Spot-check individual characters commonly seen in messages."""
+        assert escape_markdown_v2('hello.') == r'hello\.'
+        assert escape_markdown_v2('hi!') == r'hi\!'
+        assert escape_markdown_v2('(ok)') == r'\(ok\)'
+        assert escape_markdown_v2('some_name') == r'some\_name'
+
+    def test_plain_text_and_empty_unchanged(self):
+        assert escape_markdown_v2('hello world') == 'hello world'
+        assert escape_markdown_v2('') == ''
 
 
 # ---------------------------------------------------------------------------

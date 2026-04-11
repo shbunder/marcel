@@ -11,14 +11,25 @@ synchronous Python API for reading and writing users, conversations, and memory.
 ```
 ~/.marcel/
   config.toml               # CLI configuration
+  MARCEL.md                 # Global personal assistant instructions
+  skills/                   # Skill docs loaded into agent context
   users/
     {user_slug}/
       profile.md              # display name, preferences, known facts (free-form markdown)
-      channel_ids.json        # {"cli": "fingerprint", "telegram": "12345"}
-      history/                # per-session JSONL history
-        {channel}/            # one directory per channel (telegram, cli, ios, websocket)
-          {session_id}.jsonl  # JSONL messages for one session
-          {session_id}.meta.json  # session metadata (title, timestamps, count)
+      telegram.json           # Telegram chat ID linkage
+      conversation/           # continuous conversation storage (primary)
+        {channel}/
+          segments/
+            seg-0001.jsonl    # sealed (summarized) segment
+            seg-0002.jsonl    # active segment (append-only)
+          summaries/
+            seg-0001.summary.md  # rolling summary of seg-0001
+          channel.meta.json   # channel-level metadata
+          search_index.jsonl  # keyword search index
+      history/                # legacy per-session JSONL (backward compat)
+        {channel}/
+          {session_id}.jsonl
+          {session_id}.meta.json
       memory/
         index.md              # one line per topic file: filename, one-liner (capped at 200 lines)
         calendar.md           # distilled facts about calendar preferences (with frontmatter)
@@ -30,6 +41,9 @@ synchronous Python API for reading and writing users, conversations, and memory.
       memory/
         wifi.md               # household wifi credentials
         address.md            # home address, emergency contacts
+  artifacts/                  # rich content for Mini App (JSON files)
+    {id}.json                 # artifact metadata + content
+    files/                    # binary files (images, charts)
   watchdog/
     restart_requested         # flag file for self-restart
     restart_result            # restart outcome (ok, rolled_back, rollback_failed)
@@ -43,58 +57,101 @@ environment variable to override at runtime, or patch
 
 ## File format specifications
 
-### JSONL history (`history/{channel}/{session_id}.jsonl`)
+### Continuous conversation (`conversation/{channel}/`)
 
-The v2 history system stores conversation turns as line-delimited JSON, one
-message per line.  Each session gets its own file, organized by channel:
+Marcel uses a single continuous conversation per (user, channel) pair.
+Conversations are stored as append-only JSONL segments with rolling
+summaries:
 
 ```
-history/
+conversation/
   telegram/
-    2026-04-10T09-44.jsonl
-    2026-04-10T09-44.meta.json
-  cli/
-    2026-04-10T14-22.jsonl
-    2026-04-10T14-22.meta.json
+    segments/
+      seg-0001.jsonl          # sealed segment (summarized)
+      seg-0002.jsonl          # active segment (append-only)
+    summaries/
+      seg-0001.summary.md     # rolling summary with frontmatter
+    channel.meta.json         # channel metadata
+    search_index.jsonl        # keyword search index
 ```
 
-Each JSONL line contains:
+Each JSONL line in a segment has the same format:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `role` | string | `user`, `assistant`, `tool`, or `system` |
 | `text` | string? | Message content (null if `result_ref` used) |
 | `timestamp` | string | ISO 8601 UTC |
-| `conversation_id` | string | Session identifier |
+| `conversation_id` | string | Segment identifier |
 | `tool_calls` | array? | For assistant: `[{id, name, arguments}]` |
 | `tool_call_id` | string? | For tool results: matches a tool call ID |
 | `tool_name` | string? | For tool results: which tool produced this |
 | `result_ref` | string? | `sha256:{hash}` pointer to paste store |
 | `is_error` | bool | Whether this tool result was an error |
 
-### Session metadata (`history/{channel}/{session_id}.meta.json`)
+#### Segment lifecycle
+
+1. **Active**: New messages are appended to the active segment.
+2. **Rotation**: When a segment reaches 500 messages or 500KB, a new
+   segment file is created (file rotation, not summarization).
+3. **Sealing**: When the conversation is idle for 60+ minutes, or the user
+   sends `/forget`, the active segment is sealed and a new one opened.
+4. **Summarization**: A Haiku agent generates a summary of the sealed
+   segment, incorporating the previous summary (rolling chain). Tool
+   results are stripped from sealed segments to save space.
+
+#### Channel metadata (`channel.meta.json`)
 
 ```json
 {
-  "session_id": "2026-04-10T09-44",
   "channel": "telegram",
-  "created_at": "2026-04-10T09:44:08+00:00",
-  "last_active": "2026-04-10T09:49:22+00:00",
-  "message_count": 12,
-  "title": null
+  "created_at": "2026-04-10T09:00:00+00:00",
+  "last_active": "2026-04-11T14:22:00+00:00",
+  "active_segment": "seg-0002",
+  "next_segment_num": 3,
+  "total_messages": 247,
+  "last_summary_at": "2026-04-11T10:15:00+00:00"
 }
 ```
 
-Session metadata is updated on every `append_message` call.  Clients can
-list sessions via `GET /v2/sessions`, create via `POST /v2/sessions`, and
-delete via `DELETE /v2/sessions/{id}`.
+#### Segment summary (`summaries/seg-NNNN.summary.md`)
 
-### Legacy migration
+Summaries use YAML frontmatter with segment metadata, followed by the
+summary text and optional key facts:
 
-Existing flat `history.jsonl` files are read transparently as a fallback.
-Call `migrate_legacy_history(user_slug, default_channel)` to split them
-into per-session files.  The original file is renamed to
-`history.jsonl.migrated`.
+```markdown
+---
+segment_id: seg-0001
+created_at: 2026-04-11T10:15:00+00:00
+trigger: idle
+message_count: 42
+time_span_from: 2026-04-10T09:00:00+00:00
+time_span_to: 2026-04-11T09:12:00+00:00
+previous_summary_segment: null
+---
+
+The user discussed banking integration setup and configured...
+
+## Key Facts
+- User prefers afternoon appointments
+- Banking sync configured for KBC account
+```
+
+#### Search index (`search_index.jsonl`)
+
+Every user/assistant text message is keyword-indexed for mid-conversation
+recall. Entries are compact JSONL:
+
+```json
+{"seg":"seg-0001","line":15,"ts":"2026-04-10T09:30:00","kw":["banking","kbc","setup"],"role":"user","preview":"Can you set up my KBC banking..."}
+```
+
+### Legacy history (`history/{channel}/`)
+
+The legacy per-session JSONL history format is still supported for backward
+compatibility. The `list_sessions` and `read_history` functions in
+`memory/history.py` read from this format. New conversations use the
+continuous conversation model above.
 
 ### Memory file (`memory/{topic}.md`)
 
@@ -215,44 +272,55 @@ needed.
 
 ---
 
-### Sessions (v2 history)
+### Conversations (continuous model)
 
 ```python
-from marcel_core.memory.history import (
-    append_message, read_history, read_recent_turns,
-    create_session, list_sessions, delete_session, get_session_meta,
-    migrate_legacy_history,
-    SessionMeta, HistoryMessage, ToolCall,
+from marcel_core.memory.conversation import (
+    ensure_channel, append_to_segment, read_active_segment,
+    seal_active_segment, search_conversations,
+    load_latest_summary, is_idle, has_active_content,
+    ChannelMeta, SegmentSummary,
 )
+from marcel_core.memory.history import HistoryMessage, ToolCall
 ```
 
 ```python
-def append_message(user_slug: str, message: HistoryMessage, channel: str = 'default') -> None
+def append_to_segment(user_slug: str, channel: str, message: HistoryMessage) -> ChannelMeta
 ```
-Appends a message to the session's JSONL file.  Uses `message.conversation_id`
-as the session ID and creates the session directory if needed.
+Appends a message to the active segment, rotating if needed.
 
 ```python
-def read_history(user_slug: str, conversation_id: str | None = None, limit: int | None = None) -> list[HistoryMessage]
+def read_active_segment(user_slug: str, channel: str) -> list[HistoryMessage]
 ```
-Reads messages from per-session files, falling back to legacy flat file.
+Reads all messages from the current active segment.
 
 ```python
-def create_session(user_slug: str, channel: str, session_id: str | None = None, title: str | None = None) -> SessionMeta
+def search_conversations(user_slug: str, channel: str, query: str, max_results: int = 5) -> list[tuple[SearchEntry, list[HistoryMessage]]]
 ```
-Creates a new session.  If no `session_id` is given, generates one from the
-current UTC timestamp.
+Keyword search across conversation history with surrounding context.
 
 ```python
-def list_sessions(user_slug: str, channel: str | None = None, limit: int = 50) -> list[SessionMeta]
+def load_latest_summary(user_slug: str, channel: str) -> SegmentSummary | None
 ```
-Lists sessions sorted by `last_active` (newest first).
+Returns the most recent rolling summary for a channel.
+
+### Summarization
 
 ```python
-def migrate_legacy_history(user_slug: str, default_channel: str = 'default') -> int
+from marcel_core.memory.summarizer import summarize_if_idle, summarize_active_segment
 ```
-Splits a legacy flat `history.jsonl` into per-session files.  Returns the
-number of sessions migrated.
+
+```python
+async def summarize_if_idle(user_slug: str, channel: str, idle_minutes: int = 60) -> bool
+```
+Checks if the channel is idle and triggers summarization if so. Called at
+the start of each turn.
+
+```python
+async def summarize_active_segment(user_slug: str, channel: str, trigger: str = 'manual') -> bool
+```
+Seals the active segment, strips tool results, and generates a rolling
+summary via Haiku.
 
 ---
 
