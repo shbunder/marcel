@@ -1,6 +1,6 @@
 # ISSUE-060: Improve Morning Digest Format and Delivery
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-11
 **Assignee:** Claude
 **Priority:** Medium
@@ -56,3 +56,7 @@ None.
 - `~/.marcel/users/shaun/jobs/c1f96e7741ac/job.json` — Rewritten digest prompt: casual Dutch greeting, calendar events, 5-7 articles with links, one-screen format
 **Commands Run**: `make check`
 **Result**: Success — 690 tests passed
+**Reflection**:
+- Coverage: 4/4 requirements addressed, plus one necessary bonus fix (job notify routing)
+- Shortcuts found: none
+- Scope drift: Problem 3 (job notify routing to Telegram) was not in original requirements but was a necessary fix — without it, the double-send fix would have broken delivery entirely since job agents never reached Telegram through notify
