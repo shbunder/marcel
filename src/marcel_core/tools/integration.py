@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 async def integration(
     ctx: RunContext[MarcelDeps],
-    skill: str,
+    id: str,
     params: dict[str, str] | None = None,
 ) -> str:
     """Execute a registered integration skill.
@@ -36,19 +36,19 @@ async def integration(
 
     Args:
         ctx: Agent context with user information.
-        skill: The skill name (e.g., "banking.balance").
+        id: The integration ID (e.g., "banking.balance").
         params: Skill-specific parameters (see SKILL.md for each integration).
 
     Returns:
         Result string from the integration.
     """
-    log.info('[integration] user=%s skill=%s', ctx.deps.user_slug, skill)
+    log.info('[integration] user=%s id=%s', ctx.deps.user_slug, id)
 
     if params is None:
         params = {}
 
     try:
-        config = get_skill(skill)
+        config = get_skill(id)
     except KeyError as exc:
         available = list_skills()
         return f'Error: {exc}\n\nAvailable skills: {", ".join(available)}'
@@ -58,7 +58,7 @@ async def integration(
     # marcel(action="read_skill") first, but if it doesn't, we prepend the
     # docs so the model has full context for interpreting the result.
     prefix = ''
-    skill_family = skill.split('.')[0]
+    skill_family = id.split('.')[0]
     if skill_family not in ctx.deps.read_skills:
         from marcel_core.skills.loader import get_skill_content
 
@@ -72,4 +72,4 @@ async def integration(
         return prefix + result
     except Exception as exc:
         log.exception('[integration] Skill execution failed')
-        return f'{prefix}Error executing {skill}: {exc}'
+        return f'{prefix}Error executing {id}: {exc}'
