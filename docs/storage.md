@@ -15,9 +15,9 @@ synchronous Python API for reading and writing users, conversations, and memory.
   skills/                   # Skill docs loaded into agent context
   users/
     {user_slug}/
-      profile.md              # display name, preferences, known facts (free-form markdown)
-      telegram.json           # Telegram chat ID linkage
-      conversation/           # continuous conversation storage (primary)
+      profile.md              # identity, preferences, role, channel links (frontmatter + markdown)
+      credentials.enc         # encrypted credentials blob
+      conversation/           # continuous conversation storage
         {channel}/
           segments/
             seg-0001.jsonl    # sealed (summarized) segment
@@ -26,15 +26,13 @@ synchronous Python API for reading and writing users, conversations, and memory.
             seg-0001.summary.md  # rolling summary of seg-0001
           channel.meta.json   # channel-level metadata
           search_index.jsonl  # keyword search index
-      history/                # legacy per-session JSONL (backward compat)
-        {channel}/
-          {session_id}.jsonl
-          {session_id}.meta.json
+      cache/                  # SQLite caches for integrations
+        banking.db            # banking transaction/balance cache
+        news.db               # scraped news article cache
       memory/
         index.md              # one line per topic file: filename, one-liner (capped at 200 lines)
-        calendar.md           # distilled facts about calendar preferences (with frontmatter)
+        calendars.md          # distilled facts about calendar preferences (with frontmatter)
         family.md             # family members, relationships, birthdays
-        shopping.md           # shopping habits, preferred stores
       .pastes/                # large tool result content (SHA-256 hashed)
         {hash}                # content referenced by result_ref in history
     _household/               # shared family memories (included in all users' context)
@@ -254,14 +252,20 @@ Returns `True` if `~/.marcel/users/{slug}/` exists.
 ```python
 def load_user_profile(slug: str) -> str
 ```
-Returns the raw markdown content of `profile.md`, or an empty string if the
-file does not exist.
+Returns the markdown body of `profile.md` (without frontmatter), or an empty
+string if the file does not exist.
 
 ```python
 def save_user_profile(slug: str, content: str) -> None
 ```
-Writes `content` to `profile.md` atomically.  Creates the user directory if
-needed.
+Writes `content` as the body of `profile.md`, preserving existing frontmatter.
+Creates the user directory if needed.
+
+```python
+def get_user_role(slug: str) -> str
+def set_user_role(slug: str, role: str) -> None
+```
+Read/write the user's role (`'admin'` or `'user'`) from `profile.md` frontmatter.
 
 ---
 

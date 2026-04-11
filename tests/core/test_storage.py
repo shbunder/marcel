@@ -85,33 +85,27 @@ class TestGetUserRole:
         assert get_user_role('nobody') == 'user'
 
     def test_returns_admin_when_set(self, tmp_path: pathlib.Path) -> None:
-        import json as _json
-
         user_dir = tmp_path / 'users' / 'shaun'
         user_dir.mkdir(parents=True)
-        (user_dir / 'user.json').write_text(_json.dumps({'role': 'admin'}), encoding='utf-8')
+        (user_dir / 'profile.md').write_text('---\nrole: admin\n---\n\n# Shaun\n', encoding='utf-8')
         assert get_user_role('shaun') == 'admin'
 
     def test_returns_user_for_unknown_role(self, tmp_path: pathlib.Path) -> None:
-        import json as _json
-
         user_dir = tmp_path / 'users' / 'mallory'
         user_dir.mkdir(parents=True)
-        (user_dir / 'user.json').write_text(_json.dumps({'role': 'superuser'}), encoding='utf-8')
+        (user_dir / 'profile.md').write_text('---\nrole: superuser\n---\n\n# Mallory\n', encoding='utf-8')
         assert get_user_role('mallory') == 'user'
 
-    def test_returns_user_on_corrupt_json(self, tmp_path: pathlib.Path) -> None:
-        user_dir = tmp_path / 'users' / 'bad'
-        user_dir.mkdir(parents=True)
-        (user_dir / 'user.json').write_text('{not json}', encoding='utf-8')
-        assert get_user_role('bad') == 'user'
-
-    def test_returns_user_when_role_key_absent(self, tmp_path: pathlib.Path) -> None:
-        import json as _json
-
+    def test_returns_user_when_no_frontmatter(self, tmp_path: pathlib.Path) -> None:
         user_dir = tmp_path / 'users' / 'norole'
         user_dir.mkdir(parents=True)
-        (user_dir / 'user.json').write_text(_json.dumps({'name': 'someone'}), encoding='utf-8')
+        (user_dir / 'profile.md').write_text('# No Role\nJust a profile.\n', encoding='utf-8')
+        assert get_user_role('norole') == 'user'
+
+    def test_returns_user_when_role_key_absent(self, tmp_path: pathlib.Path) -> None:
+        user_dir = tmp_path / 'users' / 'norole'
+        user_dir.mkdir(parents=True)
+        (user_dir / 'profile.md').write_text('---\nname: someone\n---\n\n# Someone\n', encoding='utf-8')
         assert get_user_role('norole') == 'user'
 
 
@@ -128,6 +122,14 @@ class TestSetUserRole:
     def test_raises_on_invalid_role(self) -> None:
         with pytest.raises(ValueError, match="'admin' or 'user'"):
             set_user_role('dave', 'superuser')
+
+    def test_preserves_body_when_setting_role(self, tmp_path: pathlib.Path) -> None:
+        user_dir = tmp_path / 'users' / 'eve'
+        user_dir.mkdir(parents=True)
+        (user_dir / 'profile.md').write_text('# Eve\nSome bio.\n', encoding='utf-8')
+        set_user_role('eve', 'admin')
+        assert get_user_role('eve') == 'admin'
+        assert '# Eve' in load_user_profile('eve')
 
 
 # ---------------------------------------------------------------------------

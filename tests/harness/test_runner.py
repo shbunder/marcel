@@ -137,12 +137,10 @@ class TestStreamTurn:
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         monkeypatch.setenv('HOME', '/home/testuser')
 
-        # Write admin role
-        import json
-
+        # Write admin role in profile.md frontmatter
         user_dir = tmp_path / 'users' / 'admin'
         user_dir.mkdir(parents=True)
-        (user_dir / 'user.json').write_text(json.dumps({'role': 'admin'}))
+        (user_dir / 'profile.md').write_text('---\nrole: admin\n---\n\n# Admin\n')
 
         captured_deps = []
 

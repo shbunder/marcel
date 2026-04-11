@@ -80,7 +80,7 @@ Handles all communication with the EnableBanking API. Authentication uses RS256-
 
 ### Cache (`cache.py`)
 
-SQLite database at `data/users/{slug}/banking_transactions.db` with WAL journaling. Three tables:
+SQLite database at `data/users/{slug}/cache/banking.db` with WAL journaling. Three tables:
 
 - **transactions** — all synced transactions from all banks, keyed by a stable internal ID derived from the bank's transaction ID or a composite fallback. Stores signed amounts (negative for debits, positive for credits).
 - **balances** — latest balance snapshot per account and balance type (e.g. CLBD, ITAV, XPCD).

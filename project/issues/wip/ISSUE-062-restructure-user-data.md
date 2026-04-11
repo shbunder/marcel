@@ -1,6 +1,6 @@
 # ISSUE-062: Restructure user data directory — consolidate config, organize caches
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-11
 **Assignee:** Claude
 **Priority:** Medium
@@ -61,23 +61,23 @@ users/shaun/
 Global `~/.marcel/telegram/sessions.json` → removed (last_message_at already tracked by conversation channel metadata `last_active`).
 
 ## Tasks
-- [ ] ISSUE-062-a: Merge `user.json` into `profile.md` — add `role` to frontmatter, update `users.py` to read/write role from profile.md, remove `user.json` dependency
-- [ ] ISSUE-062-b: Merge `telegram.json` into `profile.md` — add `telegram_chat_id` to frontmatter, update `sessions.py` to read/write from profile.md, remove `telegram.json` dependency
-- [ ] ISSUE-062-c: Move SQLite caches to `cache/` — update `banking/cache.py` and `news/cache.py` path helpers, rename `banking_transactions.db` → `banking.db`
-- [ ] ISSUE-062-d: Remove global `telegram/sessions.json` — `last_message_at` is already tracked by conversation channel metadata (`channel.meta.json` → `last_active`), update `sessions.py` to use that instead
-- [ ] ISSUE-062-e: Write migration script — backup, move files, rewrite profile.md with frontmatter, clean up old files
-- [ ] ISSUE-062-f: Update tests for new paths and profile.md frontmatter
-- [ ] ISSUE-062-g: Update docs (storage.md) to reflect new layout
-- [ ] Run `make check` — all passes
+- [✓] ISSUE-062-a: Merge `user.json` into `profile.md` — add `role` to frontmatter, update `users.py` to read/write role from profile.md, remove `user.json` dependency
+- [✓] ISSUE-062-b: Merge `telegram.json` into `profile.md` — add `telegram_chat_id` to frontmatter, update `sessions.py` to read/write from profile.md, remove `telegram.json` dependency
+- [✓] ISSUE-062-c: Move SQLite caches to `cache/` — update `banking/cache.py` and `news/cache.py` path helpers, rename `banking_transactions.db` → `banking.db`
+- [✓] ISSUE-062-d: Remove global `telegram/sessions.json` — `last_message_at` is already tracked by conversation channel metadata (`channel.meta.json` → `last_active`), update `sessions.py` to use that instead
+- [✓] ISSUE-062-e: Write migration script — backup, move files, rewrite profile.md with frontmatter, clean up old files
+- [✓] ISSUE-062-f: Update tests for new paths and profile.md frontmatter
+- [✓] ISSUE-062-g: Update docs (storage.md) to reflect new layout
+- [✓] Run `make check` — all passes
 
 ## Subtasks
-- [ ] ISSUE-062-a: Merge user.json into profile.md
-- [ ] ISSUE-062-b: Merge telegram.json into profile.md
-- [ ] ISSUE-062-c: Move caches to cache/ subdirectory
-- [ ] ISSUE-062-d: Remove global telegram sessions.json
-- [ ] ISSUE-062-e: Write migration script
-- [ ] ISSUE-062-f: Update tests
-- [ ] ISSUE-062-g: Update docs
+- [✓] ISSUE-062-a: Merge user.json into profile.md
+- [✓] ISSUE-062-b: Merge telegram.json into profile.md
+- [✓] ISSUE-062-c: Move caches to cache/ subdirectory
+- [✓] ISSUE-062-d: Remove global telegram sessions.json
+- [✓] ISSUE-062-e: Write migration script
+- [✓] ISSUE-062-f: Update tests
+- [✓] ISSUE-062-g: Update docs
 
 ## Relationships
 - Follows: [[ISSUE-059-user-data-cleanup]] (059 cleaned up history/memory; 062 continues with config/cache restructure)
@@ -97,3 +97,26 @@ Audit of `users/shaun/` root files:
 Key insight: conversation channel metadata (`conversation/telegram/channel.meta.json`) already tracks `last_active` — the global sessions.json `last_message_at` is redundant for idle detection.
 
 ## Implementation Log
+### 2026-04-11 19:15 - LLM Implementation
+**Action**: Full restructure — profile.md frontmatter, cache subdirectory, sessions.json removal
+**Files Modified**:
+- `src/marcel_core/storage/users.py` — Rewritten: profile.md frontmatter parser, role stored in frontmatter, telegram_chat_id stored in frontmatter, find_user_by_telegram_chat_id scans profiles. Removed user.json/telegram.json dependency.
+- `src/marcel_core/channels/telegram/sessions.py` — Rewritten: delegates to users.py for chat_id linking, uses conversation channel metadata for last_message_at. Removed SessionState, _sessions_path, _load_sessions, _save_sessions, _get_state, _update_state.
+- `src/marcel_core/skills/integrations/banking/cache.py` — Path changed to `cache/banking.db`
+- `src/marcel_core/skills/integrations/news/cache.py` — Path changed to `cache/news.db`
+- `tests/core/test_storage.py` — Role tests rewritten for profile.md frontmatter
+- `tests/core/test_telegram.py` — Session tests rewritten for profile.md + channel metadata
+- `tests/core/test_telegram_webhook.py` — Idle test updated to use channel metadata
+- `tests/harness/test_runner.py` — Admin setup uses profile.md frontmatter
+- `docs/storage.md` — Updated layout diagram and API docs
+- `docs/integration-banking.md` — Updated cache path
+- `docs/channels/telegram.md` — Updated user lookup and linking docs
+- `scripts/migrate_062_restructure.py` — Migration script
+**Data Migration**:
+- Merged role=admin from user.json into profile.md frontmatter
+- Merged telegram_chat_id=556632386 into profile.md frontmatter
+- Moved banking_transactions.db -> cache/banking.db
+- Moved news.db -> cache/news.db
+- Removed user.json, telegram.json, global telegram/sessions.json
+**Commands Run**: `make check`
+**Result**: 690 tests passing, 0 errors, 0 lint/typecheck issues

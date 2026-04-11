@@ -347,8 +347,11 @@ class TestContinuousConversation:
 
         from datetime import datetime, timedelta, timezone
 
-        old_time = (datetime.now(timezone.utc) - timedelta(hours=7)).isoformat()
-        sessions._update_state(555, last_message_at=old_time)
+        from marcel_core.memory.conversation import ensure_channel, save_channel_meta
+
+        meta = ensure_channel('shaun', 'telegram')
+        meta.last_active = datetime.now(timezone.utc) - timedelta(hours=7)
+        save_channel_meta('shaun', 'telegram', meta)
 
         from marcel_core.harness.runner import TextDelta
 

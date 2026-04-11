@@ -74,34 +74,37 @@ class TestGetUserSlug:
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         assert sessions.get_user_slug(123) is None
 
-    def test_ignores_user_dir_without_telegram_json(self, tmp_path, monkeypatch):
+    def test_ignores_user_dir_without_profile(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         (tmp_path / 'users' / 'shaun').mkdir(parents=True)
         assert sessions.get_user_slug(123) is None
 
-    def test_link_user_writes_to_user_dir(self, tmp_path, monkeypatch):
+    def test_link_user_writes_to_profile(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         sessions.link_user('shaun', 556632386)
-        import json as _json
+        from marcel_core.storage.users import _parse_profile
 
-        data = _json.loads((tmp_path / 'users' / 'shaun' / 'telegram.json').read_text())
-        assert data['chat_id'] == '556632386'
+        raw = (tmp_path / 'users' / 'shaun' / 'profile.md').read_text()
+        meta, _ = _parse_profile(raw)
+        assert meta['telegram_chat_id'] == '556632386'
 
 
 class TestTouchLastMessage:
-    def test_sets_last_message_at(self, tmp_path, monkeypatch):
+    def test_updates_channel_metadata(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        # Link user first so touch_last_message can resolve the slug
+        sessions.link_user('shaun', 123)
         sessions.touch_last_message(123)
-        state = sessions._get_state(123)
-        assert state.last_message_at is not None
+        from marcel_core.memory.conversation import load_channel_meta
 
-    def test_persists_across_reloads(self, tmp_path, monkeypatch):
+        meta = load_channel_meta('shaun', 'telegram')
+        assert meta is not None
+        assert meta.last_active is not None
+
+    def test_noop_for_unknown_chat(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        sessions.touch_last_message(456)
-        # Verify the file was actually written
-        sessions_path = tmp_path / 'telegram' / 'sessions.json'
-        data = json.loads(sessions_path.read_text())
-        assert 'last_message_at' in data['456']
+        # Should not raise for an unlinked chat
+        sessions.touch_last_message(999)
 
 
 # ---------------------------------------------------------------------------
@@ -248,39 +251,6 @@ class TestTelegramWebhook:
         resp = client.post('/telegram/webhook', json=_make_update(555, 'hi'), headers=_WEBHOOK_HEADERS)
         assert resp.status_code == 200
         assert resp.json() == {'status': 'ok'}
-
-
-class TestLegacySessionMigration:
-    def test_migrates_string_value_to_session_state(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        # Write legacy format directly — should migrate cleanly
-        sessions_path = tmp_path / 'telegram' / 'sessions.json'
-        sessions_path.parent.mkdir(parents=True, exist_ok=True)
-        sessions_path.write_text(json.dumps({'123': 'old-conv-id'}))
-
-        # Should not crash when loading legacy format
-        state = sessions._get_state(123)
-        assert state.last_message_at is None  # Legacy string had no timestamp
-
-    def test_migrates_dict_with_legacy_coder_fields(self, tmp_path, monkeypatch):
-        """Legacy sessions with coder fields should be migrated cleanly."""
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        sessions_path = tmp_path / 'telegram' / 'sessions.json'
-        sessions_path.parent.mkdir(parents=True, exist_ok=True)
-        sessions_path.write_text(
-            json.dumps(
-                {
-                    '123': {
-                        'conversation_id': 'conv-1',
-                        'mode': 'coder',
-                        'coder_session_id': 'sess-1',
-                        'last_message_at': '2026-03-29T14:32:00',
-                    }
-                }
-            )
-        )
-        state = sessions._get_state(123)
-        assert state.last_message_at == '2026-03-29T14:32:00'
 
 
 class TestForgetCommand:

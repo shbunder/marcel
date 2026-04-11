@@ -12,7 +12,7 @@ Telegram Bot API
     │  POST /telegram/webhook
     ▼
 Marcel server (webhook.py)
-    │  look up user from telegram.json
+    │  look up user from profile.md frontmatter
     │  load continuous conversation
     ▼
 Agent loop (same as CLI, pydantic-ai harness)
@@ -85,7 +85,7 @@ print('Linked.')
 EOF
 ```
 
-This writes `~/.marcel/users/shaun/telegram.json` — local to your server.
+This writes the `telegram_chat_id` field into `~/.marcel/users/shaun/profile.md` frontmatter.
 
 ### 4. Expose Marcel via Cloudflare Tunnel
 

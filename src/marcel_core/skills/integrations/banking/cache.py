@@ -1,6 +1,6 @@
 """SQLite-backed transaction and balance cache for banking data.
 
-The cache lives at ``data/users/{slug}/banking_transactions.db`` and stores
+The cache lives at ``data/users/{slug}/cache/banking.db`` and stores
 all synced transactions and the latest balance snapshot.  The agent
 queries this cache instead of hitting the EnableBanking API directly, so
 we stay within PSD2 rate limits (4 requests/day without active SCA).
@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 
 def _db_path(slug: str) -> Path:
-    return data_root() / 'users' / slug / 'banking_transactions.db'
+    return data_root() / 'users' / slug / 'cache' / 'banking.db'
 
 
 def _connect(slug: str) -> sqlite3.Connection:

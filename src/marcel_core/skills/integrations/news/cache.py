@@ -1,6 +1,6 @@
 """SQLite-backed article cache for scraped news.
 
-The cache lives at ``data/users/{slug}/news.db`` and stores every
+The cache lives at ``data/users/{slug}/cache/news.db`` and stores every
 scraped article with structured metadata so it can be queried by
 source, topic, date, or keyword.
 """
@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 
 def _db_path(slug: str) -> Path:
-    return data_root() / 'users' / slug / 'news.db'
+    return data_root() / 'users' / slug / 'cache' / 'news.db'
 
 
 def _connect(slug: str) -> sqlite3.Connection:
