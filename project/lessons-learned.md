@@ -218,3 +218,19 @@ Lessons captured after completed issues. Referenced at the start of new feature 
 - `_load_job_memories` pattern: loading a subset of memories by type for injection into job agents — avoids full AI-driven selection when there's no user query to match against
 - `rebuild_memory_index` as a disk-scan-based index rebuilder — eliminates index drift from background extractors that may crash mid-write
 - Structured feedback memory format (rule + **Why:** + **How to apply:**) — gives the agent enough context to judge edge cases rather than blindly following rules
+
+---
+
+## ISSUE-060: Improve Morning Digest Format and Delivery (2026-04-11)
+
+### What worked well
+- Tracing the full notification flow end-to-end (agent → tool → executor → Telegram) before writing code revealed a third problem (job notify routing) that would have caused a regression if missed
+- Using `deps.notified` as a simple boolean flag kept the double-send fix minimal — no new state machines or event buses needed
+
+### What to do differently
+- The job channel prompt said "plain text only" but the Telegram pipeline already had `markdown_to_telegram_html`. Should have questioned this mismatch when the job system was first built — the formatting pipeline exists precisely so agents can write markdown.
+- The `_notify` tool routing `channel == 'job'` to Telegram is a bit hardcoded. If jobs ever deliver to other channels, this will need a proper channel lookup from the job definition. Fine for now since all jobs go to Telegram.
+
+### Patterns to reuse
+- `deps.notified` flag pattern: lightweight in-run state tracking between tools and executor without modifying the agent loop — useful for any "did the agent already do X?" checks
+- `run.agent_notified` on `JobRun`: persisting tool-side state into the run record so post-execution logic can make decisions — avoids passing deps objects through the retry/notify chain
