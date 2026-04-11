@@ -51,6 +51,13 @@ class MarcelDeps:
     read_skills: set[str] = dataclasses.field(default_factory=set)
     """Skills whose full docs have been loaded this turn (for auto-inject dedup)."""
 
+    notified: bool = False
+    """Set to True when the agent sends a notification via ``marcel(action="notify")``.
+
+    Used by the job executor to skip its own automatic notification when the
+    agent already delivered a message to the user during the run.
+    """
+
 
 def build_server_context(cwd: str | None = None) -> str:
     """Build a server/environment context block for admin users.

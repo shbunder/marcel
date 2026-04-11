@@ -1,6 +1,6 @@
 # ISSUE-060: Improve Morning Digest Format and Delivery
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-11
 **Assignee:** Claude
 **Priority:** Medium
@@ -28,11 +28,14 @@ The job agent calls `marcel(action="notify", message="...")` to send the digest.
 
 **Fix:** Rewrite the job's system prompt for direct, casual output with article links. Update the job channel prompt to allow markdown (the formatting pipeline converts it). Restructure the prompt to produce ~5 curated articles rather than topic-cluster summaries.
 
+### Problem 3: Job notify didn't reach Telegram (discovered during implementation)
+The `_notify` tool checked `ctx.deps.channel == 'telegram'` but job agents have `channel='job'`, so notify calls were logged but never sent to Telegram. The actual delivery only happened through the executor's fallback `_notify_if_needed`. Fixed by also routing `channel='job'` to Telegram in the notify handler.
+
 ## Tasks
-- [ ] ISSUE-060-a: Fix double-send — track in-run notifications and skip executor's `_notify_if_needed` when agent already notified
-- [ ] ISSUE-060-b: Update job channel prompt (`~/.marcel/channels/job.md` and default) to allow markdown formatting
-- [ ] ISSUE-060-c: Rewrite the morning digest job system prompt in `job.json` for correct tone, format, and article links
-- [ ] ISSUE-060-d: Run `make check` to verify all changes pass
+- [✓] ISSUE-060-a: Fix double-send — track in-run notifications and skip executor's `_notify_if_needed` when agent already notified
+- [✓] ISSUE-060-b: Update job channel prompt (`~/.marcel/channels/job.md` and default) to allow markdown formatting
+- [✓] ISSUE-060-c: Rewrite the morning digest job system prompt in `job.json` for correct tone, format, and article links
+- [✓] ISSUE-060-d: Run `make check` to verify all changes pass (690 passed)
 
 ## Relationships
 None.
@@ -40,3 +43,16 @@ None.
 ## Comments
 
 ## Implementation Log
+
+### 2026-04-11 — Implementation
+**Action**: Fixed double-send, enabled markdown in job channel, rewrote digest prompt, fixed job notify routing
+**Files Modified**:
+- `src/marcel_core/harness/context.py` — Added `notified: bool` field to `MarcelDeps`
+- `src/marcel_core/tools/marcel.py` — Set `ctx.deps.notified = True` in `_notify`; route `channel='job'` to Telegram; use `markdown_to_telegram_html` instead of `escape_html`
+- `src/marcel_core/jobs/models.py` — Added `agent_notified: bool` field to `JobRun`
+- `src/marcel_core/jobs/executor.py` — Set `run.agent_notified` from `deps.notified`; skip auto-notify when agent already notified; use `markdown_to_telegram_html` in `_notify_telegram`
+- `src/marcel_core/defaults/channels/job.md` — Allow markdown formatting, clarify that notify message IS the user-facing output
+- `~/.marcel/channels/job.md` — Same update (user override)
+- `~/.marcel/users/shaun/jobs/c1f96e7741ac/job.json` — Rewritten digest prompt: casual Dutch greeting, calendar events, 5-7 articles with links, one-screen format
+**Commands Run**: `make check`
+**Result**: Success — 690 tests passed

@@ -148,5 +148,6 @@ class JobRun(BaseModel):
     error_category: str | None = None
     trigger_reason: str = ''
     retry_count: int = 0
+    agent_notified: bool = False
     delivery_status: str | None = None
     delivery_error: str | None = None

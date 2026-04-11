@@ -185,6 +185,7 @@ async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> 
         )
         run.output = result.output
         run.status = RunStatus.COMPLETED
+        run.agent_notified = deps.notified
     except asyncio.TimeoutError:
         log.warning('%s-job: job %s (%s) timed out after %ds', job.user_slug, job.id, job.name, job.timeout_seconds)
         run.error = f'Job timed out after {job.timeout_seconds}s'
@@ -263,6 +264,12 @@ async def _notify_if_needed(job: JobDefinition, run: JobRun) -> tuple[str, str |
     """
     from marcel_core.jobs import save_job
 
+    # If the agent already sent a notification during the run (via marcel(action="notify")),
+    # skip the executor's automatic notification to avoid double-sending.
+    if run.agent_notified and run.status == RunStatus.COMPLETED:
+        log.info('%s-job: skipping auto-notify — agent already notified user', job.user_slug)
+        return 'skipped', None
+
     should_notify = False
 
     if job.notify == NotifyPolicy.ALWAYS:
@@ -315,11 +322,11 @@ async def _notify_telegram(user_slug: str, message: str) -> None:
     """Send a notification via Telegram."""
     try:
         from marcel_core.channels.telegram import bot, sessions
-        from marcel_core.channels.telegram.formatting import escape_html
+        from marcel_core.channels.telegram.formatting import markdown_to_telegram_html
 
         chat_id = sessions.get_chat_id(user_slug)
         if chat_id:
-            await bot.send_message(int(chat_id), escape_html(message))
+            await bot.send_message(int(chat_id), markdown_to_telegram_html(message))
         else:
             log.warning('%s-job: no Telegram chat ID found', user_slug)
     except Exception:
