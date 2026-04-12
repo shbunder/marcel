@@ -45,10 +45,12 @@ The core model. Defines what a job does and when it runs.
 
 | Trigger type | Fields | Example |
 |-------------|--------|---------|
-| `cron` | `cron: str` | `"0 7 * * *"` (daily at 7 AM) |
+| `cron` | `cron: str`, `timezone: str \| None` | `"0 7 * * *"` with `"Europe/Brussels"` (daily at 7 AM local time) |
 | `interval` | `interval_seconds: int` | `28800` (every 8 hours) |
 | `event` | `after_job: str`, `only_if_status: RunStatus` | Fires after another job completes |
 | `oneshot` | `run_at: datetime` (optional) | Runs once, then disables |
+
+**Timezone handling.** Cron triggers accept an optional `timezone` field as an [IANA timezone name](https://www.iana.org/time-zones) (e.g. `"Europe/Brussels"`, `"America/New_York"`). When set, the cron expression is interpreted in that timezone — so `"0 7 * * *"` with `timezone="Europe/Brussels"` fires at 7 AM Brussels time year-round, automatically adjusting for DST. When `timezone` is `None` or omitted, the cron expression is interpreted in UTC. Non-cron triggers ignore the field.
 
 ## Scheduler
 

@@ -20,15 +20,14 @@ src/marcel_core/
     artifacts.py   # GET /api/artifact/{id}, /api/artifacts — rich content
   harness/
     agent.py       # create_agent() — pydantic-ai Agent with tool registration
-    context.py     # MarcelDeps, build_system_prompt — loads MARCEL.md + skills + memory
+    context.py     # MarcelDeps, TurnState, build_system_prompt — loads MARCEL.md + skills + memory
     runner.py      # stream_turn — streams from pydantic-ai agent, yields deltas/tool events
-  agent/
     marcelmd.py    # MARCEL.md loader — discovers home + project instruction files
-    memory_extract.py  # Post-turn memory extraction (Haiku + tools)
   memory/
     conversation.py  # Segment-based continuous conversation storage
     summarizer.py    # Idle summarization — seals segments, generates rolling summaries
     selector.py      # Relevance-based memory selection via Haiku side-query
+    extract.py       # Post-turn fire-and-forget memory extraction (Haiku)
     history.py       # Message types (HistoryMessage, ToolCall)
     pastes.py        # Content-addressed paste store for large tool results
   channels/
@@ -37,7 +36,13 @@ src/marcel_core/
     telegram/      # Telegram webhook, bot client, formatting, session state
   tools/
     core.py        # bash, read_file, write_file, edit_file, git_*
-    marcel.py      # Unified Marcel utility tool (search_memory, notify, read_skill, etc.)
+    marcel/        # Unified Marcel utility tool — per-action sub-modules
+      dispatcher.py    # The marcel() entry point advertised to the LLM
+      skills.py        # read_skill action
+      memory.py        # search_memory, save_memory actions
+      conversations.py # search_conversations, compact actions
+      notifications.py # notify action + send_notify helper
+      settings.py      # list_models, get_model, set_model actions
     integration.py # Integration dispatcher — routes to skill registry
     charts.py      # Chart generation via matplotlib
     rss.py         # RSS/Atom feed fetcher
@@ -90,7 +95,11 @@ src/marcel_core/
 | `POST` | `/api/forget` | Trigger summarization / start fresh |
 | `GET` | `/api/artifact/{id}` | Fetch a rich-content artifact |
 | `GET` | `/api/artifacts` | List artifact summaries |
+| `GET` | `/api/components` | Full A2UI component catalog (all registered components with JSON Schema props) |
+| `GET` | `/api/components/{name}` | Single component schema by name |
 | `POST` | `/telegram/webhook` | Telegram Bot API webhook |
+
+The `/api/components` endpoints let native frontends (Telegram Mini App, iOS, macOS) fetch the component catalog once at startup, so they know which A2UI widgets to render and what props each widget expects. Both endpoints require authentication (Telegram `initData` or Bearer token). See [A2UI Components](a2ui-components.md) for the component declaration format.
 
 ## WebSocket protocol
 
@@ -151,11 +160,11 @@ Marcel uses a single continuous conversation per (user, channel) pair. There are
 
 ### Memory system
 
-Memory files use YAML frontmatter with typed metadata (`schedule`, `preference`, `person`, `reference`, `household`). At conversation start, a Haiku side-query selects the most relevant memories from a manifest of headers (up to 8 for large sets; all for small sets). The unified `marcel` tool provides `search_memory` and `search_conversations` actions for mid-conversation keyword search. Schedule memories auto-expire past their date. The `_household` pseudo-user holds shared family memories included in all users' context.
+Memory files use YAML frontmatter with typed metadata (`schedule`, `preference`, `person`, `reference`, `household`, `feedback`). At conversation start, a Haiku side-query selects the most relevant memories from a manifest of headers (up to 8 for large sets; all for small sets). The unified `marcel` tool provides `search_memory`, `save_memory`, and `search_conversations` actions for mid-conversation memory management. Schedule memories auto-expire past their date. The `_household` pseudo-user holds shared family memories included in all users' context. See [storage.md](storage.md#memory-file-memorytopicmd) for the full file format and API.
 
 ### Memory extraction
 
-Runs after every turn without blocking the response. Launches a lightweight agent (Haiku, max 3 turns) with `claude_code` tools preset and CWD set to the user's memory directory. The agent reads existing memory files (via a manifest of frontmatter headers), writes new facts with typed frontmatter, and can update existing memories instead of duplicating. Schedule-type memories include an `expires` date for auto-pruning.
+Runs after every turn as a fire-and-forget `asyncio.create_task` that never blocks the response. A Haiku-powered pydantic-ai Agent is given a system prompt that asks it to return a JSON array of memory operations (`create` / `update`); the caller applies them directly to disk. Existing memory headers are included in the prompt so the agent can update instead of duplicating. User corrections (`"don't do X"`) and non-obvious confirmations (`"yes exactly"`) are captured as `feedback`-type memories with a **Why** / **How to apply** structure for later reuse. See [storage.md](storage.md#memory-extraction-background) for the full lifecycle.
 
 ### Artifacts
 

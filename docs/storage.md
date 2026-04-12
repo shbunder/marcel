@@ -200,6 +200,50 @@ automatically included in every user's memory selection when relevant.
 - **Index cap**: `memory/index.md` is truncated at 200 lines with a warning
   comment. Keeps memory scanning fast.
 
+#### Memory extraction (background)
+
+After every turn, Marcel runs a **fire-and-forget** background task that
+reviews the exchange and decides which facts are worth remembering. This
+is the main way memory files get created — users rarely write them by
+hand.
+
+The task (`marcel_core.memory.extract.extract_and_save_memories`) spawns
+a cheap Haiku-powered pydantic-ai Agent with a strict JSON-output system
+prompt. The agent sees:
+
+1. A manifest of existing memory headers (filenames + frontmatter
+   description) so it can update existing files instead of duplicating
+2. The user's message for this turn
+3. Marcel's response for this turn
+
+It returns a JSON array of operations (`create` / `update`) that the
+caller applies directly to disk. Rules enforced by the system prompt:
+
+- Skip ephemeral facts ("the weather today", transient task status)
+- Always write YAML frontmatter with at least `name` and `type`
+- For `schedule` type memories, always set `expires`
+- Treat user corrections (`"don't do that"`, `"stop doing X"`) and
+  confirmations of non-obvious approaches (`"yes exactly"`) as
+  `feedback`-type memories with a **Why** / **How to apply** structure
+
+Because the task runs in the background with `asyncio.create_task`, a
+failed extraction is logged but never surfaces to the user. A sync fall-
+back is available via the `marcel(action="save_memory")` tool action
+when the agent wants to write a memory directly during a turn instead
+of waiting for post-turn extraction.
+
+#### Memory consolidation
+
+A daily background loop deduplicates and rebuilds the memory manifest:
+
+- **Prune expired**: `schedule` memories past their `expires` date
+- **Rebuild index**: `rebuild_memory_index` scans the memory directory
+  from disk and rewrites `memory/index.md`, so entries for deleted
+  files are removed and orphaned index rows (from crashed background
+  extractors) are fixed
+- **Enforce cap**: if `memory/index.md` exceeds 200 lines, the tail is
+  dropped with a warning comment
+
 ### Memory index (`memory/index.md`)
 
 One line per topic file.  `update_memory_index` appends a line only if the
