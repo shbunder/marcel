@@ -1,6 +1,6 @@
 # ISSUE-072: Web god-tool — search + browse unified
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-12
 **Assignee:** LLM
 **Priority:** High
@@ -57,27 +57,27 @@ Full design detail lives in the plan file at `~/.claude/plans/zazzy-discovering-
 
 ## Tasks
 
-- [ ] Create `src/marcel_core/tools/web/` package — `__init__.py`, `dispatcher.py`, `search.py`, `backends.py`, `brave.py`, `duckduckgo.py`, `formatter.py`
-- [ ] Implement `BraveBackend` with error mapping (401/429/422/network → `Search error: ...`)
-- [ ] Implement `DuckDuckGoBackend` — port `parseDuckDuckGoHtml`, `decodeHtmlEntities`, `decodeDuckDuckGoUrl`, `isBotChallenge` from openclaw `ddg-client.ts`
-- [ ] Implement `SearchBackend` protocol, `SearchResult` dataclass, `select_backend()` factory
-- [ ] Implement `formatter.format_results(results, query, backend_name)` with edge cases (0 results, clamping)
-- [ ] Implement `web` dispatcher with match-statement routing to all 12 actions, mirroring `tools/marcel/dispatcher.py`
-- [ ] Implement per-turn rate limit via new `TurnState.web_search_count` field
-- [ ] Implement playwright-unavailable guard inside the dispatcher (`search` works, browser actions return `Browser error: playwright not installed`)
-- [ ] Register `web` in `agent.py` — replace the 11 `browser_*` registrations with a single `agent.tool(web)`, outside the `if browser_is_available():` gate
-- [ ] Add `brave_api_key` and `web_search_backend` settings to `config.py`
-- [ ] Add `web_search_count` field to `TurnState` in `context.py`
-- [ ] Unit tests: `test_web_dispatcher.py`, `test_web_search_brave.py`, `test_web_search_duckduckgo.py`, `test_web_search_formatter.py`
-- [ ] Verify existing `test_browser_tools.py` still passes unchanged
-- [ ] Rename `src/marcel_core/defaults/skills/browser/` → `src/marcel_core/defaults/skills/web/`
-- [ ] Rewrite `SKILL.md` leading with the three-tier hierarchy, tool table for all 12 actions, remove `requires: packages: [playwright]` frontmatter so the doc is always loaded
-- [ ] Rewrite `SETUP.md` covering both playwright install and Brave API key setup
-- [ ] Add 5-line browser→web migration to the skill seeder in `loader.py`
-- [ ] Write `docs/web.md` per `docs/CLAUDE.md`
-- [ ] Run `make check` — format, lint, typecheck, tests, coverage
-- [ ] Bump version per `project/VERSIONING.md`
-- [ ] Close issue, push to `shaun` branch, `request_restart()`, reply on Telegram
+- [✓] Create `src/marcel_core/tools/web/` package — `__init__.py`, `dispatcher.py`, `search.py`, `backends.py`, `brave.py`, `duckduckgo.py`, `formatter.py`
+- [✓] Implement `BraveBackend` with error mapping (401/429/422/network → `Search error: ...`)
+- [✓] Implement `DuckDuckGoBackend` — port `parseDuckDuckGoHtml`, `decodeHtmlEntities`, `decodeDuckDuckGoUrl`, `isBotChallenge` from openclaw `ddg-client.ts`
+- [✓] Implement `SearchBackend` protocol, `SearchResult` dataclass, `select_backend()` factory
+- [✓] Implement `formatter.format_results(results, query, backend_name)` with edge cases (0 results, clamping)
+- [✓] Implement `web` dispatcher with match-statement routing to all 12 actions, mirroring `tools/marcel/dispatcher.py`
+- [✓] Implement per-turn rate limit via new `TurnState.web_search_count` field
+- [✓] Implement playwright-unavailable guard inside the dispatcher (`search` works, browser actions return `Browser error: playwright not installed`)
+- [✓] Register `web` in `agent.py` — replace the 11 `browser_*` registrations with a single `agent.tool(web)`, outside the `if browser_is_available():` gate
+- [✓] Add `brave_api_key` and `web_search_backend` settings to `config.py`
+- [✓] Add `web_search_count` field to `TurnState` in `context.py`
+- [✓] Unit tests: `test_web_dispatcher.py`, `test_web_search_brave.py`, `test_web_search_duckduckgo.py`, `test_web_search_formatter.py`, `test_web_backends.py`
+- [✓] Verify existing `test_browser_tools.py` still passes unchanged
+- [✓] Rename `src/marcel_core/defaults/skills/browser/` → `src/marcel_core/defaults/skills/web/`
+- [✓] Rewrite `SKILL.md` leading with the three-tier hierarchy, tool table for all 12 actions, remove `requires: packages: [playwright]` frontmatter so the doc is always loaded
+- [✓] Rewrite `SETUP.md` covering both playwright install and Brave API key setup
+- [✓] Add 5-line browser→web migration to the skill seeder in `defaults/__init__.py`
+- [✓] Write `docs/web.md` per `docs/CLAUDE.md` and register in `mkdocs.yml`
+- [✓] Run `make check` — format, lint, typecheck, tests, coverage
+- [✓] Bump version per `project/VERSIONING.md`
+- [✓] Close issue, push to `shaun` branch, `request_restart()`, reply on Telegram
 
 ## Relationships
 
@@ -135,3 +135,27 @@ Full design detail lives in the plan file at `~/.claude/plans/zazzy-discovering-
 **Result**: 1220 passed, 0 errors, 92.91% coverage.
 
 **Next**: Write `docs/web.md`, register in `mkdocs.yml`, bump version, close the issue.
+
+### 2026-04-12 - LLM Implementation (impl #3 + close)
+**Action**: Wrote `docs/web.md`, registered it in the nav, bumped the version from 2.6.3 to 2.7.0 (DEFAULT — new feature), and closed the issue.
+
+**Files Created**:
+- `docs/web.md` — developer doc covering the three-tier hierarchy, action table, backend selection (Brave primary + DDG fallback), per-turn rate limit, `Search error:` / `Browser error:` contract, how-to for adding a new backend, and the browser→web migration note.
+
+**Files Modified**:
+- `mkdocs.yml` — registered `web.md` as "Web Tool" under the Skills section.
+- `src/marcel_core/__init__.py` — 2.6.3 → 2.7.0
+- `pyproject.toml` — 2.6.3 → 2.7.0
+
+**Commands Run**: `make check`
+
+**Result**: 1220 passed, 0 errors, 92.91% coverage. All checks green.
+
+**Commit sequence**:
+1. `📝 [ISSUE-072] created: web god-tool — search + browse unified` (issue file only)
+2. `🔧 [ISSUE-072] impl: web dispatcher + Brave/DDG backends + tests` (moves issue to wip/, ships the package)
+3. `🔧 [ISSUE-072] impl: skill rename browser → web + loader migration`
+4. `🔧 [ISSUE-072] impl: docs/web.md + mkdocs nav entry`
+5. `✅ [ISSUE-072] closed: ...` (this commit — issue moved to closed/, version bump, no code)
+
+**Outcome**: Marcel now has a unified `web` god-tool with twelve actions (search + 11 browser ops). The Paris-Roubaix failure mode is fixed: the Brave Search API fallback gives the agent reliable access to current information, the three-tier hierarchy in the tool docstring tells it to search first before reaching for the browser, and the explicit rule against "let me try a different approach" stubs should prevent the dead-end turn-ending we saw on 2026-04-12 at 13:11. Blast radius stayed small: existing `tests/tools/test_browser_tools.py` passed unchanged because the dispatcher imports the browser functions directly — no reimplementation.
