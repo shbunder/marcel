@@ -1,10 +1,10 @@
-<p align="center">
+<div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/design/logo-text-white.png" />
     <source media="(prefers-color-scheme: light)" srcset="docs/design/logo-text-black.png" />
     <img src="docs/design/logo-text-black.png" alt="Marcel" width="90%" />
   </picture>
-</p>
+</div>
 
 # 🦒 Marcel
 
