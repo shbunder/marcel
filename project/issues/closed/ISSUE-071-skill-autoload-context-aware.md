@@ -1,6 +1,6 @@
 # ISSUE-071: Skill auto-load should respect context, not re-inject every turn
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-12
 **Assignee:** LLM
 **Priority:** High
@@ -37,8 +37,8 @@ Follow-up after diagnosis: "yes, I expect Skills to be read if it's no longer in
 - [✓] Add a runner test confirming `_prime_read_skills_from_history` populates the set from a past `marcel(read_skill)` call, and that an unrelated past tool call does not.
 - [✓] Verify the existing `test_no_duplicate_inject_after_read_skill` still passes.
 - [✓] Run `make check`.
-- [ ] Document behavior in [docs/skills.md](../../../docs/skills.md) or wherever auto-load is mentioned.
-- [ ] Version bump, push to `shaun`, trigger restart via `request_restart()`.
+- [✓] Document behavior in [docs/skills.md](../../../docs/skills.md) or wherever auto-load is mentioned.
+- [✓] Version bump, push to `shaun`, trigger restart via `request_restart()`.
 
 ## Implementation Log
 

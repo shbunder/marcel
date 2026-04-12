@@ -214,6 +214,10 @@ Only `jq:` expressions are supported (requires the `jq` Python package). If jq i
 **On success**: returns the response as plain text.
 **On error**: returns an error message with `is_error: true`.
 
+### Auto-loaded skill docs
+
+As a safety net, the first `integration(id="<family>.<method>")` call per conversation prepends the full `SKILL.md` to the tool result so the model always has enough context to interpret what came back. The integration tool tracks which skill families have been loaded in `deps.turn.read_skills`, primed at turn start from past `marcel(action="read_skill", name=...)` calls in the conversation history — so once a skill's docs are in the context window, they are not re-injected on subsequent turns. The model can short-circuit the auto-load on its own by calling `marcel(action="read_skill", name=...)` before the first integration call.
+
 ## The marcel tool contract
 
 The `marcel` tool provides internal utilities via action-based dispatch.

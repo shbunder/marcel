@@ -1,3 +1,3 @@
 """Marcel core — FastAPI server and agent engine."""
 
-__version__ = '2.6.2'
+__version__ = '2.6.3'
