@@ -18,7 +18,12 @@ def _get_tracer_provider():
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-    resource = Resource.create({'service.name': 'marcel'})
+    resource = Resource.create(
+        {
+            'service.name': 'marcel',
+            'openinference.project.name': settings.marcel_tracing_project,
+        }
+    )
     provider = TracerProvider(resource=resource)
 
     # OpenInference span processor — converts pydantic-ai's gen_ai.* attributes

@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     # ---------------------------------------------------------------------------
     marcel_tracing_enabled: bool = False
     marcel_tracing_endpoint: str = 'http://localhost:6006'
+    marcel_tracing_project: str = 'default'
 
     # ---------------------------------------------------------------------------
     # Watchdog

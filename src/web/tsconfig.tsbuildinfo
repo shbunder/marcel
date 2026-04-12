@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/main.tsx","./src/telegram.ts","./src/types.ts","./src/vite-env.d.ts","./src/components/Gallery.tsx","./src/components/Viewer.tsx","./src/widgets/CalendarWidget.tsx","./src/widgets/ChecklistWidget.tsx"],"version":"5.9.3"}
+{"root":["./src/App.tsx","./src/main.tsx","./src/telegram.ts","./src/types.ts","./src/vite-env.d.ts","./src/components/A2UIRenderer.tsx","./src/components/Gallery.tsx","./src/components/Viewer.tsx","./src/widgets/CalendarWidget.tsx","./src/widgets/ChecklistWidget.tsx"],"version":"5.9.3"}
