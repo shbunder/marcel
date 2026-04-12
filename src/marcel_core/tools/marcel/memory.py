@@ -56,6 +56,59 @@ async def search_memory(
     return '\n'.join(lines).strip()
 
 
+def read_memory(ctx: RunContext[MarcelDeps], name: str | None) -> str:
+    """Load the full content of a single memory file by name.
+
+    Mirrors :func:`marcel_core.tools.marcel.skills.read_skill` — the system
+    prompt contains a compact memory index, and this action pulls the full
+    body of any entry on demand. Use ``search_memory`` for keyword matches,
+    ``read_memory`` to load a specific entry you already know the name of.
+    """
+    if not name:
+        return 'Error: name= is required for read_memory action.'
+
+    from marcel_core.storage.memory import (
+        human_age,
+        load_memory_file,
+        memory_freshness_note,
+        parse_frontmatter,
+        scan_memory_headers,
+    )
+
+    topic = Path(name).name.removesuffix('.md')
+    log.info('[marcel:read_memory] user=%s memory=%s', ctx.deps.user_slug, topic)
+
+    content = load_memory_file(ctx.deps.user_slug, topic)
+    if not content:
+        headers = scan_memory_headers(ctx.deps.user_slug)
+        available = ', '.join(h.name or h.filename.removesuffix('.md') for h in headers) or '(none)'
+        return f'Unknown memory: {name!r}. Available: {available}'
+
+    metadata, _ = parse_frontmatter(content)
+    header_bits: list[str] = []
+    if type_ := metadata.get('type'):
+        header_bits.append(f'[{type_}]')
+    header_bits.append(topic)
+
+    # Add age + staleness warning from file mtime.
+    mem_path = next(
+        (h.filepath for h in scan_memory_headers(ctx.deps.user_slug) if h.filename == f'{topic}.md'),
+        None,
+    )
+    if mem_path is not None:
+        mtime = mem_path.stat().st_mtime
+        header_bits.append(f'({human_age(mtime)})')
+        stale = memory_freshness_note(mtime)
+    else:
+        stale = ''
+
+    header_line = '### ' + ' '.join(header_bits)
+    parts = [header_line, '', content.strip()]
+    if stale:
+        parts += ['', f'> {stale}']
+    return '\n'.join(parts)
+
+
 def save_memory(ctx: RunContext[MarcelDeps], name: str | None, content: str | None) -> str:
     """Save a memory file directly. name= is the filename, message= is the content."""
     if not name:

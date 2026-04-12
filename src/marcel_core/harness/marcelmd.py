@@ -24,9 +24,62 @@ personal assistant mode.  This keeps the two concerns clearly separated.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+
+_LEADING_H1_RE = re.compile(r'\A\s*#[^#\n][^\n]*\n+')
+# Matches a blockquote paragraph (one or more consecutive `> ...` lines)
+# anywhere in the body, paired with its trailing blank line(s).
+_BLOCKQUOTE_PARAGRAPH_RE = re.compile(r'(?:^|\n\n)((?:>[^\n]*\n?)+)(?=\n|\Z)')
+_CHANNEL_PREAMBLE_RE = re.compile(
+    r'\A\s*You are responding via(?: the)? \w+(?: channel)?\.\s*\n+',
+    re.IGNORECASE,
+)
+
+
+def _strip_leading_h1(body: str) -> str:
+    """Remove a leading ``# Heading`` line and any following blank lines.
+
+    Lets markdown files keep their natural on-disk H1 while the prompt
+    builder wraps the body under its own chosen H1.
+    """
+    return _LEADING_H1_RE.sub('', body, count=1).lstrip('\n')
+
+
+def _strip_self_ref_blockquote(body: str) -> str:
+    """Strip any self-referential blockquote paragraph from *body*.
+
+    Finds a blockquote paragraph (``> …`` lines) anywhere in the text and
+    removes it if it mentions ``per-user instructions`` or ``this file`` —
+    the giveaway that it's dev documentation, not model context. Other
+    blockquotes (user quotes, actual citations) are left alone.
+
+    The blockquote does not need to be at the very start of the body — it
+    is common for MARCEL.md to open with a one-line intro followed by a
+    self-ref blockquote before the first H2.
+    """
+    result = body
+    for match in list(_BLOCKQUOTE_PARAGRAPH_RE.finditer(body)):
+        quote = match.group(1).lower()
+        if 'per-user instructions' in quote or 'this file' in quote:
+            # Remove the blockquote and collapse surrounding whitespace.
+            start, end = match.span(1)
+            result = (result[: match.start()] + '\n\n' + result[end:]).strip()
+            # Re-run on the cleaned result in case multiple blockquotes exist.
+            return _strip_self_ref_blockquote(result)
+    return result
+
+
+def _strip_channel_preamble(body: str) -> str:
+    """Strip a leading ``You are responding via <channel>.`` line.
+
+    The ``# Telegram`` (or similar) H1 wrapper makes this preamble
+    redundant, so it is dropped at load time.
+    """
+    return _CHANNEL_PREAMBLE_RE.sub('', body, count=1).lstrip('\n')
 
 
 def _data_root() -> Path:
@@ -81,9 +134,21 @@ def load_marcelmd_files(user_slug: str) -> list[tuple[str, str]]:
 def format_marcelmd_for_prompt(files: list[tuple[str, str]]) -> str:
     """Format loaded MARCEL.md files into a string for the system prompt.
 
+    Each file is cleaned at load time:
+    - leading H1 is stripped (the prompt builder supplies its own wrapper)
+    - leading self-referential blockquote is stripped (dev docs, not model context)
+
     Files are concatenated separated by a horizontal rule.
     """
     if not files:
         return ''
-    parts = [content for _, content in files]
+    parts: list[str] = []
+    for _label, content in files:
+        cleaned = _strip_leading_h1(content)
+        cleaned = _strip_self_ref_blockquote(cleaned)
+        cleaned = cleaned.strip()
+        if cleaned:
+            parts.append(cleaned)
+    if not parts:
+        return ''
     return '\n\n---\n\n'.join(parts)

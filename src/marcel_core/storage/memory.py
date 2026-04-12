@@ -161,6 +161,31 @@ def scan_memory_headers(slug: str) -> list[MemoryHeader]:
     return headers
 
 
+def format_memory_index(headers: list[MemoryHeader]) -> str:
+    """Format memory headers as a compact one-line-per-file index.
+
+    Mirrors :func:`marcel_core.skills.loader.format_skill_index` — each line
+    is ``- **name** — description`` with an optional ``_(stale: Nd)_`` marker
+    for memories older than a few days.
+
+    Used by the system prompt builder to give the model a catalogue of
+    available memories without pasting their full content. The agent loads
+    specific entries on demand via ``marcel(action="read_memory", name="…")``
+    or searches them with ``search_memory``.
+    """
+    if not headers:
+        return ''
+
+    lines: list[str] = []
+    for h in headers:
+        name = (h.name or h.filename.removesuffix('.md')).strip()
+        description = h.description or name.replace('_', ' ')
+        days = memory_age_days(h.mtime)
+        stale = f' _(stale: {days}d)_' if days > 2 else ''
+        lines.append(f'- **{name}**{stale} — {description}')
+    return '\n'.join(lines)
+
+
 def format_memory_manifest(headers: list[MemoryHeader]) -> str:
     """Format memory headers as a text manifest for prompt injection.
 

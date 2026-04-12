@@ -78,11 +78,25 @@ class MarcelDeps:
     """Per-turn mutable state (tools mutate this, never the parent deps)."""
 
 
+def _strip_leading_h1_safe(body: str) -> str:
+    """Strip a leading ``# Heading`` line from *body* for the prompt builder.
+
+    Thin wrapper around :func:`marcel_core.harness.marcelmd._strip_leading_h1`
+    so both ``profile.md`` (with its own ``# Shaun`` H1) and already-cleaned
+    ``MARCEL.md`` content can be re-stripped defensively before being pasted
+    under a prompt-builder-chosen H1 wrapper.
+    """
+    from marcel_core.harness.marcelmd import _strip_leading_h1
+
+    return _strip_leading_h1(body).strip()
+
+
 def build_server_context(cwd: str | None = None) -> str:
     """Build a server/environment context block for admin users.
 
     Describes the server environment: hostname, home directory, working
-    directory, and available tools.
+    directory, and available tools. Emitted as an H2 sub-block under the
+    ``# Shaun`` (or whichever user) H1 in the assembled system prompt.
 
     Args:
         cwd: The effective working directory (shown in the context block).
@@ -91,7 +105,7 @@ def build_server_context(cwd: str | None = None) -> str:
         Markdown string describing the server environment.
     """
     home = str(Path.home())
-    lines = ['## Server Context (Admin)']
+    lines = ['## Server context']
 
     try:
         hostname = Path('/etc/hostname').read_text(encoding='utf-8').strip()
@@ -131,6 +145,7 @@ def load_channel_prompt(channel: str) -> str:
     Returns:
         The channel prompt body text (frontmatter stripped).
     """
+    from marcel_core.harness.marcelmd import _strip_channel_preamble
     from marcel_core.skills.loader import _parse_frontmatter
 
     # 1. User-editable override in data root
@@ -140,7 +155,7 @@ def load_channel_prompt(channel: str) -> str:
         data_channel = settings.data_dir / 'channels' / f'{channel}.md'
         if data_channel.exists():
             _, body = _parse_frontmatter(data_channel.read_text(encoding='utf-8'))
-            return body
+            return _strip_channel_preamble(body).strip()
     except Exception:
         log.debug('Could not check data root channel prompt for %s', channel, exc_info=True)
 
@@ -148,144 +163,182 @@ def load_channel_prompt(channel: str) -> str:
     default = _DEFAULTS_CHANNELS / f'{channel}.md'
     if default.exists():
         _, body = _parse_frontmatter(default.read_text(encoding='utf-8'))
-        return body
+        return _strip_channel_preamble(body).strip()
 
-    # 3. Generic fallback
-    return f'You are responding via the {channel} channel.'
+    # 3. Generic fallback — keep as plain guidance (no preamble to strip)
+    return f'Respond in a format appropriate for the {channel} channel.'
 
 
 async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
-    """Build dynamic system instructions with AI-selected memories.
+    """Build the system prompt as five clean H1 blocks.
 
-    Assembles the full system prompt from:
-    1. MARCEL.md files (global + per-user instructions)
-    2. User profile
-    3. Server context (admin only)
-    4. Skill documentation
-    5. AI-selected memories
-    6. Channel format hints
+    Structure:
+        # Marcel — who you are       (global MARCEL.md, H1 + self-ref blockquote stripped)
+        # <user> — who the user is   (profile body, with server-context H2 folded in for admin)
+        # Skills — what you can do   (compact index + on-demand read hint)
+        # Memory — what you know     (compact index + search/read hint)
+        # <channel> — how to respond (channel guidance, preamble stripped)
 
-    Args:
-        deps: The MarcelDeps context.
-        query: The user's query (for memory selection).
-
-    Returns:
-        Complete system prompt string.
+    The ``query`` argument is kept for API compatibility but is no longer
+    used — memory is now loaded on demand via ``search_memory`` / ``read_memory``
+    instead of being pre-selected each turn. See ISSUE-068.
     """
     from marcel_core.channels.adapter import channel_supports_rich_ui
     from marcel_core.harness.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
-    from marcel_core.memory.selector import select_relevant_memories
     from marcel_core.skills.loader import format_components_catalog, format_skill_index, load_skills
     from marcel_core.storage import load_user_profile
+    from marcel_core.storage.memory import format_memory_index, scan_memory_headers
 
-    profile = load_user_profile(deps.user_slug)
-
-    # Load MARCEL.md instructions
+    # -- Load everything up front (cheap file reads) ------------------------
     marcelmd = format_marcelmd_for_prompt(load_marcelmd_files(deps.user_slug))
+    profile = load_user_profile(deps.user_slug).strip()
 
-    # Load skills once — reused for both the skill index and (if the channel
-    # supports rich UI) the A2UI component catalog.
     loaded_skills = load_skills(deps.user_slug)
-    skills = format_skill_index(loaded_skills)
+    skill_index = format_skill_index(loaded_skills)
     components_catalog = format_components_catalog(loaded_skills) if channel_supports_rich_ui(deps.channel) else ''
 
-    # Select relevant memories if we have a query
-    memory_content = ''
-    if query:
-        try:
-            selected_memories = await select_relevant_memories(deps.user_slug, query)
-            if selected_memories:
-                memory_parts = [content for _, content in selected_memories]
-                memory_content = '\n\n---\n\n'.join(memory_parts)
-        except Exception as exc:
-            import logging
-
-            logging.getLogger(__name__).warning('Memory selection failed: %s', exc)
+    memory_headers = scan_memory_headers(deps.user_slug)
+    memory_index = format_memory_index(memory_headers)
 
     channel_prompt = load_channel_prompt(deps.channel)
+    channel_label = deps.channel.capitalize()
 
-    lines: list[str] = []
+    # -- Assemble five H1 blocks --------------------------------------------
+    blocks: list[str] = []
 
-    # MARCEL.md instructions (identity, role, tone)
+    # Block 1: who Marcel is
+    marcel_block = ['# Marcel — who you are']
     if marcelmd:
-        lines += [marcelmd, '']
+        marcel_block += ['', _strip_leading_h1_safe(marcelmd)]
+    else:
+        marcel_block += ['', f'You are Marcel, a warm and capable personal assistant for {deps.user_slug}.']
+    blocks.append('\n'.join(marcel_block).rstrip())
 
-    # User profile
-    lines += [
-        f'## What you know about {deps.user_slug}',
-        profile or '(no profile information yet)',
-        '',
-    ]
-
+    # Block 2: who the user is (+ server context for admin)
+    user_block = [f'# {deps.user_slug.capitalize()} — who the user is']
+    if profile:
+        user_block += ['', _strip_leading_h1_safe(profile)]
+    else:
+        user_block += ['', '(no profile information yet)']
     if deps.role == 'admin':
-        lines += [build_server_context(deps.cwd), '']
+        user_block += ['', build_server_context(deps.cwd)]
+    blocks.append('\n'.join(user_block).rstrip())
 
-    # Skill index (compact — use marcel(action="read_skill") for full docs)
-    if skills:
-        lines += [
-            '## Skills',
-            'Before calling an integration for the first time, '
-            'use `marcel(action="read_skill", name="...")` to load its full documentation.',
+    # Block 3: what you can do
+    skill_block = ['# Skills — what you can do']
+    if skill_index:
+        skill_block += [
             '',
-            skills,
+            skill_index,
             '',
+            '*Full docs are loaded on demand — call `marcel(action="read_skill", name="...")` '
+            'before using an integration for the first time.*',
         ]
-
-    # A2UI component catalog (only on channels that can render them).
-    # The agent uses `marcel(action="render", component=..., props=...)` to
-    # deliver structured data to the rich-UI surface instead of writing a
-    # plain-text summary.
+    else:
+        skill_block += ['', '(no skills configured)']
     if components_catalog:
-        lines += [
+        skill_block += [
+            '',
             '## A2UI Components',
+            '',
             'Prefer these structured components over plain-text summaries when the data '
             'fits one of them. Emit via `marcel(action="render", component="...", props={...})` — '
             'do NOT write the component JSON directly in your reply. On Telegram the user gets a '
             '"View in app" button that opens the Mini App and renders the component natively.',
             '',
             components_catalog,
-            '',
         ]
+    blocks.append('\n'.join(skill_block).rstrip())
 
-    if memory_content:
-        lines += ['## Memory', memory_content, '']
+    # Block 4: what you should know (compact memory index — no dumps)
+    memory_block = ['# Memory — what you should know']
+    if memory_index:
+        memory_block += [
+            '',
+            memory_index,
+            '',
+            '*Search with `marcel(action="search_memory", query="...")` or load a specific '
+            'file with `marcel(action="read_memory", name="...")`.*',
+        ]
+    else:
+        memory_block += ['', '(no memories saved yet)']
+    blocks.append('\n'.join(memory_block).rstrip())
 
-    # Channel-specific delivery guidance
-    lines += ['## Channel', channel_prompt]
+    # Block 5: how to respond (channel guidance)
+    channel_block = [f'# {channel_label} — how to respond']
+    if channel_prompt:
+        channel_block += ['', channel_prompt]
+    blocks.append('\n'.join(channel_block).rstrip())
 
-    return '\n'.join(lines)
+    return '\n\n'.join(blocks)
 
 
 def build_instructions(deps: MarcelDeps) -> str:
-    """Build dynamic system instructions for a Marcel agent.
+    """Sync fallback for the five-block system prompt.
 
-    Called by pydantic-ai Agent when instructions parameter is a callable.
-    This is the sync version used during agent initialization.
-
-    Args:
-        deps: The MarcelDeps context.
-
-    Returns:
-        Complete system prompt string (without AI-selected memories).
+    Used during Agent initialization when the async builder is not
+    available. Produces the same H1 structure as
+    :func:`build_instructions_async` — the two must not diverge.
     """
+    from marcel_core.harness.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
+    from marcel_core.skills.loader import format_skill_index, load_skills
     from marcel_core.storage import load_user_profile
+    from marcel_core.storage.memory import format_memory_index, scan_memory_headers
 
-    profile = load_user_profile(deps.user_slug)
-
+    marcelmd = format_marcelmd_for_prompt(load_marcelmd_files(deps.user_slug))
+    profile = load_user_profile(deps.user_slug).strip()
+    skill_index = format_skill_index(load_skills(deps.user_slug))
+    memory_index = format_memory_index(scan_memory_headers(deps.user_slug))
     channel_prompt = load_channel_prompt(deps.channel)
+    channel_label = deps.channel.capitalize()
 
-    lines = [
-        f'You are Marcel, a warm and capable personal assistant for {deps.user_slug}.',
-        '',
-        f'## What you know about {deps.user_slug}',
-        profile or '(no profile information yet)',
-        '',
-    ]
+    blocks: list[str] = []
 
+    marcel_block = ['# Marcel — who you are']
+    if marcelmd:
+        marcel_block += ['', _strip_leading_h1_safe(marcelmd)]
+    else:
+        marcel_block += ['', f'You are Marcel, a warm and capable personal assistant for {deps.user_slug}.']
+    blocks.append('\n'.join(marcel_block).rstrip())
+
+    user_block = [f'# {deps.user_slug.capitalize()} — who the user is']
+    if profile:
+        user_block += ['', _strip_leading_h1_safe(profile)]
+    else:
+        user_block += ['', '(no profile information yet)']
     if deps.role == 'admin':
-        lines += [build_server_context(deps.cwd), '']
+        user_block += ['', build_server_context(deps.cwd)]
+    blocks.append('\n'.join(user_block).rstrip())
 
-    # Channel-specific delivery guidance
-    lines += ['## Channel', channel_prompt]
+    skill_block = ['# Skills — what you can do']
+    if skill_index:
+        skill_block += [
+            '',
+            skill_index,
+            '',
+            '*Full docs are loaded on demand — call `marcel(action="read_skill", name="...")` '
+            'before using an integration for the first time.*',
+        ]
+    else:
+        skill_block += ['', '(no skills configured)']
+    blocks.append('\n'.join(skill_block).rstrip())
 
-    return '\n'.join(lines)
+    memory_block = ['# Memory — what you should know']
+    if memory_index:
+        memory_block += [
+            '',
+            memory_index,
+            '',
+            '*Search with `marcel(action="search_memory", query="...")` or load a specific '
+            'file with `marcel(action="read_memory", name="...")`.*',
+        ]
+    else:
+        memory_block += ['', '(no memories saved yet)']
+    blocks.append('\n'.join(memory_block).rstrip())
+
+    channel_block = [f'# {channel_label} — how to respond']
+    if channel_prompt:
+        channel_block += ['', channel_prompt]
+    blocks.append('\n'.join(channel_block).rstrip())
+
+    return '\n\n'.join(blocks)

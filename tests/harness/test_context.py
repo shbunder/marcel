@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
-
 import pytest
 
 from marcel_core.harness.context import (
@@ -23,7 +21,7 @@ class TestBuildServerContext:
     def test_returns_string(self):
         result = build_server_context()
         assert isinstance(result, str)
-        assert '## Server Context (Admin)' in result
+        assert '## Server context' in result
 
     def test_includes_working_directory(self):
         result = build_server_context(cwd='/some/path')
@@ -62,7 +60,7 @@ class TestBuildServerContext:
 
         monkeypatch.setattr(Path, 'read_text', patched_read_text)
         result = build_server_context()
-        assert '## Server Context (Admin)' in result
+        assert '## Server context' in result
 
     def test_docker_socket_shown_when_available(self, monkeypatch):
         from pathlib import Path
@@ -107,13 +105,13 @@ class TestBuildInstructions:
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         deps = MarcelDeps(user_slug='admin', conversation_id='conv-1', channel='cli', role='admin')
         result = build_instructions(deps)
-        assert 'Server Context' in result
+        assert '## Server context' in result
 
     def test_user_role_excludes_server_context(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         deps = MarcelDeps(user_slug='alice', conversation_id='conv-1', channel='cli', role='user')
         result = build_instructions(deps)
-        assert 'Server Context' not in result
+        assert 'Server context' not in result
 
     def test_includes_profile_when_present(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
@@ -152,51 +150,99 @@ class TestBuildInstructionsAsync:
     async def test_includes_user_slug(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         deps = MarcelDeps(user_slug='dan', conversation_id='conv-1', channel='cli')
-        with patch('marcel_core.memory.selector.select_relevant_memories', AsyncMock(return_value=[])):
-            result = await build_instructions_async(deps, query='hello')
-        assert 'dan' in result
+        result = await build_instructions_async(deps, query='hello')
+        assert 'Dan' in result
 
     @pytest.mark.asyncio
-    async def test_includes_selected_memories(self, tmp_path, monkeypatch):
+    async def test_emits_five_h1_blocks(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         deps = MarcelDeps(user_slug='dan', conversation_id='conv-1', channel='cli')
-        memories = [('mem1', 'Dan likes cats.'), ('mem2', 'Dan is a developer.')]
-        with patch('marcel_core.memory.selector.select_relevant_memories', AsyncMock(return_value=memories)):
-            result = await build_instructions_async(deps, query='what does Dan like?')
-        assert 'cats' in result
-        assert 'developer' in result
-        assert '## Memory' in result
-
-    @pytest.mark.asyncio
-    async def test_graceful_fallback_when_memory_selection_fails(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        deps = MarcelDeps(user_slug='dan', conversation_id='conv-1', channel='cli')
-        with patch(
-            'marcel_core.memory.selector.select_relevant_memories',
-            AsyncMock(side_effect=Exception('selector down')),
+        result = await build_instructions_async(deps)
+        # The five blocks, in order
+        for header in (
+            '# Marcel — who you are',
+            '# Dan — who the user is',
+            '# Skills — what you can do',
+            '# Memory — what you should know',
+            '# Cli — how to respond',
         ):
-            result = await build_instructions_async(deps, query='anything')
-        # Should still return a valid prompt (no crash)
-        assert 'dan' in result
-        assert '## Memory' not in result  # Memory section skipped on failure
+            assert header in result
+        # And they appear in the expected order
+        positions = [
+            result.index(h)
+            for h in (
+                '# Marcel — who you are',
+                '# Dan — who the user is',
+                '# Skills — what you can do',
+                '# Memory — what you should know',
+                '# Cli — how to respond',
+            )
+        ]
+        assert positions == sorted(positions)
 
     @pytest.mark.asyncio
-    async def test_no_query_skips_memory_selection(self, tmp_path, monkeypatch):
+    async def test_memory_index_replaces_full_dump(self, tmp_path, monkeypatch):
+        """Memory section should be a compact index, not raw file bodies."""
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        mem_dir = tmp_path / 'users' / 'dan' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'family.md').write_text(
+            "---\nname: family\ndescription: Family members\n---\nCosette is Dan's partner. Secret.\n"
+        )
+
         deps = MarcelDeps(user_slug='dan', conversation_id='conv-1', channel='cli')
-        with patch('marcel_core.memory.selector.select_relevant_memories', AsyncMock()) as mock_select:
-            result = await build_instructions_async(deps, query='')
-        # Without a query, memory selection is skipped
-        mock_select.assert_not_called()
-        assert isinstance(result, str)
+        result = await build_instructions_async(deps, query='tell me about my family')
+
+        # Index shows name + description
+        assert '**family**' in result
+        assert 'Family members' in result
+        # Body content is NOT pre-dumped — must be loaded via read_memory
+        assert 'Cosette' not in result
+        # Hint directing the agent to use the tools
+        assert 'read_memory' in result
+        assert 'search_memory' in result
 
     @pytest.mark.asyncio
-    async def test_admin_includes_server_context(self, tmp_path, monkeypatch):
+    async def test_admin_server_context_folded_under_user_block(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         deps = MarcelDeps(user_slug='admin', conversation_id='conv-1', channel='cli', role='admin')
-        # No query — memory selection skipped, no need to mock
         result = await build_instructions_async(deps)
-        assert 'Server Context' in result
+
+        # Server context is present as an H2 (not H1)
+        assert '## Server context' in result
+
+        # And it appears AFTER the user H1 and BEFORE the next H1
+        user_h1 = result.index('# Admin — who the user is')
+        server_h2 = result.index('## Server context')
+        skill_h1 = result.index('# Skills — what you can do')
+        assert user_h1 < server_h2 < skill_h1
+
+    @pytest.mark.asyncio
+    async def test_non_admin_omits_server_context(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        deps = MarcelDeps(user_slug='alice', conversation_id='conv-1', channel='cli', role='user')
+        result = await build_instructions_async(deps)
+        assert '## Server context' not in result
+
+    @pytest.mark.asyncio
+    async def test_profile_h1_stripped_before_wrapping(self, tmp_path, monkeypatch):
+        """A profile.md that begins with '# Shaun' should NOT produce a duplicate H1."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        user_dir = tmp_path / 'users' / 'shaun'
+        user_dir.mkdir(parents=True)
+        (user_dir / 'profile.md').write_text('# Shaun\n\nRegular Marcel user.\n', encoding='utf-8')
+
+        deps = MarcelDeps(user_slug='shaun', conversation_id='conv-1', channel='cli')
+        result = await build_instructions_async(deps)
+
+        # The wrapper H1 should be present exactly once under the Shaun block
+        shaun_block_start = result.index('# Shaun — who the user is')
+        next_block_start = result.index('# Skills')
+        shaun_block = result[shaun_block_start:next_block_start]
+
+        # Only the wrapper H1 — not the profile's own '# Shaun'
+        assert shaun_block.count('# Shaun') == 1
+        assert 'Regular Marcel user.' in shaun_block
 
     @pytest.mark.asyncio
     async def test_rich_ui_channel_includes_a2ui_catalog(self, tmp_path, monkeypatch):

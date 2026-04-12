@@ -75,6 +75,50 @@ class TestSearchMemory:
 
 
 # ---------------------------------------------------------------------------
+# read_memory
+# ---------------------------------------------------------------------------
+
+
+class TestReadMemory:
+    @pytest.mark.asyncio
+    async def test_missing_name(self):
+        result = await marcel(_ctx(), action='read_memory')
+        assert 'Error' in result
+
+    @pytest.mark.asyncio
+    async def test_unknown_name_lists_available(self, tmp_path):
+        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'family.md').write_text('---\nname: family\ndescription: Family members\n---\nBody.\n')
+
+        result = await marcel(_ctx(), action='read_memory', name='nonexistent')
+        assert 'Unknown memory' in result
+        assert 'family' in result
+
+    @pytest.mark.asyncio
+    async def test_loads_full_file(self, tmp_path):
+        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'family.md').write_text(
+            '---\nname: family\ndescription: Family members\ntype: household\n---\nCosette is the partner.\n'
+        )
+
+        result = await marcel(_ctx(), action='read_memory', name='family')
+        assert 'Cosette' in result
+        assert 'family' in result
+        assert '[household]' in result
+
+    @pytest.mark.asyncio
+    async def test_accepts_filename_with_md_suffix(self, tmp_path):
+        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'work.md').write_text('---\nname: work\ndescription: job\n---\nShifts.\n')
+
+        result = await marcel(_ctx(), action='read_memory', name='work.md')
+        assert 'Shifts' in result
+
+
+# ---------------------------------------------------------------------------
 # save_memory
 # ---------------------------------------------------------------------------
 

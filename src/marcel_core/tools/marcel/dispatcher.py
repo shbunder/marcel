@@ -13,7 +13,11 @@ from pydantic_ai import RunContext
 from marcel_core.harness.context import MarcelDeps
 
 from .conversations import compact as _compact, search_conversations as _search_conversations
-from .memory import save_memory as _save_memory, search_memory as _search_memory
+from .memory import (
+    read_memory as _read_memory,
+    save_memory as _save_memory,
+    search_memory as _search_memory,
+)
 from .notifications import notify as _notify
 from .settings import get_model as _get_model, list_models as _list_models, set_model as _set_model
 from .skills import read_skill as _read_skill
@@ -38,6 +42,7 @@ async def marcel(
     Actions:
       read_skill           Load full documentation for a skill (name= required).
       search_memory        Search memory files by keyword (query= required).
+      read_memory          Load the full content of a specific memory file (name= required, from the memory index).
       save_memory          Save a memory file (name= required as filename, message= required as file content including frontmatter).
       search_conversations Search past conversation history (query= required).
       compact              Compress current conversation segment into a summary.
@@ -66,6 +71,8 @@ async def marcel(
             return await _read_skill(ctx, name)
         case 'search_memory':
             return await _search_memory(ctx, query, type_filter, max_results)
+        case 'read_memory':
+            return _read_memory(ctx, name)
         case 'save_memory':
             return _save_memory(ctx, name, message)
         case 'search_conversations':
@@ -85,6 +92,6 @@ async def marcel(
         case _:
             return (
                 f'Unknown action: {action!r}. '
-                f'Available: read_skill, search_memory, save_memory, search_conversations, '
+                f'Available: read_skill, search_memory, read_memory, save_memory, search_conversations, '
                 f'compact, notify, list_models, get_model, set_model, render'
             )
