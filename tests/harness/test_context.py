@@ -197,3 +197,52 @@ class TestBuildInstructionsAsync:
         # No query — memory selection skipped, no need to mock
         result = await build_instructions_async(deps)
         assert 'Server Context' in result
+
+    @pytest.mark.asyncio
+    async def test_rich_ui_channel_includes_a2ui_catalog(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        skills_root = tmp_path / 'skills'
+        banking_dir = skills_root / 'banking'
+        banking_dir.mkdir(parents=True)
+        (banking_dir / 'SKILL.md').write_text('---\nname: banking\ndescription: Banking\n---\n\nBody.')
+        (banking_dir / 'components.yaml').write_text(
+            'components:\n'
+            '  - name: transaction_list\n'
+            '    description: List of bank transactions\n'
+            '    props:\n'
+            '      type: object\n'
+            '      properties:\n'
+            '        transactions:\n'
+            '          type: array\n'
+        )
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_root)
+
+        deps = MarcelDeps(user_slug='shaun', conversation_id='conv-1', channel='telegram')
+        result = await build_instructions_async(deps)
+
+        assert '## A2UI Components' in result
+        assert 'transaction_list' in result
+        assert 'marcel(action="render"' in result
+
+    @pytest.mark.asyncio
+    async def test_cli_channel_omits_a2ui_catalog(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        skills_root = tmp_path / 'skills'
+        banking_dir = skills_root / 'banking'
+        banking_dir.mkdir(parents=True)
+        (banking_dir / 'SKILL.md').write_text('---\nname: banking\ndescription: Banking\n---\n\nBody.')
+        (banking_dir / 'components.yaml').write_text(
+            'components:\n  - name: transaction_list\n    description: x\n    props: {}\n'
+        )
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_root)
+
+        deps = MarcelDeps(user_slug='shaun', conversation_id='conv-1', channel='cli')
+        result = await build_instructions_async(deps)
+
+        assert '## A2UI Components' not in result

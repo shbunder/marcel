@@ -38,6 +38,20 @@ integration(id="banking.transactions", params={"max_amount": "-100"})
 
 Returns a JSON object with `transactions` (list), `count`, and `last_synced` timestamp. Each transaction has: `booking_date`, `amount` (negative = money out, positive = money in), `currency`, `counterparty_name`, `counterparty_iban`, `remittance_info`, `status`.
 
+**Displaying results:** When the channel advertises A2UI components (see the "A2UI Components" section in your system prompt), prefer to render structured transaction data using `marcel(action="render", component="transaction_list", props={...})` instead of summarizing in plain text. The Mini App will show a proper table with date, description, amount, and running balance. Example:
+
+```
+marcel(action="render", component="transaction_list", props={
+  "transactions": [
+    {"date": "2026-04-11", "description": "Colruyt", "amount": -42.18, "balance": 1854.22},
+    {"date": "2026-04-10", "description": "Salary", "amount": 2500.00, "balance": 1896.40}
+  ],
+  "currency": "EUR"
+})
+```
+
+For balance snapshots, use `component="balance_card"`. Fall back to plain text only for narrative answers ("you spent €X on groceries this month") or when the channel lacks rich UI.
+
 **Tips for answering user questions:**
 - "How much did I spend on groceries?" — search for known grocery stores (Colruyt, Delhaize, Albert Heijn, Lidl, Aldi, Carrefour) with negative amounts
 - "What was my income this year?" — filter for positive amounts with date_from at start of year

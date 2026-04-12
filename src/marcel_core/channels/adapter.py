@@ -39,6 +39,26 @@ class ChannelCapabilities:
     """Can receive/send files."""
 
 
+# Channels that can render A2UI components — Telegram Mini App, the
+# WebSocket-based web viewer, and the app channel all have a frontend that
+# consumes the component catalog via /api/components.
+#
+# This is the single source of truth used by the system prompt builder to
+# decide whether to advertise A2UI components to the agent. Keep it in sync
+# with any new rich-UI channel that gets added.
+_RICH_UI_CHANNELS = frozenset({'telegram', 'websocket', 'app', 'ios', 'macos'})
+
+
+def channel_supports_rich_ui(channel: str) -> bool:
+    """Return True if the channel can render A2UI component artifacts.
+
+    Used by the harness to decide whether to inject the A2UI component
+    catalog into the system prompt. Text-only channels (cli, job) should
+    not be told about components they cannot render.
+    """
+    return channel in _RICH_UI_CHANNELS
+
+
 class ChannelAdapter(Protocol):
     """Protocol for Marcel channel adapters.
 

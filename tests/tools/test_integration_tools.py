@@ -258,6 +258,130 @@ class TestMarcelSettings:
 
 
 # ---------------------------------------------------------------------------
+# marcel tool — render action
+# ---------------------------------------------------------------------------
+
+
+def _patch_registry(monkeypatch, components: list) -> None:
+    """Replace build_registry with a stub that returns the given components."""
+    from marcel_core.skills.component_registry import ComponentRegistry
+
+    registry = ComponentRegistry(components)
+    monkeypatch.setattr('marcel_core.skills.component_registry.build_registry', lambda _slug: registry)
+
+
+class TestMarcelRender:
+    @pytest.mark.asyncio
+    async def test_missing_component_returns_error(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        result = await marcel(_ctx(), 'render', props={'transactions': []})
+        assert 'render failed' in result
+        assert 'component' in result
+
+    @pytest.mark.asyncio
+    async def test_unknown_component_lists_available(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        from marcel_core.skills.components import ComponentSchema
+
+        _patch_registry(monkeypatch, [ComponentSchema(name='calendar', skill='ui')])
+
+        result = await marcel(_ctx(), 'render', component='does_not_exist', props={})
+        assert 'unknown component' in result
+        assert 'calendar' in result  # lists available
+
+    @pytest.mark.asyncio
+    async def test_valid_component_creates_artifact(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        from marcel_core.skills.components import ComponentSchema
+        from marcel_core.storage.artifacts import load_artifact
+
+        _patch_registry(monkeypatch, [ComponentSchema(name='transaction_list', skill='banking')])
+
+        result = await marcel(
+            _ctx(channel='cli'),
+            'render',
+            component='transaction_list',
+            props={'transactions': [{'date': '2026-04-11', 'description': 'Colruyt', 'amount': -42.18}]},
+        )
+        assert 'rendered' in result
+        assert 'transaction_list' in result
+
+        # Pull the artifact id out of the confirmation and verify it was saved
+        import re
+
+        match = re.search(r'artifact (\w+)', result)
+        assert match is not None
+        loaded = load_artifact(match.group(1))
+        assert loaded is not None
+        assert loaded.content_type == 'a2ui'
+        assert loaded.component_name == 'transaction_list'
+        assert '"Colruyt"' in loaded.content
+
+    @pytest.mark.asyncio
+    async def test_telegram_sends_mini_app_button(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr('marcel_core.config.settings.marcel_public_url', 'https://example.invalid')
+        from marcel_core.channels.telegram import sessions
+        from marcel_core.skills.components import ComponentSchema
+
+        sessions.link_user('shaun', 42)
+        _patch_registry(monkeypatch, [ComponentSchema(name='transaction_list', skill='banking')])
+
+        mock_send = AsyncMock(return_value=1)
+        with patch('marcel_core.channels.telegram.bot.send_message', mock_send):
+            result = await marcel(
+                _ctx(channel='telegram'),
+                'render',
+                component='transaction_list',
+                props={'transactions': []},
+            )
+
+        assert 'Mini App button sent' in result
+        assert mock_send.await_count == 1
+        # Verify the call included a reply_markup with a web_app button
+        _, kwargs = mock_send.call_args
+        markup = kwargs.get('reply_markup')
+        assert markup is not None
+        assert 'inline_keyboard' in markup
+        assert 'web_app' in markup['inline_keyboard'][0][0]
+
+    @pytest.mark.asyncio
+    async def test_telegram_without_public_url_still_creates_artifact(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr('marcel_core.config.settings.marcel_public_url', '')
+        from marcel_core.channels.telegram import sessions
+        from marcel_core.skills.components import ComponentSchema
+
+        sessions.link_user('shaun', 42)
+        _patch_registry(monkeypatch, [ComponentSchema(name='transaction_list', skill='banking')])
+
+        result = await marcel(
+            _ctx(channel='telegram'),
+            'render',
+            component='transaction_list',
+            props={'transactions': []},
+        )
+        # No button was sent (no public URL), but the artifact was still created
+        assert 'rendered' in result
+        assert 'transaction_list' in result
+
+    @pytest.mark.asyncio
+    async def test_non_serializable_props_returns_error(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        from marcel_core.skills.components import ComponentSchema
+
+        _patch_registry(monkeypatch, [ComponentSchema(name='transaction_list', skill='banking')])
+
+        # A set is not JSON-serializable, but the render action uses default=str
+        # so it must fall through gracefully; use a circular reference instead.
+        circular: dict = {}
+        circular['self'] = circular
+
+        result = await marcel(_ctx(), 'render', component='transaction_list', props=circular)
+        assert 'render failed' in result
+
+
+# ---------------------------------------------------------------------------
 # marcel tool — unknown action
 # ---------------------------------------------------------------------------
 
@@ -268,3 +392,4 @@ class TestMarcelUnknownAction:
         result = await marcel(_ctx(), 'does_not_exist')
         assert 'Unknown action' in result
         assert 'read_skill' in result  # lists available actions
+        assert 'render' in result  # render is advertised too

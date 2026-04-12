@@ -261,6 +261,97 @@ class TestA2UIArtifacts:
 # ---------------------------------------------------------------------------
 
 
+class TestFormatComponentsCatalog:
+    def test_empty_returns_empty_string(self):
+        from marcel_core.skills.loader import format_components_catalog
+
+        assert format_components_catalog([]) == ''
+
+    def test_skill_without_components_omitted(self, tmp_path):
+        from marcel_core.skills.loader import SkillDoc, format_components_catalog
+
+        skill = SkillDoc(name='a', description='', content='', is_setup=False, source='data')
+        assert format_components_catalog([skill]) == ''
+
+    def test_single_component_formatted(self):
+        from marcel_core.skills.loader import SkillDoc, format_components_catalog
+
+        component = ComponentSchema(
+            name='transaction_list',
+            description='List of bank transactions',
+            skill='banking',
+            props={'type': 'object', 'properties': {'transactions': {}, 'currency': {}}},
+        )
+        skill = SkillDoc(
+            name='banking',
+            description='Banking',
+            content='',
+            is_setup=False,
+            source='data',
+            components=[component],
+        )
+        result = format_components_catalog([skill])
+        assert '**transaction_list**' in result
+        assert '(banking)' in result
+        assert 'List of bank transactions' in result
+        assert 'transactions' in result
+        assert 'currency' in result
+
+    def test_multiple_skills_sorted_by_name(self):
+        from marcel_core.skills.loader import SkillDoc, format_components_catalog
+
+        comp_a = ComponentSchema(name='widget_a', description='A', skill='zeta', props={})
+        comp_b = ComponentSchema(name='widget_b', description='B', skill='alpha', props={})
+
+        skill_zeta = SkillDoc(
+            name='zeta', description='', content='', is_setup=False, source='data', components=[comp_a]
+        )
+        skill_alpha = SkillDoc(
+            name='alpha', description='', content='', is_setup=False, source='data', components=[comp_b]
+        )
+
+        # Deliberately wrong order — format_components_catalog should sort.
+        result = format_components_catalog([skill_zeta, skill_alpha])
+        lines = result.split('\n')
+        assert lines[0].startswith('- **widget_b**')  # alpha sorts first
+        assert lines[1].startswith('- **widget_a**')
+
+    def test_props_without_object_type_shows_no_props(self):
+        from marcel_core.skills.loader import SkillDoc, format_components_catalog
+
+        component = ComponentSchema(name='plain', description='x', skill='s', props={})
+        skill = SkillDoc(name='s', description='', content='', is_setup=False, source='data', components=[component])
+        result = format_components_catalog([skill])
+        assert '(no props)' in result
+
+
+class TestChannelRichUI:
+    def test_telegram_is_rich(self):
+        from marcel_core.channels.adapter import channel_supports_rich_ui
+
+        assert channel_supports_rich_ui('telegram') is True
+
+    def test_websocket_is_rich(self):
+        from marcel_core.channels.adapter import channel_supports_rich_ui
+
+        assert channel_supports_rich_ui('websocket') is True
+
+    def test_cli_is_not_rich(self):
+        from marcel_core.channels.adapter import channel_supports_rich_ui
+
+        assert channel_supports_rich_ui('cli') is False
+
+    def test_job_is_not_rich(self):
+        from marcel_core.channels.adapter import channel_supports_rich_ui
+
+        assert channel_supports_rich_ui('job') is False
+
+    def test_unknown_channel_is_not_rich(self):
+        from marcel_core.channels.adapter import channel_supports_rich_ui
+
+        assert channel_supports_rich_ui('carrier-pigeon') is False
+
+
 class TestSkillLoaderComponents:
     def test_loads_components_yaml(self, tmp_path):
         from marcel_core.skills.loader import _load_skill_dir

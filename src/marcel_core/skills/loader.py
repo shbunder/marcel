@@ -292,3 +292,40 @@ def get_skill_content(skill_name: str, user_slug: str) -> str | None:
         if s.name == skill_name:
             return s.content
     return None
+
+
+def format_components_catalog(skills: list[SkillDoc]) -> str:
+    """Format the A2UI component catalog for injection into the system prompt.
+
+    Produces a compact bullet list of every component declared by the loaded
+    skills together with its top-level prop keys, so the agent knows what
+    components exist and what props they accept without consuming a large
+    token budget on full JSON Schemas.
+
+    Returns an empty string if no components are declared.
+    """
+    sections: list[str] = []
+    for skill in sorted(skills, key=lambda s: s.name):
+        if not skill.components:
+            continue
+        for component in skill.components:
+            top_keys = _top_level_prop_keys(component.props)
+            keys_str = ', '.join(top_keys) if top_keys else '(no props)'
+            desc = component.description or '(no description)'
+            sections.append(f'- **{component.name}** ({skill.name}) — {desc} · props: {keys_str}')
+
+    return '\n'.join(sections)
+
+
+def _top_level_prop_keys(props_schema: dict) -> list[str]:
+    """Return the top-level property keys from a JSON Schema dict.
+
+    Handles the common shape ``{type: object, properties: {a: ..., b: ...}}``.
+    Returns an empty list for schemas that don't declare object properties.
+    """
+    if not isinstance(props_schema, dict):
+        return []
+    properties = props_schema.get('properties')
+    if not isinstance(properties, dict):
+        return []
+    return list(properties.keys())

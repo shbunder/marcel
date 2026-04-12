@@ -172,9 +172,10 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
     Returns:
         Complete system prompt string.
     """
+    from marcel_core.channels.adapter import channel_supports_rich_ui
     from marcel_core.harness.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
     from marcel_core.memory.selector import select_relevant_memories
-    from marcel_core.skills.loader import format_skill_index, load_skills
+    from marcel_core.skills.loader import format_components_catalog, format_skill_index, load_skills
     from marcel_core.storage import load_user_profile
 
     profile = load_user_profile(deps.user_slug)
@@ -182,8 +183,11 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
     # Load MARCEL.md instructions
     marcelmd = format_marcelmd_for_prompt(load_marcelmd_files(deps.user_slug))
 
-    # Load skill index (compact — full docs loaded on demand via marcel tool)
-    skills = format_skill_index(load_skills(deps.user_slug))
+    # Load skills once — reused for both the skill index and (if the channel
+    # supports rich UI) the A2UI component catalog.
+    loaded_skills = load_skills(deps.user_slug)
+    skills = format_skill_index(loaded_skills)
+    components_catalog = format_components_catalog(loaded_skills) if channel_supports_rich_ui(deps.channel) else ''
 
     # Select relevant memories if we have a query
     memory_content = ''
@@ -224,6 +228,22 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
             'use `marcel(action="read_skill", name="...")` to load its full documentation.',
             '',
             skills,
+            '',
+        ]
+
+    # A2UI component catalog (only on channels that can render them).
+    # The agent uses `marcel(action="render", component=..., props=...)` to
+    # deliver structured data to the rich-UI surface instead of writing a
+    # plain-text summary.
+    if components_catalog:
+        lines += [
+            '## A2UI Components',
+            'Prefer these structured components over plain-text summaries when the data '
+            'fits one of them. Emit via `marcel(action="render", component="...", props={...})` — '
+            'do NOT write the component JSON directly in your reply. On Telegram the user gets a '
+            '"View in app" button that opens the Mini App and renders the component natively.',
+            '',
+            components_catalog,
             '',
         ]
 
