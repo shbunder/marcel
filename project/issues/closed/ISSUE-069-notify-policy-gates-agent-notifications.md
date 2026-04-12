@@ -1,6 +1,6 @@
 # ISSUE-069: Notify Policy Gates Agent-Initiated Notifications
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-12
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -66,7 +66,7 @@ Concretely:
 - [✓] Add unit test: executor sets `suppress_notify` correctly for each `NotifyPolicy` value
 - [✓] Add unit test: `_build_job_context` includes a policy-specific delivery block
 - [✓] `make check` passes
-- [ ] Update [docs/jobs.md](docs/jobs.md) if it references the notify policy or the agent's notify flow
+- [✓] Update [docs/jobs.md](docs/jobs.md) if it references the notify policy or the agent's notify flow
 
 ## Relationships
 

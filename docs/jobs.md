@@ -147,6 +147,13 @@ Then update `.marcel/skills/jobs/SKILL.md` to document the new template.
 
 Notifications are delivered via the job's configured `channel` (default: Telegram).
 
+The policy is the **single source of truth** for whether a job can reach the user. It gates both the scheduler's automatic post-run notification **and** any mid-run `marcel(action="notify")` calls the agent tries to make:
+
+- `silent` / `on_failure` — `TurnState.suppress_notify` is set to `True` before the agent runs. Calls to `marcel(action="notify")` short-circuit to a suppression notice without touching Telegram. For `on_failure`, the scheduler still sends its own alert when a run fails (after the consecutive-failure threshold and cooldown).
+- `on_output` / `always` — agent-initiated notify calls pass through. If the agent notifies, `run.agent_notified` is set and the scheduler skips its own send to avoid double-delivery.
+
+The job executor also injects a `## Delivery policy` block into the job's system prompt describing what the agent is allowed to do, so well-behaved agents don't even attempt suppressed notifications.
+
 ## Run status values
 
 | Status | Meaning |
