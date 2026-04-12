@@ -274,7 +274,8 @@ from marcel_core.storage import (
     load_memory_index, load_memory_file, save_memory_file, update_memory_index,
     # Memory — typed frontmatter
     MemoryType, MemoryHeader, MemorySearchResult,
-    parse_frontmatter, scan_memory_headers, format_memory_manifest,
+    parse_frontmatter, scan_memory_headers,
+    format_memory_manifest, format_memory_index,
     # Memory — search and selection
     search_memory_files,
     # Memory — lifecycle

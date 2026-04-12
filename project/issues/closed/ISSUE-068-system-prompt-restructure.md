@@ -1,6 +1,6 @@
 # ISSUE-068: System Prompt Restructure — Clean H1 Blocks + Dynamic Memory
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-12
 **Assignee:** LLM
 **Priority:** High

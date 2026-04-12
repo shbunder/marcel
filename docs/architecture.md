@@ -20,7 +20,7 @@ src/marcel_core/
     artifacts.py   # GET /api/artifact/{id}, /api/artifacts — rich content
   harness/
     agent.py       # create_agent() — pydantic-ai Agent with tool registration
-    context.py     # MarcelDeps, TurnState, build_system_prompt — loads MARCEL.md + skills + memory
+    context.py     # MarcelDeps, TurnState, build_instructions_async — assembles the five-block system prompt
     runner.py      # stream_turn — streams from pydantic-ai agent, yields deltas/tool events
     marcelmd.py    # MARCEL.md loader — discovers home + project instruction files
   memory/
@@ -132,11 +132,12 @@ For each conversation turn:
 ```
 1. Client sends {"text": "...", "user": "alice", "token": "...", "conversation": null | "id"}
 2. If conversation is null -> create or resume via conversation channel
-3. build_system_prompt():
-   - Load MARCEL.md files (global + per-user)
-   - Scan memory headers, select top relevant memories via Haiku
-   - Build skill index (available integrations + their docs)
-   - Add channel hints (telegram formatting, CLI capabilities)
+3. build_instructions_async() — assembles five H1 blocks:
+   - `# Marcel — who you are` — global MARCEL.md (H1 + self-ref blockquote stripped)
+   - `# <User> — who the user is` — profile body (+ server context H2 for admin)
+   - `# Skills — what you can do` — compact skill index, full docs on demand via `read_skill`
+   - `# Memory — what you should know` — compact memory index, full bodies on demand via `read_memory` / `search_memory`
+   - `# <Channel> — how to respond` — channel guidance (preamble stripped)
 4. Summarize-if-idle: if last_active > 60 min ago, seal segment + generate summary
 5. Load context: latest rolling summary + active segment messages
 6. agent.run_stream(user_text, message_history=context)
@@ -160,7 +161,7 @@ Marcel uses a single continuous conversation per (user, channel) pair. There are
 
 ### Memory system
 
-Memory files use YAML frontmatter with typed metadata (`schedule`, `preference`, `person`, `reference`, `household`, `feedback`). At conversation start, a Haiku side-query selects the most relevant memories from a manifest of headers (up to 8 for large sets; all for small sets). The unified `marcel` tool provides `search_memory`, `save_memory`, and `search_conversations` actions for mid-conversation memory management. Schedule memories auto-expire past their date. The `_household` pseudo-user holds shared family memories included in all users' context. See [storage.md](storage.md#memory-file-memorytopicmd) for the full file format and API.
+Memory files use YAML frontmatter with typed metadata (`schedule`, `preference`, `person`, `reference`, `household`, `feedback`). The system prompt contains a **compact memory index** — one line per file (name + description) — not the full bodies. The agent loads specific entries on demand via `marcel(action="read_memory", name="...")` or searches across them with `marcel(action="search_memory", query="...")`. This keeps the prompt small regardless of how many memories the user has accumulated and teaches the model to reach for memory lookups intentionally instead of relying on pre-loaded content. Schedule memories auto-expire past their date. The `_household` pseudo-user holds shared family memories included in all users' context. See [storage.md](storage.md#memory-file-memorytopicmd) for the full file format and API.
 
 ### Memory extraction
 
