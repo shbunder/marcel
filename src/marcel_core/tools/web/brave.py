@@ -5,7 +5,7 @@ backend for :func:`~marcel_core.tools.web.backends.select_backend` when
 ``BRAVE_API_KEY`` is configured.
 
 Docs: https://brave.com/search/api/
-Free tier: 2000 queries/month, 1 query/sec.
+Free tier: 1000 queries/month (plus any user-configured cap), 1 query/sec.
 """
 
 from __future__ import annotations

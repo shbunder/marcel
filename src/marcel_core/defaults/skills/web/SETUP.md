@@ -12,8 +12,9 @@ on Playwright. Configure both for the best experience.
 ### 1. Brave Search API (recommended)
 
 DuckDuckGo HTML scraping is unreliable — it bot-challenges unpredictably.
-Brave's free tier gives you 2000 queries/month, which is more than enough
-for a household agent.
+Brave's free tier gives you 1000 queries/month, which is more than enough
+for a household agent. If the quota is hit, Marcel falls back to
+DuckDuckGo transparently.
 
 1. Get a free API key at <https://brave.com/search/api/>
 2. Add it to `.env.local`:

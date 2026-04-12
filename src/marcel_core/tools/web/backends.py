@@ -4,7 +4,7 @@ The ``web(action="search")`` dispatcher delegates to a backend that
 implements :class:`SearchBackend`. Today two backends exist:
 
 - :class:`~marcel_core.tools.web.brave.BraveBackend` — primary, JSON API,
-  stable contract, free tier 2000/month
+  stable contract, free tier 1000/month
 - :class:`~marcel_core.tools.web.duckduckgo.DuckDuckGoBackend` — fallback,
   HTML scraping, no API key, best-effort
 
@@ -27,6 +27,12 @@ from dataclasses import dataclass
 from typing import Protocol
 
 log = logging.getLogger(__name__)
+
+# Set to True once the "no BRAVE_API_KEY, falling back to DDG" warning
+# has been emitted. The warning is a one-shot operator reminder, not a
+# per-call status line — keep docker logs clean when running without a
+# Brave key.
+_ddg_fallback_warned = False
 
 
 @dataclass
@@ -102,8 +108,11 @@ def select_backend() -> SearchBackend:
     if settings.brave_api_key:
         return BraveBackend(api_key=settings.brave_api_key)
 
-    log.warning(
-        'web.search: no BRAVE_API_KEY set, falling back to DuckDuckGo HTML '
-        'scraping (unreliable). Get a free key at https://brave.com/search/api/'
-    )
+    global _ddg_fallback_warned
+    if not _ddg_fallback_warned:
+        log.warning(
+            'web.search: no BRAVE_API_KEY set, falling back to DuckDuckGo HTML '
+            'scraping (unreliable). Get a free key at https://brave.com/search/api/'
+        )
+        _ddg_fallback_warned = True
     return DuckDuckGoBackend()

@@ -67,8 +67,17 @@ action is available in this environment.`
 ### Brave Search API (primary, recommended)
 
 - Stable JSON contract, no scraping
-- Free tier: 2000 queries/month, 1 query/sec
+- Free tier: 1000 queries/month, 1 query/sec
 - Get a key at <https://brave.com/search/api/>
+- **Auto-failover**: when Brave returns a rate-limit error (either the
+  1000/month free tier or a user-configured cap in the Brave dashboard),
+  the search action transparently retries against DuckDuckGo and returns
+  those results. The model never sees a bare "rate limit" error — it
+  either gets DDG results or a combined "Brave rate limit; DuckDuckGo
+  fallback failed" message. This means you can set an aggressive
+  monthly cap in Brave without breaking the agent: when the cap hits,
+  the tool just degrades to the free fallback for the rest of the
+  month.
 
 Set `BRAVE_API_KEY=...` in `.env.local` and restart Marcel. The tool
 picks it up automatically.

@@ -43,7 +43,7 @@ Every failure returns a one-line string prefixed with `Search error:` or `Browse
 - `Search error: no results for "<query>". Try a broader or rephrased query.` — rephrase and retry once.
 - `Search error: per-turn search limit reached (5). Summarise what you have or ask the user to narrow the query.` — stop searching, synthesise what you have.
 - `Search error: Brave API key invalid or revoked` — configuration issue. Tell the user to check `BRAVE_API_KEY`.
-- `Search error: Brave rate limit — slow down` — wait and retry later, or fall back to another approach.
+- `Search error: Brave rate limit; DuckDuckGo fallback failed — ...` — both the primary backend (quota exhausted) and the DuckDuckGo fallback (usually bot challenge) failed in the same call. Tell the user the search backends are degraded right now. (A plain Brave rate-limit *without* this suffix never reaches you — the tool retries DDG transparently and returns those results.)
 - `Search error: DuckDuckGo bot challenge — set BRAVE_API_KEY for reliable search` — DDG fallback is degraded; tell the user to configure Brave.
 - `Search error: network failure — ...` — transient. Retry once; if it fails again, report plainly.
 - `Browser error: ...` — see the Tips section below for recovery patterns.
