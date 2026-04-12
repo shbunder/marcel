@@ -147,6 +147,28 @@ class TestBuildJobContext:
 
         assert 'Setup instructions' not in context
 
+    @pytest.mark.parametrize(
+        ('policy', 'marker'),
+        [
+            (NotifyPolicy.SILENT, 'silent'),
+            (NotifyPolicy.ON_FAILURE, 'only alerts the user on failure'),
+            (NotifyPolicy.ON_OUTPUT, 'delivers its output to the user automatically'),
+            (NotifyPolicy.ALWAYS, 'always delivers a message'),
+        ],
+    )
+    def test_delivery_policy_block_injected(self, policy, marker):
+        from marcel_core.jobs.executor import _build_job_context
+
+        job = _make_job(notify=policy)
+        with (
+            patch('marcel_core.skills.loader.load_skills', return_value=[]),
+            patch('marcel_core.harness.context.load_channel_prompt', return_value='ch'),
+        ):
+            context = _build_job_context(job)
+
+        assert '## Delivery policy' in context
+        assert marker in context
+
 
 # ---------------------------------------------------------------------------
 # execute_job
@@ -253,6 +275,37 @@ class TestExecuteJob:
         # Verify usage_limits was passed
         call_kwargs = mock_agent.run.call_args
         assert call_kwargs.kwargs.get('usage_limits') is not None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ('policy', 'expected'),
+        [
+            (NotifyPolicy.SILENT, True),
+            (NotifyPolicy.ON_FAILURE, True),
+            (NotifyPolicy.ON_OUTPUT, False),
+            (NotifyPolicy.ALWAYS, False),
+        ],
+    )
+    async def test_suppress_notify_wired_from_policy(self, policy, expected):
+        from marcel_core.jobs import save_job
+        from marcel_core.jobs.executor import execute_job
+
+        job = _make_job(notify=policy)
+        save_job(job)
+
+        mock_result = MagicMock()
+        mock_result.output = 'done'
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(return_value=mock_result)
+
+        with (
+            patch('marcel_core.harness.agent.create_marcel_agent', return_value=mock_agent),
+            patch('marcel_core.jobs.executor._build_job_context', return_value='ctx'),
+        ):
+            await execute_job(job, 'scheduled')
+
+        deps = mock_agent.run.call_args.kwargs['deps']
+        assert deps.turn.suppress_notify is expected
 
 
 # ---------------------------------------------------------------------------

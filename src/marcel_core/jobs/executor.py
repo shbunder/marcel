@@ -143,7 +143,45 @@ def _build_job_context(job: JobDefinition) -> str:
     channel_prompt = load_channel_prompt('job')
     parts.append(f'## Channel\n{channel_prompt}')
 
+    # Delivery policy — the `notify` field is the single source of truth for
+    # whether this run is allowed to send a user-visible message. The agent
+    # reads this block to decide whether to call marcel(action="notify").
+    parts.append(_format_delivery_policy(job.notify))
+
     return '\n\n---\n\n'.join(parts)
+
+
+_DELIVERY_POLICY_TEXT: dict[NotifyPolicy, str] = {
+    NotifyPolicy.SILENT: (
+        'This job is **silent**. Do NOT call `marcel(action="notify")` — '
+        'notifications are suppressed and will not reach the user. Return your '
+        'result as normal tool output; it will be logged for inspection only.'
+    ),
+    NotifyPolicy.ON_FAILURE: (
+        'This job only alerts the user on failure. Do NOT call '
+        '`marcel(action="notify")` on a successful run — notifications are '
+        'suppressed. Return your result as normal tool output; the scheduler '
+        'will send an alert if the run fails or errors out.'
+    ),
+    NotifyPolicy.ON_OUTPUT: (
+        'This job delivers its output to the user automatically. You MAY call '
+        '`marcel(action="notify", message="...")` if you want to compose a '
+        'richer user-facing message — otherwise just return the result as '
+        'output and the scheduler will deliver it. Do not do both.'
+    ),
+    NotifyPolicy.ALWAYS: (
+        'This job always delivers a message to the user. Call '
+        '`marcel(action="notify", message="...")` with the full user-facing '
+        'message, OR return it as normal output — the scheduler will deliver '
+        'whatever is produced. Do not do both.'
+    ),
+}
+
+
+def _format_delivery_policy(policy: NotifyPolicy) -> str:
+    """Render the ``## Delivery policy`` block for a job's system prompt."""
+    body = _DELIVERY_POLICY_TEXT.get(policy, _DELIVERY_POLICY_TEXT[NotifyPolicy.ON_OUTPUT])
+    return f'## Delivery policy\n{body}'
 
 
 async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> JobRun:
@@ -165,6 +203,11 @@ async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> 
         model=job.model,
         role='user',
     )
+
+    # Policy acts as the single source of truth for delivery. Silent and
+    # on-failure jobs must not send user-visible messages on success, so
+    # agent-initiated notify calls are dropped at the tool layer.
+    deps.turn.suppress_notify = job.notify in (NotifyPolicy.SILENT, NotifyPolicy.ON_FAILURE)
 
     # Build lean system prompt: task + skill docs + credentials + channel
     system_prompt = _build_job_context(job)

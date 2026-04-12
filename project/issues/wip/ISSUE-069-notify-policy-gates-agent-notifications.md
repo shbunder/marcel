@@ -1,6 +1,6 @@
 # ISSUE-069: Notify Policy Gates Agent-Initiated Notifications
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-12
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -57,15 +57,15 @@ Concretely:
 
 ## Tasks
 
-- [ ] Add `suppress_notify: bool` field to `TurnState` in [src/marcel_core/harness/context.py](src/marcel_core/harness/context.py)
-- [ ] Executor sets `deps.turn.suppress_notify = job.notify in (SILENT, ON_FAILURE)` before running the agent
-- [ ] `marcel(action="notify")` checks `ctx.deps.turn.suppress_notify` — if True, log and return a "suppressed by policy" string without calling Telegram and without marking `notified=True`
-- [ ] Executor injects a `## Delivery policy` block into the job system prompt, tailored to `job.notify`
-- [ ] Rewrite the `job.md` channel prompt to defer to the delivery policy block instead of unconditionally telling the agent to notify
-- [ ] Add unit test: `notify()` with `suppress_notify=True` returns the suppression string and does not call `_notify_telegram`
-- [ ] Add unit test: executor sets `suppress_notify` correctly for each `NotifyPolicy` value
-- [ ] Add unit test: `_build_job_context` includes a policy-specific delivery block
-- [ ] `make check` passes
+- [✓] Add `suppress_notify: bool` field to `TurnState` in [src/marcel_core/harness/context.py](src/marcel_core/harness/context.py)
+- [✓] Executor sets `deps.turn.suppress_notify = job.notify in (SILENT, ON_FAILURE)` before running the agent
+- [✓] `marcel(action="notify")` checks `ctx.deps.turn.suppress_notify` — if True, log and return a "suppressed by policy" string without calling Telegram and without marking `notified=True`
+- [✓] Executor injects a `## Delivery policy` block into the job system prompt, tailored to `job.notify`
+- [✓] Rewrite the `job.md` channel prompt to defer to the delivery policy block instead of unconditionally telling the agent to notify
+- [✓] Add unit test: `notify()` with `suppress_notify=True` returns the suppression string and does not call `_notify_telegram`
+- [✓] Add unit test: executor sets `suppress_notify` correctly for each `NotifyPolicy` value
+- [✓] Add unit test: `_build_job_context` includes a policy-specific delivery block
+- [✓] `make check` passes
 - [ ] Update [docs/jobs.md](docs/jobs.md) if it references the notify policy or the agent's notify flow
 
 ## Relationships
@@ -74,4 +74,19 @@ Concretely:
 - Related to: [[ISSUE-061-harden-job-scheduler]] (introduced `_notify_if_needed` and the policy field)
 
 ## Implementation Log
-<!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-12 - LLM Implementation
+**Action**: Made notify policy the single source of truth for job deliveries.
+
+**Files Modified**:
+- `src/marcel_core/harness/context.py` — added `TurnState.suppress_notify`
+- `src/marcel_core/jobs/executor.py` — wires `suppress_notify` from `job.notify`, appends a `## Delivery policy` block to the job system prompt
+- `src/marcel_core/tools/marcel/notifications.py` — `notify()` early-returns a suppression string when `ctx.deps.turn.suppress_notify` is True, without touching Telegram or setting `notified=True`
+- `src/marcel_core/defaults/channels/job.md` — rewrote the delivery-style section to defer to the delivery-policy block
+- `~/.marcel/channels/job.md` — synced with the bundled default (data-root copy had drifted, same pattern as ISSUE-067 lesson)
+- `tests/tools/test_marcel_tool.py` — added `test_suppressed_by_policy_does_not_send`
+- `tests/jobs/test_executor_scenarios.py` — parametric tests for delivery-policy block injection and `suppress_notify` wiring
+
+**Commands Run**: `make check`
+**Result**: 1133 passed, coverage 92.75%
+**Next**: docs/jobs.md update, closing commit, push + restart

@@ -35,6 +35,15 @@ class TurnState:
     agent already delivered a message to the user during the run.
     """
 
+    suppress_notify: bool = False
+    """When True, ``marcel(action="notify")`` is a no-op.
+
+    Set by the job executor when the job's notify policy forbids
+    agent-initiated delivery (``silent`` or ``on_failure``). Turns
+    ``marcel(action="notify")`` into a suppression notice so the policy
+    is the single source of truth for whether a job can reach the user.
+    """
+
 
 @pydantic_dc.dataclass
 class MarcelDeps:

@@ -35,6 +35,22 @@ async def notify(ctx: RunContext[MarcelDeps], message: str | None) -> str:
     if not message:
         return 'ok'
 
+    # Job delivery policy can forbid agent-initiated messages (silent /
+    # on_failure). Drop the send, keep ``notified`` False so the scheduler
+    # still follows its own policy path post-run.
+    if ctx.deps.turn.suppress_notify:
+        log.info(
+            '[marcel:notify] suppressed by policy user=%s channel=%s msg=%s',
+            ctx.deps.user_slug,
+            ctx.deps.channel,
+            message[:100],
+        )
+        return (
+            "notification suppressed: this job's delivery policy forbids "
+            'agent-initiated notifications. Return your result as normal '
+            'output instead.'
+        )
+
     log.info('[marcel:notify] user=%s channel=%s msg=%s', ctx.deps.user_slug, ctx.deps.channel, message)
 
     # Mark that we sent a notification (so job executor can skip its own)

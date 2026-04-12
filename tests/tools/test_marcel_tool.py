@@ -311,6 +311,20 @@ class TestNotify:
             )
         assert result == 'ok'
 
+    @pytest.mark.asyncio
+    async def test_suppressed_by_policy_does_not_send(self):
+        ctx = _ctx(channel='job')
+        ctx.deps.turn.suppress_notify = True
+        send = AsyncMock()
+        with (
+            patch('marcel_core.channels.telegram.sessions.get_chat_id', return_value='123'),
+            patch('marcel_core.channels.telegram.bot.send_message', send),
+        ):
+            result = await marcel(ctx, action='notify', message='Should not reach user')
+        assert 'suppressed' in result
+        send.assert_not_called()
+        assert ctx.deps.turn.notified is False
+
 
 # ---------------------------------------------------------------------------
 # Settings: list_models, get_model, set_model
