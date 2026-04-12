@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -276,6 +276,33 @@ class RunFinished(MarcelEvent):
     is_error: bool = False
 
 
+def _prime_read_skills_from_history(messages: Sequence[ModelMessage], read_skills: set[str]) -> None:
+    """Populate ``read_skills`` from past ``marcel(read_skill, name=X)`` calls.
+
+    Scans the message history for any assistant tool call invoking the
+    ``marcel`` tool with ``action='read_skill'`` and adds the requested
+    skill name to ``read_skills``. Since ``marcel`` tool results are
+    always kept in full across turns (see :data:`_ALWAYS_KEEP_TOOLS`),
+    the docs for any skill loaded this way are guaranteed to still be in
+    the model's context — so the integration tool's auto-load does not
+    need to re-inject them on subsequent turns.
+    """
+    for msg in messages:
+        if not isinstance(msg, ModelResponse):
+            continue
+        for part in msg.parts:
+            if not isinstance(part, ToolCallPart) or part.tool_name != 'marcel':
+                continue
+            args = part.args_as_dict() if callable(getattr(part, 'args_as_dict', None)) else part.args
+            if not isinstance(args, dict):
+                continue
+            if args.get('action') != 'read_skill':
+                continue
+            name = args.get('name')
+            if isinstance(name, str) and name:
+                read_skills.add(name)
+
+
 def _extract_tool_history(
     all_messages: list[ModelMessage],
     user_slug: str,
@@ -417,6 +444,10 @@ async def stream_turn(
 
     # Build context from continuous conversation (handles idle summarization)
     message_history = await build_context(user_slug, channel)
+
+    # Prime per-turn read_skills from history so the integration tool's
+    # auto-load doesn't re-inject docs that are already visible to the model.
+    _prime_read_skills_from_history(message_history, deps.turn.read_skills)
 
     # Append user message to segment (after loading context, so it's not duplicated)
     user_msg = HistoryMessage(

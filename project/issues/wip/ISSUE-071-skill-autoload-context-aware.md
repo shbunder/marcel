@@ -1,6 +1,6 @@
 # ISSUE-071: Skill auto-load should respect context, not re-inject every turn
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-12
 **Assignee:** LLM
 **Priority:** High
@@ -30,15 +30,28 @@ Follow-up after diagnosis: "yes, I expect Skills to be read if it's no longer in
 
 ## Tasks
 
-- [ ] Prime `deps.turn.read_skills` at turn start from `message_history`, scanning for past `marcel(read_skill, name=X)` tool calls. Since marcel tool results are in `_ALWAYS_KEEP_TOOLS`, any skill loaded this way is guaranteed to still be in the model's context.
-- [ ] Strip `Help the user with: $ARGUMENTS` lines from skill content at load time in [src/marcel_core/skills/loader.py](../../../src/marcel_core/skills/loader.py) so stale data-root copies are cleaned defensively.
-- [ ] Delete `Help the user with: $ARGUMENTS` from the bundled default SKILL.md files (icloud, banking, news, docker).
-- [ ] Also delete it from the user data-root copies so they don't drift.
-- [ ] Add a runner test confirming `_prime_read_skills_from_history` populates the set from a past `marcel(read_skill)` call, and that an unrelated past tool call does not.
-- [ ] Verify the existing `test_no_duplicate_inject_after_read_skill` still passes.
-- [ ] Run `make check`.
+- [✓] Prime `deps.turn.read_skills` at turn start from `message_history`, scanning for past `marcel(read_skill, name=X)` tool calls. Since marcel tool results are in `_ALWAYS_KEEP_TOOLS`, any skill loaded this way is guaranteed to still be in the model's context.
+- [✓] Strip `Help the user with: $ARGUMENTS` lines from skill content at load time in [src/marcel_core/skills/loader.py](../../../src/marcel_core/skills/loader.py) so stale data-root copies are cleaned defensively.
+- [✓] Delete `Help the user with: $ARGUMENTS` from the bundled default SKILL.md files (icloud, banking, news, docker).
+- [✓] Also delete it from the user data-root copies so they don't drift.
+- [✓] Add a runner test confirming `_prime_read_skills_from_history` populates the set from a past `marcel(read_skill)` call, and that an unrelated past tool call does not.
+- [✓] Verify the existing `test_no_duplicate_inject_after_read_skill` still passes.
+- [✓] Run `make check`.
 - [ ] Document behavior in [docs/skills.md](../../../docs/skills.md) or wherever auto-load is mentioned.
 - [ ] Version bump, push to `shaun`, trigger restart via `request_restart()`.
 
 ## Implementation Log
-<!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-12 11:40 - LLM Implementation
+**Action**: Primed `turn.read_skills` from history + stripped `$ARGUMENTS` template noise.
+**Files Modified**:
+- `src/marcel_core/harness/runner.py` — added `_prime_read_skills_from_history(messages, read_skills)`, called from `stream_turn` right after `build_context`. Scans every `ModelResponse` for `ToolCallPart(tool_name='marcel', action='read_skill')` and adds the `name` argument to the set. Switched the signature to `Sequence[ModelMessage]` so tests can pass narrower `list[ModelResponse]` without variance errors.
+- `src/marcel_core/skills/loader.py` — added `_strip_argument_template(body)` and routed both `_parse_frontmatter` branches through it. Drops any line exactly equal to `Help the user with: $ARGUMENTS` and trims leading blank lines. Preserves other mentions.
+- `src/marcel_core/defaults/skills/{icloud,banking,news,docker}/SKILL.md` — deleted the `Help the user with: $ARGUMENTS` line so the bundled files read cleanly.
+- `~/.marcel/skills/{icloud,banking,news,docker}/SKILL.md` — same deletion in the data-root copies so a lazy seed_defaults won't re-introduce drift.
+- `tests/harness/test_runner.py` — new `TestPrimeReadSkillsFromHistory` with 5 cases (past read_skill populates set, non-read_skill marcel actions ignored, other tools ignored, multiple skills collected, existing entries preserved).
+- `tests/core/test_skill_loader.py` — new `TestStripArgumentTemplate` plus two `TestParseFrontmatter` cases covering the frontmatter + no-frontmatter branches.
+**Commands Run**: `make check`
+**Result**: 1143 passed, 0 errors from pyright, ruff clean, total coverage 92.75%.
+**Root cause recap**: the integration tool's auto-load safety net was firing every turn because `TurnState.read_skills` is constructed fresh per `MarcelDeps`, and nothing linked it to what was already visible in `message_history`. Combined with the unfilled Claude-Code `$ARGUMENTS` template bleeding into tool returns, the model was receiving what looked like a fresh-prompt preamble every turn and ending the turn after a bare acknowledgment.
+**Next**: Update docs/skills.md, bump version, close the issue, push to `shaun`, `request_restart()`.

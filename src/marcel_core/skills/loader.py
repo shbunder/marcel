@@ -53,17 +53,35 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
     returns an empty dict and the full text.
     """
     if not text.startswith('---'):
-        return {}, text
+        return {}, _strip_argument_template(text)
     end = text.find('---', 3)
     if end == -1:
-        return {}, text
+        return {}, _strip_argument_template(text)
     fm_text = text[3:end].strip()
     body = text[end + 3 :].strip()
     try:
         fm = yaml.safe_load(fm_text) or {}
     except yaml.YAMLError:
         fm = {}
-    return fm, body
+    return fm, _strip_argument_template(body)
+
+
+def _strip_argument_template(body: str) -> str:
+    """Drop the Claude Code ``Help the user with: $ARGUMENTS`` boilerplate.
+
+    Older SKILL.md files (copied from the Claude Code skill format) lead
+    with ``Help the user with: $ARGUMENTS``. The ``$ARGUMENTS`` placeholder
+    is never substituted in Marcel, so the line is pure noise that tends
+    to confuse the model into ending a turn after a bare acknowledgment.
+    Removed defensively at load time so stale data-root copies stay clean.
+    """
+    lines = body.split('\n')
+    cleaned: list[str] = []
+    for line in lines:
+        if line.strip() == 'Help the user with: $ARGUMENTS':
+            continue
+        cleaned.append(line)
+    return '\n'.join(cleaned).lstrip('\n')
 
 
 def _check_requirements(requires: dict, user_slug: str) -> bool:

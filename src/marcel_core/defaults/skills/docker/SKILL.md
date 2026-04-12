@@ -6,8 +6,6 @@ requires:
     - DOCKER_HOST
 ---
 
-Help the user with: $ARGUMENTS
-
 You have access to the `integration` tool to inspect and manage Docker containers.
 
 ## Available commands

@@ -7,6 +7,7 @@ from marcel_core.skills.loader import (
     _check_requirements,
     _load_skill_dir,
     _parse_frontmatter,
+    _strip_argument_template,
     format_skills_for_prompt,
     load_skills,
 )
@@ -37,6 +38,30 @@ class TestParseFrontmatter:
         fm, body = _parse_frontmatter(text)
         assert fm == {}
         assert body == 'Body.'
+
+    def test_strips_arguments_template_line(self):
+        text = '---\nname: icloud\n---\n\nHelp the user with: $ARGUMENTS\n\nReal body.'
+        _, body = _parse_frontmatter(text)
+        assert '$ARGUMENTS' not in body
+        assert body.startswith('Real body.')
+
+    def test_strips_arguments_template_without_frontmatter(self):
+        text = 'Help the user with: $ARGUMENTS\n\nReal body.'
+        _, body = _parse_frontmatter(text)
+        assert body == 'Real body.'
+
+
+class TestStripArgumentTemplate:
+    def test_removes_exact_line(self):
+        assert _strip_argument_template('Help the user with: $ARGUMENTS\nkeep') == 'keep'
+
+    def test_no_change_when_absent(self):
+        body = 'Line one.\nLine two.'
+        assert _strip_argument_template(body) == body
+
+    def test_preserves_other_dollar_arguments_mentions(self):
+        body = 'See $ARGUMENTS in the docs.'
+        assert _strip_argument_template(body) == body
 
 
 class TestCheckRequirements:

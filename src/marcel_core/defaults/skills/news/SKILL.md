@@ -4,8 +4,6 @@ description: Sync, store, and query scraped news articles from Belgian sources (
 requires: {}
 ---
 
-Help the user with: $ARGUMENTS
-
 You have access to the `integration` tool to sync and query news articles. Articles are synced from RSS feeds by a background job and stored locally in a SQLite database with structured metadata.
 
 ## Available commands

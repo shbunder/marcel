@@ -8,8 +8,6 @@ requires:
     - enablebanking.pem
 ---
 
-Help the user with: $ARGUMENTS
-
 You have access to the `integration` tool to interact with bank account data via EnableBanking. Multiple banks can be linked simultaneously — all balance and transaction queries automatically cover all linked banks.
 
 **Important:** Transaction data is cached locally and synced every 8 hours. The cache contains all historical transactions since each account was linked. Use the cached data to answer questions — do NOT trigger manual syncs unless the user explicitly asks for fresh data.

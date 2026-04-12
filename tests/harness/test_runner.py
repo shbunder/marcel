@@ -16,6 +16,7 @@ from marcel_core.harness.runner import (
     ToolCallStarted,
     _extract_tool_history,
     _messages_to_model,
+    _prime_read_skills_from_history,
     _tool_result_for_context,
     stream_turn,
 )
@@ -341,6 +342,90 @@ class TestToolResultForContext:
         """Marcel tool results (search_memory, read_skill, etc.) are kept in full."""
         result = _tool_result_for_context('search results here', 'marcel', 20)
         assert result == 'search results here'
+
+
+class TestPrimeReadSkillsFromHistory:
+    """Tests for _prime_read_skills_from_history — priming per-turn read_skills."""
+
+    def test_adds_skill_from_past_read_skill_call(self):
+        messages = [
+            ModelRequest(parts=[UserPromptPart(content='check calendar')]),
+            ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        tool_name='marcel',
+                        args={'action': 'read_skill', 'name': 'icloud'},
+                        tool_call_id='tc-1',
+                    ),
+                ]
+            ),
+            ModelRequest(parts=[ToolReturnPart(tool_name='marcel', content='...', tool_call_id='tc-1')]),
+        ]
+        read_skills: set[str] = set()
+        _prime_read_skills_from_history(messages, read_skills)
+        assert read_skills == {'icloud'}
+
+    def test_ignores_non_read_skill_marcel_calls(self):
+        messages = [
+            ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        tool_name='marcel',
+                        args={'action': 'search_memory', 'query': 'anything'},
+                        tool_call_id='tc-1',
+                    ),
+                ]
+            ),
+        ]
+        read_skills: set[str] = set()
+        _prime_read_skills_from_history(messages, read_skills)
+        assert read_skills == set()
+
+    def test_ignores_other_tools(self):
+        messages = [
+            ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        tool_name='integration',
+                        args={'id': 'icloud.calendar'},
+                        tool_call_id='tc-1',
+                    ),
+                ]
+            ),
+        ]
+        read_skills: set[str] = set()
+        _prime_read_skills_from_history(messages, read_skills)
+        assert read_skills == set()
+
+    def test_collects_multiple_skills(self):
+        messages = [
+            ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        tool_name='marcel',
+                        args={'action': 'read_skill', 'name': 'icloud'},
+                        tool_call_id='tc-1',
+                    ),
+                ]
+            ),
+            ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        tool_name='marcel',
+                        args={'action': 'read_skill', 'name': 'banking'},
+                        tool_call_id='tc-2',
+                    ),
+                ]
+            ),
+        ]
+        read_skills: set[str] = set()
+        _prime_read_skills_from_history(messages, read_skills)
+        assert read_skills == {'icloud', 'banking'}
+
+    def test_preserves_existing_entries(self):
+        read_skills: set[str] = {'news'}
+        _prime_read_skills_from_history([], read_skills)
+        assert read_skills == {'news'}
 
 
 class TestExtractToolHistory:

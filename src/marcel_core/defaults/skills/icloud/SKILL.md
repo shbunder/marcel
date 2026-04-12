@@ -7,8 +7,6 @@ requires:
     - ICLOUD_APP_PASSWORD
 ---
 
-Help the user with: $ARGUMENTS
-
 You have access to the `integration` tool to interact with iCloud.
 
 ## Available commands
