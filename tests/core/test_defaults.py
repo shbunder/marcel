@@ -147,3 +147,67 @@ class TestSeedDefaults:
 
         with patch('marcel_core.defaults._DEFAULTS_DIR', defaults_dir):
             seed_defaults(data_root)  # should not raise
+
+
+class TestBrowserToWebMigration:
+    """ISSUE-072: rename `browser` skill to `web`, remove stale browser/ once."""
+
+    def test_stale_browser_dir_removed_when_web_missing(self, tmp_path):
+        defaults_dir = tmp_path / 'defaults'
+        defaults_dir.mkdir()
+        web_src = defaults_dir / 'skills' / 'web'
+        web_src.mkdir(parents=True)
+        (web_src / 'SKILL.md').write_text('# New Web Skill')
+
+        data_root = tmp_path / 'data'
+        stale_browser = data_root / 'skills' / 'browser'
+        stale_browser.mkdir(parents=True)
+        (stale_browser / 'SKILL.md').write_text('# Old Browser Skill')
+
+        with patch('marcel_core.defaults._DEFAULTS_DIR', defaults_dir):
+            seed_defaults(data_root)
+
+        assert not stale_browser.exists(), 'stale browser/ should have been removed'
+        assert (data_root / 'skills' / 'web' / 'SKILL.md').exists()
+        assert (data_root / 'skills' / 'web' / 'SKILL.md').read_text() == '# New Web Skill'
+
+    def test_migration_noop_when_web_already_exists(self, tmp_path):
+        """If web/ is already seeded, the migration should not touch anything."""
+        defaults_dir = tmp_path / 'defaults'
+        defaults_dir.mkdir()
+        web_src = defaults_dir / 'skills' / 'web'
+        web_src.mkdir(parents=True)
+        (web_src / 'SKILL.md').write_text('# New Web Skill')
+
+        data_root = tmp_path / 'data'
+        existing_web = data_root / 'skills' / 'web'
+        existing_web.mkdir(parents=True)
+        (existing_web / 'SKILL.md').write_text('# Custom Web Skill')
+        # Browser is present but migration should NOT delete it (web already exists)
+        existing_browser = data_root / 'skills' / 'browser'
+        existing_browser.mkdir(parents=True)
+        (existing_browser / 'SKILL.md').write_text('# Stale but left alone')
+
+        with patch('marcel_core.defaults._DEFAULTS_DIR', defaults_dir):
+            seed_defaults(data_root)
+
+        assert existing_browser.exists(), 'migration is a no-op when web/ already exists'
+        assert existing_web.exists()
+        assert (existing_web / 'SKILL.md').read_text() == '# Custom Web Skill'
+
+    def test_migration_noop_when_no_browser_dir(self, tmp_path):
+        """Fresh installs (no browser/) should seed web/ normally."""
+        defaults_dir = tmp_path / 'defaults'
+        defaults_dir.mkdir()
+        web_src = defaults_dir / 'skills' / 'web'
+        web_src.mkdir(parents=True)
+        (web_src / 'SKILL.md').write_text('# New Web Skill')
+
+        data_root = tmp_path / 'data'
+        data_root.mkdir()
+
+        with patch('marcel_core.defaults._DEFAULTS_DIR', defaults_dir):
+            seed_defaults(data_root)
+
+        assert (data_root / 'skills' / 'web' / 'SKILL.md').exists()
+        assert not (data_root / 'skills' / 'browser').exists()

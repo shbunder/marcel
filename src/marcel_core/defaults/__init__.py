@@ -37,6 +37,17 @@ def seed_defaults(data_root: Path) -> None:
     target_skills = data_root / 'skills'
     target_skills.mkdir(parents=True, exist_ok=True)
 
+    # ISSUE-072 migration: the `browser` skill was renamed to `web` when the
+    # browser tools were consolidated into the `web` god-tool. If an older
+    # install still has `skills/browser/` and the new `skills/web/` hasn't
+    # been seeded yet, remove the stale directory so the fresh `web/` can
+    # seed cleanly below. Idempotent — runs at most once per install.
+    legacy_browser = target_skills / 'browser'
+    new_web = target_skills / 'web'
+    if legacy_browser.is_dir() and not new_web.exists():
+        shutil.rmtree(legacy_browser)
+        log.info('Removed stale skills/browser/ (renamed to skills/web/ in ISSUE-072)')
+
     for skill_dir in sorted(src_skills.iterdir()):
         if not skill_dir.is_dir() or skill_dir.name.startswith(('_', '.')):
             continue
