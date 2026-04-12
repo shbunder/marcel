@@ -115,3 +115,23 @@ Full design detail lives in the plan file at `~/.claude/plans/zazzy-discovering-
 **Blast radius check**: existing `tests/tools/test_browser_tools.py` (48 tests) passes unchanged — browser tool implementations are still imported and called directly from `tools/browser/pydantic_tools.py`, the dispatcher only adds a routing layer on top.
 
 **Next**: Rename `defaults/skills/browser/` → `defaults/skills/web/`, rewrite SKILL.md for the dispatch syntax, add the 5-line browser→web migration to the skill seeder.
+
+### 2026-04-12 - LLM Implementation (impl #2)
+**Action**: Renamed the skill from `browser` to `web` and added a loader migration for stale installs.
+
+**Files Created**: none (directory rename)
+
+**Files Renamed**:
+- `src/marcel_core/defaults/skills/browser/` → `src/marcel_core/defaults/skills/web/`
+
+**Files Modified**:
+- `src/marcel_core/defaults/skills/web/SKILL.md` — full rewrite around the `web(action=...)` dispatch syntax. Leads with the search→navigate→interact cost/capability hierarchy, twelve-action table marking browser-only actions as playwright-dependent, explicit enumerated error contract, workflow recipes for information queries, page reading, and interactive flows. Frontmatter `name` changed from `browser` to `web`, description updated, `requires: packages: [playwright]` removed so the skill loads regardless of playwright availability (since `search` works without it).
+- `src/marcel_core/defaults/skills/web/SETUP.md` — rewrite covering both the Brave API key (primary backend) and the Playwright install (for browser actions). Either can be missing without breaking the other.
+- `src/marcel_core/defaults/__init__.py` — 5-line browser→web migration at the top of the skill seeding loop in `seed_defaults`. If `skills/web/` is missing in the data root and `skills/browser/` exists, delete the stale directory so the new `web/` seeds cleanly. Idempotent — runs at most once per install.
+- `tests/core/test_defaults.py` — 3 new tests in a `TestBrowserToWebMigration` class: stale browser/ removed when web/ missing; migration is a no-op when web/ already exists (leaves any stray browser/ alone); fresh-install path with no browser/ works normally.
+
+**Commands Run**: `make check`
+
+**Result**: 1220 passed, 0 errors, 92.91% coverage.
+
+**Next**: Write `docs/web.md`, register in `mkdocs.yml`, bump version, close the issue.
