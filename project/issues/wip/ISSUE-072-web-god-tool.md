@@ -1,6 +1,6 @@
 # ISSUE-072: Web god-tool — search + browse unified
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-12
 **Assignee:** LLM
 **Priority:** High
@@ -86,4 +86,32 @@ Full design detail lives in the plan file at `~/.claude/plans/zazzy-discovering-
 
 ## Implementation Log
 
-<!-- Append entries here when performing development work on this issue -->
+### 2026-04-12 - LLM Implementation (impl #1)
+**Action**: Built `tools/web/` package and wired the `web` god-tool into the agent, replacing 11 `browser_*` registrations with a single dispatcher. Web search ships with Brave primary + DuckDuckGo fallback; `TurnState` extended with `web_search_count` for the 5/turn rate limit.
+
+**Files Created**:
+- `src/marcel_core/tools/web/__init__.py` — package export
+- `src/marcel_core/tools/web/dispatcher.py` — `web()` function with 12-action match-dispatch, cost/capability hierarchy docstring, playwright-unavailable gate
+- `src/marcel_core/tools/web/search.py` — `run_search()` action with per-turn rate limit and error-string contract
+- `src/marcel_core/tools/web/backends.py` — `SearchBackend` protocol, `SearchResult` dataclass, `SearchBackendError`, `select_backend()` auto-selector
+- `src/marcel_core/tools/web/brave.py` — Brave Search API client with 401/429/network error mapping
+- `src/marcel_core/tools/web/duckduckgo.py` — DuckDuckGo HTML scraper (port of openclaw `ddg-client.ts` — parser, entity decoder, uddg redirect decoder, bot-challenge detector)
+- `src/marcel_core/tools/web/formatter.py` — stable text template for result output
+- `tests/tools/test_web_dispatcher.py` — 24 routing, rate-limit, and playwright-gate tests
+- `tests/tools/test_web_search_brave.py` — 11 tests for happy path, auth, clamping, 401/429/500/invalid-JSON/network errors
+- `tests/tools/test_web_search_duckduckgo.py` — 28 tests for entity decoder, HTML stripper, URL decoder, bot-challenge detector, parser, and HTTP mocks
+- `tests/tools/test_web_search_formatter.py` — 5 tests for output template
+- `tests/tools/test_web_backends.py` — 6 tests for auto-selection and env override
+
+**Files Modified**:
+- `src/marcel_core/harness/agent.py` — replaced 11 `browser_*` `agent.tool(...)` calls with a single `agent.tool(web_tool)` outside the playwright gate; removed unused `browser_is_available` import
+- `src/marcel_core/config.py` — added "Web search" settings section (`brave_api_key`, `web_search_backend`)
+- `src/marcel_core/harness/context.py` — added `web_search_count: int = 0` to `TurnState`
+
+**Commands Run**: `make check`
+
+**Result**: 1217 passed, 0 pyright errors, ruff clean, total coverage 92.90% (up from 92.75% baseline).
+
+**Blast radius check**: existing `tests/tools/test_browser_tools.py` (48 tests) passes unchanged — browser tool implementations are still imported and called directly from `tools/browser/pydantic_tools.py`, the dispatcher only adds a routing layer on top.
+
+**Next**: Rename `defaults/skills/browser/` → `defaults/skills/web/`, rewrite SKILL.md for the dispatch syntax, add the 5-line browser→web migration to the skill seeder.

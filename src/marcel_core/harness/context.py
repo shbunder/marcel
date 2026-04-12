@@ -28,6 +28,14 @@ class TurnState:
     read_skills: set[str] = dataclasses.field(default_factory=set)
     """Skills whose full docs have been loaded this turn (for auto-inject dedup)."""
 
+    web_search_count: int = 0
+    """Count of ``web(action="search")`` calls made so far this turn.
+
+    Enforced against ``MAX_SEARCHES_PER_TURN`` in the web dispatcher so a
+    runaway loop cannot burn the configured search backend's quota. Resets
+    every turn because ``TurnState`` is constructed fresh per turn.
+    """
+
     notified: bool = False
     """Set to True when the agent sends a notification via ``marcel(action="notify")``.
 

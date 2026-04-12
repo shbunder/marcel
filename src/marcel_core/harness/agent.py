@@ -19,7 +19,7 @@ from marcel_core.tools import (
     integration as integration_tools,
     marcel as marcel_tools,
 )
-from marcel_core.tools.browser import is_available as browser_is_available
+from marcel_core.tools.web import web as web_tool
 from marcel_core.tracing import get_instrumentation_settings
 
 log = logging.getLogger(__name__)
@@ -137,33 +137,11 @@ def create_marcel_agent(
         instrument=get_instrumentation_settings(),
     )
 
-    # Browser tools — available to all users when playwright is installed
-    if browser_is_available():
-        from marcel_core.tools.browser.pydantic_tools import (
-            browser_click,
-            browser_close,
-            browser_content,
-            browser_evaluate,
-            browser_navigate,
-            browser_press_key,
-            browser_screenshot,
-            browser_scroll,
-            browser_snapshot,
-            browser_tab,
-            browser_type,
-        )
-
-        agent.tool(browser_navigate)
-        agent.tool(browser_screenshot)
-        agent.tool(browser_snapshot)
-        agent.tool(browser_click)
-        agent.tool(browser_type)
-        agent.tool(browser_scroll)
-        agent.tool(browser_press_key)
-        agent.tool(browser_tab)
-        agent.tool(browser_evaluate)
-        agent.tool(browser_content)
-        agent.tool(browser_close)
+    # Web god-tool — search + browser actions unified behind one dispatcher.
+    # Always registered; the dispatcher itself returns a clean error for
+    # browser actions when playwright isn't installed, so ``search`` still
+    # works in playwright-less environments.
+    agent.tool(web_tool)
 
     if role == 'admin':
         # Full power tools — bash, file I/O, git, and Claude Code delegation
