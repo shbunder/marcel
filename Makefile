@@ -121,9 +121,39 @@ test-v2: ## Test v2 endpoint with a message (usage: make test-v2 MSG="your messa
 setup: ## Full setup: systemd units + Docker build + start (one command to rule them all)
 	@./scripts/setup.sh
 
+.PHONY: setup-check
+setup-check: ## Dry-run: verify prerequisites for setup without starting anything
+	@./scripts/setup.sh --check
+
 .PHONY: teardown
 teardown: ## Stop Marcel and remove systemd units
 	@./scripts/teardown.sh
+
+# Onboarding
+DATA_DIR ?= $(HOME)/.marcel
+
+.PHONY: add-user
+add-user: ## Create a new Marcel user (usage: make add-user USER=alice [ROLE=admin])
+	@if [ -z "$(USER)" ]; then \
+		echo -e "$(WARNING) Usage: make add-user USER=<slug> [ROLE=admin|user]"; \
+		exit 1; \
+	fi
+	@mkdir -p "$(DATA_DIR)/users/$(USER)"
+	@if [ -n "$(ROLE)" ]; then \
+		uv run python -c "from marcel_core.storage.users import set_user_role; set_user_role('$(USER)', '$(ROLE)')"; \
+		echo -e "$(INFO) User '$(USER)' created with role '$(ROLE)' at $(DATA_DIR)/users/$(USER)"; \
+	else \
+		echo -e "$(INFO) User '$(USER)' created at $(DATA_DIR)/users/$(USER)"; \
+	fi
+
+.PHONY: link-telegram
+link-telegram: ## Link a Marcel user to a Telegram chat ID (usage: make link-telegram USER=alice CHAT=123456789)
+	@if [ -z "$(USER)" ] || [ -z "$(CHAT)" ]; then \
+		echo -e "$(WARNING) Usage: make link-telegram USER=<slug> CHAT=<telegram_chat_id>"; \
+		exit 1; \
+	fi
+	@uv run python -c "from marcel_core.channels.telegram.sessions import link_user; link_user('$(USER)', '$(CHAT)')"
+	@echo -e "$(INFO) Linked user '$(USER)' to Telegram chat $(CHAT)"
 
 # Docker targets
 .PHONY: docker-build
