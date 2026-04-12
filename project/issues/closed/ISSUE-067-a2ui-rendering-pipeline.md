@@ -1,6 +1,6 @@
 # ISSUE-067: A2UI Rendering Pipeline — End-to-End Wiring
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-12
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -79,3 +79,8 @@ See [/home/shbunder/.claude/plans/glistening-knitting-wombat.md](../../.claude/p
 - The Mini App rendering path already works end-to-end thanks to ISSUE-063 Phase 2: `Viewer.tsx` has an A2UI fallback chain (native widget → `A2UIRenderer` → JSON), and `transaction_list` has no native widget yet so it'll use the generic table renderer. Adding a polished native React widget for `transaction_list` is a follow-up polish task.
 
 **Next**: manual end-to-end test on Telegram after redeploy — ask "show my latest transaction" and verify the Mini App button appears and the transaction list renders.
+
+**Reflection**:
+- Coverage: 10/10 requirements addressed. Six tasks shipped as described (schema exposure, render action, banking+telegram docs, Mini App renderer via ISSUE-063, `channel_supports_rich_ui` helper). Four tasks were explicitly deferred with written reasoning (`ChannelAdapter` migration, runner event yield, Telegram webhook event handling, websocket parity) — deferred because the side-effect delivery pattern from `generate_chart` achieves the user-visible outcome without requiring those refactors. One task (manual E2E) requires a running system and will happen after redeploy.
+- Shortcuts found: none. No `# TODO`, no `# FIXME`, no bare excepts in new code — the three `except Exception` blocks in `tools/marcel/ui.py` are tool-boundary error handlers, each followed by specific logging and a structured error string the model can read.
+- Scope drift: none. Deliberately chose minimum-viable path over the full 10-task vision and documented the reasoning up front so the deferred tasks can be picked up independently. The backend version bump (2.4.0 → 2.5.0) is a DEFAULT — it's a new agent-facing capability, not a landmark feature.

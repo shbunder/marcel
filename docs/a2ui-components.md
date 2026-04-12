@@ -72,9 +72,39 @@ Clients fetch the catalog to know what components are available:
 
 Both endpoints require authentication (Telegram initData or Bearer token).
 
-## Creating A2UI artifacts
+## Emitting components from the agent
 
-To emit A2UI content, create an artifact with `content_type: "a2ui"`:
+The primary way to render an A2UI component is the `render` action on the `marcel` tool. It validates the component against the registry, stores the payload as an artifact, and — on channels with a rich-UI frontend — delivers the component immediately (on Telegram, as a Mini App "View in app" button).
+
+```
+marcel(action="render", component="transaction_list", props={
+  "transactions": [
+    {"date": "2026-04-11", "description": "Colruyt", "amount": -42.18, "balance": 1854.22},
+    {"date": "2026-04-10", "description": "Salary", "amount": 2500.00, "balance": 1896.40}
+  ],
+  "currency": "EUR"
+})
+```
+
+The action takes:
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `component` | yes | Component name as declared in a skill's `components.yaml` |
+| `props` | yes | A dict matching the component's JSON Schema |
+| `name` | no | Optional title override (defaults to a humanized form of the component name) |
+
+It returns a short confirmation string with the artifact id, or an error message the agent can relay to the user if validation failed (e.g. unknown component name, unserializable props).
+
+### Channel gating
+
+The system prompt builder (`harness/context.py`) only advertises the A2UI component catalog to channels that can actually render it. The `channel_supports_rich_ui(channel)` helper in `channels/adapter.py` is the single source of truth — it currently returns `True` for `telegram`, `websocket`, `app`, `ios`, and `macos`, and `False` for `cli` and `job`. Text-only channels never see the `## A2UI Components` section in their prompt and therefore never call `marcel(action="render")`.
+
+When adding a new rich-UI channel, update `_RICH_UI_CHANNELS` in `channels/adapter.py` to pick up the gating automatically.
+
+### Lower-level API
+
+For in-process callers (e.g. other tools that need to produce an A2UI artifact without going through the agent), use `create_artifact` directly:
 
 ```python
 from marcel_core.storage.artifacts import create_artifact
@@ -93,7 +123,7 @@ The `content` field contains JSON-serialized props matching the component's sche
 
 ## AG-UI streaming
 
-A2UI components can be streamed in real-time via AG-UI events using the `A2UIComponent` event type:
+A2UI components can be streamed in real-time via AG-UI events using the `A2UIComponent` event type defined in `harness/runner.py`. This event type is currently reserved for a future streaming-render path and is not yielded by any existing tool — the `marcel(action="render")` action uses the side-effect delivery pattern instead (same as `generate_chart`).
 
 ```python
 from marcel_core.harness.runner import A2UIComponent
