@@ -57,6 +57,18 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     aws_region: str | None = None
 
+    # Local LLM (opt-in job fallback via OpenAI-compatible server like Ollama).
+    # Example::
+    #
+    #     MARCEL_LOCAL_LLM_URL=http://127.0.0.1:11434/v1
+    #     MARCEL_LOCAL_LLM_MODEL=qwen3.5:4b
+    #
+    # When both are set, a job with ``allow_local_fallback=True`` will re-run
+    # against ``local:<model>`` after cloud retries exhaust. See
+    # ``docs/local-llm.md`` for the full runtime setup.
+    marcel_local_llm_url: str | None = None
+    marcel_local_llm_model: str | None = None
+
     # ---------------------------------------------------------------------------
     # Browser
     # ---------------------------------------------------------------------------

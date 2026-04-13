@@ -1,6 +1,6 @@
 # ISSUE-070: Local LLM Fallback for Jobs
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-12
 **Assignee:** Unassigned
 **Priority:** Medium

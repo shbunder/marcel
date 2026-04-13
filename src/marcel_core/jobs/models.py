@@ -105,6 +105,11 @@ class JobDefinition(BaseModel):
     # pydantic-ai usage limits (None = pydantic-ai default of 50)
     request_limit: int | None = None
 
+    # Opt-in: after cloud retries exhaust, try one final run against the
+    # configured local LLM (ISSUE-070). Requires MARCEL_LOCAL_LLM_URL and
+    # MARCEL_LOCAL_LLM_MODEL to be set in the environment.
+    allow_local_fallback: bool = False
+
     # Notification
     notify: NotifyPolicy = NotifyPolicy.ON_OUTPUT
     channel: str = 'telegram'
@@ -154,3 +159,6 @@ class JobRun(BaseModel):
     agent_notified: bool = False
     delivery_status: str | None = None
     delivery_error: str | None = None
+    # Which fallback model the executor used on this run, if any.
+    # Currently only ``"local"`` or None — set by the ISSUE-070 fallback path.
+    fallback_used: str | None = None

@@ -31,16 +31,37 @@ _TRANSIENT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r'50[0-4]|server error|internal error|bad gateway|overloaded', re.I), 'server_error'),
 ]
 
+# Auth / quota / billing errors — permanent for the cloud provider (retrying
+# won't help), but a valid trigger for the local-LLM fallback path: the cloud
+# credential is broken or out of budget, not the request itself.
+_AUTH_QUOTA_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r'401|403|unauthori[sz]ed|forbidden', re.I),
+    re.compile(r'invalid api key|api key not found|authentication error', re.I),
+    re.compile(r'insufficient[_ ]quota|quota exceeded|credit balance too low|billing', re.I),
+]
+
+# Error categories the local-LLM fallback path will retry against the local
+# model. Transient cloud errors retry on the same provider first; if those
+# retries exhaust, the fallback still fires for this set. Auth/quota errors
+# fire the fallback immediately (no point retrying the same broken credential).
+FALLBACK_ELIGIBLE_CATEGORIES: frozenset[str] = frozenset(
+    {'rate_limit', 'timeout', 'network', 'server_error', 'auth_or_quota'}
+)
+
 
 def classify_error(error: str) -> tuple[bool, str]:
     """Classify an error as transient or permanent.
 
-    Returns ``(is_transient, category)``.  Category is one of the pattern
-    names above, or ``"permanent"`` for non-retryable errors.
+    Returns ``(is_transient, category)``. Category is one of the transient
+    pattern names, ``"auth_or_quota"`` for cloud auth/billing failures (not
+    transient but fallback-eligible), or ``"permanent"``.
     """
     for pattern, category in _TRANSIENT_PATTERNS:
         if pattern.search(error):
             return True, category
+    for pattern in _AUTH_QUOTA_PATTERNS:
+        if pattern.search(error):
+            return False, 'auth_or_quota'
     return False, 'permanent'
 
 
@@ -252,7 +273,12 @@ async def execute_job_with_retries(job: JobDefinition, trigger_reason: str = 'sc
     Uses exponential backoff from ``job.backoff_schedule`` and only retries
     transient errors (network, rate-limit, timeout, 5xx).  Permanent errors
     break out immediately.
+
+    If the final run is still failed/timed-out and ``job.allow_local_fallback``
+    is set, makes one final attempt against the configured local LLM
+    (``settings.marcel_local_llm_url``). See ISSUE-070.
     """
+    from marcel_core.config import settings
     from marcel_core.jobs import save_job
 
     run = await execute_job(job, trigger_reason)
@@ -279,6 +305,37 @@ async def execute_job_with_retries(job: JobDefinition, trigger_reason: str = 'sc
         await asyncio.sleep(delay)
         run = await execute_job(job, trigger_reason)
         run.retry_count = attempt
+
+    # Local-LLM fallback (ISSUE-070). Only fires when the job opted in, the
+    # local LLM is configured, and the final error category is in the
+    # fallback-eligible set. The in-memory job.model is swapped for this one
+    # call; the persisted definition is never mutated.
+    if (
+        run.status in (RunStatus.FAILED, RunStatus.TIMED_OUT)
+        and job.allow_local_fallback
+        and settings.marcel_local_llm_url
+        and settings.marcel_local_llm_model
+        and run.error_category in FALLBACK_ELIGIBLE_CATEGORIES
+    ):
+        original_model = job.model
+        fallback_model = f'local:{settings.marcel_local_llm_model}'
+        log.info(
+            '%s-job: local fallback firing for %s (%s) — category=%s cloud=%s local=%s',
+            job.user_slug,
+            job.id,
+            job.name,
+            run.error_category,
+            original_model,
+            fallback_model,
+        )
+        job.model = fallback_model
+        try:
+            fb_run = await execute_job(job, trigger_reason)
+        finally:
+            job.model = original_model
+        fb_run.retry_count = run.retry_count
+        fb_run.fallback_used = 'local'
+        run = fb_run
 
     # Update consecutive error tracking on the job definition
     if run.status in (RunStatus.FAILED, RunStatus.TIMED_OUT):

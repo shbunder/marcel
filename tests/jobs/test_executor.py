@@ -1,12 +1,17 @@
 """Tests for the job executor hardening features.
 
 Covers: transient error classification, exponential backoff delay computation,
-and timeout handling.
+timeout handling, and the ISSUE-070 local-LLM fallback path.
 """
 
 from __future__ import annotations
 
-from marcel_core.jobs.executor import classify_error
+import pytest
+
+from marcel_core.config import settings
+from marcel_core.jobs import executor as executor_module
+from marcel_core.jobs.executor import classify_error, execute_job_with_retries
+from marcel_core.jobs.models import JobDefinition, JobRun, RunStatus, TriggerSpec, TriggerType
 
 # ---------------------------------------------------------------------------
 # Transient error classification
@@ -54,10 +59,22 @@ class TestClassifyError:
         assert is_transient is True
         assert cat == 'server_error'
 
-    def test_permanent_auth(self):
+    def test_auth_quota_invalid_key(self):
+        # Auth failures are not transient (retrying won't help), but they
+        # are a valid trigger for the local-LLM fallback path (ISSUE-070).
         is_transient, cat = classify_error('Invalid API key: authentication failed')
         assert is_transient is False
-        assert cat == 'permanent'
+        assert cat == 'auth_or_quota'
+
+    def test_auth_quota_401(self):
+        is_transient, cat = classify_error('HTTP 401 Unauthorized')
+        assert is_transient is False
+        assert cat == 'auth_or_quota'
+
+    def test_auth_quota_insufficient_quota(self):
+        is_transient, cat = classify_error('insufficient_quota: credit balance too low')
+        assert is_transient is False
+        assert cat == 'auth_or_quota'
 
     def test_permanent_not_found(self):
         is_transient, cat = classify_error("Skill 'foo' not found")
@@ -149,3 +166,164 @@ class TestModelDefaults:
         assert run.delivery_status is None
         assert run.delivery_error is None
         assert run.error_category is None
+        assert run.fallback_used is None
+
+    def test_allow_local_fallback_default_off(self):
+        job = JobDefinition(
+            name='test',
+            user_slug='test',
+            trigger=TriggerSpec(type=TriggerType.ONESHOT),
+            system_prompt='test',
+            task='test',
+        )
+        assert job.allow_local_fallback is False
+
+
+# ---------------------------------------------------------------------------
+# Local LLM fallback (ISSUE-070)
+# ---------------------------------------------------------------------------
+
+
+def _make_job(**overrides: object) -> JobDefinition:
+    base: dict[str, object] = {
+        'name': 'test',
+        'user_slug': 'test',
+        'trigger': TriggerSpec(type=TriggerType.ONESHOT),
+        'system_prompt': 'prompt',
+        'task': 'task',
+        'model': 'anthropic:claude-sonnet-4-6',
+        'max_retries': 0,
+    }
+    base.update(overrides)
+    return JobDefinition.model_validate(base)
+
+
+@pytest.fixture
+def patched_side_effects(monkeypatch):
+    """Stub out ``save_job``, ``append_run``, and ``_notify_if_needed`` so tests
+    don't touch the filesystem or the network. Yields a list we can fill with
+    the fake run(s) that ``execute_job`` should return, in order."""
+
+    scripted_runs: list[JobRun] = []
+    call_log: list[str] = []
+
+    async def fake_execute_job(job, trigger_reason='scheduled'):
+        call_log.append(job.model)
+        if not scripted_runs:
+            raise AssertionError('execute_job called more times than scripted')
+        return scripted_runs.pop(0)
+
+    async def fake_notify(job, run):
+        return 'skipped', None
+
+    def fake_save_job(job):
+        return None
+
+    def fake_append_run(user_slug, job_id, run):
+        return None
+
+    monkeypatch.setattr(executor_module, 'execute_job', fake_execute_job)
+    monkeypatch.setattr(executor_module, '_notify_if_needed', fake_notify)
+    monkeypatch.setattr('marcel_core.jobs.save_job', fake_save_job, raising=False)
+    monkeypatch.setattr('marcel_core.jobs.append_run', fake_append_run, raising=False)
+    return scripted_runs, call_log
+
+
+class TestLocalFallback:
+    @pytest.mark.asyncio
+    async def test_fires_on_auth_quota_when_allowed(self, monkeypatch, patched_side_effects):
+        scripted_runs, call_log = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
+
+        # First run: cloud fails with 401 → auth_or_quota (not retried).
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='401 unauthorized', error_category='auth_or_quota')
+        )
+        # Second run (fallback): local succeeds.
+        scripted_runs.append(JobRun(job_id='x', status=RunStatus.COMPLETED, output='hello from local'))
+
+        job = _make_job(allow_local_fallback=True)
+        run = await execute_job_with_retries(job)
+
+        assert run.status == RunStatus.COMPLETED
+        assert run.output == 'hello from local'
+        assert run.fallback_used == 'local'
+        # Call sequence: cloud first, then local:*.
+        assert call_log == ['anthropic:claude-sonnet-4-6', 'local:qwen3.5:4b']
+        # Persisted model must not be mutated.
+        assert job.model == 'anthropic:claude-sonnet-4-6'
+
+    @pytest.mark.asyncio
+    async def test_not_fired_when_flag_off(self, monkeypatch, patched_side_effects):
+        scripted_runs, call_log = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
+
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='401 unauthorized', error_category='auth_or_quota')
+        )
+
+        job = _make_job(allow_local_fallback=False)
+        run = await execute_job_with_retries(job)
+
+        assert run.status == RunStatus.FAILED
+        assert run.fallback_used is None
+        assert call_log == ['anthropic:claude-sonnet-4-6']
+
+    @pytest.mark.asyncio
+    async def test_not_fired_when_local_unconfigured(self, monkeypatch, patched_side_effects):
+        scripted_runs, call_log = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', None)
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', None)
+
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='401 unauthorized', error_category='auth_or_quota')
+        )
+
+        job = _make_job(allow_local_fallback=True)
+        run = await execute_job_with_retries(job)
+
+        assert run.status == RunStatus.FAILED
+        assert run.fallback_used is None
+        assert call_log == ['anthropic:claude-sonnet-4-6']
+
+    @pytest.mark.asyncio
+    async def test_not_fired_on_permanent_error(self, monkeypatch, patched_side_effects):
+        """Permanent (non-fallback-eligible) errors should not trigger fallback."""
+        scripted_runs, call_log = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
+
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='bad arguments', error_category='permanent')
+        )
+
+        job = _make_job(allow_local_fallback=True)
+        run = await execute_job_with_retries(job)
+
+        assert run.status == RunStatus.FAILED
+        assert run.fallback_used is None
+        assert call_log == ['anthropic:claude-sonnet-4-6']
+
+    @pytest.mark.asyncio
+    async def test_fires_once_only(self, monkeypatch, patched_side_effects):
+        """If the local model ALSO fails, we don't recurse — one fallback attempt."""
+        scripted_runs, call_log = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
+
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='401 unauthorized', error_category='auth_or_quota')
+        )
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='connection refused', error_category='network')
+        )
+
+        job = _make_job(allow_local_fallback=True)
+        run = await execute_job_with_retries(job)
+
+        assert run.status == RunStatus.FAILED
+        assert run.fallback_used == 'local'
+        assert call_log == ['anthropic:claude-sonnet-4-6', 'local:qwen3.5:4b']
+        assert len(scripted_runs) == 0  # both scripted runs consumed

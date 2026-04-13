@@ -8,7 +8,11 @@ from __future__ import annotations
 import logging
 
 from pydantic_ai import Agent
+from pydantic_ai.models import Model
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
+from marcel_core.config import settings
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.jobs import tool as job_tools
 from marcel_core.tools import (
@@ -22,6 +26,11 @@ from marcel_core.tools.web import web as web_tool
 from marcel_core.tracing import get_instrumentation_settings
 
 log = logging.getLogger(__name__)
+
+# Prefix for local (self-hosted, OpenAI-compatible) models. Strings of the
+# shape ``local:<ollama_tag>`` are intercepted in :func:`create_marcel_agent`
+# and routed to ``settings.marcel_local_llm_url`` via ``OpenAIChatModel``.
+_LOCAL_PREFIX = 'local:'
 
 # Suggested models shown by list_models. Keys are pydantic-ai qualified strings
 # (``provider:model``); values are human-readable display names. This is a
@@ -41,8 +50,42 @@ DEFAULT_MODEL = 'anthropic:claude-sonnet-4-6'
 
 
 def all_models() -> dict[str, str]:
-    """Return the curated list of suggested models for list_models UX."""
-    return dict(KNOWN_MODELS)
+    """Return the curated list of suggested models for list_models UX.
+
+    When ``marcel_local_llm_url`` and ``marcel_local_llm_model`` are both set,
+    the local model is appended so the picker surfaces it. Otherwise the
+    suggestion stays hidden to avoid pointing users at a broken route.
+    """
+    models = dict(KNOWN_MODELS)
+    if settings.marcel_local_llm_url and settings.marcel_local_llm_model:
+        key = f'{_LOCAL_PREFIX}{settings.marcel_local_llm_model}'
+        models[key] = f'Local — {settings.marcel_local_llm_model} (self-hosted)'
+    return models
+
+
+def _build_local_model(model_string: str) -> OpenAIChatModel:
+    """Resolve a ``local:<tag>`` string to a configured ``OpenAIChatModel``.
+
+    Pydantic-ai doesn't know about a ``local`` provider, so we substitute an
+    ``OpenAIChatModel`` instance pointed at ``settings.marcel_local_llm_url``
+    before handing it to ``Agent()``. The tag after ``local:`` is the ollama
+    model name (e.g. ``qwen3.5:4b``) which may itself contain a colon — we
+    only split off the leading ``local:`` prefix.
+
+    Raises:
+        RuntimeError: If ``marcel_local_llm_url`` is not configured.
+    """
+    if not settings.marcel_local_llm_url:
+        raise RuntimeError(
+            f'Model {model_string!r} requires a local LLM server, but '
+            'MARCEL_LOCAL_LLM_URL is not set. See docs/local-llm.md for setup.'
+        )
+    tag = model_string[len(_LOCAL_PREFIX) :]
+    if not tag:
+        raise RuntimeError(f'Empty local model tag in {model_string!r}.')
+    provider = OpenAIProvider(base_url=settings.marcel_local_llm_url, api_key='ollama')
+    log.info('resolving local model: tag=%s base_url=%s', tag, settings.marcel_local_llm_url)
+    return OpenAIChatModel(tag, provider=provider)
 
 
 def create_marcel_agent(
@@ -59,8 +102,10 @@ def create_marcel_agent(
     Args:
         model: Fully-qualified pydantic-ai model string, e.g.
                ``'anthropic:claude-sonnet-4-6'`` or ``'openai:gpt-4o'``.
-               Passed verbatim to ``Agent()``; pydantic-ai handles provider
-               dispatch and credential lookup.
+               The special prefix ``'local:<tag>'`` routes to the self-hosted
+               OpenAI-compatible server at ``settings.marcel_local_llm_url``
+               (used by the job local-fallback path — see ISSUE-070). All
+               other strings pass through to ``Agent()`` verbatim.
         system_prompt: The system prompt string (must be provided).
         role: The user's role — ``'admin'`` or ``'user'``.
 
@@ -70,8 +115,14 @@ def create_marcel_agent(
     if not system_prompt:
         system_prompt = 'You are Marcel, a helpful AI assistant.'
 
+    model_arg: str | Model
+    if model.startswith(_LOCAL_PREFIX):
+        model_arg = _build_local_model(model)
+    else:
+        model_arg = model
+
     agent: Agent[MarcelDeps, str] = Agent(
-        model,
+        model_arg,
         deps_type=MarcelDeps,
         instructions=system_prompt,
         retries=2,
