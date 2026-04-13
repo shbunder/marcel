@@ -1,6 +1,6 @@
 # ISSUE-073: Simplify Model Routing via Pydantic-AI Native `provider:model` Strings
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-13
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -45,8 +45,8 @@
 - [✓] Fix [src/marcel_core/memory/extract.py](../../../src/marcel_core/memory/extract.py#L25): `_EXTRACTOR_MODEL = 'anthropic:claude-haiku-4-5-20251001'`
 - [✓] Fix [src/marcel_core/memory/summarizer.py](../../../src/marcel_core/memory/summarizer.py#L39): `SUMMARIZATION_MODEL = 'anthropic:claude-haiku-4-5-20251001'`
 - [✓] Update any tests referencing unqualified short model names to use qualified form
-- [ ] Run `make check` — format, lint, typecheck, tests all green
-- [ ] Manual smoke test: redeploy via `request_restart()`, verify default model turn succeeds, set an off-registry qualified model and verify it works without code changes, verify old unqualified `settings.json` self-heals
+- [✓] Run `make check` — format, lint, typecheck, tests all green (1226 passed)
+- [ ] Manual smoke test: redeploy via `request_restart()`, verify default model turn succeeds, set an off-registry qualified model and verify it works without code changes, verify old unqualified `settings.json` self-heals — **deferred to user**: requires live deploy with real credentials; cannot be executed from the planning environment
 
 ## Relationships
 _(none)_
@@ -77,8 +77,18 @@ _(none)_
 - `project/lessons-learned.md` — Retired the old registry-as-dispatch pattern; added ISSUE-073 retrospective.
 - `project/issues/open/ISSUE-070-local-llm-fallback.md` — Task list rewritten to match the post-073 architecture (no more `_resolve_model_string` hook; `create_marcel_agent` intercept for `local:*` strings instead).
 
-**Commands Run:** pending `make check`.
+**Commands Run:** `make check` → 1226 passed, 0 failures, 92.89% coverage. `uv lock` → marcel v2.7.0 → v2.8.0.
 
-**Result:** Code change complete; awaiting green build and manual smoke test.
+**Result:** Code change complete, tests green. Manual smoke test deferred to user (requires live deploy with real API credentials).
 
-**Next:** Run `make check`, then smoke test via `request_restart()`.
+**Reflection:**
+- **Coverage:** 8/9 requirements fully addressed. The one `[ ]` item is the manual smoke test, which can only run against a live deployment — left for the user to exercise after `request_restart()`.
+- **Shortcuts found:** None. No `# TODO` / `# FIXME` / `# HACK` introduced. No bare `except:`. No hardcoded magic values — defaults are exported constants.
+- **Scope drift:** Slightly positive. Discovered and fixed three pre-existing silent bugs (memory agents passing bare `claude-haiku-4-5-20251001` strings to pydantic-ai `Agent()` — they were malformed and only worked by accident). Fix was in-scope per the original "memory agents become valid" line in the resolved intent, so this is intentional, not drift.
+- **Interface change:** The user-facing `marcel(action="set_model", name=...)` format went from `"channel:model"` to `"channel:provider:model"`. This is a break in the human-facing command syntax, but the help text, SKILL.md examples, and error messages all guide users to the new form. Old `settings.json` files auto-heal on load, so no data migration is needed.
+
+### 2026-04-13 14:25 - Closing
+
+- Versions bumped: `marcel_core.__version__` 2.7.0 → 2.8.0, `pyproject.toml` 2.7.0 → 2.8.0, `src/marcel_cli/Cargo.toml` 0.2.0 → 0.3.0, `uv.lock` synced.
+- Docs updated: `README.md` (supported-models table rewritten to qualified strings + "any pydantic-ai model works" note), `SETUP.md`, `docs/cli.md`, `docs/jobs.md`.
+- Lessons captured in `project/lessons-learned.md` under the ISSUE-073 heading.

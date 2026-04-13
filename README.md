@@ -8,7 +8,7 @@
 
 # 🦒 Marcel
 
-Meet Marcel, your friendly family Giraffe. Marcel is very smart 🤓 and can help with all kinds of tasks, from doing homework 🗒️ for the kids to alerting parents that rent is due 💰. Marcel can help with planning activities 📆 or warn you that you have dinner with the in-laws this Friday 😱. Don't ask Marcel to do the dishes though, he's lazy and well... he has no body. Marcel is there to help the family, because, let's be honest, would you really trust these task to a lobster 🦞?
+Meet Marcel, your friendly family Giraffe. Marcel is very smart 🤓 and can help with all kinds of tasks, from doing homework 🗒️ for the kids to alerting parents that rent is due 💰. Marcel can help with planning activities 📆 or warn you that you have dinner with the in-laws this Friday 😱. Don't ask Marcel to do the dishes though, he's lazy and well... he has no body. Marcel is there to help the family, because, let's be honest, would you really trust these tasks to a lobster 🦞?
 
 Can Marcel really do all of the above? Depends... Marcel is mainly a hobby project to test the limits of vibe-coding and agentic-design.
 The main goal of this project is to envision how a truly helpful AI assistent for a household would look like. Secondary this author wants to see how he can safely expose AI technology to his young children. And lastly we want to make the system spouse-proof, which is a challenge on its own. 
@@ -127,17 +127,26 @@ A few choices shape everything else:
 
 ### Supported models
 
-Marcel selects a provider automatically based on which credentials are present: AWS Bedrock (if `AWS_REGION` is set) → OpenAI for GPT/o-series models (if `OPENAI_API_KEY`) → Anthropic direct (if `ANTHROPIC_API_KEY`). Per-channel model preference is stored per user, so Alice can run Sonnet on Telegram while Shaun runs Opus in the CLI.
+Model identifiers are pydantic-ai-native `provider:model` strings, passed
+verbatim to the agent. Pydantic-ai handles provider dispatch and reads the
+matching credential from the environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+AWS credentials, etc.). Per-channel model preference is stored per user, so
+Alice can run Sonnet on Telegram while Shaun runs Opus in the CLI.
 
-| Model ID | Display name | Provider |
-|----------|--------------|----------|
-| `claude-sonnet-4-6` *(default)* | Claude Sonnet 4.6 — fast, recommended | Anthropic / Bedrock |
-| `claude-opus-4-6` | Claude Opus 4.6 — most capable | Anthropic / Bedrock |
-| `claude-haiku-4-5-20251001` | Claude Haiku 4.5 — used for memory/summary background tasks | Anthropic / Bedrock |
-| `gpt-4o`, `gpt-4o-mini` | GPT-4o family | OpenAI |
-| `o1`, `o3-mini` | Reasoning models | OpenAI |
+| Model ID | Display name |
+|----------|--------------|
+| `anthropic:claude-sonnet-4-6` *(default)* | Claude Sonnet 4.6 — fast, recommended |
+| `anthropic:claude-opus-4-6` | Claude Opus 4.6 — most capable |
+| `anthropic:claude-haiku-4-5-20251001` | Claude Haiku 4.5 — used for memory/summary background tasks |
+| `openai:gpt-4o`, `openai:gpt-4o-mini` | GPT-4o family |
+| `openai:o1`, `openai:o3-mini` | Reasoning models |
 
-The full catalog is declared in [src/marcel_core/harness/agent.py](src/marcel_core/harness/agent.py) — add an entry there to teach Marcel about a new model. The full architectural overview (module layout, agent loop, WebSocket protocol) lives in [docs/architecture.md](docs/architecture.md).
+The table above is a curated suggestion list; **any** pydantic-ai-supported
+`provider:model` string works without a code change — `anthropic:`, `openai:`,
+`bedrock:`, `groq:`, `mistral:`, `google-gla:`, `ollama:`, and more. The
+display registry lives in [src/marcel_core/harness/agent.py](src/marcel_core/harness/agent.py).
+The full architectural overview (module layout, agent loop, WebSocket protocol)
+lives in [docs/architecture.md](docs/architecture.md).
 
 ## Development
 
@@ -151,3 +160,7 @@ make check          # format, lint, typecheck, test
 ## License
 
 [MIT](LICENSE)
+
+# Footnote
+
+If you have read all the way to here, I want to note I have nothing against lobsters 🦞! They are jummy and have provided a good source of inspiration. 

@@ -35,7 +35,7 @@ Marcel reads its configuration from `~/.marcel/config.toml`. If the file does no
 host = "localhost"
 port = 7420
 user = "alice"
-model = "claude-sonnet-4-6"
+model = "anthropic:claude-sonnet-4-6"
 token = ""
 ```
 
@@ -166,7 +166,7 @@ Typing `/` opens a suggestion dropdown above the input. Use `Up`/`Down` to navig
 | `/export [path]` | Export conversation to markdown file (default: `marcel-export.md`) |
 | `/help` | Show available commands |
 | `/memory` | Show Marcel's memory (requires server) |
-| `/model [name]` | Show or set the current model (`/model claude-opus-4-6`) |
+| `/model [name]` | Show or set the current model (`/model anthropic:claude-opus-4-6`) |
 | `/new` | Start a new conversation (clears chat, resets cost) |
 | `/reconnect` | Reconnect to the Marcel server |
 | `/resume <id>` | Resume a specific conversation by ID |

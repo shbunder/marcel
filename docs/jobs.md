@@ -32,7 +32,7 @@ The core model. Defines what a job does and when it runs.
 | `trigger` | `TriggerSpec` | When/how the job fires |
 | `system_prompt` | `str` | Instructions for the job agent |
 | `task` | `str` | The "user message" the agent receives |
-| `model` | `str` | Model to use (default: `claude-haiku-4-5-20251001`) |
+| `model` | `str` | Fully-qualified pydantic-ai model (default: `anthropic:claude-haiku-4-5-20251001`) |
 | `notify` | `NotifyPolicy` | When to notify the user |
 | `status` | `JobStatus` | `active`, `paused`, or `disabled` |
 | `timeout_seconds` | `int` | Max seconds before the job is killed (default: 600) |
@@ -130,7 +130,7 @@ TEMPLATES['my_template'] = {
     'system_prompt': 'Instructions for the job agent...',
     'task_template': 'Do {thing} and report results.',
     'notify': 'on_output',
-    'model': 'claude-haiku-4-5-20251001',
+    'model': 'anthropic:claude-haiku-4-5-20251001',
 }
 ```
 

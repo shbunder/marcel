@@ -231,5 +231,5 @@ host  = "192.168.1.50"       # Marcel server address
 port  = 7420                 # Server port
 user  = "alice"              # Your user slug
 token = ""                   # API token (must match MARCEL_API_TOKEN)
-model = "claude-sonnet-4-6"  # AI model to use
+model = "anthropic:claude-sonnet-4-6"  # Fully-qualified pydantic-ai model
 ```
