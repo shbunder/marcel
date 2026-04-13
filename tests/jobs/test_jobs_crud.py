@@ -69,6 +69,44 @@ class TestSaveLoad:
         assert loaded is not None
         assert loaded.name == 'renamed'
 
+    def test_load_migrates_legacy_unqualified_model(self, tmp_path):
+        """Pre-ISSUE-073 job.json files with unqualified model names self-heal."""
+        import json
+
+        from marcel_core.jobs import _job_dir, load_job
+
+        # Build a minimal legacy job.json with an unqualified model string.
+        job_dir = _job_dir('alice', 'legacy-job-id')
+        job_dir.mkdir(parents=True, exist_ok=True)
+        legacy = {
+            'id': 'legacy-job-id',
+            'name': 'legacy',
+            'user_slug': 'alice',
+            'trigger': {'type': 'interval', 'interval_seconds': 3600},
+            'system_prompt': 'do stuff',
+            'task': 'run stuff',
+            'model': 'claude-haiku-4-5-20251001',
+        }
+        (job_dir / 'job.json').write_text(json.dumps(legacy), encoding='utf-8')
+
+        loaded = load_job('alice', 'legacy-job-id')
+        assert loaded is not None
+        assert loaded.model == 'anthropic:claude-haiku-4-5-20251001'
+
+        # File was rewritten — re-load should be idempotent.
+        rewritten = json.loads((job_dir / 'job.json').read_text(encoding='utf-8'))
+        assert rewritten['model'] == 'anthropic:claude-haiku-4-5-20251001'
+
+    def test_load_leaves_qualified_model_unchanged(self):
+        """Already-qualified strings (incl. ``local:*``) pass through untouched."""
+        from marcel_core.jobs import load_job, save_job
+
+        job = _make_job(model='local:qwen3.5:4b')
+        save_job(job)
+        loaded = load_job('alice', job.id)
+        assert loaded is not None
+        assert loaded.model == 'local:qwen3.5:4b'
+
 
 # ---------------------------------------------------------------------------
 # Listing

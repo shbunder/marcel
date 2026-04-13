@@ -42,15 +42,29 @@ def save_job(job: JobDefinition) -> None:
 
 
 def load_job(user_slug: str, job_id: str) -> JobDefinition | None:
-    """Load a single job definition, or *None* if it doesn't exist."""
+    """Load a single job definition, or *None* if it doesn't exist.
+
+    Self-heals legacy unqualified model names (pre-ISSUE-073): if the stored
+    ``model`` lacks a ``:`` provider prefix, ``anthropic:`` is prepended and the
+    file is rewritten. Every pre-073 stored value was Anthropic, so this is
+    safe. Local ``local:*`` strings are left alone because they already
+    contain a colon.
+    """
     path = _job_dir(user_slug, job_id) / 'job.json'
     if not path.exists():
         return None
     try:
-        return JobDefinition.model_validate_json(path.read_text(encoding='utf-8'))
+        job = JobDefinition.model_validate_json(path.read_text(encoding='utf-8'))
     except Exception:
         log.exception('Failed to load job %s for user %s', job_id, user_slug)
         return None
+
+    if ':' not in job.model:
+        old = job.model
+        job.model = f'anthropic:{old}'
+        log.info('Migrated legacy model name for job %s: %s → %s', job_id, old, job.model)
+        save_job(job)
+    return job
 
 
 def list_jobs(user_slug: str) -> list[JobDefinition]:
