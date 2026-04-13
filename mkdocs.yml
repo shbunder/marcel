@@ -15,6 +15,7 @@ nav:
   - Skills: skills.md
   - Web Tool: web.md
   - Jobs: jobs.md
+  - Local LLM: local-llm.md
   - CLI: cli.md
   - Integrations:
     - Banking: integration-banking.md
