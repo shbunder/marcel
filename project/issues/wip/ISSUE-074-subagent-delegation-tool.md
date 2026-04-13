@@ -1,6 +1,6 @@
 # ISSUE-074: Subagent Delegation Tool
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-13
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -81,4 +81,25 @@ Deep feasibility investigation completed before the issue was written. Key findi
 - Effort estimate: ~3 days for v1 (loader + tool + filter + tests + docs), skipping fork/worktree/teams.
 
 ## Implementation Log
-<!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-13 - Claude (scope refinement at start of impl)
+**Decision:** Cut background delegation and `parent_job_id` from v1. Rationale:
+- Sync delegation is the minimum that proves the architecture. Background mode adds scheduler integration + ephemeral-job plumbing for no user-visible benefit when there is no caller yet.
+- Keeping v1 small lets a follow-up issue iterate on observability with real usage data instead of guessed requirements.
+- A delegated subagent can still spawn long-running work by calling `create_job` from within its own run, so the door stays open.
+
+The original `jobs/executor.py` reuse turned out to be unnecessary for v1: since there is no persisted `JobDefinition` for an inline delegation, going through `execute_job` means fighting its append-to-runs.jsonl side effects. The sync path instead builds a fresh pydantic-ai `Agent` directly, runs it with usage limits, and returns the output — smaller surface, no entanglement.
+
+**v1 scope (final):**
+- Agent markdown loader + `AgentDoc` dataclass under `src/marcel_core/agents/`
+- Two default agents seeded to `<data_root>/agents/` (explore, plan)
+- `tool_filter` parameter on `create_marcel_agent()`
+- `delegate` tool (sync only), admin-only, recursion guard by default (delegate not in subagent tool pool unless explicitly listed)
+- Unit + integration tests, docs/subagents.md
+
+**Deferred to follow-up issue:**
+- Background delegation path (schedule oneshot job + return job_id)
+- `parent_job_id` field on `JobRun` for delegation-tree reconstruction
+- Fork mode (inherit parent context)
+- Worktree / remote isolation
+- Agent teams / `SendMessage`

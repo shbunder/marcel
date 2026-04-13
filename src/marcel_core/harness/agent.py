@@ -19,6 +19,7 @@ from marcel_core.tools import (
     charts as chart_tools,
     claude_code as claude_code_tool,
     core as core_tools,
+    delegate as delegate_tool,
     integration as integration_tools,
     marcel as marcel_tools,
 )
@@ -88,16 +89,72 @@ def _build_local_model(model_string: str) -> OpenAIChatModel:
     return OpenAIChatModel(tag, provider=provider)
 
 
+# Name ↔ tool function mapping used by the registration loop below. Keeping
+# this as a single source of truth makes it trivial for ``tool_filter`` (and
+# the ``delegate`` tool's agent frontmatter) to reference tools by stable
+# short names like ``'bash'`` or ``'read_file'`` without knowing which module
+# they live in. Ordering here is the ordering they get registered in when no
+# filter is applied.
+#
+# Entries are ``(name, callable, role_required)`` where ``role_required`` is
+# either ``'admin'`` (restricted) or ``None`` (available to every role).
+_TOOL_REGISTRY: list[tuple[str, object, str | None]] = [
+    # Web: search + browser actions unified behind one dispatcher. Always
+    # available — the dispatcher returns a clean error for browser actions
+    # when playwright isn't installed, so ``search`` still works bare.
+    ('web', web_tool, None),
+    # Admin power tools
+    ('bash', core_tools.bash, 'admin'),
+    ('read_file', core_tools.read_file, 'admin'),
+    ('write_file', core_tools.write_file, 'admin'),
+    ('edit_file', core_tools.edit_file, 'admin'),
+    ('git_status', core_tools.git_status, 'admin'),
+    ('git_diff', core_tools.git_diff, 'admin'),
+    ('git_log', core_tools.git_log, 'admin'),
+    ('git_add', core_tools.git_add, 'admin'),
+    ('git_commit', core_tools.git_commit, 'admin'),
+    ('git_push', core_tools.git_push, 'admin'),
+    ('claude_code', claude_code_tool.claude_code, 'admin'),
+    ('delegate', delegate_tool.delegate, 'admin'),
+    # All-user tools
+    ('generate_chart', chart_tools.generate_chart, None),
+    ('integration', integration_tools.integration, None),
+    ('marcel', marcel_tools.marcel, None),
+    # Job management
+    ('create_job', job_tools.create_job, None),
+    ('list_jobs', job_tools.list_jobs, None),
+    ('get_job', job_tools.get_job, None),
+    ('update_job', job_tools.update_job, None),
+    ('delete_job', job_tools.delete_job, None),
+    ('run_job_now', job_tools.run_job_now, None),
+    ('job_templates', job_tools.job_templates, None),
+    ('job_cache_write', job_tools.job_cache_write, None),
+    ('job_cache_read', job_tools.job_cache_read, None),
+]
+
+
+def available_tool_names(role: str) -> set[str]:
+    """Return the set of tool names a given role can normally access.
+
+    Used by the ``delegate`` tool (ISSUE-074) to compute the default pool
+    for a subagent when its frontmatter omits ``tools:``, so the recursion
+    guard and any ``disallowed_tools`` can be applied on top.
+    """
+    return {name for name, _fn, required in _TOOL_REGISTRY if required is None or required == role}
+
+
 def create_marcel_agent(
     model: str = DEFAULT_MODEL,
     system_prompt: str = '',
     role: str = 'user',
+    tool_filter: set[str] | None = None,
 ) -> Agent[MarcelDeps, str]:
     """Create a configured Marcel agent with a role-appropriate tool set.
 
-    Admin users receive the full suite of power tools (bash, file I/O, git, claude_code).
-    Regular users receive only integration and the unified marcel utils tool — enough
-    for a household assistant without exposing arbitrary shell access.
+    Admin users receive the full suite of power tools (bash, file I/O, git,
+    claude_code, delegate). Regular users receive only integration and the
+    unified marcel utils tool — enough for a household assistant without
+    exposing arbitrary shell access.
 
     Args:
         model: Fully-qualified pydantic-ai model string, e.g.
@@ -108,6 +165,12 @@ def create_marcel_agent(
                other strings pass through to ``Agent()`` verbatim.
         system_prompt: The system prompt string (must be provided).
         role: The user's role — ``'admin'`` or ``'user'``.
+        tool_filter: If provided, only tools whose names appear in this set
+            are registered. Used by ``delegate`` (ISSUE-074) to build
+            constrained subagents. Role-gated tools (admin-only) still
+            respect the role check — an explicit request for ``bash`` in a
+            ``user`` role subagent is silently dropped. When ``None``, the
+            default role-based pool is used.
 
     Returns:
         Configured pydantic-ai Agent instance.
@@ -130,43 +193,23 @@ def create_marcel_agent(
         instrument=get_instrumentation_settings(),
     )
 
-    # Web god-tool — search + browser actions unified behind one dispatcher.
-    # Always registered; the dispatcher itself returns a clean error for
-    # browser actions when playwright isn't installed, so ``search`` still
-    # works in playwright-less environments.
-    agent.tool(web_tool)
+    registered: list[str] = []
+    for name, fn, required_role in _TOOL_REGISTRY:
+        # Role gate — admin-only tools are always stripped for non-admin agents,
+        # even if the caller explicitly allowlists them via ``tool_filter``.
+        if required_role == 'admin' and role != 'admin':
+            continue
+        # Name gate — when a filter is supplied, drop anything not in it.
+        if tool_filter is not None and name not in tool_filter:
+            continue
+        agent.tool(fn)  # type: ignore[arg-type]
+        registered.append(name)
 
-    if role == 'admin':
-        # Full power tools — bash, file I/O, git, and Claude Code delegation
-        agent.tool(core_tools.bash)
-        agent.tool(core_tools.read_file)
-        agent.tool(core_tools.write_file)
-        agent.tool(core_tools.edit_file)
-        agent.tool(core_tools.git_status)
-        agent.tool(core_tools.git_diff)
-        agent.tool(core_tools.git_log)
-        agent.tool(core_tools.git_add)
-        agent.tool(core_tools.git_commit)
-        agent.tool(core_tools.git_push)
-        agent.tool(claude_code_tool.claude_code)
-
-    # Chart/image generation — available to all users
-    agent.tool(chart_tools.generate_chart)
-
-    # All users get integration dispatch and the unified marcel utils tool
-    agent.tool(integration_tools.integration)
-    agent.tool(marcel_tools.marcel)
-
-    # Job management tools
-    agent.tool(job_tools.create_job)
-    agent.tool(job_tools.list_jobs)
-    agent.tool(job_tools.get_job)
-    agent.tool(job_tools.update_job)
-    agent.tool(job_tools.delete_job)
-    agent.tool(job_tools.run_job_now)
-    agent.tool(job_tools.job_templates)
-    agent.tool(job_tools.job_cache_write)
-    agent.tool(job_tools.job_cache_read)
-
-    log.info('agent ready: model=%s role=%s', model, role)
+    log.info(
+        'agent ready: model=%s role=%s tools=%s%s',
+        model,
+        role,
+        len(registered),
+        ' (filtered)' if tool_filter is not None else '',
+    )
     return agent

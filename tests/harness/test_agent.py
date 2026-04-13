@@ -11,6 +11,7 @@ from marcel_core.harness.agent import (
     KNOWN_MODELS,
     _build_local_model,
     all_models,
+    available_tool_names,
     create_marcel_agent,
 )
 
@@ -134,6 +135,86 @@ class TestLocalModelBranch:
             role='user',
         )
         assert agent is not None
+
+
+class TestAvailableToolNames:
+    """The ``available_tool_names`` helper backs the delegate tool's default pool."""
+
+    def test_user_pool_excludes_admin_tools(self):
+        names = available_tool_names('user')
+        assert 'bash' not in names
+        assert 'git_commit' not in names
+        assert 'delegate' not in names
+        assert 'claude_code' not in names
+        # User-visible tools are still there
+        assert 'web' in names
+        assert 'marcel' in names
+
+    def test_admin_pool_includes_power_tools(self):
+        names = available_tool_names('admin')
+        assert 'bash' in names
+        assert 'read_file' in names
+        assert 'delegate' in names
+        assert 'claude_code' in names
+
+
+def _registered_tool_names(agent) -> set[str]:
+    """Introspect the tool names registered on a pydantic-ai Agent.
+
+    Uses ``_function_toolset.tools`` — not part of pydantic-ai's public API
+    but stable enough for test assertions. If this breaks on upgrade, the
+    fix is a one-liner.
+    """
+    return set(agent._function_toolset.tools.keys())
+
+
+class TestToolFilter:
+    """ISSUE-074: ``tool_filter`` restricts which tools a created agent exposes."""
+
+    def test_filter_none_registers_full_role_pool(self):
+        agent = create_marcel_agent(system_prompt='t', role='admin')
+        names = _registered_tool_names(agent)
+        # Admin should get the full pool including the power tools
+        assert 'bash' in names
+        assert 'read_file' in names
+        assert 'delegate' in names
+        assert 'web' in names
+
+    def test_empty_filter_registers_no_tools(self):
+        agent = create_marcel_agent(system_prompt='t', role='admin', tool_filter=set())
+        assert _registered_tool_names(agent) == set()
+
+    def test_filter_restricts_to_exact_allowlist(self):
+        agent = create_marcel_agent(
+            system_prompt='t',
+            role='admin',
+            tool_filter={'web', 'read_file'},
+        )
+        assert _registered_tool_names(agent) == {'web', 'read_file'}
+
+    def test_role_gate_beats_allowlist(self):
+        """A user-role agent can never get admin tools, even if allowlisted.
+
+        This is the guarantee that prevents a crafted agent markdown file
+        from escalating a user-role subagent to shell access.
+        """
+        agent = create_marcel_agent(
+            system_prompt='t',
+            role='user',
+            tool_filter={'bash', 'claude_code', 'delegate', 'web'},
+        )
+        # Only ``web`` survives because the admin-only tools are stripped
+        # regardless of allowlist content.
+        assert _registered_tool_names(agent) == {'web'}
+
+    def test_user_role_default_pool_has_no_admin_tools(self):
+        agent = create_marcel_agent(system_prompt='t', role='user')
+        names = _registered_tool_names(agent)
+        assert 'bash' not in names
+        assert 'delegate' not in names
+        assert 'claude_code' not in names
+        assert 'marcel' in names
+        assert 'integration' in names
 
 
 class TestAllModelsLocalEntry:
