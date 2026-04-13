@@ -61,16 +61,31 @@ Lessons captured after completed issues. Referenced at the start of new feature 
 
 ### What worked well
 - Stashing changes to verify pre-existing typecheck errors before blaming our code — confirmed 18 errors existed before, our changes reduced to 15
-- Putting the canonical model registry (`ANTHROPIC_MODELS`, `OPENAI_MODELS`, `DEFAULT_MODEL`) in `agent.py` means all layers (runner, integration handlers, SKILL.md) import from one place
 - The `_load_settings` / `_save_settings` split with `atomic_write` follows existing storage module patterns perfectly; easy to extend settings later
 
 ### What to do differently
 - OAuth exploration added significant code that then had to be cleanly deleted; if API keys were available from the start the detour would have been skipped
+- **The `ANTHROPIC_MODELS` / `OPENAI_MODELS` / `_resolve_model_string` registry (added here) was removed in ISSUE-073** — it duplicated provider-selection logic that pydantic-ai already does natively via `provider:model` strings. A curated registry is fine for UX, but it shouldn't double as the dispatch layer.
 
 ### Patterns to reuse
 - Per-user JSON settings at `~/.marcel/users/{slug}/settings.json` via `atomic_write` is the right pattern for lightweight user preferences that don't warrant a full DB
 - Integration handler pattern: `@register("settings.action")` + `async def fn(params: dict, user_slug: str) -> str` — clean, discoverable, testable in isolation
-- Model resolution priority chain in `_create_anthropic_model`: AWS_REGION > OPENAI (for OpenAI models) > ANTHROPIC_API_KEY > OPENAI_API_KEY — explicit ordering beats implicit detection
+
+---
+
+## ISSUE-073: Simplify model routing via pydantic-ai native `provider:model` strings (2026-04-13)
+
+### What worked well
+- Deleting code beats maintaining it: `_resolve_model_string` + `_BEDROCK_MODEL_MAP` + dual `ANTHROPIC_MODELS` / `OPENAI_MODELS` registries (~60 loc) collapsed to one `KNOWN_MODELS` dict used only for display labels.
+- **Self-healing settings migration** in `_load_settings`: detect unqualified legacy values (`no ':' in model`), prepend `anthropic:`, rewrite the file transparently. No migration script, no version flag, no cutover window.
+- Shape-only validation (`':' in value`) turns "add a new model" from a code change into a zero-touch config change — any pydantic-ai-supported `provider:model` works immediately.
+
+### What to do differently
+- Memory agents (`selector.py`, `extract.py`, `summarizer.py`) were passing **unqualified** model names directly to `Agent()` for months — they only worked because pydantic-ai tolerated the legacy short form. If we'd had a test that instantiated them against a known-strict pydantic-ai version, we'd have caught this earlier. Lesson: mock-free integration-shape tests on model string validity are cheap and catch silent drift.
+
+### Patterns to reuse
+- **Trust the framework**: before writing an abstraction layer on top of a library, check whether the library already does what you need. Pydantic-ai's `provider:model` dispatch predated the routing layer we built; we just hadn't used it.
+- **Shape validation > whitelist validation** when the whitelist is the thing preventing extensibility. Save the registry for UX, use shape-only checks at the enforcement boundary.
 
 ---
 

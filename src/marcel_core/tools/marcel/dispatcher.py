@@ -49,13 +49,13 @@ async def marcel(
       notify               Send a progress update to the user (message= required).
       list_models          List all available AI models.
       get_model            Get the current model for a channel (name= required, pass channel name).
-      set_model            Set the model for a channel (name= required as "channel:model", e.g. "telegram:claude-opus-4-6").
+      set_model            Set the model for a channel (name= required as "channel:provider:model", e.g. "telegram:anthropic:claude-opus-4-6").
       render               Render an A2UI component (component= required, props= required as dict matching the component schema).
 
     Args:
         ctx: Agent context with user and conversation info.
         action: The action to perform (see above).
-        name: Skill name for read_skill; filename for save_memory; channel name for get_model; "channel:model" for set_model; optional title for render.
+        name: Skill name for read_skill; filename for save_memory; channel name for get_model; "channel:provider:model" for set_model; optional title for render.
         query: Search query for search_memory / search_conversations.
         message: Progress message for notify; file content for save_memory.
         type_filter: Optional memory type filter for search_memory.

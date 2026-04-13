@@ -181,10 +181,10 @@ class TestStreamTurn:
             return _make_mock_agent(['hi'])
 
         with patch('marcel_core.harness.runner.create_marcel_agent', side_effect=_capture_create):
-            async for _ in stream_turn('shaun', 'cli', 'hi', 'conv-1', model='gpt-4o'):
+            async for _ in stream_turn('shaun', 'cli', 'hi', 'conv-1', model='openai:gpt-4o'):
                 pass
 
-        assert captured_model[0] == 'gpt-4o'
+        assert captured_model[0] == 'openai:gpt-4o'
 
 
 # ---------------------------------------------------------------------------

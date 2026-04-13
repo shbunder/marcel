@@ -45,7 +45,9 @@ async def set_model(params: dict, user_slug: str) -> str:
 
     Params:
         channel: The channel to update (e.g. 'telegram', 'cli').
-        model:   The model name to use (must be in the available models list).
+        model:   Fully-qualified pydantic-ai model string
+                 (e.g. 'anthropic:claude-sonnet-4-6', 'openai:gpt-4o').
+                 Any pydantic-ai-supported provider:model is accepted.
     """
     channel = params.get('channel', '')
     model = params.get('model', '')
@@ -55,11 +57,15 @@ async def set_model(params: dict, user_slug: str) -> str:
     if not model:
         return 'Error: model parameter is required'
 
-    available = all_models()
-    if model not in available:
-        model_list = ', '.join(available.keys())
-        return f'Error: unknown model {model!r}. Available: {model_list}'
+    if ':' not in model:
+        return (
+            f'Error: model {model!r} must be fully qualified as "provider:model" '
+            '(e.g. "anthropic:claude-sonnet-4-6", "openai:gpt-4o").'
+        )
+    provider, model_id = model.split(':', 1)
+    if not provider.strip() or not model_id.strip():
+        return f'Error: model {model!r} must have non-empty provider and model halves.'
 
     save_channel_model(user_slug, channel, model)
-    display_name = available[model]
+    display_name = all_models().get(model, '(off-registry)')
     return f'Model for {channel} set to {model} ({display_name})'

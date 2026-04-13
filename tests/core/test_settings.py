@@ -25,32 +25,32 @@ def test_load_returns_none_when_no_settings():
 
 
 def test_save_and_load_roundtrip():
-    save_channel_model('shaun', 'telegram', 'claude-opus-4-6')
-    assert load_channel_model('shaun', 'telegram') == 'claude-opus-4-6'
+    save_channel_model('shaun', 'telegram', 'anthropic:claude-opus-4-6')
+    assert load_channel_model('shaun', 'telegram') == 'anthropic:claude-opus-4-6'
 
 
 def test_channels_are_independent():
-    save_channel_model('shaun', 'telegram', 'claude-opus-4-6')
-    save_channel_model('shaun', 'cli', 'gpt-4o')
-    assert load_channel_model('shaun', 'telegram') == 'claude-opus-4-6'
-    assert load_channel_model('shaun', 'cli') == 'gpt-4o'
+    save_channel_model('shaun', 'telegram', 'anthropic:claude-opus-4-6')
+    save_channel_model('shaun', 'cli', 'openai:gpt-4o')
+    assert load_channel_model('shaun', 'telegram') == 'anthropic:claude-opus-4-6'
+    assert load_channel_model('shaun', 'cli') == 'openai:gpt-4o'
 
 
 def test_users_are_independent():
-    save_channel_model('shaun', 'telegram', 'claude-opus-4-6')
-    save_channel_model('other', 'telegram', 'gpt-4o')
-    assert load_channel_model('shaun', 'telegram') == 'claude-opus-4-6'
-    assert load_channel_model('other', 'telegram') == 'gpt-4o'
+    save_channel_model('shaun', 'telegram', 'anthropic:claude-opus-4-6')
+    save_channel_model('other', 'telegram', 'openai:gpt-4o')
+    assert load_channel_model('shaun', 'telegram') == 'anthropic:claude-opus-4-6'
+    assert load_channel_model('other', 'telegram') == 'openai:gpt-4o'
 
 
 def test_update_overwrites_previous():
-    save_channel_model('shaun', 'telegram', 'claude-opus-4-6')
-    save_channel_model('shaun', 'telegram', 'claude-haiku-4-5-20251001')
-    assert load_channel_model('shaun', 'telegram') == 'claude-haiku-4-5-20251001'
+    save_channel_model('shaun', 'telegram', 'anthropic:claude-opus-4-6')
+    save_channel_model('shaun', 'telegram', 'anthropic:claude-haiku-4-5-20251001')
+    assert load_channel_model('shaun', 'telegram') == 'anthropic:claude-haiku-4-5-20251001'
 
 
 def test_settings_file_created_in_user_dir(tmp_path: pathlib.Path):
-    save_channel_model('shaun', 'cli', 'gpt-4o')
+    save_channel_model('shaun', 'cli', 'openai:gpt-4o')
     settings_file = tmp_path / 'users' / 'shaun' / 'settings.json'
     assert settings_file.exists()
 
@@ -73,8 +73,8 @@ async def test_list_models_returns_all_models():
     from marcel_core.skills.integrations.settings import list_models
 
     result = await list_models({}, 'shaun')
-    assert 'claude-sonnet-4-6' in result
-    assert 'gpt-4o' in result
+    assert 'anthropic:claude-sonnet-4-6' in result
+    assert 'openai:gpt-4o' in result
 
 
 @pytest.mark.asyncio
@@ -90,9 +90,9 @@ async def test_get_model_returns_default_when_unset():
 async def test_get_model_returns_saved_preference():
     from marcel_core.skills.integrations.settings import get_model
 
-    save_channel_model('shaun', 'telegram', 'claude-opus-4-6')
+    save_channel_model('shaun', 'telegram', 'anthropic:claude-opus-4-6')
     result = await get_model({'channel': 'telegram'}, 'shaun')
-    assert 'claude-opus-4-6' in result
+    assert 'anthropic:claude-opus-4-6' in result
 
 
 @pytest.mark.asyncio
@@ -107,17 +107,33 @@ async def test_get_model_missing_channel_returns_error():
 async def test_set_model_saves_preference():
     from marcel_core.skills.integrations.settings import set_model
 
-    result = await set_model({'channel': 'telegram', 'model': 'claude-opus-4-6'}, 'shaun')
-    assert 'claude-opus-4-6' in result
-    assert load_channel_model('shaun', 'telegram') == 'claude-opus-4-6'
+    result = await set_model({'channel': 'telegram', 'model': 'anthropic:claude-opus-4-6'}, 'shaun')
+    assert 'anthropic:claude-opus-4-6' in result
+    assert load_channel_model('shaun', 'telegram') == 'anthropic:claude-opus-4-6'
 
 
 @pytest.mark.asyncio
-async def test_set_model_rejects_unknown_model():
+async def test_set_model_rejects_unqualified_model():
+    """Unqualified (no provider: prefix) model strings are rejected — pydantic-ai
+    requires ``provider:model``."""
     from marcel_core.skills.integrations.settings import set_model
 
-    result = await set_model({'channel': 'telegram', 'model': 'not-a-real-model'}, 'shaun')
+    result = await set_model({'channel': 'telegram', 'model': 'claude-opus-4-6'}, 'shaun')
     assert 'Error' in result
+    assert 'fully qualified' in result
+
+
+@pytest.mark.asyncio
+async def test_set_model_accepts_off_registry_qualified_model():
+    """Any qualified ``provider:model`` is accepted — the registry is advisory."""
+    from marcel_core.skills.integrations.settings import set_model
+
+    result = await set_model(
+        {'channel': 'telegram', 'model': 'anthropic:claude-3-5-sonnet-latest'},
+        'shaun',
+    )
+    assert 'Error' not in result
+    assert load_channel_model('shaun', 'telegram') == 'anthropic:claude-3-5-sonnet-latest'
 
 
 @pytest.mark.asyncio
@@ -127,5 +143,19 @@ async def test_set_model_missing_params_returns_error():
     result = await set_model({'channel': 'telegram'}, 'shaun')
     assert 'Error' in result
 
-    result = await set_model({'model': 'claude-opus-4-6'}, 'shaun')
+    result = await set_model({'model': 'anthropic:claude-opus-4-6'}, 'shaun')
     assert 'Error' in result
+
+
+def test_self_healing_migration_qualifies_legacy_names(tmp_path: pathlib.Path):
+    """Legacy unqualified names stored pre-ISSUE-073 get ``anthropic:`` prepended."""
+    import json
+
+    settings_path = tmp_path / 'users' / 'shaun' / 'settings.json'
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps({'channel_models': {'telegram': 'claude-opus-4-6'}}))
+
+    assert load_channel_model('shaun', 'telegram') == 'anthropic:claude-opus-4-6'
+    # file was rewritten
+    rewritten = json.loads(settings_path.read_text())
+    assert rewritten['channel_models']['telegram'] == 'anthropic:claude-opus-4-6'

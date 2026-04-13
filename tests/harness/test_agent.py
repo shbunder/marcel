@@ -1,15 +1,12 @@
-"""Tests for harness/agent.py — model selection and agent creation."""
+"""Tests for harness/agent.py — model registry and agent creation."""
 
 from __future__ import annotations
 
 import pytest
 
-from marcel_core.config import settings
 from marcel_core.harness.agent import (
-    ANTHROPIC_MODELS,
     DEFAULT_MODEL,
-    OPENAI_MODELS,
-    _resolve_model_string,
+    KNOWN_MODELS,
     all_models,
     create_marcel_agent,
 )
@@ -20,58 +17,32 @@ class TestAllModels:
         result = all_models()
         assert isinstance(result, dict)
 
-    def test_contains_anthropic_and_openai(self):
+    def test_is_a_copy(self):
+        """Callers mutating the result must not corrupt the canonical registry."""
         result = all_models()
-        for key in ANTHROPIC_MODELS:
-            assert key in result
-        for key in OPENAI_MODELS:
-            assert key in result
+        result['bogus:model'] = 'should not leak'
+        assert 'bogus:model' not in KNOWN_MODELS
 
+    def test_default_model_is_qualified(self):
+        assert ':' in DEFAULT_MODEL
+        provider, _, model = DEFAULT_MODEL.partition(':')
+        assert provider and model
 
-class TestResolveModelString:
-    def test_uses_bedrock_when_aws_region_set(self, monkeypatch):
-        monkeypatch.setattr(settings, 'aws_region', 'eu-west-1')
-        result = _resolve_model_string('claude-sonnet-4-6')
-        assert result.startswith('bedrock:')
-
-    def test_uses_anthropic_api_key_when_set(self, monkeypatch):
-        monkeypatch.setattr(settings, 'aws_region', None)
-        monkeypatch.setattr(settings, 'anthropic_api_key', 'sk-ant-test')
-        monkeypatch.setattr(settings, 'openai_api_key', None)
-        result = _resolve_model_string('claude-sonnet-4-6')
-        assert result == 'anthropic:claude-sonnet-4-6'
-
-    def test_uses_openai_for_openai_model(self, monkeypatch):
-        monkeypatch.setattr(settings, 'aws_region', None)
-        monkeypatch.setattr(settings, 'anthropic_api_key', None)
-        monkeypatch.setattr(settings, 'openai_api_key', 'sk-oai-test')
-        result = _resolve_model_string('gpt-4o')
-        assert result == 'openai:gpt-4o'
-
-    def test_raises_when_no_api_key(self, monkeypatch):
-        monkeypatch.setattr(settings, 'aws_region', None)
-        monkeypatch.setattr(settings, 'anthropic_api_key', None)
-        monkeypatch.setattr(settings, 'openai_api_key', None)
-        with pytest.raises(RuntimeError, match='No API key'):
-            _resolve_model_string('claude-sonnet-4-6')
-
-    def test_openai_fallback_when_openai_key_only(self, monkeypatch):
-        monkeypatch.setattr(settings, 'aws_region', None)
-        monkeypatch.setattr(settings, 'anthropic_api_key', None)
-        monkeypatch.setattr(settings, 'openai_api_key', 'sk-oai-test')
-        # Anthropic model with only openai key → falls through to openai fallback
-        result = _resolve_model_string('claude-sonnet-4-6')
-        assert result.startswith('openai:')
+    def test_known_models_are_all_qualified(self):
+        for key in KNOWN_MODELS:
+            assert ':' in key, f'{key!r} must be fully qualified provider:model'
 
 
 class TestCreateMarcelAgent:
-    """Test agent creation — pydantic-ai reads ANTHROPIC_API_KEY from os.environ directly."""
+    """Agent creation passes the model string straight to pydantic-ai.
+
+    Pydantic-ai reads the provider credential (e.g. ``ANTHROPIC_API_KEY``)
+    from ``os.environ`` based on the ``provider:`` prefix.
+    """
 
     @pytest.fixture(autouse=True)
     def fake_api_key(self, monkeypatch):
         monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-ant-test-fake')
-        monkeypatch.setattr(settings, 'aws_region', None)
-        monkeypatch.setattr(settings, 'anthropic_api_key', 'sk-ant-test-fake')
 
     def test_creates_user_agent(self):
         agent = create_marcel_agent(system_prompt='You are a test assistant.', role='user')
@@ -81,15 +52,14 @@ class TestCreateMarcelAgent:
         agent = create_marcel_agent(system_prompt='You are a test assistant.', role='admin')
         assert agent is not None
 
-    def test_strips_provider_prefix(self):
+    def test_accepts_explicit_qualified_model(self):
         agent = create_marcel_agent(
-            model=f'anthropic:{DEFAULT_MODEL}',
+            model='anthropic:claude-sonnet-4-6',
             system_prompt='Test',
             role='user',
         )
         assert agent is not None
 
     def test_default_system_prompt_used_when_empty(self):
-        # Should not raise even with empty system_prompt
         agent = create_marcel_agent(system_prompt='', role='user')
         assert agent is not None

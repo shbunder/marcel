@@ -221,7 +221,7 @@ class TestMarcelSettings:
     async def test_list_models_returns_models(self):
         result = await marcel(_ctx(), 'list_models')
         assert 'Available models' in result
-        assert 'claude-sonnet-4-6' in result
+        assert 'anthropic:claude-sonnet-4-6' in result
 
     @pytest.mark.asyncio
     async def test_get_model_defaults_to_current_channel(self):
@@ -236,15 +236,26 @@ class TestMarcelSettings:
     @pytest.mark.asyncio
     async def test_set_model_valid(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        result = await marcel(_ctx(), 'set_model', name='telegram:claude-sonnet-4-6')
+        result = await marcel(_ctx(), 'set_model', name='telegram:anthropic:claude-sonnet-4-6')
         assert 'telegram' in result
-        assert 'claude-sonnet-4-6' in result
+        assert 'anthropic:claude-sonnet-4-6' in result
 
     @pytest.mark.asyncio
-    async def test_set_model_unknown_model(self):
-        result = await marcel(_ctx(), 'set_model', name='telegram:nonexistent-model')
+    async def test_set_model_rejects_unqualified(self):
+        result = await marcel(_ctx(), 'set_model', name='telegram:claude-sonnet-4-6')
         assert 'Error' in result
-        assert 'unknown model' in result
+        assert 'fully qualified' in result
+
+    @pytest.mark.asyncio
+    async def test_set_model_accepts_off_registry(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        result = await marcel(
+            _ctx(),
+            'set_model',
+            name='telegram:anthropic:claude-3-5-sonnet-latest',
+        )
+        assert 'Error' not in result
+        assert 'anthropic:claude-3-5-sonnet-latest' in result
 
     @pytest.mark.asyncio
     async def test_set_model_missing_colon(self):

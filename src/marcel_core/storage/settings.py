@@ -36,10 +36,22 @@ def _load_settings(user_slug: str) -> UserSettings:
         return UserSettings()
     try:
         raw = json.loads(path.read_text(encoding='utf-8'))
-        return UserSettings.model_validate(raw)
+        data = UserSettings.model_validate(raw)
     except (OSError, json.JSONDecodeError, ValueError):
         log.warning('Could not read settings for user %s; returning defaults', user_slug)
         return UserSettings()
+
+    # Self-heal legacy unqualified model names (pre-ISSUE-073). Every pre-073
+    # stored name was Anthropic, so prepend ``anthropic:`` and rewrite the file.
+    migrated = False
+    for channel, model in list(data.channel_models.items()):
+        if ':' not in model:
+            data.channel_models[channel] = f'anthropic:{model}'
+            migrated = True
+    if migrated:
+        log.info('Migrated legacy unqualified model names for user=%s', user_slug)
+        _save_settings(user_slug, data)
+    return data
 
 
 def _save_settings(user_slug: str, data: UserSettings) -> None:
@@ -67,7 +79,8 @@ def save_channel_model(user_slug: str, channel: str, model: str) -> None:
     Args:
         user_slug: The user's short identifier.
         channel: The channel name.
-        model: The model name to store (e.g. ``"claude-sonnet-4-6"``).
+        model: Fully-qualified pydantic-ai model string
+            (e.g. ``"anthropic:claude-sonnet-4-6"``, ``"openai:gpt-4o"``).
     """
     settings = _load_settings(user_slug)
     settings.channel_models[channel] = model

@@ -147,7 +147,7 @@ def _ensure_default_jobs() -> None:
                 'Report a brief summary. If any warnings were returned, include them.'
             ),
             task='Run banking.sync to sync all linked bank accounts. Report the results.',
-            model='claude-haiku-4-5-20251001',
+            model='anthropic:claude-haiku-4-5-20251001',
             skills=['banking.sync', 'banking.balance'],
             notify=NotifyPolicy.ON_FAILURE,
             channel='telegram',

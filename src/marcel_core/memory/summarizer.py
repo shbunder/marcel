@@ -36,7 +36,7 @@ from marcel_core.memory.history import HistoryMessage
 log = logging.getLogger(__name__)
 
 # Summarization model (fast and cheap).
-SUMMARIZATION_MODEL = 'claude-haiku-4-5-20251001'
+SUMMARIZATION_MODEL = 'anthropic:claude-haiku-4-5-20251001'
 
 # Circuit breaker: max consecutive failures before disabling.
 MAX_SUMMARIZATION_FAILURES = 3

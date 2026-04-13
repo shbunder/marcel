@@ -78,7 +78,8 @@ class MarcelDeps:
     """The originating channel: 'cli', 'telegram', 'app', 'ios', 'websocket'."""
 
     model: str | None = None
-    """Optional model override (e.g., 'claude-opus-4-6', 'gpt-4')."""
+    """Optional model override — fully-qualified pydantic-ai string
+    (e.g. ``'anthropic:claude-opus-4-6'``, ``'openai:gpt-4o'``)."""
 
     role: str = 'user'
     """The user's role: 'admin' or 'user'."""

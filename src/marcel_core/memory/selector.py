@@ -39,7 +39,7 @@ If none are relevant, return an empty array: []
 
 Return ONLY the JSON array, no other text."""
 
-_SELECTOR_MODEL = 'claude-haiku-4-5-20251001'
+_SELECTOR_MODEL = 'anthropic:claude-haiku-4-5-20251001'
 
 # Maximum memories to select per query
 MAX_SELECTED = 8

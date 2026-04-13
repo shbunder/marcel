@@ -33,7 +33,7 @@ fn default_user() -> String {
     String::new()
 }
 fn default_model() -> String {
-    "claude-sonnet-4-6".into()
+    "anthropic:claude-sonnet-4-6".into()
 }
 
 impl Default for Config {

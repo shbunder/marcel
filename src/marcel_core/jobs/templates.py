@@ -21,7 +21,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         ),
         'task_template': 'Run {skill} now and report the results.',
         'notify': 'on_failure',
-        'model': 'claude-haiku-4-5-20251001',
+        'model': 'anthropic:claude-haiku-4-5-20251001',
     },
     'check': {
         'description': 'Check a condition and optionally alert the user.',
@@ -34,7 +34,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         ),
         'task_template': 'Check: {condition}. If true, notify the user: {alert_message}',
         'notify': 'on_output',
-        'model': 'claude-haiku-4-5-20251001',
+        'model': 'anthropic:claude-haiku-4-5-20251001',
     },
     'scrape': {
         'description': 'Scrape a website for new content on a schedule.',
@@ -48,7 +48,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         ),
         'task_template': 'Scrape {url} for new articles/content. {extra_instructions}',
         'notify': 'silent',
-        'model': 'claude-haiku-4-5-20251001',
+        'model': 'anthropic:claude-haiku-4-5-20251001',
     },
     'digest': {
         'description': 'Compose a digest message from multiple sources.',
@@ -62,7 +62,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         ),
         'task_template': 'Compose a {digest_type} digest. Sources: {sources}',
         'notify': 'always',
-        'model': 'claude-sonnet-4-6',
+        'model': 'anthropic:claude-sonnet-4-6',
     },
 }
 

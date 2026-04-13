@@ -70,7 +70,7 @@ create_job(
     cron="0 7 * * *",
     system_prompt="You are Marcel's morning digest composer. Gather information and compose a single, well-formatted morning message. Use marcel(action='notify', message='...') to send it.",
     template="digest",
-    model="claude-sonnet-4-6",
+    model="anthropic:claude-sonnet-4-6",
     notify="always",
     skills=["icloud.calendar"]
 )
@@ -86,7 +86,8 @@ create_job(
 
 ## Tips
 
-- Use `claude-haiku-4-5-20251001` for simple tasks (sync, check) to minimize cost
-- Use `claude-sonnet-4-6` for tasks requiring reasoning (digests, summaries)
+- Use `anthropic:claude-haiku-4-5-20251001` for simple tasks (sync, check) to minimize cost
+- Use `anthropic:claude-sonnet-4-6` for tasks requiring reasoning (digests, summaries)
+- Any pydantic-ai-supported model works — e.g. `openai:gpt-4o-mini` for cheap reasoning
 - Jobs with `notify: "on_output"` only message the user when there's something to say — ideal for monitors
 - Combine related tasks into a single digest job rather than chaining many small ones

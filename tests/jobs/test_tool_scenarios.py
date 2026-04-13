@@ -141,7 +141,7 @@ class TestJobLifecycle:
                 status='paused',
                 cron='0 8 * * *',
                 notify='silent',
-                model='claude-opus-4-6',
+                model='anthropic:claude-opus-4-6',
                 timeout_minutes=20.0,
                 task='new task',
                 system_prompt='new prompt',

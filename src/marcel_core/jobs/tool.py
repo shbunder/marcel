@@ -60,7 +60,8 @@ async def create_job(
         after_job: Job ID that triggers this job (for event triggers).
         timezone: IANA timezone for cron expressions (e.g. "Europe/Brussels"). If not set, cron runs in UTC.
         notify: Notification policy: "always", "on_failure", "on_output", "silent".
-        model: Model to use (default: claude-haiku-4-5-20251001).
+        model: Fully-qualified pydantic-ai model string
+            (default: ``anthropic:claude-haiku-4-5-20251001``).
         channel: Notification channel (default: telegram).
         skills: List of skill names the job uses (documentation only).
         timeout_minutes: Max minutes the job can run before being killed (default: 10).
@@ -91,7 +92,7 @@ async def create_job(
         trigger=trigger,
         system_prompt=system_prompt,
         task=task,
-        model=model or 'claude-haiku-4-5-20251001',
+        model=model or 'anthropic:claude-haiku-4-5-20251001',
         skills=skills or [],
         notify=notify_policy,
         channel=channel or 'telegram',

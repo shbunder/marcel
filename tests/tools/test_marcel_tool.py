@@ -359,17 +359,18 @@ class TestSettings:
         assert 'Error' in result
 
     @pytest.mark.asyncio
-    async def test_set_model_unknown_model(self):
+    async def test_set_model_rejects_unqualified(self):
+        """Legacy short names without a provider: prefix are rejected."""
         result = await marcel(_ctx(), action='set_model', name='telegram:nonexistent-model')
         assert 'Error' in result
-        assert 'unknown model' in result
+        assert 'fully qualified' in result
 
     @pytest.mark.asyncio
     async def test_set_model_success(self):
         from marcel_core.harness.agent import all_models
 
         models = all_models()
-        model_id = next(iter(models))  # pick first available
+        model_id = next(iter(models))  # pick first available — already qualified
 
         result = await marcel(_ctx(), action='set_model', name=f'telegram:{model_id}')
         assert 'set to' in result

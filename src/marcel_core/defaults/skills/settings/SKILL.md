@@ -29,11 +29,12 @@ marcel(action="get_model")
 ### set_model
 
 Set the preferred model for a channel. The choice is saved and persists across sessions.
-Pass `name` as `"channel:model"`.
+Pass `name` as `"channel:provider:model"` — the model is a fully-qualified
+pydantic-ai string (any pydantic-ai-supported provider:model is accepted).
 
 ```
-marcel(action="set_model", name="telegram:claude-opus-4-6")
-marcel(action="set_model", name="cli:gpt-4o")
+marcel(action="set_model", name="telegram:anthropic:claude-opus-4-6")
+marcel(action="set_model", name="cli:openai:gpt-4o")
 ```
 
 ## Usage patterns

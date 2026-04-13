@@ -97,7 +97,7 @@ class JobDefinition(BaseModel):
     # Execution — the job's "brain"
     system_prompt: str
     task: str
-    model: str = 'claude-haiku-4-5-20251001'
+    model: str = 'anthropic:claude-haiku-4-5-20251001'
 
     # Skills the job needs — full docs + credentials are auto-injected into the prompt
     skills: list[str] = Field(default_factory=list)

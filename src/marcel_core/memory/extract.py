@@ -22,7 +22,7 @@ from marcel_core.storage.memory import (
 
 log = logging.getLogger(__name__)
 
-_EXTRACTOR_MODEL = 'claude-haiku-4-5-20251001'
+_EXTRACTOR_MODEL = 'anthropic:claude-haiku-4-5-20251001'
 
 _EXTRACT_SYSTEM_PROMPT = """\
 You are a memory extraction agent for Marcel, a personal assistant. Your job is \
