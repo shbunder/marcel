@@ -14,7 +14,13 @@ import logging
 from pydantic_ai import RunContext
 
 from marcel_core.harness.context import MarcelDeps
-from marcel_core.tools.browser.manager import _build_aria_selector, build_snapshot, take_screenshot
+from marcel_core.tools.browser.manager import (
+    _build_aria_selector,
+    _is_sparse_snapshot,
+    build_snapshot,
+    extract_readable,
+    take_screenshot,
+)
 from marcel_core.tools.browser.security import is_url_allowed
 
 log = logging.getLogger(__name__)
@@ -50,7 +56,9 @@ async def browser_navigate(ctx: RunContext[MarcelDeps], url: str) -> str:
     """Navigate to a URL and return the page title and accessibility snapshot.
 
     Use this to open web pages. The snapshot shows interactive elements with
-    ref numbers you can use with browser_click/browser_type.
+    ref numbers you can use with browser_click/browser_type. When the a11y
+    tree is sparse (React/Next.js/Vue SPAs), a Trafilatura-extracted
+    "Readable content" block is automatically appended.
     """
     allowed, reason = is_url_allowed(url, _get_allowlist())
     if not allowed:
@@ -61,12 +69,54 @@ async def browser_navigate(ctx: RunContext[MarcelDeps], url: str) -> str:
     try:
         page = await mgr.get_active_page(key)
         await page.goto(url, timeout=_get_timeout(), wait_until='domcontentloaded')
+
+        # Bounded, best-effort waits for React/Next.js/Vue hydration. Each
+        # swallows its own timeout — navigate never fails because of a wait.
+        # networkidle is bounded short because modern SPAs rarely idle.
+        try:
+            await page.wait_for_load_state('networkidle', timeout=3000)
+        except Exception:
+            pass
+        try:
+            await page.wait_for_function(
+                'document.body && document.body.innerText.length > 200',
+                timeout=2000,
+            )
+        except Exception:
+            pass
+
         title = await page.title()
         snapshot_text, ref_map = await build_snapshot(page)
         mgr.set_ref_map(key, ref_map)
-        return f'Navigated to: {title}\nURL: {page.url}\n\n{snapshot_text}'
+
+        result = f'Navigated to: {title}\nURL: {page.url}\n\n{snapshot_text}'
+
+        if _is_sparse_snapshot(snapshot_text):
+            readable = await extract_readable(page)
+            result += f'\n\nReadable content:\n{readable}'
+
+        return result
     except Exception as exc:
         return f'Error: Navigation failed — {exc}'
+
+
+async def browser_read(ctx: RunContext[MarcelDeps]) -> str:
+    """Return the current page's readable prose as markdown.
+
+    Uses Trafilatura on the hydrated DOM — the primitive to reach for when
+    browser_snapshot returns an empty/sparse accessibility tree (React,
+    Next.js, Vue, and similar JS-heavy SPAs). Prefer this over
+    browser_content when you want the article text and not raw HTML.
+    """
+    mgr = _get_manager()
+    key = _session_key(ctx)
+    try:
+        page = await mgr.get_active_page(key)
+        title = await page.title()
+        readable = await extract_readable(page)
+        return f'Page: {title}\nURL: {page.url}\n\n{readable}'
+    except Exception as exc:
+        return f'Error: Read failed — {exc}'
 
 
 async def browser_screenshot(

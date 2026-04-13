@@ -1,6 +1,6 @@
 # ISSUE-075: Browser — improve JavaScript-heavy site handling
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-13
 **Assignee:** Unassigned
 **Priority:** Medium

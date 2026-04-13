@@ -8,7 +8,7 @@ description: Search and browse the web — find information, navigate pages, rea
 You have three increasingly powerful (and costly) primitives. **Pick the cheapest one that does the job.**
 
 1. **`web(action="search")`** — first resort for any information-gathering query: *"what is"*, *"latest on"*, *"current state of"*, *"who/when/where"*. Stateless, no JavaScript, fast. **Always cite the result URLs in your reply** so the user can verify.
-2. **`web(action="navigate")` + `web(action="content")` / `web(action="evaluate")`** — read a specific URL you already have, typically from a search result. Handles JavaScript.
+2. **`web(action="navigate")` + `web(action="read")` / `web(action="content")` / `web(action="evaluate")`** — read a specific URL you already have, typically from a search result. Handles JavaScript. `navigate` already auto-appends a `Readable content:` block when the a11y snapshot is sparse, so one call is usually enough. Reach for `read` explicitly when you want *only* the prose or after an interaction hydrated new content.
 3. **`web(action="click" / "type" / "scroll" / "press_key")`** — interactive flows: login, form filling, multi-step wizards. Stateful browser session.
 
 **Never end a turn on a forward-looking stub** like *"let me try a different approach"* without calling a tool. If every option fails, report the failure plainly so the user can redirect you.
@@ -22,8 +22,9 @@ One tool, twelve actions, dispatched by the `action` argument — same shape as 
 | Action | Purpose | Required args | Needs playwright |
 |--------|---------|---------------|:---:|
 | `search` | Search the web, return ranked results (title, URL, snippet). Rate-limited to 5/turn. | `query` | — |
-| `navigate` | Open a URL, return page title + accessibility snapshot | `url` | ✓ |
+| `navigate` | Open a URL, return page title + accessibility snapshot (+ readable content if sparse) | `url` | ✓ |
 | `snapshot` | Re-read the current page's accessibility tree with `[ref]` numbers | — | ✓ |
+| `read` | Return the current page as readable markdown prose (Trafilatura) — use on JS-heavy SPAs | — | ✓ |
 | `screenshot` | Visual PNG of the current page (expensive — use only when layout matters) | — | ✓ |
 | `click` | Click an element. Prefer `ref` from snapshot. | `ref` *or* `selector` *or* `x,y` | ✓ |
 | `type` | Type text into an input | `text` + `ref` *or* `selector` | ✓ |
@@ -63,9 +64,10 @@ Cite at least one of the result URLs in your reply.
 
 ```
 web(action="navigate", url="https://...")   # returns title + snapshot
-# If the snapshot is empty (SPA/JS-heavy):
-web(action="evaluate", script="document.body.innerText.slice(0, 5000)")
-# Or for structured data:
+                                            # (auto-appends Readable content on sparse/SPA pages)
+# If you want prose only, or need to re-read after an interaction:
+web(action="read")
+# For structured data extraction, go straight to a DOM query:
 web(action="evaluate", script="[...document.querySelectorAll('h2 a')].map(a => ({t: a.textContent.trim(), h: a.href}))")
 ```
 
@@ -111,6 +113,6 @@ You can then `web(action="click", ref=4)` to click Sign In, or `web(action="type
 - **Search first, browse second.** For any *"what's happening with X"* query, start with `web(action="search")`. You'll get ranked results in one round-trip. Only use `navigate` when a specific result needs full-page context.
 - **Always cite result URLs.** Users need to be able to verify your claims — include at least one URL from the search results in your reply.
 - **Close the session when done** with `web(action="close")` to free resources.
-- **When `snapshot` returns "(Could not read page accessibility tree)"**, the page is JS-heavy. Use `web(action="evaluate", script="...")` with a DOM query to extract what you need, or `web(action="content")` to read the raw HTML.
+- **JS-heavy sites (React, Next.js, Vue).** `navigate` already handles most of them automatically: after hydration, if the a11y snapshot comes back sparse, a `Readable content:` block is appended via Trafilatura. If you need a fresh readable view after clicking/typing, call `web(action="read")`. Only reach for `evaluate` when you need *structured* data (href attributes, dataset values) rather than prose — and `content` (raw HTML) is the last-resort fallback.
 - **Multi-step flows** (login, form filling): snapshot after each step to confirm the page state.
 - **Navigation to private networks** (localhost, 10.x, 192.168.x, etc.) is blocked for security.

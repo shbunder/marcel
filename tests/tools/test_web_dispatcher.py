@@ -240,6 +240,20 @@ class TestBrowserDispatch:
         assert result == 'snap'
 
     @pytest.mark.asyncio
+    async def test_read_routes(self):
+        with (
+            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch(
+                'marcel_core.tools.web.dispatcher._browser_read',
+                new_callable=AsyncMock,
+                return_value='readable markdown',
+            ) as mock_read,
+        ):
+            result = await web(_ctx(), action='read')
+        assert result == 'readable markdown'
+        mock_read.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_close_routes(self):
         with (
             patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),

@@ -19,6 +19,7 @@ from marcel_core.tools.browser.pydantic_tools import (
     browser_evaluate,
     browser_navigate,
     browser_press_key,
+    browser_read,
     browser_screenshot,
     browser_scroll,
     browser_snapshot,
@@ -52,6 +53,8 @@ def _mock_manager():
     page.locator.return_value.first = AsyncMock()
     page.locator.return_value.first.click = AsyncMock()
     page.locator.return_value.first.fill = AsyncMock()
+    page.wait_for_load_state = AsyncMock()
+    page.wait_for_function = AsyncMock()
 
     mgr.get_active_page = AsyncMock(return_value=page)
     mgr.set_ref_map = MagicMock()
@@ -71,12 +74,20 @@ def mock_browser():
         patch(
             'marcel_core.tools.browser.pydantic_tools.build_snapshot',
             new_callable=AsyncMock,
-            return_value=('Snapshot text', {1: {'role': 'button', 'name': 'Submit'}}),
+            return_value=(
+                '[1] main\n[2] heading "Snapshot text"\n[3] button "Submit"\n[4] link "Home"\n[5] textbox\n[6] paragraph',
+                {1: {'role': 'button', 'name': 'Submit'}},
+            ),
         ),
         patch(
             'marcel_core.tools.browser.pydantic_tools.take_screenshot',
             new_callable=AsyncMock,
             return_value='base64encodedpng',
+        ),
+        patch(
+            'marcel_core.tools.browser.pydantic_tools.extract_readable',
+            new_callable=AsyncMock,
+            return_value='# Extracted\n\nReadable markdown body.',
         ),
     ):
         yield mgr, page
@@ -93,6 +104,8 @@ class TestBrowserNavigate:
         result = await browser_navigate(_ctx(), 'https://example.com')
         assert 'Test Page' in result
         assert 'Snapshot text' in result
+        # Healthy snapshot — no readable-content fallback appended.
+        assert 'Readable content:' not in result
 
     @pytest.mark.asyncio
     async def test_navigate_blocked_url(self):
@@ -110,6 +123,31 @@ class TestBrowserNavigate:
         page.goto = AsyncMock(side_effect=RuntimeError('timeout'))
         result = await browser_navigate(_ctx(), 'https://example.com')
         assert 'Error' in result
+
+    @pytest.mark.asyncio
+    async def test_navigate_sparse_snapshot_appends_readable(self, mock_browser):
+        """React/Next.js pages collapse to a skeletal a11y tree — browser_navigate
+        should auto-append Trafilatura-extracted readable content so the model
+        has something to work with on the first call.
+        """
+        with patch(
+            'marcel_core.tools.browser.pydantic_tools.build_snapshot',
+            new_callable=AsyncMock,
+            return_value=('(Empty page)', {}),
+        ):
+            result = await browser_navigate(_ctx(), 'https://example.com')
+        assert 'Readable content:' in result
+        assert 'Extracted' in result
+
+    @pytest.mark.asyncio
+    async def test_navigate_swallows_hydration_wait_timeouts(self, mock_browser):
+        """Bounded hydration waits must never propagate their own timeouts."""
+        mgr, page = mock_browser
+        page.wait_for_load_state = AsyncMock(side_effect=RuntimeError('networkidle timeout'))
+        page.wait_for_function = AsyncMock(side_effect=RuntimeError('wait_for_function timeout'))
+        result = await browser_navigate(_ctx(), 'https://example.com')
+        assert 'Test Page' in result
+        assert 'Error' not in result
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +187,28 @@ class TestBrowserSnapshot:
         mgr.get_active_page = AsyncMock(side_effect=RuntimeError('no page'))
         result = await browser_snapshot(_ctx())
         assert 'Error' in result
+
+
+# ---------------------------------------------------------------------------
+# Read (Trafilatura readable content)
+# ---------------------------------------------------------------------------
+
+
+class TestBrowserRead:
+    @pytest.mark.asyncio
+    async def test_read_success(self, mock_browser):
+        result = await browser_read(_ctx())
+        assert 'Test Page' in result
+        assert 'Extracted' in result
+        assert 'Readable markdown body.' in result
+
+    @pytest.mark.asyncio
+    async def test_read_failure(self, mock_browser):
+        mgr, _ = mock_browser
+        mgr.get_active_page = AsyncMock(side_effect=RuntimeError('crash'))
+        result = await browser_read(_ctx())
+        assert 'Error' in result
+        assert 'Read failed' in result
 
 
 # ---------------------------------------------------------------------------

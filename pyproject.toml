@@ -34,7 +34,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-browser = ["playwright>=1.40.0"]
+browser = [
+    "playwright>=1.40.0",
+    "trafilatura>=2.0.0",
+]
 
 # Local package sources for editable installation
 [tool.uv.sources]
@@ -65,6 +68,7 @@ dev = [
     "pre-commit<4.0.0,>=3.6.2",
     "respx>=0.21.0",
     "playwright>=1.40.0",
+    "trafilatura>=2.0.0",
 ]
 lint = [
     "pyright>=1.1.408",

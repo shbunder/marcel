@@ -26,6 +26,7 @@ from marcel_core.tools.browser.pydantic_tools import (
     browser_evaluate as _browser_evaluate,
     browser_navigate as _browser_navigate,
     browser_press_key as _browser_press_key,
+    browser_read as _browser_read,
     browser_screenshot as _browser_screenshot,
     browser_scroll as _browser_scroll,
     browser_snapshot as _browser_snapshot,
@@ -41,7 +42,7 @@ _BROWSER_UNAVAILABLE = (
 )
 
 _AVAILABLE_ACTIONS = (
-    'search, navigate, snapshot, screenshot, click, type, scroll, press_key, tab, evaluate, content, close'
+    'search, navigate, snapshot, read, screenshot, click, type, scroll, press_key, tab, evaluate, content, close'
 )
 
 
@@ -79,8 +80,11 @@ async def web(
     1. **search** — first resort for any information-gathering query
        ("what is", "latest on", "who/when/where"). Stateless, no
        JavaScript, fast. Always cite the result URLs in your reply.
-    2. **navigate + content / evaluate** — read a specific URL you already
-       have (typically from search results). Handles JavaScript.
+    2. **navigate + read / content / evaluate** — read a specific URL you
+       already have (typically from search results). Handles JavaScript.
+       Reach for ``read`` when the navigate snapshot is sparse (React,
+       Next.js, Vue SPAs) — it returns Trafilatura-extracted prose.
+       ``navigate`` already auto-appends readable content on sparse pages.
     3. **click / type / scroll / press_key** — interactive flows like
        login or form filling. Stateful browser session.
 
@@ -100,6 +104,12 @@ async def web(
       snapshot()
           Re-read the current page's accessibility tree with [ref]
           numbers. Refs invalidate after any page change.
+
+      read()
+          Return the current page as readable markdown prose, via
+          Trafilatura on the hydrated DOM. Use this when snapshot comes
+          back sparse — typical of React/Next.js/Vue SPAs where the
+          accessibility tree collapses on unsemantic `<div>` soup.
 
       screenshot(full_page=False, selector=None)
           Visual PNG. Use only when layout or images matter — more
@@ -167,6 +177,8 @@ async def web(
             return await _browser_navigate(ctx, url)
         case 'snapshot':
             return await _browser_snapshot(ctx)
+        case 'read':
+            return await _browser_read(ctx)
         case 'screenshot':
             return await _browser_screenshot(ctx, full_page=bool(full_page), selector=selector)
         case 'click':

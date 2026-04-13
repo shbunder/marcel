@@ -22,9 +22,17 @@ log = logging.getLogger(__name__)
 # Maximum snapshot text length to avoid huge token costs
 MAX_SNAPSHOT_CHARS = 8000
 
+# Maximum readable-content length (Trafilatura markdown) — same budget
+MAX_READABLE_CHARS = 8000
+
 # Default viewport for screenshots
 VIEWPORT_WIDTH = 1280
 VIEWPORT_HEIGHT = 800
+
+# Sparse-snapshot threshold — below this many meaningful lines, browser_navigate
+# auto-appends a readable-content block so the model has something to work with
+# on React/Next.js/Vue SPAs where the a11y tree collapses on unsemantic DOM.
+SPARSE_SNAPSHOT_LINE_THRESHOLD = 5
 
 
 class BrowserManager:
@@ -232,6 +240,76 @@ async def build_snapshot(page: Any) -> tuple[str, dict[int, dict[str, Any]]]:
         text = text[:MAX_SNAPSHOT_CHARS] + '\n\n... (truncated — use a selector to target specific elements)'
 
     return text, ref_map
+
+
+_SPARSE_SENTINELS = frozenset(
+    {
+        '(Empty page)',
+        '(Could not read page accessibility tree)',
+    }
+)
+
+
+def _is_sparse_snapshot(snapshot_text: str) -> bool:
+    """Return True if the accessibility snapshot is too sparse to rely on.
+
+    React/Vue/Next.js SPAs routinely render thousands of `<div>` wrappers
+    with no ARIA roles; ``build_snapshot`` strips those, so the returned
+    text collapses to a handful of lines or a sentinel. In that case
+    ``browser_navigate`` should also attach the Trafilatura readable
+    extraction so the model gets usable content on the first call.
+    """
+    if snapshot_text in _SPARSE_SENTINELS:
+        return True
+    meaningful = [ln for ln in snapshot_text.splitlines() if ln.strip()]
+    return len(meaningful) < SPARSE_SNAPSHOT_LINE_THRESHOLD
+
+
+async def extract_readable(page: Any) -> str:
+    """Extract readable prose from a page as markdown.
+
+    Pipes ``page.content()`` (the HTML *after* hydration) through
+    Trafilatura, the 2026 standard for LLM-oriented readable-content
+    extraction. Falls back to ``page.inner_text('body')`` if Trafilatura
+    returns empty (rare: pure-JSON SPAs, anti-bot walls). Truncates to
+    ``MAX_READABLE_CHARS`` so a long article can't blow the token budget.
+
+    Returns a sentinel like ``'(Empty page content)'`` rather than the
+    empty string so callers always have something to show.
+    """
+    try:
+        html = await page.content()
+    except Exception:
+        return '(Could not read page content)'
+
+    extracted: str | None = None
+    try:
+        import trafilatura
+
+        extracted = trafilatura.extract(
+            html,
+            output_format='markdown',
+            include_links=True,
+            include_comments=False,
+            favor_precision=False,
+        )
+    except Exception:
+        log.exception('Trafilatura extraction failed; falling back to inner_text')
+
+    if not extracted:
+        try:
+            raw = await page.inner_text('body')
+            extracted = raw.strip() if raw else ''
+        except Exception:
+            extracted = ''
+
+    if not extracted:
+        return '(Empty page content)'
+
+    if len(extracted) > MAX_READABLE_CHARS:
+        extracted = extracted[:MAX_READABLE_CHARS] + '\n\n... (truncated)'
+
+    return extracted
 
 
 def _build_aria_selector(ref_info: dict[str, Any]) -> str:
