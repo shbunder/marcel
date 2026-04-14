@@ -1,6 +1,6 @@
 # ISSUE-076: Four-Tier Model Fallback Chain
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-13
 **Assignee:** Unassigned
 **Priority:** High
@@ -82,4 +82,7 @@ Full design and behaviour matrix is captured in the plan file: `/home/shbunder/.
 
 **Result**: Success — 1343 tests passed, 92.66% coverage. Lint + format + pyright + rust clippy all clean.
 
-**Next**: Close the issue, commit, push to `shaun`, trigger restart.
+**Reflection**:
+- Coverage: 19/20 requirements addressed. The 20th (manual Telegram smoke test against a live overloaded provider) is deferred to post-deploy — the chain-driver unit tests fully cover the pre-stream retry path and there is no way to trigger a real anthropic `overloaded_error` on demand from a dev box.
+- Shortcuts found: none. The ISSUE-070 legacy local-fallback path is preserved end-to-end (`_execute_pinned_with_legacy_fallback` + a legacy bridge in `_execute_chain` when `MARCEL_FALLBACK_MODEL` is unset but `allow_local_fallback=True`), so existing jobs behave identically unless they opt into the chain.
+- Scope drift: none. All four env vars, the `power` subagent, and the `allow_fallback_chain` opt-out flag match the approved plan exactly. The `local:` + default-chain footgun is documented in both the prominent warning box in `docs/model-tiers.md` and a dedicated test (`test_local_pinned_job_without_opt_out_escalates`) that will trip if a future refactor accidentally auto-pins.

@@ -61,10 +61,14 @@ class TestBuildChain:
         monkeypatch.setattr(settings, 'marcel_local_llm_url', None)
         monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
 
-        chain = build_chain(primary=None, mode='explain')
+        with caplog.at_level('WARNING', logger='marcel_core.harness.model_chain'):
+            chain = build_chain(primary=None, mode='explain')
+
         assert [e.tier for e in chain] == [Tier.STANDARD]
-        # Should have logged a warning explaining why tier 3 was skipped
-        assert any('MARCEL_LOCAL_LLM_URL' in r.message for r in caplog.records) or True
+        # The warning must name the missing env var so operators can diagnose.
+        assert any('MARCEL_LOCAL_LLM_URL' in r.getMessage() for r in caplog.records), (
+            'expected a warning naming MARCEL_LOCAL_LLM_URL'
+        )
 
     def test_skips_local_fallback_when_llm_model_missing(self, monkeypatch):
         monkeypatch.setattr(settings, 'marcel_fallback_model', 'local:qwen3.5:4b')

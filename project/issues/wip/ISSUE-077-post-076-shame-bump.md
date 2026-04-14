@@ -6,7 +6,7 @@ type: issue
 
 # ISSUE-077: Post-076 audit cleanup (shame bump)
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-14
 **Assignee:** LLM
 **Priority:** High

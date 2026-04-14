@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
 
 from marcel_core.config import settings
@@ -58,24 +59,41 @@ class TestCreateMarcelAgent:
     """
 
     def test_creates_user_agent(self):
+        """User role: system prompt is wired in, user-visible tools registered,
+        admin-only tools absent."""
         agent = create_marcel_agent(system_prompt='You are a test assistant.', role='user')
-        assert agent is not None
+        assert agent._instructions == ['You are a test assistant.']
+        names = _registered_tool_names(agent)
+        assert 'integration' in names
+        assert 'marcel' in names
+        assert 'bash' not in names
+        assert 'delegate' not in names
 
     def test_creates_admin_agent(self):
+        """Admin role: same plumbing, plus the admin-only power tools."""
         agent = create_marcel_agent(system_prompt='You are a test assistant.', role='admin')
-        assert agent is not None
+        assert agent._instructions == ['You are a test assistant.']
+        names = _registered_tool_names(agent)
+        assert 'bash' in names
+        assert 'delegate' in names
+        assert 'claude_code' in names
 
     def test_accepts_explicit_qualified_model(self):
+        """An explicit model string overrides the default and reaches pydantic-ai."""
         agent = create_marcel_agent(
             model='anthropic:claude-sonnet-4-6',
             system_prompt='Test',
             role='user',
         )
-        assert agent is not None
+        assert isinstance(agent.model, Model)
+        assert agent.model.model_name == 'claude-sonnet-4-6'
 
     def test_default_system_prompt_used_when_empty(self):
+        """Empty system prompt falls back to the built-in Marcel description."""
         agent = create_marcel_agent(system_prompt='', role='user')
-        assert agent is not None
+        assert agent._instructions, 'default prompt should be non-empty'
+        first = agent._instructions[0]
+        assert isinstance(first, str) and 'Marcel' in first
 
 
 class TestLocalModelBranch:
@@ -106,17 +124,18 @@ class TestLocalModelBranch:
         monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
         result = _build_local_model('local:qwen3.5:4b-instruct-q4_K_M')
         assert isinstance(result, OpenAIChatModel)
-        # The model_name attribute on OpenAIChatModel should be the full tag.
-        assert 'qwen3.5:4b-instruct-q4_K_M' in repr(result) or True
+        assert result.model_name == 'qwen3.5:4b-instruct-q4_K_M'
 
     def test_create_agent_accepts_local_string(self, monkeypatch):
+        """``local:*`` strings build an OpenAIChatModel and wire it into the agent."""
         monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
         agent = create_marcel_agent(
             model='local:qwen3.5:4b',
             system_prompt='Test',
             role='user',
         )
-        assert agent is not None
+        assert isinstance(agent.model, OpenAIChatModel)
+        assert agent.model.model_name == 'qwen3.5:4b'
 
     def test_create_agent_local_raises_when_url_unset(self, monkeypatch):
         monkeypatch.setattr(settings, 'marcel_local_llm_url', None)
@@ -128,13 +147,19 @@ class TestLocalModelBranch:
             )
 
     def test_non_local_string_unchanged(self):
-        """Non-``local:`` qualified strings must still pass through verbatim."""
+        """Non-``local:`` qualified strings must still pass through verbatim.
+
+        The agent's resolved model must be the AnthropicModel built from the
+        original string, not an OpenAIChatModel (which is only for ``local:*``).
+        """
         agent = create_marcel_agent(
             model='anthropic:claude-sonnet-4-6',
             system_prompt='Test',
             role='user',
         )
-        assert agent is not None
+        assert isinstance(agent.model, Model)
+        assert not isinstance(agent.model, OpenAIChatModel)
+        assert agent.model.model_name == 'claude-sonnet-4-6'
 
 
 class TestAvailableToolNames:
