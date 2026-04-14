@@ -267,20 +267,18 @@ async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> 
     return run
 
 
-async def execute_job_with_retries(job: JobDefinition, trigger_reason: str = 'scheduled') -> JobRun:
-    """Execute a job with retry logic on failure.
+async def _run_with_backoff(job: JobDefinition, trigger_reason: str) -> JobRun:
+    """Run ``execute_job`` and retry transient failures with exponential backoff.
 
-    Uses exponential backoff from ``job.backoff_schedule`` and only retries
-    transient errors (network, rate-limit, timeout, 5xx).  Permanent errors
-    break out immediately.
+    Uses ``job.backoff_schedule`` and only retries categories classified as
+    transient (``rate_limit``, ``timeout``, ``network``, ``server_error``).
+    Permanent and auth-or-quota errors break out immediately — those are
+    handled by the caller's tier-advancement logic rather than by more
+    same-tier retries.
 
-    If the final run is still failed/timed-out and ``job.allow_local_fallback``
-    is set, makes one final attempt against the configured local LLM
-    (``settings.marcel_local_llm_url``). See ISSUE-070.
+    Does NOT touch ``job.model`` — the caller is expected to have set it to
+    the tier under attempt before calling this helper.
     """
-    from marcel_core.config import settings
-    from marcel_core.jobs import save_job
-
     run = await execute_job(job, trigger_reason)
 
     attempt = 0
@@ -306,10 +304,149 @@ async def execute_job_with_retries(job: JobDefinition, trigger_reason: str = 'sc
         run = await execute_job(job, trigger_reason)
         run.retry_count = attempt
 
-    # Local-LLM fallback (ISSUE-070). Only fires when the job opted in, the
-    # local LLM is configured, and the final error category is in the
-    # fallback-eligible set. The in-memory job.model is swapped for this one
-    # call; the persisted definition is never mutated.
+    return run
+
+
+async def _execute_chain(job: JobDefinition, trigger_reason: str) -> JobRun:
+    """Run a job through the ISSUE-076 fallback chain.
+
+    Builds the chain with ``mode='complete'`` (tier 3 tries to complete the
+    task against the local model, preserving ISSUE-070 semantics) and drives
+    it with per-tier retry budgets via :func:`_run_with_backoff`.
+
+    Legacy bridge: when ``job.allow_local_fallback=True`` and neither
+    ``MARCEL_FALLBACK_MODEL`` nor a chain-resolved tier 3 exists, synthesize
+    a ``local:<MARCEL_LOCAL_LLM_MODEL>`` entry so the pre-ISSUE-076 path
+    keeps working without requiring users to also set a new env var.
+    """
+    from marcel_core.config import settings
+    from marcel_core.harness.model_chain import Tier, build_chain, is_fallback_eligible, next_tier
+
+    chain = build_chain(primary=job.model, mode='complete')
+
+    has_local_tier = any(e.purpose == 'complete' and e.model.startswith('local:') for e in chain)
+    if not job.allow_local_fallback:
+        # Strip any local tier 3 but keep cloud tier 2 — confirmed ISSUE-076 decision.
+        chain = [e for e in chain if not (e.purpose == 'complete' and e.model.startswith('local:'))]
+    elif not has_local_tier and settings.marcel_local_llm_url and settings.marcel_local_llm_model:
+        # Legacy ISSUE-070 bridge: no MARCEL_FALLBACK_MODEL set but the job
+        # opted into local fallback and MARCEL_LOCAL_LLM_* are configured.
+        from marcel_core.harness.model_chain import TierEntry
+
+        chain.append(
+            TierEntry(
+                tier=Tier.FALLBACK,
+                model=f'local:{settings.marcel_local_llm_model}',
+                purpose='complete',
+            )
+        )
+
+    original_model = job.model
+    current: TierEntry | None = chain[0] if chain else None
+    run: JobRun | None = None
+
+    while current is not None:
+        if current.tier != Tier.STANDARD:
+            log.info(
+                '%s-job: chain advancing to tier=%s model=%s for %s (%s)',
+                job.user_slug,
+                current.tier.value,
+                current.model,
+                job.id,
+                job.name,
+            )
+        job.model = current.model
+        try:
+            run = await _run_with_backoff(job, trigger_reason)
+        finally:
+            # Ensure the persisted job definition is never mutated with a
+            # tier-override model string — restore on every iteration.
+            job.model = original_model
+
+        if run.status == RunStatus.COMPLETED:
+            if current.tier != Tier.STANDARD:
+                # Report the legacy 'local' value when the tier 3 model was
+                # a local:<tag> entry, so old runs.jsonl readers stay happy.
+                run.fallback_used = 'local' if current.model.startswith('local:') else current.tier.value
+            break
+
+        eligible, category = is_fallback_eligible(run.error or '')
+        if not eligible:
+            break
+
+        nxt = next_tier(chain, current, category)
+        if nxt is None:
+            # Mark the failed run with the last tier attempted if we escalated
+            # at least once, so the persisted run still records the fallback.
+            if current.tier != Tier.STANDARD:
+                run.fallback_used = 'local' if current.model.startswith('local:') else current.tier.value
+            break
+        current = nxt
+
+    assert run is not None  # build_chain always returns at least tier 1
+    return run
+
+
+async def execute_job_with_retries(job: JobDefinition, trigger_reason: str = 'scheduled') -> JobRun:
+    """Execute a job, retrying on transient failure and chaining on outage.
+
+    Flow (ISSUE-076):
+
+    1. Per-tier exponential backoff via :func:`_run_with_backoff` — retries
+       transient errors on the same model.
+    2. When ``job.allow_fallback_chain`` is True (the default), escalate
+       through the global model chain (``MARCEL_BACKUP_MODEL``, then
+       ``MARCEL_FALLBACK_MODEL`` if ``allow_local_fallback`` also permits
+       running on a local model for completion).
+    3. When ``job.allow_fallback_chain`` is False, pin to ``job.model`` only —
+       no cross-provider backup — but still honour the legacy ISSUE-070
+       local-LLM fallback if ``allow_local_fallback`` is set.
+
+    Post-run bookkeeping (consecutive errors, notifications, run persistence)
+    is shared between both paths.
+    """
+    from marcel_core.jobs import save_job
+
+    if job.allow_fallback_chain:
+        run = await _execute_chain(job, trigger_reason)
+    else:
+        run = await _execute_pinned_with_legacy_fallback(job, trigger_reason)
+
+    # Update consecutive error tracking on the job definition
+    if run.status in (RunStatus.FAILED, RunStatus.TIMED_OUT):
+        job.consecutive_errors += 1
+        job.last_error_at = datetime.now(UTC)
+    else:
+        job.consecutive_errors = 0
+        job.last_error_at = None
+        job.last_failure_alert_at = None
+    save_job(job)
+
+    # Notify based on policy + deliver tracking
+    delivery_status, delivery_error = await _notify_if_needed(job, run)
+    run.delivery_status = delivery_status
+    run.delivery_error = delivery_error
+    append_run(job.user_slug, job.id, run)
+
+    return run
+
+
+async def _execute_pinned_with_legacy_fallback(
+    job: JobDefinition,
+    trigger_reason: str,
+) -> JobRun:
+    """Execute a job pinned to its configured model (``allow_fallback_chain=False``).
+
+    Preserves the pre-ISSUE-076 behaviour exactly: retry loop on the same
+    model, then if ``allow_local_fallback`` is set and the final error is
+    fallback-eligible, one local-LLM attempt (ISSUE-070). The chain helper
+    is deliberately NOT used — this path exists so users can opt out of
+    cross-provider escalation for deterministic or cost-sensitive jobs.
+    """
+    from marcel_core.config import settings
+
+    run = await _run_with_backoff(job, trigger_reason)
+
     if (
         run.status in (RunStatus.FAILED, RunStatus.TIMED_OUT)
         and job.allow_local_fallback
@@ -336,22 +473,6 @@ async def execute_job_with_retries(job: JobDefinition, trigger_reason: str = 'sc
         fb_run.retry_count = run.retry_count
         fb_run.fallback_used = 'local'
         run = fb_run
-
-    # Update consecutive error tracking on the job definition
-    if run.status in (RunStatus.FAILED, RunStatus.TIMED_OUT):
-        job.consecutive_errors += 1
-        job.last_error_at = datetime.now(UTC)
-    else:
-        job.consecutive_errors = 0
-        job.last_error_at = None
-        job.last_failure_alert_at = None
-    save_job(job)
-
-    # Notify based on policy + deliver tracking
-    delivery_status, delivery_error = await _notify_if_needed(job, run)
-    run.delivery_status = delivery_status
-    run.delivery_error = delivery_error
-    append_run(job.user_slug, job.id, run)
 
     return run
 

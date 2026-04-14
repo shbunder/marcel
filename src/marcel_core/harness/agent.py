@@ -47,7 +47,21 @@ KNOWN_MODELS: dict[str, str] = {
     'openai:o3-mini': 'o3-mini (fast reasoning)',
 }
 
+# Historical constant — retained for backwards compatibility with any
+# external imports. Prefer :func:`default_model` in new code so runtime
+# changes to ``settings.marcel_standard_model`` (env var updates, test
+# monkeypatches) are honoured.
 DEFAULT_MODEL = 'anthropic:claude-sonnet-4-6'
+
+
+def default_model() -> str:
+    """Return the currently-configured tier-1 model.
+
+    Reads ``settings.marcel_standard_model`` at call time so tests can
+    monkeypatch the attribute without reloading modules, and so ``.env``
+    updates take effect on the next request without a restart.
+    """
+    return settings.marcel_standard_model
 
 
 def all_models() -> dict[str, str]:
@@ -144,7 +158,7 @@ def available_tool_names(role: str) -> set[str]:
 
 
 def create_marcel_agent(
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     system_prompt: str = '',
     role: str = 'user',
     tool_filter: set[str] | None = None,
@@ -162,7 +176,9 @@ def create_marcel_agent(
                The special prefix ``'local:<tag>'`` routes to the self-hosted
                OpenAI-compatible server at ``settings.marcel_local_llm_url``
                (used by the job local-fallback path — see ISSUE-070). All
-               other strings pass through to ``Agent()`` verbatim.
+               other strings pass through to ``Agent()`` verbatim. When
+               ``None`` (the default), resolves to :func:`default_model` at
+               call time, i.e. ``settings.marcel_standard_model``.
         system_prompt: The system prompt string (must be provided).
         role: The user's role — ``'admin'`` or ``'user'``.
         tool_filter: If provided, only tools whose names appear in this set
@@ -177,6 +193,9 @@ def create_marcel_agent(
     """
     if not system_prompt:
         system_prompt = 'You are Marcel, a helpful AI assistant.'
+
+    if model is None:
+        model = default_model()
 
     model_arg: str | Model
     if model.startswith(_LOCAL_PREFIX):

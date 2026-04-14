@@ -240,13 +240,69 @@ class TestModelResolution:
         assert calls[0]['model'] == 'anthropic:claude-haiku-4-5-20251001'
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_default_when_parent_has_none(self, agents_root: Path, fake_factory):
-        from marcel_core.harness.agent import DEFAULT_MODEL
+    async def test_falls_back_to_default_when_parent_has_none(
+        self, agents_root: Path, fake_factory, monkeypatch: pytest.MonkeyPatch
+    ):
+        from marcel_core.config import settings as marcel_settings
+
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_model', 'anthropic:claude-sonnet-4-6')
 
         _write_agent(agents_root, 'inh', 'name: inh\ndescription: d\nmodel: inherit')
         calls, _ = fake_factory
         await delegate(_ctx(model=None), subagent_type='inh', prompt='go')
-        assert calls[0]['model'] == DEFAULT_MODEL
+        assert calls[0]['model'] == 'anthropic:claude-sonnet-4-6'
+
+
+# ---------------------------------------------------------------------------
+# Tier sentinel resolution (ISSUE-076)
+# ---------------------------------------------------------------------------
+
+
+class TestTierSentinelResolution:
+    """A ``model: power`` (etc.) frontmatter entry becomes a ``tier:<name>``
+    sentinel in AgentDoc, and delegate resolves it against settings at call
+    time so MARCEL_POWER_MODEL env overrides take effect without a restart."""
+
+    @pytest.mark.asyncio
+    async def test_power_sentinel_resolves_to_env_model(
+        self, agents_root: Path, fake_factory, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(settings, 'marcel_power_model', 'anthropic:claude-opus-4-6')
+        _write_agent(agents_root, 'power', 'name: power\ndescription: d\nmodel: power')
+        calls, _ = fake_factory
+        await delegate(_ctx(), subagent_type='power', prompt='hard task')
+        assert calls[0]['model'] == 'anthropic:claude-opus-4-6'
+
+    @pytest.mark.asyncio
+    async def test_sentinel_with_unset_env_returns_clean_error(
+        self, agents_root: Path, fake_factory, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(settings, 'marcel_backup_model', None)
+        _write_agent(agents_root, 'bk', 'name: bk\ndescription: d\nmodel: backup')
+        result = await delegate(_ctx(), subagent_type='bk', prompt='go')
+        assert 'delegate error' in result
+        assert 'backup' in result.lower()
+        assert 'MARCEL_BACKUP_MODEL' in result
+        # Critical: delegate must not raise, and the fake_factory should not have been called
+        calls, _ = fake_factory
+        assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_standard_sentinel_resolves(self, agents_root: Path, fake_factory, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(settings, 'marcel_standard_model', 'anthropic:claude-sonnet-4-6')
+        _write_agent(agents_root, 'std', 'name: std\ndescription: d\nmodel: standard')
+        calls, _ = fake_factory
+        await delegate(_ctx(), subagent_type='std', prompt='go')
+        assert calls[0]['model'] == 'anthropic:claude-sonnet-4-6'
+
+    @pytest.mark.asyncio
+    async def test_fallback_sentinel_resolves(self, agents_root: Path, fake_factory, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        _write_agent(agents_root, 'fb', 'name: fb\ndescription: d\nmodel: fallback')
+        calls, _ = fake_factory
+        await delegate(_ctx(), subagent_type='fb', prompt='go')
+        assert calls[0]['model'] == 'local:qwen3.5:4b'
 
 
 # ---------------------------------------------------------------------------

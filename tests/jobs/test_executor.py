@@ -327,3 +327,141 @@ class TestLocalFallback:
         assert run.fallback_used == 'local'
         assert call_log == ['anthropic:claude-sonnet-4-6', 'local:qwen3.5:4b']
         assert len(scripted_runs) == 0  # both scripted runs consumed
+
+
+# ---------------------------------------------------------------------------
+# ISSUE-076: fallback chain integration with jobs
+# ---------------------------------------------------------------------------
+
+
+class TestFallbackChain:
+    """Chain-mode tests for execute_job_with_retries (ISSUE-076)."""
+
+    @pytest.mark.asyncio
+    async def test_backup_tier_tried_before_local(self, monkeypatch, patched_side_effects):
+        """With MARCEL_BACKUP_MODEL set, a failing cloud primary escalates
+        to the cloud backup before the local tier 3."""
+        scripted_runs, call_log = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(settings, 'marcel_fallback_model', None)
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
+
+        # Tier 1 fails with overloaded, tier 2 (gpt-4o) succeeds
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='Overloaded', error_category='server_error')
+        )
+        scripted_runs.append(JobRun(job_id='x', status=RunStatus.COMPLETED, output='hello from backup'))
+
+        job = _make_job(allow_local_fallback=True)
+        run = await execute_job_with_retries(job)
+
+        assert run.status == RunStatus.COMPLETED
+        assert run.fallback_used == 'backup'
+        assert call_log == ['anthropic:claude-sonnet-4-6', 'openai:gpt-4o']
+
+    @pytest.mark.asyncio
+    async def test_fallback_used_names_cloud_backup_tier(self, monkeypatch, patched_side_effects):
+        """When tier 2 is a cloud model, fallback_used reports 'backup', not 'local'."""
+        scripted_runs, call_log = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='rate limit', error_category='rate_limit')
+        )
+        scripted_runs.append(JobRun(job_id='x', status=RunStatus.COMPLETED, output='ok'))
+
+        run = await execute_job_with_retries(_make_job())
+
+        assert run.fallback_used == 'backup'
+        assert call_log[-1] == 'openai:gpt-4o'
+
+    @pytest.mark.asyncio
+    async def test_allow_fallback_chain_false_pins_job(self, monkeypatch, patched_side_effects):
+        """Even with MARCEL_BACKUP_MODEL set, a job with allow_fallback_chain=False
+        never escalates — it stays on its primary model with retries only."""
+        scripted_runs, call_log = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='Overloaded', error_category='server_error')
+        )
+
+        job = _make_job(allow_fallback_chain=False)
+        run = await execute_job_with_retries(job)
+
+        assert run.status == RunStatus.FAILED
+        assert run.fallback_used is None
+        # Only tier 1 was tried — no escalation to openai:gpt-4o
+        assert call_log == ['anthropic:claude-sonnet-4-6']
+
+    @pytest.mark.asyncio
+    async def test_local_pinned_job_without_opt_out_escalates(self, monkeypatch, patched_side_effects):
+        """Documents the footgun: job.model='local:...' + default allow_fallback_chain=True
+        DOES silently escalate to cloud. Users who pin to local must set
+        allow_fallback_chain=False manually."""
+        scripted_runs, call_log = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
+
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='Overloaded', error_category='server_error')
+        )
+        scripted_runs.append(JobRun(job_id='x', status=RunStatus.COMPLETED, output='cloud saved us'))
+
+        job = _make_job(model='local:qwen3.5:4b')
+        run = await execute_job_with_retries(job)
+
+        assert run.status == RunStatus.COMPLETED
+        # Chain escalated local → cloud. This is the documented footgun.
+        assert call_log == ['local:qwen3.5:4b', 'openai:gpt-4o']
+
+    @pytest.mark.asyncio
+    async def test_local_pinned_job_with_opt_out_stays_local(self, monkeypatch, patched_side_effects):
+        """The recommended config: local primary + allow_fallback_chain=False."""
+        scripted_runs, call_log = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
+
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='Overloaded', error_category='server_error')
+        )
+
+        job = _make_job(model='local:qwen3.5:4b', allow_fallback_chain=False)
+        run = await execute_job_with_retries(job)
+
+        assert run.status == RunStatus.FAILED
+        assert run.fallback_used is None
+        # Never escalated
+        assert call_log == ['local:qwen3.5:4b']
+
+    @pytest.mark.asyncio
+    async def test_persisted_job_model_unchanged_after_escalation(self, monkeypatch, patched_side_effects):
+        """The chain swaps job.model per tier, but the original value must
+        be restored before return so the persisted definition never changes."""
+        scripted_runs, _ = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='Overloaded', error_category='server_error')
+        )
+        scripted_runs.append(JobRun(job_id='x', status=RunStatus.COMPLETED, output='ok'))
+
+        job = _make_job()
+        await execute_job_with_retries(job)
+
+        assert job.model == 'anthropic:claude-sonnet-4-6'
+
+
+class TestAllowFallbackChainDefault:
+    def test_default_is_true(self):
+        job = JobDefinition(
+            name='t',
+            user_slug='t',
+            trigger=TriggerSpec(type=TriggerType.ONESHOT),
+            system_prompt='x',
+            task='y',
+        )
+        assert job.allow_fallback_chain is True

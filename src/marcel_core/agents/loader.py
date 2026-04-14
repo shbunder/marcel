@@ -98,8 +98,16 @@ def _load_agent_file(path: Path, source: str) -> AgentDoc | None:
         return None
 
     model_raw = fm.get('model')
-    # "inherit" is an explicit way to say "use parent's model" — map to None
-    model = None if (model_raw in (None, '', 'inherit')) else str(model_raw)
+    # "inherit" is an explicit way to say "use parent's model" — map to None.
+    # Single-word tier names (standard, backup, fallback, power) are rewritten
+    # to ``tier:<name>`` sentinels which the delegate tool resolves against
+    # settings at call time. See ISSUE-076.
+    if model_raw in (None, '', 'inherit'):
+        model: str | None = None
+    elif model_raw in ('standard', 'backup', 'fallback', 'power'):
+        model = f'tier:{model_raw}'
+    else:
+        model = str(model_raw)
 
     tools_raw = fm.get('tools')
     tools = list(tools_raw) if isinstance(tools_raw, list) else None

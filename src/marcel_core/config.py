@@ -57,6 +57,24 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     aws_region: str | None = None
 
+    # Four-tier model fallback chain (ISSUE-076).
+    #
+    # Tier 1 (STANDARD) handles normal calls. Tier 2 (BACKUP) is a different-
+    # cloud-provider backup tried when tier 1 fails with a transient/auth
+    # error. Tier 3 (FALLBACK) is a local LLM whose only job, in interactive
+    # turns, is to *explain* the failure to the user — not complete the task.
+    # Tier 4 (POWER) is the default model for the 'power' subagent that the
+    # main agent can spawn via delegate() when it decides a task exceeds its
+    # standard model.
+    #
+    # Tiers 2 and 3 are opt-in: the chain skips them silently when unset, so
+    # a fresh install behaves identically to pre-ISSUE-076 (single model, no
+    # fallback).  See docs/model-tiers.md for the full behaviour matrix.
+    marcel_standard_model: str = 'anthropic:claude-sonnet-4-6'
+    marcel_backup_model: str | None = None  # e.g. 'openai:gpt-4o'
+    marcel_fallback_model: str | None = None  # e.g. 'local:qwen3.5:4b'
+    marcel_power_model: str = 'anthropic:claude-opus-4-6'
+
     # Local LLM (opt-in job fallback via OpenAI-compatible server like Ollama).
     # Example::
     #

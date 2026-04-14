@@ -27,8 +27,16 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import UsageLimits
 
 from marcel_core.config import settings
-from marcel_core.harness.agent import DEFAULT_MODEL, create_marcel_agent
+from marcel_core.harness.agent import create_marcel_agent
 from marcel_core.harness.context import MarcelDeps
+from marcel_core.harness.model_chain import (
+    TierEntry,
+    build_chain,
+    build_explain_system_prompt,
+    build_explain_user_prompt,
+    is_fallback_eligible,
+    next_tier,
+)
 from marcel_core.memory.conversation import (
     MAX_SUMMARY_CHARS,
     append_to_segment,
@@ -463,11 +471,10 @@ async def stream_turn(
 
     system_prompt = await build_instructions_async(deps, query=user_text)
 
-    # Resolve model: explicit override > per-channel setting > default
-    resolved_model = model or load_channel_model(user_slug, channel) or DEFAULT_MODEL
-
-    # Create agent with role-appropriate tool set
-    agent = create_marcel_agent(resolved_model, system_prompt=system_prompt, role=role)
+    # Tier 1 model: explicit override > per-channel setting > standard env var.
+    # The chain helper owns tiers 2 and 3 (MARCEL_BACKUP_MODEL / MARCEL_FALLBACK_MODEL).
+    primary_model = model or load_channel_model(user_slug, channel)
+    chain = build_chain(primary=primary_model, mode='explain')
 
     yield RunStarted(conversation_id=conversation_id)
 
@@ -476,42 +483,181 @@ async def stream_turn(
     total_cost = None
     all_messages: list[ModelMessage] = []
 
-    try:
-        async with agent.run_stream(
-            user_text,
-            deps=deps,
-            message_history=message_history,
-            usage_limits=UsageLimits(request_limit=15),
-        ) as result:
-            log.info('%s-%s: stream started model=%s', user_slug, channel, resolved_model)
-            async for text_delta in result.stream_text(delta=True, debounce_by=0.01):
-                if text_delta:
-                    yield TextDelta(text=text_delta)
-                    assistant_text_parts.append(text_delta)
+    # Driver loop over the fallback chain (ISSUE-076). Pre-stream failures
+    # silently retry against the next tier; mid-stream failures surface as an
+    # error tail on whatever was already sent (no retry — by design).
+    committed = False
+    last_exc: Exception | None = None
+    last_category: str = 'permanent'
+    current: TierEntry | None = chain[0] if chain else None
+    chain_exhausted = False
 
-            # Wait for full completion (runs on_complete, processes trailing tool calls)
-            await result.get_output()
-            log.debug('%s-%s: stream finished', user_slug, channel)
-
-            # Capture all messages for tool call extraction
-            all_messages = result.all_messages()
-
-            usage = result.usage()
-            if usage and usage.total_tokens:
-                log.info(
-                    '%s-%s: turn complete — %d tokens (in: %d, out: %d, requests: %d)',
+    while current is not None:
+        # Build a tier-specific agent. The explain tier gets a synthesised
+        # system prompt, no tools, no message history, and a hard cap of 1
+        # request so a small local model cannot accidentally start a tool loop.
+        if current.purpose == 'explain':
+            tier_system_prompt = build_explain_system_prompt(
+                str(last_exc) if last_exc else '(no error recorded)',
+                last_category,
+            )
+            tier_user_prompt = build_explain_user_prompt(user_text)
+            tier_history: list[ModelMessage] = []
+            tier_usage_limits = UsageLimits(request_limit=1)
+            try:
+                tier_agent = create_marcel_agent(
+                    current.model,
+                    system_prompt=tier_system_prompt,
+                    role=role,
+                    tool_filter=set(),
+                )
+            except Exception as exc:
+                log.warning(
+                    '%s-%s: could not build explain-tier agent model=%s: %s',
                     user_slug,
                     channel,
-                    usage.total_tokens,
-                    usage.request_tokens,
-                    usage.response_tokens,
-                    usage.requests,
+                    current.model,
+                    exc,
                 )
+                last_exc = exc
+                chain_exhausted = True
+                break
+        else:
+            tier_user_prompt = user_text
+            tier_history = message_history
+            tier_usage_limits = UsageLimits(request_limit=15)
+            try:
+                tier_agent = create_marcel_agent(
+                    current.model,
+                    system_prompt=system_prompt,
+                    role=role,
+                )
+            except Exception as exc:
+                log.warning(
+                    '%s-%s: could not build tier=%s agent model=%s: %s',
+                    user_slug,
+                    channel,
+                    current.tier.value,
+                    current.model,
+                    exc,
+                )
+                last_exc = exc
+                eligible, last_category = is_fallback_eligible(str(exc))
+                if not eligible:
+                    chain_exhausted = True
+                    break
+                nxt = next_tier(chain, current, last_category)
+                if nxt is None:
+                    chain_exhausted = True
+                    break
+                current = nxt
+                continue
 
-    except Exception as exc:
-        log.exception('%s-%s: turn execution failed', user_slug, channel)
+        try:
+            async with tier_agent.run_stream(
+                tier_user_prompt,
+                deps=deps,
+                message_history=tier_history,
+                usage_limits=tier_usage_limits,
+            ) as result:
+                log.info(
+                    '%s-%s: stream started tier=%s model=%s',
+                    user_slug,
+                    channel,
+                    current.tier.value,
+                    current.model,
+                )
+                async for text_delta in result.stream_text(delta=True, debounce_by=0.01):
+                    if text_delta:
+                        if not committed:
+                            committed = True
+                        yield TextDelta(text=text_delta)
+                        assistant_text_parts.append(text_delta)
+
+                # Wait for full completion (runs on_complete, processes trailing tool calls)
+                await result.get_output()
+                log.debug('%s-%s: stream finished tier=%s', user_slug, channel, current.tier.value)
+
+                # Capture all messages for tool call extraction
+                all_messages = result.all_messages()
+
+                usage = result.usage()
+                if usage and usage.total_tokens:
+                    log.info(
+                        '%s-%s: turn complete tier=%s — %d tokens (in: %d, out: %d, requests: %d)',
+                        user_slug,
+                        channel,
+                        current.tier.value,
+                        usage.total_tokens,
+                        usage.request_tokens,
+                        usage.response_tokens,
+                        usage.requests,
+                    )
+            # Successful run — break out of the chain loop.
+            break
+
+        except Exception as exc:
+            last_exc = exc
+            eligible, last_category = is_fallback_eligible(str(exc))
+
+            if committed:
+                # Mid-stream failure — keep the partial output, append an
+                # error tail, don't retry. Retrying would either duplicate
+                # work on tier 2 or discard output the user already saw.
+                log.warning(
+                    '%s-%s: mid-stream failure on tier=%s: %s',
+                    user_slug,
+                    channel,
+                    current.tier.value,
+                    exc,
+                )
+                is_error = True
+                error_tail = f'\n\n[Error mid-response: {exc}]'
+                yield TextDelta(text=error_tail)
+                assistant_text_parts.append(error_tail)
+                break
+
+            if not eligible:
+                log.warning(
+                    '%s-%s: permanent error on tier=%s: %s',
+                    user_slug,
+                    channel,
+                    current.tier.value,
+                    exc,
+                )
+                is_error = True
+                error_text = f'Error: {exc}'
+                yield TextDelta(text=error_text)
+                assistant_text_parts.append(error_text)
+                break
+
+            log.info(
+                '%s-%s: tier=%s failed (%s) — advancing',
+                user_slug,
+                channel,
+                current.tier.value,
+                last_category,
+            )
+            # Pre-stream failure on an eligible category. Nothing has been
+            # yielded yet; drop any empty accumulator state and advance.
+            assistant_text_parts.clear()
+            nxt = next_tier(chain, current, last_category)
+            if nxt is None:
+                chain_exhausted = True
+                break
+            current = nxt
+            continue
+
+    if chain_exhausted and not committed and not is_error:
+        # Either the chain was empty (impossible — build_chain always returns
+        # at least tier 1), or every tier failed pre-stream and the loop
+        # couldn't even build the explain agent. Surface a clean error.
         is_error = True
-        error_text = f'Error: {exc}'
+        error_text = (
+            f'Error: all model tiers failed. Last error: {last_exc}'
+            if last_exc is not None
+            else 'Error: no model tiers available for this request'
+        )
         yield TextDelta(text=error_text)
         assistant_text_parts.append(error_text)
 

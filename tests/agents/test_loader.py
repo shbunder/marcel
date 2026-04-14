@@ -85,6 +85,23 @@ class TestLoadAgentsHappyPath:
         _write_agent(agents_root, 'inh', 'name: inh\ndescription: d\nmodel: inherit')
         assert load_agent('inh').model is None
 
+    @pytest.mark.parametrize('tier_name', ['standard', 'backup', 'fallback', 'power'])
+    def test_model_tier_sentinel_parsing(self, agents_root: Path, tier_name: str) -> None:
+        """Single-word tier names in frontmatter become ``tier:<name>`` sentinels
+        that the delegate tool resolves against settings at call time (ISSUE-076)."""
+        _write_agent(agents_root, tier_name, f'name: {tier_name}\ndescription: d\nmodel: {tier_name}')
+        assert load_agent(tier_name).model == f'tier:{tier_name}'
+
+    def test_model_fully_qualified_passes_through(self, agents_root: Path) -> None:
+        """Fully-qualified provider:model strings are kept verbatim — no
+        sentinel substitution for ``anthropic:claude-...`` etc."""
+        _write_agent(
+            agents_root,
+            'exact',
+            'name: exact\ndescription: d\nmodel: anthropic:claude-opus-4-6',
+        )
+        assert load_agent('exact').model == 'anthropic:claude-opus-4-6'
+
     def test_camelcase_frontmatter_aliases(self, agents_root: Path) -> None:
         """Clawcode-style ``maxTurns`` / ``disallowedTools`` keys are accepted."""
         fm = 'name: legacy\ndescription: Compat shim\ndisallowedTools: [delete_job]\nmaxTurns: 8'
@@ -151,6 +168,18 @@ class TestDefaultsSeeded:
         names = {a.name for a in agents}
         assert 'explore' in names
         assert 'plan' in names
+        assert 'power' in names  # ISSUE-076
         for agent in agents:
             assert agent.description  # every default has a description
             assert agent.system_prompt  # body is non-empty
+
+    def test_power_agent_uses_tier_sentinel(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The bundled power agent must reference the tier sentinel, not a
+        hardcoded model — otherwise MARCEL_POWER_MODEL env overrides are
+        silently ignored."""
+        from marcel_core.defaults import seed_defaults
+
+        seed_defaults(tmp_path)
+        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
+        power = load_agent('power')
+        assert power.model == 'tier:power'

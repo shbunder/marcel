@@ -8,7 +8,7 @@ Registered skills:
 
 from __future__ import annotations
 
-from marcel_core.harness.agent import DEFAULT_MODEL, all_models
+from marcel_core.harness.agent import all_models, default_model
 from marcel_core.storage.settings import load_channel_model, save_channel_model
 
 from . import register
@@ -21,7 +21,7 @@ async def list_models(params: dict, user_slug: str) -> str:
     lines = ['Available models:\n']
     for model_id, display_name in models.items():
         lines.append(f'  {model_id} — {display_name}')
-    lines.append(f'\nDefault: {DEFAULT_MODEL}')
+    lines.append(f'\nDefault: {default_model()}')
     return '\n'.join(lines)
 
 
@@ -35,7 +35,7 @@ async def get_model(params: dict, user_slug: str) -> str:
     channel = params.get('channel', '')
     if not channel:
         return 'Error: channel parameter is required'
-    model = load_channel_model(user_slug, channel) or DEFAULT_MODEL
+    model = load_channel_model(user_slug, channel) or default_model()
     return f'Current model for {channel}: {model}'
 
 

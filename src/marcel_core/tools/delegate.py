@@ -116,7 +116,8 @@ async def delegate(
         with ``'delegate error:'`` rather than raised, so the parent agent
         can decide how to recover.
     """
-    from marcel_core.harness.agent import DEFAULT_MODEL, create_marcel_agent
+    from marcel_core.config import settings
+    from marcel_core.harness.agent import create_marcel_agent, default_model
 
     try:
         agent_doc = load_agent(subagent_type)
@@ -138,8 +139,28 @@ async def delegate(
         assert resolved is not None  # _resolve_tool_filter only returns None for the ``None`` input branch
         tool_filter = resolved
 
-    # Model resolution — agent's own model, parent's model, or DEFAULT_MODEL.
-    model = agent_doc.model or ctx.deps.model or DEFAULT_MODEL
+    # Model resolution — agent's own model, parent's model, or default.
+    # ``tier:<name>`` sentinels (from agent frontmatter like ``model: power``)
+    # are resolved against settings here so every agent that references a
+    # tier picks up env-var changes without a restart. See ISSUE-076.
+    model = agent_doc.model or ctx.deps.model or default_model()
+    if model.startswith('tier:'):
+        tier_name = model[len('tier:') :]
+        tier_map = {
+            'standard': settings.marcel_standard_model,
+            'backup': settings.marcel_backup_model,
+            'fallback': settings.marcel_fallback_model,
+            'power': settings.marcel_power_model,
+        }
+        if tier_name not in tier_map:
+            return f'delegate error: subagent {subagent_type!r} references unknown tier {tier_name!r}'
+        resolved_model = tier_map[tier_name]
+        if not resolved_model:
+            return (
+                f'delegate error: subagent {subagent_type!r} requires tier {tier_name!r} but '
+                f'MARCEL_{tier_name.upper()}_MODEL is not set'
+            )
+        model = resolved_model
 
     # Fresh system prompt: the subagent knows only what its markdown says
     # plus the parent's prompt text. No MARCEL.md, no memory, no channel

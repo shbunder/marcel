@@ -13,13 +13,13 @@ log = logging.getLogger(__name__)
 
 def list_models() -> str:
     """Return a formatted list of available models."""
-    from marcel_core.harness.agent import DEFAULT_MODEL, all_models
+    from marcel_core.harness.agent import all_models, default_model
 
     models = all_models()
     lines = ['Available models:\n']
     for model_id, display_name in models.items():
         lines.append(f'  {model_id} \u2014 {display_name}')
-    lines.append(f'\nDefault: {DEFAULT_MODEL}')
+    lines.append(f'\nDefault: {default_model()}')
     return '\n'.join(lines)
 
 
@@ -29,11 +29,11 @@ def get_model(ctx: RunContext[MarcelDeps], channel: str | None) -> str:
         # Default to the current channel
         channel = ctx.deps.channel
 
-    from marcel_core.harness.agent import DEFAULT_MODEL
+    from marcel_core.harness.agent import default_model
     from marcel_core.storage.settings import load_channel_model
 
     log.info('[marcel:get_model] user=%s channel=%s', ctx.deps.user_slug, channel)
-    model = load_channel_model(ctx.deps.user_slug, channel) or DEFAULT_MODEL
+    model = load_channel_model(ctx.deps.user_slug, channel) or default_model()
     return f'Current model for {channel}: {model}'
 
 

@@ -110,6 +110,22 @@ class JobDefinition(BaseModel):
     # MARCEL_LOCAL_LLM_MODEL to be set in the environment.
     allow_local_fallback: bool = False
 
+    # Whether this job participates in the global model fallback chain
+    # (ISSUE-076). Default True — a failing cloud primary escalates to
+    # MARCEL_BACKUP_MODEL after retries exhaust, then to
+    # MARCEL_FALLBACK_MODEL in complete-mode if ``allow_local_fallback``
+    # is also set. Set to False for:
+    #
+    # - deterministic jobs whose output must come from one specific model
+    # - jobs deliberately pinned to a cheap model where escalation would
+    #   blow up cost (e.g. a 5-minute cron job pinned to Haiku)
+    # - jobs deliberately pinned to a local model (`local:<tag>`) — the
+    #   chain would silently escalate to cloud and defeat the purpose.
+    #   ALWAYS set this to False when also pinning to a local model.
+    #
+    # See docs/model-tiers.md for the full behaviour matrix.
+    allow_fallback_chain: bool = True
+
     # Notification
     notify: NotifyPolicy = NotifyPolicy.ON_OUTPUT
     channel: str = 'telegram'

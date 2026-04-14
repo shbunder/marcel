@@ -121,7 +121,7 @@ class TestStreamTurn:
         @asynccontextmanager
         async def _boom_stream(*args, **kwargs):
             raise RuntimeError('agent failed')
-            yield  # make it a generator  # noqa: unreachable
+            yield  # make it a generator  # pragma: no cover
 
         boom_agent = MagicMock()
         boom_agent.run_stream = lambda *args, **kwargs: _boom_stream()
@@ -185,6 +185,209 @@ class TestStreamTurn:
                 pass
 
         assert captured_model[0] == 'openai:gpt-4o'
+
+
+# ---------------------------------------------------------------------------
+# ISSUE-076: tiered fallback chain tests
+# ---------------------------------------------------------------------------
+
+
+def _raising_agent(exc_factory):
+    """Return a mock agent whose ``run_stream`` raises before yielding any text."""
+
+    @asynccontextmanager
+    async def _boom(*args, **kwargs):
+        raise exc_factory()
+        yield  # make this an async generator  # pragma: no cover
+
+    agent = MagicMock()
+    agent.run_stream = lambda *args, **kwargs: _boom()
+    return agent
+
+
+def _mid_stream_failing_agent(text_parts: list[str], exc_factory):
+    """Return a mock agent that streams some text then raises mid-stream."""
+
+    @asynccontextmanager
+    async def _cm(*args, **kwargs):
+        async def _stream_text(*, delta: bool, debounce_by: float):
+            for part in text_parts:
+                yield part
+            raise exc_factory()
+
+        result = MagicMock()
+        result.stream_text = _stream_text
+        result.get_output = AsyncMock(return_value=None)
+        result.usage = MagicMock(return_value=MagicMock(total_tokens=0))
+        result.all_messages = MagicMock(return_value=[])
+        yield result
+
+    agent = MagicMock()
+    agent.run_stream = lambda *args, **kwargs: _cm()
+    return agent
+
+
+class TestStreamTurnFallbackChain:
+    @pytest.mark.asyncio
+    async def test_pre_stream_failure_silently_retries_tier_2(self, tmp_path, monkeypatch):
+        """Tier 1 overloaded → tier 2 succeeds. User sees only tier 2's text."""
+        from marcel_core.config import settings as marcel_settings
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_fallback_model', None)
+
+        calls: list[str] = []
+
+        def _create(model, **kwargs):
+            calls.append(model)
+            if len(calls) == 1:
+                # Tier 1 blows up before any text arrives (classic overloaded)
+                return _raising_agent(lambda: RuntimeError('Overloaded'))
+            return _make_mock_agent(['Hello from backup'])
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', side_effect=_create):
+            events = [e async for e in stream_turn('shaun', 'cli', 'hi', 'conv-1')]
+
+        deltas = [e for e in events if isinstance(e, TextDelta)]
+        finished = [e for e in events if isinstance(e, RunFinished)]
+        # Only tier 2's text should be visible, and no error
+        assert len(deltas) == 1
+        assert deltas[0].text == 'Hello from backup'
+        assert finished[0].is_error is False
+        # Both tiers were attempted
+        assert len(calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_all_cloud_tiers_fail_emits_explain_text(self, tmp_path, monkeypatch):
+        """Tier 1 and tier 2 both fail → tier 3 (local explain) streams an apology."""
+        from marcel_core.config import settings as marcel_settings
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
+        monkeypatch.setattr(marcel_settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        monkeypatch.setattr(marcel_settings, 'marcel_local_llm_model', 'qwen3.5:4b')
+
+        calls: list[str] = []
+
+        def _create(model, **kwargs):
+            calls.append(model)
+            if len(calls) < 3:
+                return _raising_agent(lambda: RuntimeError('Overloaded'))
+            return _make_mock_agent(['Sorry, services are down.'])
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', side_effect=_create):
+            events = [e async for e in stream_turn('shaun', 'cli', 'hi', 'conv-1')]
+
+        deltas = [e for e in events if isinstance(e, TextDelta)]
+        finished = [e for e in events if isinstance(e, RunFinished)]
+        assert any('Sorry' in e.text for e in deltas)
+        # Explain tier committed successfully → is_error False
+        assert finished[0].is_error is False
+        assert calls == ['anthropic:claude-sonnet-4-6', 'openai:gpt-4o', 'local:qwen3.5:4b']
+
+    @pytest.mark.asyncio
+    async def test_all_tiers_unreachable_surfaces_error(self, tmp_path, monkeypatch):
+        """Every tier raises pre-stream → hardcoded error text, is_error=True."""
+        from marcel_core.config import settings as marcel_settings
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
+        monkeypatch.setattr(marcel_settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        monkeypatch.setattr(marcel_settings, 'marcel_local_llm_model', 'qwen3.5:4b')
+
+        def _create(model, **kwargs):
+            return _raising_agent(lambda: RuntimeError('Overloaded'))
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', side_effect=_create):
+            events = [e async for e in stream_turn('shaun', 'cli', 'hi', 'conv-1')]
+
+        deltas = [e for e in events if isinstance(e, TextDelta)]
+        finished = [e for e in events if isinstance(e, RunFinished)]
+        assert finished[0].is_error is True
+        # The visible text should include 'Error' but not a raw traceback dump
+        assert any('Error' in e.text for e in deltas)
+
+    @pytest.mark.asyncio
+    async def test_mid_stream_failure_does_not_retry(self, tmp_path, monkeypatch):
+        """Mid-stream failure keeps the partial text + an error tail; no tier-2 retry."""
+        from marcel_core.config import settings as marcel_settings
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+
+        calls: list[str] = []
+
+        def _create(model, **kwargs):
+            calls.append(model)
+            if len(calls) == 1:
+                return _mid_stream_failing_agent(['Hello '], lambda: RuntimeError('Overloaded'))
+            # If tier 2 is ever called, this assertion will trip the test
+            raise AssertionError('tier 2 should not be called after mid-stream failure')
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', side_effect=_create):
+            events = [e async for e in stream_turn('shaun', 'cli', 'hi', 'conv-1')]
+
+        deltas = [e for e in events if isinstance(e, TextDelta)]
+        finished = [e for e in events if isinstance(e, RunFinished)]
+        # The partial text is preserved
+        assert any('Hello' in e.text for e in deltas)
+        # And an error tail was appended
+        assert any('Error mid-response' in e.text for e in deltas)
+        assert finished[0].is_error is True
+        assert calls == ['anthropic:claude-sonnet-4-6']
+
+    @pytest.mark.asyncio
+    async def test_permanent_error_skips_chain(self, tmp_path, monkeypatch):
+        """Permanent errors (e.g. validation) short-circuit immediately on tier 1."""
+        from marcel_core.config import settings as marcel_settings
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+
+        calls: list[str] = []
+
+        def _create(model, **kwargs):
+            calls.append(model)
+            return _raising_agent(lambda: ValueError("Skill 'foo' not found"))
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', side_effect=_create):
+            events = [e async for e in stream_turn('shaun', 'cli', 'hi', 'conv-1')]
+
+        finished = [e for e in events if isinstance(e, RunFinished)]
+        assert finished[0].is_error is True
+        # Only tier 1 was tried
+        assert len(calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_channel_pinned_model_overrides_tier_1_only(self, tmp_path, monkeypatch):
+        """A channel model pin replaces tier 1 only; tier 2/3 still come from env vars."""
+        from marcel_core.config import settings as marcel_settings
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+
+        # Pin the channel to a specific model
+        from marcel_core.storage.settings import save_channel_model
+
+        save_channel_model('shaun', 'cli', 'anthropic:claude-opus-4-6')
+
+        calls: list[str] = []
+
+        def _create(model, **kwargs):
+            calls.append(model)
+            if len(calls) == 1:
+                return _raising_agent(lambda: RuntimeError('Overloaded'))
+            return _make_mock_agent(['ok'])
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', side_effect=_create):
+            async for _ in stream_turn('shaun', 'cli', 'hi', 'conv-1'):
+                pass
+
+        # Tier 1 = channel pin, tier 2 = MARCEL_BACKUP_MODEL
+        assert calls == ['anthropic:claude-opus-4-6', 'openai:gpt-4o']
 
 
 # ---------------------------------------------------------------------------
