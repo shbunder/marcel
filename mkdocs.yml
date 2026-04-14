@@ -16,6 +16,7 @@ nav:
   - Subagents: subagents.md
   - Web Tool: web.md
   - Jobs: jobs.md
+  - Model Tiers: model-tiers.md
   - Local LLM: local-llm.md
   - CLI: cli.md
   - Integrations:

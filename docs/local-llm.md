@@ -1,32 +1,32 @@
-# Local LLM Fallback
+# Local LLM Setup
 
-Marcel can fall back to a self-hosted, OpenAI-compatible LLM when cloud
-providers (Anthropic, Bedrock, OpenAI) fail. The feature is **opt-in per
-job** and **off by default** — nothing changes until the two environment
-variables below are set and at least one job declares `allow_local_fallback`.
+Marcel can run a self-hosted, OpenAI-compatible LLM as part of its model
+fallback chain — either as a cheap backup for scheduled jobs or as the
+failure-explanation voice when cloud providers are down. This page
+documents the **runtime setup** (Ollama install, systemd unit, resource
+limits). The **fallback chain logic** — when each tier fires and how to
+opt jobs in or out — lives in [docs/model-tiers.md](./model-tiers.md),
+which is the authoritative source for the behaviour matrix.
 
 The intended runtime is [Ollama](https://ollama.com) on the same machine
 Marcel runs on, but any server that implements the OpenAI
 `/v1/chat/completions` endpoint with tool calling will work.
 
-## When it fires
+## Quick behaviour summary
 
-After `execute_job_with_retries()` runs its normal retry loop, the fallback
-fires if **all** of these are true:
+The local LLM is invoked by the chain in two places:
 
-1. The final run is still `FAILED` or `TIMED_OUT`
-2. `job.allow_local_fallback` is `True`
-3. `MARCEL_LOCAL_LLM_URL` and `MARCEL_LOCAL_LLM_MODEL` are both set
-4. The error category is in the fallback-eligible set:
-   `rate_limit`, `timeout`, `network`, `server_error`, `auth_or_quota`
+1. **Tier 3 explain** (interactive turns) — when both `MARCEL_STANDARD_MODEL`
+   and `MARCEL_BACKUP_MODEL` have failed, the local model runs with a
+   synthesised "explain the failure" prompt and tells the user cloud
+   models are temporarily unavailable.
+2. **Tier 3 complete** (scheduled jobs with `allow_local_fallback=True`)
+   — when cloud retries exhaust, the local model runs the original task
+   like the legacy ISSUE-070 path.
 
-The fallback runs `execute_job()` exactly once against `local:<model>`.
-It does **not** re-enter the retry loop. Successful runs are marked with
-`fallback_used = 'local'` in `runs.jsonl`.
-
-Permanent non-auth errors (bad input, unknown skill, validation errors)
-**never** trigger the fallback — a local model wouldn't fix the request
-shape.
+See [docs/model-tiers.md](./model-tiers.md) for the full tier semantics,
+the behaviour matrix, and the `allow_fallback_chain` / `allow_local_fallback`
+interaction.
 
 ## Environment variables
 

@@ -90,7 +90,7 @@ goes entirely to its own specialized instructions.
 |-----|------|---------|---------|
 | `name` | string | filename stem | Identifier used by `delegate(subagent_type=...)`. Must be unique within the agents directory. |
 | `description` | string | `""` | One-line summary shown in the agent index. |
-| `model` | string | `inherit` | Pydantic-ai model string (e.g. `anthropic:claude-haiku-4-5-20251001`). `inherit` uses the parent's model. Supports `local:<tag>` for self-hosted models. |
+| `model` | string | `inherit` | Pydantic-ai model string (e.g. `anthropic:claude-haiku-4-5-20251001`). `inherit` uses the parent's model. Supports `local:<tag>` for self-hosted models and tier sentinels `standard` / `backup` / `fallback` / `power` (see [Model tier sentinels](#model-tier-sentinels)). |
 | `tools` | list[string] | *(all role-default tools)* | Tool-name allowlist. See [Tool names](#tool-names). Omit for the full role-default pool. |
 | `disallowed_tools` | list[string] | `[]` | Tools to remove after the allowlist is applied. Handy when you want "everything except X". |
 | `max_requests` | int | *(none)* | Maximum model calls per delegated run (pydantic-ai `UsageLimits.request_limit`). Prevents runaway nesting. |
@@ -98,6 +98,26 @@ goes entirely to its own specialized instructions.
 
 Clawcode-compatible aliases are also accepted: `disallowedTools` for
 `disallowed_tools`, and `maxTurns` for `max_requests`.
+
+### Model tier sentinels
+
+In addition to fully-qualified `provider:model` strings, the `model`
+frontmatter field accepts four **tier sentinels** that resolve against
+the ISSUE-076 fallback chain env vars at delegate time:
+
+| Sentinel | Resolves to              |
+|----------|--------------------------|
+| `standard` | `MARCEL_STANDARD_MODEL` |
+| `backup`   | `MARCEL_BACKUP_MODEL`   |
+| `fallback` | `MARCEL_FALLBACK_MODEL` |
+| `power`    | `MARCEL_POWER_MODEL`    |
+
+The resolution happens every time the subagent is invoked, so env-var
+updates take effect on the next turn without a restart. If the referenced
+env var is unset when the agent is invoked, `delegate()` returns a clean
+`delegate error:` message rather than raising — the parent can decide
+how to recover. See [docs/model-tiers.md](./model-tiers.md) for the full
+tier system.
 
 ### Tool names
 
@@ -127,8 +147,8 @@ unbounded nesting and makes the delegation tree easy to reason about.
 
 ## Default subagents
 
-Two subagents ship with Marcel and are seeded to `<data_root>/agents/` on
-first startup, the same way default skills are seeded from
+Three subagents ship with Marcel and are seeded to `<data_root>/agents/`
+on first startup, the same way default skills are seeded from
 `src/marcel_core/defaults/skills/`:
 
 - **`explore`** — a read-only file/codebase explorer. Tools:
@@ -137,6 +157,13 @@ first startup, the same way default skills are seeded from
 - **`plan`** — a software architect that turns a fuzzy task into a
   concrete implementation plan. Tools: `read_file`, `web`, `marcel`. Good
   for "what's the smallest change to do Z?".
+- **`power`** — a heavyweight reasoning agent backed by `MARCEL_POWER_MODEL`
+  (default `anthropic:claude-opus-4-6`). The parent delegates to it when
+  a task is hard enough that the standard model is likely to fumble —
+  multi-file refactors, debugging sessions requiring broad context,
+  plans where a wrong step is expensive. Inherits the parent's role-default
+  tool pool (admin users get bash/file IO/git; regular users get the safer
+  subset). See [docs/model-tiers.md](./model-tiers.md).
 
 Edit these files freely in your data root — the seed step never
 overwrites existing files, so your customizations survive restarts. Add
