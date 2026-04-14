@@ -12,57 +12,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from datetime import UTC, datetime
 
+from marcel_core.harness.model_chain import FALLBACK_ELIGIBLE_CATEGORIES, classify_error
 from marcel_core.jobs import append_run
 from marcel_core.jobs.models import JobDefinition, JobRun, NotifyPolicy, RunStatus
 
 log = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Transient error classification
-# ---------------------------------------------------------------------------
-
-_TRANSIENT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r'rate.?limit|429|too many requests', re.I), 'rate_limit'),
-    (re.compile(r'timeout|timed?\s*out|etimedout', re.I), 'timeout'),
-    (re.compile(r'connect|network|dns|socket|econnr', re.I), 'network'),
-    (re.compile(r'50[0-4]|server error|internal error|bad gateway|overloaded', re.I), 'server_error'),
-]
-
-# Auth / quota / billing errors — permanent for the cloud provider (retrying
-# won't help), but a valid trigger for the local-LLM fallback path: the cloud
-# credential is broken or out of budget, not the request itself.
-_AUTH_QUOTA_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r'401|403|unauthori[sz]ed|forbidden', re.I),
-    re.compile(r'invalid api key|api key not found|authentication error', re.I),
-    re.compile(r'insufficient[_ ]quota|quota exceeded|credit balance too low|billing', re.I),
-]
-
-# Error categories the local-LLM fallback path will retry against the local
-# model. Transient cloud errors retry on the same provider first; if those
-# retries exhaust, the fallback still fires for this set. Auth/quota errors
-# fire the fallback immediately (no point retrying the same broken credential).
-FALLBACK_ELIGIBLE_CATEGORIES: frozenset[str] = frozenset(
-    {'rate_limit', 'timeout', 'network', 'server_error', 'auth_or_quota'}
-)
-
-
-def classify_error(error: str) -> tuple[bool, str]:
-    """Classify an error as transient or permanent.
-
-    Returns ``(is_transient, category)``. Category is one of the transient
-    pattern names, ``"auth_or_quota"`` for cloud auth/billing failures (not
-    transient but fallback-eligible), or ``"permanent"``.
-    """
-    for pattern, category in _TRANSIENT_PATTERNS:
-        if pattern.search(error):
-            return True, category
-    for pattern in _AUTH_QUOTA_PATTERNS:
-        if pattern.search(error):
-            return False, 'auth_or_quota'
-    return False, 'permanent'
+# ``FALLBACK_ELIGIBLE_CATEGORIES`` and ``classify_error`` are re-exported from
+# :mod:`marcel_core.harness.model_chain` — they used to live here, but the
+# post-076 audit (ISSUE-077) moved them next to ``build_chain`` / ``next_tier``
+# where the fallback policy is defined. Keeping the symbols visible in this
+# module's namespace preserves ``from marcel_core.jobs.executor import
+# classify_error`` for the existing tests that spell it that way.
+__all__ = ['FALLBACK_ELIGIBLE_CATEGORIES', 'classify_error']
 
 
 def _load_job_memories(user_slug: str) -> str:
@@ -229,6 +193,14 @@ async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> 
     # on-failure jobs must not send user-visible messages on success, so
     # agent-initiated notify calls are dropped at the tool layer.
     deps.turn.suppress_notify = job.notify in (NotifyPolicy.SILENT, NotifyPolicy.ON_FAILURE)
+
+    # Prime ``turn.read_skills`` with the skills we're about to inject into
+    # the system prompt, so the integration tool's auto-loader doesn't
+    # prepend the full SkillDoc to every tool result (the ISSUE-071 fix
+    # applied to the job path — the runner primes from history, but jobs
+    # have no history, so we seed from the job definition directly).
+    for skill in _resolve_job_skills(job):
+        deps.turn.read_skills.add(skill.name)
 
     # Build lean system prompt: task + skill docs + credentials + channel
     system_prompt = _build_job_context(job)

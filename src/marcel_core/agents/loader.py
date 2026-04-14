@@ -29,6 +29,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from marcel_core.harness.model_chain import make_tier_sentinel
 from marcel_core.skills.loader import _parse_frontmatter
 
 log = logging.getLogger(__name__)
@@ -100,12 +101,12 @@ def _load_agent_file(path: Path, source: str) -> AgentDoc | None:
     model_raw = fm.get('model')
     # "inherit" is an explicit way to say "use parent's model" — map to None.
     # Single-word tier names (standard, backup, fallback, power) are rewritten
-    # to ``tier:<name>`` sentinels which the delegate tool resolves against
-    # settings at call time. See ISSUE-076.
+    # to ``tier:<name>`` sentinels via the shared helper in model_chain, so the
+    # tier vocabulary lives in exactly one place. See ISSUE-076, ISSUE-077.
     if model_raw in (None, '', 'inherit'):
         model: str | None = None
-    elif model_raw in ('standard', 'backup', 'fallback', 'power'):
-        model = f'tier:{model_raw}'
+    elif isinstance(model_raw, str) and (sentinel := make_tier_sentinel(model_raw)) is not None:
+        model = sentinel
     else:
         model = str(model_raw)
 
