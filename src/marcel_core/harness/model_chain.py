@@ -299,9 +299,7 @@ class TierNotConfigured(RuntimeError):
 
     def __init__(self, tier: str) -> None:
         self.tier = tier
-        super().__init__(
-            f'tier {tier!r} is not configured — set MARCEL_{tier.upper()}_MODEL'
-        )
+        super().__init__(f'tier {tier!r} is not configured — set MARCEL_{tier.upper()}_MODEL')
 
 
 def is_tier_sentinel(value: str) -> bool:
