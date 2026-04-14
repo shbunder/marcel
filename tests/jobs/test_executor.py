@@ -243,7 +243,7 @@ class TestLocalFallback:
         # Second run (fallback): local succeeds.
         scripted_runs.append(JobRun(job_id='x', status=RunStatus.COMPLETED, output='hello from local'))
 
-        job = _make_job(allow_local_fallback=True)
+        job = _make_job(allow_local_fallback=True, allow_fallback_chain=False)
         run = await execute_job_with_retries(job)
 
         assert run.status == RunStatus.COMPLETED
@@ -264,7 +264,7 @@ class TestLocalFallback:
             JobRun(job_id='x', status=RunStatus.FAILED, error='401 unauthorized', error_category='auth_or_quota')
         )
 
-        job = _make_job(allow_local_fallback=False)
+        job = _make_job(allow_local_fallback=False, allow_fallback_chain=False)
         run = await execute_job_with_retries(job)
 
         assert run.status == RunStatus.FAILED
@@ -281,7 +281,7 @@ class TestLocalFallback:
             JobRun(job_id='x', status=RunStatus.FAILED, error='401 unauthorized', error_category='auth_or_quota')
         )
 
-        job = _make_job(allow_local_fallback=True)
+        job = _make_job(allow_local_fallback=True, allow_fallback_chain=False)
         run = await execute_job_with_retries(job)
 
         assert run.status == RunStatus.FAILED
@@ -299,7 +299,7 @@ class TestLocalFallback:
             JobRun(job_id='x', status=RunStatus.FAILED, error='bad arguments', error_category='permanent')
         )
 
-        job = _make_job(allow_local_fallback=True)
+        job = _make_job(allow_local_fallback=True, allow_fallback_chain=False)
         run = await execute_job_with_retries(job)
 
         assert run.status == RunStatus.FAILED
@@ -320,7 +320,7 @@ class TestLocalFallback:
             JobRun(job_id='x', status=RunStatus.FAILED, error='connection refused', error_category='network')
         )
 
-        job = _make_job(allow_local_fallback=True)
+        job = _make_job(allow_local_fallback=True, allow_fallback_chain=False)
         run = await execute_job_with_retries(job)
 
         assert run.status == RunStatus.FAILED
