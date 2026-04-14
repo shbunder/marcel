@@ -224,6 +224,23 @@ systemctl --user stop marcel
 | `MARCEL_TRACING_ENABLED` | No | Enable OpenTelemetry LLM tracing (default: `false`) |
 | `MARCEL_TRACING_ENDPOINT` | No | OTLP endpoint for traces (default: `http://localhost:6006`) |
 
+#### Model tiers (optional — four-tier fallback chain)
+
+Marcel runs fine with just `ANTHROPIC_API_KEY` set. The variables below add
+cross-provider resilience: if Anthropic is overloaded, Marcel silently
+retries against a backup provider; if every cloud model is down, a small
+local model explains the outage in plain language instead of showing a
+stack trace. Full details in [docs/model-tiers.md](docs/model-tiers.md).
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MARCEL_STANDARD_MODEL` | No | Tier 1 — normal calls. Defaults to `anthropic:claude-sonnet-4-6`. |
+| `MARCEL_BACKUP_MODEL` | No | Tier 2 — different-cloud backup tried on overloaded/5xx/auth errors. Example: `openai:gpt-4o`. |
+| `MARCEL_FALLBACK_MODEL` | No | Tier 3 — local-LLM apology when every cloud tier fails. Example: `local:qwen3.5:4b`. Requires `MARCEL_LOCAL_LLM_URL` + `MARCEL_LOCAL_LLM_MODEL`. |
+| `MARCEL_POWER_MODEL` | No | Optional heavyweight model the `power` subagent escalates to for hard tasks. Example: `anthropic:claude-opus-4-6`. |
+| `MARCEL_LOCAL_LLM_URL` | For local tier | OpenAI-compatible base URL of your local LLM (e.g. Ollama at `http://127.0.0.1:11434/v1`). See [docs/local-llm.md](docs/local-llm.md). |
+| `MARCEL_LOCAL_LLM_MODEL` | For local tier | Model tag the local server serves (e.g. `qwen3.5:4b`). |
+
 ### Client config (`~/.marcel/config.toml`)
 
 ```toml

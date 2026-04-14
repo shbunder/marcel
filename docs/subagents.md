@@ -6,6 +6,13 @@ Marcel's main agent can delegate a focused subtask to a purpose-built
 own model budget. The parent waits for the subagent to finish and receives
 a single string result back.
 
+!!! note "Admin-role only"
+    `delegate` is a power tool — it's registered only on admin-role agents,
+    alongside `bash`, `read_file`, `git_*`, and `claude_code`. Regular users
+    never see it in their tool pool, and a subagent spawned from an admin
+    parent cannot escalate: the recursion guard drops `delegate` from every
+    child's pool unless the child's frontmatter explicitly opts in.
+
 Think of it as `Task()` from Claude Code: you describe what the helper
 should do, the helper runs in an isolated context, and you get its final
 report — without the parent's turn history cluttering the child's context,
