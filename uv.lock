@@ -989,7 +989,7 @@ wheels = [
 
 [[package]]
 name = "marcel"
-version = "2.9.0"
+version = "2.10.1"
 source = { editable = "." }
 dependencies = [
     { name = "caldav" },
