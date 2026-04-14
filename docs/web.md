@@ -26,8 +26,14 @@ The model is instructed to pick the cheapest primitive that does the job:
 
 1. **`web(action="search")`** — first resort for any information query.
    Stateless, no JavaScript, fast. Always cite result URLs in the reply.
-2. **`web(action="navigate")` + `web(action="content")` / `web(action="evaluate")`**
+2. **`web(action="navigate")` + `web(action="read")` / `web(action="content")` / `web(action="evaluate")`**
    — read a specific URL, typically a search result. Handles JavaScript.
+   `navigate` already auto-appends a Trafilatura-extracted *Readable
+   content* block when the accessibility tree comes back sparse (see
+   [JavaScript-heavy sites](#javascript-heavy-sites-react-nextjs-vue)),
+   so a single `navigate` call is usually enough. Reach for `read`
+   explicitly when you want *only* the prose — no snapshot, no refs — or
+   for a re-read after an interaction hydrated new content.
 3. **`web(action="click" / "type" / "scroll" / "press_key")`** —
    multi-step interactive flows (login, form filling). Stateful browser
    session.
@@ -42,8 +48,9 @@ tool schema every turn) and is reinforced in
 | Action | Purpose | Required args | Needs playwright |
 |--------|---------|---------------|:---:|
 | `search` | Ranked results (title, URL, snippet). Rate-limited to 5/turn. | `query` | — |
-| `navigate` | Open a URL, return title + accessibility snapshot | `url` | ✓ |
+| `navigate` | Open a URL, return title + accessibility snapshot (+ readable content if sparse) | `url` | ✓ |
 | `snapshot` | Re-read accessibility tree with `[ref]` numbers | — | ✓ |
+| `read` | Return readable prose as markdown via Trafilatura | — | ✓ |
 | `screenshot` | Visual PNG | — | ✓ |
 | `click` | Click an element | `ref` or `selector` or `x,y` | ✓ |
 | `type` | Type text into an input | `text` + `ref` or `selector` | ✓ |
@@ -58,6 +65,52 @@ Actions marked ✓ require Playwright. `search` always works, regardless of
 whether Playwright is installed. Browser actions on a Playwright-less
 install return `Browser error: playwright not installed. Only the "search"
 action is available in this environment.`
+
+## JavaScript-heavy sites (React, Next.js, Vue)
+
+Marcel runs real headless Chromium, so JavaScript executes. The problem
+on modern SPAs is not *rendering*, it's *reading*: the accessibility tree
+that Playwright exposes skips nodes with `role='generic'` or `role='none'`,
+which is exactly what React's unsemantic `<div>` soup produces. On a page
+like `hellofresh.be/recipes` the default `navigate` snapshot collapses to
+a handful of lines, and the model can't see the recipe titles. Two pieces
+of the `web` tool deal with this:
+
+### Bounded hydration waits in `navigate`
+
+`navigate` uses `wait_until='domcontentloaded'` as its primary wait (the
+one that can fail the call on a genuine timeout), then layers two
+best-effort bounded waits on top of it:
+
+1. `wait_for_load_state('networkidle', timeout=3000)` — bounded to 3 s
+   because modern SPAs never fully idle (analytics, telemetry, service
+   workers keep the network "busy"). A timeout here is swallowed.
+2. `wait_for_function('body.innerText.length > 200', timeout=2000)` —
+   a last-resort "something renderable is on screen" check. Also
+   bounded, also swallowed.
+
+Neither failure ever propagates to the user — the call proceeds and
+returns whatever snapshot it can build. Worst-case added latency is
+roughly 5 s on a pathological page.
+
+### `read` action — Trafilatura readable extraction
+
+The `read` action pipes `page.content()` (the HTML *after* hydration)
+through [Trafilatura](https://github.com/adbar/trafilatura), the 2026
+standard for LLM-oriented readable-content extraction, and returns
+clean markdown. If Trafilatura returns empty (rare — pure-JSON SPAs or
+anti-bot walls), it falls back to `page.inner_text('body')`. Output is
+truncated to 8000 characters, same budget as accessibility snapshots.
+
+You rarely need to call `read` by hand: when `navigate` detects that the
+accessibility tree is sparse (fewer than 5 meaningful lines, or an empty
+sentinel), it automatically appends a `Readable content:` block from
+the same helper. A single `navigate` call on a React SPA therefore
+returns both the structured snapshot (for any refs that *did* get
+roles) and the prose (for everything that didn't).
+
+Trafilatura ships as part of the `browser` optional dependency group
+alongside Playwright — `uv sync --extra browser` installs both.
 
 ## Search backends
 

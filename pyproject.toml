@@ -3,7 +3,7 @@ name = "marcel"
 description = "A self-adapting agent build on top of claude-code that can rewrite itself."
 readme = "README.md"
 license = {text = "MIT"}
-version = "2.8.0"
+version = "2.9.0"
 authors = [
     { name="Shaun Bundervoet", email = "shaun.bundervoet@me.com"},
 ]
