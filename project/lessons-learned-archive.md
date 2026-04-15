@@ -8,6 +8,30 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+## ISSUE-065: News Sync Integration (2026-04-11)
+
+### What worked well
+- Following the `banking.sync` pattern made the design obvious ��� fetch in code, store in cache, expose single integration call
+- Extracting `fetch_feed()` from `rss_fetch()` cleanly separated the reusable library from the agent tool, allowing sync code to import it directly
+- Concurrent feed fetching with `asyncio.create_task` keeps sync fast despite 20 feeds
+- Feed config in YAML makes it trivial for users to add/remove sources without touching code or job prompts
+
+### What to do differently
+- The original `rss_fetch` should never have been an agent tool — it was always doing deterministic work (HTTP + XML parsing) that code handles better. When designing tools, ask: "does this need LLM judgment?" If no, make it a code path, not a tool
+- The job system prompt mixed two calling conventions (`rss_fetch(...)` and `integration(id=...)`) which confused the model. System prompts for jobs should use exactly one tool-calling pattern
+- Default seeding only copied whole directories, so adding new files to existing skills required manual copying. The fix (seed individual missing files) should have been the original design
+
+### Patterns to reuse
+- `news.sync` pattern: YAML config for data sources → async fetch all → deduplicate → filter known → upsert new. Reusable for any periodic data collection integration
+- Fall-back config loading: check user data dir first, then bundled defaults. Lets code work out-of-the-box while allowing user customization
+- When removing an agent tool but keeping its logic: extract the core function (no `RunContext` dependency), keep the tool function as a thin wrapper. This preserves testability and allows internal reuse
+
+---
+
+---
+
+---
+
 ## ISSUE-064: Job Scheduler Timezone Support (2026-04-11)
 
 ### What worked well
@@ -26,6 +50,9 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 ---
 
 ---
+
+---
+
 
 ## ISSUE-062: Restructure User Data Directory (2026-04-11)
 
@@ -46,6 +73,9 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 ---
 
 ---
+
+---
+
 
 ## ISSUE-061: Harden Job Scheduler (2026-04-11)
 
@@ -68,6 +98,9 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+---
+
+
 ## ISSUE-060: Improve Morning Digest Format and Delivery (2026-04-11)
 
 ### What worked well
@@ -85,6 +118,9 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 ---
 
 ---
+
+---
+
 
 ## ISSUE-059: Clean Up User Data Directory (2026-04-11)
 
@@ -106,6 +142,9 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+---
+
+
 ## ISSUE-058: Improve memory system and learning from feedback (2026-04-11)
 
 ### What worked well
@@ -124,6 +163,9 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 ---
 
 ---
+
+---
+
 
 ## ISSUE-051: Continuous Conversation Model (2026-04-10)
 
@@ -148,6 +190,9 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+---
+
+
 ## ISSUE-049: Full Migration to v2 Pydantic-AI Harness (2026-04-10)
 
 ### What worked well
@@ -168,6 +213,9 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 ---
 
 ---
+
+---
+
 
 ## ISSUE-043: Browser/Web Interaction Skill (2026-04-10)
 
@@ -190,6 +238,9 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+---
+
+
 ## ISSUE-039: Rename integration skill param to id (2026-04-09)
 
 ### What worked well
@@ -208,6 +259,9 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+---
+
+
 ## ISSUE-036: API Key Auth + Per-Channel Model Selection (2026-04-09)
 
 ### What worked well
@@ -225,6 +279,9 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 ---
 
 ---
+
+---
+
 
 ## ISSUE-035: Upgrade claude_code to stream-json session (2026-04-09)
 
@@ -245,6 +302,9 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 ---
 
 ---
+
+---
+
 
 ## ISSUE-023: Redesign Skill System (2026-04-02)
 
@@ -267,6 +327,9 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+---
+
+
 ## ISSUE-016: Clean Commit Workflow SOP (2026-03-28)
 
 ### What worked well
@@ -280,6 +343,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 ### Patterns to reuse
 - Standalone decision commits (📝) create clear audit trail of "we decided to do this"
 - Post-close fixup emoji (🩹) prevents reopening issues for trivial corrections
+
+---
 
 ---
 

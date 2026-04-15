@@ -10,6 +10,25 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
+---
+
+## ISSUE-999fa7: Claude Code setup hardening (2026-04-15)
+
+### What worked well
+- The PreToolUse safety hook went from "written" to "caught a real edit" inside the same session — I edited `project/CLAUDE.md` to fix a dangling description, the hook blocked it, the unlock-flag dance worked exactly as documented. End-to-end validation from inside the issue that introduced the mechanism. Hard to get a better test than that.
+- Pre-close verification (run inline because the subagent was registered too late in the session to be callable) caught a real shortcut: a bare `except Exception: pass` in the hook's JSON parse. The shortcut-hunt checklist from the pre-close-verifier SKILL.md earned its cost on its first use.
+- Splitting into 6 small `🔧 impl` commits kept each one reviewable on its own. The pre-commit hook ran `make check` on every one — would have caught a regression early, didn't need to.
+
+### What to do differently
+- Claude Code reloads hooks/settings mid-session more eagerly than I expected — the safety hook I wrote went live during the same session that wrote it, not on next startup. Plan for that: if an in-session change would make YOUR OWN next edits harder, either unlock preemptively or sequence the edits so you finish the protected files before wiring up the guard.
+- Subagent files were NOT picked up in-session (the Agent tool did not know `pre-close-verifier` by name even after the file was committed). Hooks reload fast, agents reload slow. Document this difference so the next issue that introduces a subagent knows not to rely on it until the session restarts.
+
+### Patterns to reuse
+- **Fail-open defensive hooks.** A broken hook that blocks all editing is worse than no hook at all. Explicit narrow-except with a comment (`# Fail open on malformed input so a broken hook never blocks all editing`) is the right pattern for any PreToolUse guard script.
+- **Unlock-flag as a workflow, not a setting.** Three-step dance: `touch`, edit, `rm`. Gitignored so it cannot ship. Status line shows a 🔓 when set so "forgot to re-lock" is visible at a glance.
+- **Lessons-learned rotation as part of `/finish-issue`.** Cap on active file (10 entries) + unbounded archive + grep-don't-read in FEATURE_WORKFLOW. Prevents the always-loaded context footprint from growing as Marcel accumulates institutional memory.
+- **Subagent files adapted from `~/repos/agent-skills` are a great starting point** but need a Marcel-specific rewrite pass: the generic `code-reviewer.md` has no opinion on pydantic-ai vs other harnesses, on flat-file vs DB storage, or on Marcel's role-gated tool split — all of which matter for a real review. Same for `security-auditor.md`: generic OWASP is noise; Marcel's real attack surface is credential storage, Telegram webhook, restart flag, and browser SSRF.
+
 ## ISSUE-079: Claude Code Setup Redesign (2026-04-15)
 
 ### What worked well
@@ -31,6 +50,9 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
+---
+
+
 ## ISSUE-0554d9: Parallel-agent git worktrees (2026-04-15)
 
 ### What worked well
@@ -51,6 +73,9 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
+---
+
+
 ## ISSUE-077: Post-076 audit cleanup — shame bump (2026-04-14)
 
 ### What worked well
@@ -68,6 +93,9 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 - **"Shame bump" as a recognised issue type.** Previous post-audit cleanup (ISSUE-066 after 065, ISSUE-077 after 076) both followed the same shape: bundle audit findings, explicitly mark scope boundaries, track deferred items in the issue file rather than losing them. The SHAME version segment anticipates this. **Reuse pattern:** after any multi-issue feature cluster (3+ consecutive issues in one area), schedule a post-cluster audit and fold the findings into a single shame bump. Don't let the rot accumulate across shippable milestones.
 
 ---
+
+---
+
 
 ## ISSUE-076: Four-Tier Model Fallback Chain (2026-04-14)
 
@@ -91,6 +119,9 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
+---
+
+
 ## ISSUE-074: Subagent Delegation Tool (2026-04-13)
 
 ### What worked well
@@ -112,6 +143,9 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
+---
+
+
 ## ISSUE-073: Simplify model routing via pydantic-ai native `provider:model` strings (2026-04-13)
 
 ### What worked well
@@ -129,6 +163,9 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 ---
 
 ---
+
+---
+
 
 ## ISSUE-068: System Prompt Restructure — Five H1 Blocks + Dynamic Memory (2026-04-12)
 
@@ -149,6 +186,9 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 ---
 
 ---
+
+---
+
 
 ## ISSUE-067: A2UI Rendering Pipeline (2026-04-12)
 
@@ -172,6 +212,9 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
+---
+
+
 ## ISSUE-066: Post-065 Audit Cleanup (2026-04-12)
 
 ### What worked well
@@ -192,26 +235,6 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 - **Doc-close verification grep**: before any closing commit, run `grep -r "<renamed function>" docs/ | grep -v closed_issue` to catch docs referencing the old name. Stale docs are worse than missing docs.
 
 ---
-
----
-
-## ISSUE-065: News Sync Integration (2026-04-11)
-
-### What worked well
-- Following the `banking.sync` pattern made the design obvious ��� fetch in code, store in cache, expose single integration call
-- Extracting `fetch_feed()` from `rss_fetch()` cleanly separated the reusable library from the agent tool, allowing sync code to import it directly
-- Concurrent feed fetching with `asyncio.create_task` keeps sync fast despite 20 feeds
-- Feed config in YAML makes it trivial for users to add/remove sources without touching code or job prompts
-
-### What to do differently
-- The original `rss_fetch` should never have been an agent tool — it was always doing deterministic work (HTTP + XML parsing) that code handles better. When designing tools, ask: "does this need LLM judgment?" If no, make it a code path, not a tool
-- The job system prompt mixed two calling conventions (`rss_fetch(...)` and `integration(id=...)`) which confused the model. System prompts for jobs should use exactly one tool-calling pattern
-- Default seeding only copied whole directories, so adding new files to existing skills required manual copying. The fix (seed individual missing files) should have been the original design
-
-### Patterns to reuse
-- `news.sync` pattern: YAML config for data sources → async fetch all → deduplicate → filter known → upsert new. Reusable for any periodic data collection integration
-- Fall-back config loading: check user data dir first, then bundled defaults. Lets code work out-of-the-box while allowing user customization
-- When removing an agent tool but keeping its logic: extract the core function (no `RunContext` dependency), keep the tool function as a thin wrapper. This preserves testability and allows internal reuse
 
 ---
 
