@@ -20,6 +20,7 @@ Marcel's developer-mode harness — the Claude Code session you use when editing
 │   ├── git-staging.md        # always-loaded
 │   ├── closing-commit-purity.md  # always-loaded
 │   ├── docs-in-impl.md       # always-loaded
+│   ├── debugging.md          # always-loaded
 │   ├── integration-pairs.md  # path-scoped: skills/, defaults/skills/
 │   ├── data-boundaries.md    # path-scoped: storage/, auth/, config.py, memory/, channels/
 │   └── role-gating.md        # path-scoped: harness/, tools/, agents/
@@ -51,7 +52,7 @@ paths:
 ---
 ```
 
-Marcel's four always-loaded rules (`self-modification`, `git-staging`, `closing-commit-purity`, `docs-in-impl`) cover universal workflow safety. The three path-scoped rules (`integration-pairs`, `data-boundaries`, `role-gating`) cover domain-specific concerns that only matter when touching the relevant code.
+Marcel's five always-loaded rules (`self-modification`, `git-staging`, `closing-commit-purity`, `docs-in-impl`, `debugging`) cover universal workflow safety and debugging discipline. The three path-scoped rules (`integration-pairs`, `data-boundaries`, `role-gating`) cover domain-specific concerns that only matter when touching the relevant code.
 
 ### How subagents use rules
 

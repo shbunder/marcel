@@ -20,6 +20,7 @@ Most style rules are enforced by `ruff` and `mypy` — run `make check` and trus
 
 - **Coverage minimum is 90%** — enforced by the pre-commit hook via `make check`.
 - **`pragma: no cover` is reserved** for genuinely untestable branches (platform-specific paths, type-narrowing no-ops, defensive unreachable code). Never use it to paper over missing tests.
+- **Bug fixes start with a failing test.** Before changing the production code, write a test that reproduces the bug and fails for the same reason the user hit it. Then fix the code until the test goes green. The test stays in the suite as the regression guard — that is how we know the bug won't come back. If the bug is hard to reproduce in a unit test, reproduce it at the nearest integration layer you can (harness, storage, channel) rather than skipping the step.
 
 ## Not here
 

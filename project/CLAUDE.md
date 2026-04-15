@@ -19,6 +19,7 @@ Short, single-concept rules with enforcement by the subagents live under [.claud
 - [closing-commit-purity](../.claude/rules/closing-commit-purity.md) — `✅ close` commits are pure status markers
 - [docs-in-impl](../.claude/rules/docs-in-impl.md) — docs ship in the last `🔧 impl:` commit before close
 - [self-modification](../.claude/rules/self-modification.md) — `request_restart()` is the only legal restart path
+- [debugging](../.claude/rules/debugging.md) — Reproduce → Localize → Reduce → Fix → Guard; no guess-and-check
 - [data-boundaries](../.claude/rules/data-boundaries.md) — user data in `~/.marcel/users/{slug}/`, system config in `.env`, never mix *(path-scoped)*
 - [integration-pairs](../.claude/rules/integration-pairs.md) — integrations ship as handler + `SKILL.md` + `SETUP.md`, never half *(path-scoped)*
 - [role-gating](../.claude/rules/role-gating.md) — admin vs non-admin tool split, enforced structurally at harness startup *(path-scoped)*

@@ -33,6 +33,14 @@ The close commit is the audit signal that an issue is done. Mixing code into it:
 
 If you already merged an impure close commit, fix it with a `🩹 fixup` commit on main. Do not rewrite history on a merged branch.
 
+## Common rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "The change is one line, folding it into the close saves a commit" | The close is the audit marker. One line of code in it still breaks `git blame` and still skips the verifier's "no code in close" check. Make the extra `🔧 impl:` commit. |
+| "I'll just stage the issue file and trust my editor not to catch the other change" | Per [git-staging](./git-staging.md), staging is by name — so this path only exists if you deliberately typed the other file. Don't. |
+| "The pre-close-verifier will let it through, it's only a comment" | The verifier flags any diff outside `project/issues/`. Comments, whitespace, docs — all flagged. The rule is literal. |
+
 ## Enforcement
 
 [.claude/agents/pre-close-verifier.md](../agents/pre-close-verifier.md) flags any close commit whose diff touches files outside `project/issues/`. The `/finish-issue` skill's Step 8 repeats the rule.
