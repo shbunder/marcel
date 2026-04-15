@@ -4,14 +4,24 @@ This file governs coder mode — when Marcel is being extended, debugged, or rew
 
 The **how** is as important as the **what**. A working feature that breaks the architecture or makes the next change harder is not a good outcome.
 
-## Core rules (always apply)
+## Workflow rules (always apply)
 
 - **Create an issue first.** Anything beyond a one-line typo needs an issue. Use `/new-issue` — it handles branch creation, hash-ID allocation, and the `📝` commit.
 - **Work on feature branches.** Never commit implementation work directly to `main`. Each issue gets `issue/{hash}-{slug}`.
 - **`make check` must pass before closing.** Format, lint, typecheck, and tests with coverage all green. A pre-commit hook enforces this.
 - **Never leave an issue in `wip/` at the end of a conversation.** Close it with `/finish-issue` or explicitly tell the user why it remains open.
-- **Document in the same change as the code.** New feature → new or updated page in `docs/` per [docs/CLAUDE.md](../docs/CLAUDE.md).
-- **User data in `~/.marcel/users/{slug}/`, system config in `.env`.** Never mix. See `docs/storage.md` for the storage API.
+
+## Enforceable rules (in .claude/rules/)
+
+Short, single-concept rules with enforcement by the subagents live under [.claude/rules/](../.claude/rules/). Loaded every session. Path-scoped rules only load when Claude is reading matching files.
+
+- [git-staging](../.claude/rules/git-staging.md) — never `git add .`; always stage by name
+- [closing-commit-purity](../.claude/rules/closing-commit-purity.md) — `✅ close` commits are pure status markers
+- [docs-in-impl](../.claude/rules/docs-in-impl.md) — docs ship in the last `🔧 impl:` commit before close
+- [self-modification](../.claude/rules/self-modification.md) — `request_restart()` is the only legal restart path
+- [data-boundaries](../.claude/rules/data-boundaries.md) — user data in `~/.marcel/users/{slug}/`, system config in `.env`, never mix *(path-scoped)*
+- [integration-pairs](../.claude/rules/integration-pairs.md) — integrations ship as handler + `SKILL.md` + `SETUP.md`, never half *(path-scoped)*
+- [role-gating](../.claude/rules/role-gating.md) — admin vs non-admin tool split, enforced structurally at harness startup *(path-scoped)*
 
 ## Detailed references (load on demand)
 

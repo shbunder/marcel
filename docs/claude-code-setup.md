@@ -15,6 +15,14 @@ Marcel's developer-mode harness — the Claude Code session you use when editing
 ├── statusline.sh             # renders the status line
 ├── hooks/
 │   └── guard-restricted.py   # PreToolUse guard on CLAUDE.md, auth, config, .env
+├── rules/                    # enforceable rules; see "Rules" below
+│   ├── self-modification.md  # always-loaded
+│   ├── git-staging.md        # always-loaded
+│   ├── closing-commit-purity.md  # always-loaded
+│   ├── docs-in-impl.md       # always-loaded
+│   ├── integration-pairs.md  # path-scoped: skills/, defaults/skills/
+│   ├── data-boundaries.md    # path-scoped: storage/, auth/, config.py, memory/, channels/
+│   └── role-gating.md        # path-scoped: harness/, tools/, agents/
 ├── skills/
 │   ├── new-issue/            # /new-issue procedural wrapper
 │   ├── parallel-issue/       # /parallel-issue (worktree-aware)
@@ -25,7 +33,38 @@ Marcel's developer-mode harness — the Claude Code session you use when editing
     └── security-auditor.md   # scoped to Marcel's real attack surface
 ```
 
-All of `settings.json`, `statusline.sh`, `hooks/`, `skills/`, and `agents/` are tracked — the setup travels with the repo. Only `settings.local.json` and `.unlock-safety` are per-machine.
+All of `settings.json`, `statusline.sh`, `hooks/`, `rules/`, `skills/`, and `agents/` are tracked — the setup travels with the repo. Only `settings.local.json` and `.unlock-safety` are per-machine.
+
+## Rules
+
+`.claude/rules/*.md` files are enforceable constraints, loaded at the start of every session alongside `.claude/CLAUDE.md`. They complement CLAUDE.md rather than replace it: CLAUDE.md holds workflow prose and architectural context; rules hold short, single-concept, enforceable constraints that are referenced from multiple places (subagents, skills, commit workflow).
+
+### Always-loaded vs path-scoped
+
+A rule file with no frontmatter loads every session. A rule file with YAML frontmatter `paths:` only loads when Claude reads a file matching one of the globs — which saves context on sessions that don't touch that subtree.
+
+```yaml
+---
+paths:
+  - "src/marcel_core/skills/**/*.py"
+  - "src/marcel_core/defaults/skills/**/*"
+---
+```
+
+Marcel's four always-loaded rules (`self-modification`, `git-staging`, `closing-commit-purity`, `docs-in-impl`) cover universal workflow safety. The three path-scoped rules (`integration-pairs`, `data-boundaries`, `role-gating`) cover domain-specific concerns that only matter when touching the relevant code.
+
+### How subagents use rules
+
+The [pre-close-verifier](../.claude/agents/pre-close-verifier.md) enumerates applicable rules at runtime: for each file under `.claude/rules/`, it either reads it unconditionally (no `paths:`) or checks the diff's `git diff --name-only` against the globs. Each rule's `## Enforcement` section names which subagent treats what severity — so a rule can be "machine-read" by the verifier to build its checklist, not just human-read by contributors.
+
+[code-reviewer](../.claude/agents/code-reviewer.md) and [security-auditor](../.claude/agents/security-auditor.md) reference rules by name when flagging violations. Adding a rule automatically extends the verifier's checklist without any skill code change.
+
+### Adding a new rule
+
+1. Create `.claude/rules/<name>.md` with sections: a one-line summary, "Never", "Always", "Why", and "Enforcement" (naming the subagent and severity).
+2. If the rule only matters for specific paths, add `paths:` frontmatter with glob patterns.
+3. Remove any duplicated prose from CLAUDE.md / GIT_CONVENTIONS / docs that now lives in the rule — link to the rule file instead.
+4. If the rule is enforceable by the `pre-close-verifier`, you don't need to edit the verifier — it enumerates `.claude/rules/` dynamically.
 
 ## Subagent roster
 
