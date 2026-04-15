@@ -12,6 +12,7 @@ nav:
   - Artifacts: artifacts.md
   - A2UI Components: a2ui-components.md
   - Self-Modification: self-modification.md
+  - Claude Code Setup: claude-code-setup.md
   - Skills: skills.md
   - Subagents: subagents.md
   - Web Tool: web.md
