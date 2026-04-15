@@ -58,6 +58,56 @@ git branch -d "issue/{hash}-{slug}"
 
 The `--no-ff` flag preserves the branch shape in `git log --graph`, so the issue's commit sequence stays visible as a distinct topic. Do NOT fast-forward merge issue branches.
 
+## Parallel agents — git worktrees
+
+Hash-based IDs prevent counter collisions on issue numbers, and feature branches isolate commit history. Neither of those prevent *working-directory* collisions: two Claude Code sessions inside the same checkout share one `HEAD`, so `git checkout issue/abc` in session A yanks files out from under session B.
+
+For genuinely parallel agents, use **git worktrees**. A worktree is a separate directory on disk that has its own `HEAD` but shares the `.git` history store with the primary checkout — true isolation without a full clone.
+
+### Creating a worktree
+
+The `/parallel-issue` skill does this automatically. The equivalent manual commands:
+
+```bash
+# From the primary checkout on clean main
+git checkout main && git pull --ff-only
+git add project/issues/open/ISSUE-{YYMMDD}-{hash}-{slug}.md
+git commit -m "📝 [ISSUE-{hash}] created: ..."
+
+REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
+git worktree add "../${REPO_NAME}-issue-{hash}" -b "issue/{hash}-{slug}"
+```
+
+The sibling directory is now a fully functional checkout of the feature branch. Open a new Claude Code session with that directory as `cwd` — VSCode "Open Folder" or `cd && claude` in a terminal.
+
+### Closing from a worktree
+
+`/finish-issue` detects a worktree context (by comparing `git rev-parse --show-toplevel` against the first entry of `git worktree list --porcelain`) and runs the merge from the primary checkout before removing the worktree. The manual equivalent:
+
+```bash
+# From inside the worktree, after the ✅ close commit
+MAIN_REPO=$(git worktree list --porcelain | awk '/^worktree / {print $2; exit}')
+HERE=$(git rev-parse --show-toplevel)
+
+cd "$MAIN_REPO"
+git checkout main
+git pull --ff-only
+git merge --no-ff "issue/{hash}-{slug}" -m "merge issue/{hash}-{slug}"
+git worktree remove "$HERE"
+git branch -d "issue/{hash}-{slug}"
+```
+
+`git worktree remove` refuses if there are uncommitted changes — that is a safety feature, not a bug. Commit or stash first.
+
+### Caveats
+
+- **Python venv.** A worktree is a fresh checkout — it has no `.venv` until you run `make install` (or symlink `.venv` from the primary checkout). `make check` will fail until Python deps are available.
+- **Port collisions.** `make serve` binds a port. Two worktrees running the dev server at once need different ports.
+- **Disk cost.** Each worktree is a full source-tree checkout. The `.git` history is shared, but the working files are duplicated.
+- **Abandoned worktrees.** If a session is closed without `/finish-issue`, the worktree stays on disk. `git worktree list` shows all active worktrees; `git worktree remove <path>` cleans one up manually.
+
+When NOT to use worktrees: single-agent work on one issue at a time. Use `/new-issue` — the simple flow is lighter and avoids the venv/port caveats.
+
 ## Post-close fixups
 
 Sometimes you catch a small mistake after closing an issue — a typo, a missed file, a convention not applied to a related template. Use a fixup commit on `main` instead of reopening the issue or creating a new one.

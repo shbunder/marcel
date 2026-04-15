@@ -7,6 +7,8 @@ Create a new issue for: $ARGUMENTS
 
 Full conventions live in [project/issues/CLAUDE.md](../../../project/issues/CLAUDE.md) and [project/issues/GIT_CONVENTIONS.md](../../../project/issues/GIT_CONVENTIONS.md). The template is [project/issues/TEMPLATE.md](../../../project/issues/TEMPLATE.md). This skill is the procedural wrapper.
 
+**If the user wants to run another Claude Code session in parallel on this issue**, use `/parallel-issue` instead — it creates a git worktree so the two sessions don't stomp each other's `HEAD`. This single-checkout flow is the right default for one-agent-at-a-time work.
+
 ## Steps
 
 ### 1. Ensure clean main
