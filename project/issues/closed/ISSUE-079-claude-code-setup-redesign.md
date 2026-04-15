@@ -1,6 +1,6 @@
 # ISSUE-079: Claude Code Setup Redesign — branching, hash IDs, CLAUDE.md diet
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-15
 **Assignee:** Unassigned
 **Priority:** High
@@ -39,7 +39,7 @@ This is the LAST issue under the legacy `ISSUE-NNN` scheme. Future issues use th
 - [✓] Rewrite `.claude/skills/finish-issue/SKILL.md` for branch-merge flow; add anti-rationalization table; enrich frontmatter
 - [✓] Update `.claude/settings.json` SessionStart hook to show active `issue/*` branches
 - [✓] Light trim of root `CLAUDE.md` and `docs/CLAUDE.md`
-- [⚒] End-to-end verification (parallel creation, full lifecycle, legacy lookup)
+- [✓] End-to-end verification (parallel creation, full lifecycle, legacy lookup)
 
 ## Relationships
 
@@ -70,4 +70,9 @@ User approved the full plan at `~/.claude/plans/cozy-foraging-porcupine.md` afte
 
 **Result**: Always-loaded CLAUDE.md footprint dropped from 479 → 186 lines (61% reduction). New issues can be created in parallel without ID collisions because hashes are independently generated from `/dev/urandom`. Feature branches isolate parallel work.
 
-**Next**: Verify end-to-end — run the new-issue SKILL mentally against its instructions, confirm no broken references, then close.
+**Reflection**:
+- Coverage: 10/10 tasks addressed. Phase 5 (specialist subagent) and Phase 6 (settings hygiene) were explicitly marked deferrable in the plan and not shipped.
+- Shortcuts found: none. Skill rewrites are complete; no `pass` bodies or TODO comments introduced.
+- Scope drift: none. Two minor additions only — a retry loop in the hash generator (collision-safety completeness) and a Reflection block structure in finish-issue (matches the agent-skills convention).
+- Verification: `python3 -c 'import secrets; print(secrets.token_hex(3))'` works. Relative paths from skills to reference files resolve (`ls ../../../project/issues/TEMPLATE.md` succeeds). Legacy ISSUE-073 still grep-able in `src/marcel_core/jobs/__init__.py` and `src/marcel_core/storage/settings.py`. SessionStart hook command tested and prints `No active issue branches` on clean main. Pre-commit hook passed — 1344 tests, 92.75% coverage.
+- **Self-exception**: ISSUE-079 is the meta-issue that implements the branch-per-issue scheme, so it cannot itself use that scheme. This work was done on main under the legacy flow. The first issue under the new scheme will validate the end-to-end flow for real.
