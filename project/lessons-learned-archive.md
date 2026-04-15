@@ -8,6 +8,33 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+## ISSUE-066: Post-065 Audit Cleanup (2026-04-12)
+
+### What worked well
+- Running 5 parallel Explore sub-agents (architecture, tests, dead code, philosophy, docs) from a single audit prompt gave a complete picture in one round. Each agent stayed focused because its brief was narrow and self-contained — no cross-contamination, no duplicated reads.
+- Splitting a large god-tool (`tools/marcel.py`) into a package with the dispatcher in one file and each action group in its own module kept the single-tool-to-the-LLM contract intact while fixing the maintainability problem. The `__init__.py` re-exports mean all existing imports (`from marcel_core.tools.marcel import marcel`) continue to work untouched.
+- Extracting `TurnState` as a composed field on `MarcelDeps` (not inheritance, not a separate context parameter) meant tools only changed one line each (`deps.notified` → `deps.turn.notified`) and pydantic-ai's `deps_type` contract was unaffected.
+- Writing the issue with all 8 tasks declared up front, then working them top-to-bottom, kept the commit sequence clean: one `📝 created`, two `🔧 impl` (code + linter fixup), one `✅ closed` (docs + issue move).
+
+### What to do differently
+- The docs site was already broken before this issue (`docs/index.md` missing from mkdocs.yml for weeks). Earlier audits should have run `mkdocs build --strict` as a sanity check — missing nav files are the kind of bug that only surfaces when someone actually views the site.
+- Two documentation pages (architecture.md's memory extraction section, jobs.md's TriggerSpec table) had been stale since ISSUE-049 and ISSUE-064 respectively. The feature development procedure says "Update all affected doc pages in the same change as the code" — neither issue's closing commit caught the downstream doc reference. A grep for the changed module/field name across `docs/` at close time would have caught both.
+- The `agent/` folder was named in ISSUE-033 (`marcel-md-system`) when it only held `marcelmd.py`, then it accreted `memory_extract.py` in ISSUE-049 without anyone noticing the name no longer fit. Module names should be revisited whenever a second file is added — if the name doesn't describe both, it probably shouldn't be the home for either.
+
+### Patterns to reuse
+- **Parallel audit pattern**: for any "deep audit / review since X" request, launch 4–6 focused Explore sub-agents in a single batch (architecture, tests, dead code, philosophy, docs, and optionally security). Each agent gets a self-contained brief with category-specific questions. Results come back in a few minutes and compile into a comprehensive report without polluting the main conversation with tool-call noise.
+- **Composed state pattern**: when a dependency container starts accumulating mutable flags (`read_skills`, `notified`, `counter`, etc.), extract them into a `TurnState` / `RunState` dataclass composed as a field on the deps. Keeps the dep container immutable identity/config and collects all per-run state in one obvious place. Tools touch `deps.turn.x` instead of `deps.x`.
+- **Package with dispatcher pattern**: when a single-file tool's action implementations grow past ~300 lines, convert the file into a package: `tool/__init__.py` re-exports the public entry point, `tool/dispatcher.py` holds the match/switch, and each action group lives in its own sibling module. Import paths stay stable thanks to `__init__.py` re-exports.
+- **Doc-close verification grep**: before any closing commit, run `grep -r "<renamed function>" docs/ | grep -v closed_issue` to catch docs referencing the old name. Stale docs are worse than missing docs.
+
+---
+
+---
+
+---
+
+---
+
 ## ISSUE-065: News Sync Integration (2026-04-11)
 
 ### What worked well
@@ -32,6 +59,9 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+---
+
+
 ## ISSUE-064: Job Scheduler Timezone Support (2026-04-11)
 
 ### What worked well
@@ -46,6 +76,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 ### Patterns to reuse
 - `ZoneInfo` + `astimezone()` for timezone-aware cron: convert UTC `now` to local, run croniter in local time, convert result back to UTC. Simple and handles DST correctly
 - Additive schema changes with `None` defaults for backward compatibility — existing job.json files deserialize without migration
+
+---
 
 ---
 
@@ -69,6 +101,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 - Profile.md frontmatter for per-user structured config: `_parse_profile()` + `_serialize_profile()` + `_update_profile_field()` — simple, no dependencies, works with any key-value pair
 - Delegating session state to an existing metadata store (conversation channel meta) instead of maintaining a separate state file — reduces moving parts and avoids multi-user isolation issues
 - `cache/` subdirectory convention for SQLite databases — keeps caches separate from identity/config files, easy to exclude from backups or clear
+
+---
 
 ---
 
@@ -100,6 +134,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+---
+
 
 ## ISSUE-060: Improve Morning Digest Format and Delivery (2026-04-11)
 
@@ -114,6 +150,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 ### Patterns to reuse
 - `deps.notified` flag pattern: lightweight in-run state tracking between tools and executor without modifying the agent loop — useful for any "did the agent already do X?" checks
 - `run.agent_notified` on `JobRun`: persisting tool-side state into the run record so post-execution logic can make decisions — avoids passing deps objects through the retry/notify chain
+
+---
 
 ---
 
@@ -144,6 +182,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+---
+
 
 ## ISSUE-058: Improve memory system and learning from feedback (2026-04-11)
 
@@ -159,6 +199,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 - `_load_job_memories` pattern: loading a subset of memories by type for injection into job agents — avoids full AI-driven selection when there's no user query to match against
 - `rebuild_memory_index` as a disk-scan-based index rebuilder — eliminates index drift from background extractors that may crash mid-write
 - Structured feedback memory format (rule + **Why:** + **How to apply:**) — gives the agent enough context to judge edge cases rather than blindly following rules
+
+---
 
 ---
 
@@ -192,6 +234,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+---
+
 
 ## ISSUE-049: Full Migration to v2 Pydantic-AI Harness (2026-04-10)
 
@@ -209,6 +253,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 - For SDK migrations: make the new path the default first (keep old code), then delete the old code in a separate issue — "migrate then delete" is less risky than "rewrite in place"
 - JSON-return-value pattern for agent sub-tasks: instead of giving an agent file I/O tools, have it return structured JSON and apply the operations in the caller. Simpler, more testable, no permission issues
 - Custom `logging.Filter` subclass on specific loggers (e.g. `uvicorn.access`) to suppress noisy patterns — cleaner than adjusting log levels which affects all messages
+
+---
 
 ---
 
@@ -240,6 +286,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+---
+
 
 ## ISSUE-039: Rename integration skill param to id (2026-04-09)
 
@@ -254,6 +302,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 ### Patterns to reuse
 - For pure rename/find-replace issues: grep for all occurrences first, then use `replace_all: true` for each file — fast and thorough
 - When `make check` fails on pre-existing Rust errors, run `make test` (Python only) to verify Python changes are clean before committing with `--no-verify`
+
+---
 
 ---
 
@@ -282,6 +332,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+---
+
 
 ## ISSUE-035: Upgrade claude_code to stream-json session (2026-04-09)
 
@@ -298,6 +350,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 - For any subprocess that may exit early via `return` inside a `try`, put `kill()` + `wait_for(proc.wait())` in the `finally` block — never after it — so all exit paths clean up
 - Stream-json event loop pattern: `async for raw in proc.stdout` + `json.loads(line)` + dispatch on `event.get('type')` is clean and easy to extend with new event types
 - `PAUSED:` prefix protocol: when a tool call needs to pause for user input but can't block, return a structured prefix string the agent can detect and act on, then resume with a follow-up call
+
+---
 
 ---
 
@@ -329,6 +383,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+---
+
 
 ## ISSUE-016: Clean Commit Workflow SOP (2026-03-28)
 
@@ -343,6 +399,8 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 ### Patterns to reuse
 - Standalone decision commits (📝) create clear audit trail of "we decided to do this"
 - Post-close fixup emoji (🩹) prevents reopening issues for trivial corrections
+
+---
 
 ---
 

@@ -12,6 +12,25 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
+---
+
+## ISSUE-0ee9fc: Extract enforceable rules to .claude/rules/ (2026-04-15)
+
+### What worked well
+- **Path-scoped rules are a genuine context win.** Scoping `integration-pairs.md`, `data-boundaries.md`, and `role-gating.md` to specific subtrees means sessions that don't touch those areas don't pay the context cost. Four universal rules stay always-loaded; the three domain-specific ones only load when relevant. This mapping — always-loaded for workflow safety, path-scoped for domain specifics — worked cleanly on the first pass.
+- **Straggler grep caught real violations immediately.** Grepping `git add -A` across the tree found two lines in `project/plans/architecture-overview.md` that were prescribing a forbidden pattern. The grep was run as part of inline verification and the fix (marking the doc Superseded with an inline reference to the rule) took 30 seconds. This is exactly the kind of drift the rule is meant to catch, validated on the rule's own introduction commit.
+- **Empirical confirmation that subagents do NOT hot-reload.** Previous issue's lesson predicted this; this issue proved it with a live `Agent(subagent_type="pre-close-verifier", ...)` call returning "Agent type not found". Now we know: hooks reload mid-session, subagents do not. This is a real constraint on how meta-issues can test their own changes.
+
+### What to do differently
+- **Meta-issues that introduce verification infrastructure cannot be verified by that infrastructure in the same session.** Plan for this: either ship the infrastructure in one issue and test-drive it on the next, or accept that the introducing issue will always use the inline fallback path. Don't burn cycles trying to make the new verifier verify itself.
+- **`.claude/rules/` files need the YAML frontmatter to be valid as loaded.** I hand-wrote the `paths:` blocks; in retrospect a validator step (simple python YAML parse) would be cheap insurance against a typo silently breaking loading. Add to the next "setup hardening" pass if one happens.
+
+### Patterns to reuse
+- **Rule file structure.** Each rule file has sections: a one-line summary, "Never" (explicit bans), "Always" (explicit requirements), "Why" (rationale), and "Enforcement" (which subagent, what severity). The Enforcement section is machine-readable: the pre-close-verifier greps it to decide which rules to apply for a given diff. Keep this structure for any new rule.
+- **Path-scoping to subtrees, not individual files.** `src/marcel_core/storage/**/*.py` is right; `src/marcel_core/storage/conversation.py` is too narrow — rules should survive file renames. Use glob patterns with `**` wildcards at the directory level.
+- **Link from the old location to the new rule, not the other way around.** When trimming `GIT_CONVENTIONS.md` and `project/CLAUDE.md`, the workflow prose stayed and points AT `.claude/rules/<name>.md` as the source of truth. The rule file does not need to know about its former home. One-way links age better than two-way ones.
+- **Superseded-doc pattern for historical content that violates new rules.** Rather than rewriting history, add a header note saying the document is obsolete, point at the current source, and flag the specific violation with an inline link to the relevant rule. Reader immediately knows the doc is not prescriptive.
+
 ## ISSUE-999fa7: Claude Code setup hardening (2026-04-15)
 
 ### What worked well
@@ -29,6 +48,9 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 - **Lessons-learned rotation as part of `/finish-issue`.** Cap on active file (10 entries) + unbounded archive + grep-don't-read in FEATURE_WORKFLOW. Prevents the always-loaded context footprint from growing as Marcel accumulates institutional memory.
 - **Subagent files adapted from `~/repos/agent-skills` are a great starting point** but need a Marcel-specific rewrite pass: the generic `code-reviewer.md` has no opinion on pydantic-ai vs other harnesses, on flat-file vs DB storage, or on Marcel's role-gated tool split — all of which matter for a real review. Same for `security-auditor.md`: generic OWASP is noise; Marcel's real attack surface is credential storage, Telegram webhook, restart flag, and browser SSRF.
 
+---
+
+
 ## ISSUE-079: Claude Code Setup Redesign (2026-04-15)
 
 ### What worked well
@@ -45,6 +67,8 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 - Progressive disclosure: put short rules in CLAUDE.md (always-loaded), extract detailed process content into sibling reference files that are linked rather than loaded.
 - Enriched skill frontmatter with `name` + explicit "do NOT use" exclusions, not just a description. Prevents the harness from invoking skills for inappropriate tasks.
 - Self-generated 6-char hex IDs (`secrets.token_hex(3)`) with a collision retry loop solve parallel-allocation problems without needing a central counter or shared lock.
+
+---
 
 ---
 
@@ -75,6 +99,8 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
+---
+
 
 ## ISSUE-077: Post-076 audit cleanup — shame bump (2026-04-14)
 
@@ -91,6 +117,8 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 - **Audit finding → commit chunking 1:1.** Implementation split into four commits: (1) test rot, (2) architecture (backwards import + tier sentinel + read_skills priming), (3) docs (SETUP + README + subagents), (4) ruff reflow. Each commit message lists the specific findings it addresses. `git log --oneline` now reads as a punch-list check-off for anyone reviewing the shame bump. **Reuse pattern:** when fixing a cluster of independent findings, chunk commits by *kind of concern* (tests / architecture / docs) rather than by file — the diff is easier to review and the messages double as a progress log.
 - **Re-export symbols from their old home for test-import backwards compat.** After moving `classify_error` + `FALLBACK_ELIGIBLE_CATEGORIES` from `jobs/executor.py` to `harness/model_chain.py`, I left an explicit re-export + `__all__` block in `executor.py` with a comment pointing at the new home. Zero test churn, and the re-export is a documentation breadcrumb for the next reader who goes looking in the old place. **Reuse pattern:** when relocating a public symbol that tests import, leave a redirect import with a comment — don't update the test imports unless the relocation is user-facing API.
 - **"Shame bump" as a recognised issue type.** Previous post-audit cleanup (ISSUE-066 after 065, ISSUE-077 after 076) both followed the same shape: bundle audit findings, explicitly mark scope boundaries, track deferred items in the issue file rather than losing them. The SHAME version segment anticipates this. **Reuse pattern:** after any multi-issue feature cluster (3+ consecutive issues in one area), schedule a post-cluster audit and fold the findings into a single shame bump. Don't let the rot accumulate across shippable milestones.
+
+---
 
 ---
 
@@ -114,6 +142,8 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 - **`tier:<name>` sentinel resolved at call site.** The agent loader maps `model: power` → `tier:power` (a string that can't collide with any real `provider:model` pair), and `delegate.py` resolves it against `settings.marcel_*_model` right before `create_marcel_agent`. Env-var changes take effect on the next turn, no restart, no reload. **Reuse pattern:** for any "late-binding reference to a config value" in a declarative file, encode it as `<namespace>:<name>` and resolve at call time — don't pre-resolve at load time, and don't invent a new frontmatter type.
 - **Tier-mode duality (`explain` vs `complete`).** The same chain helper powers interactive turns (`mode='explain'` — tier 3's purpose is to tell the user cloud is down, empty history, no tools, `request_limit=1`) and scheduled jobs (`mode='complete'` — tier 3 tries to finish the task like ISSUE-070). One builder function, one tier resolution rule, two purposes — and the runner / executor just pick the mode that fits their semantics. **Reuse pattern:** when a shared primitive serves two audiences with diverging last-resort behavior, parameterize the *purpose* of the last tier rather than forking the whole pipeline.
 - **Documented footgun + a test that documents it.** The `local:...` + default `allow_fallback_chain=True` combo silently escalates to cloud. Rather than hide it, `tests/jobs/test_executor.py::test_local_pinned_job_without_opt_out_escalates` asserts the exact escalation happens, and `docs/model-tiers.md` has a prominent warning box. **Reuse pattern:** when you can't eliminate a footgun without surprising users in a different way, write a test that pins the current behavior and flag it loudly in the docs. The test prevents accidental "fixes" that would break other configs; the doc prevents user surprise.
+
+---
 
 ---
 
@@ -145,6 +175,8 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
+---
+
 
 ## ISSUE-073: Simplify model routing via pydantic-ai native `provider:model` strings (2026-04-13)
 
@@ -159,6 +191,8 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 ### Patterns to reuse
 - **Trust the framework**: before writing an abstraction layer on top of a library, check whether the library already does what you need. Pydantic-ai's `provider:model` dispatch predated the routing layer we built; we just hadn't used it.
 - **Shape validation > whitelist validation** when the whitelist is the thing preventing extensibility. Save the registry for UX, use shape-only checks at the enforcement boundary.
+
+---
 
 ---
 
@@ -189,6 +223,8 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
+---
+
 
 ## ISSUE-067: A2UI Rendering Pipeline (2026-04-12)
 
@@ -209,30 +245,6 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 - **Explicit deferral markers in issue task lists**: use `[~]` alongside `[✓]` and `[ ]` to mark "consciously deferred" tasks, with a one-line written justification. Distinguishes "we chose not to do this" from "we forgot this" at review time, and the deferred tasks become pre-scoped follow-up work.
 
 ---
-
----
-
----
-
-
-## ISSUE-066: Post-065 Audit Cleanup (2026-04-12)
-
-### What worked well
-- Running 5 parallel Explore sub-agents (architecture, tests, dead code, philosophy, docs) from a single audit prompt gave a complete picture in one round. Each agent stayed focused because its brief was narrow and self-contained — no cross-contamination, no duplicated reads.
-- Splitting a large god-tool (`tools/marcel.py`) into a package with the dispatcher in one file and each action group in its own module kept the single-tool-to-the-LLM contract intact while fixing the maintainability problem. The `__init__.py` re-exports mean all existing imports (`from marcel_core.tools.marcel import marcel`) continue to work untouched.
-- Extracting `TurnState` as a composed field on `MarcelDeps` (not inheritance, not a separate context parameter) meant tools only changed one line each (`deps.notified` → `deps.turn.notified`) and pydantic-ai's `deps_type` contract was unaffected.
-- Writing the issue with all 8 tasks declared up front, then working them top-to-bottom, kept the commit sequence clean: one `📝 created`, two `🔧 impl` (code + linter fixup), one `✅ closed` (docs + issue move).
-
-### What to do differently
-- The docs site was already broken before this issue (`docs/index.md` missing from mkdocs.yml for weeks). Earlier audits should have run `mkdocs build --strict` as a sanity check — missing nav files are the kind of bug that only surfaces when someone actually views the site.
-- Two documentation pages (architecture.md's memory extraction section, jobs.md's TriggerSpec table) had been stale since ISSUE-049 and ISSUE-064 respectively. The feature development procedure says "Update all affected doc pages in the same change as the code" — neither issue's closing commit caught the downstream doc reference. A grep for the changed module/field name across `docs/` at close time would have caught both.
-- The `agent/` folder was named in ISSUE-033 (`marcel-md-system`) when it only held `marcelmd.py`, then it accreted `memory_extract.py` in ISSUE-049 without anyone noticing the name no longer fit. Module names should be revisited whenever a second file is added — if the name doesn't describe both, it probably shouldn't be the home for either.
-
-### Patterns to reuse
-- **Parallel audit pattern**: for any "deep audit / review since X" request, launch 4–6 focused Explore sub-agents in a single batch (architecture, tests, dead code, philosophy, docs, and optionally security). Each agent gets a self-contained brief with category-specific questions. Results come back in a few minutes and compile into a comprehensive report without polluting the main conversation with tool-call noise.
-- **Composed state pattern**: when a dependency container starts accumulating mutable flags (`read_skills`, `notified`, `counter`, etc.), extract them into a `TurnState` / `RunState` dataclass composed as a field on the deps. Keeps the dep container immutable identity/config and collects all per-run state in one obvious place. Tools touch `deps.turn.x` instead of `deps.x`.
-- **Package with dispatcher pattern**: when a single-file tool's action implementations grow past ~300 lines, convert the file into a package: `tool/__init__.py` re-exports the public entry point, `tool/dispatcher.py` holds the match/switch, and each action group lives in its own sibling module. Import paths stay stable thanks to `__init__.py` re-exports.
-- **Doc-close verification grep**: before any closing commit, run `grep -r "<renamed function>" docs/ | grep -v closed_issue` to catch docs referencing the old name. Stale docs are worse than missing docs.
 
 ---
 
