@@ -1,8 +1,12 @@
 """Data models for the Marcel job system.
 
 Jobs are self-contained background tasks that run on schedules or in response
-to events. Each job is stored as a directory under the user's data root with
-a definition file (job.json) and an append-only run log (runs.jsonl).
+to events. Each job lives at ``<data_root>/jobs/<slug>/`` as a SKILL.md-style
+document: ``JOB.md`` (YAML frontmatter + ``## System Prompt`` / ``## Task``
+body) carries the user-authored definition, ``state.json`` holds mutable
+runtime state (errors, timestamps), and ``runs/<user>.jsonl`` (plus
+``runs/_system.jsonl`` for system-scope jobs with ``users: []``) is the
+append-only per-user run log.
 """
 
 from __future__ import annotations
@@ -173,7 +177,11 @@ def _run_id() -> str:
 
 
 class JobRun(BaseModel):
-    """Record of a single job execution.  Appended to runs.jsonl."""
+    """Record of a single job execution.
+
+    Appended to the per-user log at ``<data_root>/jobs/<slug>/runs/<user>.jsonl``
+    (or ``runs/_system.jsonl`` for system-scope jobs).
+    """
 
     run_id: str = Field(default_factory=_run_id)
     job_id: str

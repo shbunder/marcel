@@ -54,12 +54,12 @@ from marcel_core.jobs.models import JobDefinition, TriggerSpec, TriggerType
 
 job = JobDefinition(
     name='Morning digest',
-    user_slug='shaun',
+    users=['shaun'],
     trigger=TriggerSpec(type=TriggerType.CRON, cron='0 7 * * *', timezone='Europe/Brussels'),
     system_prompt='You compose a morning news digest...',
-    task='Compose today\'s digest.',
+    task="Compose today's digest.",
     model='anthropic:claude-sonnet-4-6',
-    allow_local_fallback=True,   # ← new flag
+    allow_local_fallback=True,   # ← opt in to the local fallback
 )
 ```
 
