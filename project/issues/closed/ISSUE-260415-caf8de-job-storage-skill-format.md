@@ -1,6 +1,6 @@
 # ISSUE-caf8de: Job storage — flat layout + SKILL.md-style JOB.md
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-15
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -176,4 +176,19 @@ _None yet._
 
 **Result**: Success — job system now flat, human-editable, and supports system-scope jobs. Ready to close.
 
-**Next**: `/finish-issue` to close and merge.
+### 2026-04-15 - Pre-close straggler fixes
+**Action**: Fixed three stragglers flagged by pre-close-verifier.
+
+**Files Modified**:
+- `src/marcel_core/jobs/models.py` — rewrote module docstring (described the old per-user layout) and `JobRun` docstring (referenced `runs.jsonl` instead of `runs/<user>.jsonl`).
+- `docs/local-llm.md` — "Opting a job in" example was constructing `JobDefinition(user_slug='shaun', ...)` which now fails schema validation. Swapped to `users=['shaun']` and verified the snippet runs via `python -c`.
+
+**Commands Run**: `python -c "<example>"` (passes), `make check` (1357 tests, all green).
+
+**Reflection** (via pre-close-verifier):
+- Verdict: REQUEST CHANGES → addressed
+- Coverage: 13/13 tasks addressed
+- Shortcuts found: none
+- Scope drift: none (confirmed `src/marcel_core/jobs/cache.py` untouched)
+- Stragglers: 3 found and fixed — two docstrings in `models.py`, one runnable example in `docs/local-llm.md`
+- Flagged for follow-up (not blockers, outside scope): (a) `job_cache_write` / `job_cache_read` in `tool.py` would create `~/.marcel/users/_system/job_cache/` if a system-scope job agent writes to the cache, contradicting the `_system` sentinel invariant; (b) `execute_job_with_retries` double-appends the final run record — pre-existing on `main`, not introduced by this refactor.
