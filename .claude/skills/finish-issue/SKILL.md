@@ -28,7 +28,7 @@ git add <relevant source files>
 git commit -m "🔧 [ISSUE-{hash}] impl: <brief description of what was done>"
 ```
 
-Do not use `git add -A` — be selective.
+Per [.claude/rules/git-staging.md](../../rules/git-staging.md), stage by name — never `git add -A`.
 
 ### 3. Determine what was actually done
 

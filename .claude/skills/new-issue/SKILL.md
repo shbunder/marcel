@@ -62,7 +62,7 @@ git add "project/issues/open/ISSUE-${DATE}-${HASH}-${SLUG}.md"
 git commit -m "📝 [ISSUE-${HASH}] created: ${SLUG} — one-line description"
 ```
 
-Stage only the issue file. Never `git add .` or `git add -A`.
+Stage only the issue file — per [.claude/rules/git-staging.md](../../rules/git-staging.md), never `git add .` or `git add -A`.
 
 ### 6. Create the feature branch
 
