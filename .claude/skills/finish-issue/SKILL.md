@@ -102,6 +102,15 @@ git commit -m "✅ [ISSUE-{hash}] closed: <one-line summary of what was complete
 
 ### 9. Merge back to main
 
+**First, detect whether you're in a worktree.** The primary checkout is the first entry in `git worktree list --porcelain`; any other entry is a worktree. If you started via `/parallel-issue`, you are in a worktree.
+
+```bash
+MAIN_REPO=$(git worktree list --porcelain | awk '/^worktree / {print $2; exit}')
+HERE=$(git rev-parse --show-toplevel)
+```
+
+**Case A — standard (no worktree).** You're in the primary checkout, on the feature branch:
+
 ```bash
 git checkout main
 git pull --ff-only
@@ -109,7 +118,20 @@ git merge --no-ff "issue/{hash}-{slug}" -m "merge issue/{hash}-{slug}"
 git branch -d "issue/{hash}-{slug}"
 ```
 
-`--no-ff` preserves the branch shape in `git log --graph`.
+**Case B — worktree (`HERE` is NOT the same as `MAIN_REPO`).** You can't merge into a branch that is checked out elsewhere, so switch to the main checkout first, merge, then remove the worktree:
+
+```bash
+cd "$MAIN_REPO"
+git checkout main
+git pull --ff-only
+git merge --no-ff "issue/{hash}-{slug}" -m "merge issue/{hash}-{slug}"
+git worktree remove "$HERE"
+git branch -d "issue/{hash}-{slug}"
+```
+
+`git worktree remove` refuses if the worktree has uncommitted changes — that's a safety feature; commit or stash first. After removal, the sibling directory is gone and the feature branch can be deleted.
+
+`--no-ff` preserves the branch shape in `git log --graph` in both cases.
 
 ### 10. Capture lessons learned
 

@@ -14,7 +14,7 @@ Issues are tracked as markdown files in this directory, versioned with git. No e
   closed/  # Completed or cancelled — reaches main via merge
 ```
 
-`wip/` never appears on `main`. Active work is surfaced via `git branch --list 'issue/*'`.
+`wip/` never appears on `main`. Active work is surfaced via `git branch --list 'issue/*'` (or `git worktree list` if using parallel agents).
 
 ## File naming (new scheme — ISSUE-079 onward)
 
@@ -24,6 +24,8 @@ Issues are tracked as markdown files in this directory, versioned with git. No e
 - `{hash}` is a 6-char random hex string generated at creation time (`python3 -c 'import secrets; print(secrets.token_hex(3))'`), collision-checked against existing files
 - `{brief-title}` is kebab-case, 3–5 words, no stop words
 - The short form `ISSUE-{hash}` is used in commit messages, code comments, and `[[...]]` wiki-links
+
+The self-generated hash prevents *counter collisions* when two agents create issues at the same time. For true parallel work (two Claude Code sessions editing the repo simultaneously), see "Parallel agents — git worktrees" in [GIT_CONVENTIONS.md](./GIT_CONVENTIONS.md): hash IDs alone aren't enough because two sessions in the same checkout share one `HEAD`. Use `/parallel-issue` to spin up an isolated worktree.
 
 Legacy issues (ISSUE-001 through ISSUE-078) use the old sequential counter and are NOT migrated. Treat them as read-only history.
 
