@@ -134,9 +134,15 @@ git branch -d "issue/{hash}-{slug}"
 
 `--no-ff` preserves the branch shape in `git log --graph` in both cases.
 
-### 10. Capture lessons learned
+### 10. Capture lessons learned (with rotation)
 
-Read `project/lessons-learned.md` and append a new entry for the just-closed issue:
+`project/lessons-learned.md` is capped at **10 active entries**. Adding a new one means moving the oldest to the archive in the same commit.
+
+1. **Count existing entries:** `grep -c '^## ISSUE-' project/lessons-learned.md`
+2. **Append the new entry** at the top of the entries section (after the `---` that ends the preamble), using the format below
+3. **If the count was already 10**, cut the oldest entry from `project/lessons-learned.md` and paste it at the top of the entries section of `project/lessons-learned-archive.md`. The archive is unbounded.
+
+New entry format:
 
 ```markdown
 ---
@@ -155,10 +161,10 @@ Read `project/lessons-learned.md` and append a new entry for the just-closed iss
 
 Focus on things that surprised you, caused rework, or would save time next time. Keep each bullet to 1-2 sentences.
 
-Commit on main as a small follow-up:
+Commit on main as a small follow-up. Include both files if you rotated:
 
 ```bash
-git add project/lessons-learned.md
+git add project/lessons-learned.md project/lessons-learned-archive.md
 git commit -m "🩹 [ISSUE-{hash}] fixup: capture lessons learned"
 ```
 

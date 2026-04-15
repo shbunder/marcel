@@ -1,0 +1,286 @@
+# Lessons Learned — Archive
+
+Older entries rotated out of [lessons-learned.md](./lessons-learned.md) by the 10-entry cap. Grep this file when starting new work on a related area — do not read it in full.
+
+```bash
+grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-archive.md
+```
+
+---
+
+## ISSUE-064: Job Scheduler Timezone Support (2026-04-11)
+
+### What worked well
+- The fix was minimal: one new field on `TriggerSpec`, a timezone branch in `_compute_next_run`, and job data updates. No schema migration needed thanks to `None` default
+- `ZoneInfo` from the stdlib handles DST transitions automatically — no third-party timezone library needed
+- Checking the tool layer (create_job/update_job) during reflection caught a gap that would have required a follow-up fix
+
+### What to do differently
+- Timezone support should have been considered when the cron scheduler was first built (ISSUE-061). Any system that interprets cron expressions for end users should default to local time, not UTC
+- The user's profile already had `Europe/Brussels` — could have used that as a default for new jobs instead of requiring explicit timezone on each job
+
+### Patterns to reuse
+- `ZoneInfo` + `astimezone()` for timezone-aware cron: convert UTC `now` to local, run croniter in local time, convert result back to UTC. Simple and handles DST correctly
+- Additive schema changes with `None` defaults for backward compatibility — existing job.json files deserialize without migration
+
+---
+
+---
+
+## ISSUE-062: Restructure User Data Directory (2026-04-11)
+
+### What worked well
+- Profile.md frontmatter as a key-value store for small config fields (role, chat_id) avoids single-field JSON files — one file per user instead of three
+- Reusing the existing `channel.meta.json` `last_active` field for telegram idle detection eliminated the global `sessions.json` entirely — no new code needed, just removed the old
+- The migration script pattern from ISSUE-059 (dry-run first, then execute) was directly reusable here
+
+### What to do differently
+- The frontmatter parser strips quotes but doesn't handle all edge cases (e.g., values with colons inside quotes). For now this is fine since all values are simple strings, but if profile.md grows more complex fields, a proper YAML parser might be needed
+- Should have checked `uv.lock` changes earlier — the version bump from issue 061 on main caused a diff that was distracting during pre-close verification
+
+### Patterns to reuse
+- Profile.md frontmatter for per-user structured config: `_parse_profile()` + `_serialize_profile()` + `_update_profile_field()` — simple, no dependencies, works with any key-value pair
+- Delegating session state to an existing metadata store (conversation channel meta) instead of maintaining a separate state file — reduces moving parts and avoids multi-user isolation issues
+- `cache/` subdirectory convention for SQLite databases — keeps caches separate from identity/config files, easy to exclude from backups or clear
+
+---
+
+---
+
+## ISSUE-061: Harden Job Scheduler (2026-04-11)
+
+### What worked well
+- Deep-exploring a reference codebase (OpenClaw) before designing gave concrete, battle-tested patterns to adopt rather than inventing from scratch — the plan practically wrote itself
+- All schema changes were additive with defaults, so existing job.json files deserialize without migration — zero backward compatibility risk
+- Implementing all 12 features in a single pass was efficient because they share state (e.g. `consecutive_errors` is used by both backoff and alert cooldown)
+
+### What to do differently
+- The `_notify_if_needed` refactor changed the return type from `None` to `tuple[str, str | None]` and added a second `append_run` call in `execute_job_with_retries` for delivery tracking — this means each run gets two lines in `runs.jsonl` (one from `execute_job`, one from `execute_job_with_retries`). Should have moved `append_run` entirely to `execute_job_with_retries` instead of appending twice. Worth a follow-up fix.
+- No integration test for the full timeout path (would need a mock agent that hangs) — the unit tests cover the model and classification, but end-to-end timeout is untested
+
+### Patterns to reuse
+- `classify_error()` with compiled regex patterns for transient detection — simple, fast, extensible. Add new patterns to `_TRANSIENT_PATTERNS` list as new error shapes appear in production
+- `_stagger_offset(job_id)` using SHA-256 hash mod window — deterministic, no state, avoids thundering herd. Applicable anywhere multiple items share a schedule
+- `_resolve_stuck_runs()` on startup — scan for orphaned RUNNING records and append corrected FAILED records. Good pattern for any append-only log that can be interrupted mid-write
+- `asyncio.Semaphore` for bounding concurrent dispatches — one line of state, wraps the execution block cleanly, no complex queuing needed
+
+---
+
+---
+
+## ISSUE-060: Improve Morning Digest Format and Delivery (2026-04-11)
+
+### What worked well
+- Tracing the full notification flow end-to-end (agent → tool → executor → Telegram) before writing code revealed a third problem (job notify routing) that would have caused a regression if missed
+- Using `deps.notified` as a simple boolean flag kept the double-send fix minimal — no new state machines or event buses needed
+
+### What to do differently
+- The job channel prompt said "plain text only" but the Telegram pipeline already had `markdown_to_telegram_html`. Should have questioned this mismatch when the job system was first built — the formatting pipeline exists precisely so agents can write markdown.
+- The `_notify` tool routing `channel == 'job'` to Telegram is a bit hardcoded. If jobs ever deliver to other channels, this will need a proper channel lookup from the job definition. Fine for now since all jobs go to Telegram.
+
+### Patterns to reuse
+- `deps.notified` flag pattern: lightweight in-run state tracking between tools and executor without modifying the agent loop — useful for any "did the agent already do X?" checks
+- `run.agent_notified` on `JobRun`: persisting tool-side state into the run record so post-execution logic can make decisions — avoids passing deps objects through the retry/notify chain
+
+---
+
+---
+
+## ISSUE-059: Clean Up User Data Directory (2026-04-11)
+
+### What worked well
+- Writing a standalone migration script (`scripts/migrate_059_cleanup.py`) with `--dry-run` made it safe to verify the migration plan before executing — caught the permission error on root-owned files before it could corrupt data
+- Removing the legacy session storage functions entirely (not just deprecating) forced all callers to migrate in the same commit — no half-migrated state
+- Consolidating 22 memory files → 10 by merging duplicates and removing derivable/stale content made the memory system much cleaner for the AI selector
+
+### What to do differently
+- Root-owned files in `conversations.archived/` from an earlier Docker permission issue weren't discovered until the migration script hit a `PermissionError` — should have checked file ownership during the investigation phase
+- The `scripts/` directory is gitignored, so the migration script isn't tracked. For one-shot migrations this is fine, but worth noting that scripts there are disposable
+
+### Patterns to reuse
+- When removing a module's public API: grep all imports, update all callers and tests first, then delete the functions in a single commit — ensures no dead import errors
+- For data migrations: backup first, dry-run, then execute. The `shutil.copytree` with `copy_function=_copy_ignore_errors` pattern handles permission issues gracefully
+- Memory file cleanup criteria: (1) derivable from codebase → delete, (2) ephemeral/stale data → delete, (3) duplicate content → merge into one file with frontmatter, (4) missing frontmatter → add it
+
+---
+
+---
+
+## ISSUE-058: Improve memory system and learning from feedback (2026-04-11)
+
+### What worked well
+- Renaming `_human_age` → `human_age` to make it a proper public function was cleaner than importing a private function cross-module
+- Adding memory consolidation to the existing `_cleanup_loop` rather than creating a separate module kept the scheduler simple
+- The `_format_memory_label` helper produces clean `### [type] name (age)` headers that integrate naturally with the existing `## Memory` section structure
+
+### What to do differently
+- The issue had earlier commits (stale issue cleanup, guardrails) that weren't related to the memory improvements — this made the diff noisier during review. Future issues should stay tightly scoped to their stated intent.
+
+### Patterns to reuse
+- `_load_job_memories` pattern: loading a subset of memories by type for injection into job agents — avoids full AI-driven selection when there's no user query to match against
+- `rebuild_memory_index` as a disk-scan-based index rebuilder — eliminates index drift from background extractors that may crash mid-write
+- Structured feedback memory format (rule + **Why:** + **How to apply:**) — gives the agent enough context to judge edge cases rather than blindly following rules
+
+---
+
+---
+
+## ISSUE-051: Continuous Conversation Model (2026-04-10)
+
+### What worked well
+- Researching ClawCode and OpenClaw first gave concrete inspiration — ClawCode's microcompaction (selective tool result stripping) and OpenClaw's staged summarization directly shaped the design
+- The segment-based storage architecture cleanly separates concerns: active segment (append-only), sealed segments (immutable + summary), search index (append-only). Each file has a clear lifecycle
+- Rolling summary chain ("each summary absorbs predecessor") is a simple mechanism that mimics human memory — recent things vivid, old things faded — with no complex data structures
+- Aggressive tool lifecycle (2 turns instead of 8) was the single biggest token savings and trivial to implement — just changing two constants and adjusting the trimming function
+
+### What to do differently
+- The old `compactor.py` and session management functions in `history.py` were left as dead code rather than deleted — should have removed them in the same commit or created a follow-up cleanup task. Dead code accumulates confusion
+- The CLI history loading was requested as a follow-up mid-issue — would have been cleaner as its own subtask from the start. Adding REST endpoints (/api/history, /api/forget) late in the process felt bolted-on
+- Route naming started as `/v2/history` then was renamed to `/api/history` in a polish commit — should have picked the final name upfront
+
+### Patterns to reuse
+- Segment-based append-only storage with seal+summarize lifecycle — applicable to any system that needs bounded growth with long-term recall
+- Keyword search index as a separate append-only JSONL — cheap to build, no external dependencies, good enough for "remember when we talked about X?" queries
+- Circuit breaker pattern for background operations (max N consecutive failures) — prevents infinite retry loops on persistent errors
+- REST endpoints for CLI state operations (/api/history, /api/forget) — lets the CLI be stateless while the server manages conversation lifecycle
+
+---
+
+---
+
+## ISSUE-049: Full Migration to v2 Pydantic-AI Harness (2026-04-10)
+
+### What worked well
+- The migration was straightforward because v2 was already the primary path — Telegram and the WebSocket endpoint both used `stream_turn()`. The "migration" was mostly deleting v1 code
+- Rewriting `memory_extract.py` from `claude_agent_sdk.query()` to a pydantic-ai Agent that returns JSON operations was a clean pattern — eliminates the dependency while keeping the same behavior
+- Adding the health check log filter and suppressing httpx/httpcore noise immediately made Docker logs usable — small effort, high value
+
+### What to do differently
+- The `/v2/` prefix on endpoints should have been renamed to `/api/` when the endpoints were first created, not as a post-migration cleanup. Endpoint names should reflect purpose, not implementation version
+- Multiple other issues' uncommitted changes were in the working tree during this migration — a cleaner approach would be to commit or stash other work first. The pre-commit hook caught test failures from these stale changes, costing debugging time
+- The closing commit accidentally picked up `.marcel/` skill file deletions from another issue's work — should have been more careful with `git add` scope
+
+### Patterns to reuse
+- For SDK migrations: make the new path the default first (keep old code), then delete the old code in a separate issue — "migrate then delete" is less risky than "rewrite in place"
+- JSON-return-value pattern for agent sub-tasks: instead of giving an agent file I/O tools, have it return structured JSON and apply the operations in the caller. Simpler, more testable, no permission issues
+- Custom `logging.Filter` subclass on specific loggers (e.g. `uvicorn.access`) to suppress noisy patterns — cleaner than adjusting log levels which affects all messages
+
+---
+
+---
+
+## ISSUE-043: Browser/Web Interaction Skill (2026-04-10)
+
+### What worked well
+- Following the exact `skills/tool.py` MCP server pattern made integration seamless — the browser tools plugged into `sessions.py` with just 4 lines of changes
+- Making playwright an optional dependency with `is_available()` gate means Marcel works fine without it — graceful degradation by default
+- The `_mock_page` factory pattern using `SimpleNamespace` + `AsyncMock` kept test code clean and avoided N801 lint issues from inline mock classes
+
+### What to do differently
+- The `TYPE_CHECKING` guard for optional playwright imports still triggered pyright `reportMissingImports` — needed `# pyright: ignore` comments. Future optional deps should be added to pyright's exclude list in `pyproject.toml` instead
+- Should have added `packages` requirement type to the skill loader earlier (as its own small issue) — it's a general-purpose feature, not browser-specific
+
+### Patterns to reuse
+- In-process MCP server pattern for tools that need rich schemas or image content: `create_sdk_mcp_server` + `tool()` closures over session state
+- Per-session resource management: create lazily in `get_or_create`, clean up in `_disconnect_session` — follows the `BrowserContext` lifecycle pattern
+- Accessibility tree snapshot with integer refs for LLM interaction — compact, structured, and gives the model a way to target elements without CSS selectors
+- SSRF protection module (`is_url_allowed`) with hostname resolution + private IP range checks — reusable for any tool that accepts URLs
+
+---
+
+---
+
+## ISSUE-039: Rename integration skill param to id (2026-04-09)
+
+### What worked well
+- `replace_all: true` in the Edit tool made bulk renaming across large SKILL.md files trivial — no need to grep and patch individually
+- Grepping for `integration(skill=` across all `.md` files first gave a complete picture of scope before touching anything
+
+### What to do differently
+- The first implementation commit should have moved the issue from `open/` to `wip/` per convention — it was omitted and had to be handled at close time
+- Using `git stash` to verify a pre-existing test failure broke the working tree (stash pop conflict on `uv.lock`) — prefer checking `git log` or asking the user instead of stashing mid-task
+
+### Patterns to reuse
+- For pure rename/find-replace issues: grep for all occurrences first, then use `replace_all: true` for each file — fast and thorough
+- When `make check` fails on pre-existing Rust errors, run `make test` (Python only) to verify Python changes are clean before committing with `--no-verify`
+
+---
+
+---
+
+## ISSUE-036: API Key Auth + Per-Channel Model Selection (2026-04-09)
+
+### What worked well
+- Stashing changes to verify pre-existing typecheck errors before blaming our code — confirmed 18 errors existed before, our changes reduced to 15
+- The `_load_settings` / `_save_settings` split with `atomic_write` follows existing storage module patterns perfectly; easy to extend settings later
+
+### What to do differently
+- OAuth exploration added significant code that then had to be cleanly deleted; if API keys were available from the start the detour would have been skipped
+- **The `ANTHROPIC_MODELS` / `OPENAI_MODELS` / `_resolve_model_string` registry (added here) was removed in ISSUE-073** — it duplicated provider-selection logic that pydantic-ai already does natively via `provider:model` strings. A curated registry is fine for UX, but it shouldn't double as the dispatch layer.
+
+### Patterns to reuse
+- Per-user JSON settings at `~/.marcel/users/{slug}/settings.json` via `atomic_write` is the right pattern for lightweight user preferences that don't warrant a full DB
+- Integration handler pattern: `@register("settings.action")` + `async def fn(params: dict, user_slug: str) -> str` — clean, discoverable, testable in isolation
+
+---
+
+---
+
+## ISSUE-035: Upgrade claude_code to stream-json session (2026-04-09)
+
+### What worked well
+- Researching the live CLI (`claude --help`, `claude -p "test" --output-format stream-json --verbose`) before writing code gave exact flag names and event shapes — no guessing
+- The `PAUSED:{session_id}:{question}` return-value protocol is simple and self-contained: no shared state, no new dependencies, easy to test
+- Using `--resume session_id` for continuation means Claude Code manages its own state; Marcel just passes the ID back
+
+### What to do differently
+- Noticed only at reflection time that the `PAUSED:` early return left the subprocess unkilled and un-waited in the `finally` block — would have been caught earlier with a dedicated zombie-process test
+- The `assert proc.stdout is not None` works but a type narrowing comment would be cleaner
+
+### Patterns to reuse
+- For any subprocess that may exit early via `return` inside a `try`, put `kill()` + `wait_for(proc.wait())` in the `finally` block — never after it — so all exit paths clean up
+- Stream-json event loop pattern: `async for raw in proc.stdout` + `json.loads(line)` + dispatch on `event.get('type')` is clean and easy to extend with new event types
+- `PAUSED:` prefix protocol: when a tool call needs to pause for user input but can't block, return a structured prefix string the agent can detect and act on, then resume with a follow-up call
+
+---
+
+---
+
+## ISSUE-023: Redesign Skill System (2026-04-02)
+
+### What worked well
+- `@register` decorator pattern made integrations pluggable without touching core dispatch code
+- Merging chat/coder into a single mode simplified the agent loop — the artificial split was unnecessary
+- SKILL.md docs colocated with integration code keep agent instructions in sync with implementation
+
+### What to do differently
+- Skill doc symlinks need `.gitignore` entries — easy to forget, causes noisy git status
+- Should have migrated iCloud first as a small test case before designing the full framework
+- Breaking a 10-subtask issue into smaller issues would have made the git history cleaner
+
+### Patterns to reuse
+- `@register("name.action")` decorator for extensibility points
+- Skill docs in `.marcel/skills/` with SKILL.md + SETUP.md fallback pattern, loaded from project and home dirs
+- Single-tool dispatch (`integration`) with skill routing — avoids tool proliferation
+
+---
+
+---
+
+## ISSUE-016: Clean Commit Workflow SOP (2026-03-28)
+
+### What worked well
+- The 3-emoji pattern (📝→🔧→✅) makes `git log --oneline` instantly scannable
+- Separating the closing commit from code ensures code review happens on implementation commits
+
+### What to do differently
+- Should have established this convention from ISSUE-001 — retroactive cleanup is painful
+- The "first impl commit moves to wip" rule avoids an empty "I started" commit — non-obvious but important
+
+### Patterns to reuse
+- Standalone decision commits (📝) create clear audit trail of "we decided to do this"
+- Post-close fixup emoji (🩹) prevents reopening issues for trivial corrections
+
+---
+
+---

@@ -6,7 +6,14 @@ Every feature or bug fix follows this procedure. Some steps are skippable for sm
 
 ## Step 1 — Capture
 
-Before starting, read `project/lessons-learned.md` to check for relevant patterns or pitfalls from past issues.
+Before starting, check for relevant patterns or pitfalls from past issues. Grep both files rather than reading them — the active file is capped at 10 entries, the archive holds everything older:
+
+```bash
+# Use 1-3 keywords from the resolved intent / feature area
+grep -n -i -B 1 -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-archive.md
+```
+
+Reading the full file is wasteful — the archive can grow indefinitely and most entries won't be relevant to the current task.
 
 Record the original request verbatim, all follow-up questions asked, and the user's answers. End with a one-paragraph **resolved intent**: what the feature actually is, in your own words.
 
