@@ -8,6 +8,26 @@ grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-
 
 ---
 
+## ISSUE-067: A2UI Rendering Pipeline (2026-04-12)
+
+### What worked well
+- Reading the previous issue's closing notes (ISSUE-063) before scoping this work saved ~30 minutes of duplicated exploration — Phases 1–3 had already built the schema system, registry, `/api/components` endpoint, and the Mini App renderer with its A2UI fallback chain. The only missing piece was the agent-facing emission path, which collapsed a 10-task issue into ~50 lines of new code.
+- Following the `generate_chart` side-effect pattern (validate → create artifact → `bot.send_message` with the Mini App button) was a dramatically smaller surface than a runner event-streaming refactor. The user got the exact user-visible outcome ("View in app" button in Telegram) without touching `stream_turn`, the Telegram webhook's `_collect()` loop, or the `ChannelAdapter` protocol.
+- Writing explicit deferral reasoning into the task list (using the `[~]` marker and a written justification) made the scope-down decision auditable. Future maintainers can see exactly why the `ChannelAdapter` migration and runner event yield weren't touched, which makes picking them up later easier than if they had been silently dropped.
+
+### What to do differently
+- The initial issue description listed 10 tasks as if all were required for the MVP, when really only 4–5 were. When scoping an issue that sits on top of already-built infrastructure, the task list should distinguish "required for end-to-end" from "nice-to-have consistency cleanup" up front — otherwise the closing diff looks half-finished when it's actually complete-for-MVP.
+- Didn't notice that the `~/.marcel/skills/banking/SKILL.md` and `~/.marcel/channels/telegram.md` data-root copies were stale relative to the bundled defaults until after editing the bundled versions. Seeding never overwrites existing files, so every time a default is updated, the running user's copy diverges silently. Should add a "refresh" mode to `seed_defaults` that can diff and re-sync user copies against defaults, or at least warn loudly.
+- The plan file (glistening-knitting-wombat.md) was written as a diagnosis + deferral recommendation, but the user said "start implementation yes" anyway — should have updated the plan file to reflect the executed scope before diving in, so the plan and the implementation log match.
+
+### Patterns to reuse
+- **Side-effect tool pattern**: for tools that need to deliver rich content to the user, the `generate_chart` pattern (tool runs synchronously, calls the channel's delivery API directly, returns a confirmation string to the model) is strictly simpler than streaming events through the runner. Use it whenever the channel supports direct delivery (HTTP API, WebSocket message) and the agent doesn't need the result for its next reasoning step.
+- **Capability gating via a frozenset + helper function**: `_RICH_UI_CHANNELS = frozenset({...})` + `channel_supports_rich_ui(channel) -> bool` is a low-overhead way to gate behavior on channel capabilities without requiring full `ChannelAdapter` adoption. Single source of truth, O(1) lookup, trivially testable, and easy to extend when a new channel is added.
+- **Prompt injection that reuses already-loaded state**: when adding a new prompt section derived from skills, load skills once and pass the list to multiple formatters rather than calling `load_skills()` again. `build_instructions_async` now calls `load_skills()` once and passes the result to both `format_skill_index` and `format_components_catalog` — avoids a second disk scan per turn.
+- **Explicit deferral markers in issue task lists**: use `[~]` alongside `[✓]` and `[ ]` to mark "consciously deferred" tasks, with a one-line written justification. Distinguishes "we chose not to do this" from "we forgot this" at review time, and the deferred tasks become pre-scoped follow-up work.
+
+---
+
 ## ISSUE-066: Post-065 Audit Cleanup (2026-04-12)
 
 ### What worked well

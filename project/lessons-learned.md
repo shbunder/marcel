@@ -10,7 +10,24 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
----
+## ISSUE-caf8de: Job storage — flat layout + SKILL.md-style JOB.md (2026-04-15)
+
+### What worked well
+- **Mirroring an existing shape is cheaper than inventing one.** Modeling `~/.marcel/jobs/<slug>/JOB.md` after the existing `~/.marcel/skills/<name>/SKILL.md` layout gave the user (and me) a format with zero cognitive overhead — frontmatter parser, directory conventions, and mental model were already understood. No need to justify or document the new format as novel.
+- **Splitting mutable state into `state.json` at the serializer boundary, not as a separate pydantic model.** `JobDefinition` stays a single in-memory object; `save_job` partitions fields into frontmatter/body/state.json at write time via `_FRONTMATTER_FIELDS` / `_STATE_FIELDS` tuples, and `load_job` merges them back. One type, one source of truth, no synchronization logic — strictly simpler than a two-model split-and-merge approach I initially considered.
+- **Pre-close-verifier caught three stragglers I would have shipped.** Two out-of-date docstrings in `models.py` and one unrunnable code example in `docs/local-llm.md`. The inline grep I did as part of step 7 would likely have missed the docstrings entirely — the subagent's independent pass on the diff surfaced them, and all three were 30-second mechanical fixes.
+
+### What to do differently
+- **Verify scheduler-managed state fields even when they look stable.** I nearly shipped `schedule_errors: 2` in JOB.md frontmatter because the test constructor treated it as user-authored; the partition boundary between frontmatter and `state.json` is the kind of thing a simple round-trip test catches but review wouldn't. Always add a "mutable field goes to state.json" assertion when you split storage.
+- **`scripts/` is gitignored but tracked.** Wasted two minutes when `git add scripts/seed_jobs.py` failed with "ignored" and `git diff` showed nothing — turns out once-tracked files keep getting picked up by pyright and ruff (both modified the file), but `git add` needs `-f`. Add a quick `git check-ignore -v <path>` reflex any time a stage surprisingly fails.
+- **The `_system` sentinel has a cache boundary leak.** I documented in `__init__.py` that "the real `~/.marcel/users/_system/` directory never exists" but the verifier spotted that `job_cache_write` / `job_cache_read` in `tool.py` would in fact create `~/.marcel/users/_system/job_cache/` if a system-scope job caches output. Cache was out of scope so I deferred, but the invariant should have been enforced (or at least asserted) at the cache boundary too. Sentinels need to be respected by every downstream path, not just the ones you remembered.
+
+### Patterns to reuse
+- **Field-partitioning serializer over split pydantic models.** When part of a pydantic model is user-authored and part is runtime-mutable, keep the model unified and partition at `save_job`/`load_job`. `dump = json.loads(job.model_dump_json()); fm = {k: dump[k] for k in _FRONTMATTER_FIELDS}; state = {k: dump[k] for k in _STATE_FIELDS}`. Clean, robust, no extra model types to keep in sync.
+- **Sentinel slug for "no user" on a strict-typed field.** `SYSTEM_USER = '_system'` lets `users: []` jobs pass through `MarcelDeps.user_slug: str` without relaxing the type or threading `Optional` through 40+ call sites. The real `users/_system/` directory never exists, so per-user file lookups naturally return empty. Cheaper than `str | None` for "one of the values is special."
+- **Directory name as stable identifier, name as mutable label.** `_resolve_slug` looks up the existing directory by `id` first — renaming a job rewrites JOB.md in place without moving the directory. Derives a fresh kebab-case slug (with `-2`, `-3` deduplication) only for new jobs. Matches how skills directories work.
+- **One-shot migration inside `rebuild_schedule`.** Self-heal layout changes at scheduler startup: run `migrate_legacy_jobs()` before `_ensure_default_jobs()`, make it idempotent so the second boot is a no-op (`if not legacy_dir: return 0`). Users get the migration for free on their next restart; tests exercise the same code path.
+- **Mock helpers must accept new kwargs proactively.** When adding `user_slug=None` keyword arg to `execute_job`, update every `async def mock_execute(j, reason='scheduled'):` to `async def mock_execute(j, reason='scheduled', *, user_slug=None):` before running tests. Pyright won't catch it; the first test run will flag it with an opaque `AsyncMock side_effect` error.
 
 ---
 
@@ -225,29 +242,5 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
-
-## ISSUE-067: A2UI Rendering Pipeline (2026-04-12)
-
-### What worked well
-- Reading the previous issue's closing notes (ISSUE-063) before scoping this work saved ~30 minutes of duplicated exploration — Phases 1–3 had already built the schema system, registry, `/api/components` endpoint, and the Mini App renderer with its A2UI fallback chain. The only missing piece was the agent-facing emission path, which collapsed a 10-task issue into ~50 lines of new code.
-- Following the `generate_chart` side-effect pattern (validate → create artifact → `bot.send_message` with the Mini App button) was a dramatically smaller surface than a runner event-streaming refactor. The user got the exact user-visible outcome ("View in app" button in Telegram) without touching `stream_turn`, the Telegram webhook's `_collect()` loop, or the `ChannelAdapter` protocol.
-- Writing explicit deferral reasoning into the task list (using the `[~]` marker and a written justification) made the scope-down decision auditable. Future maintainers can see exactly why the `ChannelAdapter` migration and runner event yield weren't touched, which makes picking them up later easier than if they had been silently dropped.
-
-### What to do differently
-- The initial issue description listed 10 tasks as if all were required for the MVP, when really only 4–5 were. When scoping an issue that sits on top of already-built infrastructure, the task list should distinguish "required for end-to-end" from "nice-to-have consistency cleanup" up front — otherwise the closing diff looks half-finished when it's actually complete-for-MVP.
-- Didn't notice that the `~/.marcel/skills/banking/SKILL.md` and `~/.marcel/channels/telegram.md` data-root copies were stale relative to the bundled defaults until after editing the bundled versions. Seeding never overwrites existing files, so every time a default is updated, the running user's copy diverges silently. Should add a "refresh" mode to `seed_defaults` that can diff and re-sync user copies against defaults, or at least warn loudly.
-- The plan file (glistening-knitting-wombat.md) was written as a diagnosis + deferral recommendation, but the user said "start implementation yes" anyway — should have updated the plan file to reflect the executed scope before diving in, so the plan and the implementation log match.
-
-### Patterns to reuse
-- **Side-effect tool pattern**: for tools that need to deliver rich content to the user, the `generate_chart` pattern (tool runs synchronously, calls the channel's delivery API directly, returns a confirmation string to the model) is strictly simpler than streaming events through the runner. Use it whenever the channel supports direct delivery (HTTP API, WebSocket message) and the agent doesn't need the result for its next reasoning step.
-- **Capability gating via a frozenset + helper function**: `_RICH_UI_CHANNELS = frozenset({...})` + `channel_supports_rich_ui(channel) -> bool` is a low-overhead way to gate behavior on channel capabilities without requiring full `ChannelAdapter` adoption. Single source of truth, O(1) lookup, trivially testable, and easy to extend when a new channel is added.
-- **Prompt injection that reuses already-loaded state**: when adding a new prompt section derived from skills, load skills once and pass the list to multiple formatters rather than calling `load_skills()` again. `build_instructions_async` now calls `load_skills()` once and passes the result to both `format_skill_index` and `format_components_catalog` — avoids a second disk scan per turn.
-- **Explicit deferral markers in issue task lists**: use `[~]` alongside `[✓]` and `[ ]` to mark "consciously deferred" tasks, with a one-line written justification. Distinguishes "we chose not to do this" from "we forgot this" at review time, and the deferred tasks become pre-scoped follow-up work.
-
----
-
----
-
----
 
 ---
