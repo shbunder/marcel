@@ -28,6 +28,12 @@ __pycache__/
 ## local .env-files overwriting env-variables
 .env.local
 
+# Claude Code local state
+## per-machine permission allowlist
+.claude/settings.local.json
+## safety hook unlock flag — temporary; never commit
+.claude/.unlock-safety
+
 # Support folder during dev
 ## stored models, artifacs and data
 models/*
