@@ -18,9 +18,13 @@ import hashlib
 import json
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from marcel_core.jobs.models import JobDefinition, JobStatus, TriggerType
+
+if TYPE_CHECKING:
+    from marcel_core.jobs.models import JobRun
 
 log = logging.getLogger(__name__)
 
@@ -107,7 +111,9 @@ def _ensure_default_jobs() -> None:
     """Create default jobs for users that have the required integrations.
 
     Currently creates a bank-sync job for every user with EnableBanking
-    credentials, replacing the old hardcoded sync loop.
+    credentials, replacing the old hardcoded sync loop. Default jobs stay
+    per-user (``users=[slug]``) — population is manual for any future
+    multi-user or system-scope defaults.
     """
     from marcel_core.jobs import list_jobs, save_job
     from marcel_core.jobs.models import JobDefinition, NotifyPolicy, TriggerSpec
@@ -136,9 +142,9 @@ def _ensure_default_jobs() -> None:
             continue
 
         job = JobDefinition(
-            name='Bank sync',
+            name=f'Bank sync ({slug})',
             description='Sync bank transactions and balances every 8 hours',
-            user_slug=slug,
+            users=[slug],
             trigger=TriggerSpec(type=TriggerType.INTERVAL, interval_seconds=8 * 60 * 60),
             system_prompt=(
                 'You are a background sync worker for Marcel. '
@@ -197,13 +203,13 @@ class JobScheduler:
         If computing the next run time fails 3 times cumulatively, the job is
         automatically disabled to prevent infinite error loops.
         """
-        from marcel_core.jobs import last_run, save_job
+        from marcel_core.jobs import save_job
 
         if job.status != JobStatus.ACTIVE:
             self._schedule.pop(job.id, None)
             return
 
-        last = last_run(job.user_slug, job.id)
+        last = _latest_run_across_users(job)
         last_run_at = last.finished_at if last else None
 
         try:
@@ -237,10 +243,15 @@ class JobScheduler:
         """Load all active jobs from disk and rebuild the schedule.
 
         On startup this also:
+        - Migrates legacy per-user job directories to the flat layout
         - Resolves orphaned RUNNING records from a previous crash
         - Loads saved state to detect missed jobs and staggers catchup
         """
-        from marcel_core.jobs import list_all_jobs
+        from marcel_core.jobs import list_all_jobs, migrate_legacy_jobs
+
+        # One-shot migration — idempotent, short-circuits when the legacy
+        # ``<data_root>/users/*/jobs/`` directories are already gone.
+        migrate_legacy_jobs()
 
         _ensure_default_jobs()
 
@@ -321,11 +332,14 @@ class JobScheduler:
             log.exception('Scheduler event loop crashed')
 
     async def _handle_event(self, user_slug: str, completed_job_id: str, status: str) -> None:
-        """Find and dispatch jobs triggered by the completion of another job."""
-        from marcel_core.jobs import list_jobs
+        """Find and dispatch jobs triggered by the completion of another job.
 
-        jobs = list_jobs(user_slug)
-        for job in jobs:
+        The triggering ``user_slug`` is informational — dependent event jobs
+        are dispatched once each, looping over *their own* ``users`` list.
+        """
+        from marcel_core.jobs import list_all_jobs
+
+        for job in list_all_jobs():
             if job.status != JobStatus.ACTIVE:
                 continue
             if job.trigger.type != TriggerType.EVENT:
@@ -347,34 +361,42 @@ class JobScheduler:
     async def _dispatch(self, job_id: str, trigger_reason: str = 'scheduled') -> None:
         """Execute a job via the executor, update schedule after.
 
+        A job with multiple users in ``job.users`` runs once per user, serialized
+        inside a single concurrency slot. System-scope jobs (``users: []``) run
+        once with :data:`~marcel_core.jobs.SYSTEM_USER` as the run identity.
+
         Respects the concurrency semaphore — at most ``_MAX_CONCURRENT`` jobs
         run simultaneously.
         """
-        from marcel_core.jobs import list_all_jobs
+        from marcel_core.jobs import SYSTEM_USER, load_job
         from marcel_core.jobs.executor import execute_job_with_retries
 
-        # Find the job across all users
-        job: JobDefinition | None = None
-        for j in list_all_jobs():
-            if j.id == job_id:
-                job = j
-                break
-
+        job = load_job(job_id)
         if not job or job.status != JobStatus.ACTIVE:
             self._schedule.pop(job_id, None)
             return
 
         self._running.add(job_id)
         self._running_since[job_id] = datetime.now(UTC)
-        log.info('Dispatching job %s (%s) for user %s [%s]', job.id, job.name, job.user_slug, trigger_reason)
+        run_users = list(job.users) if job.users else [SYSTEM_USER]
+        log.info(
+            'Dispatching job %s (%s) for users %s [%s]',
+            job.id,
+            job.name,
+            run_users,
+            trigger_reason,
+        )
 
         try:
             async with self._semaphore:
-                run = await execute_job_with_retries(job, trigger_reason)
-            # Emit event for chained jobs
-            await self.emit_event(job.user_slug, job.id, run.status.value)
-        except Exception:
-            log.exception('Job dispatch failed for %s', job_id)
+                for slug in run_users:
+                    try:
+                        run = await execute_job_with_retries(job, trigger_reason, user_slug=slug)
+                    except Exception:
+                        log.exception('Job dispatch failed for %s (user=%s)', job_id, slug)
+                        continue
+                    # Emit event for chained jobs
+                    await self.emit_event(slug, job.id, run.status.value)
         finally:
             self._running.discard(job_id)
             self._running_since.pop(job_id, None)
@@ -429,7 +451,7 @@ class JobScheduler:
                     if job.retention_days <= 0:
                         continue
                     try:
-                        removed = cleanup_old_runs(job.user_slug, job.id, job.retention_days)
+                        removed = cleanup_old_runs(job.id, job.retention_days)
                         if removed:
                             log.info('Cleaned %d old runs for job %s', removed, job.id)
                     except Exception:
@@ -472,33 +494,56 @@ def _consolidate_memories() -> None:
             log.exception('Memory consolidation failed for user=%s', slug)
 
 
+def _latest_run_across_users(job: JobDefinition) -> 'JobRun | None':
+    """Return the most recent run for a job across all its per-user run logs.
+
+    Used by the scheduler to compute ``next_run_at`` when a job targets
+    multiple users (or is system-scope). Falls back to ``None`` when the
+    job has never run.
+    """
+    from marcel_core.jobs import SYSTEM_USER, last_run
+
+    slugs = list(job.users) if job.users else [SYSTEM_USER]
+    latest = None
+    for slug in slugs:
+        run = last_run(job.id, slug)
+        if run is None:
+            continue
+        if latest is None or (run.finished_at and latest.finished_at and run.finished_at > latest.finished_at):
+            latest = run
+    return latest
+
+
 def _resolve_stuck_runs() -> None:
     """On startup, mark orphaned RUNNING records as FAILED.
 
     If the process crashed while a job was executing, the run record will be
     stuck with ``status=RUNNING`` and no ``finished_at``.  We append a
-    corrected record so the run log is consistent.
+    corrected record so the run log is consistent. Walks each job's per-user
+    run files, since a job that targets multiple users has one log per user.
     """
-    from marcel_core.jobs import append_run, list_all_jobs, read_runs
+    from marcel_core.jobs import SYSTEM_USER, append_run, list_all_jobs, read_runs
     from marcel_core.jobs.models import JobRun, RunStatus
 
     for job in list_all_jobs():
-        runs = read_runs(job.user_slug, job.id, limit=50)
-        for run in runs:
-            if run.status == RunStatus.RUNNING and run.finished_at is None:
-                log.warning('Resolving stuck run %s for job %s', run.run_id, job.id)
-                corrected = JobRun(
-                    run_id=run.run_id,
-                    job_id=run.job_id,
-                    status=RunStatus.FAILED,
-                    started_at=run.started_at,
-                    finished_at=datetime.now(UTC),
-                    error='Cleared: stuck after restart',
-                    error_category='stuck',
-                    trigger_reason=run.trigger_reason,
-                    retry_count=run.retry_count,
-                )
-                append_run(job.user_slug, job.id, corrected)
+        slugs = list(job.users) if job.users else [SYSTEM_USER]
+        for slug in slugs:
+            runs = read_runs(job.id, slug, limit=50)
+            for run in runs:
+                if run.status == RunStatus.RUNNING and run.finished_at is None:
+                    log.warning('Resolving stuck run %s for job %s (user=%s)', run.run_id, job.id, slug)
+                    corrected = JobRun(
+                        run_id=run.run_id,
+                        job_id=run.job_id,
+                        status=RunStatus.FAILED,
+                        started_at=run.started_at,
+                        finished_at=datetime.now(UTC),
+                        error='Cleared: stuck after restart',
+                        error_category='stuck',
+                        trigger_reason=run.trigger_reason,
+                        retry_count=run.retry_count,
+                    )
+                    append_run(job.id, slug, corrected)
 
 
 # Module-level singleton

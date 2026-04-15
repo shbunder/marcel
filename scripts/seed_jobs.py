@@ -37,7 +37,7 @@ def seed(user_slug: str) -> None:
         job = JobDefinition(
             name='Bank sync',
             description='Sync bank transactions and balances every 8 hours',
-            user_slug=user_slug,
+            users=[user_slug],
             trigger=TriggerSpec(type=TriggerType.INTERVAL, interval_seconds=8 * 60 * 60),
             system_prompt=(
                 'You are a background sync worker for Marcel. '
@@ -63,7 +63,7 @@ def seed(user_slug: str) -> None:
         job = JobDefinition(
             name='News sync',
             description='Scrape VRT NWS and De Tijd for latest articles every 8 hours',
-            user_slug=user_slug,
+            users=[user_slug],
             trigger=TriggerSpec(type=TriggerType.INTERVAL, interval_seconds=8 * 60 * 60),
             system_prompt=(
                 'You are a news scraper for Marcel. Your job is to fetch the latest headlines '
@@ -99,7 +99,7 @@ def seed(user_slug: str) -> None:
         job = JobDefinition(
             name='Good morning',
             description='Morning digest with calendar events and news highlights',
-            user_slug=user_slug,
+            users=[user_slug],
             trigger=TriggerSpec(type=TriggerType.CRON, cron='0 7 * * *'),
             system_prompt=(
                 'You are Marcel\'s morning digest composer. Compose a warm, concise '
@@ -138,7 +138,7 @@ def seed(user_slug: str) -> None:
         job = JobDefinition(
             name='Test signal',
             description='One-time test job to verify the scheduler sends a Telegram notification',
-            user_slug=user_slug,
+            users=[user_slug],
             trigger=TriggerSpec(type=TriggerType.ONESHOT, run_at=run_at),
             system_prompt=(
                 'You are a test worker for Marcel. Your only job is to produce a short '

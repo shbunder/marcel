@@ -81,12 +81,25 @@ def _now() -> datetime:
 
 
 class JobDefinition(BaseModel):
-    """Complete definition of a background job.  Serialized to job.json."""
+    """Complete definition of a background job.
+
+    Persisted to ``<data_root>/jobs/<slug>/JOB.md`` as a YAML frontmatter +
+    markdown body document; mutable runtime state (``consecutive_errors``,
+    ``last_error_at``, ``schedule_errors``, ``last_failure_alert_at``,
+    ``updated_at``) is split into a sibling ``state.json`` so scheduler
+    bookkeeping never clobbers hand-authored prompts.
+
+    A job targets zero or more users via :attr:`users`. An empty list marks
+    the job as system-scope — it runs once per tick without a user context
+    (no per-user credentials, no memories, no auto-notify) and its run log
+    is filed under the reserved ``_system`` slug.
+    """
 
     id: str = Field(default_factory=_job_id)
     name: str
     description: str = ''
-    user_slug: str
+    users: list[str] = Field(default_factory=list)
+    """Users this job runs for. Empty list = system-scope."""
     status: JobStatus = JobStatus.ACTIVE
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)

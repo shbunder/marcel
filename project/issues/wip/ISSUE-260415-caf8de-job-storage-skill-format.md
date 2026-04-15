@@ -1,6 +1,6 @@
 # ISSUE-caf8de: Job storage — flat layout + SKILL.md-style JOB.md
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-15
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -127,19 +127,19 @@ The migration runs once — after first successful pass, the legacy `~/.marcel/u
 - Auto-collapsing the default bank-sync job into a shared one.
 
 ## Tasks
-- [ ] Extend `JobDefinition` with `users: list[str]`, remove `user_slug`; add `JobState` model for mutable state
-- [ ] Rewrite `save_job` / `load_job` to read/write `JOB.md` (YAML frontmatter + `## System Prompt` / `## Task` body) and `state.json`
-- [ ] Rewrite `_jobs_dir()` / `_job_dir()` to the flat `<data_root>/jobs/<slug>/` layout; derive slug from job name with collision handling
-- [ ] Rewrite `list_jobs(user_slug)` to filter by membership in `job.users`; keep `list_all_jobs()` returning every job
-- [ ] Move run log helpers to `runs/<user_slug>.jsonl` and `runs/_system.jsonl` for system-scope
-- [ ] Update `execute_job` / `_build_job_context` to accept `user_slug: str | None` and handle the system-scope path (no per-user creds, no memories, no auto-notify)
-- [ ] Update scheduler `_dispatch` to loop over `job.users` (or run once with `None` for system-scope) and update `_handle_event` + `_ensure_default_jobs` accordingly
-- [ ] Update `tool.py` agent tools — `create_job` defaults `users=[ctx.deps.user_slug]`, `list_jobs` filters by membership, `get_job` / `update_job` / `delete_job` check permission
-- [ ] Write one-shot migration: walk `<data_root>/users/*/jobs/`, convert each job to the new layout, move runs, remove legacy directory
-- [ ] Wire migration into startup (idempotent — short-circuits when no legacy dirs)
-- [ ] Update all tests under `tests/jobs/` for the new layout and API; add tests for frontmatter round-trip, multi-user dispatch, system-scope execution, and migration
-- [ ] Update docs referencing the old layout
-- [ ] `make check` green before close
+- [✓] Extend `JobDefinition` with `users: list[str]`, remove `user_slug`; split mutable runtime state into ``state.json`` via the CRUD layer (chose field-partitioning over a separate `JobState` model — simpler, no in-memory split)
+- [✓] Rewrite `save_job` / `load_job` to read/write `JOB.md` (YAML frontmatter + `## System Prompt` / `## Task` body) and `state.json`
+- [✓] Rewrite `_jobs_root()` / `_job_dir_for_id()` to the flat `<data_root>/jobs/<slug>/` layout; derive slug from job name with collision handling
+- [✓] Rewrite `list_jobs(user_slug)` to filter by membership in `job.users`; keep `list_all_jobs()` returning every job; add `list_system_jobs()` for `users: []`
+- [✓] Move run log helpers to `runs/<user_slug>.jsonl` and `runs/_system.jsonl` for system-scope
+- [✓] Update `execute_job` / `_build_job_context` to accept `user_slug: str | None` and handle the system-scope path (no per-user creds, no memories, no auto-notify); reserved slug is `_system` via `SYSTEM_USER` constant
+- [✓] Update scheduler `_dispatch` to loop over `job.users` (or run once with `_system` for system-scope) and update `_handle_event` + `_ensure_default_jobs` accordingly
+- [✓] Update `tool.py` agent tools — `create_job` defaults `users=[ctx.deps.user_slug]`, `list_jobs` shows user + system-scope, `get_job` / `update_job` / `delete_job` check permission
+- [✓] Write one-shot migration: walk `<data_root>/users/*/jobs/`, convert each job to the new layout, move runs, remove legacy directory
+- [✓] Wire migration into startup (called from `scheduler.rebuild_schedule`, idempotent — short-circuits when no legacy dirs)
+- [✓] Update all tests under `tests/jobs/` for the new layout and API; add tests for frontmatter round-trip, multi-user dispatch, system-scope execution, and migration
+- [✓] Update docs referencing the old layout
+- [✓] `make check` green before close
 
 ## Relationships
 _None — this refactor is self-contained. Touches job system only; does not depend on or block other open issues._
@@ -148,4 +148,32 @@ _None — this refactor is self-contained. Touches job system only; does not dep
 _None yet._
 
 ## Implementation Log
-<!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-15 - LLM Implementation
+**Action**: Refactored job storage to a flat SKILL.md-style layout.
+
+**Files Modified**:
+- `src/marcel_core/jobs/models.py` — replaced `user_slug: str` with `users: list[str]`; documented state-split approach in the docstring.
+- `src/marcel_core/jobs/__init__.py` — full rewrite. New flat layout helpers (`_jobs_root`, `_resolve_slug`, `_find_job_dir_by_id`), frontmatter/body parser, JOB.md/state.json serializer, per-user run log helpers, `list_all_jobs` / `list_jobs(user_slug)` / `list_system_jobs()`, and `migrate_legacy_jobs()` one-shot migration. Exposes `SYSTEM_USER = '_system'` sentinel.
+- `src/marcel_core/jobs/executor.py` — new `_resolve_run_user` helper; `execute_job`, `_run_with_backoff`, `_execute_chain`, `_execute_pinned_with_legacy_fallback`, `execute_job_with_retries`, `_notify_if_needed` all accept `user_slug: str | None` as keyword arg. System-scope runs skip memory/credential injection and never notify. `append_run` calls updated to new `(job_id, user_slug, run)` signature.
+- `src/marcel_core/jobs/scheduler.py` — `_dispatch` loops over `job.users or [SYSTEM_USER]`; new `_latest_run_across_users` helper feeds `schedule_job`; `_handle_event` now walks `list_all_jobs()` and dispatches each event-triggered job once (event iterates its own users internally); `_ensure_default_jobs` uses `users=[slug]`; `rebuild_schedule` calls `migrate_legacy_jobs()` first; `_resolve_stuck_runs` walks per-user run files; `cleanup_old_runs` signature updated.
+- `src/marcel_core/jobs/tool.py` — `create_job` takes optional `users: list[str]` (default `[ctx.deps.user_slug]`, pass `[]` for system-scope); all tool operations check membership in `job.users` (system-scope jobs are visible to everyone).
+- `scripts/seed_jobs.py` — swapped `user_slug=...` for `users=[...]`.
+- `tests/jobs/*.py` — updated every test for the new API: `user_slug=...` → `users=[...]`, `append_run`/`read_runs` argument reordering, `load_job`/`delete_job` take only `job_id`, mock helpers accept the new `user_slug` kwarg. Added round-trip, multi-user, system-scope, and full migration coverage in `test_jobs_crud.py`.
+- `docs/jobs.md` — rewrote the storage section, documented the JOB.md format, users field semantics, system-scope behavior, and the legacy migration.
+- `docs/local-llm.md`, `docs/model-tiers.md` — updated grep examples to the new `~/.marcel/jobs/<slug>/runs/*.jsonl` path.
+
+**Design decisions**:
+- **State split is field-partitioning, not a separate model.** The CRUD layer dumps `JobDefinition` once via `model_dump_json()`, then partitions fields between JOB.md frontmatter (user-authored, stable) and state.json (mutable runtime). Simpler than maintaining two pydantic models that have to re-merge on every read.
+- **System-scope sentinel.** `users: []` dispatches with the reserved slug `_system` instead of `None`. This avoids rippling `str | None` through `MarcelDeps.user_slug` (which is required by many downstream tools) — `~/.marcel/users/_system/` is never created, so credential and memory lookups naturally return empty.
+- **Slugs are fixed at creation.** `save_job` looks up the existing directory by `id` first, so renaming a job does not move its directory. New jobs get a kebab-case slug derived from `name`, deduplicated against existing directories (`digest`, `digest-2`, ...). Matches the skills directory pattern.
+- **Per-user run logs over a single log with a user field.** Cleaner reads (`read_runs(job_id, 'alice')` is an O(one file) scan), simpler filtering, trivial system-scope support (`runs/_system.jsonl`). The extra files cost nothing.
+- **Event dispatch ignores the triggering user slug.** A completed job may run under any user (or system-scope). Event-triggered dependents fire once with their own `users` list; the triggering slug is purely informational in the event payload. Preserves test-facing `emit_event(user_slug, job_id, status)` signature for backwards compat.
+
+**Commands Run**: `make check` — all green (lint, typecheck, 1357 tests passing, 92.25% coverage).
+
+**End-to-end verification**: Ran `migrate_legacy_jobs()` against the live `~/.marcel/` data root; all 4 shaun jobs (plus 8 legacy copies in the `.backup-059-*` user directories) converged into 4 flat `~/.marcel/jobs/<slug>/` directories as expected, with `JOB.md`, `state.json`, and `runs/shaun.jsonl` all populated correctly. Legacy `users/*/jobs/` directories were removed.
+
+**Result**: Success — job system now flat, human-editable, and supports system-scope jobs. Ready to close.
+
+**Next**: `/finish-issue` to close and merge.

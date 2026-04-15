@@ -40,8 +40,9 @@ async def create_job(
     channel: str | None = None,
     skills: list[str] | None = None,
     timeout_minutes: float | None = None,
+    users: list[str] | None = None,
 ) -> str:
-    """Create a new background job for the user.
+    """Create a new background job.
 
     Use this when the user asks to set up a recurring task, monitor something,
     or create an automated workflow.
@@ -65,6 +66,10 @@ async def create_job(
         channel: Notification channel (default: telegram).
         skills: List of skill names the job uses (documentation only).
         timeout_minutes: Max minutes the job can run before being killed (default: 10).
+        users: Users this job runs for. Defaults to ``[current_user]``. Pass an
+            empty list ``[]`` to create a system-scope job that runs without
+            a user context (no per-user credentials, memories, or
+            notifications) — useful for shared work like news scraping.
 
     Returns:
         Confirmation message with the job ID and next run time.
@@ -85,10 +90,12 @@ async def create_job(
     except ValueError:
         notify_policy = NotifyPolicy.ON_OUTPUT
 
+    job_users = [ctx.deps.user_slug] if users is None else list(users)
+
     job = JobDefinition(
         name=name,
         description=task,
-        user_slug=ctx.deps.user_slug,
+        users=job_users,
         trigger=trigger,
         system_prompt=system_prompt,
         task=task,
@@ -116,9 +123,11 @@ async def create_job(
 
 
 async def list_jobs(ctx: RunContext[MarcelDeps]) -> str:
-    """List all background jobs for the current user.
+    """List background jobs visible to the current user.
 
-    Shows job name, status, trigger type, and next scheduled run.
+    Includes both the user's own jobs (``ctx.deps.user_slug`` in ``job.users``)
+    and system-scope jobs (``users: []``), since system jobs deliver shared
+    value to everyone.
 
     Args:
         ctx: Agent context with user information.
@@ -126,10 +135,10 @@ async def list_jobs(ctx: RunContext[MarcelDeps]) -> str:
     Returns:
         Formatted list of jobs, or a message if no jobs exist.
     """
-    from marcel_core.jobs import list_jobs as _list_jobs
+    from marcel_core.jobs import list_jobs as _list_jobs, list_system_jobs
     from marcel_core.jobs.scheduler import scheduler
 
-    jobs = _list_jobs(ctx.deps.user_slug)
+    jobs = _list_jobs(ctx.deps.user_slug) + list_system_jobs()
     if not jobs:
         return 'No background jobs configured.'
 
@@ -149,6 +158,9 @@ async def list_jobs(ctx: RunContext[MarcelDeps]) -> str:
 async def get_job(ctx: RunContext[MarcelDeps], job_id: str) -> str:
     """Get detailed information about a specific job including recent runs.
 
+    The caller must be targeted by the job (``ctx.deps.user_slug in job.users``)
+    or the job must be system-scope (``users: []``).
+
     Args:
         ctx: Agent context with user information.
         job_id: The job identifier.
@@ -156,11 +168,11 @@ async def get_job(ctx: RunContext[MarcelDeps], job_id: str) -> str:
     Returns:
         Detailed job information with recent run history.
     """
-    from marcel_core.jobs import load_job, read_runs
+    from marcel_core.jobs import SYSTEM_USER, load_job, read_runs
     from marcel_core.jobs.scheduler import scheduler
 
-    job = load_job(ctx.deps.user_slug, job_id)
-    if not job:
+    job = load_job(job_id)
+    if not job or (job.users and ctx.deps.user_slug not in job.users):
         return f'Job `{job_id}` not found.'
 
     next_run = scheduler._schedule.get(job.id)
@@ -187,7 +199,8 @@ async def get_job(ctx: RunContext[MarcelDeps], job_id: str) -> str:
         '**Recent runs:**',
     ]
 
-    runs = read_runs(ctx.deps.user_slug, job_id, limit=5)
+    run_user = ctx.deps.user_slug if job.users else SYSTEM_USER
+    runs = read_runs(job_id, run_user, limit=5)
     if not runs:
         lines.append('No runs yet.')
     else:
@@ -245,8 +258,8 @@ async def update_job(
     from marcel_core.jobs import load_job, save_job
     from marcel_core.jobs.scheduler import scheduler
 
-    job = load_job(ctx.deps.user_slug, job_id)
-    if not job:
+    job = load_job(job_id)
+    if not job or (job.users and ctx.deps.user_slug not in job.users):
         return f'Job `{job_id}` not found.'
 
     if name is not None:
@@ -281,6 +294,8 @@ async def update_job(
 async def delete_job(ctx: RunContext[MarcelDeps], job_id: str) -> str:
     """Delete a job and all its run history.
 
+    The caller must be targeted by the job (or the job must be system-scope).
+
     Args:
         ctx: Agent context with user information.
         job_id: The job identifier.
@@ -288,10 +303,14 @@ async def delete_job(ctx: RunContext[MarcelDeps], job_id: str) -> str:
     Returns:
         Confirmation of deletion.
     """
-    from marcel_core.jobs import delete_job as _delete_job
+    from marcel_core.jobs import delete_job as _delete_job, load_job
     from marcel_core.jobs.scheduler import scheduler
 
-    deleted = _delete_job(ctx.deps.user_slug, job_id)
+    job = load_job(job_id)
+    if not job or (job.users and ctx.deps.user_slug not in job.users):
+        return f'Job `{job_id}` not found.'
+
+    deleted = _delete_job(job_id)
     if not deleted:
         return f'Job `{job_id}` not found.'
 
@@ -315,17 +334,19 @@ async def run_job_now(ctx: RunContext[MarcelDeps], job_id: str) -> str:
     """
     import asyncio
 
-    from marcel_core.jobs import load_job
+    from marcel_core.jobs import SYSTEM_USER, load_job
     from marcel_core.jobs.executor import execute_job_with_retries
     from marcel_core.jobs.scheduler import scheduler
 
-    job = load_job(ctx.deps.user_slug, job_id)
-    if not job:
+    job = load_job(job_id)
+    if not job or (job.users and ctx.deps.user_slug not in job.users):
         return f'Job `{job_id}` not found.'
 
+    run_user = ctx.deps.user_slug if job.users else SYSTEM_USER
+
     async def _run() -> None:
-        run = await execute_job_with_retries(job, trigger_reason='manual')
-        await scheduler.emit_event(job.user_slug, job.id, run.status.value)
+        run = await execute_job_with_retries(job, trigger_reason='manual', user_slug=run_user)
+        await scheduler.emit_event(run_user, job.id, run.status.value)
 
     asyncio.create_task(_run())
     log.info('[jobs] Manual run triggered for job %s by user %s', job_id, ctx.deps.user_slug)

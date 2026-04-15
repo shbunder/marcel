@@ -24,9 +24,10 @@ from marcel_core.storage import _root
 
 
 def _make_job(user: str = 'alice', **kw) -> JobDefinition:
+    users = kw.pop('users', [user])
     return JobDefinition(
         name=kw.pop('name', 'test-job'),
-        user_slug=user,
+        users=users,
         trigger=TriggerSpec(type=TriggerType.INTERVAL, interval_seconds=3600),
         system_prompt=kw.pop('system_prompt', 'You are a worker.'),
         task=kw.pop('task', 'Do the work.'),
@@ -201,7 +202,7 @@ class TestExecuteJob:
         assert run.output == 'Job done successfully'
 
         # Check run was persisted
-        runs = read_runs('alice', job.id)
+        runs = read_runs(job.id, 'alice')
         assert len(runs) == 1
 
     @pytest.mark.asyncio
@@ -378,7 +379,7 @@ class TestExecuteJobWithRetries:
 
         call_count = 0
 
-        async def mock_execute(j, reason='scheduled'):
+        async def mock_execute(j, reason='scheduled', *, user_slug=None):
             nonlocal call_count
             call_count += 1
             run = JobRun(job_id=j.id)
@@ -392,7 +393,7 @@ class TestExecuteJobWithRetries:
             run.finished_at = datetime.now(UTC)
             from marcel_core.jobs import append_run
 
-            append_run(j.user_slug, j.id, run)
+            append_run(j.id, j.users[0] if j.users else None, run)
             return run
 
         with (
@@ -415,13 +416,13 @@ class TestExecuteJobWithRetries:
 
         save_job(job)
 
-        async def mock_execute(j, reason='scheduled'):
+        async def mock_execute(j, reason='scheduled', *, user_slug=None):
             run = JobRun(job_id=j.id, status=RunStatus.FAILED, error='Invalid API key')
             run.error_category = 'permanent'
             run.finished_at = datetime.now(UTC)
             from marcel_core.jobs import append_run
 
-            append_run(j.user_slug, j.id, run)
+            append_run(j.id, j.users[0] if j.users else None, run)
             return run
 
         with (
@@ -444,13 +445,13 @@ class TestExecuteJobWithRetries:
 
         save_job(job)
 
-        async def mock_execute(j, reason='scheduled'):
+        async def mock_execute(j, reason='scheduled', *, user_slug=None):
             run = JobRun(job_id=j.id, status=RunStatus.FAILED, error='boom')
             run.error_category = 'permanent'
             run.finished_at = datetime.now(UTC)
             from marcel_core.jobs import append_run
 
-            append_run(j.user_slug, j.id, run)
+            append_run(j.id, j.users[0] if j.users else None, run)
             return run
 
         with (
@@ -461,7 +462,7 @@ class TestExecuteJobWithRetries:
         ):
             await execute_job_with_retries(job)
 
-        reloaded = load_job('alice', job.id)
+        reloaded = load_job(job.id)
         assert reloaded is not None
         assert reloaded.consecutive_errors == 1
 
@@ -475,12 +476,12 @@ class TestExecuteJobWithRetries:
 
         save_job(job)
 
-        async def mock_execute(j, reason='scheduled'):
+        async def mock_execute(j, reason='scheduled', *, user_slug=None):
             run = JobRun(job_id=j.id, status=RunStatus.COMPLETED, output='ok')
             run.finished_at = datetime.now(UTC)
             from marcel_core.jobs import append_run
 
-            append_run(j.user_slug, j.id, run)
+            append_run(j.id, j.users[0] if j.users else None, run)
             return run
 
         with (
@@ -491,7 +492,7 @@ class TestExecuteJobWithRetries:
         ):
             await execute_job_with_retries(job)
 
-        reloaded = load_job('alice', job.id)
+        reloaded = load_job(job.id)
         assert reloaded is not None
         assert reloaded.consecutive_errors == 0
 

@@ -15,7 +15,7 @@ import logging
 from datetime import UTC, datetime
 
 from marcel_core.harness.model_chain import FALLBACK_ELIGIBLE_CATEGORIES, classify_error
-from marcel_core.jobs import append_run
+from marcel_core.jobs import SYSTEM_USER, append_run
 from marcel_core.jobs.models import JobDefinition, JobRun, NotifyPolicy, RunStatus
 
 log = logging.getLogger(__name__)
@@ -29,13 +29,36 @@ log = logging.getLogger(__name__)
 __all__ = ['FALLBACK_ELIGIBLE_CATEGORIES', 'classify_error']
 
 
+def _resolve_run_user(job: JobDefinition, user_slug: str | None) -> str:
+    """Pick the concrete user slug for a single job run.
+
+    - Explicit ``user_slug`` wins when provided (per-user dispatch).
+    - Otherwise, auto-pick: the sole entry in ``job.users`` for single-user
+      jobs, or :data:`SYSTEM_USER` when the job is system-scope.
+    - Multi-user jobs require the caller to pass ``user_slug`` explicitly.
+    """
+    if user_slug is not None:
+        return user_slug
+    if not job.users:
+        return SYSTEM_USER
+    if len(job.users) == 1:
+        return job.users[0]
+    raise ValueError(
+        f'Job {job.id} ({job.name}) targets multiple users {job.users}; caller must pass an explicit user_slug per run.'
+    )
+
+
 def _load_job_memories(user_slug: str) -> str:
     """Load preference and feedback memories for injection into a job agent.
 
     Jobs don't get full memory selection (no query to match against), but
     they should still respect user preferences and behavioral feedback.
     Returns a formatted ``## User preferences`` section, or empty string.
+    System-scope runs (``user_slug == SYSTEM_USER``) return empty.
     """
+    if user_slug == SYSTEM_USER:
+        return ''
+
     from marcel_core.storage.memory import MemoryType, load_memory_file, scan_memory_headers
 
     headers = scan_memory_headers(user_slug)
@@ -59,15 +82,20 @@ def _load_job_memories(user_slug: str) -> str:
     return '## User preferences & feedback\n\n' + '\n\n'.join(blocks)
 
 
-def _resolve_job_skills(job: JobDefinition) -> list:
+def _resolve_job_skills(job: JobDefinition, user_slug: str | None = None) -> list:
     """Load full SkillDoc objects for skills referenced by a job.
 
     Job skills may use integration IDs like ``"icloud.calendar"`` — the skill
     name is the part before the dot (or the whole string if no dot).
+
+    ``user_slug`` controls which user's requirement checks apply; when
+    omitted, falls back to :func:`_resolve_run_user` which picks the sole
+    user (or :data:`SYSTEM_USER` for system-scope jobs).
     """
     from marcel_core.skills.loader import load_skills
 
-    all_skills = load_skills(job.user_slug)
+    slug = _resolve_run_user(job, user_slug)
+    all_skills = load_skills(slug)
     skill_map = {s.name: s for s in all_skills}
 
     # Extract unique skill names from job.skills (e.g. "icloud.calendar" -> "icloud")
@@ -78,19 +106,21 @@ def _resolve_job_skills(job: JobDefinition) -> list:
     return [skill_map[name] for name in sorted(wanted) if name in skill_map]
 
 
-def _build_job_context(job: JobDefinition) -> str:
+def _build_job_context(job: JobDefinition, user_slug: str | None = None) -> str:
     """Build the system prompt context for a job agent.
 
     Assembles: job system prompt + skill docs + credentials + channel prompt.
     Deliberately lean — no MARCEL.md, skill index, or memory selection.
+    System-scope runs skip per-user memory and credential injection.
     """
     from marcel_core.harness.context import load_channel_prompt
     from marcel_core.storage.credentials import load_credentials
 
+    slug = _resolve_run_user(job, user_slug)
     parts = [job.system_prompt]
 
     # Auto-inject full docs for referenced skills
-    skills = _resolve_job_skills(job)
+    skills = _resolve_job_skills(job, slug)
     if skills:
         skill_sections = []
         for skill in skills:
@@ -99,14 +129,13 @@ def _build_job_context(job: JobDefinition) -> str:
         if skill_sections:
             parts.append('## Skill reference\n\n' + '\n\n---\n\n'.join(skill_sections))
 
-    # Inject credentials: from skill requirements + any referenced in system_prompt
+    # Inject credentials: from skill requirements + any referenced in system_prompt.
+    # System-scope runs (SYSTEM_USER) get no vault and naturally load nothing.
     cred_keys: set[str] = set()
     for skill in skills:
         cred_keys.update(skill.credential_keys)
 
-    # Also check vault for keys mentioned literally in the job text
-    # (covers credentials not tied to a skill, e.g. DETIJD_ in the scraper prompt)
-    all_creds = load_credentials(job.user_slug)
+    all_creds = load_credentials(slug) if slug != SYSTEM_USER else {}
     job_text = job.system_prompt + ' ' + job.task
     for key in all_creds:
         if key in job_text:
@@ -120,7 +149,7 @@ def _build_job_context(job: JobDefinition) -> str:
         parts.append('\n'.join(lines))
 
     # Inject preference + feedback memories so jobs adapt to user behavior
-    memory_section = _load_job_memories(job.user_slug)
+    memory_section = _load_job_memories(slug)
     if memory_section:
         parts.append(memory_section)
 
@@ -169,10 +198,23 @@ def _format_delivery_policy(policy: NotifyPolicy) -> str:
     return f'## Delivery policy\n{body}'
 
 
-async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> JobRun:
-    """Execute a single job and return the run record."""
+async def execute_job(
+    job: JobDefinition,
+    trigger_reason: str = 'scheduled',
+    *,
+    user_slug: str | None = None,
+) -> JobRun:
+    """Execute a single job and return the run record.
+
+    ``user_slug`` selects the concrete user context for this run. When
+    omitted, :func:`_resolve_run_user` auto-picks the sole user (single-user
+    jobs) or :data:`SYSTEM_USER` (``users: []``). Multi-user jobs require
+    an explicit ``user_slug``.
+    """
     from marcel_core.harness.agent import create_marcel_agent
     from marcel_core.harness.context import MarcelDeps
+
+    slug = _resolve_run_user(job, user_slug)
 
     run = JobRun(
         job_id=job.id,
@@ -182,7 +224,7 @@ async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> 
     )
 
     deps = MarcelDeps(
-        user_slug=job.user_slug,
+        user_slug=slug,
         conversation_id=f'job:{job.id}:{run.run_id}',
         channel='job',
         model=job.model,
@@ -199,11 +241,11 @@ async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> 
     # prepend the full SkillDoc to every tool result (the ISSUE-071 fix
     # applied to the job path — the runner primes from history, but jobs
     # have no history, so we seed from the job definition directly).
-    for skill in _resolve_job_skills(job):
+    for skill in _resolve_job_skills(job, slug):
         deps.turn.read_skills.add(skill.name)
 
     # Build lean system prompt: task + skill docs + credentials + channel
-    system_prompt = _build_job_context(job)
+    system_prompt = _build_job_context(job, slug)
 
     agent = create_marcel_agent(job.model, system_prompt=system_prompt, role='user')
 
@@ -223,23 +265,28 @@ async def execute_job(job: JobDefinition, trigger_reason: str = 'scheduled') -> 
         run.status = RunStatus.COMPLETED
         run.agent_notified = deps.turn.notified
     except asyncio.TimeoutError:
-        log.warning('%s-job: job %s (%s) timed out after %ds', job.user_slug, job.id, job.name, job.timeout_seconds)
+        log.warning('%s-job: job %s (%s) timed out after %ds', slug, job.id, job.name, job.timeout_seconds)
         run.error = f'Job timed out after {job.timeout_seconds}s'
         run.error_category = 'timeout'
         run.status = RunStatus.TIMED_OUT
     except Exception as exc:
-        log.exception('%s-job: job %s (%s) failed', job.user_slug, job.id, job.name)
+        log.exception('%s-job: job %s (%s) failed', slug, job.id, job.name)
         run.error = str(exc)
         is_transient, category = classify_error(str(exc))
         run.error_category = category
         run.status = RunStatus.FAILED
 
     run.finished_at = datetime.now(UTC)
-    append_run(job.user_slug, job.id, run)
+    append_run(job.id, slug, run)
     return run
 
 
-async def _run_with_backoff(job: JobDefinition, trigger_reason: str) -> JobRun:
+async def _run_with_backoff(
+    job: JobDefinition,
+    trigger_reason: str,
+    *,
+    user_slug: str | None = None,
+) -> JobRun:
     """Run ``execute_job`` and retry transient failures with exponential backoff.
 
     Uses ``job.backoff_schedule`` and only retries categories classified as
@@ -251,21 +298,22 @@ async def _run_with_backoff(job: JobDefinition, trigger_reason: str) -> JobRun:
     Does NOT touch ``job.model`` — the caller is expected to have set it to
     the tier under attempt before calling this helper.
     """
-    run = await execute_job(job, trigger_reason)
+    slug = _resolve_run_user(job, user_slug)
+    run = await execute_job(job, trigger_reason, user_slug=slug)
 
     attempt = 0
     while run.status in (RunStatus.FAILED, RunStatus.TIMED_OUT) and attempt < job.max_retries:
         # Only retry transient errors
         is_transient = run.error_category in ('rate_limit', 'timeout', 'network', 'server_error')
         if not is_transient:
-            log.info('%s-job: permanent error for %s, skipping retries', job.user_slug, job.id)
+            log.info('%s-job: permanent error for %s, skipping retries', slug, job.id)
             break
 
         attempt += 1
         delay = job.backoff_schedule[min(attempt - 1, len(job.backoff_schedule) - 1)]
         log.info(
             '%s-job: retrying job %s (%s) attempt %d/%d (backoff %ds)',
-            job.user_slug,
+            slug,
             job.id,
             job.name,
             attempt,
@@ -273,13 +321,18 @@ async def _run_with_backoff(job: JobDefinition, trigger_reason: str) -> JobRun:
             delay,
         )
         await asyncio.sleep(delay)
-        run = await execute_job(job, trigger_reason)
+        run = await execute_job(job, trigger_reason, user_slug=slug)
         run.retry_count = attempt
 
     return run
 
 
-async def _execute_chain(job: JobDefinition, trigger_reason: str) -> JobRun:
+async def _execute_chain(
+    job: JobDefinition,
+    trigger_reason: str,
+    *,
+    user_slug: str | None = None,
+) -> JobRun:
     """Run a job through the ISSUE-076 fallback chain.
 
     Builds the chain with ``mode='complete'`` (tier 3 tries to complete the
@@ -294,6 +347,7 @@ async def _execute_chain(job: JobDefinition, trigger_reason: str) -> JobRun:
     from marcel_core.config import settings
     from marcel_core.harness.model_chain import Tier, build_chain, is_fallback_eligible, next_tier
 
+    slug = _resolve_run_user(job, user_slug)
     chain = build_chain(primary=job.model, mode='complete')
 
     has_local_tier = any(e.purpose == 'complete' and e.model.startswith('local:') for e in chain)
@@ -321,7 +375,7 @@ async def _execute_chain(job: JobDefinition, trigger_reason: str) -> JobRun:
         if current.tier != Tier.STANDARD:
             log.info(
                 '%s-job: chain advancing to tier=%s model=%s for %s (%s)',
-                job.user_slug,
+                slug,
                 current.tier.value,
                 current.model,
                 job.id,
@@ -329,7 +383,7 @@ async def _execute_chain(job: JobDefinition, trigger_reason: str) -> JobRun:
             )
         job.model = current.model
         try:
-            run = await _run_with_backoff(job, trigger_reason)
+            run = await _run_with_backoff(job, trigger_reason, user_slug=slug)
         finally:
             # Ensure the persisted job definition is never mutated with a
             # tier-override model string — restore on every iteration.
@@ -359,7 +413,12 @@ async def _execute_chain(job: JobDefinition, trigger_reason: str) -> JobRun:
     return run
 
 
-async def execute_job_with_retries(job: JobDefinition, trigger_reason: str = 'scheduled') -> JobRun:
+async def execute_job_with_retries(
+    job: JobDefinition,
+    trigger_reason: str = 'scheduled',
+    *,
+    user_slug: str | None = None,
+) -> JobRun:
     """Execute a job, retrying on transient failure and chaining on outage.
 
     Flow (ISSUE-076):
@@ -379,10 +438,12 @@ async def execute_job_with_retries(job: JobDefinition, trigger_reason: str = 'sc
     """
     from marcel_core.jobs import save_job
 
+    slug = _resolve_run_user(job, user_slug)
+
     if job.allow_fallback_chain:
-        run = await _execute_chain(job, trigger_reason)
+        run = await _execute_chain(job, trigger_reason, user_slug=slug)
     else:
-        run = await _execute_pinned_with_legacy_fallback(job, trigger_reason)
+        run = await _execute_pinned_with_legacy_fallback(job, trigger_reason, user_slug=slug)
 
     # Update consecutive error tracking on the job definition
     if run.status in (RunStatus.FAILED, RunStatus.TIMED_OUT):
@@ -395,10 +456,10 @@ async def execute_job_with_retries(job: JobDefinition, trigger_reason: str = 'sc
     save_job(job)
 
     # Notify based on policy + deliver tracking
-    delivery_status, delivery_error = await _notify_if_needed(job, run)
+    delivery_status, delivery_error = await _notify_if_needed(job, run, user_slug=slug)
     run.delivery_status = delivery_status
     run.delivery_error = delivery_error
-    append_run(job.user_slug, job.id, run)
+    append_run(job.id, slug, run)
 
     return run
 
@@ -406,6 +467,8 @@ async def execute_job_with_retries(job: JobDefinition, trigger_reason: str = 'sc
 async def _execute_pinned_with_legacy_fallback(
     job: JobDefinition,
     trigger_reason: str,
+    *,
+    user_slug: str | None = None,
 ) -> JobRun:
     """Execute a job pinned to its configured model (``allow_fallback_chain=False``).
 
@@ -417,7 +480,8 @@ async def _execute_pinned_with_legacy_fallback(
     """
     from marcel_core.config import settings
 
-    run = await _run_with_backoff(job, trigger_reason)
+    slug = _resolve_run_user(job, user_slug)
+    run = await _run_with_backoff(job, trigger_reason, user_slug=slug)
 
     if (
         run.status in (RunStatus.FAILED, RunStatus.TIMED_OUT)
@@ -430,7 +494,7 @@ async def _execute_pinned_with_legacy_fallback(
         fallback_model = f'local:{settings.marcel_local_llm_model}'
         log.info(
             '%s-job: local fallback firing for %s (%s) — category=%s cloud=%s local=%s',
-            job.user_slug,
+            slug,
             job.id,
             job.name,
             run.error_category,
@@ -439,7 +503,7 @@ async def _execute_pinned_with_legacy_fallback(
         )
         job.model = fallback_model
         try:
-            fb_run = await execute_job(job, trigger_reason)
+            fb_run = await execute_job(job, trigger_reason, user_slug=slug)
         finally:
             job.model = original_model
         fb_run.retry_count = run.retry_count
@@ -449,18 +513,30 @@ async def _execute_pinned_with_legacy_fallback(
     return run
 
 
-async def _notify_if_needed(job: JobDefinition, run: JobRun) -> tuple[str, str | None]:
+async def _notify_if_needed(
+    job: JobDefinition,
+    run: JobRun,
+    *,
+    user_slug: str | None = None,
+) -> tuple[str, str | None]:
     """Send a notification to the user based on the job's notify policy.
 
     Returns ``(delivery_status, delivery_error)`` where status is one of
-    ``"sent"``, ``"failed"``, or ``"skipped"``.
+    ``"sent"``, ``"failed"``, or ``"skipped"``. System-scope runs never
+    deliver — they have no user to notify.
     """
     from marcel_core.jobs import save_job
+
+    slug = _resolve_run_user(job, user_slug)
+
+    # System-scope jobs have no user — never notify.
+    if slug == SYSTEM_USER:
+        return 'skipped', None
 
     # If the agent already sent a notification during the run (via marcel(action="notify")),
     # skip the executor's automatic notification to avoid double-sending.
     if run.agent_notified and run.status == RunStatus.COMPLETED:
-        log.info('%s-job: skipping auto-notify — agent already notified user', job.user_slug)
+        log.info('%s-job: skipping auto-notify — agent already notified user', slug)
         return 'skipped', None
 
     should_notify = False
@@ -497,9 +573,9 @@ async def _notify_if_needed(job: JobDefinition, run: JobRun) -> tuple[str, str |
 
     try:
         if job.channel == 'telegram':
-            await _notify_telegram(job.user_slug, message)
+            await _notify_telegram(slug, message)
         else:
-            log.info('%s-job: notification channel=%s msg=%s', job.user_slug, job.channel, message[:100])
+            log.info('%s-job: notification channel=%s msg=%s', slug, job.channel, message[:100])
 
         # Track that we sent a failure alert (for cooldown)
         if run.status in (RunStatus.FAILED, RunStatus.TIMED_OUT):
