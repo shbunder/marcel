@@ -1,6 +1,6 @@
 # ISSUE-0554d9: Parallel-agent git worktrees — opt-in parallel skill
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-15
 **Assignee:** Unassigned
 **Priority:** Medium
