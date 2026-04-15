@@ -10,6 +10,24 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
+## ISSUE-1897a3: Adopt three rationalization/discipline patterns from agent-skills (2026-04-15)
+
+### What worked well
+- **Research-first framing avoided a wholesale import.** The user asked a question ("is any of this useful?"), not for an implementation. Parallel Explore agents surveying both repos in one turn produced enough material to write an honest tradeoff assessment rather than a shopping list, and the resulting scope was three tiny documentation edits instead of a new skills subtree. Default to answering the actual question, not the ambitious version of it.
+- **Marcel's existing rule voice is strong enough to borrow the pattern without the jargon.** The agent-skills "Common Rationalizations" tables are excellent, but the agent-skills phrasing ("anti-rationalization", "Stop-the-Line") would have stuck out. Translating each table into Marcel's `| Excuse | Reality |` format — which was already in use in `project/issues/CLAUDE.md` — meant the tables read as native on the first pass; the pre-close-verifier confirmed zero tone drift.
+- **Pre-close-verifier caught a context-loaded lessons-learned straggler the writer would have shipped.** The verifier flagged `project/lessons-learned.md:37` ("Four universal rules stay always-loaded") because it's always-loaded and a future reader would trust the count. The straggler grep the writer ran earlier had excluded `project/lessons-learned.md` by instinct. **Lesson:** when changing something that has a count anywhere, always-loaded files are the first place to check — they quietly become the source of truth for anyone who reads them later.
+
+### What to do differently
+- **Do not freeze live counts into always-loaded prose.** The stale phrase in `lessons-learned.md` was introduced one issue ago with *"Four universal rules stay always-loaded; the three domain-specific ones only load when relevant"* — a factual statement that aged out the moment a rule was added. Fixed by rewording to *"Universal rules stay always-loaded; domain-specific ones only load when relevant"*. Going forward: when writing lessons-learned entries, phrase observations qualitatively ("universal vs. domain-specific") rather than with raw counts that will drift.
+- **`project/CLAUDE.md` editing requires the unlock flag even for one-line rule registrations.** The guard-restricted hook correctly blocked the edit; the unlock/edit/remove cycle worked but added one extra turn. **Lesson:** when planning a rule addition, bundle the `project/CLAUDE.md` registration together with all other edits, touch the unlock flag once, and delete it before staging so the impl commit cannot accidentally include it.
+
+### Patterns to reuse
+- **Adapt, don't import, when adopting patterns from another project's "skills" repo.** The agent-skills SKILL.md files are structured as standalone executable workflows; Marcel's rules are short, enforceable, and cross-referenced by subagents. Lifting the *structure* (rationalizations table, anti-excuse framing) without lifting the *words* produces additions that feel native and don't create two competing sources of truth.
+- **Straggler grep must include `project/lessons-learned.md`.** The file is always-loaded and can easily contain frozen factual claims about the codebase state. Add it to the default grep scope in [docs-in-impl.md](../.claude/rules/docs-in-impl.md) whenever you change something referenced there. The pre-close-verifier is currently the safety net — don't rely on it.
+- **Unique-string Edits on shared prose files beat line-based Writes.** The rationalizations-table insertions used `Edit` with a distinctive anchor (the `## Enforcement` header) as `old_string`, which means the edit is robust even if other parts of the rule file change between read and write. For any cross-file batch edit, anchor on the most locally unique string, not the first matching line.
+
+---
+
 ## ISSUE-caf8de: Job storage — flat layout + SKILL.md-style JOB.md (2026-04-15)
 
 ### What worked well
@@ -217,22 +235,6 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
-
-## ISSUE-068: System Prompt Restructure — Five H1 Blocks + Dynamic Memory (2026-04-12)
-
-### What worked well
-- **Event-log-driven scoping.** The user opened `event-log.md` (a Phoenix trace export of a real Telegram turn) and pointed at four concrete problems. Because the evidence was already rendered in front of both of us, the investigation collapsed from "explore memory/skill/prompt architecture" to "confirm or refute each of these four observations." The result: a thorough issue with no speculative scope.
-- **Symmetric tool design.** Adding `read_memory` alongside the existing `read_skill` created a clean index-plus-on-demand pattern: the prompt contains a one-line-per-entry catalogue, and either `read_skill` or `read_memory` loads the full body when needed. Users (and the model) can reason about skills and memory the same way, which keeps the prompt footprint small without hiding either capability.
-- **Load-time stripping instead of file edits.** Every cosmetic cleanup — duplicate H1s in `profile.md`, the self-referential blockquote in `MARCEL.md`, the `"You are responding via Telegram."` preamble in `telegram.md` — is done in the prompt builder via small stripper functions (`_strip_leading_h1`, `_strip_self_ref_blockquote`, `_strip_channel_preamble`). The on-disk files stay natural and user-editable, and the cleanup survives a `seed_defaults` refresh. This was a direct application of the lesson from ISSUE-067 about data-root drift.
-
-### What to do differently
-- **Phoenix trace truncation is not a runtime bug.** The `read_skill` result in `event-log.md` was cut off at ~200 characters mid-word, which made it look like skills were being truncated in the system. They weren't — the truncation is introduced by the OpenInference span processor serializing tool results into OTel span attributes (`OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT` defaults to 128 bytes on some exporters). The model receives the full string, only the trace viewer is lying. **Lesson:** when length mismatches show up in Phoenix, inspect the actual model message stream (pydantic-ai events, `ModelRequest.parts`) before chasing runtime bugs. The trace viewer is a diagnostic surface, not ground truth.
-- **`SELECTION_THRESHOLD = 10` in `memory/selector.py` meant the AI memory selector was never actually running for typical users.** The branch at `selector.py:77` loaded ALL memories when `len(headers) <= 10`, and the threshold was high enough that real users stayed below it forever. The AI selector existed in the code and in tests but never touched production prompts. **Lesson:** when adding a "fallback for small inputs" threshold, double-check whether the fallback or the main path is the 99% case. If the fallback dominates, the main path is dead code — either delete it or flip the default.
-
-### Patterns to reuse
-- **Index + on-demand read pattern.** For any content type where users have many items but only a few are relevant per turn (skills, memory files, RSS feeds, old conversations), emit a compact index in the system prompt (`- **name** — description`) and provide a `read_<type>(name)` tool action that returns the full body. Scales to hundreds of entries without blowing the context budget, and the model learns to fetch precisely what it needs.
-- **Five H1 blocks as a prompt contract.** The new system prompt structure — `# <Identity> — who you are`, `# <User> — who the user is`, `# Skills — what you can do`, `# Memory — what you should know`, `# <Channel> — how to respond` — reads like a coherent document instead of a pile of concatenated fragments. Each H1 answers a question the model is implicitly asking. Reuse this "headers as questions" framing for any multi-source prompt assembly.
-- **Defensive re-stripping at the prompt builder.** `format_marcelmd_for_prompt` already strips leading H1s, but the prompt builder calls `_strip_leading_h1_safe` *again* before wrapping content under its own H1. Redundant by design: it means either the loader or the builder can be the stripper without coupling them tightly, and it keeps the builder robust against un-cleaned inputs from other loaders later.
 
 ---
 
