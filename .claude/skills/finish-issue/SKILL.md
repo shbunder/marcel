@@ -51,36 +51,37 @@ If any subtask statuses changed, include those updates in the closing commit (st
 
 Add a log entry at the bottom of the issue file under `## Implementation Log` using the format in [project/issues/TEMPLATE.md](../../../project/issues/TEMPLATE.md).
 
-### 6. Reflect on implementation
+### 6. Delegate verification to the pre-close-verifier subagent
 
-Before closing, step back and evaluate the work:
+The main conversation is biased toward the code it just wrote. Use a fresh context for verification:
 
-**Coverage check** — re-read the issue's Resolved intent and Tasks. For each requirement:
-- Confirm the implementation addresses it. Name the specific file/function.
-- If a requirement is NOT covered, fix it now or flag it to the user.
+```
+Agent(
+  subagent_type="pre-close-verifier",
+  description="Pre-close verification ISSUE-{hash}",
+  prompt="Verify issue branch issue/{hash}-{slug} before close. "
+         "Issue file: project/issues/wip/ISSUE-{YYMMDD}-{hash}-{slug}.md. "
+         "Focus areas: <optional hint, e.g. 'pay special attention to the hook script'>. "
+         "Return the structured verdict."
+)
+```
 
-**Shortcut check** — scan new code in the diff for the patterns below. Do not talk yourself out of finding them:
+The subagent reads the issue file, runs `git diff main...HEAD -- . ':(exclude)project/issues/'`, hunts for shortcuts/scope drift/stragglers, and returns a verdict with line references.
 
-| Excuse | Reality |
-|--------|---------|
-| "This TODO/FIXME can stay, someone will fix it later" | No. Address it now or open a new issue referencing this one before closing. |
-| "`except Exception:` is defensive" | Catch specific exceptions or let them propagate. Bare `except` masks real bugs. |
-| "Magic number is fine, it's obvious in context" | Name it or move it to config. |
-| "`pass` body will be filled in next sprint" | Either implement it now or mark the task `[⚒]` and keep the issue open. |
-| "Generic error message is enough" | Include the specific context: what was attempted, what the input was, why it failed. |
+**If the verdict is REQUEST CHANGES:** fix every Critical and Important finding, then either re-run the verifier or (for trivial fixes) inspect your own changes and confirm the findings are addressed. Do not close until you have an APPROVE verdict or an explicit user override.
 
-**Scope drift check:**
-- Did implementation add behavior not in the requirements? (scope creep)
-- Did implementation omit behavior that is in the requirements? (missed work)
-
-Fix any gaps or shortcuts found. Then add a **Reflection** subsection to the Implementation Log entry:
+**Record the verdict** in the Implementation Log as a **Reflection** subsection:
 
 ```markdown
-**Reflection**:
+**Reflection** (via pre-close-verifier):
+- Verdict: APPROVE | REQUEST CHANGES → addressed
 - Coverage: X/Y requirements addressed
 - Shortcuts found: <list or "none">
 - Scope drift: <list or "none">
+- Stragglers: <list or "none">
 ```
+
+**When you cannot delegate** (e.g., the Agent tool is unavailable or the subagent returns an error), fall back to running the same checks inline — coverage, shortcut hunt, scope drift, straggler grep — using the pre-close-verifier SKILL.md ([.claude/agents/pre-close-verifier.md](../../agents/pre-close-verifier.md)) as your checklist.
 
 ### 7. Pre-close verification
 
