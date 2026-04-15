@@ -65,7 +65,7 @@ class TestJobLifecycle:
 
         job = JobDefinition(
             name='Bank sync',
-            user_slug='alice',
+            users=['alice'],
             trigger=TriggerSpec(type=TriggerType.INTERVAL, interval_seconds=3600),
             system_prompt='sync banks',
             task='Run banking.sync',
@@ -95,20 +95,20 @@ class TestJobLifecycle:
 
         job = JobDefinition(
             name='test',
-            user_slug='alice',
+            users=['alice'],
             trigger=TriggerSpec(type=TriggerType.ONESHOT),
             system_prompt='t',
             task='t',
         )
         save_job(job)
         append_run(
-            'alice',
             job.id,
+            'alice',
             JobRun(job_id=job.id, status=RunStatus.COMPLETED, output='hello world'),
         )
         append_run(
-            'alice',
             job.id,
+            'alice',
             JobRun(job_id=job.id, status=RunStatus.FAILED, error='boom'),
         )
 
@@ -126,7 +126,7 @@ class TestJobLifecycle:
 
         job = JobDefinition(
             name='old name',
-            user_slug='alice',
+            users=['alice'],
             trigger=TriggerSpec(type=TriggerType.CRON, cron='0 7 * * *'),
             system_prompt='old',
             task='old task',
@@ -149,7 +149,7 @@ class TestJobLifecycle:
             )
         assert 'updated' in result
 
-        reloaded = load_job('alice', job.id)
+        reloaded = load_job(job.id)
         assert reloaded is not None
         assert reloaded.name == 'new name'
         assert reloaded.status == JobStatus.PAUSED
@@ -171,7 +171,7 @@ class TestJobLifecycle:
 
         job = JobDefinition(
             name='to-delete',
-            user_slug='alice',
+            users=['alice'],
             trigger=TriggerSpec(type=TriggerType.ONESHOT),
             system_prompt='x',
             task='x',
@@ -343,7 +343,7 @@ class TestRunNow:
 
         job = JobDefinition(
             name='manual-test',
-            user_slug='alice',
+            users=['alice'],
             trigger=TriggerSpec(type=TriggerType.INTERVAL, interval_seconds=3600),
             system_prompt='t',
             task='t',

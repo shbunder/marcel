@@ -14,24 +14,81 @@ src/marcel_core/jobs/
     tool.py           # Agent-facing tools
 ```
 
-Jobs are stored per-user at `~/.marcel/users/{slug}/jobs/{job_id}/`:
+Jobs live in a flat directory at `~/.marcel/jobs/{slug}/`, mirroring the skill layout:
 
-- `job.json` — serialized `JobDefinition`
-- `runs.jsonl` — append-only log of `JobRun` entries
+```
+~/.marcel/jobs/{slug}/
+├── JOB.md                  # YAML frontmatter + "## System Prompt" / "## Task" body
+├── state.json              # mutable runtime state (errors, timestamps)
+└── runs/
+    ├── {user_slug}.jsonl   # per-user run log
+    └── _system.jsonl       # used for system-scope jobs (users: [])
+```
+
+`{slug}` is derived from `job.name` (kebab-case, collision-safe). Renaming a job does **not** move the directory — the slug is fixed at creation.
+
+A job targets one or more users via the `users:` frontmatter field:
+
+- `users: [alice]` — user-scoped (per-user credentials, memories, notifications)
+- `users: [alice, bob]` — runs once per user each tick; each run gets its own credentials/memories
+- `users: []` — **system-scope**: runs once per tick without a user context, useful for shared work like news scraping. No per-user credentials or memories are injected, and no automatic notifications are sent.
+
+### JOB.md format
+
+```markdown
+---
+id: 341e749bde4b
+name: News sync
+description: Scrape VRT NWS for latest articles at 6am and 6pm
+users: []
+status: active
+trigger:
+  type: cron
+  cron: "0 6,18 * * *"
+  timezone: null
+model: anthropic:claude-haiku-4-5-20251001
+skills: [news]
+notify: silent
+channel: telegram
+timeout_seconds: 600
+---
+
+## System Prompt
+
+You are a news scraper for Marcel. Fetch the latest headlines from Belgian news sources...
+
+## Task
+
+Fetch latest news from VRT NWS via RSS. Filter duplicates, store new articles.
+```
+
+`state.json` holds only the mutable runtime fields — `consecutive_errors`, `schedule_errors`, `last_error_at`, `last_failure_alert_at`, `updated_at` — so scheduler bookkeeping never clobbers hand-authored prompts.
+
+### Legacy layout migration
+
+The legacy layout (`~/.marcel/users/{slug}/jobs/{id}/job.json`) is migrated automatically on first startup. The migration:
+
+1. Walks `~/.marcel/users/*/jobs/*/job.json`
+2. Rewrites each as `~/.marcel/jobs/{slug}/JOB.md` + `state.json` with `users: [<old_user_slug>]`
+3. Moves `runs.jsonl` → `runs/{old_user_slug}.jsonl`
+4. Removes the legacy `~/.marcel/users/{slug}/jobs/` directory
+
+It is idempotent — subsequent boots short-circuit at zero cost once the legacy directories are gone.
 
 ## Data models
 
 ### JobDefinition
 
-The core model. Defines what a job does and when it runs.
+The core model. Defines what a job does, who it targets, and when it runs.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | `str` | Auto-generated 12-char hex ID |
-| `name` | `str` | Human-readable name |
+| `name` | `str` | Human-readable name (used to derive the slug at creation) |
+| `users` | `list[str]` | Target users. Empty list = system-scope |
 | `trigger` | `TriggerSpec` | When/how the job fires |
-| `system_prompt` | `str` | Instructions for the job agent |
-| `task` | `str` | The "user message" the agent receives |
+| `system_prompt` | `str` | Instructions for the job agent (body of JOB.md) |
+| `task` | `str` | The "user message" the agent receives (body of JOB.md) |
 | `model` | `str` | Fully-qualified pydantic-ai model (default: `anthropic:claude-haiku-4-5-20251001`) |
 | `notify` | `NotifyPolicy` | When to notify the user |
 | `status` | `JobStatus` | `active`, `paused`, or `disabled` |
@@ -70,17 +127,29 @@ The scheduler runs as an asyncio task in the FastAPI lifespan. It:
 
 The executor runs a job as a **headless agent turn**:
 
-1. Creates `MarcelDeps` with `channel="job"` and `role="user"`
-2. Builds a system prompt combining the job's own prompt with user profile context
-3. Creates a Marcel agent via `create_marcel_agent()`
-4. Runs with timeout enforcement: `asyncio.wait_for(agent.run(...), timeout=job.timeout_seconds)`
-5. On failure, classifies the error as transient (rate limit, network, timeout, 5xx) or permanent
-6. Retries only transient errors with exponential backoff from `backoff_schedule`
-7. Tracks `consecutive_errors` on the job definition across runs
-8. Applies failure alert cooldown: ON_FAILURE notifications only fire after N consecutive failures, then respect a cooldown period
-9. Records `delivery_status` and `delivery_error` on each run for observability
+1. Picks the concrete run user — the sole entry in `job.users`, the explicitly-passed `user_slug` (for multi-user jobs), or the reserved `_system` slug for system-scope jobs
+2. Creates `MarcelDeps` with `channel="job"` and `role="user"`
+3. Builds a system prompt combining the job's own prompt with user profile context (skills, credentials, preference/feedback memories)
+4. Creates a Marcel agent via `create_marcel_agent()`
+5. Runs with timeout enforcement: `asyncio.wait_for(agent.run(...), timeout=job.timeout_seconds)`
+6. On failure, classifies the error as transient (rate limit, network, timeout, 5xx) or permanent
+7. Retries only transient errors with exponential backoff from `backoff_schedule`
+8. Tracks `consecutive_errors` on the job definition across runs
+9. Applies failure alert cooldown: ON_FAILURE notifications only fire after N consecutive failures, then respect a cooldown period
+10. Records `delivery_status` and `delivery_error` on each run for observability
 
 Jobs get the same integration tools as regular users (banking, iCloud, browser, etc.) but not admin tools (bash, file I/O).
+
+### System-scope runs
+
+When a job has `users: []`, the executor runs with `user_slug=_system`:
+
+- **No memories** are injected — `_system` has no user profile
+- **No per-user credentials** — only env-var or package-level skill requirements are satisfied; skills with credential requirements fall back to their SETUP.md
+- **No auto-notify** — system jobs never deliver to a user channel. The output is logged for inspection only.
+- **Run log** is filed at `runs/_system.jsonl`
+
+Use system-scope for shared background work that benefits every user — news scraping, price checks, public API syncs — where there is no single user context to charge the run against.
 
 ### Error classification
 

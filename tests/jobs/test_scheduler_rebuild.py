@@ -30,9 +30,10 @@ def _make_job(user: str = 'alice', trigger_type: TriggerType = TriggerType.INTER
         trigger_kw['interval_seconds'] = kw.pop('interval_seconds', 3600)
     elif trigger_type == TriggerType.CRON:
         trigger_kw['cron'] = kw.pop('cron', '0 7 * * *')
+    users = kw.pop('users', [user])
     return JobDefinition(
         name=kw.pop('name', 'test'),
-        user_slug=user,
+        users=users,
         trigger=TriggerSpec(type=trigger_type, **trigger_kw),
         system_prompt='do stuff',
         task='run stuff',
@@ -135,9 +136,9 @@ class TestCleanupLoop:
             started_at=datetime.now(UTC) - timedelta(days=10),
             finished_at=datetime.now(UTC) - timedelta(days=10),
         )
-        append_run('alice', job.id, old_run)
+        append_run(job.id, 'alice', old_run)
 
-        removed = cleanup_old_runs('alice', job.id, 7)
+        removed = cleanup_old_runs(job.id, 7)
         assert removed == 1
 
 

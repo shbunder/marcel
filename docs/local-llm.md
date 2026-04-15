@@ -54,12 +54,12 @@ from marcel_core.jobs.models import JobDefinition, TriggerSpec, TriggerType
 
 job = JobDefinition(
     name='Morning digest',
-    user_slug='shaun',
+    users=['shaun'],
     trigger=TriggerSpec(type=TriggerType.CRON, cron='0 7 * * *', timezone='Europe/Brussels'),
     system_prompt='You compose a morning news digest...',
-    task='Compose today\'s digest.',
+    task="Compose today's digest.",
     model='anthropic:claude-sonnet-4-6',
-    allow_local_fallback=True,   # ← new flag
+    allow_local_fallback=True,   # ← opt in to the local fallback
 )
 ```
 
@@ -172,7 +172,7 @@ single-channel starves memory bandwidth and adding threads won't help.
 
 ## Observability
 
-Every fallback run is recorded in `~/.marcel/users/<user>/jobs/<job_id>/runs.jsonl`:
+Every fallback run is recorded in `~/.marcel/jobs/<slug>/runs/<user>.jsonl` (or `runs/_system.jsonl` for system-scope jobs):
 
 ```json
 {"run_id": "...", "status": "completed", "fallback_used": "local", ...}
@@ -181,7 +181,7 @@ Every fallback run is recorded in `~/.marcel/users/<user>/jobs/<job_id>/runs.jso
 Grep for fallback usage:
 
 ```bash
-grep -r '"fallback_used":"local"' ~/.marcel/users/*/jobs/*/runs.jsonl
+grep -r '"fallback_used":"local"' ~/.marcel/jobs/*/runs/*.jsonl
 ```
 
 Ollama's own logs include per-request timings (load, prompt eval,

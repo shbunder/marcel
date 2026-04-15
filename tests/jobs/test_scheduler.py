@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
 
 from marcel_core.jobs.models import (
     JobDefinition,
@@ -53,7 +52,7 @@ class TestComputeNextRun:
     def _make_job(self, trigger_type: TriggerType, **trigger_kw) -> JobDefinition:
         return JobDefinition(
             name='test',
-            user_slug='test',
+            users=['test'],
             trigger=TriggerSpec(type=trigger_type, **trigger_kw),
             system_prompt='do stuff',
             task='do stuff',
@@ -106,7 +105,7 @@ class TestScheduleErrorAutoDisable:
 
         job = JobDefinition(
             name='bad-cron',
-            user_slug='test',
+            users=['test'],
             trigger=TriggerSpec(type=TriggerType.CRON, cron='INVALID'),
             system_prompt='test',
             task='test',
@@ -118,14 +117,12 @@ class TestScheduleErrorAutoDisable:
         save_job(job)
 
         scheduler = JobScheduler()
-        # Patch last_run to return None
-        with patch('marcel_core.jobs.last_run', return_value=None):
-            scheduler.schedule_job(job)
+        scheduler.schedule_job(job)
 
         # Job should have been auto-disabled
         from marcel_core.jobs import load_job
 
-        reloaded = load_job('test', job.id)
+        reloaded = load_job(job.id)
         assert reloaded is not None
         assert reloaded.status == JobStatus.DISABLED
         assert reloaded.schedule_errors >= 3
@@ -148,7 +145,7 @@ class TestStartupCatchup:
         # Create a job
         job = JobDefinition(
             name='catchup-test',
-            user_slug='test',
+            users=['test'],
             trigger=TriggerSpec(type=TriggerType.INTERVAL, interval_seconds=3600),
             system_prompt='test',
             task='test',

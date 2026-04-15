@@ -103,7 +103,7 @@ class TestBackoffSchedule:
 
         job = JobDefinition(
             name='test',
-            user_slug='test',
+            users=['test'],
             trigger=TriggerSpec(type=TriggerType.ONESHOT),
             system_prompt='test',
             task='test',
@@ -130,7 +130,7 @@ class TestModelDefaults:
 
         job = JobDefinition(
             name='test',
-            user_slug='test',
+            users=['test'],
             trigger=TriggerSpec(type=TriggerType.ONESHOT),
             system_prompt='test',
             task='test',
@@ -147,7 +147,7 @@ class TestModelDefaults:
 
         job = JobDefinition(
             name='test',
-            user_slug='test',
+            users=['test'],
             trigger=TriggerSpec(type=TriggerType.ONESHOT),
             system_prompt='test',
             task='test',
@@ -171,7 +171,7 @@ class TestModelDefaults:
     def test_allow_local_fallback_default_off(self):
         job = JobDefinition(
             name='test',
-            user_slug='test',
+            users=['test'],
             trigger=TriggerSpec(type=TriggerType.ONESHOT),
             system_prompt='test',
             task='test',
@@ -187,7 +187,7 @@ class TestModelDefaults:
 def _make_job(**overrides: object) -> JobDefinition:
     base: dict[str, object] = {
         'name': 'test',
-        'user_slug': 'test',
+        'users': ['test'],
         'trigger': TriggerSpec(type=TriggerType.ONESHOT),
         'system_prompt': 'prompt',
         'task': 'task',
@@ -207,19 +207,19 @@ def patched_side_effects(monkeypatch):
     scripted_runs: list[JobRun] = []
     call_log: list[str] = []
 
-    async def fake_execute_job(job, trigger_reason='scheduled'):
+    async def fake_execute_job(job, trigger_reason='scheduled', *, user_slug=None):
         call_log.append(job.model)
         if not scripted_runs:
             raise AssertionError('execute_job called more times than scripted')
         return scripted_runs.pop(0)
 
-    async def fake_notify(job, run):
+    async def fake_notify(job, run, *, user_slug=None):
         return 'skipped', None
 
     def fake_save_job(job):
         return None
 
-    def fake_append_run(user_slug, job_id, run):
+    def fake_append_run(job_id, user_slug, run):
         return None
 
     monkeypatch.setattr(executor_module, 'execute_job', fake_execute_job)
@@ -459,7 +459,7 @@ class TestAllowFallbackChainDefault:
     def test_default_is_true(self):
         job = JobDefinition(
             name='t',
-            user_slug='t',
+            users=['t'],
             trigger=TriggerSpec(type=TriggerType.ONESHOT),
             system_prompt='x',
             task='y',

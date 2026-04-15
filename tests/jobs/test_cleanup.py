@@ -13,7 +13,7 @@ class TestCleanupOldRuns:
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         job = JobDefinition(
             name='test',
-            user_slug='test',
+            users=['test'],
             trigger=TriggerSpec(type=TriggerType.INTERVAL, interval_seconds=3600),
             system_prompt='test',
             task='test',
@@ -37,7 +37,7 @@ class TestCleanupOldRuns:
             finished_at=datetime.now(UTC) - timedelta(days=8),
             output='old',
         )
-        append_run('test', job.id, old_run)
+        append_run(job.id, 'test', old_run)
 
         # Add recent run (1 day ago)
         new_run = JobRun(
@@ -47,12 +47,12 @@ class TestCleanupOldRuns:
             finished_at=datetime.now(UTC) - timedelta(days=1),
             output='new',
         )
-        append_run('test', job.id, new_run)
+        append_run(job.id, 'test', new_run)
 
-        removed = cleanup_old_runs('test', job.id, 7)
+        removed = cleanup_old_runs(job.id, 7)
         assert removed == 1
 
-        remaining = read_runs('test', job.id)
+        remaining = read_runs(job.id, 'test')
         assert len(remaining) == 1
         assert remaining[0].output == 'new'
 
@@ -67,19 +67,19 @@ class TestCleanupOldRuns:
             status=RunStatus.RUNNING,
             started_at=datetime.now(UTC) - timedelta(days=30),
         )
-        append_run('test', job.id, running)
+        append_run(job.id, 'test', running)
 
-        removed = cleanup_old_runs('test', job.id, 7)
+        removed = cleanup_old_runs(job.id, 7)
         assert removed == 0
 
-        remaining = read_runs('test', job.id)
+        remaining = read_runs(job.id, 'test')
         assert len(remaining) == 1
 
     def test_no_runs_file(self, tmp_path, monkeypatch):
         from marcel_core.jobs import cleanup_old_runs
 
         job = self._make_job(tmp_path, monkeypatch)
-        removed = cleanup_old_runs('test', job.id, 7)
+        removed = cleanup_old_runs(job.id, 7)
         assert removed == 0
 
     def test_all_recent(self, tmp_path, monkeypatch):
@@ -94,7 +94,7 @@ class TestCleanupOldRuns:
                 started_at=datetime.now(UTC) - timedelta(hours=i),
                 finished_at=datetime.now(UTC) - timedelta(hours=i),
             )
-            append_run('test', job.id, run)
+            append_run(job.id, 'test', run)
 
-        removed = cleanup_old_runs('test', job.id, 7)
+        removed = cleanup_old_runs(job.id, 7)
         assert removed == 0

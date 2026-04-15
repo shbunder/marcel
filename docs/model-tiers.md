@@ -246,11 +246,11 @@ shaun-telegram: stream started tier=backup model=openai:gpt-4o
 shaun-telegram: turn complete tier=backup — 312 tokens (...)
 ```
 
-For jobs, the same info plus `fallback_used` in `runs.jsonl`:
+For jobs, the same info plus `fallback_used` in the per-user run logs:
 
 ```bash
-grep -r '"fallback_used":"backup"' ~/.marcel/users/*/jobs/*/runs.jsonl
-grep -r '"fallback_used":"local"' ~/.marcel/users/*/jobs/*/runs.jsonl
+grep -r '"fallback_used":"backup"' ~/.marcel/jobs/*/runs/*.jsonl
+grep -r '"fallback_used":"local"' ~/.marcel/jobs/*/runs/*.jsonl
 ```
 
 ## Known limitations

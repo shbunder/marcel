@@ -31,9 +31,10 @@ def _make_job(user: str = 'alice', trigger_type: TriggerType = TriggerType.INTER
         trigger_kw['cron'] = kw.pop('cron', '0 7 * * *')
     elif trigger_type == TriggerType.EVENT:
         trigger_kw['after_job'] = kw.pop('after_job', 'other-job')
+    users = kw.pop('users', [user])
     return JobDefinition(
         name=kw.pop('name', 'test'),
-        user_slug=user,
+        users=users,
         trigger=TriggerSpec(type=trigger_type, **trigger_kw),
         system_prompt='do stuff',
         task='run stuff',
@@ -101,10 +102,9 @@ class TestScheduleJob:
         save_job(job)
 
         scheduler = JobScheduler()
-        with patch('marcel_core.jobs.last_run', return_value=None):
-            scheduler.schedule_job(job)
+        scheduler.schedule_job(job)
 
-        reloaded = load_job('alice', job.id)
+        reloaded = load_job(job.id)
         assert reloaded is not None
         assert reloaded.schedule_errors == 0
 
@@ -113,8 +113,7 @@ class TestScheduleJob:
 
         scheduler = JobScheduler()
         job = _make_job(trigger_type=TriggerType.EVENT)
-        with patch('marcel_core.jobs.last_run', return_value=None):
-            scheduler.schedule_job(job)
+        scheduler.schedule_job(job)
         assert job.id not in scheduler._schedule
 
     def test_unschedule_job(self):
@@ -206,11 +205,11 @@ class TestResolveStuckRuns:
             status=RunStatus.RUNNING,
             started_at=datetime.now(UTC) - timedelta(hours=3),
         )
-        append_run('alice', job.id, stuck)
+        append_run(job.id, 'alice', stuck)
 
         _resolve_stuck_runs()
 
-        runs = read_runs('alice', job.id)
+        runs = read_runs(job.id, 'alice')
         # Should have original RUNNING + corrected FAILED
         failed_runs = [r for r in runs if r.status == RunStatus.FAILED]
         assert len(failed_runs) == 1
@@ -228,10 +227,10 @@ class TestResolveStuckRuns:
             started_at=datetime.now(UTC),
             finished_at=datetime.now(UTC),
         )
-        append_run('alice', job.id, done)
+        append_run(job.id, 'alice', done)
 
         _resolve_stuck_runs()
-        runs = read_runs('alice', job.id)
+        runs = read_runs(job.id, 'alice')
         assert len(runs) == 1
         assert runs[0].status == RunStatus.COMPLETED
 
@@ -354,7 +353,7 @@ class TestDispatch:
         ):
             await scheduler._dispatch(job.id)
 
-        reloaded = load_job('alice', job.id)
+        reloaded = load_job(job.id)
         assert reloaded is not None
         assert reloaded.status == JobStatus.DISABLED
 

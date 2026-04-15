@@ -1,8 +1,12 @@
 """Data models for the Marcel job system.
 
 Jobs are self-contained background tasks that run on schedules or in response
-to events. Each job is stored as a directory under the user's data root with
-a definition file (job.json) and an append-only run log (runs.jsonl).
+to events. Each job lives at ``<data_root>/jobs/<slug>/`` as a SKILL.md-style
+document: ``JOB.md`` (YAML frontmatter + ``## System Prompt`` / ``## Task``
+body) carries the user-authored definition, ``state.json`` holds mutable
+runtime state (errors, timestamps), and ``runs/<user>.jsonl`` (plus
+``runs/_system.jsonl`` for system-scope jobs with ``users: []``) is the
+append-only per-user run log.
 """
 
 from __future__ import annotations
@@ -81,12 +85,25 @@ def _now() -> datetime:
 
 
 class JobDefinition(BaseModel):
-    """Complete definition of a background job.  Serialized to job.json."""
+    """Complete definition of a background job.
+
+    Persisted to ``<data_root>/jobs/<slug>/JOB.md`` as a YAML frontmatter +
+    markdown body document; mutable runtime state (``consecutive_errors``,
+    ``last_error_at``, ``schedule_errors``, ``last_failure_alert_at``,
+    ``updated_at``) is split into a sibling ``state.json`` so scheduler
+    bookkeeping never clobbers hand-authored prompts.
+
+    A job targets zero or more users via :attr:`users`. An empty list marks
+    the job as system-scope — it runs once per tick without a user context
+    (no per-user credentials, no memories, no auto-notify) and its run log
+    is filed under the reserved ``_system`` slug.
+    """
 
     id: str = Field(default_factory=_job_id)
     name: str
     description: str = ''
-    user_slug: str
+    users: list[str] = Field(default_factory=list)
+    """Users this job runs for. Empty list = system-scope."""
     status: JobStatus = JobStatus.ACTIVE
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
@@ -160,7 +177,11 @@ def _run_id() -> str:
 
 
 class JobRun(BaseModel):
-    """Record of a single job execution.  Appended to runs.jsonl."""
+    """Record of a single job execution.
+
+    Appended to the per-user log at ``<data_root>/jobs/<slug>/runs/<user>.jsonl``
+    (or ``runs/_system.jsonl`` for system-scope jobs).
+    """
 
     run_id: str = Field(default_factory=_run_id)
     job_id: str
