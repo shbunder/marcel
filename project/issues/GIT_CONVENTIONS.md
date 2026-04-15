@@ -33,9 +33,16 @@ Reserve `🐛`, `🚀`, `📚` for **issue labels** inside the issue file, not f
 
 ## Staging rules
 
-- **`📝 create`:** only stage `./project/issues/open/ISSUE-*.md`. Never `git add .` or `git add -A`.
-- **`🔧 impl`:** stage the issue file (for the open→wip move on the first impl commit) AND the relevant source files. Be explicit — name the files, don't use `git add .`.
-- **`✅ close`:** only stage `./project/issues/` (for the wip→closed move). Docs updates and version bumps go in a separate `🔧 impl` commit BEFORE the close commit, not combined with it. This is a change from the legacy convention — under the new flow, the closing commit is purely the status marker.
+Two rules apply to every commit in this repo:
+
+- **Stage by name, never broadly** — enforced by [.claude/rules/git-staging.md](../../.claude/rules/git-staging.md). No `git add .`, `git add -A`, or `git commit -a`.
+- **`✅ close` commits are pure status markers** — enforced by [.claude/rules/closing-commit-purity.md](../../.claude/rules/closing-commit-purity.md). Docs updates and version bumps go in a **final `🔧 impl:` commit BEFORE the close**, never combined with it.
+
+Per-emoji specifics:
+
+- **`📝 create`:** only stage `./project/issues/open/ISSUE-*.md`.
+- **`🔧 impl`:** stage the issue file (for the open→wip move on the first impl commit) and the relevant source files. Also the place where docs land — see [docs-in-impl](../../.claude/rules/docs-in-impl.md).
+- **`✅ close`:** only stage the issue file move to `./project/issues/closed/` plus the in-file status update.
 - **`🩹 fixup`:** stage only the files that need correcting. Do not reopen or move the issue file.
 
 ## Multi-commit implementations

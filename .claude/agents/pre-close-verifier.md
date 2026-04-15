@@ -35,6 +35,20 @@ git diff main...HEAD -- . ':(exclude)project/issues/'
 
 Read every changed file that matters. Don't skim — if a file is short, read it fully; if it is long, read the changed regions plus enough surrounding context to understand them.
 
+### 2a. Enumerate applicable rules
+
+Marcel's enforceable rules live under `.claude/rules/`. Load them into your working memory:
+
+```bash
+ls .claude/rules/*.md
+```
+
+For each rule file:
+- **No `paths:` frontmatter** → always applicable. Read the file.
+- **Has `paths:` frontmatter** → applicable only if a path in your diff matches one of the globs. Check by comparing `git diff --name-only main...HEAD` against each `paths:` entry. Read the file only if there is a match.
+
+The rules' `## Enforcement` section names which subagent treats which severity. Your job is the "`pre-close-verifier`" enforcement rows — use every rule that mentions you as your checklist alongside the hardcoded checklist below. When a rule does not mention `pre-close-verifier` explicitly, still flag violations but note that the primary enforcer (usually `code-reviewer` or `security-auditor`) should be invoked for that diff.
+
 ### 3. Coverage check
 
 For every requirement in Resolved intent and every task in Tasks:

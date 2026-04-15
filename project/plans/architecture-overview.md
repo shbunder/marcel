@@ -1,7 +1,7 @@
 # Marcel Architecture Plan
 
 > Written: 2026-03-26
-> Status: Active — all open questions resolved
+> Status: **Superseded** — kept as historical context only. Current architecture lives in [docs/architecture.md](../../docs/architecture.md); the self-modification flow described below is obsolete (current mechanism is `request_restart()` + `marcel-redeploy.path` systemd unit + `redeploy.sh`, not an inline watchdog-driven restart). Do not take the `git add -A` patterns in this document as prescriptive — they violate [.claude/rules/git-staging.md](../../.claude/rules/git-staging.md).
 
 ---
 
