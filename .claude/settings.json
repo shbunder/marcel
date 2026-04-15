@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ls project/issues/wip/*.md 2>/dev/null | head -5 || echo 'No active WIP issues'",
+            "command": "git branch --list 'issue/*' | sed 's/^/  /' | head -5 || true; if [ -z \"$(git branch --list 'issue/*')\" ]; then echo 'No active issue branches'; fi",
             "timeout": 2
           }
         ]

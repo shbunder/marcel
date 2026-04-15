@@ -13,9 +13,9 @@ You are reading CLAUDE.md, so you are in **developer mode**.
 
 ## When performing code changes
 
-- Follow the feature development procedure in [project/CLAUDE.md](project/CLAUDE.md) — capture, requirements, create issue, design, scaffold, tests, implement, ship. The guide also covers philosophy, integration patterns, and self-modification safety. Detailed coding style rules are in [project/CODING_STANDARDS.md](project/CODING_STANDARDS.md).
-- Follow all issue management conventions in [project/issues/CLAUDE.md](project/issues/CLAUDE.md) — create an issue before starting work, log implementation activity, and use the correct git commit format.
-- Document every new feature in [docs/](docs/) per [docs/CLAUDE.md](docs/CLAUDE.md) — documentation ships in the same change as the code.
+- Core rules and feature workflow: [project/CLAUDE.md](project/CLAUDE.md) (and the referenced `FEATURE_WORKFLOW.md`, `CODING_STANDARDS.md`).
+- Issue management and git conventions: [project/issues/CLAUDE.md](project/issues/CLAUDE.md) (and the referenced `TEMPLATE.md`, `GIT_CONVENTIONS.md`).
+- Documentation: [docs/CLAUDE.md](docs/CLAUDE.md) — ships in the same change as the code.
 
 ## Core Principles
 

@@ -1,6 +1,6 @@
 # ISSUE-079: Claude Code Setup Redesign — branching, hash IDs, CLAUDE.md diet
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-15
 **Assignee:** Unassigned
 **Priority:** High
@@ -30,16 +30,16 @@ This is the LAST issue under the legacy `ISSUE-NNN` scheme. Future issues use th
 
 ## Tasks
 
-- [ ] Create `project/FEATURE_WORKFLOW.md` with the extracted 8-step procedure
-- [ ] Create `project/issues/TEMPLATE.md` with the issue template
-- [ ] Create `project/issues/GIT_CONVENTIONS.md` with detailed commit/staging rules
-- [ ] Shrink `project/CLAUDE.md` to ~60 lines (core rules only)
-- [ ] Shrink `project/issues/CLAUDE.md` to ~50 lines, add anti-rationalization table
-- [ ] Rewrite `.claude/skills/new-issue/SKILL.md` for branch + hash-ID flow; enrich frontmatter
-- [ ] Rewrite `.claude/skills/finish-issue/SKILL.md` for branch-merge flow; add anti-rationalization table; enrich frontmatter
-- [ ] Update `.claude/settings.json` SessionStart hook to show active `issue/*` branches
-- [ ] Light trim of root `CLAUDE.md` and `docs/CLAUDE.md`
-- [ ] End-to-end verification (parallel creation, full lifecycle, legacy lookup)
+- [✓] Create `project/FEATURE_WORKFLOW.md` with the extracted 8-step procedure
+- [✓] Create `project/issues/TEMPLATE.md` with the issue template
+- [✓] Create `project/issues/GIT_CONVENTIONS.md` with detailed commit/staging rules
+- [✓] Shrink `project/CLAUDE.md` to ~60 lines (core rules only)
+- [✓] Shrink `project/issues/CLAUDE.md` to ~50 lines, add anti-rationalization table
+- [✓] Rewrite `.claude/skills/new-issue/SKILL.md` for branch + hash-ID flow; enrich frontmatter
+- [✓] Rewrite `.claude/skills/finish-issue/SKILL.md` for branch-merge flow; add anti-rationalization table; enrich frontmatter
+- [✓] Update `.claude/settings.json` SessionStart hook to show active `issue/*` branches
+- [✓] Light trim of root `CLAUDE.md` and `docs/CLAUDE.md`
+- [⚒] End-to-end verification (parallel creation, full lifecycle, legacy lookup)
 
 ## Relationships
 
@@ -51,4 +51,23 @@ This is the LAST issue under the legacy `ISSUE-NNN` scheme. Future issues use th
 User approved the full plan at `~/.claude/plans/cozy-foraging-porcupine.md` after two rounds of simplification. Key decisions: self-generated 6-char hex hashes, date-prefixed filenames, branch-per-issue, wip/ only on branches, light-touch CLAUDE.md consolidation (no rules rewrite), defer specialist subagents beyond issue-reviewer.
 
 ## Implementation Log
-<!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-15 - LLM Implementation
+**Action**: Implemented the claude-code setup redesign per the approved plan at `~/.claude/plans/cozy-foraging-porcupine.md`.
+
+**Files Modified**:
+- `project/FEATURE_WORKFLOW.md` (new) — extracted 8-step feature development procedure
+- `project/issues/TEMPLATE.md` (new) — issue markdown template and implementation log format
+- `project/issues/GIT_CONVENTIONS.md` (new) — commit sequence, staging rules, merging, fixups, useful queries
+- `project/CLAUDE.md` — shrunk from 190 to 59 lines; core rules + references to extracted files
+- `project/issues/CLAUDE.md` — shrunk from 211 to 68 lines; added anti-rationalization table; documents new `ISSUE-{YYMMDD}-{hash}-{slug}.md` scheme and feature-branch lifecycle
+- `.claude/skills/new-issue/SKILL.md` — rewritten for self-generated 6-char hex hash IDs and branch-per-issue flow; enriched frontmatter with `name` + explicit "do NOT use" clause
+- `.claude/skills/finish-issue/SKILL.md` — rewritten for close-on-branch-then-merge flow; added anti-rationalization table for shortcut checks; enriched frontmatter
+- `.claude/settings.json` — SessionStart hook now shows active `issue/*` branches instead of `ls wip/*.md`
+- `CLAUDE.md` (root) — light trim of the "When performing code changes" section
+- `docs/CLAUDE.md` — tightened from 47 to 28 lines
+- `project/issues/open/ISSUE-079-*.md` → `project/issues/wip/ISSUE-079-*.md` — moved with this commit
+
+**Result**: Always-loaded CLAUDE.md footprint dropped from 479 → 186 lines (61% reduction). New issues can be created in parallel without ID collisions because hashes are independently generated from `/dev/urandom`. Feature branches isolate parallel work.
+
+**Next**: Verify end-to-end — run the new-issue SKILL mentally against its instructions, confirm no broken references, then close.

@@ -2,210 +2,67 @@
 
 Issues are tracked as markdown files in this directory, versioned with git. No external tools or databases — just files, text, and consistent conventions.
 
-## Directory Structure
+- **Template:** [TEMPLATE.md](./TEMPLATE.md) — copy this when writing an issue by hand. `/new-issue` fills it in automatically.
+- **Git conventions:** [GIT_CONVENTIONS.md](./GIT_CONVENTIONS.md) — commit sequence, staging rules, merging, fixups, useful queries.
+
+## Directory structure
 
 ```
 ./project/issues/
-  open/    # New, unstarted issues
-  wip/     # Work in progress
-  closed/  # Completed or cancelled
+  open/    # Captured, branch not yet created (backlog) — lives on main
+  wip/     # On a feature branch, work in progress — ONLY exists on feature branches
+  closed/  # Completed or cancelled — reaches main via merge
 ```
 
-## File Naming
+`wip/` never appears on `main`. Active work is surfaced via `git branch --list 'issue/*'`.
 
-`ISSUE-{number}-{brief-title}.md` — e.g., `ISSUE-042-fix-login-bug.md`
+## File naming (new scheme — ISSUE-079 onward)
 
-- Numbers zero-padded to 3 digits
-- Kebab-case titles
-- Find next number: `find ./project/issues -name 'ISSUE-*.md' | grep -oE 'ISSUE-[0-9]+' | sort -t- -k2 -n | tail -1`
+`ISSUE-{YYMMDD}-{hash}-{brief-title}.md` — e.g. `ISSUE-260415-a1b2c3-conversation-summary-hallucination.md`
 
-## Issue Template
+- `{YYMMDD}` is the UTC creation date, for chronological `ls` ordering
+- `{hash}` is a 6-char random hex string generated at creation time (`python3 -c 'import secrets; print(secrets.token_hex(3))'`), collision-checked against existing files
+- `{brief-title}` is kebab-case, 3–5 words, no stop words
+- The short form `ISSUE-{hash}` is used in commit messages, code comments, and `[[...]]` wiki-links
 
-```markdown
-# ISSUE-042: Fix Login Bug
+Legacy issues (ISSUE-001 through ISSUE-078) use the old sequential counter and are NOT migrated. Treat them as read-only history.
 
-**Status:** Open | WIP | Closed
-**Created:** YYYY-MM-DD
-**Assignee:** Name | Unassigned
-**Priority:** High | Medium | Low
-**Labels:** bug, feature, docs, ...
+## Lifecycle
 
-## Capture
-**Original request:** [verbatim quote from the user]
-
-**Follow-up Q&A:** [questions asked and answers received, if any]
-
-**Resolved intent:** [one paragraph in your own words — what this actually is and why]
-
-## Description
-[What, why, and any relevant context — can reference the capture above]
-
-## Tasks
-- [ ] Task description
-- [✓] Completed task
-
-## Subtasks
-- [ ] ISSUE-042-a: Research phase
-- [⚒] ISSUE-042-b: Implementation
-- [✓] ISSUE-042-c: Tests
-
-## Relationships
-- Depends on: [[ISSUE-039-auth-refactor]]
-- Blocks: [[ISSUE-044-user-profile]]
-- Implements: [[ISSUE-021-security-requirements]]
-
-## Comments
-### YYYY-MM-DD - Author
-Comment text...
-
-## Implementation Log
-<!-- Append entries here when performing development work on this issue -->
-```
-
-**Subtask naming:** append a letter suffix — `ISSUE-042-a`, `ISSUE-042-b`, `ISSUE-042-c`, ... Subtasks are inline checklist items within the parent file only, not separate files. Do not use `[[double brackets]]` when referencing subtasks — subtasks have no files of their own, so there is nothing to link to.
-
-**Subtask states:** `[ ]` not started → `[⚒]` in progress → `[✓]` complete
-
-## Issue Lifecycle
-
-1. **Create** in `open/` with `Status: Open`
-2. **Start work** → move to `wip/`, set `Status: WIP`; break into subtasks if complex
-3. **Progress** → update task/subtask checkboxes; append to Implementation Log for any code changes
-4. **Complete** → move to `closed/`, set `Status: Closed`; notify any issues that were blocked by this one
+1. **Create** via `/new-issue` — issue file written to `open/` on `main`, standalone `📝 [ISSUE-{hash}] created: ...` commit, then feature branch `issue/{hash}-{slug}` is created and checked out.
+2. **Start work** on the feature branch — first `🔧 impl:` commit moves the file from `open/` to `wip/` and includes initial code changes.
+3. **Progress** — update task/subtask checkboxes; append to Implementation Log for any code changes. Multiple `🔧 impl:` commits are fine.
+4. **Close** via `/finish-issue` — moves file to `closed/` on the branch with `Status: Closed`, then `git merge --no-ff` back to main.
 
 Before closing, verify:
 - All tasks and subtasks show `[✓]`
 - Dependent issues are unblocked and notified
 - Implementation Log reflects all work done
-- **All files that reference changed conventions are updated** — check skills (`~/.marcel/skills/`), defaults (`src/marcel_core/defaults/`), other CLAUDE.md files, and docs that may reference the patterns you modified. A `grep` for key terms from your changes is the fastest way to catch stragglers.
+- All files that reference changed conventions are updated — check skills (`~/.marcel/skills/`), defaults (`src/marcel_core/defaults/`), other CLAUDE.md files, and docs. A `grep` for key terms from your changes is the fastest way to catch stragglers.
 
-**Closing is mandatory, not optional.** Every issue that reaches "code complete" must be formally closed in the same conversation — do not end a session with issues left in `wip/`. If the work spans multiple sessions, the last implementation commit must be followed by the closing commit. Use the `/finish-issue` skill to close issues correctly.
+**Closing is mandatory, not optional.** Every issue that reaches "code complete" must be formally closed in the same conversation. Use `/finish-issue` — it handles task status updates, implementation logging, verification, closure, and merging.
 
-**Guardrail:** Before ending any conversation where you committed `🔧 [ISSUE-XXX] impl:` commits, check whether the issue is still in `wip/`. If it is, close it now — or explicitly tell the user it remains open and why.
+**Guardrail:** Before ending any conversation where you committed `🔧 [ISSUE-{hash}] impl:` commits, check whether the feature branch has been merged. If not, close and merge now — or explicitly tell the user the branch remains open and why.
 
-## Git Conventions
-
-Every issue produces a clean, predictable sequence of commits. This is **mandatory** — no shortcuts, no combining steps that should be separate.
-
-### The commit workflow
-
-Each issue follows exactly this commit sequence:
-
-| Step | Commit message | What it contains | Standalone? |
-|------|---------------|------------------|-------------|
-| 1. Create | `📝 [ISSUE-XXX] created: one-line description` | Issue file in `open/` | Yes — separate commit |
-| 2. Implement | `🔧 [ISSUE-XXX] impl: what was done` | Issue file moved to `wip/` (status → WIP) + all source code changes | Yes — may be multiple commits |
-| 3. Close | `✅ [ISSUE-XXX] closed: summary` | Issue file moved to `closed/` (status → Closed) + docs + version bump | Yes — separate commit |
-
-**Rules:**
-
-- **Step 1 is always a standalone commit.** It contains only the issue file. No code, no other files. This is the "we decided to do this" marker.
-- **Step 2 combines the WIP move with implementation.** The first implementation commit moves the issue file from `open/` to `wip/` and sets `Status: WIP`. This avoids an empty "I started" commit. Stage both the issue file and source code together.
-- **Step 3 is always a standalone commit.** It moves the issue file from `wip/` to `closed/`, sets `Status: Closed`, and includes documentation updates and version bumps. It must **not** contain code changes — all code should already be committed in step 2.
-
-### Multi-commit implementations
-
-When a feature requires multiple implementation commits:
-
-- The **first** commit moves the issue to `wip/` and includes initial code: `🔧 [ISSUE-XXX] impl: description of first chunk`
-- **Subsequent** commits continue the work: `🔧 [ISSUE-XXX] impl: description of next chunk`
-- All implementation commits use `🔧` — no other emojis during implementation.
-
-### Staging rules
-
-- **Step 1 (create) and step 3 (close):** only stage `./project/issues/` (plus `docs/` and version files for step 3). Never `git add .` or `git add -A`.
-- **Step 2 (implement):** stage both `./project/issues/` and the relevant source files. Be explicit — name the files, don't use `git add .`.
-
-### Commit format
+## Commit format (quick reference)
 
 ```
-<emoji> [ISSUE-XXX] <action>: <description>
+📝 [ISSUE-{hash}] created: <description>   ← on main, standalone, issue file only
+🔧 [ISSUE-{hash}] impl: <description>      ← on branch, issue file + source code
+✅ [ISSUE-{hash}] closed: <summary>        ← on branch, standalone, status marker
+🩹 [ISSUE-{hash}] fixup: <correction>      ← on main after merge, trivial corrections
 ```
 
-### Emoji reference
+Full staging rules, multi-commit patterns, and merge commands are in [GIT_CONVENTIONS.md](./GIT_CONVENTIONS.md).
 
-| Emoji | Meaning | Used in step |
-|-------|---------|-------------|
-| 📝 | Issue created | 1 |
-| 🔧 | Implementation work | 2 |
-| ✅ | Issue closed | 3 |
-| 🩹 | Post-close fixup | after 3 |
+## Common rationalizations (things you might try to skip)
 
-Reserve `🐛`, `🚀`, `📚` for **issue labels** inside the issue file (bug, feature, docs) — not for commit messages. This keeps `git log --oneline` clean and scannable:
-
-```
-📝 [ISSUE-042] created: fix login authentication bug
-🔧 [ISSUE-042] impl: add OAuth handler, update routes
-🔧 [ISSUE-042] impl: add refresh token logic
-✅ [ISSUE-042] closed: all tasks complete, docs updated
-🩹 [ISSUE-042] fixup: fix typo in OAuth error message
-```
-
-### Post-close fixups
-
-Sometimes you catch a small mistake after closing an issue — a typo, a missed file, a convention not applied to a related template. Use a **fixup commit** instead of reopening the issue or creating a new one.
-
-```
-🩹 [ISSUE-XXX] fixup: <what was corrected>
-```
-
-**When to use `🩹 fixup`:**
-- The fix is trivial (a few lines, no design decisions)
-- It corrects work done under the same issue (same scope)
-- The issue is already closed
-
-**When to create a new issue instead:**
-- The fix is substantial (new logic, new files, needs testing)
-- It's new scope that wasn't part of the original issue
-- It would take more than a few minutes
-
-**Fixup staging rules:** stage only the files that need correcting — source files, docs, skills, whatever was missed. Do **not** reopen or move the issue file.
-
-## Linking Issues
-
-Always use `[[ISSUE-XXX-title]]` — **never include directory paths**. Links are plain text; they don't auto-update when files move. When moving an issue:
-
-1. Check for references: `grep -r "ISSUE-042" ./project/issues/`
-2. Update relationship context in affected issues (e.g., a "blocked by" that is now closed)
-3. Add a system note comment to any issue whose relationship status changed
-
-Use semantic relationship labels: `Depends on`, `Blocks`, `Implements`, `Related to`, `Parent`, `Duplicate of`.
-
-## Implementation Log
-
-When performing actual development work (code changes, test runs, debugging), **always append a log entry**:
-
-```markdown
-### YYYY-MM-DD HH:MM - LLM Implementation
-**Action**: Implemented OAuth2 login flow
-**Files Modified**:
-- `src/auth/oauth.py` - Created OAuth handler
-- `src/routes/auth.py` - Added login endpoints
-**Commands Run**: `make test`
-**Result**: Success — all tests passing
-**Next**: Implement refresh token logic
-```
-
-Use the Comments section for decisions, blockers, and discussion. Use the Implementation Log for technical work. The distinction matters for audit and review.
-
-## Useful Queries
-
-```bash
-# Status overview
-for dir in open wip closed; do echo "$dir: $(ls ./project/issues/$dir/*.md 2>/dev/null | wc -l)"; done
-
-# High-priority open/wip issues
-grep -rl "Priority.*High" ./project/issues/{open,wip}/
-
-# All WIP subtasks
-grep -r "\[⚒\]" ./project/issues/wip/
-
-# Check incomplete items before closing
-grep -E "\[ \]|\[⚒\]" ./project/issues/wip/ISSUE-042-*.md
-
-# Find references to an issue (before moving it)
-grep -r "ISSUE-042" ./project/issues/
-
-# Recent implementation work
-git log --oneline --grep="🔧" --since="2 days ago"
-```
+| Excuse | Reality |
+|--------|---------|
+| "This is too trivial to need an issue" | Anything beyond a one-line typo needs an issue. The `📝` commit IS the audit trail. |
+| "Tests can come in a follow-up PR" | Tests ship in the same closing commit as the code. No exceptions. |
+| "I'll update docs in a fixup later" | Docs ship in the last `🔧 impl:` before close, not in a `🩹 fixup`. Fixups are for typos, not missing docs. |
+| "The lessons-learned entry is optional" | It's not. Step 9 of `/finish-issue` is mandatory. |
+| "I can work directly on main for this one, it's quick" | No. Parallel-agent conflicts are the exact problem this workflow fixes. |
+| "I'll leave this `wip/` file around, I'll get back to it" | No. Close the issue or explicitly tell the user why it stays open. Invisible WIP debt accumulates silently. |
+| "I can combine the code change and the close commit" | No. `✅ close` is a pure status marker. Code changes go in `🔧 impl:` before it. |
