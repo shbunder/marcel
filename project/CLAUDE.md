@@ -16,7 +16,7 @@ The **how** is as important as the **what**. A working feature that breaks the a
 ## Detailed references (load on demand)
 
 - [FEATURE_WORKFLOW.md](./FEATURE_WORKFLOW.md) — the 8-step procedure (capture, requirements, issue, design, scaffold, tests, implement, ship)
-- [CODING_STANDARDS.md](./CODING_STANDARDS.md) — style, API design, type system, error handling
+- [CODING_STANDARDS.md](./CODING_STANDARDS.md) — Marcel-specific rules ruff/mypy don't cover (API design, type system, coverage policy)
 - [issues/CLAUDE.md](./issues/CLAUDE.md) — issue lifecycle, directory layout, anti-rationalization
 - [issues/TEMPLATE.md](./issues/TEMPLATE.md) — the issue markdown template
 - [issues/GIT_CONVENTIONS.md](./issues/GIT_CONVENTIONS.md) — commit sequence, staging rules, merging, fixups

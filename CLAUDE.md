@@ -1,31 +1,37 @@
 # Marcel — Developer Guide
 
-Marcel is a self-adapting personal agent built on top of Claude Code. It can observe its own behavior, identify gaps, and rewrite the code and configuration that governs how it works — including this very file.
+You are in **developer mode**: modifying Marcel's codebase. (Personal-assistant mode, where Marcel helps a family, is governed by `MARCEL.md` files under `~/.marcel/` and never reaches this file.)
 
-## Two modes, two instruction sets
+Marcel is a self-adapting personal agent built on Claude Code — it can observe itself, identify gaps, and rewrite the code and configuration that governs how it works. A PreToolUse hook ([`.claude/hooks/guard-restricted.py`](.claude/hooks/guard-restricted.py)) enforces the restricted-path rule automatically — you do not need to memorize which paths are off-limits, the hook will tell you and give you the unlock procedure. See [docs/claude-code-setup.md](docs/claude-code-setup.md) for the setup overview.
 
-- **Personal assistant mode** — governed by `MARCEL.md` files under the data root (`~/.marcel/` or `$MARCEL_DATA_DIR`), loaded in order: `<data_root>/MARCEL.md` (global), `<data_root>/users/<slug>/MARCEL.md` (per-user). These are injected by Marcel's own system prompt builder and describe how Marcel should behave as a household assistant.
-- **Developer / self-modification mode** — governed by this file and the files in `project/`. These are read by the Claude Code inner loop when Marcel modifies its own codebase.
+## Commands
 
-You are reading CLAUDE.md, so you are in **developer mode**.
+```bash
+make serve          # dev backend (uvicorn --reload on :7421, separate from prod :7420)
+make check          # format + lint + typecheck + tests with 90% coverage (also runs as pre-commit hook)
+make test           # tests only
+make cli-dev        # build + run the Rust CLI in debug mode
+make docker-logs    # tail the prod container logs
+```
 
-> **Self-modification note:** Auth logic, core config, and safety rules (including these CLAUDE.md files) are off-limits unless the user explicitly grants permission for a specific change. When in doubt, ask before touching them. See [Self-Modification Safety](project/CLAUDE.md#self-modification-safety) in project/CLAUDE.md.
+Dev and prod run on different ports: `make serve` binds `:7421`, the Docker container binds `:7420`. You can run both at once.
+
+## Core principles
+
+- **Lightweight over bloated.** Marcel has no unnecessary dependencies. Every skill and integration must be self-contained and removable.
+- **Generic over specific.** A general extension point beats a hardcoded one-off. Prefer strong primitives.
+- **Human-readable over clever.** Error messages, logs, and responses are read by non-technical family members as often as by developers.
+- **Recoverable over fast.** Before any self-modification, commit current state to git. No change is worth an unrecoverable break.
 
 ## When performing code changes
 
-- Core rules and feature workflow: [project/CLAUDE.md](project/CLAUDE.md) (and the referenced `FEATURE_WORKFLOW.md`, `CODING_STANDARDS.md`).
-- Issue management and git conventions: [project/issues/CLAUDE.md](project/issues/CLAUDE.md) (and the referenced `TEMPLATE.md`, `GIT_CONVENTIONS.md`).
-- Documentation: [docs/CLAUDE.md](docs/CLAUDE.md) — ships in the same change as the code.
+- Feature workflow and core rules: [project/CLAUDE.md](project/CLAUDE.md) (→ [FEATURE_WORKFLOW.md](project/FEATURE_WORKFLOW.md), [CODING_STANDARDS.md](project/CODING_STANDARDS.md))
+- Issue management and git conventions: [project/issues/CLAUDE.md](project/issues/CLAUDE.md) (→ [TEMPLATE.md](project/issues/TEMPLATE.md), [GIT_CONVENTIONS.md](project/issues/GIT_CONVENTIONS.md))
+- Documentation: [docs/CLAUDE.md](docs/CLAUDE.md) — docs ship in the same change as the code
 
-## Core Principles
+## Subagents and skills
 
-- **Lightweight over bloated** — Marcel should have no unnecessary dependencies. Every skill and integration must be self-contained and removable.
-- **Generic over specific** — a general extension point is better than a hardcoded one-off. Prefer strong primitives that let users build things we haven't anticipated.
-- **Human-readable over clever** — error messages, logs, and responses are read by non-technical family members as often as by developers.
-- **Recoverable over fast** — before any self-modification, commit current state to git. No change is worth an unrecoverable break.
+- **Workflow skills** in [.claude/skills/](.claude/skills/): `/new-issue`, `/parallel-issue`, `/finish-issue`.
+- **Subagents** in [.claude/agents/](.claude/agents/): `pre-close-verifier` (invoked automatically by `/finish-issue`), `code-reviewer` (5-axis review with Marcel context), `security-auditor` (scoped to Marcel's real attack surface). Delegate file-heavy investigation to these rather than reading in the main context.
 
-## Skill system overview
-
-Integration skills are documented in `<data_root>/skills/` (`~/.marcel/skills/`) — each skill directory has a `SKILL.md` (full integration docs) and an optional `SETUP.md` (shown when the integration isn't configured). Default skills are bundled in `src/marcel_core/defaults/skills/` and seeded to the data root on first startup. The loader is in `src/marcel_core/skills/loader.py`.
-
-Developer workflow skills (`new-issue`, `finish-issue`) remain in `.claude/skills/` — they are Claude Code skills for this developer session, not Marcel runtime skills.
+Runtime skills (what Marcel can *do* as an assistant — calendar, banking, news, …) live under `~/.marcel/skills/` and are unrelated to developer-mode work. See [docs/skills.md](docs/skills.md) if you need to touch them.
