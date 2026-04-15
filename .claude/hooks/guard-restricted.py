@@ -32,9 +32,10 @@ RESTRICTED: list[tuple[re.Pattern[str], str]] = [
 
 
 def main() -> int:
+    # Fail open on malformed input so a broken hook never blocks all editing.
     try:
         data = json.load(sys.stdin)
-    except Exception:
+    except (json.JSONDecodeError, OSError, ValueError):
         return 0
 
     if data.get('tool_name', '') not in GUARDED_TOOLS:
