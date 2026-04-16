@@ -396,10 +396,9 @@ class TestFallbackChain:
         assert call_log == ['anthropic:claude-sonnet-4-6']
 
     @pytest.mark.asyncio
-    async def test_local_pinned_job_without_opt_out_escalates(self, monkeypatch, patched_side_effects):
-        """Documents the footgun: job.model='local:...' + default allow_fallback_chain=True
-        DOES silently escalate to cloud. Users who pin to local must set
-        allow_fallback_chain=False manually."""
+    async def test_local_pinned_job_auto_disables_chain(self, monkeypatch, patched_side_effects):
+        """ISSUE-b95ac5: local-pinned jobs must never escalate to cloud, even
+        when allow_fallback_chain defaults to True. The executor auto-overrides."""
         scripted_runs, call_log = patched_side_effects
         monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
         monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
@@ -408,14 +407,15 @@ class TestFallbackChain:
         scripted_runs.append(
             JobRun(job_id='x', status=RunStatus.FAILED, error='Overloaded', error_category='server_error')
         )
-        scripted_runs.append(JobRun(job_id='x', status=RunStatus.COMPLETED, output='cloud saved us'))
 
         job = _make_job(model='local:qwen3.5:4b')
+        assert job.allow_fallback_chain is True  # default
         run = await execute_job_with_retries(job)
 
-        assert run.status == RunStatus.COMPLETED
-        # Chain escalated local → cloud. This is the documented footgun.
-        assert call_log == ['local:qwen3.5:4b', 'openai:gpt-4o']
+        assert run.status == RunStatus.FAILED
+        assert run.fallback_used is None
+        # Guard prevented escalation — only the local model was tried
+        assert call_log == ['local:qwen3.5:4b']
 
     @pytest.mark.asyncio
     async def test_local_pinned_job_with_opt_out_stays_local(self, monkeypatch, patched_side_effects):

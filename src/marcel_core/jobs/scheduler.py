@@ -290,35 +290,68 @@ class JobScheduler:
         self._save_state()
 
     async def _tick_loop(self) -> None:
-        """Main scheduler loop.  Runs every ``_TICK_INTERVAL`` seconds."""
-        try:
-            await asyncio.sleep(_STARTUP_DELAY)
-            await self.rebuild_schedule()
+        """Main scheduler loop.  Runs every ``_TICK_INTERVAL`` seconds.
 
-            while True:
-                now = datetime.now(UTC)
+        ISSUE-b95ac5: the loop auto-restarts on unexpected exit (up to 5
+        times with exponential backoff) and emits a periodic heartbeat so
+        silent deaths are detectable in the container logs.
+        """
+        restarts = 0
+        max_restarts = 5
 
-                # Sweep for stuck jobs (running longer than threshold)
-                stuck = [
-                    jid
-                    for jid, since in self._running_since.items()
-                    if (now - since).total_seconds() > _STUCK_THRESHOLD
-                ]
-                for jid in stuck:
-                    log.warning('Clearing stuck job %s (running since %s)', jid, self._running_since[jid].isoformat())
-                    self._running.discard(jid)
-                    self._running_since.pop(jid, None)
+        while restarts <= max_restarts:
+            try:
+                if restarts == 0:
+                    await asyncio.sleep(_STARTUP_DELAY)
+                    await self.rebuild_schedule()
+                else:
+                    backoff = min(30 * (2 ** (restarts - 1)), 300)
+                    log.warning(
+                        'Scheduler tick loop restarting (attempt %d/%d, backoff %ds)', restarts, max_restarts, backoff
+                    )
+                    await asyncio.sleep(backoff)
+                    await self.rebuild_schedule()
 
-                due = [jid for jid, t in self._schedule.items() if t <= now and jid not in self._running]
+                tick_count = 0
+                while True:
+                    now = datetime.now(UTC)
 
-                for job_id in due:
-                    asyncio.create_task(self._dispatch(job_id))
+                    # Sweep for stuck jobs (running longer than threshold)
+                    stuck = [
+                        jid
+                        for jid, since in self._running_since.items()
+                        if (now - since).total_seconds() > _STUCK_THRESHOLD
+                    ]
+                    for jid in stuck:
+                        log.warning(
+                            'Clearing stuck job %s (running since %s)', jid, self._running_since[jid].isoformat()
+                        )
+                        self._running.discard(jid)
+                        self._running_since.pop(jid, None)
 
-                await asyncio.sleep(_TICK_INTERVAL)
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            log.exception('Scheduler tick loop crashed')
+                    due = [jid for jid, t in self._schedule.items() if t <= now and jid not in self._running]
+
+                    for job_id in due:
+                        asyncio.create_task(self._dispatch(job_id))
+
+                    await asyncio.sleep(_TICK_INTERVAL)
+
+                    # Periodic heartbeat every ~30 minutes (60 ticks × 30s)
+                    tick_count += 1
+                    if tick_count % 60 == 0:
+                        log.info(
+                            'Scheduler heartbeat: %d scheduled, %d running',
+                            len(self._schedule),
+                            len(self._running),
+                        )
+
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                restarts += 1
+                log.exception('Scheduler tick loop crashed (restart %d/%d)', restarts, max_restarts)
+
+        log.critical('Scheduler tick loop exhausted %d restart attempts — giving up', max_restarts)
 
     async def _event_loop(self) -> None:
         """Listen for job completion events and trigger dependent jobs."""
