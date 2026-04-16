@@ -7,8 +7,9 @@ A closing commit (`✅ [ISSUE-{hash}] closed: ...`) is a **pure status marker**.
 3. Task checkbox updates (`[ ]` → `[✓]`, `[⚒]` → `[✓]`)
 4. Implementation Log entry with the summary of work
 5. Reflection block from the `pre-close-verifier` subagent
+6. `## Lessons Learned` section filled in (written into the issue file before the commit)
 
-And **nothing else**. No source code. No docs. No version bumps. No lessons-learned. No hotfixes. No whitespace cleanup. Nothing.
+And **nothing else**. No source code. No docs. No version bumps. No hotfixes. No whitespace cleanup. Nothing.
 
 ## If you discover something missing right before close
 

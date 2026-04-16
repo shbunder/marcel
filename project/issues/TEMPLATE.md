@@ -40,6 +40,18 @@ Comment text...
 
 ## Implementation Log
 <!-- Append entries here when performing development work on this issue -->
+
+## Lessons Learned
+<!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->
+
+### What worked well
+-
+
+### What to do differently
+-
+
+### Patterns to reuse
+-
 ```
 
 ## Subtasks

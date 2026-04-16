@@ -92,7 +92,11 @@ Before creating the close commit:
 - If you find missed files, commit them as a final `🔧 [ISSUE-{hash}] impl:` commit before the close.
 - **Docs and version bumps ship in the LAST `🔧 impl:` commit, not in `✅ close`.** The close commit is a pure status marker.
 
-### 8. Close on the feature branch
+### 8. Write Lessons Learned and close on the feature branch
+
+Before committing, fill in the `## Lessons Learned` section in the issue file (still in `wip/` at this point). Be concrete — bullets that surprised you, caused rework, or would save time next issue. Delete subsections that have nothing useful to say rather than leaving placeholder bullets.
+
+Then move and commit:
 
 ```bash
 git mv project/issues/wip/ISSUE-{YYMMDD}-{hash}-{slug}.md project/issues/closed/ISSUE-{YYMMDD}-{hash}-{slug}.md
@@ -100,6 +104,8 @@ git mv project/issues/wip/ISSUE-{YYMMDD}-{hash}-{slug}.md project/issues/closed/
 git add "project/issues/closed/ISSUE-{YYMMDD}-{hash}-{slug}.md"
 git commit -m "✅ [ISSUE-{hash}] closed: <one-line summary of what was completed>"
 ```
+
+The Lessons Learned is part of the close commit — no separate fixup commit needed.
 
 ### 9. Merge back to main
 
@@ -134,41 +140,7 @@ git branch -d "issue/{hash}-{slug}"
 
 `--no-ff` preserves the branch shape in `git log --graph` in both cases.
 
-### 10. Capture lessons learned (with rotation)
-
-`project/lessons-learned.md` is capped at **10 active entries**. Adding a new one means moving the oldest to the archive in the same commit.
-
-1. **Count existing entries:** `grep -c '^## ISSUE-' project/lessons-learned.md`
-2. **Append the new entry** at the top of the entries section (after the `---` that ends the preamble), using the format below
-3. **If the count was already 10**, cut the oldest entry from `project/lessons-learned.md` and paste it at the top of the entries section of `project/lessons-learned-archive.md`. The archive is unbounded.
-
-New entry format:
-
-```markdown
----
-
-## ISSUE-{hash}: Title (YYYY-MM-DD)
-
-### What worked well
-- <patterns worth repeating>
-
-### What to do differently
-- <mistakes or friction encountered>
-
-### Patterns to reuse
-- <code patterns, design decisions worth remembering>
-```
-
-Focus on things that surprised you, caused rework, or would save time next time. Keep each bullet to 1-2 sentences.
-
-Commit on main as a small follow-up. Include both files if you rotated:
-
-```bash
-git add project/lessons-learned.md project/lessons-learned-archive.md
-git commit -m "🩹 [ISSUE-{hash}] fixup: capture lessons learned"
-```
-
-### 11. Report back
+### 10. Report back
 
 Tell the user:
 - Which tasks were marked done vs incomplete
