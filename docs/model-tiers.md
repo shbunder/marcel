@@ -91,20 +91,20 @@ False to hard-pin a job to its primary model with retries only:
 - **Jobs deliberately pinned to a local model** (`model='local:...'`) —
   the chain would otherwise escalate to cloud, defeating the purpose
 
-### ⚠ Warning — local-pinned jobs and the silent-escalation footgun
+### Local-pinned jobs — automatic guard (ISSUE-b95ac5)
 
-A job with `model='local:qwen3.5:4b'` and the default
-`allow_fallback_chain=True` **will silently escalate to
-`MARCEL_BACKUP_MODEL` if the local run fails**. This is by design — the
-chain doesn't know whether your local pin is a deliberate choice or just
-what you happened to have configured — but it means:
+Since ISSUE-b95ac5, the executor **automatically forces
+`allow_fallback_chain=False`** when `job.model` starts with `local:`.
+This prevents a local-pinned job from silently escalating to cloud tiers
+if the local run fails. The override is logged as a warning.
 
-> **Always set `allow_fallback_chain=False` when pinning a job to a local
-> model.** Otherwise, an outage on the local Ollama server sends your
-> cost-sensitive job to the cloud, which is probably not what you want.
+You can still set `allow_fallback_chain=False` explicitly in your JOB.md
+for clarity, but it is no longer required — the guard catches it either
+way.
 
 A similar concern applies to jobs pinned to a cheap cloud model like
-`anthropic:claude-haiku-4-5-20251001`. If budget matters, opt out.
+`anthropic:claude-haiku-4-5-20251001`. If budget matters, opt out
+manually — the automatic guard only applies to `local:` models.
 
 ### `allow_local_fallback` — legacy ISSUE-070 flag
 
@@ -125,12 +125,13 @@ Still works. Gates the **local** tier 3 for jobs in complete mode:
 | `anthropic:claude-sonnet-4-6`   | True                   | True                   | sonnet → `MARCEL_BACKUP_MODEL` → `MARCEL_FALLBACK_MODEL` (complete)        |
 | `anthropic:claude-haiku-...`    | True (default)         | False                  | haiku → `MARCEL_BACKUP_MODEL` → *(local skipped)* — **cost surprise!**     |
 | `anthropic:claude-haiku-...`    | False                  | False                  | haiku only, with retries. **Recommended for cheap cron jobs.**             |
-| `local:qwen3.5:4b`              | True (default)         | False                  | local → `MARCEL_BACKUP_MODEL` → *(local skipped)* — **silent cloud escalation!** |
-| `local:qwen3.5:4b`              | **False**              | False                  | local only, with retries. **REQUIRED for deliberate local pins.**          |
+| `local:qwen3.5:4b`              | True (default)         | False                  | local only, with retries. *(auto-forced by ISSUE-b95ac5 guard)*            |
+| `local:qwen3.5:4b`              | False                  | False                  | local only, with retries. *(same — explicit opt-out, guard is redundant)*  |
 | any                             | False                  | True                   | pinned model with retries, then legacy local-fallback (ISSUE-070)          |
 
-The two bold warning rows are the cases where you must remember to flip
-`allow_fallback_chain=False`.
+The haiku row is the remaining case where you should flip
+`allow_fallback_chain=False` if cost matters — the automatic guard only
+covers `local:` models.
 
 ### What `fallback_used` reports
 

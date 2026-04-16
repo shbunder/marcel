@@ -1,6 +1,6 @@
 # ISSUE-b95ac5: Local-pinned jobs silently escalate to cloud via fallback chain
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-16
 **Assignee:** Unassigned
 **Priority:** High
@@ -26,10 +26,10 @@ Investigation revealed three issues:
 3. **Code-level footgun:** `execute_job_with_retries` checks `job.allow_fallback_chain` to decide between `_execute_chain` (with cloud tiers) and `_execute_pinned_with_legacy_fallback` (pinned). When a job uses `model: local:<tag>` but `allow_fallback_chain` defaults to `true`, the chain silently includes cloud backup tiers — defeating the purpose of pinning to local. The `JobDefinition.allow_fallback_chain` docstring warns about this, but the guard should be automatic.
 
 ## Tasks
-- [ ] ISSUE-b95ac5-a: In `execute_job_with_retries`, auto-force `allow_fallback_chain=False` when `job.model.startswith('local:')` with a log warning
-- [ ] ISSUE-b95ac5-b: Add regression test verifying local-pinned jobs never escalate to cloud tiers
-- [ ] ISSUE-b95ac5-c: Add periodic heartbeat logging to the scheduler tick loop so silent deaths are detectable
-- [ ] ISSUE-b95ac5-d: Add a catch-all guard in `_tick_loop` that restarts the loop on unexpected exit (with backoff)
+- [✓] ISSUE-b95ac5-a: In `execute_job_with_retries`, auto-force `allow_fallback_chain=False` when `job.model.startswith('local:')` with a log warning
+- [✓] ISSUE-b95ac5-b: Add regression test verifying local-pinned jobs never escalate to cloud tiers
+- [✓] ISSUE-b95ac5-c: Add periodic heartbeat logging to the scheduler tick loop so silent deaths are detectable
+- [✓] ISSUE-b95ac5-d: Add a catch-all guard in `_tick_loop` that restarts the loop on unexpected exit (with backoff)
 
 ## Relationships
 - Related to: ISSUE-076 (four-tier model fallback chain)
@@ -38,4 +38,19 @@ Investigation revealed three issues:
 ## Comments
 
 ## Implementation Log
-<!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-16 — LLM Implementation
+**Action**: Fixed local-model chain escalation and hardened scheduler tick loop
+**Files Modified**:
+- `src/marcel_core/jobs/executor.py` — Added guard in `execute_job_with_retries`: when `job.model.startswith('local:')`, force `use_chain=False` with a warning log, preventing cloud escalation regardless of `allow_fallback_chain` setting
+- `src/marcel_core/jobs/scheduler.py` — Hardened `_tick_loop` with auto-restart on crash (up to 5 attempts with exponential backoff) and periodic heartbeat logging every ~30 minutes
+- `tests/jobs/test_executor.py` — Updated `test_local_pinned_job_without_opt_out_escalates` → `test_local_pinned_job_auto_disables_chain`: now verifies the guard prevents cloud escalation even with default `allow_fallback_chain=True`
+**Commands Run**: `make check`
+**Result**: Success — 1357 tests passing, 92% coverage
+
+**Reflection** (via pre-close-verifier):
+- Verdict: REQUEST CHANGES → addressed
+- Coverage: 4/4 requirements addressed
+- Shortcuts found: none
+- Scope drift: none
+- Stragglers: 1 found — `project/lessons-learned.md` line 179 referenced old footgun behavior and renamed test; updated in final impl commit

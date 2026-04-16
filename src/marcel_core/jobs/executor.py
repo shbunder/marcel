@@ -440,7 +440,22 @@ async def execute_job_with_retries(
 
     slug = _resolve_run_user(job, user_slug)
 
-    if job.allow_fallback_chain:
+    # ISSUE-b95ac5: local-pinned jobs must never escalate to cloud tiers.
+    # The chain would silently add MARCEL_BACKUP_MODEL as tier 2, defeating
+    # the purpose of pinning to a local model.  Force the pinned path.
+    use_chain = job.allow_fallback_chain
+    if use_chain and job.model.startswith('local:'):
+        log.warning(
+            '%s-job: job %s (%s) is pinned to local model %s — '
+            'overriding allow_fallback_chain=True to prevent cloud escalation',
+            slug,
+            job.id,
+            job.name,
+            job.model,
+        )
+        use_chain = False
+
+    if use_chain:
         run = await _execute_chain(job, trigger_reason, user_slug=slug)
     else:
         run = await _execute_pinned_with_legacy_fallback(job, trigger_reason, user_slug=slug)

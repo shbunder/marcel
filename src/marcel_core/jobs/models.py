@@ -136,9 +136,10 @@ class JobDefinition(BaseModel):
     # - deterministic jobs whose output must come from one specific model
     # - jobs deliberately pinned to a cheap model where escalation would
     #   blow up cost (e.g. a 5-minute cron job pinned to Haiku)
-    # - jobs deliberately pinned to a local model (`local:<tag>`) — the
-    #   chain would silently escalate to cloud and defeat the purpose.
-    #   ALWAYS set this to False when also pinning to a local model.
+    #
+    # Note: jobs with ``model='local:<tag>'`` automatically have the chain
+    # disabled at execution time (ISSUE-b95ac5) — you no longer need to
+    # set this to False manually for local models.
     #
     # See docs/model-tiers.md for the full behaviour matrix.
     allow_fallback_chain: bool = True
