@@ -1,6 +1,6 @@
 # ISSUE-b95ac5: Local-pinned jobs silently escalate to cloud via fallback chain
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-16
 **Assignee:** Unassigned
 **Priority:** High
@@ -47,3 +47,10 @@ Investigation revealed three issues:
 - `tests/jobs/test_executor.py` — Updated `test_local_pinned_job_without_opt_out_escalates` → `test_local_pinned_job_auto_disables_chain`: now verifies the guard prevents cloud escalation even with default `allow_fallback_chain=True`
 **Commands Run**: `make check`
 **Result**: Success — 1357 tests passing, 92% coverage
+
+**Reflection** (via pre-close-verifier):
+- Verdict: REQUEST CHANGES → addressed
+- Coverage: 4/4 requirements addressed
+- Shortcuts found: none
+- Scope drift: none
+- Stragglers: 1 found — `project/lessons-learned.md` line 179 referenced old footgun behavior and renamed test; updated in final impl commit
