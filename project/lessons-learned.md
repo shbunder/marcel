@@ -1,12 +1,14 @@
-# Lessons Learned (active)
+# Lessons Learned — DEPRECATED
 
-Captured after completed issues. Grep here and in [lessons-learned-archive.md](./lessons-learned-archive.md) at the start of new feature work to avoid repeating past mistakes and reuse proven patterns.
+> **This file is no longer maintained.** All 30 entries have been migrated to their
+> respective closed issue files as `## Lessons Learned` sections (ISSUE-a7085c).
+>
+> To search lessons: `python scripts/query_lessons.py <keyword>`
+>
+> New lessons are written directly into each issue file at close time — no global file,
+> no rotation, no archive dance.
 
-## Maintenance rule
-
-Keep at most **10 active entries** in this file. When `/finish-issue` appends a new one, move the oldest to [lessons-learned-archive.md](./lessons-learned-archive.md) in the same commit. Do not let this file accumulate — always-loaded lessons compete for context window with the code being reviewed.
-
-The archive is read on demand via `grep`, never loaded in full. See [project/FEATURE_WORKFLOW.md](./FEATURE_WORKFLOW.md) Step 1 for the grep pattern.
+The content below is preserved as historical record only.
 
 ---
 

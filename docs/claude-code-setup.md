@@ -141,12 +141,15 @@ Fields (all optional — omitted when empty):
 
 ## Lessons learned
 
-[project/lessons-learned.md](../project/lessons-learned.md) is capped at 10 active entries. When `/finish-issue` appends a new one, it rotates the oldest into [project/lessons-learned-archive.md](../project/lessons-learned-archive.md). The active file is always loaded; the archive is grepped on demand. This keeps the always-loaded context bounded as Marcel accumulates institutional memory.
+Each closed issue file contains a `## Lessons Learned` section written at close time (part of the `✅ close` commit). There is no global rotation file — lessons live with the issue that generated them and are searched on demand.
 
-The grep pattern used in `FEATURE_WORKFLOW.md` Step 1:
+Use `scripts/query_lessons.py` to search across all closed issues at the start of new work:
 
 ```bash
-grep -n -i -B 1 -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-archive.md
+# 1–3 keywords from the resolved intent
+python scripts/query_lessons.py scheduler timeout
+python scripts/query_lessons.py auth webhook --top 5
+python scripts/query_lessons.py git staging --since 260101
 ```
 
-Use 1–3 keywords from the resolved intent. Reading either file in full is wasteful.
+Matches are scored by keyword hit count and sorted by date (most recent first).
