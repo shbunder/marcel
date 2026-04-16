@@ -9,6 +9,8 @@ from marcel_core.skills.loader import (
     _parse_frontmatter,
     _strip_argument_template,
     format_skills_for_prompt,
+    get_skill_resource,
+    list_skill_resources,
     load_skills,
 )
 
@@ -319,6 +321,138 @@ class TestLoadSkillDirEdgeCases:
         )
         # Just verify _check_requirements handles the error gracefully
         assert _check_requirements({'files': ['missing.pem']}, 'user') is False or True  # covered by the patch
+
+
+class TestGetSkillResource:
+    def test_returns_resource_by_exact_filename(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+
+        skills_dir = tmp_path / 'skills'
+        skills_dir.mkdir(parents=True)
+        skill_dir = skills_dir / 'news'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text('---\nname: news\n---\n\nNews skill.')
+        (skill_dir / 'feeds.yaml').write_text('feeds:\n  - url: https://example.com/feed.xml\n')
+
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
+
+        content = get_skill_resource('news', 'feeds.yaml')
+        assert content is not None
+        assert 'feeds' in content
+
+    def test_returns_resource_by_stem(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+
+        skills_dir = tmp_path / 'skills'
+        skills_dir.mkdir(parents=True)
+        skill_dir = skills_dir / 'news'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text('---\nname: news\n---\n\nNews skill.')
+        (skill_dir / 'feeds.yaml').write_text('feeds: []')
+
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
+
+        # stem-only match: "feeds" → "feeds.yaml"
+        content = get_skill_resource('news', 'feeds')
+        assert content is not None
+        assert 'feeds' in content
+
+    def test_returns_none_for_unknown_skill(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+
+        skills_dir = tmp_path / 'skills'
+        skills_dir.mkdir(parents=True)
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
+
+        assert get_skill_resource('nonexistent', 'feeds') is None
+
+    def test_returns_none_for_missing_resource(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+
+        skills_dir = tmp_path / 'skills'
+        skills_dir.mkdir(parents=True)
+        skill_dir = skills_dir / 'news'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text('---\nname: news\n---\n\nNews skill.')
+
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
+
+        assert get_skill_resource('news', 'feeds') is None
+
+    def test_skill_md_not_exposed_as_resource(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+
+        skills_dir = tmp_path / 'skills'
+        skills_dir.mkdir(parents=True)
+        skill_dir = skills_dir / 'news'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text('---\nname: news\n---\n\nNews skill.')
+
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
+
+        # SKILL.md must not be returned as a resource
+        assert get_skill_resource('news', 'SKILL.md') is None
+        assert get_skill_resource('news', 'SKILL') is None
+
+    def test_case_insensitive_match(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+
+        skills_dir = tmp_path / 'skills'
+        skills_dir.mkdir(parents=True)
+        skill_dir = skills_dir / 'banking'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text('---\nname: banking\n---\n\nBanking.')
+        (skill_dir / 'SETUP.md').write_text('## Setup\n\nSetup guide.')
+
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
+
+        # "setup" (lowercase) should match "SETUP.md"
+        content = get_skill_resource('banking', 'setup')
+        assert content is not None
+        assert 'Setup' in content
+
+
+class TestListSkillResources:
+    def test_lists_resource_files(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+
+        skills_dir = tmp_path / 'skills'
+        skills_dir.mkdir(parents=True)
+        skill_dir = skills_dir / 'news'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text('---\nname: news\n---\n\nNews skill.')
+        (skill_dir / 'SETUP.md').write_text('Setup guide.')
+        (skill_dir / 'feeds.yaml').write_text('feeds: []')
+
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
+
+        resources = list_skill_resources('news')
+        assert 'SETUP.md' in resources
+        assert 'feeds.yaml' in resources
+        # SKILL.md must not appear
+        assert 'SKILL.md' not in resources
+
+    def test_empty_for_unknown_skill(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+
+        skills_dir = tmp_path / 'skills'
+        skills_dir.mkdir(parents=True)
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
+
+        assert list_skill_resources('ghost') == []
+
+    def test_empty_for_skill_with_no_extra_files(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+
+        skills_dir = tmp_path / 'skills'
+        skills_dir.mkdir(parents=True)
+        skill_dir = skills_dir / 'simple'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text('---\nname: simple\n---\n\nSimple.')
+
+        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
+
+        assert list_skill_resources('simple') == []
 
 
 class TestLoadSkillsEdgeCases:

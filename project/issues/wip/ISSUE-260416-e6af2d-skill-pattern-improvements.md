@@ -1,6 +1,6 @@
 # ISSUE-e6af2d: Skill Pattern Improvements (pydantic-ai-skills Lessons)
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-16
 **Assignee:** Unassigned
 **Priority:** Medium

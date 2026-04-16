@@ -224,8 +224,9 @@ The `marcel` tool provides internal utilities via action-based dispatch.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `action` | string | yes | One of: `read_skill`, `search_memory`, `search_conversations`, `compact`, `notify` |
-| `name` | string | for `read_skill` | Skill name to load full documentation for |
+| `action` | string | yes | One of: `read_skill`, `read_skill_resource`, `search_memory`, `search_conversations`, `compact`, `notify` |
+| `name` | string | for `read_skill`, `read_skill_resource` | Skill name |
+| `resource` | string | for `read_skill_resource` | Resource filename or stem to load (e.g. `"feeds"`, `"SETUP.md"`) |
 | `query` | string | for `search_*` | Search query — matches filenames, frontmatter fields, and body content |
 | `message` | string | for `notify` | Short plain-text progress update |
 | `type_filter` | string | no | Filter by memory type (for `search_memory`) |
@@ -234,6 +235,20 @@ The `marcel` tool provides internal utilities via action-based dispatch.
 ### read_skill
 
 Loads the full SKILL.md documentation for a skill. The system prompt only contains a compact index (name + description per skill); use this action to get full docs before calling an unfamiliar integration.
+
+The response includes an **Available resources** footer listing any extra files in the skill directory (e.g. `SETUP.md`, `feeds.yaml`, `components.yaml`).
+
+### read_skill_resource
+
+Loads a named resource file from a skill's directory. Resources are any files other than `SKILL.md` — typically `SETUP.md`, `feeds.yaml`, `components.yaml`, or other configuration files.
+
+Matching is case-insensitive and accepts both a bare stem (`"feeds"`) and a full filename (`"feeds.yaml"`).
+
+```
+marcel(action="read_skill_resource", name="news", resource="feeds")
+```
+
+Use `read_skill` first to discover what resources a skill exposes.
 
 ### search_memory
 

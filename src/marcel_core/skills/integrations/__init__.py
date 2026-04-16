@@ -22,6 +22,7 @@ from __future__ import annotations
 import importlib
 import logging
 import pkgutil
+import re
 from collections.abc import Awaitable, Callable
 
 log = logging.getLogger(__name__)
@@ -32,13 +33,29 @@ IntegrationHandler = Callable[[dict, str], Awaitable[str]]
 # Global registry: skill_name -> handler function
 _registry: dict[str, IntegrationHandler] = {}
 
+# Skill names must follow the ``family.action`` convention: two dot-separated
+# segments, each containing only lowercase letters, digits, and underscores.
+# Matches the same pattern enforced in registry.py.
+_SKILL_NAME_PATTERN: re.Pattern[str] = re.compile(r'^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$')
+
 
 def register(skill_name: str) -> Callable[[IntegrationHandler], IntegrationHandler]:
     """Decorator that registers an async handler under *skill_name*.
 
-    Raises ``ValueError`` if the name is already registered (prevents
-    silent overwrites from duplicate imports).
+    Raises ``ValueError`` if:
+    - the name is already registered (prevents silent overwrites from duplicate imports).
+    - the name does not match the ``family.action`` convention.
+
+    Valid names are two dot-separated lowercase segments, e.g. ``"icloud.calendar"``.
+    Each segment may contain letters, digits, and underscores.
     """
+    if not _SKILL_NAME_PATTERN.match(skill_name):
+        raise ValueError(
+            f"Invalid skill name '{skill_name}'. "
+            "Skill names must follow the 'family.action' convention: two dot-separated "
+            'segments using only lowercase letters, digits, and underscores '
+            "(e.g. 'icloud.calendar', 'banking.balance')."
+        )
 
     def decorator(fn: IntegrationHandler) -> IntegrationHandler:
         if skill_name in _registry:
