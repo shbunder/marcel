@@ -312,6 +312,103 @@ def get_skill_content(skill_name: str, user_slug: str) -> str | None:
     return None
 
 
+# File extensions that are exposed as named skill resources.
+_RESOURCE_EXTENSIONS = frozenset({'.md', '.yaml', '.yml', '.json', '.txt', '.csv'})
+# SKILL.md is the primary doc — not surfaced as a resource (use read_skill instead).
+_SKILL_MD_NAME = 'SKILL.md'
+
+
+def _find_skill_dir(skill_name: str) -> Path | None:
+    """Locate the directory for *skill_name* under the data root skills path.
+
+    Checks each skill dir's ``SKILL.md`` frontmatter ``name`` field, falling
+    back to the directory name.  Returns ``None`` if not found.
+    """
+    skills_path = _skills_dir()
+    if not skills_path.is_dir():
+        return None
+
+    for entry in skills_path.iterdir():
+        if not entry.is_dir() or entry.name.startswith(('_', '.')):
+            continue
+        skill_md = entry / _SKILL_MD_NAME
+        if skill_md.exists():
+            try:
+                text = skill_md.read_text(encoding='utf-8')
+                fm, _ = _parse_frontmatter(text)
+                resolved_name = fm.get('name', entry.name)
+            except Exception:
+                resolved_name = entry.name
+        else:
+            resolved_name = entry.name
+
+        if resolved_name == skill_name:
+            return entry
+
+    return None
+
+
+def list_skill_resources(skill_name: str) -> list[str]:
+    """Return the names of resource files available in *skill_name*'s directory.
+
+    Resources are every file in the skill directory other than ``SKILL.md``
+    whose extension is in :data:`_RESOURCE_EXTENSIONS`.  Names are returned
+    as bare filenames (e.g. ``"SETUP.md"``, ``"feeds.yaml"``).
+
+    Returns an empty list if the skill is not found or has no resources.
+    """
+    skill_dir = _find_skill_dir(skill_name)
+    if skill_dir is None:
+        return []
+
+    resources: list[str] = []
+    for f in sorted(skill_dir.iterdir()):
+        if f.is_file() and f.name != _SKILL_MD_NAME and f.suffix.lower() in _RESOURCE_EXTENSIONS:
+            resources.append(f.name)
+    return resources
+
+
+def get_skill_resource(skill_name: str, resource_name: str) -> str | None:
+    """Return the content of a named resource file within *skill_name*'s directory.
+
+    Resources are any files in the skill directory other than ``SKILL.md``
+    with a recognised extension (Markdown, YAML, JSON, CSV, plain text).
+
+    Matching is case-insensitive and tries both:
+    - exact filename (e.g. ``"SETUP.md"``, ``"feeds.yaml"``)
+    - stem only (e.g. ``"setup"`` → ``"SETUP.md"``, ``"feeds"`` → ``"feeds.yaml"``)
+
+    Args:
+        skill_name:   Skill name as declared in SKILL.md frontmatter.
+        resource_name: Filename or stem to load.
+
+    Returns:
+        File content as a string, or ``None`` if not found.
+    """
+    skill_dir = _find_skill_dir(skill_name)
+    if skill_dir is None:
+        return None
+
+    needle = resource_name.lower()
+    candidates: list[Path] = [
+        f
+        for f in skill_dir.iterdir()
+        if f.is_file() and f.name != _SKILL_MD_NAME and f.suffix.lower() in _RESOURCE_EXTENSIONS
+    ]
+
+    # 1. Exact filename match (case-insensitive)
+    for candidate in candidates:
+        if candidate.name.lower() == needle:
+            return candidate.read_text(encoding='utf-8')
+
+    # 2. Stem-only match (e.g. "feeds" matches "feeds.yaml")
+    for candidate in candidates:
+        if candidate.stem.lower() == needle:
+            return candidate.read_text(encoding='utf-8')
+
+    return None
+
+
 def format_components_catalog(skills: list[SkillDoc]) -> str:
     """Format the A2UI component catalog for injection into the system prompt.
 
