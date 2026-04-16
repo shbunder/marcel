@@ -10,6 +10,23 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
+## ISSUE-d2a2ce: Setup/teardown scripts and systemd unit templates (2026-04-16)
+
+### What worked well
+- **Prerequisite-accumulator pattern.** `PREREQ_OK=true` at the top, each failing check sets it to `false`, single `die` at the end. Users see every missing prereq in one pass instead of fix-one-rerun-discover-another.
+- **Single script with `--force` over a wrapper script.** `redeploy.sh --force` covers both "already running, just rebuild" and "cold first deploy" without a second script. The `--force` flag makes the unsafe-in-general case deliberately explicit.
+- **OS detection via `uname -s` as the first guard.** Both `setup.sh` and `teardown.sh` exit 0 with a friendly alternatives message on non-Linux. No cryptic `systemctl: command not found` errors on macOS.
+
+### What to do differently
+- **Closed issues can lie.** ISSUE-027 was marked all-[✓] but `deploy/`, `scripts/setup.sh`, and `scripts/teardown.sh` never existed. The Makefile silently pointed at nothing for weeks. At close time: check that every file the Makefile (or any caller) references actually exists on disk — not just that it was listed in the implementation plan.
+- **`scripts/` was in `.gitignore` the whole time** (also caught in ISSUE-caf8de). The gitignore line was wrong from day one; removing it was the right fix. When `git add` fails with "ignored", run `git check-ignore -v <path>` immediately rather than using `-f`.
+
+### Patterns to reuse
+- **`@@PLACEHOLDER@@` template pattern for text-based config files.** `sed -e "s|@@VAR@@|$value|g"` is sufficient for systemd unit templates where variables are plain paths. No templating engine needed; the double-at delimiter is unlikely to collide with real content.
+- **Prerequisite checks that summarise, not bail.** Accumulate all failures before calling `die`. Apply this to any setup script that has more than one independent prereq — the "fix everything, then rerun" UX is strictly better than "fix one thing, rerun, discover the next."
+
+---
+
 ## ISSUE-b95ac5: Local-pinned jobs silently escalate to cloud (2026-04-16)
 
 ### What worked well
@@ -202,22 +219,6 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 ---
 
 
-## ISSUE-074: Subagent Delegation Tool (2026-04-13)
-
-### What worked well
-- **Feasibility investigation before the issue file.** Spawning two parallel Explore agents — one against the Marcel repo, one against `~/repos/clawcode` — before writing a single line of code produced a side-by-side architectural mapping that made the issue task list concrete and the scope decisions obvious. The "3 days / 22 tasks" estimate held almost exactly because the unknowns had been flushed out at feasibility time, not during implementation.
-- **Mid-impl scope refinement logged as a first-class decision.** Cutting the `execute_job` reuse plan once it became clear it was fighting the persistence layer — and logging the cut in the issue's Implementation Log *before* writing the replacement code — kept the plan and the diff coherent. Future readers see why the delegate tool builds a fresh `Agent` directly instead of going through the job executor.
-- **Single source of truth for tool registration.** Replacing the hand-written `agent.tool(core_tools.bash); agent.tool(core_tools.read_file); ...` sequence with a `_TOOL_REGISTRY: list[tuple[name, fn, required_role]]` and a single registration loop gave the feature a clean extension point (`tool_filter: set[str] | None`) without a conditional forest. Also surfaced the role-gate-beats-allowlist invariant as a single `if` in the loop.
-
-### What to do differently
-- **Don't write test assertions against `agent is not None` when you can introspect.** My first pass at `TestToolFilter` asserted only `assert agent is not None`, mirroring the existing style in `test_agent.py`. Running a quick one-liner against pydantic-ai's internals revealed `agent._function_toolset.tools: dict[str, Tool]` — after that, the tool_filter tests could verify exact registered sets. The stronger assertions would have caught a bug where the role gate ran *after* the allowlist instead of before. **Lesson:** when writing tests for a "filter" behavior, always find the shape of the output first; weak assertions on filter tests give false confidence.
-- **The issue task list inflated the scope in advance.** 22 tasks was honest but overwhelming — including v1 + deferred items side by side made the "done" state feel further away than it was. Next time, use two sibling lists or a distinct `[~]` deferred state in the initial issue so the in-scope work is visually smaller than the aspirational work. ISSUE-068's `[~]` pattern was the right call and I should have reached for it from the start.
-
-### Patterns to reuse
-- **`_TOOL_REGISTRY` pattern for pluggable tool pools.** When a factory function wires up a fixed set of capabilities to a framework object (pydantic-ai Agent, FastAPI app, etc.), lift the list into a `list[tuple[name, obj, role_or_gate]]` at module scope and register in a single loop. Filtering, role gating, and introspection for tests all fall out for free, and adding a new tool is a one-line append instead of an edit to the factory body.
-- **Recursion guard as a default-off pool entry.** The `delegate` tool is in the admin-role pool but gets stripped from subagent pools unless the subagent's frontmatter explicitly lists it. Encoding "opt-in for recursion" in the frontmatter (rather than a separate `allow_recursion: true` flag) means there's one mental model — the `tools` allowlist — not two. Reuse this shape whenever a capability is dangerous-by-default but legitimately useful in narrow cases.
-- **Fresh-deps construction via `dataclasses.replace` + explicit `TurnState()`.** When a tool needs to spawn a child context that inherits identity (user, role, channel) but not per-turn state (notified flag, counters), `dataclasses.replace(ctx.deps, turn=TurnState(), ...)` is the clean idiom. Copies the immutable fields, zeros the mutable state, no hand-written field list, and it's obvious in the diff what's being carried forward vs reset.
-- **Agent markdown with YAML frontmatter as a plugin format.** The same format used for skills (`SKILL.md`) works unchanged for agents (`<name>.md`) — both are "human-editable config that lives at the data root and seeds from defaults". Adopt markdown-with-frontmatter as the default plugin format in this codebase; anything that needs per-entry config with a free-form body slots in naturally and users can edit it by hand.
 
 ---
 
