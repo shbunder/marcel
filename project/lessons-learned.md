@@ -10,6 +10,21 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 
 ---
 
+## ISSUE-b95ac5: Local-pinned jobs silently escalate to cloud (2026-04-16)
+
+### What worked well
+- **Container log investigation revealed the real problem.** The user reported gpt-4.1 runs despite `allow_fallback_chain=false`. Checking docker logs showed the scheduler tick loop had silently died after April 15 — the config edit was never tested. Without the log investigation, we'd have chased a phantom code bug.
+- **Pre-close-verifier caught a straggler in lessons-learned.md.** The old entry described the footgun as "documented" rather than "eliminated" and referenced a renamed test. A single-file fix before close.
+
+### What to do differently
+- **Silent task loop death is the worst failure mode for a home-server assistant.** The tick loop crashed without logging — the `except Exception` handler never fired, suggesting a `CancelledError` or an event-loop edge case. The restart-with-backoff wrapper is a band-aid; a proper fix would be a health-check endpoint that verifies the scheduler task is alive, not just that the container is healthy.
+
+### Patterns to reuse
+- **Runtime footgun guards > documentation warnings.** The docstring said "ALWAYS set allow_fallback_chain=False for local models" — nobody reads docstrings at 2 AM when configuring a cron job. A 6-line guard in the executor that auto-detects `local:` models and overrides the flag is cheaper and more reliable than any amount of documentation. Apply this pattern whenever a dangerous default can be detected from context at call time.
+- **Scheduler heartbeat logging.** A `log.info` every 60 ticks (~30 minutes) with schedule/running counts is near-zero overhead but makes silent deaths visible in `docker logs`. Add heartbeats to any long-running async loop.
+
+---
+
 ## ISSUE-1897a3: Adopt three rationalization/discipline patterns from agent-skills (2026-04-15)
 
 ### What worked well
@@ -203,29 +218,6 @@ The archive is read on demand via `grep`, never loaded in full. See [project/FEA
 - **Recursion guard as a default-off pool entry.** The `delegate` tool is in the admin-role pool but gets stripped from subagent pools unless the subagent's frontmatter explicitly lists it. Encoding "opt-in for recursion" in the frontmatter (rather than a separate `allow_recursion: true` flag) means there's one mental model — the `tools` allowlist — not two. Reuse this shape whenever a capability is dangerous-by-default but legitimately useful in narrow cases.
 - **Fresh-deps construction via `dataclasses.replace` + explicit `TurnState()`.** When a tool needs to spawn a child context that inherits identity (user, role, channel) but not per-turn state (notified flag, counters), `dataclasses.replace(ctx.deps, turn=TurnState(), ...)` is the clean idiom. Copies the immutable fields, zeros the mutable state, no hand-written field list, and it's obvious in the diff what's being carried forward vs reset.
 - **Agent markdown with YAML frontmatter as a plugin format.** The same format used for skills (`SKILL.md`) works unchanged for agents (`<name>.md`) — both are "human-editable config that lives at the data root and seeds from defaults". Adopt markdown-with-frontmatter as the default plugin format in this codebase; anything that needs per-entry config with a free-form body slots in naturally and users can edit it by hand.
-
----
-
----
-
----
-
----
-
-
-## ISSUE-073: Simplify model routing via pydantic-ai native `provider:model` strings (2026-04-13)
-
-### What worked well
-- Deleting code beats maintaining it: `_resolve_model_string` + `_BEDROCK_MODEL_MAP` + dual `ANTHROPIC_MODELS` / `OPENAI_MODELS` registries (~60 loc) collapsed to one `KNOWN_MODELS` dict used only for display labels.
-- **Self-healing settings migration** in `_load_settings`: detect unqualified legacy values (`no ':' in model`), prepend `anthropic:`, rewrite the file transparently. No migration script, no version flag, no cutover window.
-- Shape-only validation (`':' in value`) turns "add a new model" from a code change into a zero-touch config change — any pydantic-ai-supported `provider:model` works immediately.
-
-### What to do differently
-- Memory agents (`selector.py`, `extract.py`, `summarizer.py`) were passing **unqualified** model names directly to `Agent()` for months — they only worked because pydantic-ai tolerated the legacy short form. If we'd had a test that instantiated them against a known-strict pydantic-ai version, we'd have caught this earlier. Lesson: mock-free integration-shape tests on model string validity are cheap and catch silent drift.
-
-### Patterns to reuse
-- **Trust the framework**: before writing an abstraction layer on top of a library, check whether the library already does what you need. Pydantic-ai's `provider:model` dispatch predated the routing layer we built; we just hadn't used it.
-- **Shape validation > whitelist validation** when the whitelist is the thing preventing extensibility. Save the registry for UX, use shape-only checks at the enforcement boundary.
 
 ---
 
