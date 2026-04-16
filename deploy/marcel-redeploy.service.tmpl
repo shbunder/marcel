@@ -1,0 +1,10 @@
+[Unit]
+Description=Rebuild and restart Marcel after self-modification
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=@@REPO_ROOT@@
+ExecStart=@@REPO_ROOT@@/scripts/redeploy.sh --force
+StandardOutput=journal
+StandardError=journal

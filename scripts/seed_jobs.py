@@ -1,4 +1,5 @@
-"""Seed initial jobs for a user.
+"""
+Seed initial jobs for a user.
 
 Usage:
     uv run python scripts/seed_jobs.py [user_slug]
@@ -92,7 +93,7 @@ def seed(user_slug: str) -> None:
         save_job(job)
         created.append(f'  News sync: {job.id}')
     else:
-        print(f'  News sync already exists')
+        print('  News sync already exists')
 
     # ── 3. Morning digest (news + calendar, daily at 7:00) ───────────────
     if not _has_job(user_slug, 'Good morning'):
@@ -102,25 +103,22 @@ def seed(user_slug: str) -> None:
             users=[user_slug],
             trigger=TriggerSpec(type=TriggerType.CRON, cron='0 7 * * *'),
             system_prompt=(
-                'You are Marcel\'s morning digest composer. Compose a warm, concise '
+                "You are Marcel's morning digest composer. Compose a warm, concise "
                 '"good morning" message for the user.\n\n'
                 'Steps:\n'
-                '1. Call icloud.calendar with days_ahead=1 to get today\'s events.\n'
+                "1. Call icloud.calendar with days_ahead=1 to get today's events.\n"
                 '2. Navigate to https://www.vrt.be/vrtnws/nl/ and read the top 5 headlines.\n'
                 '3. Navigate to https://www.tijd.be and read the top 3 financial headlines.\n'
                 '4. Compose a single message with:\n'
                 '   - A friendly greeting\n'
-                '   - Today\'s calendar events (times, titles, locations)\n'
+                "   - Today's calendar events (times, titles, locations)\n"
                 '   - Top news highlights (3-5 most interesting items with links)\n'
                 '   - A brief financial/markets note if relevant\n\n'
                 'Keep it scannable — bullet points, not paragraphs. '
                 'Use the notify tool to send the final message to the user. '
                 'Close the browser when done.'
             ),
-            task=(
-                'Compose the morning digest: today\'s calendar + top news from '
-                'VRT NWS and De Tijd. Send via notify.'
-            ),
+            task=("Compose the morning digest: today's calendar + top news from VRT NWS and De Tijd. Send via notify."),
             model='claude-sonnet-4-6',
             skills=['icloud.calendar', 'browser'],
             notify=NotifyPolicy.ALWAYS,
@@ -130,7 +128,7 @@ def seed(user_slug: str) -> None:
         save_job(job)
         created.append(f'  Good morning: {job.id}')
     else:
-        print(f'  Good morning already exists')
+        print('  Good morning already exists')
 
     # ── 4. Test job (runs in 10 minutes) ─────────────────────────────────
     if not _has_job(user_slug, 'Test signal'):
@@ -158,7 +156,7 @@ def seed(user_slug: str) -> None:
         save_job(job)
         created.append(f'  Test signal: {job.id} (runs at {run_at.strftime("%H:%M UTC")})')
     else:
-        print(f'  Test signal already exists')
+        print('  Test signal already exists')
 
     if created:
         print(f'Created {len(created)} jobs for user "{user_slug}":')
