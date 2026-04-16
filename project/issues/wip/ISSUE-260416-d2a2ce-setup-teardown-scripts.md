@@ -1,6 +1,6 @@
 # ISSUE-d2a2ce: Setup and teardown scripts with systemd unit templates
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-16
 **Assignee:** Unassigned
 **Priority:** High
@@ -48,14 +48,24 @@ Three systemd user-level unit templates in `deploy/`:
 4. Preserve `~/.marcel/` data (never delete user data)
 
 ## Tasks
-- [ ] Create `deploy/` directory with three systemd unit templates
-- [ ] Create `scripts/setup.sh` with prerequisites check, template rendering, install, health wait, and `--check` flag
-- [ ] Create `scripts/teardown.sh` with graceful stop, unit removal, and data preservation
-- [ ] Verify `make setup`, `make setup-check`, and `make teardown` all resolve correctly
+- [✓] Create `deploy/` directory with three systemd unit templates
+- [✓] Create `scripts/setup.sh` with prerequisites check, template rendering, install, health wait, and `--check` flag
+- [✓] Create `scripts/teardown.sh` with graceful stop, unit removal, and data preservation
+- [✓] Verify `make setup`, `make setup-check`, and `make teardown` all resolve correctly
 - [ ] Test `--check` flag reports missing prerequisites clearly
 
 ## Relationships
 - Follows: [[ISSUE-027-systemd-deploy-infrastructure]] (this delivers what ISSUE-027 was supposed to)
 
 ## Implementation Log
-<!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-16 - LLM Implementation
+**Action**: Created systemd unit templates and setup/teardown scripts
+**Files Modified**:
+- `deploy/marcel.service.tmpl` — Created: oneshot service unit for `docker compose up -d --build`
+- `deploy/marcel-redeploy.path.tmpl` — Created: path unit watching `restart_requested` flag
+- `deploy/marcel-redeploy.service.tmpl` — Created: oneshot service triggering `redeploy.sh`
+- `scripts/setup.sh` — Created: OS check, prereq checks, template rendering, systemd install, health wait, `--check` flag
+- `scripts/teardown.sh` — Created: graceful stop/disable, unit file removal, data preservation
+- `scripts/redeploy.sh` — Created (prior step): rebuild-if-running script with `--force` flag
+**Result**: All five scripts created and executable; `make setup`, `make setup-check`, `make teardown`, `make docker-restart` all resolve to existing scripts
