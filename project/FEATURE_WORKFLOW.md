@@ -6,14 +6,15 @@ Every feature or bug fix follows this procedure. Some steps are skippable for sm
 
 ## Step 1 — Capture
 
-Before starting, check for relevant patterns or pitfalls from past issues. Grep both files rather than reading them — the active file is capped at 10 entries, the archive holds everything older:
+Before starting, check for relevant patterns or pitfalls from past issues:
 
 ```bash
 # Use 1-3 keywords from the resolved intent / feature area
-grep -n -i -B 1 -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-archive.md
+python scripts/query_lessons.py <keyword> [keyword ...]
+python scripts/query_lessons.py <keyword> --top 5   # limit output
 ```
 
-Reading the full file is wasteful — the archive can grow indefinitely and most entries won't be relevant to the current task.
+Results are scored by hit count and sorted by date (most recent first). Each match is the `## Lessons Learned` section from a closed issue file.
 
 Record the original request verbatim, all follow-up questions asked, and the user's answers. End with a one-paragraph **resolved intent**: what the feature actually is, in your own words.
 

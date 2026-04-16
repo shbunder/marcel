@@ -53,3 +53,20 @@ See plan file for full comparison and design: `.claude/plans/synthetic-tinkering
 - Coverage: 12/12 improvements from the plan addressed (timeout, stuck detection, transient classification, backoff, max concurrent, staggering, startup catchup, consecutive errors, schedule auto-disable, alert cooldown, delivery tracking, run cleanup)
 - Shortcuts found: none — no TODOs, no bare excepts, no magic numbers without constants
 - Scope drift: none — all changes match the approved plan
+
+## Lessons Learned
+
+### What worked well
+- Deep-exploring a reference codebase (OpenClaw) before designing gave concrete, battle-tested patterns to adopt rather than inventing from scratch — the plan practically wrote itself
+- All schema changes were additive with defaults, so existing job.json files deserialize without migration — zero backward compatibility risk
+- Implementing all 12 features in a single pass was efficient because they share state (e.g. `consecutive_errors` is used by both backoff and alert cooldown)
+
+### What to do differently
+- The `_notify_if_needed` refactor changed the return type from `None` to `tuple[str, str | None]` and added a second `append_run` call in `execute_job_with_retries` for delivery tracking — this means each run gets two lines in `runs.jsonl` (one from `execute_job`, one from `execute_job_with_retries`). Should have moved `append_run` entirely to `execute_job_with_retries` instead of appending twice. Worth a follow-up fix.
+- No integration test for the full timeout path (would need a mock agent that hangs) — the unit tests cover the model and classification, but end-to-end timeout is untested
+
+### Patterns to reuse
+- `classify_error()` with compiled regex patterns for transient detection — simple, fast, extensible. Add new patterns to `_TRANSIENT_PATTERNS` list as new error shapes appear in production
+- `_stagger_offset(job_id)` using SHA-256 hash mod window — deterministic, no state, avoids thundering herd. Applicable anywhere multiple items share a schedule
+- `_resolve_stuck_runs()` on startup — scan for orphaned RUNNING records and append corrected FAILED records. Good pattern for any append-only log that can be interrupted mid-write
+- `asyncio.Semaphore` for bounding concurrent dispatches — one line of state, wraps the execution block cleanly, no complex queuing needed

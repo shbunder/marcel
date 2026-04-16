@@ -1,10 +1,11 @@
-# Lessons Learned — Archive
+# Lessons Learned — Archive (DEPRECATED)
 
-Older entries rotated out of [lessons-learned.md](./lessons-learned.md) by the 10-entry cap. Grep this file when starting new work on a related area — do not read it in full.
+> **This file is no longer maintained.** All 20 entries have been migrated to their
+> respective closed issue files as `## Lessons Learned` sections (ISSUE-a7085c).
+>
+> To search lessons: `python scripts/query_lessons.py <keyword>`
 
-```bash
-grep -n -i -A 20 '<keyword>' project/lessons-learned.md project/lessons-learned-archive.md
-```
+The content below is preserved as historical record only.
 
 ---
 

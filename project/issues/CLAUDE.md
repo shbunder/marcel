@@ -64,7 +64,7 @@ Full staging rules, multi-commit patterns, and merge commands are in [GIT_CONVEN
 | "This is too trivial to need an issue" | Anything beyond a one-line typo needs an issue. The `📝` commit IS the audit trail. |
 | "Tests can come in a follow-up PR" | Tests ship in the same closing commit as the code. No exceptions. |
 | "I'll update docs in a fixup later" | Docs ship in the last `🔧 impl:` before close, not in a `🩹 fixup`. Fixups are for typos, not missing docs. |
-| "The lessons-learned entry is optional" | It's not. Step 9 of `/finish-issue` is mandatory. |
+| "The lessons-learned entry is optional" | It's not. `/finish-issue` Step 8 writes `## Lessons Learned` into the issue file before the close commit. |
 | "I can work directly on main for this one, it's quick" | No. Parallel-agent conflicts are the exact problem this workflow fixes. |
 | "I'll leave this `wip/` file around, I'll get back to it" | No. Close the issue or explicitly tell the user why it stays open. Invisible WIP debt accumulates silently. |
 | "I can combine the code change and the close commit" | No. `✅ close` is a pure status marker. Code changes go in `🔧 impl:` before it. |

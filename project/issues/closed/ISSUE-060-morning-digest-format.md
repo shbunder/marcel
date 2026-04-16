@@ -60,3 +60,17 @@ None.
 - Coverage: 4/4 requirements addressed, plus one necessary bonus fix (job notify routing)
 - Shortcuts found: none
 - Scope drift: Problem 3 (job notify routing to Telegram) was not in original requirements but was a necessary fix — without it, the double-send fix would have broken delivery entirely since job agents never reached Telegram through notify
+
+## Lessons Learned
+
+### What worked well
+- Tracing the full notification flow end-to-end (agent → tool → executor → Telegram) before writing code revealed a third problem (job notify routing) that would have caused a regression if missed
+- Using `deps.notified` as a simple boolean flag kept the double-send fix minimal — no new state machines or event buses needed
+
+### What to do differently
+- The job channel prompt said "plain text only" but the Telegram pipeline already had `markdown_to_telegram_html`. Should have questioned this mismatch when the job system was first built — the formatting pipeline exists precisely so agents can write markdown.
+- The `_notify` tool routing `channel == 'job'` to Telegram is a bit hardcoded. If jobs ever deliver to other channels, this will need a proper channel lookup from the job definition. Fine for now since all jobs go to Telegram.
+
+### Patterns to reuse
+- `deps.notified` flag pattern: lightweight in-run state tracking between tools and executor without modifying the agent loop — useful for any "did the agent already do X?" checks
+- `run.agent_notified` on `JobRun`: persisting tool-side state into the run record so post-execution logic can make decisions — avoids passing deps objects through the retry/notify chain

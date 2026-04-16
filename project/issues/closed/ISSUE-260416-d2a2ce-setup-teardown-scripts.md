@@ -76,3 +76,18 @@ Three systemd user-level unit templates in `deploy/`:
 - Shortcuts found: none
 - Scope drift: seed_jobs.py quote-style normalization (ruff, harmless)
 - Stragglers: none — docs/self-modification.md already referenced correct paths
+
+## Lessons Learned
+
+### What worked well
+- **Prerequisite-accumulator pattern.** `PREREQ_OK=true` at the top, each failing check sets it to `false`, single `die` at the end. Users see every missing prereq in one pass instead of fix-one-rerun-discover-another.
+- **Single script with `--force` over a wrapper script.** `redeploy.sh --force` covers both "already running, just rebuild" and "cold first deploy" without a second script. The `--force` flag makes the unsafe-in-general case deliberately explicit.
+- **OS detection via `uname -s` as the first guard.** Both `setup.sh` and `teardown.sh` exit 0 with a friendly alternatives message on non-Linux. No cryptic `systemctl: command not found` errors on macOS.
+
+### What to do differently
+- **Closed issues can lie.** ISSUE-027 was marked all-[✓] but `deploy/`, `scripts/setup.sh`, and `scripts/teardown.sh` never existed. The Makefile silently pointed at nothing for weeks. At close time: check that every file the Makefile (or any caller) references actually exists on disk — not just that it was listed in the implementation plan.
+- **`scripts/` was in `.gitignore` the whole time** (also caught in ISSUE-caf8de). The gitignore line was wrong from day one; removing it was the right fix. When `git add` fails with "ignored", run `git check-ignore -v <path>` immediately rather than using `-f`.
+
+### Patterns to reuse
+- **`@@PLACEHOLDER@@` template pattern for text-based config files.** `sed -e "s|@@VAR@@|$value|g"` is sufficient for systemd unit templates where variables are plain paths. No templating engine needed; the double-at delimiter is unlikely to collide with real content.
+- **Prerequisite checks that summarise, not bail.** Accumulate all failures before calling `die`. Apply this to any setup script that has more than one independent prereq — the "fix everything, then rerun" UX is strictly better than "fix one thing, rerun, discover the next."

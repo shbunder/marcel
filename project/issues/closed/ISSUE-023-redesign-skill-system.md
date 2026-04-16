@@ -54,3 +54,20 @@ The redesign introduces:
 
 ## Implementation Log
 <!-- Append entries here when performing development work on this issue -->
+
+## Lessons Learned
+
+### What worked well
+- `@register` decorator pattern made integrations pluggable without touching core dispatch code
+- Merging chat/coder into a single mode simplified the agent loop — the artificial split was unnecessary
+- SKILL.md docs colocated with integration code keep agent instructions in sync with implementation
+
+### What to do differently
+- Skill doc symlinks need `.gitignore` entries — easy to forget, causes noisy git status
+- Should have migrated iCloud first as a small test case before designing the full framework
+- Breaking a 10-subtask issue into smaller issues would have made the git history cleaner
+
+### Patterns to reuse
+- `@register("name.action")` decorator for extensibility points
+- Skill docs in `.marcel/skills/` with SKILL.md + SETUP.md fallback pattern, loaded from project and home dirs
+- Single-tool dispatch (`integration`) with skill routing — avoids tool proliferation

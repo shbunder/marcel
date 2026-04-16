@@ -76,3 +76,20 @@ User approved the full plan at `~/.claude/plans/cozy-foraging-porcupine.md` afte
 - Scope drift: none. Two minor additions only — a retry loop in the hash generator (collision-safety completeness) and a Reflection block structure in finish-issue (matches the agent-skills convention).
 - Verification: `python3 -c 'import secrets; print(secrets.token_hex(3))'` works. Relative paths from skills to reference files resolve (`ls ../../../project/issues/TEMPLATE.md` succeeds). Legacy ISSUE-073 still grep-able in `src/marcel_core/jobs/__init__.py` and `src/marcel_core/storage/settings.py`. SessionStart hook command tested and prints `No active issue branches` on clean main. Pre-commit hook passed — 1344 tests, 92.75% coverage.
 - **Self-exception**: ISSUE-079 is the meta-issue that implements the branch-per-issue scheme, so it cannot itself use that scheme. This work was done on main under the legacy flow. The first issue under the new scheme will validate the end-to-end flow for real.
+
+## Lessons Learned
+
+### What worked well
+- Plan-mode dialogue with user pushback surfaced the real constraints — the first "commit-hash derived ID" design was over-engineered; the user's "can't we just generate a unique hash ourselves?" simplified it to a single creation commit.
+- Extracting detail from CLAUDE.md files into `FEATURE_WORKFLOW.md`, `TEMPLATE.md`, `GIT_CONVENTIONS.md` preserved all the content while cutting always-loaded context 61% (479 → 186 lines).
+- Reference-exploration with 3 parallel Explore agents (current setup, issue workflow, `~/repos/agent-skills`) was fast and gave an honest audit including the smoking gun: a past merge commit literally saying "preserving during ISSUE-075 close" — evidence of the very parallel-agent conflict the redesign fixes.
+
+### What to do differently
+- Almost went in circles trying to make `ISSUE-{git-short-hash}` work cleanly before the user cut through it by suggesting self-generated hashes. Lesson: when the user asks "how would this work?!", assume they're genuinely uncertain and push back on the complexity instead of rationalizing a Rube Goldberg solution.
+- Meta-issues (issues that modify the issue workflow itself) create a chicken-and-egg: ISSUE-079 couldn't use the branch-per-issue flow because that flow didn't exist yet. Document this explicitly as a "self-exception" in the Reflection block and move on — don't try to bootstrap cleverly.
+
+### Patterns to reuse
+- Anti-rationalization tables (borrowed from `~/repos/agent-skills`) belong in any skill/CLAUDE.md where agents are tempted to take shortcuts. Structure: two columns — Excuse | Reality.
+- Progressive disclosure: put short rules in CLAUDE.md (always-loaded), extract detailed process content into sibling reference files that are linked rather than loaded.
+- Enriched skill frontmatter with `name` + explicit "do NOT use" exclusions, not just a description. Prevents the harness from invoking skills for inappropriate tasks.
+- Self-generated 6-char hex IDs (`secrets.token_hex(3)`) with a collision retry loop solve parallel-allocation problems without needing a central counter or shared lock.

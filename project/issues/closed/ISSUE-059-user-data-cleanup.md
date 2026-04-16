@@ -124,3 +124,19 @@ Full audit of `~/.marcel/users/shaun/` performed. Key findings:
 - Coverage: 8/8 tasks addressed — all requirements from resolved intent covered
 - Shortcuts found: none (no TODO/FIXME/HACK, no bare except, no pass bodies)
 - Scope drift: none — implementation stayed within the stated requirements
+
+## Lessons Learned
+
+### What worked well
+- Writing a standalone migration script (`scripts/migrate_059_cleanup.py`) with `--dry-run` made it safe to verify the migration plan before executing — caught the permission error on root-owned files before it could corrupt data
+- Removing the legacy session storage functions entirely (not just deprecating) forced all callers to migrate in the same commit — no half-migrated state
+- Consolidating 22 memory files → 10 by merging duplicates and removing derivable/stale content made the memory system much cleaner for the AI selector
+
+### What to do differently
+- Root-owned files in `conversations.archived/` from an earlier Docker permission issue weren't discovered until the migration script hit a `PermissionError` — should have checked file ownership during the investigation phase
+- The `scripts/` directory is gitignored, so the migration script isn't tracked. For one-shot migrations this is fine, but worth noting that scripts there are disposable
+
+### Patterns to reuse
+- When removing a module's public API: grep all imports, update all callers and tests first, then delete the functions in a single commit — ensures no dead import errors
+- For data migrations: backup first, dry-run, then execute. The `shutil.copytree` with `copy_function=_copy_ignore_errors` pattern handles permission issues gracefully
+- Memory file cleanup criteria: (1) derivable from codebase → delete, (2) ephemeral/stale data → delete, (3) duplicate content → merge into one file with frontmatter, (4) missing frontmatter → add it

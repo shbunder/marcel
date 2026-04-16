@@ -50,3 +50,17 @@ Additionally, Marcel should allow users to switch models per-channel (e.g., "use
 - Coverage: 9/9 requirements addressed
 - Shortcuts found: none
 - Scope drift: none
+
+## Lessons Learned
+
+### What worked well
+- Stashing changes to verify pre-existing typecheck errors before blaming our code — confirmed 18 errors existed before, our changes reduced to 15
+- The `_load_settings` / `_save_settings` split with `atomic_write` follows existing storage module patterns perfectly; easy to extend settings later
+
+### What to do differently
+- OAuth exploration added significant code that then had to be cleanly deleted; if API keys were available from the start the detour would have been skipped
+- **The `ANTHROPIC_MODELS` / `OPENAI_MODELS` / `_resolve_model_string` registry (added here) was removed in ISSUE-073** — it duplicated provider-selection logic that pydantic-ai already does natively via `provider:model` strings. A curated registry is fine for UX, but it shouldn't double as the dispatch layer.
+
+### Patterns to reuse
+- Per-user JSON settings at `~/.marcel/users/{slug}/settings.json` via `atomic_write` is the right pattern for lightweight user preferences that don't warrant a full DB
+- Integration handler pattern: `@register("settings.action")` + `async def fn(params: dict, user_slug: str) -> str` — clean, discoverable, testable in isolation

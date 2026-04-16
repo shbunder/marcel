@@ -57,3 +57,19 @@ Git worktrees are the idiomatic fix. This issue adds a `/parallel-issue` skill t
 - Scope drift: none. The skill stays tightly scoped to "create issue + worktree"; session start of the second agent is left to the user (VSCode Open Folder or `cd && claude`) rather than hiding automation behind a wrapper — matches the "human-readable over clever" core principle.
 - Verification: scratch worktree test passed; detection command returns the correct path when run from the primary checkout.
 - This is the first issue under the new `ISSUE-{YYMMDD}-{hash}-{slug}.md` scheme and the first real end-to-end run of the branch-per-issue flow. Worked cleanly.
+
+## Lessons Learned
+
+### What worked well
+- User caught a real gap in ISSUE-079 by asking the right question: "what will happen if 2 claude-code sessions are locally working on Marcel?" The commit-history isolation (branches + hash IDs) does not address working-directory isolation. Worktrees fix that. This is a good reminder that "parallel-safe" is a spectrum.
+- Dry-running `git worktree add /tmp/marcel-scratch-worktree HEAD` followed by `git worktree remove` before shipping caught zero bugs but gave real confidence that the skill instructions would actually work. Small scratch tests are cheap insurance.
+- First real end-to-end run of the new ISSUE-079 workflow (branch-per-issue + hash IDs) shipped cleanly: `📝 create` on main → branch → `🔧 impl` on branch → `✅ close` on branch → `--no-ff` merge → `🩹 fixup` on main for lessons. `git log --graph` shows the expected shape.
+
+### What to do differently
+- `git mv` after a Read call breaks the Edit tool's "you must Read first" precondition because the file path changes. Either Read the file again at its new location before editing, or do all the edits BEFORE the `git mv`. The latter is cleaner.
+- Don't overclaim parallel-safety in docs. Say exactly what the mechanism prevents — hash IDs prevent counter collisions, branches isolate commit history, worktrees prevent working-directory collisions. Users will trust the docs more if they distinguish these.
+
+### Patterns to reuse
+- Two-skill variants for "light default" vs "heavier opt-in" — here: `/new-issue` (simple single-checkout) and `/parallel-issue` (worktree). Better than one skill with a flag because skill descriptions are what the harness matches on when deciding which to invoke.
+- Worktree detection via `git worktree list --porcelain | awk '/^worktree / {print $2; exit}'` compared to `git rev-parse --show-toplevel` is reliable and doesn't need any state outside git.
+- When documenting a feature-branch merge flow, always note `git worktree remove` can't run from inside the worktree being removed. The skill must `cd` to the primary checkout first.

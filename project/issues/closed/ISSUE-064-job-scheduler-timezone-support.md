@@ -48,3 +48,18 @@ The scheduler's `_compute_next_run` passes UTC-based datetimes to croniter, whic
 - Coverage: 3/3 requirements addressed — TriggerSpec field, scheduler logic, job data updates. Also added timezone param to create_job and update_job tools (not in original scope but necessary for completeness).
 - Shortcuts found: none
 - Scope drift: tool.py additions are a natural extension, not scope creep
+
+## Lessons Learned
+
+### What worked well
+- The fix was minimal: one new field on `TriggerSpec`, a timezone branch in `_compute_next_run`, and job data updates. No schema migration needed thanks to `None` default
+- `ZoneInfo` from the stdlib handles DST transitions automatically — no third-party timezone library needed
+- Checking the tool layer (create_job/update_job) during reflection caught a gap that would have required a follow-up fix
+
+### What to do differently
+- Timezone support should have been considered when the cron scheduler was first built (ISSUE-061). Any system that interprets cron expressions for end users should default to local time, not UTC
+- The user's profile already had `Europe/Brussels` — could have used that as a default for new jobs instead of requiring explicit timezone on each job
+
+### Patterns to reuse
+- `ZoneInfo` + `astimezone()` for timezone-aware cron: convert UTC `now` to local, run croniter in local time, convert result back to UTC. Simple and handles DST correctly
+- Additive schema changes with `None` defaults for backward compatibility — existing job.json files deserialize without migration
