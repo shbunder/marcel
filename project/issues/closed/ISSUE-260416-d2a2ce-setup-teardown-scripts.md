@@ -1,6 +1,6 @@
 # ISSUE-d2a2ce: Setup and teardown scripts with systemd unit templates
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-16
 **Assignee:** Unassigned
 **Priority:** High
@@ -52,7 +52,7 @@ Three systemd user-level unit templates in `deploy/`:
 - [✓] Create `scripts/setup.sh` with prerequisites check, template rendering, install, health wait, and `--check` flag
 - [✓] Create `scripts/teardown.sh` with graceful stop, unit removal, and data preservation
 - [✓] Verify `make setup`, `make setup-check`, and `make teardown` all resolve correctly
-- [ ] Test `--check` flag reports missing prerequisites clearly
+- [✓] Test `--check` flag reports missing prerequisites clearly
 
 ## Relationships
 - Follows: [[ISSUE-027-systemd-deploy-infrastructure]] (this delivers what ISSUE-027 was supposed to)
@@ -69,3 +69,10 @@ Three systemd user-level unit templates in `deploy/`:
 - `scripts/teardown.sh` — Created: graceful stop/disable, unit file removal, data preservation
 - `scripts/redeploy.sh` — Created (prior step): rebuild-if-running script with `--force` flag
 **Result**: All five scripts created and executable; `make setup`, `make setup-check`, `make teardown`, `make docker-restart` all resolve to existing scripts
+
+**Reflection** (via pre-close-verifier):
+- Verdict: APPROVE
+- Coverage: 5/5 tasks addressed
+- Shortcuts found: none
+- Scope drift: seed_jobs.py quote-style normalization (ruff, harmless)
+- Stragglers: none — docs/self-modification.md already referenced correct paths
