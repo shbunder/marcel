@@ -46,3 +46,17 @@ This issue tightens the SOP to make the commit workflow explicit and unambiguous
 - `project/issues/CLAUDE.md` — replaced Git Conventions section: new 3-step commit workflow table, rules, multi-commit implementation guidance, staging rules, simplified emoji reference (📝/🔧/✅ only)
 - `project/CLAUDE.md` — updated Step 3 (Create an issue) to mandate standalone 📝 commit; rewrote Step 8 (Ship) to define closing commit contents (no code, only issue move + docs + version bump); updated Telegram-Initiated Changes to reference new workflow
 **Result**: Both files are consistent. The commit workflow is now explicit and unambiguous.
+
+## Lessons Learned
+
+### What worked well
+- The 3-emoji pattern (📝→🔧→✅) makes `git log --oneline` instantly scannable
+- Separating the closing commit from code ensures code review happens on implementation commits
+
+### What to do differently
+- Should have established this convention from ISSUE-001 — retroactive cleanup is painful
+- The "first impl commit moves to wip" rule avoids an empty "I started" commit — non-obvious but important
+
+### Patterns to reuse
+- Standalone decision commits (📝) create clear audit trail of "we decided to do this"
+- Post-close fixup emoji (🩹) prevents reopening issues for trivial corrections

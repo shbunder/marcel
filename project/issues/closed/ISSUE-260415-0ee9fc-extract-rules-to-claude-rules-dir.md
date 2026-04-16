@@ -97,3 +97,20 @@ Decision rationale on path scoping: always-loaded rules cover universal workflow
 - **Marcel-specific checks:** No `git mv` after a Read. No restart-bypass added. No user-data/system-config cross-contamination. All path-scoped rules have syntactically valid YAML frontmatter. Subagent files unchanged except for pre-close-verifier's Step 2a addition.
 
 **Next**: The next issue will be the first real test of `.claude/rules/` loading and of the `pre-close-verifier` subagent being invokable. Both live by name at this point — they will either work in a fresh session or not, and we will find out on the next `/new-issue` + `/finish-issue` cycle.
+
+## Lessons Learned
+
+### What worked well
+- **Path-scoped rules are a genuine context win.** Scoping `integration-pairs.md`, `data-boundaries.md`, and `role-gating.md` to specific subtrees means sessions that don't touch those areas don't pay the context cost. Universal rules stay always-loaded; the domain-specific ones only load when relevant. This mapping — always-loaded for workflow safety, path-scoped for domain specifics — worked cleanly on the first pass.
+- **Straggler grep caught real violations immediately.** Grepping `git add -A` across the tree found two lines in `project/plans/architecture-overview.md` that were prescribing a forbidden pattern. The grep was run as part of inline verification and the fix (marking the doc Superseded with an inline reference to the rule) took 30 seconds. This is exactly the kind of drift the rule is meant to catch, validated on the rule's own introduction commit.
+- **Empirical confirmation that subagents do NOT hot-reload.** Previous issue's lesson predicted this; this issue proved it with a live `Agent(subagent_type="pre-close-verifier", ...)` call returning "Agent type not found". Now we know: hooks reload mid-session, subagents do not. This is a real constraint on how meta-issues can test their own changes.
+
+### What to do differently
+- **Meta-issues that introduce verification infrastructure cannot be verified by that infrastructure in the same session.** Plan for this: either ship the infrastructure in one issue and test-drive it on the next, or accept that the introducing issue will always use the inline fallback path. Don't burn cycles trying to make the new verifier verify itself.
+- **`.claude/rules/` files need the YAML frontmatter to be valid as loaded.** I hand-wrote the `paths:` blocks; in retrospect a validator step (simple python YAML parse) would be cheap insurance against a typo silently breaking loading. Add to the next "setup hardening" pass if one happens.
+
+### Patterns to reuse
+- **Rule file structure.** Each rule file has sections: a one-line summary, "Never" (explicit bans), "Always" (explicit requirements), "Why" (rationale), and "Enforcement" (which subagent, what severity). The Enforcement section is machine-readable: the pre-close-verifier greps it to decide which rules to apply for a given diff. Keep this structure for any new rule.
+- **Path-scoping to subtrees, not individual files.** `src/marcel_core/storage/**/*.py` is right; `src/marcel_core/storage/conversation.py` is too narrow — rules should survive file renames. Use glob patterns with `**` wildcards at the directory level.
+- **Link from the old location to the new rule, not the other way around.** When trimming `GIT_CONVENTIONS.md` and `project/CLAUDE.md`, the workflow prose stayed and points AT `.claude/rules/<name>.md` as the source of truth. The rule file does not need to know about its former home. One-way links age better than two-way ones.
+- **Superseded-doc pattern for historical content that violates new rules.** Rather than rewriting history, add a header note saying the document is obsolete, point at the current source, and flag the specific violation with an inline link to the relevant rule. Reader immediately knows the doc is not prescriptive.

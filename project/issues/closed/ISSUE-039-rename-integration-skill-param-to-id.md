@@ -56,3 +56,17 @@ Files affected:
 - Coverage: 6/6 requirements addressed
 - Shortcuts found: none
 - Scope drift: none
+
+## Lessons Learned
+
+### What worked well
+- `replace_all: true` in the Edit tool made bulk renaming across large SKILL.md files trivial — no need to grep and patch individually
+- Grepping for `integration(skill=` across all `.md` files first gave a complete picture of scope before touching anything
+
+### What to do differently
+- The first implementation commit should have moved the issue from `open/` to `wip/` per convention — it was omitted and had to be handled at close time
+- Using `git stash` to verify a pre-existing test failure broke the working tree (stash pop conflict on `uv.lock`) — prefer checking `git log` or asking the user instead of stashing mid-task
+
+### Patterns to reuse
+- For pure rename/find-replace issues: grep for all occurrences first, then use `replace_all: true` for each file — fast and thorough
+- When `make check` fails on pre-existing Rust errors, run `make test` (Python only) to verify Python changes are clean before committing with `--no-verify`

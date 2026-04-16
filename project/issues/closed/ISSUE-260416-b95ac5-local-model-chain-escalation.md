@@ -54,3 +54,16 @@ Investigation revealed three issues:
 - Shortcuts found: none
 - Scope drift: none
 - Stragglers: 1 found — `project/lessons-learned.md` line 179 referenced old footgun behavior and renamed test; updated in final impl commit
+
+## Lessons Learned
+
+### What worked well
+- **Container log investigation revealed the real problem.** The user reported gpt-4.1 runs despite `allow_fallback_chain=false`. Checking docker logs showed the scheduler tick loop had silently died after April 15 — the config edit was never tested. Without the log investigation, we'd have chased a phantom code bug.
+- **Pre-close-verifier caught a straggler in lessons-learned.md.** The old entry described the footgun as "documented" rather than "eliminated" and referenced a renamed test. A single-file fix before close.
+
+### What to do differently
+- **Silent task loop death is the worst failure mode for a home-server assistant.** The tick loop crashed without logging — the `except Exception` handler never fired, suggesting a `CancelledError` or an event-loop edge case. The restart-with-backoff wrapper is a band-aid; a proper fix would be a health-check endpoint that verifies the scheduler task is alive, not just that the container is healthy.
+
+### Patterns to reuse
+- **Runtime footgun guards > documentation warnings.** The docstring said "ALWAYS set allow_fallback_chain=False for local models" — nobody reads docstrings at 2 AM when configuring a cron job. A 6-line guard in the executor that auto-detects `local:` models and overrides the flag is cheaper and more reliable than any amount of documentation. Apply this pattern whenever a dangerous default can be detected from context at call time.
+- **Scheduler heartbeat logging.** A `log.info` every 60 ticks (~30 minutes) with schedule/running counts is near-zero overhead but makes silent deaths visible in `docker logs`. Add heartbeats to any long-running async loop.

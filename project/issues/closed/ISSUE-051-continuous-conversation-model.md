@@ -104,3 +104,22 @@ Key changes:
 - Coverage: 6/6 original requirements addressed — (1) active conversation in full context via active segment, (2) tool calls trimmed to current+previous turn, (3) idle summarization at 1 hour, (4) memory skill with conversation_search/memory_search/compact_now, (5) /forget command on Telegram and CLI, (6) segmented storage with 500KB/500msg rotation
 - Shortcuts found: none — old compactor.py and history.py session functions are dead code but left for backward compat during migration period
 - Scope drift: added CLI history loading and REST endpoints for /api/history and /api/forget — requested by user as follow-up ("let's update the CLI to have the same behaviour")
+
+## Lessons Learned
+
+### What worked well
+- Researching ClawCode and OpenClaw first gave concrete inspiration — ClawCode's microcompaction (selective tool result stripping) and OpenClaw's staged summarization directly shaped the design
+- The segment-based storage architecture cleanly separates concerns: active segment (append-only), sealed segments (immutable + summary), search index (append-only). Each file has a clear lifecycle
+- Rolling summary chain ("each summary absorbs predecessor") is a simple mechanism that mimics human memory — recent things vivid, old things faded — with no complex data structures
+- Aggressive tool lifecycle (2 turns instead of 8) was the single biggest token savings and trivial to implement — just changing two constants and adjusting the trimming function
+
+### What to do differently
+- The old `compactor.py` and session management functions in `history.py` were left as dead code rather than deleted — should have removed them in the same commit or created a follow-up cleanup task. Dead code accumulates confusion
+- The CLI history loading was requested as a follow-up mid-issue — would have been cleaner as its own subtask from the start. Adding REST endpoints (/api/history, /api/forget) late in the process felt bolted-on
+- Route naming started as `/v2/history` then was renamed to `/api/history` in a polish commit — should have picked the final name upfront
+
+### Patterns to reuse
+- Segment-based append-only storage with seal+summarize lifecycle — applicable to any system that needs bounded growth with long-term recall
+- Keyword search index as a separate append-only JSONL — cheap to build, no external dependencies, good enough for "remember when we talked about X?" queries
+- Circuit breaker pattern for background operations (max N consecutive failures) — prevents infinite retry loops on persistent errors
+- REST endpoints for CLI state operations (/api/history, /api/forget) — lets the CLI be stateless while the server manages conversation lifecycle

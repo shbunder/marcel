@@ -87,3 +87,20 @@ The 9 Playwright browser tools (`navigate`, `screenshot`, `snapshot`, `click`, `
 - Coverage: 14/14 tasks addressed (all marked ✓)
 - Shortcuts found: none
 - Scope drift: added logging format improvements and health check filtering (requested by user alongside migration)
+
+## Lessons Learned
+
+### What worked well
+- The migration was straightforward because v2 was already the primary path — Telegram and the WebSocket endpoint both used `stream_turn()`. The "migration" was mostly deleting v1 code
+- Rewriting `memory_extract.py` from `claude_agent_sdk.query()` to a pydantic-ai Agent that returns JSON operations was a clean pattern — eliminates the dependency while keeping the same behavior
+- Adding the health check log filter and suppressing httpx/httpcore noise immediately made Docker logs usable — small effort, high value
+
+### What to do differently
+- The `/v2/` prefix on endpoints should have been renamed to `/api/` when the endpoints were first created, not as a post-migration cleanup. Endpoint names should reflect purpose, not implementation version
+- Multiple other issues' uncommitted changes were in the working tree during this migration — a cleaner approach would be to commit or stash other work first. The pre-commit hook caught test failures from these stale changes, costing debugging time
+- The closing commit accidentally picked up `.marcel/` skill file deletions from another issue's work — should have been more careful with `git add` scope
+
+### Patterns to reuse
+- For SDK migrations: make the new path the default first (keep old code), then delete the old code in a separate issue — "migrate then delete" is less risky than "rewrite in place"
+- JSON-return-value pattern for agent sub-tasks: instead of giving an agent file I/O tools, have it return structured JSON and apply the operations in the caller. Simpler, more testable, no permission issues
+- Custom `logging.Filter` subclass on specific loggers (e.g. `uvicorn.access`) to suppress noisy patterns — cleaner than adjusting log levels which affects all messages
