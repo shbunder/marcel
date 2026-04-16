@@ -12,7 +12,7 @@ token usage and tool-selection confusion.
 Internally, each action is implemented in its own sub-module so the code
 stays modular and easy to navigate:
 
-- :mod:`.skills` — ``read_skill``
+- :mod:`.skills` — ``read_skill``, ``read_skill_resource``
 - :mod:`.memory` — ``search_memory``, ``read_memory``, ``save_memory``
 - :mod:`.conversations` — ``search_conversations``, ``compact``
 - :mod:`.notifications` — ``notify`` (and ``send_notify`` for in-process callers)

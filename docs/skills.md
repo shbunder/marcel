@@ -3,7 +3,7 @@
 Marcel has two primary tools available to the agent:
 
 1. **`integration`** — call registered integrations (iCloud, HTTP APIs, shell commands)
-2. **`marcel`** — internal utilities: `read_skill`, `search_memory`, `search_conversations`, `compact`, `notify`
+2. **`marcel`** — internal utilities: `read_skill`, `read_skill_resource`, `search_memory`, `search_conversations`, `compact`, `notify`
 
 Integrations can be defined as:
 
