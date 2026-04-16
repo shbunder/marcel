@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Search lessons learned across all closed issue files.
+"""
+Search lessons learned across all closed issue files.
 
 Greps the ## Lessons Learned section of every closed issue for the given
 keywords, scores by hit count, and prints matches sorted by date (most
@@ -24,22 +25,22 @@ from datetime import date
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
-CLOSED_DIR = REPO_ROOT / "project" / "issues" / "closed"
+CLOSED_DIR = REPO_ROOT / 'project' / 'issues' / 'closed'
 
 # Legacy files that predate per-issue sections — searched as a fallback
 LEGACY_FILES = [
-    REPO_ROOT / "project" / "lessons-learned.md",
-    REPO_ROOT / "project" / "lessons-learned-archive.md",
+    REPO_ROOT / 'project' / 'lessons-learned.md',
+    REPO_ROOT / 'project' / 'lessons-learned-archive.md',
 ]
 
 # Matches new-style filenames: ISSUE-260416-a7085c-slug.md
-NEW_STYLE_RE = re.compile(r"ISSUE-(\d{6})-[0-9a-f]{6}-")
+NEW_STYLE_RE = re.compile(r'ISSUE-(\d{6})-[0-9a-f]{6}-')
 
 # Matches Created date inside file header: **Created:** 2026-04-16
-CREATED_DATE_RE = re.compile(r"\*\*Created:\*\*\s*(\d{4}-\d{2}-\d{2})")
+CREATED_DATE_RE = re.compile(r'\*\*Created:\*\*\s*(\d{4}-\d{2}-\d{2})')
 
 LESSONS_SECTION_RE = re.compile(
-    r"^## Lessons Learned\s*\n(.*?)(?=\n## |\Z)",
+    r'^## Lessons Learned\s*\n(.*?)(?=\n## |\Z)',
     re.MULTILINE | re.DOTALL,
 )
 
@@ -51,7 +52,7 @@ class Match:
     issue_date: date
     body: str
     score: int = 0
-    source: str = ""
+    source: str = ''
 
 
 def extract_date(path: Path, text: str) -> date:
@@ -71,20 +72,20 @@ def extract_date(path: Path, text: str) -> date:
 def extract_issue_id(path: Path) -> str:
     """Return short ISSUE-{hash} or ISSUE-{NNN} identifier."""
     name = path.stem  # e.g. ISSUE-260416-a7085c-slug or ISSUE-077-slug
-    parts = name.split("-")
+    parts = name.split('-')
     # New style: ISSUE + YYMMDD + hash + slug...
     if len(parts) >= 3 and len(parts[1]) == 6 and parts[1].isdigit():
-        return f"ISSUE-{parts[2]}"
+        return f'ISSUE-{parts[2]}'
     # Legacy: ISSUE + NNN + slug...
     if len(parts) >= 2:
-        return f"ISSUE-{parts[1]}"
+        return f'ISSUE-{parts[1]}'
     return path.stem
 
 
 def extract_title(text: str) -> str:
     """Pull the title from the first # heading."""
-    m = re.search(r"^# ISSUE-[^:]+:\s*(.+)$", text, re.MULTILINE)
-    return m.group(1).strip() if m else "Untitled"
+    m = re.search(r'^# ISSUE-[^:]+:\s*(.+)$', text, re.MULTILINE)
+    return m.group(1).strip() if m else 'Untitled'
 
 
 def score_text(text: str, keywords: list[str]) -> int:
@@ -95,8 +96,8 @@ def score_text(text: str, keywords: list[str]) -> int:
 
 def search_issue_files(keywords: list[str], since: date | None) -> list[Match]:
     matches: list[Match] = []
-    for path in sorted(CLOSED_DIR.glob("*.md")):
-        text = path.read_text(encoding="utf-8")
+    for path in sorted(CLOSED_DIR.glob('*.md')):
+        text = path.read_text(encoding='utf-8')
         m = LESSONS_SECTION_RE.search(text)
         if not m:
             continue
@@ -114,14 +115,16 @@ def search_issue_files(keywords: list[str], since: date | None) -> list[Match]:
                 continue
         else:
             s = 0
-        matches.append(Match(
-            issue_id=extract_issue_id(path),
-            title=extract_title(text),
-            issue_date=issue_date,
-            body=body,
-            score=s,
-            source=path.name,
-        ))
+        matches.append(
+            Match(
+                issue_id=extract_issue_id(path),
+                title=extract_title(text),
+                issue_date=issue_date,
+                body=body,
+                score=s,
+                source=path.name,
+            )
+        )
     return matches
 
 
@@ -129,13 +132,13 @@ def search_legacy_files(keywords: list[str], since: date | None) -> list[Match]:
     """Search legacy global lessons files for entries not yet migrated."""
     matches: list[Match] = []
     entry_re = re.compile(
-        r"^## (ISSUE-[^:]+):\s+(.+?)\s*\((\d{4}-\d{2}-\d{2})\)\s*\n(.*?)(?=\n---|\Z)",
+        r'^## (ISSUE-[^:]+):\s+(.+?)\s*\((\d{4}-\d{2}-\d{2})\)\s*\n(.*?)(?=\n---|\Z)',
         re.MULTILINE | re.DOTALL,
     )
     for legacy_path in LEGACY_FILES:
         if not legacy_path.exists():
             continue
-        text = legacy_path.read_text(encoding="utf-8")
+        text = legacy_path.read_text(encoding='utf-8')
         for m in entry_re.finditer(text):
             issue_id = m.group(1).strip()
             title = m.group(2).strip()
@@ -149,14 +152,16 @@ def search_legacy_files(keywords: list[str], since: date | None) -> list[Match]:
                     continue
             else:
                 s = 0
-            matches.append(Match(
-                issue_id=issue_id,
-                title=title,
-                issue_date=issue_date,
-                body=body,
-                score=s,
-                source=f"[legacy] {legacy_path.name}",
-            ))
+            matches.append(
+                Match(
+                    issue_id=issue_id,
+                    title=title,
+                    issue_date=issue_date,
+                    body=body,
+                    score=s,
+                    source=f'[legacy] {legacy_path.name}',
+                )
+            )
     return matches
 
 
@@ -173,36 +178,35 @@ def deduplicate(matches: list[Match]) -> list[Match]:
 
 
 def format_match(m: Match, show_source: bool = False) -> str:
-    lines = [f"=== {m.issue_id} ({m.issue_date}) — {m.title}"]
+    lines = [f'=== {m.issue_id} ({m.issue_date}) — {m.title}']
     if show_source:
-        lines.append(f"    source: {m.source}")
-    lines.append("")
+        lines.append(f'    source: {m.source}')
+    lines.append('')
     lines.append(m.body)
-    lines.append("")
-    return "\n".join(lines)
+    lines.append('')
+    return '\n'.join(lines)
 
 
 def parse_since(raw: str) -> date:
     """Parse YYMMDD into a date."""
     if len(raw) != 6 or not raw.isdigit():
-        raise argparse.ArgumentTypeError(
-            f"--since must be YYMMDD (e.g. 260101), got: {raw!r}"
-        )
+        raise argparse.ArgumentTypeError(f'--since must be YYMMDD (e.g. 260101), got: {raw!r}')
     yy, mm, dd = int(raw[:2]), int(raw[2:4]), int(raw[4:])
     return date(2000 + yy, mm, dd)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("keywords", nargs="*", help="Keywords to search for (OR-combined)")
-    parser.add_argument("--top", type=int, default=0,
-                        help="Show only the top N matches (0 = all)")
-    parser.add_argument("--since", type=parse_since, default=None,
-                        metavar="YYMMDD",
-                        help="Only show issues on or after this date (e.g. 260101)")
-    parser.add_argument("--source", action="store_true",
-                        help="Show source filename for each match")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('keywords', nargs='*', help='Keywords to search for (OR-combined)')
+    parser.add_argument('--top', type=int, default=0, help='Show only the top N matches (0 = all)')
+    parser.add_argument(
+        '--since',
+        type=parse_since,
+        default=None,
+        metavar='YYMMDD',
+        help='Only show issues on or after this date (e.g. 260101)',
+    )
+    parser.add_argument('--source', action='store_true', help='Show source filename for each match')
     args = parser.parse_args()
 
     keywords: list[str] = args.keywords
@@ -213,7 +217,7 @@ def main() -> None:
     all_matches = deduplicate(issue_matches + legacy_matches)
 
     if not all_matches:
-        print("No lessons found matching your query.")
+        print('No lessons found matching your query.')
         return
 
     # Sort: by score desc (if keywords given), then date desc
@@ -225,11 +229,11 @@ def main() -> None:
     if args.top:
         all_matches = all_matches[: args.top]
 
-    print(f"Found {len(all_matches)} match(es):\n")
+    print(f'Found {len(all_matches)} match(es):\n')
     for m in all_matches:
         print(format_match(m, show_source=args.source))
-        print("-" * 60)
+        print('-' * 60)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
