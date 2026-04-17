@@ -388,7 +388,7 @@ class TestStreamTurnFallbackChain:
             async for _ in stream_turn('shaun', 'cli', 'hi', 'conv-1'):
                 pass
 
-        # Tier 1 = channel pin, tier 2 = MARCEL_BACKUP_MODEL
+        # Tier 1 = channel pin, tier 2 = MARCEL_STANDARD_BACKUP_MODEL
         assert calls == ['anthropic:claude-opus-4-6', 'openai:gpt-4o']
 
     @pytest.mark.asyncio

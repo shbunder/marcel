@@ -97,7 +97,7 @@ goes entirely to its own specialized instructions.
 |-----|------|---------|---------|
 | `name` | string | filename stem | Identifier used by `delegate(subagent_type=...)`. Must be unique within the agents directory. |
 | `description` | string | `""` | One-line summary shown in the agent index. |
-| `model` | string | `inherit` | Pydantic-ai model string (e.g. `anthropic:claude-haiku-4-5-20251001`). `inherit` uses the parent's model. Supports `local:<tag>` for self-hosted models and tier sentinels `standard` / `backup` / `fallback` / `power` (see [Model tier sentinels](#model-tier-sentinels)). |
+| `model` | string | `inherit` | Pydantic-ai model string (e.g. `anthropic:claude-haiku-4-5-20251001`). `inherit` uses the parent's model. Supports `local:<tag>` for self-hosted models and tier sentinels `fast` / `standard` / `power` / `fallback` (see [Model tier sentinels](#model-tier-sentinels)). |
 | `tools` | list[string] | *(all role-default tools)* | Tool-name allowlist. See [Tool names](#tool-names). Omit for the full role-default pool. |
 | `disallowed_tools` | list[string] | `[]` | Tools to remove after the allowlist is applied. Handy when you want "everything except X". |
 | `max_requests` | int | *(none)* | Maximum model calls per delegated run (pydantic-ai `UsageLimits.request_limit`). Prevents runaway nesting. |

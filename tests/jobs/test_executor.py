@@ -339,7 +339,7 @@ class TestFallbackChain:
 
     @pytest.mark.asyncio
     async def test_backup_tier_tried_before_local(self, monkeypatch, patched_side_effects):
-        """With MARCEL_BACKUP_MODEL set, a failing cloud primary escalates
+        """With MARCEL_STANDARD_BACKUP_MODEL set, a failing cloud primary escalates
         to the cloud backup before the local tier 3."""
         scripted_runs, call_log = patched_side_effects
         monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
@@ -378,7 +378,7 @@ class TestFallbackChain:
 
     @pytest.mark.asyncio
     async def test_allow_fallback_chain_false_pins_job(self, monkeypatch, patched_side_effects):
-        """Even with MARCEL_BACKUP_MODEL set, a job with allow_fallback_chain=False
+        """Even with MARCEL_STANDARD_BACKUP_MODEL set, a job with allow_fallback_chain=False
         never escalates — it stays on its primary model with retries only."""
         scripted_runs, call_log = patched_side_effects
         monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
