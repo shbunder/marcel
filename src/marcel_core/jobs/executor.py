@@ -362,7 +362,11 @@ async def _execute_chain(
     from marcel_core.harness.model_chain import Tier, build_chain, is_fallback_eligible, next_tier
 
     slug = _resolve_run_user(job, user_slug)
-    chain = build_chain(primary=job.model, mode='complete')
+    # Jobs always run at the STANDARD tier — they never consult channel_tiers,
+    # never invoke the classifier, and ignore skill preferred_tier. A job's
+    # own ``model`` pin (typically ``local:``) wins as the primary; the
+    # STANDARD backup covers cross-cloud failover. See ISSUE-e0db47.
+    chain = build_chain(tier=Tier.STANDARD, primary=job.model, mode='complete')
 
     has_local_tier = any(e.purpose == 'complete' and e.model.startswith('local:') for e in chain)
     if not job.allow_local_fallback:

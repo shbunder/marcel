@@ -162,9 +162,7 @@ def detect_frustration(message: str, cfg: RoutingConfig) -> str | None:
     return None
 
 
-def maybe_bump_tier(
-    current: Tier, message: str, cfg: RoutingConfig
-) -> tuple[Tier, str | None]:
+def maybe_bump_tier(current: Tier, message: str, cfg: RoutingConfig) -> tuple[Tier, str | None]:
     """Bump FAST → STANDARD when frustration is detected.
 
     Returns ``(new_tier, reason_or_None)``. STANDARD stays at STANDARD — the

@@ -65,7 +65,7 @@ def _parse_preferred_tier(value: object, skill_name: str) -> str | None:
         return None
     if not isinstance(value, str) or value not in _VALID_PREFERRED_TIERS:
         log.warning(
-            "skills: %s declares invalid preferred_tier=%r — must be one of %s; ignoring",
+            'skills: %s declares invalid preferred_tier=%r — must be one of %s; ignoring',
             skill_name,
             value,
             sorted(_VALID_PREFERRED_TIERS),
