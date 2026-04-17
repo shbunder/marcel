@@ -70,14 +70,16 @@ conversation is idle-summarized (`MARCEL_IDLE_SUMMARIZE_MINUTES`, default
 `marcel_core.harness.turn_router.resolve_turn` (ISSUE-6a38cd) — a pure
 function, highest precedence wins:
 
-1. **Active skill `preferred_tier`** — a per-turn override. When the turn's
+1. **User slash prefix** — `/local`, `/fast`, `/standard` on the current
+   message force that tier for this turn only (prefix is stripped before
+   the model sees the text). `/power` is rejected. Does **not** mutate the
+   session tier. Users can only downshift: a skill that asked for POWER
+   is never reachable this way (there is no `/power`), so the "skill
+   beats user" guarantee still holds in the one direction that matters.
+2. **Active skill `preferred_tier`** — a per-turn override. When the turn's
    context includes one or more skills whose SKILL.md declares
    `preferred_tier: fast|standard|power`, the highest one wins
    (POWER > STANDARD > FAST). Does **not** mutate the session tier.
-2. **User slash prefix** — `/local`, `/fast`, `/standard` on the current
-   message force that tier for this turn only (prefix is stripped before
-   the model sees the text). `/power` is rejected. Does **not** mutate the
-   session tier.
 3. **Session tier** — persisted in the user's
    `~/.marcel/users/{slug}/settings.json` under `channel_tiers`. Set by the
    classifier on the session's first message and bumped on frustration.
