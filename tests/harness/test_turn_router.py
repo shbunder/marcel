@@ -15,7 +15,6 @@ from marcel_core.harness.turn_router import (
     resolve_turn,
 )
 
-
 DEFAULT_ADMIN = AdminTierConfig()
 
 

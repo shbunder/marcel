@@ -188,6 +188,93 @@ class TestStreamTurn:
 
         assert captured_model[0] == 'openai:gpt-4o'
 
+    @pytest.mark.asyncio
+    async def test_turn_plan_cleaned_text_replaces_user_text(self, tmp_path, monkeypatch):
+        """When ``turn_plan`` is supplied, the cleaned text (not raw slash input)
+        is what lands in history and in the model's user prompt."""
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.harness.turn_router import TierSource, TurnPlan
+        from marcel_core.memory.conversation import read_active_segment
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        captured_prompts: list[str] = []
+
+        @asynccontextmanager
+        async def _capture_stream(user_text, *, deps, **kwargs):
+            captured_prompts.append(user_text)
+
+            async def _stream_text(*, delta, debounce_by):
+                yield 'ok'
+
+            result = MagicMock()
+            result.stream_text = _stream_text
+            result.get_output = AsyncMock()
+            result.usage = MagicMock(return_value=MagicMock(total_tokens=1))
+            result.all_messages = MagicMock(return_value=[])
+            yield result
+
+        agent = MagicMock()
+        agent.run_stream = lambda user_text, **kwargs: _capture_stream(user_text, **kwargs)
+
+        plan = TurnPlan(
+            tier=Tier.FAST,
+            cleaned_text='hello',
+            source=TierSource.USER_PREFIX,
+        )
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', return_value=agent):
+            async for _ in stream_turn('shaun', 'cli', '/fast hello', 'conv-plan', turn_plan=plan):
+                pass
+
+        assert captured_prompts == ['hello']
+        # History stores the cleaned text, not the raw slash input.
+        segment_texts = [m.text for m in read_active_segment('shaun', 'cli')]
+        assert 'hello' in segment_texts
+        assert '/fast hello' not in segment_texts
+
+    @pytest.mark.asyncio
+    async def test_turn_plan_skill_override_seeds_read_skills(self, tmp_path, monkeypatch):
+        """A ``/<skillname>`` dispatch pre-adds the skill to the turn's read_skills
+        so its SKILL.md ends up in the system prompt."""
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.harness.turn_router import TierSource, TurnPlan
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        captured_deps: list = []
+
+        @asynccontextmanager
+        async def _capture_stream(user_text, *, deps, **kwargs):
+            captured_deps.append(deps)
+
+            async def _stream_text(*, delta, debounce_by):
+                yield 'ok'
+
+            result = MagicMock()
+            result.stream_text = _stream_text
+            result.get_output = AsyncMock()
+            result.usage = MagicMock(return_value=MagicMock(total_tokens=1))
+            result.all_messages = MagicMock(return_value=[])
+            yield result
+
+        agent = MagicMock()
+        agent.run_stream = lambda user_text, **kwargs: _capture_stream(user_text, **kwargs)
+
+        plan = TurnPlan(
+            tier=Tier.FAST,
+            cleaned_text='balance',
+            source=TierSource.DEFAULT,
+            skill_override='banking',
+        )
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', return_value=agent):
+            async for _ in stream_turn('shaun', 'cli', '/banking balance', 'conv-skill', turn_plan=plan):
+                pass
+
+        assert len(captured_deps) == 1
+        assert 'banking' in captured_deps[0].turn.read_skills
+
 
 # ---------------------------------------------------------------------------
 # ISSUE-076: tiered fallback chain tests

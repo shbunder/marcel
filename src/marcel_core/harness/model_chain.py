@@ -166,7 +166,9 @@ def tier_from_index(index: int) -> Tier:
     try:
         return TIER_BY_INDEX[index]
     except KeyError:
-        raise ValueError(f'unknown tier index {index!r} — must be one of 0 (local), 1 (fast), 2 (standard), 3 (power)') from None
+        raise ValueError(
+            f'unknown tier index {index!r} — must be one of 0 (local), 1 (fast), 2 (standard), 3 (power)'
+        ) from None
 
 
 Purpose = Literal['primary', 'backup', 'explain', 'complete']
@@ -240,6 +242,7 @@ def build_chain(
     tier: Tier = Tier.STANDARD,
     primary: str | None = None,
     mode: Literal['explain', 'complete'] = 'explain',
+    fallback_tier: Tier = Tier.LOCAL,
 ) -> list[TierEntry]:
     """Resolve the ordered tier list for a given call.
 
@@ -257,18 +260,28 @@ def build_chain(
             explain-failure purpose), ``'complete'`` for scheduled jobs
             (local fallback tries to finish the task on the local model,
             matching legacy ISSUE-070 semantics).
+        fallback_tier: Tier used for the cloud-outage tail entry. Default
+            ``Tier.LOCAL`` (the historical behavior, reading
+            ``marcel_fallback_model``). Admins can override via
+            ``AdminTierConfig.fallback_tier`` to tail the chain with a
+            cloud tier instead (``FAST`` → ``marcel_fast_model``). The tail
+            entry is omitted when ``fallback_tier`` equals ``tier`` (no
+            point appending the same model twice).
 
     Returns:
         A list with at least one entry (the primary). For non-``LOCAL``
         tiers, the per-tier backup is appended iff
-        ``settings.marcel_<tier>_backup_model`` is set, and the shared
-        ``LOCAL`` fallback is appended iff ``settings.marcel_fallback_model``
-        is set *and*, when it's a ``local:`` model, the local LLM transport
-        is configured. For the ``LOCAL`` tier, the chain contains only the
+        ``settings.marcel_<tier>_backup_model`` is set, and a
+        ``fallback_tier`` tail entry is appended iff the admin-selected
+        fallback resolves to a usable model (for ``LOCAL``, that means the
+        local LLM transport is configured; for cloud tiers, the model env
+        var is set). For the ``LOCAL`` tier, the chain contains only the
         primary (no recursive append — LOCAL IS the fallback).
     """
     if tier not in _TIER_PRIMARY_ATTR:
         raise ValueError(f'build_chain: unknown tier {tier!r}')
+    if fallback_tier == Tier.POWER:
+        raise ValueError('build_chain: fallback_tier cannot be POWER')
 
     primary_model = primary or getattr(settings, _TIER_PRIMARY_ATTR[tier])
     chain: list[TierEntry] = [TierEntry(tier=tier, model=primary_model, purpose='primary')]
@@ -281,15 +294,16 @@ def build_chain(
     if backup_model:
         chain.append(TierEntry(tier=tier, model=backup_model, purpose='backup'))
 
-    fallback_model = settings.marcel_fallback_model
-    if fallback_model and _fallback_tier_usable(fallback_model):
-        chain.append(
-            TierEntry(
-                tier=Tier.LOCAL,
-                model=fallback_model,
-                purpose='explain' if mode == 'explain' else 'complete',
+    if fallback_tier != tier:
+        fallback_model = getattr(settings, _TIER_PRIMARY_ATTR[fallback_tier])
+        if fallback_model and (fallback_tier != Tier.LOCAL or _fallback_tier_usable(fallback_model)):
+            chain.append(
+                TierEntry(
+                    tier=fallback_tier,
+                    model=fallback_model,
+                    purpose='explain' if mode == 'explain' else 'complete',
+                )
             )
-        )
 
     return chain
 

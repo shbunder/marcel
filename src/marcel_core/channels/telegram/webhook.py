@@ -30,6 +30,7 @@ from marcel_core.channels.telegram.formatting import (
 )
 from marcel_core.config import settings
 from marcel_core.harness.runner import TextDelta, stream_turn
+from marcel_core.harness.turn_router import resolve_turn_for_user
 from marcel_core.memory import extract_and_save_memories
 from marcel_core.memory.conversation import has_active_content, read_active_segment
 from marcel_core.memory.summarizer import summarize_active_segment
@@ -108,11 +109,26 @@ async def _process_assistant_message(
     # Continuous conversation: use a stable conversation ID per channel
     conversation_id = f'telegram-{chat_id}'
 
+    # Parse slash prefixes (/fast, /power, /<skillname>) before any model work.
+    # ``/power`` is rejected here — the reject text is sent as a normal reply
+    # and the turn ends (no model call, no history change).
+    turn_plan = resolve_turn_for_user(user_slug, text)
+    if turn_plan.reject_reason is not None:
+        ack['cancelled'] = True
+        if ack.get('sent') and ack.get('message_id'):
+            try:
+                await bot.edit_message_text(chat_id, ack['message_id'], escape_html(turn_plan.reject_reason))
+            except Exception:
+                await _reply(chat_id, turn_plan.reject_reason)
+        else:
+            await _reply(chat_id, turn_plan.reject_reason)
+        return
+
     response_parts: list[str] = []
     try:
 
         async def _collect() -> None:
-            async for event in stream_turn(user_slug, 'telegram', text, conversation_id):
+            async for event in stream_turn(user_slug, 'telegram', text, conversation_id, turn_plan=turn_plan):
                 if isinstance(event, TextDelta):
                     response_parts.append(event.text)
 
@@ -142,7 +158,7 @@ async def _process_assistant_message(
         )
         return
 
-    asyncio.create_task(extract_and_save_memories(user_slug, text, full_response, conversation_id))
+    asyncio.create_task(extract_and_save_memories(user_slug, turn_plan.cleaned_text, full_response, conversation_id))
 
     # Create an artifact if the response has rich content
     artifact_id: str | None = None

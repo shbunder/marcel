@@ -31,6 +31,7 @@ from marcel_core.harness.runner import (
     TextDelta,
     stream_turn,
 )
+from marcel_core.harness.turn_router import resolve_turn_for_user
 from marcel_core.memory import extract_and_save_memories
 from marcel_core.memory.conversation import ensure_channel
 
@@ -100,12 +101,31 @@ async def chat(websocket: WebSocket) -> None:
                 conversation_id = f'{channel}-default'
                 await adapter.send_conversation_started(conversation_id)
 
+            # Parse slash prefixes (/fast, /power, /<skillname>) before any
+            # model work. ``/power`` is rejected here — the reject text goes
+            # straight to the client as a text message and the turn ends.
+            turn_plan = resolve_turn_for_user(user_slug, user_text)
+            if turn_plan.reject_reason is not None:
+                await adapter.send_text_message_start()
+                await adapter.send_text_delta(turn_plan.reject_reason)
+                await adapter.send_text_message_end()
+                await adapter.send_run_finished(cost_usd=0.0, is_error=False)
+                continue
+
             # Stream the agent response
             response_parts: list[str] = []
             text_started = False
 
             try:
-                async for event in stream_turn(user_slug, channel, user_text, conversation_id, model=model, cwd=cwd):
+                async for event in stream_turn(
+                    user_slug,
+                    channel,
+                    user_text,
+                    conversation_id,
+                    model=model,
+                    cwd=cwd,
+                    turn_plan=turn_plan,
+                ):
                     if isinstance(event, TextDelta):
                         response_parts.append(event.text)
                     text_started = await dispatch_event(adapter, event, text_started=text_started)
@@ -121,7 +141,9 @@ async def chat(websocket: WebSocket) -> None:
             full_response = ''.join(response_parts)
 
             # Fire-and-forget memory extraction
-            asyncio.create_task(extract_and_save_memories(user_slug, user_text, full_response, conversation_id))
+            asyncio.create_task(
+                extract_and_save_memories(user_slug, turn_plan.cleaned_text, full_response, conversation_id)
+            )
 
     except WebSocketDisconnect:
         log.info('chat: websocket disconnected')

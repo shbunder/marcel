@@ -180,3 +180,73 @@ class TestChatWebSocket:
             msg = json.loads(ws.receive_text())
             assert msg['type'] == 'error'
             assert 'user' in msg['message'].lower()
+
+
+# ---------------------------------------------------------------------------
+# Slash-prefix wiring (ISSUE-6a38cd) — /fast, /power, /<skillname>
+# ---------------------------------------------------------------------------
+
+
+class TestChatSlashPrefixes:
+    def test_power_prefix_returns_reject_message_without_model_call(self, tmp_path, monkeypatch):
+        """``/power ...`` → reject text streamed back, stream_turn never invoked."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        stream_called = False
+
+        async def never_stream(*args, **kwargs):
+            nonlocal stream_called
+            stream_called = True
+            yield RunStarted(conversation_id='x')
+
+        monkeypatch.setattr('marcel_core.api.chat.stream_turn', never_stream)
+        monkeypatch.setattr('marcel_core.api.chat.extract_and_save_memories', lambda *a, **k: asyncio.sleep(0))
+
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text(json.dumps({'text': '/power give me opus', 'user': 'shaun', 'conversation': None}))
+            ws.receive_text()  # started
+            msg_start = json.loads(ws.receive_text())
+            assert msg_start['type'] == 'text_message_start'
+            token = json.loads(ws.receive_text())
+            assert token['type'] == 'token'
+            assert 'power' in token['text'].lower()
+            assert 'reserved' in token['text'].lower()
+            msg_end = json.loads(ws.receive_text())
+            assert msg_end['type'] == 'text_message_end'
+            done = json.loads(ws.receive_text())
+            assert done['type'] == 'done'
+
+        assert stream_called is False
+
+    def test_fast_prefix_passes_tier_and_cleaned_text_to_stream(self, tmp_path, monkeypatch):
+        """``/fast hello`` → stream_turn receives turn_plan with USER_PREFIX tier and 'hello'."""
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.harness.turn_router import TierSource
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        captured: dict = {}
+
+        async def fake_stream(user_slug, channel, user_text, conversation_id, **kwargs):
+            captured['user_text'] = user_text
+            captured['turn_plan'] = kwargs.get('turn_plan')
+            yield RunStarted(conversation_id=conversation_id)
+            yield TextDelta(text='ok')
+            yield RunFinished()
+
+        monkeypatch.setattr('marcel_core.api.chat.stream_turn', fake_stream)
+        monkeypatch.setattr('marcel_core.api.chat.extract_and_save_memories', lambda *a, **k: asyncio.sleep(0))
+
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text(json.dumps({'text': '/fast hello', 'user': 'shaun', 'conversation': None}))
+            # Drain until done
+            while True:
+                msg = json.loads(ws.receive_text())
+                if msg['type'] == 'done':
+                    break
+
+        plan = captured['turn_plan']
+        assert plan is not None
+        assert plan.tier is Tier.FAST
+        assert plan.source is TierSource.USER_PREFIX
+        assert plan.cleaned_text == 'hello'

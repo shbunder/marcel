@@ -185,6 +185,117 @@ class TestProcessAssistantMessage:
 
 
 # ---------------------------------------------------------------------------
+# Slash-prefix wiring (ISSUE-6a38cd) — /fast, /power, /<skillname>
+# ---------------------------------------------------------------------------
+
+
+class TestTelegramSlashPrefixes:
+    @pytest.mark.asyncio
+    async def test_fast_prefix_strips_slash_and_sets_tier(self, tmp_path, monkeypatch):
+        """``/fast hello`` → stream_turn receives cleaned text ``hello`` at tier FAST."""
+        from marcel_core.channels.telegram.webhook import _process_assistant_message
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.harness.runner import TextDelta
+        from marcel_core.harness.turn_router import TierSource
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        captured: dict = {}
+
+        async def fake_stream(user_slug, channel, user_text, conversation_id, **kwargs):
+            captured['user_text'] = user_text
+            captured['turn_plan'] = kwargs.get('turn_plan')
+            yield TextDelta(text='ok')
+
+        with patch('marcel_core.channels.telegram.webhook.stream_turn', fake_stream):
+            with patch('marcel_core.channels.telegram.bot.send_message', AsyncMock(return_value=1)):
+                with patch('marcel_core.channels.telegram.webhook.extract_and_save_memories', AsyncMock()):
+                    await _process_assistant_message(
+                        42, 'shaun', '/fast hello', {'message_id': None, 'sent': False, 'cancelled': False}
+                    )
+
+        plan = captured['turn_plan']
+        assert plan is not None
+        assert plan.tier is Tier.FAST
+        assert plan.source is TierSource.USER_PREFIX
+        assert plan.cleaned_text == 'hello'
+
+    @pytest.mark.asyncio
+    async def test_power_prefix_is_rejected_without_model_call(self, tmp_path, monkeypatch):
+        """``/power ...`` replies with the canned rejection and never enters stream_turn."""
+        from marcel_core.channels.telegram.webhook import _process_assistant_message
+        from marcel_core.harness.turn_router import POWER_REJECT_MESSAGE
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        stream_called = False
+
+        async def never_stream(*args, **kwargs):
+            nonlocal stream_called
+            stream_called = True
+            yield
+
+        sent: list[str] = []
+
+        async def fake_send(chat_id, text, **kwargs):
+            sent.append(text)
+            return 1
+
+        with patch('marcel_core.channels.telegram.webhook.stream_turn', never_stream):
+            with patch('marcel_core.channels.telegram.bot.send_message', fake_send):
+                await _process_assistant_message(
+                    42, 'shaun', '/power give me opus', {'message_id': None, 'sent': False, 'cancelled': False}
+                )
+
+        assert stream_called is False
+        # POWER_REJECT_MESSAGE goes through escape_html for the send path.
+        assert any('power' in t.lower() for t in sent)
+        assert any('reserved' in t.lower() for t in sent)
+        # Sanity check the message we built matches the canonical constant.
+        assert 'power' in POWER_REJECT_MESSAGE.lower()
+
+    @pytest.mark.asyncio
+    async def test_skill_prefix_seeds_read_skills_and_passes_args(self, tmp_path, monkeypatch):
+        """``/weather tomorrow`` → plan has skill_override='weather' and cleaned_text='tomorrow'."""
+        from marcel_core.channels.telegram.webhook import _process_assistant_message
+        from marcel_core.harness.runner import TextDelta
+        from marcel_core.skills.loader import SkillDoc
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        captured: dict = {}
+
+        async def fake_stream(user_slug, channel, user_text, conversation_id, **kwargs):
+            captured['user_text'] = user_text
+            captured['turn_plan'] = kwargs.get('turn_plan')
+            yield TextDelta(text='ok')
+
+        weather_doc = SkillDoc(
+            name='weather',
+            description='',
+            content='',
+            is_setup=False,
+            source='data',
+            preferred_tier=None,
+        )
+        with patch('marcel_core.skills.loader.load_skills', return_value=[weather_doc]):
+            with patch('marcel_core.channels.telegram.webhook.stream_turn', fake_stream):
+                with patch('marcel_core.channels.telegram.bot.send_message', AsyncMock(return_value=1)):
+                    with patch('marcel_core.channels.telegram.webhook.extract_and_save_memories', AsyncMock()):
+                        await _process_assistant_message(
+                            42,
+                            'shaun',
+                            '/weather tomorrow',
+                            {'message_id': None, 'sent': False, 'cancelled': False},
+                        )
+
+        plan = captured['turn_plan']
+        assert plan is not None
+        assert plan.skill_override == 'weather'
+        assert plan.cleaned_text == 'tomorrow'
+
+
+# ---------------------------------------------------------------------------
 # Callback query handling
 # ---------------------------------------------------------------------------
 

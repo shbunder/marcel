@@ -144,6 +144,42 @@ class TestBuildChain:
         assert chain[0].model == 'local:qwen3.5:4b'
         assert chain[0].purpose == 'primary'
 
+    def test_fallback_tier_defaults_to_local(self, monkeypatch):
+        """Default fallback_tier reads marcel_fallback_model (historical behavior)."""
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', None)
+        monkeypatch.setattr(settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
+
+        chain = build_chain(tier=Tier.STANDARD, mode='explain')
+        assert [e.tier for e in chain] == [Tier.STANDARD, Tier.LOCAL]
+        assert chain[-1].model == 'local:qwen3.5:4b'
+
+    def test_fallback_tier_can_be_cloud_tier(self, monkeypatch):
+        """Admin can set fallback_tier=FAST so the tail is a cloud haiku, not local."""
+        monkeypatch.setattr(settings, 'marcel_fast_model', 'anthropic:claude-haiku-4-5-20251001')
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', None)
+        monkeypatch.setattr(settings, 'marcel_fallback_model', None)
+
+        chain = build_chain(tier=Tier.STANDARD, mode='explain', fallback_tier=Tier.FAST)
+        assert [e.tier for e in chain] == [Tier.STANDARD, Tier.FAST]
+        assert chain[-1].model == 'anthropic:claude-haiku-4-5-20251001'
+        assert chain[-1].purpose == 'explain'
+
+    def test_fallback_tier_equal_to_caller_tier_is_skipped(self, monkeypatch):
+        """No point tailing the chain with the same tier that just failed."""
+        monkeypatch.setattr(settings, 'marcel_fast_model', 'anthropic:claude-haiku-4-5-20251001')
+        monkeypatch.setattr(settings, 'marcel_fast_backup_model', None)
+        monkeypatch.setattr(settings, 'marcel_fallback_model', None)
+
+        chain = build_chain(tier=Tier.FAST, mode='explain', fallback_tier=Tier.FAST)
+        assert [e.tier for e in chain] == [Tier.FAST]
+
+    def test_fallback_tier_power_is_rejected(self):
+        """POWER is never admin-selectable — build_chain mirrors AdminTierConfig's guard."""
+        with pytest.raises(ValueError, match='fallback_tier cannot be POWER'):
+            build_chain(tier=Tier.STANDARD, fallback_tier=Tier.POWER)
+
 
 class TestIsFallbackEligible:
     def test_overloaded_is_eligible(self):

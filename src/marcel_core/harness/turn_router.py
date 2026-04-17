@@ -235,6 +235,33 @@ def resolve_turn(
     return TurnPlan(tier=tier, cleaned_text=user_text, source=source)
 
 
+def resolve_turn_for_user(user_slug: str, user_text: str) -> TurnPlan:
+    """I/O-bearing wrapper around :func:`resolve_turn` for channel adapters.
+
+    Channels (Telegram webhook, WebSocket ``/api/chat``) call this once per
+    incoming message to decide what to do: send a reject message, dispatch
+    to a skill, or pass the plan through to :func:`stream_turn`. It looks up
+    the user's available skills (for ``/<skillname>`` validation) and reads
+    admin tier defaults from settings; callers deeper in the runner must use
+    the pure :func:`resolve_turn` directly instead so the core stays
+    test-friendly.
+
+    Session tier and active-skill tier are *not* resolved here — the channel
+    has no need for them. The runner applies them in :func:`stream_turn`
+    after loading history and priming ``read_skills``.
+    """
+    from marcel_core.skills.loader import load_skills
+
+    known_skills = tuple(doc.name for doc in load_skills(user_slug))
+    return resolve_turn(
+        user_text,
+        active_skill_tier=None,
+        session_tier=None,
+        admin_config=AdminTierConfig.from_settings(),
+        known_skills=known_skills,
+    )
+
+
 def _tier_from_context(
     active_skill_tier: Tier | None,
     session_tier: Tier | None,
@@ -266,4 +293,5 @@ __all__ = [
     'TierSource',
     'TurnPlan',
     'resolve_turn',
+    'resolve_turn_for_user',
 ]
