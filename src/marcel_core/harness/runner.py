@@ -30,12 +30,18 @@ from marcel_core.config import settings
 from marcel_core.harness.agent import create_marcel_agent
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.harness.model_chain import (
+    Tier,
     TierEntry,
     build_chain,
     build_explain_system_prompt,
     build_explain_user_prompt,
     is_fallback_eligible,
     next_tier,
+)
+from marcel_core.harness.tier_classifier import (
+    classify_initial_tier,
+    load_routing_config,
+    maybe_bump_tier,
 )
 from marcel_core.memory.conversation import (
     MAX_SUMMARY_CHARS,
@@ -46,7 +52,11 @@ from marcel_core.memory.conversation import (
 from marcel_core.memory.history import HistoryMessage, ToolCall
 from marcel_core.memory.pastes import PASTE_THRESHOLD, store_paste
 from marcel_core.memory.summarizer import summarize_if_idle
-from marcel_core.storage.settings import load_channel_model
+from marcel_core.storage.settings import (
+    load_channel_model,
+    load_channel_tier,
+    save_channel_tier,
+)
 from marcel_core.storage.users import get_user_role
 
 log = logging.getLogger(__name__)
@@ -196,6 +206,12 @@ async def build_context(
     summarized = await summarize_if_idle(user_slug, channel, idle_minutes)
     if summarized:
         log.info('%s-%s: idle summarization completed before turn', user_slug, channel)
+        # ISSUE-e0db47: session boundary → clear the tier so the next
+        # message re-classifies from scratch instead of inheriting the
+        # prior session's tier.
+        from marcel_core.storage.settings import clear_channel_tier
+
+        clear_channel_tier(user_slug, channel)
 
     # 2. Load latest summary
     latest_summary = load_latest_summary(user_slug, channel)
@@ -408,6 +424,92 @@ def _serialize_tool_content(content: object) -> str:
     return str(content)
 
 
+_TIER_RANK = {'fast': 1, 'standard': 2, 'power': 3}
+_TIER_FROM_STR = {'fast': Tier.FAST, 'standard': Tier.STANDARD, 'power': Tier.POWER}
+
+
+def _active_skill_tier(user_slug: str, active_names: set[str]) -> tuple[Tier, str] | None:
+    """Highest ``preferred_tier`` among skills whose docs are in this turn's context.
+
+    POWER beats STANDARD beats FAST — a demanding skill wins. Returns
+    ``(tier, skill_name)`` or ``None`` when no active skill declares a tier.
+    """
+    if not active_names:
+        return None
+    from marcel_core.skills.loader import load_skills
+
+    best: tuple[Tier, str] | None = None
+    best_rank = 0
+    for doc in load_skills(user_slug):
+        if doc.name not in active_names or not doc.preferred_tier:
+            continue
+        rank = _TIER_RANK.get(doc.preferred_tier, 0)
+        if rank > best_rank:
+            best_rank = rank
+            best = (_TIER_FROM_STR[doc.preferred_tier], doc.name)
+    return best
+
+
+def _resolve_turn_tier(
+    user_slug: str,
+    channel: str,
+    user_text: str,
+    active_skill_names: set[str],
+) -> tuple[Tier, str]:
+    """Decide which tier this interactive turn runs on.
+
+    Precedence (highest wins):
+
+    1. Active skill ``preferred_tier`` — per-turn override, does **not**
+       mutate the session tier. When multiple active skills declare a tier,
+       the highest one wins.
+    2. Session tier in ``channel_tiers``. Set by the classifier on the
+       first message of the session and bumped on frustration.
+    3. Classifier on the first message — saves the result to
+       ``channel_tiers``. The classifier only picks FAST or STANDARD;
+       POWER is never auto-selected here.
+
+    Frustration detection runs only when falling through to the session
+    tier (step 2/3). A bump (FAST → STANDARD) mutates ``channel_tiers``.
+
+    Returns ``(tier, reason)`` where ``reason`` is a short log-friendly
+    string identifying why this tier was picked.
+    """
+    skill_override = _active_skill_tier(user_slug, active_skill_names)
+    if skill_override is not None:
+        tier, name = skill_override
+        return tier, f'skill:{name}:{tier.value}'
+
+    cfg = load_routing_config()
+    stored = load_channel_tier(user_slug, channel)
+    if stored is None:
+        session_tier, classify_reason = classify_initial_tier(user_text, cfg)
+        save_channel_tier(user_slug, channel, session_tier.value)
+        reason = f'classified:{classify_reason}'
+    else:
+        try:
+            session_tier = Tier(stored)
+        except ValueError:
+            log.warning(
+                'tier_resolver: invalid stored tier %r for (%s,%s) — reclassifying',
+                stored,
+                user_slug,
+                channel,
+            )
+            session_tier, classify_reason = classify_initial_tier(user_text, cfg)
+            save_channel_tier(user_slug, channel, session_tier.value)
+            reason = f'classified:{classify_reason}'
+        else:
+            reason = f'session:{session_tier.value}'
+
+    bumped, bump_reason = maybe_bump_tier(session_tier, user_text, cfg)
+    if bumped != session_tier:
+        save_channel_tier(user_slug, channel, bumped.value)
+        return bumped, f'frustration_bump:{bump_reason}'
+
+    return session_tier, reason
+
+
 async def stream_turn(
     user_slug: str,
     channel: str,
@@ -471,10 +573,22 @@ async def stream_turn(
 
     system_prompt = await build_instructions_async(deps, query=user_text)
 
-    # Tier 1 model: explicit override > per-channel setting > standard env var.
-    # The chain helper owns tiers 2 and 3 (MARCEL_BACKUP_MODEL / MARCEL_FALLBACK_MODEL).
+    # Tier selection (ISSUE-e0db47): active skill preferred_tier > session tier
+    # (set by classifier, bumped on frustration). Subagent ``model:`` overrides
+    # resolve separately in delegate.py and never reach this path.
+    tier, tier_reason = _resolve_turn_tier(user_slug, channel, user_text, deps.turn.read_skills)
+    log.info(
+        'tier_resolved user=%s channel=%s tier=%s reason=%s',
+        user_slug,
+        channel,
+        tier.value,
+        tier_reason,
+    )
+
+    # Primary model: explicit override > per-channel pin > tier default.
+    # ``build_chain`` picks the backup from the tier's env var either way.
     primary_model = model or load_channel_model(user_slug, channel)
-    chain = build_chain(primary=primary_model, mode='explain')
+    chain = build_chain(tier=tier, primary=primary_model, mode='explain')
 
     yield RunStarted(conversation_id=conversation_id)
 

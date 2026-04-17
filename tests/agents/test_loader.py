@@ -85,12 +85,19 @@ class TestLoadAgentsHappyPath:
         _write_agent(agents_root, 'inh', 'name: inh\ndescription: d\nmodel: inherit')
         assert load_agent('inh').model is None
 
-    @pytest.mark.parametrize('tier_name', ['standard', 'backup', 'fallback', 'power'])
+    @pytest.mark.parametrize('tier_name', ['fast', 'standard', 'power', 'fallback'])
     def test_model_tier_sentinel_parsing(self, agents_root: Path, tier_name: str) -> None:
         """Single-word tier names in frontmatter become ``tier:<name>`` sentinels
-        that the delegate tool resolves against settings at call time (ISSUE-076)."""
+        that the delegate tool resolves against settings at call time
+        (ISSUE-076, ISSUE-e0db47)."""
         _write_agent(agents_root, tier_name, f'name: {tier_name}\ndescription: d\nmodel: {tier_name}')
         assert load_agent(tier_name).model == f'tier:{tier_name}'
+
+    def test_removed_backup_tier_is_skipped(self, agents_root: Path) -> None:
+        """model: backup is a removed sentinel — the loader drops the agent."""
+        _write_agent(agents_root, 'bk', 'name: bk\ndescription: d\nmodel: backup')
+        with pytest.raises(Exception, match='No subagent'):
+            load_agent('bk')
 
     def test_model_fully_qualified_passes_through(self, agents_root: Path) -> None:
         """Fully-qualified provider:model strings are kept verbatim — no

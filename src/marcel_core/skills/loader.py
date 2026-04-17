@@ -31,6 +31,9 @@ def _skills_dir() -> Path:
     return settings.data_dir / 'skills'
 
 
+_VALID_PREFERRED_TIERS = {'fast', 'standard', 'power'}
+
+
 @dataclass
 class SkillDoc:
     """A loaded skill document ready for injection into the system prompt."""
@@ -44,6 +47,31 @@ class SkillDoc:
     """Credential keys declared in requires.credentials (for auto-injection)."""
     components: list[ComponentSchema] = dataclasses.field(default_factory=list)
     """A2UI component schemas declared in this skill's components.yaml."""
+    preferred_tier: str | None = None
+    """Optional ``fast`` / ``standard`` / ``power`` — per-turn tier override while this skill is active.
+
+    Does NOT mutate the session tier; the override applies only to turns
+    where this skill is the active one. See ISSUE-e0db47.
+    """
+
+
+def _parse_preferred_tier(value: object, skill_name: str) -> str | None:
+    """Validate and return the ``preferred_tier`` frontmatter value.
+
+    Unknown values are dropped with a warning rather than raising — a broken
+    frontmatter edit must never hide the skill from the agent.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in _VALID_PREFERRED_TIERS:
+        log.warning(
+            'skills: %s declares invalid preferred_tier=%r — must be one of %s; ignoring',
+            skill_name,
+            value,
+            sorted(_VALID_PREFERRED_TIERS),
+        )
+        return None
+    return value
 
 
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -175,6 +203,7 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
         description = fm.get('description', '')
         requires = fm.get('requires', {})
         cred_keys = requires.get('credentials', []) if requires else []
+        preferred_tier = _parse_preferred_tier(fm.get('preferred_tier'), name)
 
         # Update component skill names to match the resolved skill name
         for c in components:
@@ -189,9 +218,12 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
                 source=source,
                 credential_keys=cred_keys,
                 components=components,
+                preferred_tier=preferred_tier,
             )
 
-        # Requirements not met — fall back to SETUP.md
+        # Requirements not met — fall back to SETUP.md. SETUP flows must not
+        # burn a more-expensive tier, so the preferred_tier is deliberately
+        # dropped for the setup variant.
         if setup_md.exists():
             setup_text = setup_md.read_text(encoding='utf-8')
             setup_fm, setup_body = _parse_frontmatter(setup_text)
@@ -214,6 +246,7 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
             source=source,
             credential_keys=cred_keys,
             components=components,
+            preferred_tier=preferred_tier,
         )
 
     # Only SETUP.md exists (no SKILL.md) — unusual but supported

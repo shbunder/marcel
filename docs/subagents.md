@@ -97,7 +97,7 @@ goes entirely to its own specialized instructions.
 |-----|------|---------|---------|
 | `name` | string | filename stem | Identifier used by `delegate(subagent_type=...)`. Must be unique within the agents directory. |
 | `description` | string | `""` | One-line summary shown in the agent index. |
-| `model` | string | `inherit` | Pydantic-ai model string (e.g. `anthropic:claude-haiku-4-5-20251001`). `inherit` uses the parent's model. Supports `local:<tag>` for self-hosted models and tier sentinels `standard` / `backup` / `fallback` / `power` (see [Model tier sentinels](#model-tier-sentinels)). |
+| `model` | string | `inherit` | Pydantic-ai model string (e.g. `anthropic:claude-haiku-4-5-20251001`). `inherit` uses the parent's model. Supports `local:<tag>` for self-hosted models and tier sentinels `fast` / `standard` / `power` / `fallback` (see [Model tier sentinels](#model-tier-sentinels)). |
 | `tools` | list[string] | *(all role-default tools)* | Tool-name allowlist. See [Tool names](#tool-names). Omit for the full role-default pool. |
 | `disallowed_tools` | list[string] | `[]` | Tools to remove after the allowlist is applied. Handy when you want "everything except X". |
 | `max_requests` | int | *(none)* | Maximum model calls per delegated run (pydantic-ai `UsageLimits.request_limit`). Prevents runaway nesting. |
@@ -110,14 +110,14 @@ Clawcode-compatible aliases are also accepted: `disallowedTools` for
 
 In addition to fully-qualified `provider:model` strings, the `model`
 frontmatter field accepts four **tier sentinels** that resolve against
-the ISSUE-076 fallback chain env vars at delegate time:
+the per-tier env vars at delegate time:
 
-| Sentinel | Resolves to              |
-|----------|--------------------------|
-| `standard` | `MARCEL_STANDARD_MODEL` |
-| `backup`   | `MARCEL_BACKUP_MODEL`   |
-| `fallback` | `MARCEL_FALLBACK_MODEL` |
-| `power`    | `MARCEL_POWER_MODEL`    |
+| Sentinel   | Resolves to                |
+|------------|----------------------------|
+| `fast`     | `MARCEL_FAST_MODEL`        |
+| `standard` | `MARCEL_STANDARD_MODEL`    |
+| `power`    | `MARCEL_POWER_MODEL`       |
+| `fallback` | `MARCEL_FALLBACK_MODEL`    |
 
 The resolution happens every time the subagent is invoked, so env-var
 updates take effect on the next turn without a restart. If the referenced
@@ -125,6 +125,10 @@ env var is unset when the agent is invoked, `delegate()` returns a clean
 `delegate error:` message rather than raising — the parent can decide
 how to recover. See [docs/model-tiers.md](./model-tiers.md) for the full
 tier system.
+
+> **Removed (ISSUE-e0db47):** the `backup` sentinel is no longer accepted.
+> Agent loading rejects it at startup with a warning pointing at the new
+> per-tier names.
 
 ### Tool names
 

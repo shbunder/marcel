@@ -7,7 +7,13 @@ import pathlib
 import pytest
 
 import marcel_core.storage._root as _root_mod
-from marcel_core.storage.settings import load_channel_model, save_channel_model
+from marcel_core.storage.settings import (
+    clear_channel_tier,
+    load_channel_model,
+    load_channel_tier,
+    save_channel_model,
+    save_channel_tier,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -145,6 +151,48 @@ async def test_set_model_missing_params_returns_error():
 
     result = await set_model({'model': 'anthropic:claude-opus-4-6'}, 'shaun')
     assert 'Error' in result
+
+
+# ---------------------------------------------------------------------------
+# channel_tiers (ISSUE-e0db47)
+# ---------------------------------------------------------------------------
+
+
+def test_channel_tier_load_returns_none_when_unset():
+    assert load_channel_tier('shaun', 'telegram') is None
+
+
+def test_channel_tier_roundtrip():
+    save_channel_tier('shaun', 'telegram', 'fast')
+    assert load_channel_tier('shaun', 'telegram') == 'fast'
+
+
+def test_channel_tier_clear_removes_entry():
+    save_channel_tier('shaun', 'telegram', 'standard')
+    clear_channel_tier('shaun', 'telegram')
+    assert load_channel_tier('shaun', 'telegram') is None
+
+
+def test_channel_tier_clear_is_noop_when_unset():
+    # Must not raise or create a settings file needlessly.
+    clear_channel_tier('shaun', 'telegram')
+    assert load_channel_tier('shaun', 'telegram') is None
+
+
+def test_channel_tier_and_channel_model_coexist():
+    save_channel_model('shaun', 'telegram', 'anthropic:claude-opus-4-6')
+    save_channel_tier('shaun', 'telegram', 'fast')
+    assert load_channel_model('shaun', 'telegram') == 'anthropic:claude-opus-4-6'
+    assert load_channel_tier('shaun', 'telegram') == 'fast'
+
+
+def test_channel_tiers_per_channel_and_user_independent():
+    save_channel_tier('shaun', 'telegram', 'fast')
+    save_channel_tier('shaun', 'cli', 'standard')
+    save_channel_tier('other', 'telegram', 'standard')
+    assert load_channel_tier('shaun', 'telegram') == 'fast'
+    assert load_channel_tier('shaun', 'cli') == 'standard'
+    assert load_channel_tier('other', 'telegram') == 'standard'
 
 
 def test_self_healing_migration_qualifies_legacy_names(tmp_path: pathlib.Path):

@@ -224,20 +224,28 @@ systemctl --user stop marcel
 | `MARCEL_TRACING_ENABLED` | No | Enable OpenTelemetry LLM tracing (default: `false`) |
 | `MARCEL_TRACING_ENDPOINT` | No | OTLP endpoint for traces (default: `http://localhost:6006`) |
 
-#### Model tiers (optional — four-tier fallback chain)
+#### Model tiers (optional — three-tier ladder with per-tier backups)
 
 Marcel runs fine with just `ANTHROPIC_API_KEY` set. The variables below add
-cross-provider resilience: if Anthropic is overloaded, Marcel silently
-retries against a backup provider; if every cloud model is down, a small
-local model explains the outage in plain language instead of showing a
-stack trace. Full details in [docs/model-tiers.md](docs/model-tiers.md).
+cross-provider resilience: each tier has its own OpenAI-compatible backup,
+and a shared local fallback explains outages in plain language instead of
+showing a stack trace. Full details in
+[docs/model-tiers.md](docs/model-tiers.md); session classifier config in
+[docs/routing.md](docs/routing.md).
+
+> **Breaking change (ISSUE-e0db47):** `MARCEL_BACKUP_MODEL` was removed.
+> Migrate to the matching per-tier variable — typically
+> `MARCEL_STANDARD_BACKUP_MODEL`.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `MARCEL_STANDARD_MODEL` | No | Tier 1 — normal calls. Defaults to `anthropic:claude-sonnet-4-6`. |
-| `MARCEL_BACKUP_MODEL` | No | Tier 2 — different-cloud backup tried on overloaded/5xx/auth errors. Example: `openai:gpt-4o`. |
-| `MARCEL_FALLBACK_MODEL` | No | Tier 3 — local-LLM apology when every cloud tier fails. Example: `local:ministral-3:14b`. Requires `MARCEL_LOCAL_LLM_URL` + `MARCEL_LOCAL_LLM_MODEL`. |
-| `MARCEL_POWER_MODEL` | No | Optional heavyweight model the `power` subagent escalates to for hard tasks. Example: `anthropic:claude-opus-4-6`. |
+| `MARCEL_FAST_MODEL` | No | FAST tier primary — used for simple lookups. Default: `anthropic:claude-haiku-4-5-20251001`. |
+| `MARCEL_FAST_BACKUP_MODEL` | No | Cross-cloud backup for FAST. Example: `openai:gpt-4o-mini`. |
+| `MARCEL_STANDARD_MODEL` | No | STANDARD tier primary — the daily driver. Default: `anthropic:claude-sonnet-4-6`. |
+| `MARCEL_STANDARD_BACKUP_MODEL` | No | Cross-cloud backup for STANDARD. Example: `openai:gpt-4o`. |
+| `MARCEL_POWER_MODEL` | No | POWER tier primary — used by the `power` subagent and skills with `preferred_tier: power`. Default: `anthropic:claude-opus-4-6`. |
+| `MARCEL_POWER_BACKUP_MODEL` | No | Cross-cloud backup for POWER. Example: `openai:gpt-4o`. |
+| `MARCEL_FALLBACK_MODEL` | No | Shared local fallback. Explains outages in turns; retries the task in jobs. Example: `local:ministral-3:14b`. Requires `MARCEL_LOCAL_LLM_URL` + `MARCEL_LOCAL_LLM_MODEL`. |
 | `MARCEL_LOCAL_LLM_URL` | For local tier | OpenAI-compatible base URL of your local LLM (e.g. Ollama at `http://127.0.0.1:11434/v1`). See [docs/local-llm.md](docs/local-llm.md). |
 | `MARCEL_LOCAL_LLM_MODEL` | For local tier | Model tag the local server serves (e.g. `ministral-3:14b`). |
 

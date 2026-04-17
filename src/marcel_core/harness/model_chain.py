@@ -1,42 +1,46 @@
-"""Four-tier model fallback chain (ISSUE-076).
+"""Per-tier model fallback chain (ISSUE-e0db47, extends ISSUE-076).
 
-This module centralises Marcel's "which model do I use when the primary
-fails" policy so that both the interactive turn runner and the scheduled
-job executor share the same tier resolution + error-eligibility rules.
+Centralises Marcel's "which model do I use when the primary fails" policy
+so that both the interactive turn runner and the scheduled job executor
+share the same tier resolution + error-eligibility rules.
 
 Tiers
 -----
 
-1. ``STANDARD`` — normal calls. ``settings.marcel_standard_model``, or an
-   explicit ``primary`` override (per-channel pin, explicit caller arg).
-2. ``BACKUP`` — different-cloud-provider backup tried when tier 1 raises a
-   transient or auth/quota error. ``settings.marcel_backup_model``; skipped
-   when unset.
-3. ``FALLBACK`` — last-ditch model, typically a small local LLM.
-   ``settings.marcel_fallback_model``; skipped when unset, or when the
-   value is a ``local:`` string but ``marcel_local_llm_url`` /
-   ``marcel_local_llm_model`` aren't configured. Has two run modes:
+Three tiers form an auto-routable ladder; each has its own cross-cloud
+backup, and they share a single local-LLM fallback for user-facing apology.
 
-   * ``'explain'`` (interactive turns) — runs with an empty message history,
-     an empty tool filter, and a synthesized system prompt whose sole job is
-     to tell the user that cloud models are temporarily unavailable. Does
-     *not* attempt to answer the original question — small local models will
-     hallucinate, and the primary goal is a reliable error message.
-   * ``'complete'`` (scheduled jobs) — runs the same task against the local
-     model like the legacy ISSUE-070 path. Preserves existing semantics.
+* ``FAST`` — Haiku-class. Primary from ``settings.marcel_fast_model``,
+  optional cross-cloud backup from ``settings.marcel_fast_backup_model``.
+* ``STANDARD`` — Sonnet-class daily driver. Primary from
+  ``settings.marcel_standard_model``, optional backup from
+  ``settings.marcel_standard_backup_model``.
+* ``POWER`` — Opus-class. Primary from ``settings.marcel_power_model``,
+  optional backup from ``settings.marcel_power_backup_model``. Never
+  auto-selected by the session classifier; reached only via an explicit
+  skill ``preferred_tier: power`` or subagent ``model: power``.
 
-4. ``POWER`` — not part of the failure chain. Returned here only so a single
-   ``tier:<name>`` sentinel vocabulary covers every tier. Used by the
-   ``power`` default subagent via the delegate tool.
+``FALLBACK`` is not a user-facing tier. It's the shared last-resort local
+LLM (``settings.marcel_fallback_model``) used to *explain* a failure to the
+user when every cloud option in the chain is down. Skipped when unset, or
+when the value is a ``local:`` string but ``marcel_local_llm_url`` /
+``marcel_local_llm_model`` aren't configured. Two run modes:
+
+* ``'explain'`` (interactive turns) — runs with an empty message history,
+  an empty tool filter, and a synthesized system prompt whose sole job is
+  to tell the user that cloud models are temporarily unavailable. Does
+  *not* attempt to answer the original question.
+* ``'complete'`` (scheduled jobs) — runs the same task against the local
+  model like the legacy ISSUE-070 path. Preserves existing semantics.
 
 Usage
 -----
 
 .. code-block:: python
 
-    from marcel_core.harness.model_chain import build_chain, is_fallback_eligible, next_tier
+    from marcel_core.harness.model_chain import Tier, build_chain, is_fallback_eligible, next_tier
 
-    chain = build_chain(primary=channel_pin, mode='explain')
+    chain = build_chain(tier=Tier.STANDARD, primary=channel_pin, mode='explain')
     current = chain[0]
     while current is not None:
         try:
@@ -123,12 +127,17 @@ def classify_error(error: str) -> tuple[bool, str]:
 
 
 class Tier(str, Enum):
-    """The four named tiers in Marcel's model fallback chain."""
+    """Named tiers in Marcel's model ladder.
 
+    ``FAST``/``STANDARD``/``POWER`` are the user-facing tiers. ``FALLBACK``
+    is the shared last-resort local explainer — not auto-routable; not a
+    valid ``tier:<name>`` sentinel for skill/subagent frontmatter.
+    """
+
+    FAST = 'fast'
     STANDARD = 'standard'
-    BACKUP = 'backup'
-    FALLBACK = 'fallback'
     POWER = 'power'
+    FALLBACK = 'fallback'
 
 
 Purpose = Literal['primary', 'backup', 'explain', 'complete']
@@ -181,45 +190,58 @@ def _fallback_tier_usable(model: str) -> bool:
     return True
 
 
+_TIER_PRIMARY_ATTR = {
+    Tier.FAST: 'marcel_fast_model',
+    Tier.STANDARD: 'marcel_standard_model',
+    Tier.POWER: 'marcel_power_model',
+}
+
+_TIER_BACKUP_ATTR = {
+    Tier.FAST: 'marcel_fast_backup_model',
+    Tier.STANDARD: 'marcel_standard_backup_model',
+    Tier.POWER: 'marcel_power_backup_model',
+}
+
+
 def build_chain(
     *,
+    tier: Tier = Tier.STANDARD,
     primary: str | None = None,
     mode: Literal['explain', 'complete'] = 'explain',
 ) -> list[TierEntry]:
     """Resolve the ordered tier list for a given call.
 
     Args:
-        primary: Optional override for tier 1. When ``None`` the chain uses
-            ``settings.marcel_standard_model``. A per-channel pin or explicit
-            caller argument should pass in their resolved value here — this
-            replaces tier 1 *only*, tiers 2 and 3 still come from env vars.
-        mode: ``'explain'`` for interactive turns (tier 3 gets the
-            explain-failure purpose), ``'complete'`` for scheduled jobs (tier
-            3 tries to finish the task on the local model, matching the
-            legacy ISSUE-070 fallback semantics).
+        tier: The user-facing tier driving this call. Selects the primary
+            model env var and the per-tier backup env var. Must be one of
+            ``FAST``/``STANDARD``/``POWER`` — ``FALLBACK`` is not a valid
+            caller tier.
+        primary: Optional override for the primary slot. When ``None`` the
+            chain uses ``settings.marcel_<tier>_model``. A per-channel pin
+            or explicit caller argument passes in its resolved value here —
+            this replaces the primary *only*, the backup still comes from
+            ``settings.marcel_<tier>_backup_model``.
+        mode: ``'explain'`` for interactive turns (local fallback gets the
+            explain-failure purpose), ``'complete'`` for scheduled jobs
+            (local fallback tries to finish the task on the local model,
+            matching legacy ISSUE-070 semantics).
 
     Returns:
-        A list with at least one entry (tier 1). Tier 2 is appended iff
-        ``settings.marcel_backup_model`` is set. Tier 3 is appended iff
-        ``settings.marcel_fallback_model`` is set *and*, when it's a
-        ``local:`` model, the local LLM transport is configured.
+        A list with at least one entry (the primary). The per-tier backup is
+        appended iff ``settings.marcel_<tier>_backup_model`` is set. The
+        shared local fallback is appended iff ``settings.marcel_fallback_model``
+        is set *and*, when it's a ``local:`` model, the local LLM transport
+        is configured.
     """
-    chain: list[TierEntry] = [
-        TierEntry(
-            tier=Tier.STANDARD,
-            model=primary or settings.marcel_standard_model,
-            purpose='primary',
-        )
-    ]
+    if tier not in _TIER_PRIMARY_ATTR:
+        raise ValueError(f'build_chain: {tier} is not a caller tier (use FAST, STANDARD, or POWER)')
 
-    if settings.marcel_backup_model:
-        chain.append(
-            TierEntry(
-                tier=Tier.BACKUP,
-                model=settings.marcel_backup_model,
-                purpose='backup',
-            )
-        )
+    primary_model = primary or getattr(settings, _TIER_PRIMARY_ATTR[tier])
+    chain: list[TierEntry] = [TierEntry(tier=tier, model=primary_model, purpose='primary')]
+
+    backup_model = getattr(settings, _TIER_BACKUP_ATTR[tier])
+    if backup_model:
+        chain.append(TierEntry(tier=tier, model=backup_model, purpose='backup'))
 
     fallback_model = settings.marcel_fallback_model
     if fallback_model and _fallback_tier_usable(fallback_model):
@@ -344,10 +366,10 @@ def resolve_tier_sentinel(sentinel: str) -> str:
     except ValueError:
         raise ValueError(f'unknown tier {tier_name!r}') from None
     tier_map = {
+        Tier.FAST: settings.marcel_fast_model,
         Tier.STANDARD: settings.marcel_standard_model,
-        Tier.BACKUP: settings.marcel_backup_model,
-        Tier.FALLBACK: settings.marcel_fallback_model,
         Tier.POWER: settings.marcel_power_model,
+        Tier.FALLBACK: settings.marcel_fallback_model,
     }
     resolved = tier_map[tier]
     if not resolved:

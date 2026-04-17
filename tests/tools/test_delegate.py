@@ -277,13 +277,24 @@ class TestTierSentinelResolution:
     async def test_sentinel_with_unset_env_returns_clean_error(
         self, agents_root: Path, fake_factory, monkeypatch: pytest.MonkeyPatch
     ):
-        monkeypatch.setattr(settings, 'marcel_backup_model', None)
+        """A subagent pinned to a tier whose env var is unset must fail cleanly."""
+        monkeypatch.setattr(settings, 'marcel_power_model', '')
+        _write_agent(agents_root, 'p', 'name: p\ndescription: d\nmodel: power')
+        result = await delegate(_ctx(), subagent_type='p', prompt='go')
+        assert 'delegate error' in result
+        assert 'power' in result.lower()
+        assert 'MARCEL_POWER_MODEL' in result
+        # Critical: delegate must not raise, and the fake_factory should not have been called
+        calls, _ = fake_factory
+        assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_removed_backup_tier_is_rejected_at_load_time(self, agents_root: Path, fake_factory):
+        """model: backup is a removed sentinel — the loader must skip the agent."""
         _write_agent(agents_root, 'bk', 'name: bk\ndescription: d\nmodel: backup')
         result = await delegate(_ctx(), subagent_type='bk', prompt='go')
         assert 'delegate error' in result
-        assert 'backup' in result.lower()
-        assert 'MARCEL_BACKUP_MODEL' in result
-        # Critical: delegate must not raise, and the fake_factory should not have been called
+        assert 'bk' in result  # the agent is unknown because it was skipped at load
         calls, _ = fake_factory
         assert calls == []
 

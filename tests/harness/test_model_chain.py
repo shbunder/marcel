@@ -1,4 +1,4 @@
-"""Tests for harness/model_chain.py — the ISSUE-076 fallback chain helper."""
+"""Tests for harness/model_chain.py — per-tier fallback chain (ISSUE-e0db47)."""
 
 from __future__ import annotations
 
@@ -21,39 +21,44 @@ from marcel_core.harness.model_chain import (
 def _reset_chain_settings(monkeypatch):
     """Start every test with a clean chain config so explicit monkeypatches
     are the only source of tier state."""
+    monkeypatch.setattr(settings, 'marcel_fast_model', 'anthropic:claude-haiku-4-5-20251001')
+    monkeypatch.setattr(settings, 'marcel_fast_backup_model', None)
     monkeypatch.setattr(settings, 'marcel_standard_model', 'anthropic:claude-sonnet-4-6')
-    monkeypatch.setattr(settings, 'marcel_backup_model', None)
+    monkeypatch.setattr(settings, 'marcel_standard_backup_model', None)
+    monkeypatch.setattr(settings, 'marcel_power_model', 'anthropic:claude-opus-4-6')
+    monkeypatch.setattr(settings, 'marcel_power_backup_model', None)
     monkeypatch.setattr(settings, 'marcel_fallback_model', None)
     monkeypatch.setattr(settings, 'marcel_local_llm_url', None)
     monkeypatch.setattr(settings, 'marcel_local_llm_model', None)
 
 
 class TestBuildChain:
-    def test_minimal_chain_is_tier_1_only(self):
-        chain = build_chain(primary=None, mode='explain')
+    def test_minimal_chain_is_primary_only(self):
+        chain = build_chain(mode='explain')
         assert len(chain) == 1
         assert chain[0].tier == Tier.STANDARD
         assert chain[0].model == 'anthropic:claude-sonnet-4-6'
         assert chain[0].purpose == 'primary'
 
     def test_full_chain_explain_mode(self, monkeypatch):
-        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
         monkeypatch.setattr(settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
         monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
         monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
 
-        chain = build_chain(primary=None, mode='explain')
-        assert [e.tier for e in chain] == [Tier.STANDARD, Tier.BACKUP, Tier.FALLBACK]
+        chain = build_chain(mode='explain')
+        assert [e.tier for e in chain] == [Tier.STANDARD, Tier.STANDARD, Tier.FALLBACK]
         assert [e.purpose for e in chain] == ['primary', 'backup', 'explain']
+        assert chain[1].model == 'openai:gpt-4o'
         assert chain[2].model == 'local:qwen3.5:4b'
 
     def test_full_chain_complete_mode_for_jobs(self, monkeypatch):
-        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
         monkeypatch.setattr(settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
         monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
         monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
 
-        chain = build_chain(primary=None, mode='complete')
+        chain = build_chain(mode='complete')
         assert chain[-1].purpose == 'complete'
 
     def test_skips_local_fallback_when_llm_url_missing(self, monkeypatch, caplog):
@@ -62,10 +67,9 @@ class TestBuildChain:
         monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
 
         with caplog.at_level('WARNING', logger='marcel_core.harness.model_chain'):
-            chain = build_chain(primary=None, mode='explain')
+            chain = build_chain(mode='explain')
 
         assert [e.tier for e in chain] == [Tier.STANDARD]
-        # The warning must name the missing env var so operators can diagnose.
         assert any('MARCEL_LOCAL_LLM_URL' in r.getMessage() for r in caplog.records), (
             'expected a warning naming MARCEL_LOCAL_LLM_URL'
         )
@@ -75,25 +79,60 @@ class TestBuildChain:
         monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
         monkeypatch.setattr(settings, 'marcel_local_llm_model', None)
 
-        chain = build_chain(primary=None, mode='explain')
+        chain = build_chain(mode='explain')
         assert [e.tier for e in chain] == [Tier.STANDARD]
 
     def test_non_local_fallback_does_not_require_llm_config(self, monkeypatch):
-        """A cloud model used as the fallback (not common, but valid) doesn't need MARCEL_LOCAL_LLM_*."""
+        """A cloud model used as the shared fallback doesn't need MARCEL_LOCAL_LLM_*."""
         monkeypatch.setattr(settings, 'marcel_fallback_model', 'openai:gpt-4o-mini')
 
-        chain = build_chain(primary=None, mode='explain')
+        chain = build_chain(mode='explain')
         assert [e.tier for e in chain] == [Tier.STANDARD, Tier.FALLBACK]
         assert chain[-1].model == 'openai:gpt-4o-mini'
 
-    def test_primary_override_replaces_tier_1_only(self, monkeypatch):
-        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+    def test_primary_override_replaces_primary_slot_only(self, monkeypatch):
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
 
         chain = build_chain(primary='anthropic:claude-haiku-4-5-20251001', mode='explain')
         assert chain[0].model == 'anthropic:claude-haiku-4-5-20251001'
         assert chain[0].tier == Tier.STANDARD
+        assert chain[0].purpose == 'primary'
         assert chain[1].model == 'openai:gpt-4o'
-        assert chain[1].tier == Tier.BACKUP
+        assert chain[1].tier == Tier.STANDARD
+        assert chain[1].purpose == 'backup'
+
+    def test_fast_tier_uses_fast_primary_and_backup(self, monkeypatch):
+        monkeypatch.setattr(settings, 'marcel_fast_backup_model', 'openai:gpt-4o-mini')
+
+        chain = build_chain(tier=Tier.FAST, mode='explain')
+        assert [e.tier for e in chain] == [Tier.FAST, Tier.FAST]
+        assert chain[0].model == 'anthropic:claude-haiku-4-5-20251001'
+        assert chain[0].purpose == 'primary'
+        assert chain[1].model == 'openai:gpt-4o-mini'
+        assert chain[1].purpose == 'backup'
+
+    def test_power_tier_uses_power_primary_and_backup(self, monkeypatch):
+        monkeypatch.setattr(settings, 'marcel_power_backup_model', 'openai:o1')
+
+        chain = build_chain(tier=Tier.POWER, mode='explain')
+        assert [e.tier for e in chain] == [Tier.POWER, Tier.POWER]
+        assert chain[0].model == 'anthropic:claude-opus-4-6'
+        assert chain[1].model == 'openai:o1'
+
+    def test_per_tier_backup_is_isolated(self, monkeypatch):
+        """FAST backup must not leak into the STANDARD chain and vice versa."""
+        monkeypatch.setattr(settings, 'marcel_fast_backup_model', 'openai:gpt-4o-mini')
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
+
+        fast_chain = build_chain(tier=Tier.FAST, mode='explain')
+        std_chain = build_chain(tier=Tier.STANDARD, mode='explain')
+
+        assert fast_chain[1].model == 'openai:gpt-4o-mini'
+        assert std_chain[1].model == 'openai:gpt-4o'
+
+    def test_fallback_is_not_a_caller_tier(self):
+        with pytest.raises(ValueError, match='not a caller tier'):
+            build_chain(tier=Tier.FALLBACK)
 
 
 class TestIsFallbackEligible:
@@ -120,19 +159,20 @@ class TestIsFallbackEligible:
 
 class TestNextTier:
     def _full_chain(self, monkeypatch, mode: Literal['explain', 'complete'] = 'explain'):
-        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
         monkeypatch.setattr(settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
         monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
         monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
-        return build_chain(primary=None, mode=mode)
+        return build_chain(mode=mode)
 
-    def test_advances_from_tier_1_to_tier_2(self, monkeypatch):
+    def test_advances_from_primary_to_backup(self, monkeypatch):
         chain = self._full_chain(monkeypatch)
         nxt = next_tier(chain, chain[0], 'server_error')
         assert nxt is not None
-        assert nxt.tier == Tier.BACKUP
+        assert nxt.tier == Tier.STANDARD
+        assert nxt.purpose == 'backup'
 
-    def test_advances_from_tier_2_to_explain(self, monkeypatch):
+    def test_advances_from_backup_to_explain(self, monkeypatch):
         chain = self._full_chain(monkeypatch)
         nxt = next_tier(chain, chain[1], 'server_error')
         assert nxt is not None

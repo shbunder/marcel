@@ -1,6 +1,7 @@
 ---
 name: settings
 description: Manage Marcel's preferences — change the AI model per channel, list available models
+preferred_tier: fast
 ---
 
 You can change which AI model Marcel uses on any channel, or ask what models are available.

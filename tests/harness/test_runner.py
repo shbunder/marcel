@@ -14,9 +14,11 @@ from marcel_core.harness.runner import (
     TextDelta,
     ToolCallCompleted,
     ToolCallStarted,
+    _active_skill_tier,
     _extract_tool_history,
     _messages_to_model,
     _prime_read_skills_from_history,
+    _resolve_turn_tier,
     _tool_result_for_context,
     stream_turn,
 )
@@ -234,7 +236,7 @@ class TestStreamTurnFallbackChain:
         from marcel_core.config import settings as marcel_settings
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
         monkeypatch.setattr(marcel_settings, 'marcel_fallback_model', None)
 
         calls: list[str] = []
@@ -264,7 +266,7 @@ class TestStreamTurnFallbackChain:
         from marcel_core.config import settings as marcel_settings
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
         monkeypatch.setattr(marcel_settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
         monkeypatch.setattr(marcel_settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
         monkeypatch.setattr(marcel_settings, 'marcel_local_llm_model', 'qwen3.5:4b')
@@ -293,7 +295,7 @@ class TestStreamTurnFallbackChain:
         from marcel_core.config import settings as marcel_settings
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
         monkeypatch.setattr(marcel_settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
         monkeypatch.setattr(marcel_settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
         monkeypatch.setattr(marcel_settings, 'marcel_local_llm_model', 'qwen3.5:4b')
@@ -316,7 +318,7 @@ class TestStreamTurnFallbackChain:
         from marcel_core.config import settings as marcel_settings
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
 
         calls: list[str] = []
 
@@ -345,7 +347,7 @@ class TestStreamTurnFallbackChain:
         from marcel_core.config import settings as marcel_settings
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
 
         calls: list[str] = []
 
@@ -367,7 +369,7 @@ class TestStreamTurnFallbackChain:
         from marcel_core.config import settings as marcel_settings
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
 
         # Pin the channel to a specific model
         from marcel_core.storage.settings import save_channel_model
@@ -386,8 +388,243 @@ class TestStreamTurnFallbackChain:
             async for _ in stream_turn('shaun', 'cli', 'hi', 'conv-1'):
                 pass
 
-        # Tier 1 = channel pin, tier 2 = MARCEL_BACKUP_MODEL
+        # Tier 1 = channel pin, tier 2 = MARCEL_STANDARD_BACKUP_MODEL
         assert calls == ['anthropic:claude-opus-4-6', 'openai:gpt-4o']
+
+    @pytest.mark.asyncio
+    async def test_session_fast_tier_uses_fast_primary_and_backup(self, tmp_path, monkeypatch):
+        """Session tier FAST → FAST primary + FAST backup on cascade (not STANDARD)."""
+        from marcel_core.config import settings as marcel_settings
+        from marcel_core.storage.settings import save_channel_tier
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(marcel_settings, 'marcel_fast_model', 'anthropic:claude-haiku-4-5-20251001')
+        monkeypatch.setattr(marcel_settings, 'marcel_fast_backup_model', 'openai:gpt-4o-mini')
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
+
+        save_channel_tier('shaun', 'cli', 'fast')
+
+        calls: list[str] = []
+
+        def _create(model, **kwargs):
+            calls.append(model)
+            if len(calls) == 1:
+                return _raising_agent(lambda: RuntimeError('Overloaded'))
+            return _make_mock_agent(['ok'])
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', side_effect=_create):
+            async for _ in stream_turn('shaun', 'cli', 'hi', 'conv-1'):
+                pass
+
+        # Primary = FAST model, backup = FAST backup (NOT the STANDARD one).
+        assert calls == ['anthropic:claude-haiku-4-5-20251001', 'openai:gpt-4o-mini']
+
+
+# ---------------------------------------------------------------------------
+# ISSUE-e0db47: tier resolver (stream_turn precedence)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveTurnTier:
+    """Unit tests for ``_resolve_turn_tier`` — the precedence engine.
+
+    Order: active skill preferred_tier > session tier > classifier on first
+    message. Frustration bump only mutates session state (never skill path).
+    """
+
+    def test_first_message_runs_classifier_and_persists(self, tmp_path, monkeypatch):
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.storage.settings import load_channel_tier
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        tier, reason = _resolve_turn_tier('shaun', 'telegram', 'what time is it?', set())
+        assert tier is Tier.FAST
+        assert reason.startswith('classified:fast:')
+        assert load_channel_tier('shaun', 'telegram') == 'fast'
+
+    def test_complex_first_message_classifies_standard(self, tmp_path, monkeypatch):
+        from marcel_core.harness.model_chain import Tier
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        tier, reason = _resolve_turn_tier('shaun', 'cli', 'debug this python error', set())
+        assert tier is Tier.STANDARD
+        assert reason.startswith('classified:standard:')
+
+    def test_subsequent_message_reuses_session_tier(self, tmp_path, monkeypatch):
+        """Once the session tier is set, later turns don't re-run the classifier."""
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.storage.settings import save_channel_tier
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        save_channel_tier('shaun', 'telegram', 'fast')
+
+        # Message matches STANDARD triggers, but session pin wins.
+        tier, reason = _resolve_turn_tier('shaun', 'telegram', 'debug this', set())
+        assert tier is Tier.FAST
+        assert reason == 'session:fast'
+
+    def test_frustration_bumps_fast_to_standard_and_persists(self, tmp_path, monkeypatch):
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.storage.settings import load_channel_tier, save_channel_tier
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        save_channel_tier('shaun', 'telegram', 'fast')
+
+        tier, reason = _resolve_turn_tier('shaun', 'telegram', 'wtf this is broken', set())
+        assert tier is Tier.STANDARD
+        assert reason.startswith('frustration_bump:')
+        assert load_channel_tier('shaun', 'telegram') == 'standard'
+
+    def test_frustration_on_standard_is_noop(self, tmp_path, monkeypatch):
+        """Frustration never escalates above STANDARD — POWER is subagent-only."""
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.storage.settings import load_channel_tier, save_channel_tier
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        save_channel_tier('shaun', 'telegram', 'standard')
+
+        tier, reason = _resolve_turn_tier('shaun', 'telegram', 'wtf', set())
+        assert tier is Tier.STANDARD
+        assert reason == 'session:standard'
+        assert load_channel_tier('shaun', 'telegram') == 'standard'
+
+    def test_skill_override_wins_over_session_tier(self, tmp_path, monkeypatch):
+        """A read skill with preferred_tier: power trumps a FAST session tier."""
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.skills.loader import SkillDoc
+        from marcel_core.storage.settings import save_channel_tier
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        save_channel_tier('shaun', 'telegram', 'fast')
+
+        dev_doc = SkillDoc(
+            name='developer',
+            description='coding',
+            content='',
+            is_setup=False,
+            source='data',
+            preferred_tier='power',
+        )
+        with patch('marcel_core.skills.loader.load_skills', return_value=[dev_doc]):
+            tier, reason = _resolve_turn_tier('shaun', 'telegram', 'help me code', {'developer'})
+
+        assert tier is Tier.POWER
+        assert reason == 'skill:developer:power'
+
+    def test_skill_override_does_not_mutate_session_tier(self, tmp_path, monkeypatch):
+        """Skill override is per-turn only — session state stays untouched."""
+        from marcel_core.skills.loader import SkillDoc
+        from marcel_core.storage.settings import load_channel_tier, save_channel_tier
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        save_channel_tier('shaun', 'telegram', 'fast')
+
+        doc = SkillDoc(
+            name='coder',
+            description='',
+            content='',
+            is_setup=False,
+            source='data',
+            preferred_tier='power',
+        )
+        with patch('marcel_core.skills.loader.load_skills', return_value=[doc]):
+            _resolve_turn_tier('shaun', 'telegram', 'hi', {'coder'})
+
+        # Session tier unchanged despite the POWER override.
+        assert load_channel_tier('shaun', 'telegram') == 'fast'
+
+    def test_skill_override_takes_highest_tier_among_active(self, tmp_path, monkeypatch):
+        """POWER > STANDARD > FAST when several active skills declare a tier."""
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.skills.loader import SkillDoc
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        docs = [
+            SkillDoc(name='a', description='', content='', is_setup=False, source='data', preferred_tier='fast'),
+            SkillDoc(name='b', description='', content='', is_setup=False, source='data', preferred_tier='power'),
+            SkillDoc(name='c', description='', content='', is_setup=False, source='data', preferred_tier='standard'),
+        ]
+        with patch('marcel_core.skills.loader.load_skills', return_value=docs):
+            tier, reason = _resolve_turn_tier('shaun', 'cli', 'hi', {'a', 'b', 'c'})
+
+        assert tier is Tier.POWER
+        assert reason == 'skill:b:power'
+
+    def test_skill_without_preferred_tier_is_ignored(self, tmp_path, monkeypatch):
+        """A read skill with no preferred_tier falls through to session tier."""
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.skills.loader import SkillDoc
+        from marcel_core.storage.settings import save_channel_tier
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        save_channel_tier('shaun', 'cli', 'standard')
+
+        doc = SkillDoc(
+            name='weather',
+            description='',
+            content='',
+            is_setup=False,
+            source='data',
+            preferred_tier=None,
+        )
+        with patch('marcel_core.skills.loader.load_skills', return_value=[doc]):
+            tier, reason = _resolve_turn_tier('shaun', 'cli', 'hi', {'weather'})
+
+        assert tier is Tier.STANDARD
+        assert reason == 'session:standard'
+
+    def test_invalid_stored_tier_triggers_reclassify(self, tmp_path, monkeypatch):
+        """Corrupt ``channel_tiers`` value falls through to re-classification."""
+        import json
+
+        from marcel_core.harness.model_chain import Tier
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        settings_path = tmp_path / 'users' / 'shaun' / 'settings.json'
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps({'channel_tiers': {'cli': 'lightning'}}))
+
+        tier, reason = _resolve_turn_tier('shaun', 'cli', 'what time is it?', set())
+        assert tier is Tier.FAST
+        assert reason.startswith('classified:')
+
+    def test_active_skill_tier_helper_ignores_skills_not_in_context(self, tmp_path, monkeypatch):
+        from marcel_core.skills.loader import SkillDoc
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        doc = SkillDoc(
+            name='coder',
+            description='',
+            content='',
+            is_setup=False,
+            source='data',
+            preferred_tier='power',
+        )
+        with patch('marcel_core.skills.loader.load_skills', return_value=[doc]):
+            assert _active_skill_tier('shaun', set()) is None
+            assert _active_skill_tier('shaun', {'something_else'}) is None
+
+    @pytest.mark.asyncio
+    async def test_idle_reset_clears_session_tier(self, tmp_path, monkeypatch):
+        """When ``summarize_if_idle`` fires, ``channel_tiers`` is cleared so
+        the next message re-classifies from scratch."""
+        from marcel_core.harness.runner import build_context
+        from marcel_core.storage.settings import load_channel_tier, save_channel_tier
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        save_channel_tier('shaun', 'telegram', 'fast')
+
+        async def _fake_summarize(*args, **kwargs):
+            return True  # Pretend the session just rolled over.
+
+        with patch('marcel_core.harness.runner.summarize_if_idle', new=_fake_summarize):
+            await build_context('shaun', 'telegram')
+
+        assert load_channel_tier('shaun', 'telegram') is None
 
 
 # ---------------------------------------------------------------------------

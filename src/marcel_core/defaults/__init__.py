@@ -77,6 +77,17 @@ def seed_defaults(data_root: Path) -> None:
             shutil.copy2(channel_file, target_file)
             log.info('Seeded channel prompt %s from defaults', channel_file.name)
 
+    # Seed routing.yaml (ISSUE-e0db47). Household-level language data —
+    # shared across users, not per-user preference. User edits to the seeded
+    # copy are honoured (mtime-watched reload); we never overwrite.
+    src_routing = _DEFAULTS_DIR / 'routing.yaml'
+    if src_routing.is_file():
+        target_routing = data_root / 'routing.yaml'
+        if not target_routing.exists():
+            data_root.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_routing, target_routing)
+            log.info('Seeded routing.yaml from defaults')
+
     # Seed subagent definitions (ISSUE-074). Each bundled markdown file is
     # copied into <data_root>/agents/ unless a file with the same name
     # already exists — the data root wins, so user edits are never clobbered.
