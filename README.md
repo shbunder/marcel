@@ -148,7 +148,7 @@ display registry lives in [src/marcel_core/harness/agent.py](src/marcel_core/har
 
 Set `MARCEL_BACKUP_MODEL` to a second cloud provider (e.g. `openai:gpt-4o`)
 and Marcel silently falls over to it when the primary is overloaded; set
-`MARCEL_FALLBACK_MODEL=local:qwen3.5:4b` (plus a local LLM server) and
+`MARCEL_FALLBACK_MODEL=local:ministral-3:14b` (plus a local LLM server) and
 total cloud outages produce a friendly apology instead of a stack trace.
 See [docs/model-tiers.md](docs/model-tiers.md) for the full four-tier chain.
 
