@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -80,6 +81,17 @@ class Settings(BaseSettings):
     marcel_power_model: str = 'anthropic:claude-opus-4-6'
     marcel_power_backup_model: str | None = None  # e.g. 'openai:gpt-4o' or 'openai:o1'
     marcel_fallback_model: str | None = None  # e.g. 'local:qwen3.5:4b'
+
+    # Admin-configurable tier defaults (ISSUE-6a38cd).
+    #
+    # ``marcel_default_tier`` biases the classifier on a fresh session — the
+    # turn router picks between this tier and the tier one step above it.
+    # ``marcel_fallback_tier`` names the tier used as the cloud-outage
+    # explainer at the tail of higher-tier chains. Both are public tier
+    # indexes: 0=local, 1=fast, 2=standard. POWER (3) is NEVER admin-
+    # selectable — it is reserved for skills/subagents that declare it.
+    marcel_default_tier: int = Field(default=1, ge=0, le=2)
+    marcel_fallback_tier: int = Field(default=0, ge=0, le=2)
 
     # Local LLM (opt-in job fallback via OpenAI-compatible server like Ollama).
     # Example::

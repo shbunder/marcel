@@ -31,7 +31,7 @@ def _skills_dir() -> Path:
     return settings.data_dir / 'skills'
 
 
-_VALID_PREFERRED_TIERS = {'fast', 'standard', 'power'}
+_VALID_PREFERRED_TIERS = {'local', 'fast', 'standard', 'power'}
 
 
 @dataclass

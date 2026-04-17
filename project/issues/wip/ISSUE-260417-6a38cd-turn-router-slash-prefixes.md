@@ -97,10 +97,10 @@ Pure function, no I/O, no globals. All tests hit this single surface.
 
 ## Tasks
 - [✓] Add `LOCAL` to the `Tier` enum (or equivalent) and a bidirectional numeric mapping (`0–3 ↔ Tier`)
-- [ ] Add `AdminTierConfig` with `fallback_tier` and `default_tier`, defaulting to `0` and `1`; validate ∈ {0,1,2}
-- [ ] Thread admin config through startup so it's available to `resolve_turn`
-- [ ] Create `src/marcel_core/harness/turn_router.py` with `resolve_turn()` and `TurnPlan`
-- [ ] Write unit tests for `turn_router`: each precedence level, each slash prefix, `/power` rejection, unknown skill fall-through, leading/trailing whitespace, empty message, prefix-only message
+- [✓] Add `AdminTierConfig` with `fallback_tier` and `default_tier`, defaulting to `0` and `1`; validate ∈ {0,1,2}
+- [✓] Thread admin config through startup so it's available to `resolve_turn`
+- [✓] Create `src/marcel_core/harness/turn_router.py` with `resolve_turn()` and `TurnPlan`
+- [✓] Write unit tests for `turn_router`: each precedence level, each slash prefix, `/power` rejection, unknown skill fall-through, leading/trailing whitespace, empty message, prefix-only message
 - [ ] Replace `runner._resolve_turn_tier` with delegation to `turn_router`
 - [ ] Wire `turn_router` into Telegram webhook; handle `reject_reason` by sending the reject message and short-circuiting
 - [ ] Wire `turn_router` into WebSocket `/api/chat`; handle `reject_reason` via the normal stream with a single assistant message
@@ -132,6 +132,17 @@ Pure function, no I/O, no globals. All tests hit this single surface.
 **Commands Run**: `make test` (1426 passed).
 **Result**: Success. The chain's behavior for FAST/STANDARD/POWER is unchanged; LOCAL is newly addressable.
 **Next**: Add `AdminTierConfig` with `fallback_tier` / `default_tier`, then build the turn_router module.
+
+### 2026-04-17 - LLM Implementation
+**Action**: Shipped the turn router module and admin tier defaults.
+**Files Modified**:
+- `src/marcel_core/config.py` — added `marcel_default_tier` (default 1) and `marcel_fallback_tier` (default 0) as int fields, range-validated `[0, 2]` so POWER is structurally excluded. Unlocked the restricted-path guard around the edit.
+- `src/marcel_core/harness/turn_router.py` — new module. Exposes `AdminTierConfig`, `TurnPlan`, `TierSource`, `RESERVED_PREFIXES`, `POWER_REJECT_MESSAGE`, and the pure `resolve_turn()` function. Parses `/local` / `/fast` / `/standard` / `/power` / `/<skillname>` prefixes; applies the four-level tier precedence (user prefix → active skill → session → admin default); rejects `/power` with a canned message.
+- `src/marcel_core/skills/loader.py` — `_VALID_PREFERRED_TIERS` now includes `local` so a skill can declare `preferred_tier: local`.
+- `tests/harness/test_turn_router.py` — 30 unit tests covering admin config validation, every prefix form, case-insensitivity, case where a skill tries to shadow a tier prefix, empty/slash-only/slash-digit edge cases, and all four precedence levels.
+**Commands Run**: `make test` (1456 passed, +30).
+**Result**: Success. The module is pure (no I/O in `resolve_turn`) and fully covered by the unit tests.
+**Next**: Delegate from runner's `_resolve_turn_tier` into the new module; wire up the Telegram and WebSocket entry points so channels call `resolve_turn` before `stream_turn`.
 
 ## Lessons Learned
 <!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->
