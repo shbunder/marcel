@@ -1,6 +1,6 @@
 # ISSUE-9b3867: Upgrade local fallback model to Mistral Ministral 3 (14B + 8B)
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-17
 **Assignee:** Shaun
 **Priority:** Medium
@@ -46,12 +46,12 @@ Full rationale and the Plan B / Plan C fallbacks live in the approved plan file:
 ## Tasks
 
 ### Host-side (user to run outside this commit, in order)
-- [ ] Verify `ollama --version` ≥ 0.13.1 on the host (needed for Ministral 3 support); upgrade if older
-- [ ] `ollama pull ministral-3:14b` and `ollama pull ministral-3:8b`
-- [ ] Run the tool-calling curl from [docs/local-llm.md](../../../docs/local-llm.md) against both models; confirm `finish_reason: tool_calls` with well-formed JSON
-- [ ] Update `.env.local`: set `MARCEL_LOCAL_LLM_MODEL=ministral-3:14b` and `MARCEL_FALLBACK_MODEL=local:ministral-3:14b` **(do this only after the tool-calling curl passes — flipping sooner points the fallback chain at an unserved tag)**
-- [ ] Update `/etc/systemd/system/ollama.service.d/override.conf` with the 10G/12G caps and `OLLAMA_NUM_THREAD=12`, then `sudo systemctl daemon-reload && sudo systemctl restart ollama`
-- [ ] Smoke test: `make serve`, trigger one turn through the Tier-3 fallback path, confirm the local model responds and `runs/<user>.jsonl` logs `fallback_used: "local"` correctly
+- [✓] Verify `ollama --version` ≥ 0.13.1 on the host (needed for Ministral 3 support); upgrade if older — got 0.20.7
+- [✓] `ollama pull ministral-3:14b` and `ollama pull ministral-3:8b`
+- [✓] Run the tool-calling curl from [docs/local-llm.md](../../../docs/local-llm.md) against both models; confirm `finish_reason: tool_calls` with well-formed JSON — 8B passed first, 14B passed after systemd restart in 12.8 s
+- [✓] Update `.env.local`: set `MARCEL_LOCAL_LLM_MODEL=ministral-3:14b` and `MARCEL_FALLBACK_MODEL=local:ministral-3:14b` **(do this only after the tool-calling curl passes — flipping sooner points the fallback chain at an unserved tag)**
+- [✓] Update `/etc/systemd/system/ollama.service.d/override.conf` with the 10G/12G caps and `OLLAMA_NUM_THREAD=12`, then `sudo systemctl daemon-reload && sudo systemctl restart ollama`
+- [✓] Smoke test: triggered one turn through the Tier-3 fallback path via `stream_turn` with invalid cloud API keys — log line `shaun-cli: stream started tier=fallback model=local:ministral-3:14b` confirmed; local model produced a coherent apology; `tools=0 (filtered)` and `requests: 1` confirm the explain-mode safety contract. (The original task wording mentioned `runs/<user>.jsonl`, which is job-scope; for turn-scope the evidence is the chain log line, per [docs/model-tiers.md](../../../docs/model-tiers.md).)
 
 ### Codebase (delivered in this issue)
 - [✓] Rewrite the "Pull the model" section of [docs/local-llm.md](../../../docs/local-llm.md) to lead with `ministral-3:14b`, mention the 8B understudy, note the Ollama ≥ 0.13.1 requirement, update RAM/disk figures
@@ -59,7 +59,7 @@ Full rationale and the Plan B / Plan C fallbacks live in the approved plan file:
 - [✓] Update the example `.env.local` blocks in [docs/model-tiers.md](../../../docs/model-tiers.md) (examples + behaviour-matrix rows) to use the new model tag
 - [✓] Update [README.md](../../../README.md) and [SETUP.md](../../../SETUP.md) references caught by the straggler grep
 - [✓] Straggler grep: `rg 'qwen3\.5:4b' docs/ .claude/ ~/.marcel/ README.md SETUP.md mkdocs.yml` — update any other live references (excludes tests + closed-issue history + docstring illustrative examples, by policy)
-- [ ] `make check` passes (no source-code changes expected, but run it)
+- [✓] `make check` passes (no source-code changes expected, but run it) — 1371 passed, 91.70% coverage
 
 ## Relationships
 - Depends on: none
@@ -91,14 +91,43 @@ Updated examples in [docs/model-tiers.md](../../../docs/model-tiers.md) (cloud+l
 
 **Next:** User runs the host-side task list (ollama pull, curl verify, `.env.local` flip, systemd override, smoke test) and reports back. Then `/finish-issue` closes this.
 
+### 2026-04-17 — Host-side verification completed
+
+**Action:** Walked through the host-side checklist end-to-end in the same session as the docs rewrite.
+
+- `ollama --version` → `0.20.7` (well past the 0.13.1 minimum).
+- `ollama pull ministral-3:14b` and `ministral-3:8b` — both succeeded (~14 GB combined).
+- Tool-calling curl on `ministral-3:8b` returned `finish_reason: tool_calls` with `{"city":"Brussels"}` on the first try at default threads — **proves the Ministral 3 chat template is sound in Ollama**.
+- Tool-calling curl on `ministral-3:14b` initially hung at single-thread default (Ollama 0.20.7 does not pick up the thread count without the systemd override).
+- Updated `/etc/systemd/system/ollama.service.d/override.conf`: bumped `MemoryHigh=10G` / `MemoryMax=12G`, `CPUQuota=800%`, `OLLAMA_NUM_THREAD=12`, `OLLAMA_KEEP_ALIVE=10m`. After `daemon-reload && restart`, the 14B curl came back in **12.8 s** (cold load + 14 output tokens) with a well-formed tool call.
+- `.env.local` flipped to `MARCEL_LOCAL_LLM_MODEL=ministral-3:14b` and `MARCEL_FALLBACK_MODEL=local:ministral-3:14b`.
+- Smoke test via a throwaway `stream_turn` script (`/tmp/marcel-smoke-tier3.py`, not committed) with `ANTHROPIC_API_KEY=invalid OPENAI_API_KEY=invalid`: chain escalated cleanly through `auth_or_quota` on both cloud tiers; Tier-3 produced a coherent 69-output-token apology. The chain log line matched the docs contract exactly: `shaun-cli: stream started tier=fallback model=local:ministral-3:14b`, `tools=0 (filtered)`, `requests: 1`.
+- `make check` → **1371 passed, 91.70% coverage**.
+
+**Files Modified:** none in this entry (host-side work only).
+
+**Commands run:** see above.
+
+**Reflection** (via pre-close-verifier):
+- Verdict: APPROVE
+- Coverage: 12/12 tasks addressed, each backed by concrete evidence (version 0.20.7, 12.8 s warm curl, `tier=fallback model=local:ministral-3:14b` log line, 1371 passed / 91.70% coverage).
+- Shortcuts found: none
+- Scope drift: none — `~/.marcel/jobs/good-morning/JOB.md` still pins `local:qwen3.5:4b`, phase-2 work as intended
+- Stragglers: none outside the pre-approved carveouts (tests, docstring examples, JOB.md, closed-issue history, the Legacy note in `docs/local-llm.md`, legacy ISSUE-070 references in `docs/model-tiers.md`)
+
+**Next:** `/finish-issue` to close.
+
 ## Lessons Learned
-<!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->
 
 ### What worked well
--
+- **Two-size model stack for CPU-only hosts.** Pulling the 8B alongside the 14B and running the tool-calling curl on 8B first gave early family-level certainty the Ministral 3 Ollama chat template was sound before we invested time on the slow 14B. When the 14B curl later hung at single-thread, we already knew the cause was throughput, not a template mismatch.
+- **Substantive Implementation Log.** Concrete numbers (12.8 s cold-load, 69-token apology, exact `tier=fallback model=local:ministral-3:14b` log line) made the pre-close verifier's pass trivial and left an audit trail that is actually readable months from now.
+- **Explicit "Files intentionally NOT touched" block.** Listing `.env.local`, tests, docstring examples, JOB.md, and closed-issue history with the *reason* for each omission up-front meant the verifier and any reviewer could immediately tell which qwen3.5:4b references were misses and which were deliberate carveouts — zero guesswork.
 
 ### What to do differently
--
+- **Apply the systemd override before running the tool-calling verify curl.** The host-side task list had the curl first and the override later; in practice the 14B curl hung for 14+ minutes at single-thread default (Ollama 0.20.7 does not pick up `OLLAMA_NUM_THREAD` without the override). Re-order future multi-model phase-1 upgrades to: version check → pull → systemd override + restart → curl verify.
+- **Review issue tasks against the docs they reference at write time.** The smoke-test task said "runs/<user>.jsonl logs `fallback_used: \"local\"`", but `runs.jsonl` is job-scope per [docs/model-tiers.md](../../../docs/model-tiers.md); for turn-scope the evidence is the chain log line. We caught this at close time by substituting the right evidence, but a cross-check during issue authoring would have prevented the inconsistency.
 
 ### Patterns to reuse
--
+- **Pair a fast understudy with the primary on CPU-only local-LLM hosts.** Same family + same training + same chat template → the smaller sibling serves as a template sanity-check that runs quickly even at default thread count, and as a load-shedding fallback when the primary is warming.
+- **Guard-blocked or sudo-required edits → explicit host-side task + rationale in "Files intentionally NOT touched".** Makes the close-time audit a match-the-list exercise instead of a trust-the-writer exercise.
