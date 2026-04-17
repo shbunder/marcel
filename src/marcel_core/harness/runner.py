@@ -196,6 +196,12 @@ async def build_context(
     summarized = await summarize_if_idle(user_slug, channel, idle_minutes)
     if summarized:
         log.info('%s-%s: idle summarization completed before turn', user_slug, channel)
+        # ISSUE-e0db47: session boundary → clear the tier so the next
+        # message re-classifies from scratch instead of inheriting the
+        # prior session's tier.
+        from marcel_core.storage.settings import clear_channel_tier
+
+        clear_channel_tier(user_slug, channel)
 
     # 2. Load latest summary
     latest_summary = load_latest_summary(user_slug, channel)
@@ -471,8 +477,10 @@ async def stream_turn(
 
     system_prompt = await build_instructions_async(deps, query=user_text)
 
-    # Tier 1 model: explicit override > per-channel setting > standard env var.
-    # The chain helper owns tiers 2 and 3 (MARCEL_BACKUP_MODEL / MARCEL_FALLBACK_MODEL).
+    # Primary model: explicit override > per-channel setting > STANDARD tier default.
+    # The chain helper owns backup + shared local fallback
+    # (MARCEL_STANDARD_BACKUP_MODEL / MARCEL_FALLBACK_MODEL). Task 6 will wire
+    # session-tier selection into this call.
     primary_model = model or load_channel_model(user_slug, channel)
     chain = build_chain(primary=primary_model, mode='explain')
 

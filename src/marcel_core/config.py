@@ -57,23 +57,29 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     aws_region: str | None = None
 
-    # Four-tier model fallback chain (ISSUE-076).
+    # Three-tier model ladder with per-tier cross-cloud backup (ISSUE-e0db47,
+    # extends ISSUE-076).
     #
-    # Tier 1 (STANDARD) handles normal calls. Tier 2 (BACKUP) is a different-
-    # cloud-provider backup tried when tier 1 fails with a transient/auth
-    # error. Tier 3 (FALLBACK) is a local LLM whose only job, in interactive
-    # turns, is to *explain* the failure to the user — not complete the task.
-    # Tier 4 (POWER) is the default model for the 'power' subagent that the
-    # main agent can spawn via delegate() when it decides a task exceeds its
-    # standard model.
+    # FAST (Haiku-class) — short lookups, chat, one-liners. Auto-selected by
+    # the session classifier for simple first messages.
+    # STANDARD (Sonnet-class) — daily driver. Auto-selected when the classifier
+    # sees complexity, or reached via a fast→standard frustration bump.
+    # POWER (Opus-class) — only reached via an explicit skill
+    # (``preferred_tier: power``) or subagent (``model: power``). Never
+    # auto-selected by the classifier, so no runaway Opus cost from chat.
     #
-    # Tiers 2 and 3 are opt-in: the chain skips them silently when unset, so
-    # a fresh install behaves identically to pre-ISSUE-076 (single model, no
-    # fallback).  See docs/model-tiers.md for the full behaviour matrix.
+    # Each tier has an optional cross-cloud backup tried when the primary
+    # fails with a transient/auth error. MARCEL_FALLBACK_MODEL is a shared
+    # last-resort local LLM whose only job is to *explain* the failure to the
+    # user — not complete the task. Backups and fallback are opt-in; the chain
+    # skips them silently when unset. See docs/model-tiers.md.
+    marcel_fast_model: str = 'anthropic:claude-haiku-4-5-20251001'
+    marcel_fast_backup_model: str | None = None  # e.g. 'openai:gpt-4o-mini'
     marcel_standard_model: str = 'anthropic:claude-sonnet-4-6'
-    marcel_backup_model: str | None = None  # e.g. 'openai:gpt-4o'
-    marcel_fallback_model: str | None = None  # e.g. 'local:qwen3.5:4b'
+    marcel_standard_backup_model: str | None = None  # e.g. 'openai:gpt-4o'
     marcel_power_model: str = 'anthropic:claude-opus-4-6'
+    marcel_power_backup_model: str | None = None  # e.g. 'openai:gpt-4o' or 'openai:o1'
+    marcel_fallback_model: str | None = None  # e.g. 'local:qwen3.5:4b'
 
     # Local LLM (opt-in job fallback via OpenAI-compatible server like Ollama).
     # Example::

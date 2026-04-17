@@ -14,7 +14,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
-from marcel_core.harness.model_chain import FALLBACK_ELIGIBLE_CATEGORIES, classify_error
+from marcel_core.harness.model_chain import FALLBACK_ELIGIBLE_CATEGORIES, TierEntry, classify_error
 from marcel_core.jobs import SYSTEM_USER, append_run
 from marcel_core.jobs.models import JobDefinition, JobRun, NotifyPolicy, RunStatus
 
@@ -327,6 +327,20 @@ async def _run_with_backoff(
     return run
 
 
+def _fallback_label(entry: TierEntry) -> str:
+    """Label for ``JobRun.fallback_used`` when a non-primary chain entry produced the result.
+
+    Keeps ``'local'`` for local-LLM entries (legacy runs.jsonl readers),
+    ``'backup'`` for the per-tier cross-cloud backup, and falls back to the
+    tier name for anything else.
+    """
+    if entry.model.startswith('local:'):
+        return 'local'
+    if entry.purpose == 'backup':
+        return 'backup'
+    return entry.tier.value
+
+
 async def _execute_chain(
     job: JobDefinition,
     trigger_reason: str,
@@ -357,8 +371,6 @@ async def _execute_chain(
     elif not has_local_tier and settings.marcel_local_llm_url and settings.marcel_local_llm_model:
         # Legacy ISSUE-070 bridge: no MARCEL_FALLBACK_MODEL set but the job
         # opted into local fallback and MARCEL_LOCAL_LLM_* are configured.
-        from marcel_core.harness.model_chain import TierEntry
-
         chain.append(
             TierEntry(
                 tier=Tier.FALLBACK,
@@ -372,7 +384,7 @@ async def _execute_chain(
     run: JobRun | None = None
 
     while current is not None:
-        if current.tier != Tier.STANDARD:
+        if current.purpose != 'primary':
             log.info(
                 '%s-job: chain advancing to tier=%s model=%s for %s (%s)',
                 slug,
@@ -390,10 +402,8 @@ async def _execute_chain(
             job.model = original_model
 
         if run.status == RunStatus.COMPLETED:
-            if current.tier != Tier.STANDARD:
-                # Report the legacy 'local' value when the tier 3 model was
-                # a local:<tag> entry, so old runs.jsonl readers stay happy.
-                run.fallback_used = 'local' if current.model.startswith('local:') else current.tier.value
+            if current.purpose != 'primary':
+                run.fallback_used = _fallback_label(current)
             break
 
         eligible, category = is_fallback_eligible(run.error or '')
@@ -402,10 +412,8 @@ async def _execute_chain(
 
         nxt = next_tier(chain, current, category)
         if nxt is None:
-            # Mark the failed run with the last tier attempted if we escalated
-            # at least once, so the persisted run still records the fallback.
-            if current.tier != Tier.STANDARD:
-                run.fallback_used = 'local' if current.model.startswith('local:') else current.tier.value
+            if current.purpose != 'primary':
+                run.fallback_used = _fallback_label(current)
             break
         current = nxt
 
@@ -426,9 +434,9 @@ async def execute_job_with_retries(
     1. Per-tier exponential backoff via :func:`_run_with_backoff` — retries
        transient errors on the same model.
     2. When ``job.allow_fallback_chain`` is True (the default), escalate
-       through the global model chain (``MARCEL_BACKUP_MODEL``, then
-       ``MARCEL_FALLBACK_MODEL`` if ``allow_local_fallback`` also permits
-       running on a local model for completion).
+       through the per-tier model chain (``MARCEL_STANDARD_BACKUP_MODEL``,
+       then ``MARCEL_FALLBACK_MODEL`` if ``allow_local_fallback`` also
+       permits running on a local model for completion).
     3. When ``job.allow_fallback_chain`` is False, pin to ``job.model`` only —
        no cross-provider backup — but still honour the legacy ISSUE-070
        local-LLM fallback if ``allow_local_fallback`` is set.
@@ -441,8 +449,8 @@ async def execute_job_with_retries(
     slug = _resolve_run_user(job, user_slug)
 
     # ISSUE-b95ac5: local-pinned jobs must never escalate to cloud tiers.
-    # The chain would silently add MARCEL_BACKUP_MODEL as tier 2, defeating
-    # the purpose of pinning to a local model.  Force the pinned path.
+    # The chain would silently add MARCEL_STANDARD_BACKUP_MODEL as tier 2,
+    # defeating the purpose of pinning to a local model.  Force the pinned path.
     use_chain = job.allow_fallback_chain
     if use_chain and job.model.startswith('local:'):
         log.warning(

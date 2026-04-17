@@ -24,6 +24,10 @@ class UserSettings(BaseModel):
     """Typed schema for per-user settings.json."""
 
     channel_models: dict[str, str] = {}
+    # ISSUE-e0db47: session-level tier state, keyed by channel. Set by the
+    # classifier on a session's first message and cleared on idle-summarise;
+    # persists across turns within one session so tier selection is stable.
+    channel_tiers: dict[str, str] = {}
 
 
 def _settings_path(user_slug: str) -> pathlib.Path:
@@ -86,3 +90,29 @@ def save_channel_model(user_slug: str, channel: str, model: str) -> None:
     settings.channel_models[channel] = model
     _save_settings(user_slug, settings)
     log.info('Saved model preference: user=%s channel=%s model=%s', user_slug, channel, model)
+
+
+def load_channel_tier(user_slug: str, channel: str) -> str | None:
+    """Return the active session tier name for a user/channel pair, or None."""
+    settings = _load_settings(user_slug)
+    return settings.channel_tiers.get(channel)
+
+
+def save_channel_tier(user_slug: str, channel: str, tier: str) -> None:
+    """Persist the session tier for a user/channel pair."""
+    settings = _load_settings(user_slug)
+    settings.channel_tiers[channel] = tier
+    _save_settings(user_slug, settings)
+    log.info('Saved session tier: user=%s channel=%s tier=%s', user_slug, channel, tier)
+
+
+def clear_channel_tier(user_slug: str, channel: str) -> None:
+    """Clear the session tier so the next message re-classifies.
+
+    Called on idle-summarise reset. No-op when no tier is stored.
+    """
+    settings = _load_settings(user_slug)
+    if channel in settings.channel_tiers:
+        del settings.channel_tiers[channel]
+        _save_settings(user_slug, settings)
+        log.info('Cleared session tier: user=%s channel=%s', user_slug, channel)

@@ -100,11 +100,21 @@ def _load_agent_file(path: Path, source: str) -> AgentDoc | None:
 
     model_raw = fm.get('model')
     # "inherit" is an explicit way to say "use parent's model" — map to None.
-    # Single-word tier names (standard, backup, fallback, power) are rewritten
+    # Single-word tier names (fast, standard, power, fallback) are rewritten
     # to ``tier:<name>`` sentinels via the shared helper in model_chain, so the
-    # tier vocabulary lives in exactly one place. See ISSUE-076, ISSUE-077.
+    # tier vocabulary lives in exactly one place. See ISSUE-076, ISSUE-077,
+    # ISSUE-e0db47.
     if model_raw in (None, '', 'inherit'):
         model: str | None = None
+    elif isinstance(model_raw, str) and model_raw == 'backup':
+        log.warning(
+            "agents: %s uses removed tier 'backup' — skipping; "
+            'migrate to model: fast|standard|power (per-tier cross-cloud '
+            'backup is now resolved automatically from '
+            'MARCEL_<TIER>_BACKUP_MODEL).',
+            path,
+        )
+        return None
     elif isinstance(model_raw, str) and (sentinel := make_tier_sentinel(model_raw)) is not None:
         model = sentinel
     else:

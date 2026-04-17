@@ -234,7 +234,7 @@ class TestStreamTurnFallbackChain:
         from marcel_core.config import settings as marcel_settings
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
         monkeypatch.setattr(marcel_settings, 'marcel_fallback_model', None)
 
         calls: list[str] = []
@@ -264,7 +264,7 @@ class TestStreamTurnFallbackChain:
         from marcel_core.config import settings as marcel_settings
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
         monkeypatch.setattr(marcel_settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
         monkeypatch.setattr(marcel_settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
         monkeypatch.setattr(marcel_settings, 'marcel_local_llm_model', 'qwen3.5:4b')
@@ -293,7 +293,7 @@ class TestStreamTurnFallbackChain:
         from marcel_core.config import settings as marcel_settings
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
         monkeypatch.setattr(marcel_settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
         monkeypatch.setattr(marcel_settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
         monkeypatch.setattr(marcel_settings, 'marcel_local_llm_model', 'qwen3.5:4b')
@@ -316,7 +316,7 @@ class TestStreamTurnFallbackChain:
         from marcel_core.config import settings as marcel_settings
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
 
         calls: list[str] = []
 
@@ -345,7 +345,7 @@ class TestStreamTurnFallbackChain:
         from marcel_core.config import settings as marcel_settings
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
 
         calls: list[str] = []
 
@@ -367,7 +367,7 @@ class TestStreamTurnFallbackChain:
         from marcel_core.config import settings as marcel_settings
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        monkeypatch.setattr(marcel_settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
 
         # Pin the channel to a specific model
         from marcel_core.storage.settings import save_channel_model

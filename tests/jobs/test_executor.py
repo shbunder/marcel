@@ -342,7 +342,7 @@ class TestFallbackChain:
         """With MARCEL_BACKUP_MODEL set, a failing cloud primary escalates
         to the cloud backup before the local tier 3."""
         scripted_runs, call_log = patched_side_effects
-        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
         monkeypatch.setattr(settings, 'marcel_fallback_model', None)
         monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
         monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
@@ -364,7 +364,7 @@ class TestFallbackChain:
     async def test_fallback_used_names_cloud_backup_tier(self, monkeypatch, patched_side_effects):
         """When tier 2 is a cloud model, fallback_used reports 'backup', not 'local'."""
         scripted_runs, call_log = patched_side_effects
-        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
 
         scripted_runs.append(
             JobRun(job_id='x', status=RunStatus.FAILED, error='rate limit', error_category='rate_limit')
@@ -381,7 +381,7 @@ class TestFallbackChain:
         """Even with MARCEL_BACKUP_MODEL set, a job with allow_fallback_chain=False
         never escalates — it stays on its primary model with retries only."""
         scripted_runs, call_log = patched_side_effects
-        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
 
         scripted_runs.append(
             JobRun(job_id='x', status=RunStatus.FAILED, error='Overloaded', error_category='server_error')
@@ -400,7 +400,7 @@ class TestFallbackChain:
         """ISSUE-b95ac5: local-pinned jobs must never escalate to cloud, even
         when allow_fallback_chain defaults to True. The executor auto-overrides."""
         scripted_runs, call_log = patched_side_effects
-        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
         monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
         monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
 
@@ -421,7 +421,7 @@ class TestFallbackChain:
     async def test_local_pinned_job_with_opt_out_stays_local(self, monkeypatch, patched_side_effects):
         """The recommended config: local primary + allow_fallback_chain=False."""
         scripted_runs, call_log = patched_side_effects
-        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
         monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
         monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
 
@@ -442,7 +442,7 @@ class TestFallbackChain:
         """The chain swaps job.model per tier, but the original value must
         be restored before return so the persisted definition never changes."""
         scripted_runs, _ = patched_side_effects
-        monkeypatch.setattr(settings, 'marcel_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
 
         scripted_runs.append(
             JobRun(job_id='x', status=RunStatus.FAILED, error='Overloaded', error_category='server_error')

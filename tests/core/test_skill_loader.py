@@ -181,6 +181,67 @@ class TestLoadSkillDir:
         assert doc.name == 'my-skill'
 
 
+class TestPreferredTier:
+    """ISSUE-e0db47 — skills can declare a preferred tier."""
+
+    def test_preferred_tier_defaults_to_none(self, tmp_path):
+        skill_dir = tmp_path / 's'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text('---\nname: s\n---\n\nBody.')
+        doc = _load_skill_dir(skill_dir, 'user', 'project')
+        assert doc is not None
+        assert doc.preferred_tier is None
+
+    def test_preferred_tier_fast_parses(self, tmp_path):
+        skill_dir = tmp_path / 's'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text('---\nname: s\npreferred_tier: fast\n---\n\nBody.')
+        doc = _load_skill_dir(skill_dir, 'user', 'project')
+        assert doc is not None
+        assert doc.preferred_tier == 'fast'
+
+    def test_preferred_tier_standard_parses(self, tmp_path):
+        skill_dir = tmp_path / 's'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text('---\nname: s\npreferred_tier: standard\n---\n\nBody.')
+        doc = _load_skill_dir(skill_dir, 'user', 'project')
+        assert doc is not None
+        assert doc.preferred_tier == 'standard'
+
+    def test_preferred_tier_power_parses(self, tmp_path):
+        skill_dir = tmp_path / 's'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text('---\nname: s\npreferred_tier: power\n---\n\nBody.')
+        doc = _load_skill_dir(skill_dir, 'user', 'project')
+        assert doc is not None
+        assert doc.preferred_tier == 'power'
+
+    def test_invalid_preferred_tier_is_dropped_with_warning(self, tmp_path, caplog):
+        skill_dir = tmp_path / 's'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text('---\nname: s\npreferred_tier: backup\n---\n\nBody.')
+        with caplog.at_level('WARNING', logger='marcel_core.skills.loader'):
+            doc = _load_skill_dir(skill_dir, 'user', 'project')
+        assert doc is not None
+        # Skill still loads; the invalid preference is quietly dropped.
+        assert doc.preferred_tier is None
+        assert any('invalid preferred_tier' in r.getMessage() for r in caplog.records)
+
+    def test_setup_fallback_drops_preferred_tier(self, tmp_path, monkeypatch):
+        """SETUP.md flows must not burn a more-expensive tier."""
+        monkeypatch.delenv('MISSING_VAR', raising=False)
+        skill_dir = tmp_path / 's'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text(
+            '---\nname: s\npreferred_tier: power\nrequires:\n  env:\n    - MISSING_VAR\n---\n\nBody.'
+        )
+        (skill_dir / 'SETUP.md').write_text('---\nname: s\n---\n\nSetup.')
+        doc = _load_skill_dir(skill_dir, 'user', 'project')
+        assert doc is not None
+        assert doc.is_setup is True
+        assert doc.preferred_tier is None
+
+
 class TestLoadSkills:
     def test_skills_loaded(self, tmp_path, monkeypatch):
         import marcel_core.skills.loader as loader
