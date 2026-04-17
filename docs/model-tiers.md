@@ -1,23 +1,22 @@
 # Model Tiers & Fallback Chains
 
-Marcel runs every model call through a **three-tier ladder** — FAST,
-STANDARD, POWER — and each tier carries its own cross-cloud backup plus a
-shared last-resort local "explain the failure" model. The same chain
-covers interactive turns (Telegram, CLI, web) and scheduled jobs.
+Marcel runs every model call through a **four-tier ladder**, indexed 0–3,
+from cheapest local to most capable cloud. Each cloud tier carries its own
+cross-cloud backup, and any cloud tier can tail its chain with a
+cloud-outage explainer (local by default). The same chain covers
+interactive turns (Telegram, CLI, web) and scheduled jobs.
 
-## The three tiers
+## The four tiers
 
-| Tier       | Primary env var           | Per-tier backup                 | Default primary                             |
-|------------|---------------------------|---------------------------------|---------------------------------------------|
-| **FAST**   | `MARCEL_FAST_MODEL`       | `MARCEL_FAST_BACKUP_MODEL`      | `anthropic:claude-haiku-4-5-20251001`       |
-| **STANDARD** | `MARCEL_STANDARD_MODEL` | `MARCEL_STANDARD_BACKUP_MODEL`  | `anthropic:claude-sonnet-4-6`               |
-| **POWER**  | `MARCEL_POWER_MODEL`      | `MARCEL_POWER_BACKUP_MODEL`     | `anthropic:claude-opus-4-6`                 |
+| Index | Tier         | Primary env var              | Per-tier backup                 | Default primary                             |
+|:-----:|--------------|------------------------------|---------------------------------|---------------------------------------------|
+| 0     | **LOCAL**    | `MARCEL_FALLBACK_MODEL`      | *(none — LOCAL is the floor)*   | *(unset; requires Ollama — see [local-llm.md](local-llm.md))* |
+| 1     | **FAST**     | `MARCEL_FAST_MODEL`          | `MARCEL_FAST_BACKUP_MODEL`      | `anthropic:claude-haiku-4-5-20251001`       |
+| 2     | **STANDARD** | `MARCEL_STANDARD_MODEL`      | `MARCEL_STANDARD_BACKUP_MODEL`  | `anthropic:claude-sonnet-4-6`               |
+| 3     | **POWER**    | `MARCEL_POWER_MODEL`         | `MARCEL_POWER_BACKUP_MODEL`     | `anthropic:claude-opus-4-6`                 |
 
-A shared fallback covers all three when every cloud option is down:
-
-| Role           | Env var                   | Purpose                                                                     |
-|----------------|---------------------------|-----------------------------------------------------------------------------|
-| **Local fallback** | `MARCEL_FALLBACK_MODEL` | Last-resort local LLM. In turns: *explains the failure*. In jobs: tries to complete the task (legacy ISSUE-070 path). |
+LOCAL is the floor tier. Its chain is exactly one entry — LOCAL IS the
+fallback, so it never recursively tails itself.
 
 Every backup is opt-in — a fresh install with only the primary env vars
 set behaves like a single-model deployment with no failover.
@@ -26,25 +25,70 @@ set behaves like a single-model deployment with no failover.
 > Deployments that relied on it must migrate to the matching per-tier
 > variable — typically `MARCEL_STANDARD_BACKUP_MODEL`.
 
+## Admin tier defaults
+
+Two env vars control which tiers Marcel picks when nothing else applies
+(ISSUE-6a38cd). Both accept tier **indexes** (0–2 — POWER is never
+admin-selectable):
+
+| Env var                  | Default | Meaning                                                             |
+|--------------------------|:-------:|---------------------------------------------------------------------|
+| `MARCEL_DEFAULT_TIER`    | `1`     | Tier used when no session tier is stored and no prefix/skill applies. |
+| `MARCEL_FALLBACK_TIER`   | `0`     | Tier that tails every cloud chain as the cloud-outage explainer.      |
+
+- Set `MARCEL_DEFAULT_TIER=0` to run a privacy-first household where every
+  turn starts on local.
+- Set `MARCEL_FALLBACK_TIER=1` if you have no local LLM and want a cloud
+  haiku to write the cloud-outage apology instead.
+
+Both values are range-checked at startup (`ValidationError` on 3+).
+
+## User-facing slash prefixes
+
+A user can one-shot-override the tier for a single turn by starting the
+message with a slash prefix. The prefix is stripped from the text before
+the model sees it; the session tier is **not** mutated.
+
+| Prefix        | Effect                                                                 |
+|---------------|------------------------------------------------------------------------|
+| `/local`      | Force tier 0 for this turn.                                            |
+| `/fast`       | Force tier 1 for this turn.                                            |
+| `/standard`   | Force tier 2 for this turn.                                            |
+| `/power`      | **Rejected.** Marcel replies with a short explanation and does not call any model. POWER is reachable only via a skill or subagent that declares it. |
+| `/<skillname>`| Force-load that skill's `SKILL.md` into the turn's context and use the remaining text as the skill's input. Mirrors Claude Code's `/<command>` pattern — skills are prompt templates with args. Unknown names fall through unchanged. |
+
+Only a literal leading `/` at column 1 counts. `hello /fast` is plain
+text; ` /fast hello` (leading space) is plain text; `/` alone is plain
+text. Reserved prefixes (`local`, `fast`, `standard`, `power`) cannot be
+used as skill names — tier prefixes always win.
+
 ## How the session picks a tier (interactive turns)
 
 The session tier is decided **once per session** and then reused until the
 conversation is idle-summarized (`MARCEL_IDLE_SUMMARIZE_MINUTES`, default
-60). Precedence on every turn:
+60). The resolution pipeline lives in
+`marcel_core.harness.turn_router.resolve_turn` (ISSUE-6a38cd) — a pure
+function, highest precedence wins:
 
 1. **Active skill `preferred_tier`** — a per-turn override. When the turn's
    context includes one or more skills whose SKILL.md declares
    `preferred_tier: fast|standard|power`, the highest one wins
    (POWER > STANDARD > FAST). Does **not** mutate the session tier.
-2. **Session tier** — persisted in the user's
+2. **User slash prefix** — `/local`, `/fast`, `/standard` on the current
+   message force that tier for this turn only (prefix is stripped before
+   the model sees the text). `/power` is rejected. Does **not** mutate the
+   session tier.
+3. **Session tier** — persisted in the user's
    `~/.marcel/users/{slug}/settings.json` under `channel_tiers`. Set by the
    classifier on the session's first message and bumped on frustration.
-3. **Classifier** — runs only on the session's first message. Uses
-   keyword lists in `~/.marcel/routing.yaml` to pick FAST or STANDARD.
-   **POWER is never auto-selected** — it's reached only via an explicit
-   skill (`preferred_tier: power`) or subagent (`model: power`).
+4. **Classifier** — runs only on the session's first message. Uses
+   keyword lists in `~/.marcel/routing.yaml` to pick between
+   `MARCEL_DEFAULT_TIER` and `MARCEL_DEFAULT_TIER + 1`
+   (typically FAST ↔ STANDARD). **POWER is never auto-selected** — it's
+   reached only via an explicit skill (`preferred_tier: power`) or
+   subagent (`model: power`).
 
-Frustration detection runs alongside step 2. If the user's message matches
+Frustration detection runs alongside step 3. If the user's message matches
 a frustration pattern and the session is currently on FAST, the session
 tier is bumped to STANDARD (and persisted). Frustration on STANDARD is a
 no-op — POWER remains opt-in.
@@ -270,7 +314,7 @@ MARCEL_POWER_BACKUP_MODEL=openai:gpt-4o
 
 Overloaded on Anthropic → silently retries on the matching OpenAI model.
 Full Anthropic + OpenAI outage → raw error text. This is the minimum
-"don't show my users `overloaded_error`" setup for the three-tier router.
+"don't show my users `overloaded_error`" setup for the four-tier router.
 
 ### Cloud + local explain
 

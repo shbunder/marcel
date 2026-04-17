@@ -224,7 +224,7 @@ systemctl --user stop marcel
 | `MARCEL_TRACING_ENABLED` | No | Enable OpenTelemetry LLM tracing (default: `false`) |
 | `MARCEL_TRACING_ENDPOINT` | No | OTLP endpoint for traces (default: `http://localhost:6006`) |
 
-#### Model tiers (optional — three-tier ladder with per-tier backups)
+#### Model tiers (optional — four-tier ladder with per-tier backups)
 
 Marcel runs fine with just `ANTHROPIC_API_KEY` set. The variables below add
 cross-provider resilience: each tier has its own OpenAI-compatible backup,
@@ -248,6 +248,29 @@ showing a stack trace. Full details in
 | `MARCEL_FALLBACK_MODEL` | No | Shared local fallback. Explains outages in turns; retries the task in jobs. Example: `local:ministral-3:14b`. Requires `MARCEL_LOCAL_LLM_URL` + `MARCEL_LOCAL_LLM_MODEL`. |
 | `MARCEL_LOCAL_LLM_URL` | For local tier | OpenAI-compatible base URL of your local LLM (e.g. Ollama at `http://127.0.0.1:11434/v1`). See [docs/local-llm.md](docs/local-llm.md). |
 | `MARCEL_LOCAL_LLM_MODEL` | For local tier | Model tag the local server serves (e.g. `ministral-3:14b`). |
+| `MARCEL_DEFAULT_TIER` | No | Tier index (0–2) the classifier biases toward on a fresh session. Default: `1` (FAST). Set to `0` for privacy-first households that start every turn on local. |
+| `MARCEL_FALLBACK_TIER` | No | Tier index (0–2) that tails every cloud chain as the cloud-outage explainer. Default: `0` (LOCAL). Set to `1` if you have no local LLM and want haiku writing the apology. |
+
+Both tier index vars are clamped to 0–2 at startup — `3` (POWER) is
+rejected so users cannot accidentally admin-select an expensive tier as
+the floor. See [docs/model-tiers.md#admin-tier-defaults](docs/model-tiers.md#admin-tier-defaults).
+
+#### User-facing slash prefixes
+
+Users can one-shot-override the tier for a single turn (they do not
+persist to the session):
+
+| Prefix | Effect |
+|--------|--------|
+| `/local <text>` | Force tier 0 for this turn. |
+| `/fast <text>` | Force tier 1 for this turn. |
+| `/standard <text>` | Force tier 2 for this turn. |
+| `/power <text>` | **Rejected** with a short message. POWER is reserved for skills and subagents that declare it. |
+| `/<skillname> <args>` | Load that skill's `SKILL.md` into the turn's context and use `<args>` as the user message. Unknown names fall through. |
+
+Tier prefixes are a closed set (`/local`, `/fast`, `/standard`, `/power`).
+Anything else that starts with `/` is treated as a potential skill name
+and matched against the user's installed skills.
 
 ### Client config (`~/.marcel/config.toml`)
 

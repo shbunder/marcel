@@ -58,8 +58,8 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     aws_region: str | None = None
 
-    # Three-tier model ladder with per-tier cross-cloud backup (ISSUE-e0db47,
-    # extends ISSUE-076).
+    # Four-tier model ladder (LOCAL, FAST, STANDARD, POWER) with per-tier
+    # cross-cloud backup (ISSUE-e0db47, extends ISSUE-076).
     #
     # FAST (Haiku-class) — short lookups, chat, one-liners. Auto-selected by
     # the session classifier for simple first messages.
