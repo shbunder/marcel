@@ -125,8 +125,8 @@ Still works. Gates the **local** tier 3 for jobs in complete mode:
 | `anthropic:claude-sonnet-4-6`   | True                   | True                   | sonnet → `MARCEL_BACKUP_MODEL` → `MARCEL_FALLBACK_MODEL` (complete)        |
 | `anthropic:claude-haiku-...`    | True (default)         | False                  | haiku → `MARCEL_BACKUP_MODEL` → *(local skipped)* — **cost surprise!**     |
 | `anthropic:claude-haiku-...`    | False                  | False                  | haiku only, with retries. **Recommended for cheap cron jobs.**             |
-| `local:qwen3.5:4b`              | True (default)         | False                  | local only, with retries. *(auto-forced by ISSUE-b95ac5 guard)*            |
-| `local:qwen3.5:4b`              | False                  | False                  | local only, with retries. *(same — explicit opt-out, guard is redundant)*  |
+| `local:ministral-3:14b`         | True (default)         | False                  | local only, with retries. *(auto-forced by ISSUE-b95ac5 guard)*            |
+| `local:ministral-3:14b`         | False                  | False                  | local only, with retries. *(same — explicit opt-out, guard is redundant)*  |
 | any                             | False                  | True                   | pinned model with retries, then legacy local-fallback (ISSUE-070)          |
 
 The haiku row is the remaining case where you should flip
@@ -211,9 +211,9 @@ outage on top of that → raw error text, no apology. This is the minimum
 # .env.local
 MARCEL_STANDARD_MODEL=anthropic:claude-sonnet-4-6
 MARCEL_BACKUP_MODEL=openai:gpt-4o
-MARCEL_FALLBACK_MODEL=local:qwen3.5:4b
+MARCEL_FALLBACK_MODEL=local:ministral-3:14b
 MARCEL_LOCAL_LLM_URL=http://127.0.0.1:11434/v1
-MARCEL_LOCAL_LLM_MODEL=qwen3.5:4b
+MARCEL_LOCAL_LLM_MODEL=ministral-3:14b
 ```
 
 Full three-tier chain. Both Anthropic and OpenAI down? The user gets a
@@ -225,11 +225,11 @@ exception. Requires the Ollama setup described in
 
 ```bash
 # .env.local
-MARCEL_STANDARD_MODEL=local:qwen3.5:4b
+MARCEL_STANDARD_MODEL=local:ministral-3:14b
 MARCEL_BACKUP_MODEL=anthropic:claude-sonnet-4-6
 MARCEL_FALLBACK_MODEL=openai:gpt-4o-mini
 MARCEL_LOCAL_LLM_URL=http://127.0.0.1:11434/v1
-MARCEL_LOCAL_LLM_MODEL=qwen3.5:4b
+MARCEL_LOCAL_LLM_MODEL=ministral-3:14b
 ```
 
 Everything runs on local Ollama by default. Local fails → Sonnet takes
@@ -267,6 +267,6 @@ grep -r '"fallback_used":"local"' ~/.marcel/jobs/*/runs/*.jsonl
   user wrapper — prior conversation context is deliberately dropped. The
   goal is a reliable apology, not a conversation resume.
 - **`local:` fallback models need their transport configured.** Setting
-  `MARCEL_FALLBACK_MODEL=local:qwen3.5:4b` without also setting
+  `MARCEL_FALLBACK_MODEL=local:ministral-3:14b` without also setting
   `MARCEL_LOCAL_LLM_URL` and `MARCEL_LOCAL_LLM_MODEL` logs a warning and
   silently drops tier 3 from the chain.

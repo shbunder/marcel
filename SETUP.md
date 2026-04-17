@@ -236,10 +236,10 @@ stack trace. Full details in [docs/model-tiers.md](docs/model-tiers.md).
 |----------|----------|-------------|
 | `MARCEL_STANDARD_MODEL` | No | Tier 1 — normal calls. Defaults to `anthropic:claude-sonnet-4-6`. |
 | `MARCEL_BACKUP_MODEL` | No | Tier 2 — different-cloud backup tried on overloaded/5xx/auth errors. Example: `openai:gpt-4o`. |
-| `MARCEL_FALLBACK_MODEL` | No | Tier 3 — local-LLM apology when every cloud tier fails. Example: `local:qwen3.5:4b`. Requires `MARCEL_LOCAL_LLM_URL` + `MARCEL_LOCAL_LLM_MODEL`. |
+| `MARCEL_FALLBACK_MODEL` | No | Tier 3 — local-LLM apology when every cloud tier fails. Example: `local:ministral-3:14b`. Requires `MARCEL_LOCAL_LLM_URL` + `MARCEL_LOCAL_LLM_MODEL`. |
 | `MARCEL_POWER_MODEL` | No | Optional heavyweight model the `power` subagent escalates to for hard tasks. Example: `anthropic:claude-opus-4-6`. |
 | `MARCEL_LOCAL_LLM_URL` | For local tier | OpenAI-compatible base URL of your local LLM (e.g. Ollama at `http://127.0.0.1:11434/v1`). See [docs/local-llm.md](docs/local-llm.md). |
-| `MARCEL_LOCAL_LLM_MODEL` | For local tier | Model tag the local server serves (e.g. `qwen3.5:4b`). |
+| `MARCEL_LOCAL_LLM_MODEL` | For local tier | Model tag the local server serves (e.g. `ministral-3:14b`). |
 
 ### Client config (`~/.marcel/config.toml`)
 

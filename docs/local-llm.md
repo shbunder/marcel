@@ -33,19 +33,19 @@ interaction.
 | Variable                  | Example                         | Purpose                                 |
 |---------------------------|---------------------------------|-----------------------------------------|
 | `MARCEL_LOCAL_LLM_URL`    | `http://127.0.0.1:11434/v1`     | Base URL of an OpenAI-compatible server |
-| `MARCEL_LOCAL_LLM_MODEL`  | `qwen3.5:4b`                    | Model tag served at that URL            |
+| `MARCEL_LOCAL_LLM_MODEL`  | `ministral-3:14b`               | Model tag served at that URL            |
 
 Put them in `.env.local`:
 
 ```bash
 MARCEL_LOCAL_LLM_URL=http://127.0.0.1:11434/v1
-MARCEL_LOCAL_LLM_MODEL=qwen3.5:4b
+MARCEL_LOCAL_LLM_MODEL=ministral-3:14b
 ```
 
 Both must be set for the fallback to arm. The fallback also becomes
-visible as a selectable model (`local:qwen3.5:4b`) in the `list_models`
-UI, so you can set it as a channel primary if you want to use the local
-model as the default rather than just a fallback.
+visible as a selectable model (`local:ministral-3:14b`) in the
+`list_models` UI, so you can set it as a channel primary if you want to
+use the local model as the default rather than just a fallback.
 
 ## Opting a job in
 
@@ -90,13 +90,30 @@ its own env.
 ### Pull the model
 
 ```bash
-ollama pull qwen3.5:4b
+ollama --version          # requires ≥ 0.13.1 for Ministral 3
+ollama pull ministral-3:14b
+ollama pull ministral-3:8b
 ```
 
-`qwen3.5:4b` scored **97.5%** on the jdhodges 2026 tool-calling eval
-(best in its size class, including multi-tool parallel calls), needs
-~3.4 GB on disk and ~5 GB RAM when loaded. It is the recommended starting
-model for this path.
+`ministral-3:14b` (Mistral AI, December 2025, Apache 2.0) is the
+recommended primary. It ships with **native function-calling + JSON
+output** — the critical axis for Marcel's chained-integration pattern —
+and inherits the training lineage of Mistral Nemo 12B, which scored
+**92.5%** on the jdhodges 2026 tool-calling eval (best for sequential
+multi-turn workflows). Q4_K_M needs ~7 GB on disk and **~9 GB RAM** when
+loaded. 256k context window, comfortable headroom for the ~8–12k prompts
+Marcel actually sends. CPU throughput on a Core Ultra 5 125H sits
+around 3–5 tok/s — adequate for async jobs, borderline-interactive for
+the morning digest (which streams to Telegram, not a live chat).
+
+`ministral-3:8b` is the faster understudy — same family, same training,
+~5 GB RAM, ~6–9 tok/s CPU. Pull both so the harness can fall across to
+the 8B on heavy-load turns without a cold reload.
+
+**Legacy note:** earlier setups used `qwen3.5:4b` (97.5% on the same
+eval at 4B). The 4B is no longer the recommended tag, but any tag your
+Ollama server still serves will work if you point `MARCEL_LOCAL_LLM_MODEL`
+at it — the harness is model-agnostic.
 
 ### Verify tool calling
 
@@ -108,7 +125,7 @@ template:
 curl -sS -X POST http://127.0.0.1:11434/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3.5:4b",
+    "model": "ministral-3:14b",
     "messages": [
       {"role": "system", "content": "Always call the weather tool for weather questions."},
       {"role": "user", "content": "Weather in Brussels and Paris?"}
@@ -139,16 +156,21 @@ override at `/etc/systemd/system/ollama.service.d/override.conf`:
 ```ini
 [Service]
 Environment=OLLAMA_HOST=127.0.0.1:11434
-Environment=OLLAMA_KEEP_ALIVE=5m            # unload after 5 min idle — frees RAM for Plex
+Environment=OLLAMA_KEEP_ALIVE=10m            # longer unload window — cold-loading 14B is slower
 Environment=OLLAMA_MAX_LOADED_MODELS=1
 Environment=OLLAMA_NUM_PARALLEL=1
-MemoryHigh=5G                                # back-pressure before hard cap
-MemoryMax=6G                                 # hard cap — OOM kills ollama, never Plex
-CPUQuota=400%                                # at most 4 full cores
+Environment=OLLAMA_NUM_THREAD=12             # Core Ultra 5 125H: 14 P+E cores, 12 leaves UI headroom
+MemoryHigh=10G                               # back-pressure before hard cap
+MemoryMax=12G                                # fits Q4_K_M 14B + KV cache; OOM kills ollama, never Plex
+CPUQuota=800%                                # at most 8 full cores
 Nice=10                                      # Plex always wins scheduler contention
 IOSchedulingClass=best-effort
 IOSchedulingPriority=5
 ```
+
+If you also want the 8B resident simultaneously (avoids reload thrash
+when the harness swaps between primary and understudy), raise `MemoryMax`
+to `17G` and set `OLLAMA_MAX_LOADED_MODELS=2`.
 
 Apply with:
 
@@ -157,18 +179,13 @@ sudo systemctl daemon-reload
 sudo systemctl restart ollama
 ```
 
-### Tuning CPU thread count (post-upgrade)
+### Tuning CPU thread count
 
-Default ollama only uses a handful of threads on the Core Ultra 5 125H
-(4 observed in the ISSUE-070 smoke test). Once you've verified the
-fallback is working end-to-end, tune with:
-
-```ini
-Environment=OLLAMA_NUM_THREAD=8    # try 6, 8, 12 on 14 P+E cores
-```
-
-Dual-channel RAM is a prerequisite for meaningful throughput gains —
-single-channel starves memory bandwidth and adding threads won't help.
+`OLLAMA_NUM_THREAD=12` is the starting point on a 125H. Dual-channel RAM
+is a prerequisite for meaningful throughput gains — single-channel
+starves memory bandwidth and adding threads won't help. Drop to 8 if
+other services on the host (Plex transcode, background jobs) contend
+for cores during an LLM run.
 
 ## Observability
 
