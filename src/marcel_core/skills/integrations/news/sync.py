@@ -72,6 +72,11 @@ async def _fetch_source(
     """
     try:
         raw_articles = await fetch_feed(feed_url, max_articles=max_articles)
+    except ValueError as exc:
+        # Non-XML response — the feed is dead or redirecting to HTML. One
+        # line is enough, no traceback.
+        log.warning('[news-sync] Skipping %s (%s): %s', feed_url, source_name, exc)
+        return []
     except Exception:
         log.warning('[news-sync] Failed to fetch %s (%s)', feed_url, source_name, exc_info=True)
         return []

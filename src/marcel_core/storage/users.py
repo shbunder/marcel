@@ -32,6 +32,21 @@ def _user_dir(slug: str) -> pathlib.Path:
     return data_root() / 'users' / slug
 
 
+_BACKUP_SLUG_RE = re.compile(r'\.backup-\d')
+
+
+def is_backup_slug(slug: str) -> bool:
+    """Return True if ``slug`` is a user-data backup snapshot, not a live user.
+
+    The backup naming convention ``{base}.backup-{issue-num}-{timestamp}``
+    was introduced by the ISSUE-059 migration and kept for any subsequent
+    data moves. Backup dirs are preserved so a migration can be rolled back,
+    but they are **not** live users — the scheduler, memory consolidator,
+    and Telegram lookup must skip them.
+    """
+    return bool(_BACKUP_SLUG_RE.search(slug))
+
+
 def user_exists(slug: str) -> bool:
     """
     Return True if the user directory exists.
@@ -207,6 +222,8 @@ def find_user_by_telegram_chat_id(chat_id: int | str) -> str | None:
         return None
     for user_dir in users_dir.iterdir():
         if not user_dir.is_dir():
+            continue
+        if is_backup_slug(user_dir.name):
             continue
         profile_path = user_dir / 'profile.md'
         if not profile_path.exists():

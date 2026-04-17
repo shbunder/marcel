@@ -119,6 +119,7 @@ def _ensure_default_jobs() -> None:
     from marcel_core.jobs.models import JobDefinition, NotifyPolicy, TriggerSpec
     from marcel_core.storage._root import data_root
     from marcel_core.storage.credentials import load_credentials
+    from marcel_core.storage.users import is_backup_slug
 
     users_dir = data_root() / 'users'
     if not users_dir.is_dir():
@@ -128,6 +129,8 @@ def _ensure_default_jobs() -> None:
         if not user_dir.is_dir():
             continue
         slug = user_dir.name
+        if is_backup_slug(slug):
+            continue
         creds = load_credentials(slug)
         has_banking = bool(
             creds.get('ENABLEBANKING_APP_ID')
@@ -508,6 +511,7 @@ def _consolidate_memories() -> None:
         prune_expired_memories,
         rebuild_memory_index,
     )
+    from marcel_core.storage.users import is_backup_slug
 
     users_dir = data_root() / 'users'
     if not users_dir.is_dir():
@@ -517,6 +521,8 @@ def _consolidate_memories() -> None:
         if not user_dir.is_dir():
             continue
         slug = user_dir.name
+        if is_backup_slug(slug):
+            continue
         try:
             pruned = prune_expired_memories(slug)
             if pruned:

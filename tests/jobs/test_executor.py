@@ -93,6 +93,116 @@ class TestClassifyError:
 
 
 # ---------------------------------------------------------------------------
+# humanize_error — user-safe rendering of raw exception strings
+# ---------------------------------------------------------------------------
+
+
+class TestHumanizeError:
+    def test_empty(self):
+        from marcel_core.jobs.executor import humanize_error
+
+        assert humanize_error('') == 'unknown error'
+
+    def test_credit_balance_exhausted_pydantic_ai(self):
+        """The exact pydantic_ai payload we saw in production must collapse to a short human message."""
+        from marcel_core.jobs.executor import humanize_error
+
+        raw = (
+            'status_code: 400, model_name: claude-haiku-4-5-20251001, '
+            "body: {'type': 'error', 'error': {'type': 'invalid_request_error', "
+            "'message': 'Your credit balance is too low to access the Anthropic API. "
+            "Please go to Plans & Billing to upgrade or purchase credits.'}, "
+            "'request_id': 'req_011Ca8BaVJyQrKuDkvJNEYEq'}"
+        )
+        result = humanize_error(raw)
+        assert 'credit balance' in result.lower()
+        assert 'req_011' not in result
+        assert 'claude-haiku-4-5' not in result
+        assert 'status_code' not in result
+
+    def test_rate_limit(self):
+        from marcel_core.jobs.executor import humanize_error
+
+        assert 'rate-limited' in humanize_error('429 Too Many Requests')
+
+    def test_request_limit_cap(self):
+        from marcel_core.jobs.executor import humanize_error
+
+        result = humanize_error('The next request would exceed the request_limit of 60')
+        assert '60' in result
+        assert 'request_limit' in result
+
+    def test_job_timeout_passes_through(self):
+        """Internal 'Job timed out after 600s' messages are already clean — leave them alone."""
+        from marcel_core.jobs.executor import humanize_error
+
+        assert humanize_error('Job timed out after 600s') == 'Job timed out after 600s'
+
+    def test_generic_error_stripping(self):
+        """Unknown errors: strip request_id, model_name, status_code, Python exception prefixes."""
+        from marcel_core.jobs.executor import humanize_error
+
+        raw = (
+            'pydantic_ai.exceptions.ModelHTTPError: status_code: 500, '
+            'model_name: claude-sonnet-4-6, request_id: req_abc123XYZ, '
+            'something went wrong'
+        )
+        result = humanize_error(raw)
+        assert 'req_abc123XYZ' not in result
+        assert 'claude-sonnet-4-6' not in result
+        assert 'status_code' not in result
+        assert 'pydantic_ai' not in result
+        assert 'something went wrong' in result
+
+
+# ---------------------------------------------------------------------------
+# _presentable_job_name — strip redundant (slug) suffix
+# ---------------------------------------------------------------------------
+
+
+class TestPresentableJobName:
+    def test_strips_matching_slug_suffix(self):
+        from marcel_core.jobs.executor import _presentable_job_name
+        from marcel_core.jobs.models import JobDefinition, TriggerSpec, TriggerType
+
+        job = JobDefinition(
+            name='Bank sync (shaun)',
+            users=['shaun'],
+            trigger=TriggerSpec(type=TriggerType.ONESHOT),
+            system_prompt='x',
+            task='y',
+        )
+        assert _presentable_job_name(job, 'shaun') == 'Bank sync'
+
+    def test_leaves_name_untouched_when_slug_differs(self):
+        from marcel_core.jobs.executor import _presentable_job_name
+        from marcel_core.jobs.models import JobDefinition, TriggerSpec, TriggerType
+
+        job = JobDefinition(
+            name='Bank sync (alice)',
+            users=['alice'],
+            trigger=TriggerSpec(type=TriggerType.ONESHOT),
+            system_prompt='x',
+            task='y',
+        )
+        # Notifying bob (unlikely, but defensive) — don't silently strip someone else's slug.
+        assert _presentable_job_name(job, 'bob') == 'Bank sync (alice)'
+
+    def test_leaves_name_untouched_when_no_parens(self):
+        from marcel_core.jobs.executor import _presentable_job_name
+        from marcel_core.jobs.models import JobDefinition, TriggerSpec, TriggerType
+
+        job = JobDefinition(
+            name='Good morning',
+            users=['shaun'],
+            trigger=TriggerSpec(type=TriggerType.ONESHOT),
+            system_prompt='x',
+            task='y',
+        )
+        assert _presentable_job_name(job, 'shaun') == 'Good morning'
+
+
+# ---------------------------------------------------------------------------
 # Backoff schedule
 # ---------------------------------------------------------------------------
 

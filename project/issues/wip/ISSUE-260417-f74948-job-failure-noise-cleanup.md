@@ -1,6 +1,6 @@
 # ISSUE-f74948: Job failure noise — backup-user jobs, leaking internals, RSS stack traces
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-17
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -47,17 +47,17 @@ Fix: detect the non-XML case early in `_parse_feed` (e.g. response text does not
 After merging, trigger the redeploy via `request_restart()` to pick up both the code changes in this issue and the Ministral 3 14B upgrade from issue 9b3867 (merged earlier today but never deployed — the container image dates from 2026-04-16 14:30). This is the standard [self-modification path](../../.claude/rules/self-modification.md), not a scripted step in the issue.
 
 ## Tasks
-- [ ] A: skip `*.backup-*` slugs in `_ensure_default_jobs` (scheduler.py)
-- [ ] A: delete or disable the two existing `Bank sync (shaun.backup-059-*)` job definitions on disk so the scheduler stops dispatching them
-- [ ] A: add a regression test covering the backup-user skip in `_ensure_default_jobs`
-- [ ] B: add `humanize_error` helper (new small module or inline in executor.py) with mappings for credit-exhausted, rate-limit, timeout, connection errors, plus a generic stripper for `request_id=…`/`model_name=…` noise
-- [ ] B: apply `humanize_error` to the Telegram-bound message in `_notify_if_needed`; strip the `(slug)` suffix from `job.name` when the slug matches the notified user
-- [ ] B: regression tests for `humanize_error` (known mappings + generic strip) and for the `(slug)` de-duplication in the notification
-- [ ] D: detect non-XML responses in `_parse_feed` and raise a short typed error (no traceback in the caller's log)
-- [ ] D: adjust the caller in `news/sync.py` so non-XML responses log a single-line warning, not an exception with traceback
-- [ ] D: regression test for `_parse_feed` on a representative HTML-redirect body
-- [ ] Run `make check`
-- [ ] Update any stale docs (grep for `run.error`, `_ensure_default_jobs`, RSS parse behaviour) — docs ship in the final `🔧 impl:` commit per [docs-in-impl](../../.claude/rules/docs-in-impl.md)
+- [✓] A: skip `*.backup-*` slugs in `_ensure_default_jobs` (scheduler.py) — also applied to `_consolidate_memories` and `find_user_by_telegram_chat_id` via a shared `is_backup_slug` helper in `storage/users.py`
+- [✓] A: the two backup-user bank-sync JOB.md files are already absent from disk (verified via `find`); stale entries in `scheduler_state.json` will self-clean on the post-merge restart since `load_job` returns None for non-existent IDs and `_dispatch` pops them
+- [✓] A: add a regression test covering the backup-user skip in `_ensure_default_jobs` (+ tests for `is_backup_slug` directly)
+- [✓] B: add `humanize_error` helper in `executor.py` with mappings for credit-exhausted, rate-limit, timeout, request-limit, connection errors, plus a generic stripper for `request_id`/`model_name`/`status_code`/`body: {…}`/Python exception class prefixes
+- [✓] B: apply `humanize_error` to the Telegram-bound message in `_notify_if_needed`; strip the `(slug)` suffix from `job.name` via `_presentable_job_name` when the slug matches the notified user
+- [✓] B: regression tests for `humanize_error` (5 cases — empty, pydantic_ai credit-exhausted, rate-limit, request-limit, timeout pass-through, generic stripping) and for `_presentable_job_name` (3 cases)
+- [✓] D: detect non-XML responses in `_parse_feed` and raise a short `ValueError` (no traceback in the caller's log)
+- [✓] D: `news/sync.py` now handles `ValueError` as a one-line warning; keeps the traceback path for other exceptions
+- [✓] D: regression test for `_parse_feed` on HTML, empty body, and valid-XML-still-parses
+- [✓] Run `make check` — all passed, coverage 91.69%
+- [✓] Update any stale docs — grep found only closed-issue and lessons-learned references, no live docs to update
 - [ ] After merge: `request_restart()` to deploy A+B+D and the pending Ministral 3 upgrade
 
 ## Relationships
@@ -67,6 +67,23 @@ After merging, trigger the redeploy via `request_restart()` to pick up both the 
 
 ## Implementation Log
 <!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-17 11:20 - LLM Implementation
+**Action**: Implemented A+B+D robustness fixes end-to-end.
+**Files Modified**:
+- `src/marcel_core/storage/users.py` — new `is_backup_slug()` helper + applied in `find_user_by_telegram_chat_id`
+- `src/marcel_core/jobs/scheduler.py` — `_ensure_default_jobs` and `_consolidate_memories` both skip backup slugs
+- `src/marcel_core/jobs/executor.py` — new `humanize_error` and `_presentable_job_name`; `_notify_if_needed` routes the Telegram message through both
+- `src/marcel_core/tools/rss.py` — `_parse_feed` sniffs the first bytes and raises `ValueError` for non-XML before ET.fromstring; `rss_fetch` catches both `ParseError` and `ValueError`
+- `src/marcel_core/skills/integrations/news/sync.py` — distinct `ValueError` branch logs a single line
+- `tests/core/test_storage.py` — `TestIsBackupSlug` (3 cases, incl. the `ops.backup-manager` false-positive guard)
+- `tests/jobs/test_scheduler_scenarios.py` — `test_skips_backup_snapshot`
+- `tests/jobs/test_executor.py` — `TestHumanizeError` (6 cases) + `TestPresentableJobName` (3 cases)
+- `tests/tools/test_rss.py` — `TestNonXmlBody` (3 cases: HTML body, empty body, valid XML doesn't regress)
+
+**Commands Run**: `make check`
+**Result**: Success — 1387 tests pass, 91.69% coverage.
+**Next**: commit, merge, then `request_restart()` so the fixes and the pending Ministral 3 upgrade both land on the running container.
 
 ## Lessons Learned
 <!-- Filled in at close time. -->

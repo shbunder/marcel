@@ -119,7 +119,22 @@ def _parse_atom(root: ET.Element) -> list[dict[str, str]]:
 
 
 def _parse_feed(xml_text: str) -> list[dict[str, str]]:
-    """Auto-detect RSS vs Atom and parse."""
+    """Auto-detect RSS vs Atom and parse.
+
+    Feed hosts that have dropped their RSS support typically respond with
+    an HTML redirect / marketing page rather than a 404. ``ET.fromstring``
+    on that payload raises ``ParseError`` with a traceback — callers don't
+    need the stack, they need to know the feed is dead. Sniff the first
+    non-whitespace bytes and raise a short :class:`ValueError` instead so
+    the caller can log a single-line warning.
+    """
+    head = xml_text.lstrip()[:200].lower()
+    if not head:
+        raise ValueError('feed returned an empty body')
+    if not (head.startswith('<?xml') or head.startswith('<rss') or head.startswith('<feed') or head.startswith('<rdf')):
+        preview = head[:60].replace('\n', ' ')
+        raise ValueError(f'feed did not return XML (starts with: {preview!r})')
+
     root = ET.fromstring(xml_text)
     root_tag = _strip_ns(root.tag).lower()
 
@@ -165,7 +180,7 @@ async def rss_fetch(ctx: RunContext[MarcelDeps], url: str, max_articles: int = 1
         articles = await fetch_feed(url, max_articles)
     except httpx.HTTPStatusError as exc:
         return f'Error: HTTP {exc.response.status_code} fetching {url}'
-    except ET.ParseError as exc:
+    except (ET.ParseError, ValueError) as exc:
         return f'Error: Failed to parse feed XML — {exc}'
     except Exception as exc:
         return f'Error: Failed to fetch feed — {exc}'
