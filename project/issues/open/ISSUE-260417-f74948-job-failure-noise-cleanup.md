@@ -1,0 +1,81 @@
+# ISSUE-f74948: Job failure noise — backup-user jobs, leaking internals, RSS stack traces
+
+**Status:** Open
+**Created:** 2026-04-17
+**Assignee:** Unassigned
+**Priority:** Medium
+**Labels:** bug, robustness, observability
+
+## Capture
+**Original request:** Robustness: suppress backup-user jobs, humanize failure notifications, gracefully handle non-XML RSS responses. Fixes A+B+D from the logs review; C (redeploy) happens at the end to also pick up the Ministral 3 upgrade that hasn't deployed yet.
+
+**Follow-up Q&A:** Surfaced from a logs-review conversation where three distinct noise sources were found:
+- Bank sync jobs scheduled for `shaun.backup-059-*` users, failing permanently with *"credit balance too low"* on `claude-haiku-4-5`.
+- Telegram failure notifications include raw `str(exc)` from pydantic_ai, leaking `request_id`, model tag, HTTP status, and the internal user slug.
+- Non-XML RSS responses (Knack Trends feeds redirecting to HTML) produce ElementTree stack traces in the logs instead of a clean warning.
+
+**Resolved intent:** Three independent robustness fixes that all surfaced in the same logs review. Each reduces noise for the zoo keeper (the human operator) *or* the family (the non-technical users): backup snapshots should not run real jobs, Telegram error messages should not contain internal identifiers, and a badly-formed upstream feed should not fill the logs with tracebacks. After merge, the container needs a `request_restart()` redeploy to also pick up the Ministral 3 upgrade merged earlier today (issue 9b3867).
+
+## Description
+
+Three distinct problems, one issue because they all surfaced from the same logs-review pass and share the theme "stop the running system from generating avoidable noise."
+
+### A — Backup user dirs get default jobs
+
+[scheduler.py:127-163](../../src/marcel_core/jobs/scheduler.py#L127-L163) walks every directory under `users/` and, for any user with EnableBanking credentials, creates a `Bank sync (<slug>)` job. Backup snapshots (`shaun.backup-059-20260411T184915`, `shaun.backup-059-20260411T184951`) inherit the creds, so they each got their own bank-sync job — currently running every 8 hours and failing on every invocation because they use the old `anthropic:claude-haiku-4-5-20251001` default and our Anthropic credit balance is exhausted.
+
+Fix: skip slugs matching `*.backup-*` in `_ensure_default_jobs`, and deactivate/delete the two existing backup-user bank-sync job definitions so the scheduler stops dispatching them.
+
+### B — Telegram failure notifications leak internals
+
+[executor.py:584-587](../../src/marcel_core/jobs/executor.py#L584-L587) formats the failure notification as `f'Job "{job.name}" failed: {run.error}'` where `run.error = str(exc)`. For pydantic_ai HTTP errors this produces a message like:
+
+> Job "Bank sync (shaun.backup-059-20260411T184915)" failed: status_code: 400, model_name: claude-haiku-4-5-20251001, body: {'type': 'error', ..., 'request_id': 'req_011Ca8…'}
+
+Family members should not see Anthropic request IDs, model tags, raw exception dicts, or the internal backup-user slug. Stored `run.error` keeps the full text for debugging; only the *Telegram-bound* string needs sanitising.
+
+Fix: add a small `humanize_error(exc_text)` helper and apply it in `_notify_if_needed` just before building the Telegram message. Map known patterns (Anthropic credit exhaustion, OpenAI rate limit, timeouts, connection errors) to human text; for anything else, strip obvious technical noise (`request_id=...`, `model_name=...`, Python module paths). Also strip the `(slug)` suffix from the job name when it matches the user being notified — it is redundant and leaks the internal slug.
+
+### D — Non-XML RSS responses crash into a stack trace
+
+[tools/rss.py:123](../../src/marcel_core/tools/rss.py#L123) calls `ET.fromstring(xml_text)` unconditionally. When a feed returns HTML (e.g. `trends.knack.be/tech/feed/` currently serves a redirect page), the `xml.etree.ElementTree.ParseError` propagates up through [skills/integrations/news/sync.py:74](../../src/marcel_core/skills/integrations/news/sync.py#L74) and is logged as a warning *with a traceback*. Functionally it is fine — the news-sync continues — but it generates ~six lines of log spam per failed feed per sync, and we have two feeds failing × three syncs per day.
+
+Fix: detect the non-XML case early in `_parse_feed` (e.g. response text does not start with `<?xml` or `<rss` / `<feed` after stripping whitespace) and raise a typed, short error that the caller logs as a one-line warning without a traceback.
+
+### C — Redeploy (not a code change)
+
+After merging, trigger the redeploy via `request_restart()` to pick up both the code changes in this issue and the Ministral 3 14B upgrade from issue 9b3867 (merged earlier today but never deployed — the container image dates from 2026-04-16 14:30). This is the standard [self-modification path](../../.claude/rules/self-modification.md), not a scripted step in the issue.
+
+## Tasks
+- [ ] A: skip `*.backup-*` slugs in `_ensure_default_jobs` (scheduler.py)
+- [ ] A: delete or disable the two existing `Bank sync (shaun.backup-059-*)` job definitions on disk so the scheduler stops dispatching them
+- [ ] A: add a regression test covering the backup-user skip in `_ensure_default_jobs`
+- [ ] B: add `humanize_error` helper (new small module or inline in executor.py) with mappings for credit-exhausted, rate-limit, timeout, connection errors, plus a generic stripper for `request_id=…`/`model_name=…` noise
+- [ ] B: apply `humanize_error` to the Telegram-bound message in `_notify_if_needed`; strip the `(slug)` suffix from `job.name` when the slug matches the notified user
+- [ ] B: regression tests for `humanize_error` (known mappings + generic strip) and for the `(slug)` de-duplication in the notification
+- [ ] D: detect non-XML responses in `_parse_feed` and raise a short typed error (no traceback in the caller's log)
+- [ ] D: adjust the caller in `news/sync.py` so non-XML responses log a single-line warning, not an exception with traceback
+- [ ] D: regression test for `_parse_feed` on a representative HTML-redirect body
+- [ ] Run `make check`
+- [ ] Update any stale docs (grep for `run.error`, `_ensure_default_jobs`, RSS parse behaviour) — docs ship in the final `🔧 impl:` commit per [docs-in-impl](../../.claude/rules/docs-in-impl.md)
+- [ ] After merge: `request_restart()` to deploy A+B+D and the pending Ministral 3 upgrade
+
+## Relationships
+- Related to: [[ISSUE-9b3867-local-model-ministral3-upgrade]] — the pending redeploy after this issue also activates that upgrade
+
+## Comments
+
+## Implementation Log
+<!-- Append entries here when performing development work on this issue -->
+
+## Lessons Learned
+<!-- Filled in at close time. -->
+
+### What worked well
+-
+
+### What to do differently
+-
+
+### Patterns to reuse
+-
