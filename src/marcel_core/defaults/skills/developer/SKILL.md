@@ -1,6 +1,7 @@
 ---
 name: developer
 description: How Marcel should behave when asked to write, improve, or fix code — including self-modification and general coding tasks
+preferred_tier: power
 ---
 
 ## When to use developer mode

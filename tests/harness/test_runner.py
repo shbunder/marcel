@@ -391,6 +391,34 @@ class TestStreamTurnFallbackChain:
         # Tier 1 = channel pin, tier 2 = MARCEL_BACKUP_MODEL
         assert calls == ['anthropic:claude-opus-4-6', 'openai:gpt-4o']
 
+    @pytest.mark.asyncio
+    async def test_session_fast_tier_uses_fast_primary_and_backup(self, tmp_path, monkeypatch):
+        """Session tier FAST → FAST primary + FAST backup on cascade (not STANDARD)."""
+        from marcel_core.config import settings as marcel_settings
+        from marcel_core.storage.settings import save_channel_tier
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(marcel_settings, 'marcel_fast_model', 'anthropic:claude-haiku-4-5-20251001')
+        monkeypatch.setattr(marcel_settings, 'marcel_fast_backup_model', 'openai:gpt-4o-mini')
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
+
+        save_channel_tier('shaun', 'cli', 'fast')
+
+        calls: list[str] = []
+
+        def _create(model, **kwargs):
+            calls.append(model)
+            if len(calls) == 1:
+                return _raising_agent(lambda: RuntimeError('Overloaded'))
+            return _make_mock_agent(['ok'])
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', side_effect=_create):
+            async for _ in stream_turn('shaun', 'cli', 'hi', 'conv-1'):
+                pass
+
+        # Primary = FAST model, backup = FAST backup (NOT the STANDARD one).
+        assert calls == ['anthropic:claude-haiku-4-5-20251001', 'openai:gpt-4o-mini']
+
 
 # ---------------------------------------------------------------------------
 # ISSUE-e0db47: tier resolver (stream_turn precedence)
@@ -579,6 +607,24 @@ class TestResolveTurnTier:
         with patch('marcel_core.skills.loader.load_skills', return_value=[doc]):
             assert _active_skill_tier('shaun', set()) is None
             assert _active_skill_tier('shaun', {'something_else'}) is None
+
+    @pytest.mark.asyncio
+    async def test_idle_reset_clears_session_tier(self, tmp_path, monkeypatch):
+        """When ``summarize_if_idle`` fires, ``channel_tiers`` is cleared so
+        the next message re-classifies from scratch."""
+        from marcel_core.harness.runner import build_context
+        from marcel_core.storage.settings import load_channel_tier, save_channel_tier
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        save_channel_tier('shaun', 'telegram', 'fast')
+
+        async def _fake_summarize(*args, **kwargs):
+            return True  # Pretend the session just rolled over.
+
+        with patch('marcel_core.harness.runner.summarize_if_idle', new=_fake_summarize):
+            await build_context('shaun', 'telegram')
+
+        assert load_channel_tier('shaun', 'telegram') is None
 
 
 # ---------------------------------------------------------------------------

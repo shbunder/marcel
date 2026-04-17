@@ -146,11 +146,13 @@ The table above is a curated suggestion list; **any** pydantic-ai-supported
 `bedrock:`, `groq:`, `mistral:`, `google-gla:`, `ollama:`, and more. The
 display registry lives in [src/marcel_core/harness/agent.py](src/marcel_core/harness/agent.py).
 
-Set `MARCEL_BACKUP_MODEL` to a second cloud provider (e.g. `openai:gpt-4o`)
-and Marcel silently falls over to it when the primary is overloaded; set
-`MARCEL_FALLBACK_MODEL=local:ministral-3:14b` (plus a local LLM server) and
-total cloud outages produce a friendly apology instead of a stack trace.
-See [docs/model-tiers.md](docs/model-tiers.md) for the full four-tier chain.
+Marcel picks a tier per session (FAST / STANDARD / POWER); each tier has
+its own cross-cloud backup. Set `MARCEL_STANDARD_BACKUP_MODEL=openai:gpt-4o`
+and Marcel silently falls over to it when the STANDARD primary is overloaded;
+set `MARCEL_FALLBACK_MODEL=local:ministral-3:14b` (plus a local LLM server)
+and total cloud outages produce a friendly apology instead of a stack trace.
+See [docs/model-tiers.md](docs/model-tiers.md) for the full tier system and
+[docs/routing.md](docs/routing.md) for the session-classifier config.
 
 The full architectural overview (module layout, agent loop, WebSocket protocol)
 lives in [docs/architecture.md](docs/architecture.md).

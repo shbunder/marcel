@@ -110,14 +110,14 @@ Clawcode-compatible aliases are also accepted: `disallowedTools` for
 
 In addition to fully-qualified `provider:model` strings, the `model`
 frontmatter field accepts four **tier sentinels** that resolve against
-the ISSUE-076 fallback chain env vars at delegate time:
+the per-tier env vars at delegate time:
 
-| Sentinel | Resolves to              |
-|----------|--------------------------|
-| `standard` | `MARCEL_STANDARD_MODEL` |
-| `backup`   | `MARCEL_BACKUP_MODEL`   |
-| `fallback` | `MARCEL_FALLBACK_MODEL` |
-| `power`    | `MARCEL_POWER_MODEL`    |
+| Sentinel   | Resolves to                |
+|------------|----------------------------|
+| `fast`     | `MARCEL_FAST_MODEL`        |
+| `standard` | `MARCEL_STANDARD_MODEL`    |
+| `power`    | `MARCEL_POWER_MODEL`       |
+| `fallback` | `MARCEL_FALLBACK_MODEL`    |
 
 The resolution happens every time the subagent is invoked, so env-var
 updates take effect on the next turn without a restart. If the referenced
@@ -125,6 +125,10 @@ env var is unset when the agent is invoked, `delegate()` returns a clean
 `delegate error:` message rather than raising — the parent can decide
 how to recover. See [docs/model-tiers.md](./model-tiers.md) for the full
 tier system.
+
+> **Removed (ISSUE-e0db47):** the `backup` sentinel is no longer accepted.
+> Agent loading rejects it at startup with a warning pointing at the new
+> per-tier names.
 
 ### Tool names
 

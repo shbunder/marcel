@@ -16,13 +16,14 @@ Marcel runs on, but any server that implements the OpenAI
 
 The local LLM is invoked by the chain in two places:
 
-1. **Tier 3 explain** (interactive turns) — when both `MARCEL_STANDARD_MODEL`
-   and `MARCEL_BACKUP_MODEL` have failed, the local model runs with a
-   synthesised "explain the failure" prompt and tells the user cloud
-   models are temporarily unavailable.
-2. **Tier 3 complete** (scheduled jobs with `allow_local_fallback=True`)
-   — when cloud retries exhaust, the local model runs the original task
-   like the legacy ISSUE-070 path.
+1. **Explain-the-failure tier** (interactive turns) — when both the
+   session tier's primary (e.g. `MARCEL_STANDARD_MODEL`) and its
+   per-tier backup (e.g. `MARCEL_STANDARD_BACKUP_MODEL`) have failed,
+   the local model runs with a synthesised "explain the failure" prompt
+   and tells the user cloud models are temporarily unavailable.
+2. **Complete-the-task tier** (scheduled jobs with
+   `allow_local_fallback=True`) — when cloud retries exhaust, the local
+   model runs the original task like the legacy ISSUE-070 path.
 
 See [docs/model-tiers.md](./model-tiers.md) for the full tier semantics,
 the behaviour matrix, and the `allow_fallback_chain` / `allow_local_fallback`
