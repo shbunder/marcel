@@ -8,12 +8,15 @@ import pytest
 
 from marcel_core.config import settings
 from marcel_core.harness.model_chain import (
+    TIER_BY_INDEX,
+    TIER_INDEX,
     Tier,
     build_chain,
     build_explain_system_prompt,
     build_explain_user_prompt,
     is_fallback_eligible,
     next_tier,
+    tier_from_index,
 )
 
 
@@ -47,7 +50,7 @@ class TestBuildChain:
         monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
 
         chain = build_chain(mode='explain')
-        assert [e.tier for e in chain] == [Tier.STANDARD, Tier.STANDARD, Tier.FALLBACK]
+        assert [e.tier for e in chain] == [Tier.STANDARD, Tier.STANDARD, Tier.LOCAL]
         assert [e.purpose for e in chain] == ['primary', 'backup', 'explain']
         assert chain[1].model == 'openai:gpt-4o'
         assert chain[2].model == 'local:qwen3.5:4b'
@@ -87,7 +90,7 @@ class TestBuildChain:
         monkeypatch.setattr(settings, 'marcel_fallback_model', 'openai:gpt-4o-mini')
 
         chain = build_chain(mode='explain')
-        assert [e.tier for e in chain] == [Tier.STANDARD, Tier.FALLBACK]
+        assert [e.tier for e in chain] == [Tier.STANDARD, Tier.LOCAL]
         assert chain[-1].model == 'openai:gpt-4o-mini'
 
     def test_primary_override_replaces_primary_slot_only(self, monkeypatch):
@@ -130,9 +133,16 @@ class TestBuildChain:
         assert fast_chain[1].model == 'openai:gpt-4o-mini'
         assert std_chain[1].model == 'openai:gpt-4o'
 
-    def test_fallback_is_not_a_caller_tier(self):
-        with pytest.raises(ValueError, match='not a caller tier'):
-            build_chain(tier=Tier.FALLBACK)
+    def test_local_tier_single_entry_no_backup_no_fallback(self, monkeypatch):
+        """LOCAL is the last-resort tier — its chain is exactly one entry."""
+        monkeypatch.setattr(settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
+
+        chain = build_chain(tier=Tier.LOCAL, mode='explain')
+        assert [e.tier for e in chain] == [Tier.LOCAL]
+        assert chain[0].model == 'local:qwen3.5:4b'
+        assert chain[0].purpose == 'primary'
 
 
 class TestIsFallbackEligible:
@@ -176,7 +186,7 @@ class TestNextTier:
         chain = self._full_chain(monkeypatch)
         nxt = next_tier(chain, chain[1], 'server_error')
         assert nxt is not None
-        assert nxt.tier == Tier.FALLBACK
+        assert nxt.tier == Tier.LOCAL
         assert nxt.purpose == 'explain'
 
     def test_returns_none_at_end_of_chain(self, monkeypatch):
@@ -199,7 +209,7 @@ class TestNextTier:
         chain = self._full_chain(monkeypatch, mode='complete')
         nxt = next_tier(chain, chain[1], 'permanent')
         assert nxt is not None
-        assert nxt.tier == Tier.FALLBACK
+        assert nxt.tier == Tier.LOCAL
         assert nxt.purpose == 'complete'
 
 
@@ -232,3 +242,21 @@ class TestExplainPromptSynthesis:
         assert '…' in prompt
         # Rough bound: truncated content (500) + wrapper text
         assert len(prompt) < 800
+
+
+class TestTierIndex:
+    def test_public_indexing_is_0_to_3(self):
+        assert TIER_INDEX[Tier.LOCAL] == 0
+        assert TIER_INDEX[Tier.FAST] == 1
+        assert TIER_INDEX[Tier.STANDARD] == 2
+        assert TIER_INDEX[Tier.POWER] == 3
+
+    def test_reverse_mapping_round_trips(self):
+        for tier, idx in TIER_INDEX.items():
+            assert TIER_BY_INDEX[idx] == tier
+            assert tier_from_index(idx) == tier
+
+    @pytest.mark.parametrize('bad_index', [-1, 4, 99])
+    def test_tier_from_index_rejects_out_of_range(self, bad_index):
+        with pytest.raises(ValueError, match='unknown tier index'):
+            tier_from_index(bad_index)

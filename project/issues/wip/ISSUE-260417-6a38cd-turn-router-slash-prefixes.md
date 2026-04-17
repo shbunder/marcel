@@ -1,6 +1,6 @@
 # ISSUE-6a38cd: Turn router module with slash-prefix tier selection and skill triggers
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-17
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -59,8 +59,8 @@ Location: wherever existing admin/system settings live (likely `~/.marcel/settin
 ### Slash-command prefixes
 - `/local`, `/fast`, `/standard` → one-shot tier override, strip prefix from text.
 - `/power` → rejected with a short explanatory message; do not route to the model.
-- `/<skillname>` → trigger the named skill directly, remaining text becomes the skill input. If the skill name is unknown, fall through to normal routing with the original text.
-- Tier prefixes take precedence over skill names (fixed set: `local`, `fast`, `standard`, `power`).
+- `/<name>` where `<name>` is the literal skill directory name (e.g., `/banking`, `/calendar`, `/weather`) → trigger that skill directly, remaining text becomes the skill input. Mirrors Claude Code's own slash-command pattern. If the name is unknown, fall through to normal routing with the original text untouched.
+- Tier prefixes take precedence over skill names — the fixed reserved set is `local`, `fast`, `standard`, `power`. A skill must not be named any of those four.
 
 ### Module shape
 `src/marcel_core/harness/turn_router.py`:
@@ -96,7 +96,7 @@ Pure function, no I/O, no globals. All tests hit this single surface.
 - No new user-facing power path, under any circumstances.
 
 ## Tasks
-- [ ] Add `LOCAL` to the `Tier` enum (or equivalent) and a bidirectional numeric mapping (`0–3 ↔ Tier`)
+- [✓] Add `LOCAL` to the `Tier` enum (or equivalent) and a bidirectional numeric mapping (`0–3 ↔ Tier`)
 - [ ] Add `AdminTierConfig` with `fallback_tier` and `default_tier`, defaulting to `0` and `1`; validate ∈ {0,1,2}
 - [ ] Thread admin config through startup so it's available to `resolve_turn`
 - [ ] Create `src/marcel_core/harness/turn_router.py` with `resolve_turn()` and `TurnPlan`
@@ -121,6 +121,17 @@ Pure function, no I/O, no globals. All tests hit this single surface.
 
 ## Implementation Log
 <!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-17 - LLM Implementation
+**Action**: Promoted the local tier to a first-class, publicly-indexed tier.
+**Files Modified**:
+- `src/marcel_core/harness/model_chain.py` — renamed `Tier.FALLBACK` → `Tier.LOCAL`; added `TIER_INDEX` / `TIER_BY_INDEX` mapping (0=local, 1=fast, 2=standard, 3=power) and `tier_from_index()` helper; `build_chain` now accepts `Tier.LOCAL` as a caller tier (single-entry chain, no backup, no recursive fallback); `_TIER_PRIMARY_ATTR` gains a LOCAL entry backed by the existing `marcel_fallback_model` env var.
+- `src/marcel_core/jobs/executor.py` — legacy ISSUE-070 bridge uses `Tier.LOCAL`.
+- `tests/harness/test_model_chain.py` — new `TestTierIndex` class; replaced the "FALLBACK is not a caller tier" test with a positive test that proves `build_chain(tier=Tier.LOCAL)` returns a single-entry chain.
+- `tests/agents/test_loader.py`, `tests/tools/test_delegate.py` — tier-sentinel parameterization now uses the literal tier names, swapping `'fallback'` for `'local'`.
+**Commands Run**: `make test` (1426 passed).
+**Result**: Success. The chain's behavior for FAST/STANDARD/POWER is unchanged; LOCAL is newly addressable.
+**Next**: Add `AdminTierConfig` with `fallback_tier` / `default_tier`, then build the turn_router module.
 
 ## Lessons Learned
 <!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->

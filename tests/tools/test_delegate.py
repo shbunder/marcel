@@ -307,12 +307,12 @@ class TestTierSentinelResolution:
         assert calls[0]['model'] == 'anthropic:claude-sonnet-4-6'
 
     @pytest.mark.asyncio
-    async def test_fallback_sentinel_resolves(self, agents_root: Path, fake_factory, monkeypatch: pytest.MonkeyPatch):
+    async def test_local_sentinel_resolves(self, agents_root: Path, fake_factory, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
         monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
-        _write_agent(agents_root, 'fb', 'name: fb\ndescription: d\nmodel: fallback')
+        _write_agent(agents_root, 'lo', 'name: lo\ndescription: d\nmodel: local')
         calls, _ = fake_factory
-        await delegate(_ctx(), subagent_type='fb', prompt='go')
+        await delegate(_ctx(), subagent_type='lo', prompt='go')
         assert calls[0]['model'] == 'local:qwen3.5:4b'
 
 

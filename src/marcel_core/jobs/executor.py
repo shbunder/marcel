@@ -377,7 +377,7 @@ async def _execute_chain(
         # opted into local fallback and MARCEL_LOCAL_LLM_* are configured.
         chain.append(
             TierEntry(
-                tier=Tier.FALLBACK,
+                tier=Tier.LOCAL,
                 model=f'local:{settings.marcel_local_llm_model}',
                 purpose='complete',
             )
