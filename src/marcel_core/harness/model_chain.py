@@ -7,23 +7,28 @@ share the same tier resolution + error-eligibility rules.
 Tiers
 -----
 
-Three tiers form an auto-routable ladder; each has its own cross-cloud
-backup, and they share a single local-LLM fallback for user-facing apology.
+Four tiers, publicly indexed 0–3 so admins and users can reason about them
+numerically. Higher index = more capable (and typically more expensive).
 
-* ``FAST`` — Haiku-class. Primary from ``settings.marcel_fast_model``,
+* ``LOCAL`` (0) — Self-hosted local LLM, from ``settings.marcel_fallback_model``
+  (historical env-var name). No cross-cloud backup. Used as the
+  cloud-outage fallback for higher tiers, and selectable directly by the
+  user via ``/local`` or by an admin default.
+* ``FAST`` (1) — Haiku-class. Primary from ``settings.marcel_fast_model``,
   optional cross-cloud backup from ``settings.marcel_fast_backup_model``.
-* ``STANDARD`` — Sonnet-class daily driver. Primary from
+* ``STANDARD`` (2) — Sonnet-class daily driver. Primary from
   ``settings.marcel_standard_model``, optional backup from
   ``settings.marcel_standard_backup_model``.
-* ``POWER`` — Opus-class. Primary from ``settings.marcel_power_model``,
+* ``POWER`` (3) — Opus-class. Primary from ``settings.marcel_power_model``,
   optional backup from ``settings.marcel_power_backup_model``. Never
-  auto-selected by the session classifier; reached only via an explicit
-  skill ``preferred_tier: power`` or subagent ``model: power``.
+  auto-selected by the session classifier and never user-selectable; reached
+  only via an explicit skill ``preferred_tier: power`` or subagent
+  ``model: power``.
 
-``FALLBACK`` is not a user-facing tier. It's the shared last-resort local
-LLM (``settings.marcel_fallback_model``) used to *explain* a failure to the
-user when every cloud option in the chain is down. Skipped when unset, or
-when the value is a ``local:`` string but ``marcel_local_llm_url`` /
+When a higher-tier chain exhausts every cloud option, the shared last-resort
+``LOCAL`` entry appended to the chain ``explain``s the failure to the user.
+That entry is skipped when ``marcel_fallback_model`` is unset, or when the
+value is a ``local:`` string but ``marcel_local_llm_url`` /
 ``marcel_local_llm_model`` aren't configured. Two run modes:
 
 * ``'explain'`` (interactive turns) — runs with an empty message history,
@@ -129,15 +134,41 @@ def classify_error(error: str) -> tuple[bool, str]:
 class Tier(str, Enum):
     """Named tiers in Marcel's model ladder.
 
-    ``FAST``/``STANDARD``/``POWER`` are the user-facing tiers. ``FALLBACK``
-    is the shared last-resort local explainer — not auto-routable; not a
-    valid ``tier:<name>`` sentinel for skill/subagent frontmatter.
+    Four tiers, publicly indexed 0–3 via :data:`TIER_INDEX`. All four are
+    valid ``tier:<name>`` sentinels for skill/subagent frontmatter. User
+    prefix routing (``/local``, ``/fast``, ``/standard``) exposes every tier
+    *except* POWER — POWER is reserved for skills/subagents that declare it
+    explicitly.
     """
 
+    LOCAL = 'local'
     FAST = 'fast'
     STANDARD = 'standard'
     POWER = 'power'
-    FALLBACK = 'fallback'
+
+
+TIER_INDEX: dict[Tier, int] = {
+    Tier.LOCAL: 0,
+    Tier.FAST: 1,
+    Tier.STANDARD: 2,
+    Tier.POWER: 3,
+}
+
+TIER_BY_INDEX: dict[int, Tier] = {index: tier for tier, index in TIER_INDEX.items()}
+
+
+def tier_from_index(index: int) -> Tier:
+    """Resolve a public tier index (0–3) to its :class:`Tier` member.
+
+    Raises ``ValueError`` for out-of-range indexes so admin config validation
+    gets a clear error message rather than a silent KeyError.
+    """
+    try:
+        return TIER_BY_INDEX[index]
+    except KeyError:
+        raise ValueError(
+            f'unknown tier index {index!r} — must be one of 0 (local), 1 (fast), 2 (standard), 3 (power)'
+        ) from None
 
 
 Purpose = Literal['primary', 'backup', 'explain', 'complete']
@@ -191,11 +222,14 @@ def _fallback_tier_usable(model: str) -> bool:
 
 
 _TIER_PRIMARY_ATTR = {
+    Tier.LOCAL: 'marcel_fallback_model',
     Tier.FAST: 'marcel_fast_model',
     Tier.STANDARD: 'marcel_standard_model',
     Tier.POWER: 'marcel_power_model',
 }
 
+# LOCAL has no cross-cloud backup — it *is* the last-resort tier. Membership
+# lookup is gated by ``.get`` so callers can safely ask any tier.
 _TIER_BACKUP_ATTR = {
     Tier.FAST: 'marcel_fast_backup_model',
     Tier.STANDARD: 'marcel_standard_backup_model',
@@ -208,14 +242,15 @@ def build_chain(
     tier: Tier = Tier.STANDARD,
     primary: str | None = None,
     mode: Literal['explain', 'complete'] = 'explain',
+    fallback_tier: Tier = Tier.LOCAL,
 ) -> list[TierEntry]:
     """Resolve the ordered tier list for a given call.
 
     Args:
         tier: The user-facing tier driving this call. Selects the primary
-            model env var and the per-tier backup env var. Must be one of
-            ``FAST``/``STANDARD``/``POWER`` — ``FALLBACK`` is not a valid
-            caller tier.
+            model env var and (for non-``LOCAL`` tiers) the per-tier backup
+            env var. Any tier is accepted; ``LOCAL`` produces a single-entry
+            chain with no backup and no further fallback.
         primary: Optional override for the primary slot. When ``None`` the
             chain uses ``settings.marcel_<tier>_model``. A per-channel pin
             or explicit caller argument passes in its resolved value here —
@@ -225,33 +260,50 @@ def build_chain(
             explain-failure purpose), ``'complete'`` for scheduled jobs
             (local fallback tries to finish the task on the local model,
             matching legacy ISSUE-070 semantics).
+        fallback_tier: Tier used for the cloud-outage tail entry. Default
+            ``Tier.LOCAL`` (the historical behavior, reading
+            ``marcel_fallback_model``). Admins can override via
+            ``AdminTierConfig.fallback_tier`` to tail the chain with a
+            cloud tier instead (``FAST`` → ``marcel_fast_model``). The tail
+            entry is omitted when ``fallback_tier`` equals ``tier`` (no
+            point appending the same model twice).
 
     Returns:
-        A list with at least one entry (the primary). The per-tier backup is
-        appended iff ``settings.marcel_<tier>_backup_model`` is set. The
-        shared local fallback is appended iff ``settings.marcel_fallback_model``
-        is set *and*, when it's a ``local:`` model, the local LLM transport
-        is configured.
+        A list with at least one entry (the primary). For non-``LOCAL``
+        tiers, the per-tier backup is appended iff
+        ``settings.marcel_<tier>_backup_model`` is set, and a
+        ``fallback_tier`` tail entry is appended iff the admin-selected
+        fallback resolves to a usable model (for ``LOCAL``, that means the
+        local LLM transport is configured; for cloud tiers, the model env
+        var is set). For the ``LOCAL`` tier, the chain contains only the
+        primary (no recursive append — LOCAL IS the fallback).
     """
     if tier not in _TIER_PRIMARY_ATTR:
-        raise ValueError(f'build_chain: {tier} is not a caller tier (use FAST, STANDARD, or POWER)')
+        raise ValueError(f'build_chain: unknown tier {tier!r}')
+    if fallback_tier == Tier.POWER:
+        raise ValueError('build_chain: fallback_tier cannot be POWER')
 
     primary_model = primary or getattr(settings, _TIER_PRIMARY_ATTR[tier])
     chain: list[TierEntry] = [TierEntry(tier=tier, model=primary_model, purpose='primary')]
 
-    backup_model = getattr(settings, _TIER_BACKUP_ATTR[tier])
+    if tier == Tier.LOCAL:
+        return chain
+
+    backup_attr = _TIER_BACKUP_ATTR.get(tier)
+    backup_model = getattr(settings, backup_attr) if backup_attr else None
     if backup_model:
         chain.append(TierEntry(tier=tier, model=backup_model, purpose='backup'))
 
-    fallback_model = settings.marcel_fallback_model
-    if fallback_model and _fallback_tier_usable(fallback_model):
-        chain.append(
-            TierEntry(
-                tier=Tier.FALLBACK,
-                model=fallback_model,
-                purpose='explain' if mode == 'explain' else 'complete',
+    if fallback_tier != tier:
+        fallback_model = getattr(settings, _TIER_PRIMARY_ATTR[fallback_tier])
+        if fallback_model and (fallback_tier != Tier.LOCAL or _fallback_tier_usable(fallback_model)):
+            chain.append(
+                TierEntry(
+                    tier=fallback_tier,
+                    model=fallback_model,
+                    purpose='explain' if mode == 'explain' else 'complete',
+                )
             )
-        )
 
     return chain
 
@@ -366,10 +418,10 @@ def resolve_tier_sentinel(sentinel: str) -> str:
     except ValueError:
         raise ValueError(f'unknown tier {tier_name!r}') from None
     tier_map = {
+        Tier.LOCAL: settings.marcel_fallback_model,
         Tier.FAST: settings.marcel_fast_model,
         Tier.STANDARD: settings.marcel_standard_model,
         Tier.POWER: settings.marcel_power_model,
-        Tier.FALLBACK: settings.marcel_fallback_model,
     }
     resolved = tier_map[tier]
     if not resolved:
@@ -430,6 +482,9 @@ def build_explain_user_prompt(user_text: str) -> str:
 
 __all__ = [
     'Tier',
+    'TIER_INDEX',
+    'TIER_BY_INDEX',
+    'tier_from_index',
     'TierEntry',
     'Purpose',
     'TIER_SENTINEL_PREFIX',

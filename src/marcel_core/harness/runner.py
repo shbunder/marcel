@@ -43,6 +43,12 @@ from marcel_core.harness.tier_classifier import (
     load_routing_config,
     maybe_bump_tier,
 )
+from marcel_core.harness.turn_router import (
+    AdminTierConfig,
+    TierSource,
+    TurnPlan,
+    resolve_turn,
+)
 from marcel_core.memory.conversation import (
     MAX_SUMMARY_CHARS,
     append_to_segment,
@@ -450,36 +456,18 @@ def _active_skill_tier(user_slug: str, active_names: set[str]) -> tuple[Tier, st
     return best
 
 
-def _resolve_turn_tier(
+def _resolve_session_tier(
     user_slug: str,
     channel: str,
     user_text: str,
-    active_skill_names: set[str],
 ) -> tuple[Tier, str]:
-    """Decide which tier this interactive turn runs on.
+    """Resolve the per-channel session tier, running classifier + bump as needed.
 
-    Precedence (highest wins):
-
-    1. Active skill ``preferred_tier`` — per-turn override, does **not**
-       mutate the session tier. When multiple active skills declare a tier,
-       the highest one wins.
-    2. Session tier in ``channel_tiers``. Set by the classifier on the
-       first message of the session and bumped on frustration.
-    3. Classifier on the first message — saves the result to
-       ``channel_tiers``. The classifier only picks FAST or STANDARD;
-       POWER is never auto-selected here.
-
-    Frustration detection runs only when falling through to the session
-    tier (step 2/3). A bump (FAST → STANDARD) mutates ``channel_tiers``.
-
-    Returns ``(tier, reason)`` where ``reason`` is a short log-friendly
-    string identifying why this tier was picked.
+    Stateful: on a fresh session the classifier output is persisted to
+    ``channel_tiers``; on frustration the bumped tier overwrites it. Returns
+    ``(tier, reason)`` where ``reason`` is a log-friendly description of how
+    the tier was picked.
     """
-    skill_override = _active_skill_tier(user_slug, active_skill_names)
-    if skill_override is not None:
-        tier, name = skill_override
-        return tier, f'skill:{name}:{tier.value}'
-
     cfg = load_routing_config()
     stored = load_channel_tier(user_slug, channel)
     if stored is None:
@@ -510,6 +498,42 @@ def _resolve_turn_tier(
     return session_tier, reason
 
 
+def _resolve_turn_tier(
+    user_slug: str,
+    channel: str,
+    user_text: str,
+    active_skill_names: set[str],
+) -> tuple[Tier, str]:
+    """Decide which tier this interactive turn runs on.
+
+    Thin wrapper: delegates the final precedence (active skill > session >
+    admin default) to :func:`marcel_core.harness.turn_router.resolve_turn`.
+    The stateful classifier/bump/persist logic lives in
+    :func:`_resolve_session_tier`. Slash-prefix parsing happens at the
+    channel layer before this function is reached, so ``user_text`` is used
+    only for classifier/bump input.
+
+    Returns ``(tier, reason)`` with the same log-friendly reason strings as
+    before: ``classified:...``, ``session:...``, ``frustration_bump:...``,
+    ``skill:<name>:<tier>``.
+    """
+    skill_override = _active_skill_tier(user_slug, active_skill_names)
+    active_skill_tier_val = skill_override[0] if skill_override else None
+
+    session_tier, session_reason = _resolve_session_tier(user_slug, channel, user_text)
+
+    plan = resolve_turn(
+        '',
+        active_skill_tier=active_skill_tier_val,
+        session_tier=session_tier,
+        admin_config=AdminTierConfig.from_settings(),
+    )
+
+    if plan.source is TierSource.ACTIVE_SKILL and skill_override is not None:
+        return plan.tier, f'skill:{skill_override[1]}:{plan.tier.value}'
+    return plan.tier, session_reason
+
+
 async def stream_turn(
     user_slug: str,
     channel: str,
@@ -518,6 +542,7 @@ async def stream_turn(
     *,
     model: str | None = None,
     cwd: str | None = None,
+    turn_plan: TurnPlan | None = None,
 ) -> AsyncIterator[MarcelEvent]:
     """Stream events from a single conversation turn.
 
@@ -527,15 +552,27 @@ async def stream_turn(
     Args:
         user_slug: The user's slug.
         channel: The originating channel.
-        user_text: The user's message for this turn.
+        user_text: The user's message for this turn. If ``turn_plan`` is
+            supplied, ``turn_plan.cleaned_text`` replaces this for storage,
+            context building, and the model prompt — the channel has already
+            stripped any slash prefix.
         conversation_id: The active conversation identifier.
         model: Optional model override (e.g., 'openai:gpt-4').
+        turn_plan: Optional pre-resolved plan from the channel adapter. When
+            supplied, its ``tier`` wins over the classifier/session path iff
+            ``source`` is ``USER_PREFIX`` (one-shot user override); its
+            ``skill_override`` pre-seeds the turn's ``read_skills`` so the
+            skill's SKILL.md is loaded into the system prompt.
 
     Yields:
         MarcelEvent instances: RunStarted, TextDelta, ToolCallStarted,
         ToolCallCompleted, RunFinished.
     """
     role = get_user_role(user_slug)
+
+    # The channel has already stripped any slash prefix — use the cleaned
+    # text everywhere downstream (segment append, context query, user prompt).
+    effective_text = turn_plan.cleaned_text if turn_plan is not None else user_text
 
     # For admin users on non-CLI channels, default cwd to the user's home directory.
     # For CLI sessions, cwd comes from the client's current directory.
@@ -559,10 +596,17 @@ async def stream_turn(
     # auto-load doesn't re-inject docs that are already visible to the model.
     _prime_read_skills_from_history(message_history, deps.turn.read_skills)
 
+    # ``/<skillname>`` dispatch — force-load the skill's SKILL.md so the
+    # model sees its instructions as part of the system prompt, with the
+    # user's remaining text as the turn input. Mirrors Claude Code's pattern
+    # (skills as prompt templates with user args).
+    if turn_plan is not None and turn_plan.skill_override is not None:
+        deps.turn.read_skills.add(turn_plan.skill_override)
+
     # Append user message to segment (after loading context, so it's not duplicated)
     user_msg = HistoryMessage(
         role='user',
-        text=user_text,
+        text=effective_text,
         timestamp=datetime.now(tz=timezone.utc),
         conversation_id=conversation_id,
     )
@@ -571,12 +615,17 @@ async def stream_turn(
     # Build system prompt with context (async version includes AI-selected memories)
     from marcel_core.harness.context import build_instructions_async
 
-    system_prompt = await build_instructions_async(deps, query=user_text)
+    system_prompt = await build_instructions_async(deps, query=effective_text)
 
-    # Tier selection (ISSUE-e0db47): active skill preferred_tier > session tier
-    # (set by classifier, bumped on frustration). Subagent ``model:`` overrides
+    # Tier selection (ISSUE-e0db47, ISSUE-6a38cd): if the channel pre-resolved
+    # the turn with a user-prefix override (``/fast`` etc.), honor it; otherwise
+    # delegate to the session/classifier path. Subagent ``model:`` overrides
     # resolve separately in delegate.py and never reach this path.
-    tier, tier_reason = _resolve_turn_tier(user_slug, channel, user_text, deps.turn.read_skills)
+    if turn_plan is not None and turn_plan.source is TierSource.USER_PREFIX:
+        tier = turn_plan.tier
+        tier_reason = f'user_prefix:{tier.value}'
+    else:
+        tier, tier_reason = _resolve_turn_tier(user_slug, channel, effective_text, deps.turn.read_skills)
     log.info(
         'tier_resolved user=%s channel=%s tier=%s reason=%s',
         user_slug,
@@ -587,8 +636,16 @@ async def stream_turn(
 
     # Primary model: explicit override > per-channel pin > tier default.
     # ``build_chain`` picks the backup from the tier's env var either way.
+    # Admin ``fallback_tier`` controls which tier tails the chain as the
+    # cloud-outage explainer (default ``LOCAL`` — historical behavior).
     primary_model = model or load_channel_model(user_slug, channel)
-    chain = build_chain(tier=tier, primary=primary_model, mode='explain')
+    admin_config = AdminTierConfig.from_settings()
+    chain = build_chain(
+        tier=tier,
+        primary=primary_model,
+        mode='explain',
+        fallback_tier=admin_config.fallback_tier,
+    )
 
     yield RunStarted(conversation_id=conversation_id)
 
@@ -615,7 +672,7 @@ async def stream_turn(
                 str(last_exc) if last_exc else '(no error recorded)',
                 last_category,
             )
-            tier_user_prompt = build_explain_user_prompt(user_text)
+            tier_user_prompt = build_explain_user_prompt(effective_text)
             tier_history: list[ModelMessage] = []
             tier_usage_limits = UsageLimits(request_limit=1)
             try:
@@ -637,7 +694,7 @@ async def stream_turn(
                 chain_exhausted = True
                 break
         else:
-            tier_user_prompt = user_text
+            tier_user_prompt = effective_text
             tier_history = message_history
             tier_usage_limits = UsageLimits(request_limit=15)
             try:

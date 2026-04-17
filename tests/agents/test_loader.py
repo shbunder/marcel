@@ -85,11 +85,11 @@ class TestLoadAgentsHappyPath:
         _write_agent(agents_root, 'inh', 'name: inh\ndescription: d\nmodel: inherit')
         assert load_agent('inh').model is None
 
-    @pytest.mark.parametrize('tier_name', ['fast', 'standard', 'power', 'fallback'])
+    @pytest.mark.parametrize('tier_name', ['local', 'fast', 'standard', 'power'])
     def test_model_tier_sentinel_parsing(self, agents_root: Path, tier_name: str) -> None:
         """Single-word tier names in frontmatter become ``tier:<name>`` sentinels
         that the delegate tool resolves against settings at call time
-        (ISSUE-076, ISSUE-e0db47)."""
+        (ISSUE-076, ISSUE-e0db47, ISSUE-6a38cd)."""
         _write_agent(agents_root, tier_name, f'name: {tier_name}\ndescription: d\nmodel: {tier_name}')
         assert load_agent(tier_name).model == f'tier:{tier_name}'
 

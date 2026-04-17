@@ -4,7 +4,7 @@ Marcel classifies each new session as either **FAST** or **STANDARD** on
 its first user message, using keyword lists stored in
 `~/.marcel/routing.yaml`. The classification is editable at runtime — the
 file is re-read on mtime change, so your edits apply on the next turn
-without a restart. The three-tier architecture and the precedence rules
+without a restart. The four-tier architecture and the precedence rules
 live in [model-tiers.md](model-tiers.md); this page documents the
 routing config itself.
 
