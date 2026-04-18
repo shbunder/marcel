@@ -12,7 +12,7 @@ These docs are written for **developers** extending Marcel, integrating new skil
 |-------------|-----------|
 | Setting Marcel up for the first time | [README](https://github.com/shbunder/marcel/blob/main/README.md) → [SETUP](https://github.com/shbunder/marcel/blob/main/SETUP.md) |
 | Trying to understand the codebase | [Architecture](architecture.md) |
-| Adding a new skill or integration | [Skills](skills.md), then [Banking](integration-banking.md) or [News](integration-news.md) as reference |
+| Adding a new skill or integration | [Skills](skills.md), then [Banking](integration-banking.md) as in-kernel reference or the `news` / `icloud` habitats in marcel-zoo as external-habitat references |
 | Storing or querying user data | [Storage](storage.md) |
 | Writing a background job | [Jobs](jobs.md) |
 | Building a native frontend | [A2UI Components](a2ui-components.md), [Artifacts](artifacts.md) |
