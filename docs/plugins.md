@@ -168,7 +168,7 @@ All such failures log at ERROR level naming the offending habitat and entry; sib
 
 ```python
 from marcel_core.plugin import register, IntegrationHandler, get_logger
-from marcel_core.plugin import credentials, paths, models
+from marcel_core.plugin import credentials, paths, models, rss
 ```
 
 #### Top-level
@@ -235,11 +235,27 @@ current = models.get_channel_model(user_slug, "telegram") or models.default_mode
 models.set_channel_model(user_slug, "telegram", "anthropic:claude-sonnet-4-6")
 ```
 
+#### `marcel_core.plugin.rss`
+
+RSS / Atom feed fetcher, used by the news habitat to pull syndication feeds without reaching into `marcel_core.tools.*`.
+
+| Symbol | Purpose |
+|---|---|
+| `fetch_feed(url, max_articles=50) -> list[dict[str, str]]` | Fetch and parse an RSS / Atom URL. Each article dict has `title`, `link`, `description`, `published`, `category` (keys present when the source provides them). Raises `ValueError` for non-XML / empty bodies, `httpx.HTTPStatusError` for non-2xx responses — callers log and move on. |
+
+```python
+from marcel_core.plugin import rss
+
+articles = await rss.fetch_feed("https://www.vrt.be/vrtnws/nl.rss.articles.xml")
+for art in articles:
+    print(art["title"], art["link"])
+```
+
 Anything not listed above is internal — zoo code that imports it owns the breakage on any future Marcel upgrade.
 
 ### First-party vs. external integrations
 
-Internally, Marcel still ships two first-party integrations inside `src/marcel_core/skills/integrations/` (banking, news). These continue to work unchanged during the zoo migration — they are discovered via the same `discover()` entry point alongside external habitats. Migrated so far: `docker` (ISSUE-6ad5c7), `icloud` (ISSUE-e7d127). The settings integration handler was retired as dead code under ISSUE-e1b9c4 — the live settings surface is the `marcel(action="...")` utility tool, not an `integration(id="settings.*")` handler.
+Internally, Marcel still ships one first-party integration inside `src/marcel_core/skills/integrations/` (banking). It continues to work unchanged during the zoo migration — discovered via the same `discover()` entry point alongside external habitats. Migrated so far: `docker` (ISSUE-6ad5c7), `icloud` (ISSUE-e7d127), `news` (ISSUE-d5f8ab). The settings integration handler was retired as dead code under ISSUE-e1b9c4 — the live settings surface is the `marcel(action="...")` utility tool, not an `integration(id="settings.*")` handler.
 
 ## See also
 

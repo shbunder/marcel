@@ -17,6 +17,7 @@ Surface today (integration habitat focus):
   user enumeration (banking sync, news cache).
 - :mod:`marcel_core.plugin.models` — model registry + per-channel model
   preference (settings habitat).
+- :mod:`marcel_core.plugin.rss` — RSS/Atom feed fetcher (news habitat).
 
 Other habitat types (skills, channels, jobs, agents) will add their
 surfaces here as their plugin plumbing lands (see ISSUE-2ccc10,
@@ -42,7 +43,7 @@ from __future__ import annotations
 
 import logging
 
-from marcel_core.plugin import credentials, models, paths
+from marcel_core.plugin import credentials, models, paths, rss
 from marcel_core.skills.integrations import IntegrationHandler, register
 
 __all__ = [
@@ -52,6 +53,7 @@ __all__ = [
     'models',
     'paths',
     'register',
+    'rss',
 ]
 
 

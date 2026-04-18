@@ -24,7 +24,6 @@ nav:
   - CLI: cli.md
   - Integrations:
     - Banking: integration-banking.md
-    - News: integration-news.md
   - Channels:
     - Telegram: channels/telegram.md
 
