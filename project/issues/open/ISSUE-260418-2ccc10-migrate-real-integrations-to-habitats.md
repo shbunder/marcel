@@ -41,7 +41,7 @@ The three integrations' tests move with the code. Core-side tests that currently
 - [✓] Audit the `settings` integration — turned out to be dead code; deleted in ISSUE-e1b9c4 rather than migrated.
 - [✓] Design the "integration contributes a periodic job" hook. Options: (a) `integration.yaml` declares `scheduled_jobs: [...]`, kernel scheduler reads them; (b) handler exports a `register_scheduled(scheduler)` function called at discovery. Pick one. — landed in ISSUE-82f52b as **thick declarative** (every entry becomes a system-scope `JobDefinition` with `template='habitat:<name>'`, full agent-pipeline reuse, per-entry overrides for the LLM-creative case). News migration unblocked.
 - [✓] Migrate **icloud** first (smallest remaining, no scheduled jobs): handler + client + SKILL.md + SETUP.md. Credentials via plugin surface — landed in ISSUE-e7d127.
-- [ ] Migrate **news**: handler + cache + sync + SKILL.md + SETUP.md + `feeds.yaml` resource. Scheduled-job hook required.
+- [✓] Migrate **news**: handler + cache + sync + SKILL.md + SETUP.md + `feeds.yaml` resource. Scheduled-job hook required — landed in ISSUE-d5f8ab.
 - [ ] Migrate **banking**: handler + client + cache + sync + SKILL.md + SETUP.md + components.yaml. Scheduled-job hook + credentials + EnableBanking dep.
 - [ ] Decide: does the zoo get its own `pyproject.toml` now (with `enable_banking_client`, `pyicloud`, `feedparser` as deps) or stay pure-python? If its own pyproject, Docker image needs to `pip install` the zoo after clone. Document the decision.
 - [ ] Move integration-specific tests out of [tests/core/test_banking.py](../../tests/core/test_banking.py) and [tests/tools/test_news.py](../../tests/tools/test_news.py) into each habitat's `tests/` dir.
@@ -64,6 +64,15 @@ The three integrations' tests move with the code. Core-side tests that currently
 - Imports switched to `marcel_core.plugin.register` and `marcel_core.plugin.credentials.load(slug)`.
 - `caldav` + `vobject` moved out of kernel `dependencies` into `[project.optional-dependencies] zoo` group (still installed by `uv sync --all-extras` in dev + Docker).
 - Two remaining: news (scheduled-job hook needed), banking (largest — sync, cache, components.yaml, EnableBanking dep).
+
+### 2026-04-18 — news migrated (sub-issue ISSUE-d5f8ab)
+- Handler + cache + sync moved to `<MARCEL_ZOO_DIR>/integrations/news/`, skill habitat to `<MARCEL_ZOO_DIR>/skills/news/` with `depends_on: [news]`.
+- First real consumer of the `scheduled_jobs:` hook (ISSUE-82f52b). `integration.yaml` declares `news.sync` on cron `0 6,18 * * *` (Europe/Brussels), ported verbatim from the existing user-created JOB.md. `_ensure_habitat_jobs()` reconciles to a system-scope `JobDefinition(template='habitat:news', id=6af525725b45)`; orphan cleanup on habitat removal verified.
+- System-scope fan-out happens inside the handler: when called with `user_slug='_system'`, `news.sync` iterates `paths.list_user_slugs()` (filtering backup snapshots and `_system` itself) and syncs each user in turn.
+- Plugin surface grew by one submodule: `marcel_core.plugin.rss` re-exports `fetch_feed` from `marcel_core.tools.rss`. One file, one symbol — same discipline as `credentials` / `paths`.
+- No dependency move: news parses RSS/Atom through stdlib `xml.etree` wrapped by `marcel_core.tools.rss`; no `feedparser` import anywhere. Kernel `pyproject.toml` unchanged.
+- External-habitat relative-import trap: external habitats load under `_marcel_ext_integrations.<name>` via `spec_from_file_location`, but that parent is not a real `sys.modules` package. `from . import cache` fails; `from .cache import <names>` (icloud's pattern) works.
+- Only banking remains under ISSUE-2ccc10 before ISSUE-63a946 (zoo repo extraction) unblocks.
 
 ### 2026-04-18 — scheduled-jobs hook landed (sub-issue ISSUE-82f52b)
 - `integration.yaml` accepts a `scheduled_jobs:` block (declarative). Each entry becomes a system-scope `JobDefinition` with `template='habitat:<name>'`, stable ID `sha256("<habitat>:<name>")[:12]`, default-or-override `task` / `system_prompt` / `model`.
