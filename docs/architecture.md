@@ -60,11 +60,9 @@ src/marcel_core/
     loader.py      # Skill document loader (SKILL.md, SETUP.md)
     integrations/  # First-party python integration modules (@register decorator)
       banking/     # EnableBanking: balances, transactions, caching
-      icloud/      # iCloud calendar + mail via CalDAV
       news/        # News article storage and querying (SQLite)
-      settings.py  # Per-user model and preference settings
-                   # Additional integrations live under <MARCEL_ZOO_DIR>/integrations/
-                   # — see Plugin API docs.
+                   # Additional integrations (icloud, docker, …) live under
+                   # <MARCEL_ZOO_DIR>/integrations/ — see Plugin API docs.
   storage/         # Flat-file read/write helpers (users, memory, artifacts)
     artifacts.py   # Artifact storage for rich content (Mini App)
   auth/            # Token verification, Telegram initData, input validation
