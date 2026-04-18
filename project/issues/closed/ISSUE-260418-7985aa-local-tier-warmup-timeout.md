@@ -1,6 +1,6 @@
 # ISSUE-7985aa: Local-tier warm-up timeout + "model warming up" ack
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-18
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -63,14 +63,26 @@
 
 **Result**: Success. `/local` turns get a 300s budget and "Warming up the local model…" ack; cloud turns keep the 120s budget and "Working on it…" ack.
 
+**Reflection** (via pre-close-verifier):
+- Verdict: APPROVE
+- Coverage: 6/6 tasks addressed (config, tier branch, ack swap, `/ws/chat` audit confirming no change needed, docs, tests)
+- Shortcuts found: none
+- Scope drift: none
+- Stragglers: none — `"Working on it"`, `MARCEL_LOCAL_LLM_TIMEOUT`, and `_ASSISTANT_TIMEOUT` grep return only the intended callsites (plus one unrelated legacy test string in `tests/tools/test_integration_tools.py:164` under ISSUE-026)
+- Safety bracket: `.claude/.unlock-safety` created/removed cleanly, not in the diff
+- Note: the implementation dropped the 🔥 emoji and shortened "up to a minute" → "a minute" from the Design section. Code and docs agree; deviation captured in Lessons Learned rather than rewriting the Design block.
+
 ## Lessons Learned
-<!-- Filled in at close time -->
 
 ### What worked well
--
+- Delegating verification to `pre-close-verifier` caught the *absence* of the `🔥` / "up to a minute" wording that the Design section specified. Not a bug, but a useful paper-trail moment — the subagent flagged it as a note rather than a blocker, which is exactly the right temperature for wording drift between design and impl.
+- Threading a pre-resolved `turn_plan` through `_process_assistant_message` via a `turn_plan: TurnPlan | None = None` kwarg kept every existing test entry point working while letting the delayed-ack task see the tier. Cheap concession, no test churn.
+- Flipping **both** timeout knobs in opposite directions inside the integration tests (set the tier-under-test's budget to 0.01 and the other to 100.0) makes a leaky tier branch fail the test loudly, instead of silently picking the wrong constant.
 
 ### What to do differently
--
+- When the Design section proposes user-visible copy, either commit to that copy verbatim in impl or update Design before the close commit. I ended up with a three-way reconciliation (Design vs. code vs. docs) that only the verifier caught. Next time: pick the final wording once, after the first implementation pass, and back-port it into the issue before close.
+- The safety-restricted hook briefly blocked the config edit and required an unlock/relock bracket. For single-setting additions, that's the right friction. But if I'd batched this change with a second config setting later in the same branch, I'd have needed another unlock cycle — so plan config changes in a single edit per unlock window.
 
 ### Patterns to reuse
--
+- `_ack_text_for(turn_plan)` / `_timeout_for(turn_plan)` — tiny pure helpers exported from the webhook module. Keeps the branching logic testable at unit-level without firing up the full `_process_assistant_message` harness. Use the same shape any time channel behavior depends on `turn_plan.tier`.
+- When a feature only affects one of multiple channels, document *why* the other channels weren't touched right next to the code (see the ack-text constant's docstring referencing `/ws/chat`'s lack of `wait_for`). Saves the next reader a diff hunt.
