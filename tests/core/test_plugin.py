@@ -14,20 +14,27 @@ import pytest
 from marcel_core.skills.integrations import (
     _EXTERNAL_MODULE_PREFIX,
     _discover_external,
+    _metadata,
     _registry,
     get_handler,
+    get_integration_metadata,
+    list_integrations,
     list_python_skills,
 )
 
 
 @pytest.fixture
 def isolated_registry(monkeypatch):
-    """Give each test a fresh integration registry, restored on teardown."""
-    saved = dict(_registry)
+    """Give each test a fresh integration + metadata registry, restored on teardown."""
+    saved_registry = dict(_registry)
+    saved_metadata = dict(_metadata)
     monkeypatch.setattr('marcel_core.skills.integrations._registry', {})
+    monkeypatch.setattr('marcel_core.skills.integrations._metadata', {})
     yield
     _registry.clear()
-    _registry.update(saved)
+    _registry.update(saved_registry)
+    _metadata.clear()
+    _metadata.update(saved_metadata)
 
 
 @pytest.fixture
@@ -39,11 +46,17 @@ def cleanup_external_modules():
             sys.modules.pop(name, None)
 
 
-def _write_integration(root: Path, name: str, body: str) -> Path:
-    """Materialize an external integration package under ``root/integrations/``."""
+def _write_integration(root: Path, name: str, body: str, *, yaml: str | None = None) -> Path:
+    """Materialize an external integration package under ``root/integrations/``.
+
+    Optionally writes ``integration.yaml`` alongside ``__init__.py`` when
+    *yaml* is provided.
+    """
     pkg = root / 'integrations' / name
     pkg.mkdir(parents=True, exist_ok=True)
     (pkg / '__init__.py').write_text(body, encoding='utf-8')
+    if yaml is not None:
+        (pkg / 'integration.yaml').write_text(yaml, encoding='utf-8')
     return pkg
 
 
@@ -266,3 +279,152 @@ class TestExternalDiscovery:
         _discover_external()  # second call must not raise
 
         assert 'idemtest.hit' in list_python_skills()
+
+
+_VALID_HANDLER_BODY = (
+    'from marcel_core.plugin import register\n'
+    '\n'
+    '@register("metatest.ping")\n'
+    'async def ping(params, user_slug):\n'
+    '    return "pong"\n'
+)
+
+
+class TestIntegrationMetadata:
+    def test_valid_yaml_populates_metadata(
+        self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules
+    ):
+        """A valid integration.yaml is parsed and exposed via get_integration_metadata."""
+        from marcel_core.config import settings
+
+        _write_integration(
+            tmp_path,
+            'metatest',
+            _VALID_HANDLER_BODY,
+            yaml=(
+                'name: metatest\n'
+                'description: Test integration\n'
+                'provides:\n'
+                '  - metatest.ping\n'
+                'requires:\n'
+                '  env:\n'
+                '    - METATEST_TOKEN\n'
+            ),
+        )
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
+
+        _discover_external()
+
+        meta = get_integration_metadata('metatest')
+        assert meta is not None
+        assert meta.name == 'metatest'
+        assert meta.description == 'Test integration'
+        assert meta.provides == ['metatest.ping']
+        assert meta.requires == {'env': ['METATEST_TOKEN']}
+        assert 'metatest' in list_integrations()
+
+    def test_missing_yaml_logs_warning_no_metadata(
+        self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules, caplog
+    ):
+        """Habitat with no integration.yaml works but registers no metadata + logs a warning."""
+        from marcel_core.config import settings
+
+        _write_integration(tmp_path, 'metatest', _VALID_HANDLER_BODY)
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
+
+        with caplog.at_level('WARNING', logger='marcel_core.skills.integrations'):
+            _discover_external()
+
+        assert get_integration_metadata('metatest') is None
+        assert 'metatest.ping' in list_python_skills()  # handler still works
+        assert any('integration.yaml' in r.message for r in caplog.records)
+
+    def test_invalid_yaml_logs_error_no_metadata(
+        self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules, caplog
+    ):
+        """Malformed YAML logs an error but the handler still loads."""
+        from marcel_core.config import settings
+
+        _write_integration(
+            tmp_path,
+            'metatest',
+            _VALID_HANDLER_BODY,
+            yaml='name: metatest\n  bad-indent: [unbalanced\n',
+        )
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
+
+        with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
+            _discover_external()
+
+        assert get_integration_metadata('metatest') is None
+        assert 'metatest.ping' in list_python_skills()
+        assert any('integration.yaml' in r.message and 'metatest' in r.message for r in caplog.records)
+
+    def test_name_mismatch_rejects_metadata(
+        self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules, caplog
+    ):
+        """integration.yaml whose name differs from the directory name is rejected."""
+        from marcel_core.config import settings
+
+        _write_integration(
+            tmp_path,
+            'metatest',
+            _VALID_HANDLER_BODY,
+            yaml='name: not_metatest\nprovides: [metatest.ping]\n',
+        )
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
+
+        with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
+            _discover_external()
+
+        assert get_integration_metadata('metatest') is None
+        assert get_integration_metadata('not_metatest') is None
+        assert any('match directory name' in r.message for r in caplog.records)
+
+    def test_provides_outside_namespace_rejects_metadata(
+        self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules, caplog
+    ):
+        """integration.yaml listing handlers outside its namespace is rejected."""
+        from marcel_core.config import settings
+
+        _write_integration(
+            tmp_path,
+            'metatest',
+            _VALID_HANDLER_BODY,
+            yaml=('name: metatest\nprovides:\n  - metatest.ping\n  - other.nope\n'),
+        )
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
+
+        with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
+            _discover_external()
+
+        assert get_integration_metadata('metatest') is None
+        assert any('outside its namespace' in r.message for r in caplog.records)
+
+    def test_unknown_requires_keys_warn_but_register(
+        self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules, caplog
+    ):
+        """Unknown requires keys log a warning but metadata is still registered."""
+        from marcel_core.config import settings
+
+        _write_integration(
+            tmp_path,
+            'metatest',
+            _VALID_HANDLER_BODY,
+            yaml=(
+                'name: metatest\n'
+                'provides: [metatest.ping]\n'
+                'requires:\n'
+                '  env: [X]\n'
+                '  unknown_key: [Y]\n'
+            ),
+        )
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
+
+        with caplog.at_level('WARNING', logger='marcel_core.skills.integrations'):
+            _discover_external()
+
+        meta = get_integration_metadata('metatest')
+        assert meta is not None
+        assert meta.requires == {'env': ['X'], 'unknown_key': ['Y']}
+        assert any('unknown_key' in r.message for r in caplog.records)

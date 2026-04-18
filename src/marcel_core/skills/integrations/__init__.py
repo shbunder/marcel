@@ -43,7 +43,10 @@ import pkgutil
 import re
 import sys
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from pathlib import Path
+
+import yaml
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +55,46 @@ IntegrationHandler = Callable[[dict, str], Awaitable[str]]
 
 # Global registry: skill_name -> handler function
 _registry: dict[str, IntegrationHandler] = {}
+
+
+@dataclass
+class IntegrationMetadata:
+    """Declarative metadata for one integration habitat.
+
+    Loaded from ``<habitat>/integration.yaml``. The kernel uses this to
+    resolve ``depends_on:`` from a skill habitat back to the integration's
+    requirements (credentials/env/files/packages) — see ISSUE-6ad5c7.
+
+    Handler dispatch is driven by ``@register`` (the source of truth);
+    ``provides`` here is a declaration used for documentation, tooling,
+    and consistency checks.
+    """
+
+    name: str
+    description: str = ''
+    provides: list[str] = field(default_factory=list)
+    requires: dict = field(default_factory=dict)
+
+
+# Metadata registry: integration_name -> IntegrationMetadata.
+# Populated when an external habitat ships ``integration.yaml`` alongside
+# its ``__init__.py``. First-party integrations and habitats without a
+# YAML file simply do not appear here.
+_metadata: dict[str, IntegrationMetadata] = {}
+
+
+def get_integration_metadata(name: str) -> IntegrationMetadata | None:
+    """Return the parsed metadata for integration *name*, or ``None``.
+
+    Used by the skill loader to resolve ``depends_on: [<integration>]``
+    in SKILL.md frontmatter back to the integration's ``requires:`` block.
+    """
+    return _metadata.get(name)
+
+
+def list_integrations() -> list[str]:
+    """Return all integration names that have published metadata."""
+    return sorted(_metadata.keys())
 
 # Skill names must follow the ``family.action`` convention: two dot-separated
 # segments, each containing only lowercase letters, digits, and underscores.
@@ -218,6 +261,11 @@ def _load_external_integration(pkg_dir: Path) -> None:
                 sorted(invalid),
                 pkg_dir.name,
             )
+            return
+
+        # Handlers loaded cleanly — parse integration.yaml (advisory metadata).
+        # Failure here disables only the metadata; handler dispatch is unaffected.
+        _load_integration_metadata(pkg_dir)
     except Exception:
         for name in set(_registry) - before:
             _registry.pop(name, None)
@@ -226,3 +274,95 @@ def _load_external_integration(pkg_dir: Path) -> None:
             "Failed to load integration habitat '%s'",
             pkg_dir.name,
         )
+
+
+_VALID_REQUIRES_KEYS = frozenset({'credentials', 'env', 'files', 'packages'})
+
+
+def _load_integration_metadata(pkg_dir: Path) -> None:
+    """Parse ``integration.yaml`` from *pkg_dir* and populate ``_metadata``.
+
+    Validation:
+    - ``name`` (if present) must equal the directory name.
+    - ``provides`` must be a list of strings, each in the ``<dirname>.*``
+      namespace (matches the handler-namespace rule).
+    - ``requires`` must be a dict with keys drawn from
+      ``credentials``/``env``/``files``/``packages``.
+
+    Any failure logs an error and skips registration. The integration's
+    handlers continue to function normally; only ``depends_on:``
+    resolution against this name will return ``None``.
+    """
+    yaml_path = pkg_dir / 'integration.yaml'
+    if not yaml_path.exists():
+        log.warning(
+            "Integration habitat '%s' has no integration.yaml — depends_on: "
+            'resolution against it will not work',
+            pkg_dir.name,
+        )
+        return
+
+    try:
+        raw = yaml.safe_load(yaml_path.read_text(encoding='utf-8')) or {}
+    except yaml.YAMLError:
+        log.exception(
+            "integration.yaml in habitat '%s' is not valid YAML — metadata skipped",
+            pkg_dir.name,
+        )
+        return
+
+    if not isinstance(raw, dict):
+        log.error(
+            "integration.yaml in habitat '%s' must be a mapping at the top level — metadata skipped",
+            pkg_dir.name,
+        )
+        return
+
+    name = raw.get('name', pkg_dir.name)
+    if name != pkg_dir.name:
+        log.error(
+            "integration.yaml in habitat '%s' declares name='%s' — must match directory name. Metadata skipped.",
+            pkg_dir.name,
+            name,
+        )
+        return
+
+    provides = raw.get('provides', []) or []
+    if not isinstance(provides, list) or not all(isinstance(p, str) for p in provides):
+        log.error(
+            "integration.yaml in habitat '%s' has invalid 'provides' (must be list of strings) — metadata skipped",
+            pkg_dir.name,
+        )
+        return
+
+    bad = [p for p in provides if not p.startswith(f'{pkg_dir.name}.')]
+    if bad:
+        log.error(
+            "integration.yaml in habitat '%s' lists handlers outside its namespace: %s. Metadata skipped.",
+            pkg_dir.name,
+            bad,
+        )
+        return
+
+    requires = raw.get('requires') or {}
+    if not isinstance(requires, dict):
+        log.error(
+            "integration.yaml in habitat '%s' has invalid 'requires' (must be a mapping) — metadata skipped",
+            pkg_dir.name,
+        )
+        return
+
+    unknown = set(requires) - _VALID_REQUIRES_KEYS
+    if unknown:
+        log.warning(
+            "integration.yaml in habitat '%s' declares unknown requires keys %s — these will be ignored",
+            pkg_dir.name,
+            sorted(unknown),
+        )
+
+    _metadata[name] = IntegrationMetadata(
+        name=name,
+        description=str(raw.get('description', '')),
+        provides=list(provides),
+        requires=dict(requires),
+    )
