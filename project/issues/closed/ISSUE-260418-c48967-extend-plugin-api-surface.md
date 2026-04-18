@@ -1,6 +1,6 @@
 # ISSUE-c48967: Extend marcel_core.plugin API surface for habitat migrations
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-18
 **Assignee:** Unassigned
 **Priority:** High
@@ -20,9 +20,9 @@ The new surface, derived from what the four integrations actually call:
 
 | Submodule | Exports | Backed by |
 |---|---|---|
-| `marcel_core.plugin.credentials` | `load(user_slug) -> dict`, `save(user_slug, key, value) -> None` | `marcel_core.storage.credentials` |
-| `marcel_core.plugin.paths` | `user_dir(slug) -> Path`, `artifact_dir(slug) -> Path` | `marcel_core.config.settings.data_dir` |
-| `marcel_core.plugin.models` | `all_models() -> list[ModelInfo]`, `default_model() -> ModelInfo`, `set_channel_model(channel, model_id) -> None` | `marcel_core.runtime.model_chain` (or wherever the registry lives today) |
+| `marcel_core.plugin.credentials` | `load(slug) -> dict[str,str]`, `save(slug, creds: dict[str,str]) -> None` | `marcel_core.storage.credentials` |
+| `marcel_core.plugin.paths` | `user_dir(slug) -> Path`, `cache_dir(slug) -> Path`, `list_user_slugs() -> list[str]` | `marcel_core.storage.paths` (new kernel module) |
+| `marcel_core.plugin.models` | `all_models() -> dict[str,str]`, `default_model() -> str`, `get_channel_model(slug, channel) -> str \| None`, `set_channel_model(slug, channel, model) -> None` | `marcel_core.harness.agent` + `marcel_core.storage.settings` |
 | `marcel_core.plugin` (already present) | `get_logger(__name__)` | `logging.getLogger` |
 
 Every addition is a thin re-export — no new logic, no new state. If the underlying call signature is wrong for plugin use, fix it at the source rather than wrapping it. Each new symbol gets a one-paragraph docstring describing its stability promise (the same promise as the rest of the surface: "won't break between Marcel versions without a migration note").
@@ -85,14 +85,23 @@ Out of scope (deferred to subsequent sub-issues):
 
 **Verification:** `make check` passes — 1529 tests, 91.98% coverage. Smoke import from an out-of-tree file succeeds for every symbol.
 
+**Reflection** (via pre-close-verifier):
+- Verdict: APPROVE
+- Coverage: 8/8 tasks addressed
+- Shortcuts found: none. No TODOs, no bare excepts, re-exports are true `is`-identity aliases (verified by dedicated tests).
+- Scope drift: none. The four target integrations still import from kernel internals — that is the intended state until the next sub-issue migrates them.
+- Stragglers: only the Description table in this issue file (still showed the old spec) and the sibling planning doc `project/issues/open/ISSUE-260418-2ccc10-...` — Description fixed in the close commit; the sibling planning doc is left for the next sub-issue writer.
+
 ## Lessons Learned
-<!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->
 
 ### What worked well
--
+- Audit-first scoping: grepping the four target integrations for non-plugin `marcel_core.*` imports produced a precise list of nine helpers, and the surface design fell out mechanically. Avoided the speculative `artifact_dir` that had survived from the parent issue's brainstorm.
+- Treating the underlying API as the source of truth: the original spec called for `save(slug, key, value)`, but `save_credentials` overwrites the whole file. Exposing the truth (`save(slug, creds: dict)`) avoided shipping a wrapper that would silently drop sibling keys the moment a real integration tried to use it.
+- `is`-identity tests for re-exports — `assert plugin.credentials.load is load_credentials` — pin the contract that the surface is a re-export, not a wrapper. Future drift to a wrapper function fails CI loudly.
 
 ### What to do differently
--
+- The Description table in the issue file shipped the original (pre-audit) spec and only the Tasks checklist was updated to match what was implemented. The pre-close-verifier called this out as a straggler. Next time, when the audit changes the surface design, update both the Tasks list AND the Description table in the same edit, before the first impl commit.
+- Decide once at audit time whether helper names mirror kernel names or get renamed at the boundary. I went both ways: `credentials.load` (renamed from `load_credentials`) but `models.all_models` (kept). Both are defensible, but the inconsistency is now baked in. A single rule — "drop the noun suffix at the boundary" or "keep the kernel name" — would have been cleaner.
 
 ### Patterns to reuse
--
+- The "kernel helper + plugin re-export" pair: put the real implementation in `storage/<topic>.py` (or wherever it naturally lives), then a thin `plugin/<topic>.py` that does `from kernel import x as y` and lists `__all__`. Use `is`-identity tests as the contract pin. This pattern scales for the channel/job/agent surfaces still to come (ISSUE-7d6b3f, ISSUE-a7d69a, ISSUE-e22176).
