@@ -26,9 +26,9 @@ synchronous Python API for reading and writing users, conversations, and memory.
             seg-0001.summary.md  # rolling summary of seg-0001
           channel.meta.json   # channel-level metadata
           search_index.jsonl  # keyword search index
-      cache/                  # SQLite caches for integrations
-        banking.db            # banking transaction/balance cache
-        news.db               # scraped news article cache
+      cache/                  # SQLite caches for integrations (path shape,
+                              # files populated on demand by whichever integrations
+                              # are installed — e.g. banking.db, news.db)
       memory/
         index.md              # one line per topic file: filename, one-liner (capped at 200 lines)
         calendars.md          # distilled facts about calendar preferences (with frontmatter)
