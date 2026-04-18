@@ -1,6 +1,6 @@
 # ISSUE-c48967: Extend marcel_core.plugin API surface for habitat migrations
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-18
 **Assignee:** Unassigned
 **Priority:** High
@@ -36,14 +36,14 @@ Out of scope (deferred to subsequent sub-issues):
 
 ## Tasks
 
-- [ ] Audit the four integrations (`banking`, `icloud`, `news`, `settings`) for every `marcel_core.*` import that isn't already on the plugin surface — produce the definitive list of what the surface must expose.
-- [ ] Add `marcel_core/plugin/credentials.py` — re-exports `load`, `save` from `marcel_core.storage.credentials`. Module docstring states the stability promise.
-- [ ] Add `marcel_core/plugin/paths.py` — re-exports `user_dir`, `artifact_dir`. If those helpers don't exist as named here, create them in the appropriate kernel module (not in the plugin module itself).
-- [ ] Add `marcel_core/plugin/models.py` — re-exports `all_models`, `default_model`, `set_channel_model`. Same rule: helpers live in the kernel; plugin re-exports.
-- [ ] Update `marcel_core/plugin/__init__.py` to import the new submodules so `from marcel_core.plugin import credentials` works.
-- [ ] Document each new submodule in `docs/plugins.md` with a one-paragraph rationale and a minimal usage example.
-- [ ] Add tests in `tests/core/test_plugin.py` (or a new `test_plugin_surface.py`) that import each new symbol from the plugin path and exercise it end-to-end against a temp data dir / fake user. The tests are the contract — anyone who reorganises the kernel must keep them green.
-- [ ] Verify `from marcel_core.plugin import IntegrationHandler, register, get_logger, credentials, paths, models` works from a throwaway file outside `src/`.
+- [✓] Audit the four integrations (`banking`, `icloud`, `news`, `settings`) for every `marcel_core.*` import that isn't already on the plugin surface — produce the definitive list of what the surface must expose.
+- [✓] Add `marcel_core/plugin/credentials.py` — re-exports `load`, `save` from `marcel_core.storage.credentials`. Module docstring states the stability promise.
+- [✓] Add `marcel_core/plugin/paths.py` — re-exports `user_dir`, `cache_dir`, `list_user_slugs`. Backed by new kernel module `marcel_core/storage/paths.py` (no `artifact_dir` — none of the four target integrations use artifact storage; defer until needed).
+- [✓] Add `marcel_core/plugin/models.py` — re-exports `all_models`, `default_model`, `get_channel_model`, `set_channel_model`. Helpers live in the kernel; plugin re-exports.
+- [✓] Update `marcel_core/plugin/__init__.py` to import the new submodules so `from marcel_core.plugin import credentials` works.
+- [✓] Document each new submodule in `docs/plugins.md` with a one-paragraph rationale and a minimal usage example.
+- [✓] Add tests in `tests/core/test_plugin.py` that import each new symbol from the plugin path and exercise it end-to-end against a temp data dir / fake user. The tests are the contract — anyone who reorganises the kernel must keep them green.
+- [✓] Verify `from marcel_core.plugin import IntegrationHandler, register, get_logger, credentials, paths, models` works from a throwaway file outside `src/`.
 
 ## Relationships
 
@@ -51,7 +51,39 @@ Out of scope (deferred to subsequent sub-issues):
 - Blocks: ISSUE-2ccc10 (real integration migration — needs this surface)
 
 ## Implementation Log
-<!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-18 — Plugin surface extension
+
+**Audit findings (Task 1):**
+
+| Direct kernel import | Used by | Plugin export added |
+|---|---|---|
+| `storage._root.data_root()` | banking (cache, sync, client), news (cache) | `paths.user_dir`, `paths.cache_dir`, `paths.list_user_slugs` |
+| `storage.credentials.load_credentials` | banking (sync, client), icloud (client) | `credentials.load` |
+| `storage.credentials.save_credentials` | banking (client) | `credentials.save` |
+| `harness.agent.all_models` | settings | `models.all_models` |
+| `harness.agent.default_model` | settings | `models.default_model` |
+| `storage.settings.load_channel_model` | settings | `models.get_channel_model` |
+| `storage.settings.save_channel_model` | settings | `models.set_channel_model` |
+| `tools.rss.fetch_feed` | news (sync) | not promoted — news-specific dep travels with the news habitat |
+
+**Files added:**
+- `src/marcel_core/storage/paths.py` — kernel helpers (`user_dir`, `cache_dir`, `list_user_slugs`)
+- `src/marcel_core/plugin/credentials.py` — re-exports `load`, `save`
+- `src/marcel_core/plugin/paths.py` — re-exports the three storage helpers
+- `src/marcel_core/plugin/models.py` — re-exports four model-registry helpers
+
+**Files modified:**
+- `src/marcel_core/plugin/__init__.py` — surface docstring + `__all__` updated
+- `docs/plugins.md` — per-submodule reference tables and usage examples
+- `tests/core/test_plugin.py` — 15 new tests covering identity-of-reexport, round-trip, isolation
+
+**Deviations from issue spec (decided during audit):**
+- `credentials.save(slug, creds: dict)` instead of `(slug, key, value)` — the underlying `save_credentials` overwrites the whole file; a per-key wrapper would silently drop sibling keys.
+- No `artifact_dir` — none of the four target integrations use artifact storage; deferred per "no speculative additions".
+- Added `paths.cache_dir` and `paths.list_user_slugs` (not in original spec but used by every existing callsite).
+
+**Verification:** `make check` passes — 1529 tests, 91.98% coverage. Smoke import from an out-of-tree file succeeds for every symbol.
 
 ## Lessons Learned
 <!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->
