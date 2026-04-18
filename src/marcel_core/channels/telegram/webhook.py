@@ -29,8 +29,9 @@ from marcel_core.channels.telegram.formatting import (
     web_app_url_for,
 )
 from marcel_core.config import settings
+from marcel_core.harness.model_chain import Tier
 from marcel_core.harness.runner import TextDelta, stream_turn
-from marcel_core.harness.turn_router import resolve_turn_for_user
+from marcel_core.harness.turn_router import TurnPlan, resolve_turn_for_user
 from marcel_core.memory import extract_and_save_memories
 from marcel_core.memory.conversation import has_active_content, read_active_segment
 from marcel_core.memory.summarizer import summarize_active_segment
@@ -44,6 +45,31 @@ _ASSISTANT_TIMEOUT = 120.0
 
 # Delay before showing "Working on it..." acknowledgment (seconds).
 _ACK_DELAY = 10.0
+
+# Ack text shown when the delayed-ack fires. Local tier gets a warm-up
+# variant because Ollama cold-start on a 14B is 30–60s to first token plus
+# ~3–5 tok/s generation on CPU — the generic "Working on it..." is
+# misleading when the user just typed ``/local`` and nothing will stream
+# for most of a minute.
+_ACK_CLOUD = 'Working on it...'
+_ACK_LOCAL_WARMUP = 'Warming up the local model — this can take a minute...'
+
+
+def _ack_text_for(turn_plan: TurnPlan) -> str:
+    """Pick the delayed-ack text based on the resolved tier."""
+    return _ACK_LOCAL_WARMUP if turn_plan.tier == Tier.LOCAL else _ACK_CLOUD
+
+
+def _timeout_for(turn_plan: TurnPlan) -> float:
+    """Pick the per-turn wall-clock budget based on the resolved tier.
+
+    LOCAL turns use ``settings.marcel_local_llm_timeout`` (default 300s) to
+    accommodate Ollama cold-start. Cloud tiers keep the tighter
+    ``_ASSISTANT_TIMEOUT`` so a genuinely hung cloud turn still fails fast.
+    """
+    if turn_plan.tier == Tier.LOCAL:
+        return settings.marcel_local_llm_timeout
+    return _ASSISTANT_TIMEOUT
 
 
 async def _reply(chat_id: int, text: str) -> int | None:
@@ -59,22 +85,28 @@ async def _reply(chat_id: int, text: str) -> int | None:
 async def _process_with_delayed_ack(chat_id: int, user_slug: str, text: str) -> None:
     """Run assistant processing with a delayed acknowledgment.
 
-    If processing takes longer than ``_ACK_DELAY`` seconds, sends a
-    "Working on it..." message first, then edits it with the final response.
+    Resolves the turn plan up front so the ack text and per-turn timeout
+    can both branch on the target tier. If processing takes longer than
+    ``_ACK_DELAY`` seconds, sends a tier-appropriate ack (warm-up message
+    for LOCAL, generic "Working on it..." otherwise) and later edits it
+    with the final response.
     """
     ack: dict[str, Any] = {'message_id': None, 'sent': False, 'cancelled': False}
+
+    turn_plan = resolve_turn_for_user(user_slug, text)
+    ack_text = _ack_text_for(turn_plan)
 
     async def _send_delayed_ack() -> None:
         await asyncio.sleep(_ACK_DELAY)
         if not ack['cancelled']:
-            msg_id = await bot.send_message(chat_id, escape_html('Working on it...'))
+            msg_id = await bot.send_message(chat_id, escape_html(ack_text))
             ack['message_id'] = msg_id
             ack['sent'] = True
 
     ack_task = asyncio.create_task(_send_delayed_ack())
 
     try:
-        await _process_assistant_message(chat_id, user_slug, text, ack)
+        await _process_assistant_message(chat_id, user_slug, text, ack, turn_plan=turn_plan)
     except Exception as exc:
         log.exception('%s-telegram: unhandled error processing message', user_slug)
         try:
@@ -104,15 +136,24 @@ async def _process_assistant_message(
     user_slug: str,
     text: str,
     ack: dict[str, Any],
+    *,
+    turn_plan: TurnPlan | None = None,
 ) -> None:
-    """Run the assistant agent for one message."""
+    """Run the assistant agent for one message.
+
+    ``turn_plan`` may be pre-resolved by the caller (so the delayed-ack
+    path can pick a tier-appropriate message). When omitted, the plan is
+    resolved here — preserves the test-harness entry point that calls this
+    function directly.
+    """
     # Continuous conversation: use a stable conversation ID per channel
     conversation_id = f'telegram-{chat_id}'
 
     # Parse slash prefixes (/fast, /power, /<skillname>) before any model work.
     # ``/power`` is rejected here — the reject text is sent as a normal reply
     # and the turn ends (no model call, no history change).
-    turn_plan = resolve_turn_for_user(user_slug, text)
+    if turn_plan is None:
+        turn_plan = resolve_turn_for_user(user_slug, text)
     if turn_plan.reject_reason is not None:
         ack['cancelled'] = True
         if ack.get('sent') and ack.get('message_id'):
@@ -132,7 +173,7 @@ async def _process_assistant_message(
                 if isinstance(event, TextDelta):
                     response_parts.append(event.text)
 
-        await asyncio.wait_for(_collect(), timeout=_ASSISTANT_TIMEOUT)
+        await asyncio.wait_for(_collect(), timeout=_timeout_for(turn_plan))
     except asyncio.TimeoutError:
         partial = ''.join(response_parts).strip()
         if partial:

@@ -31,22 +31,45 @@ interaction.
 
 ## Environment variables
 
-| Variable                  | Example                         | Purpose                                 |
-|---------------------------|---------------------------------|-----------------------------------------|
-| `MARCEL_LOCAL_LLM_URL`    | `http://127.0.0.1:11434/v1`     | Base URL of an OpenAI-compatible server |
-| `MARCEL_LOCAL_LLM_MODEL`  | `ministral-3:14b`               | Model tag served at that URL            |
+| Variable                    | Example                         | Purpose                                           |
+|-----------------------------|---------------------------------|---------------------------------------------------|
+| `MARCEL_LOCAL_LLM_URL`      | `http://127.0.0.1:11434/v1`     | Base URL of an OpenAI-compatible server           |
+| `MARCEL_LOCAL_LLM_MODEL`    | `ministral-3:14b`               | Model tag served at that URL                      |
+| `MARCEL_LOCAL_LLM_TIMEOUT`  | `300`                           | Per-turn wall-clock budget for LOCAL-tier turns (seconds, default 300) |
 
 Put them in `.env.local`:
 
 ```bash
 MARCEL_LOCAL_LLM_URL=http://127.0.0.1:11434/v1
 MARCEL_LOCAL_LLM_MODEL=ministral-3:14b
+# MARCEL_LOCAL_LLM_TIMEOUT=300   # optional — default is 300s
 ```
 
-Both must be set for the fallback to arm. The fallback also becomes
-visible as a selectable model (`local:ministral-3:14b`) in the
-`list_models` UI, so you can set it as a channel primary if you want to
-use the local model as the default rather than just a fallback.
+`MARCEL_LOCAL_LLM_URL` and `MARCEL_LOCAL_LLM_MODEL` must both be set for
+the fallback to arm. The fallback also becomes visible as a selectable
+model (`local:ministral-3:14b`) in the `list_models` UI, so you can set
+it as a channel primary if you want to use the local model as the
+default rather than just a fallback.
+
+## Interactive turns: warm-up ack + wider timeout
+
+When a Telegram turn resolves to the LOCAL tier (user typed `/local`, a
+skill has `preferred_tier: local`, or the session/default tier is
+LOCAL), two things change versus the cloud tiers:
+
+- **Timeout.** The per-turn wall-clock budget is
+  `MARCEL_LOCAL_LLM_TIMEOUT` (default 300s) instead of the 120s cloud
+  budget. Ollama cold-start on a 14B is 30–60s to first token, plus
+  ~3–5 tok/s generation on CPU — a 200-token reply can comfortably
+  push past 120s on the first request. Tune down on faster hardware;
+  keep the cloud budget tight so a genuinely hung cloud turn still
+  fails fast.
+- **Delayed-ack text.** The "Working on it..." message that appears
+  after 10s becomes "Warming up the local model — this can take a
+  minute..." so the user understands why nothing has streamed yet.
+
+The WebSocket `/ws/chat` endpoint has no overall wall-clock timeout
+(tokens stream as they arrive), so these knobs don't apply there.
 
 ## Opting a job in
 

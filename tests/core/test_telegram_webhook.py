@@ -478,3 +478,162 @@ class TestContinuousConversation:
                 resp = client.post('/telegram/webhook', json=_make_update(555, 'hello'), headers=_WEBHOOK_HEADERS)
 
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Local-tier warm-up (ISSUE-7985aa) — tier-aware ack text + timeout
+# ---------------------------------------------------------------------------
+
+
+class TestLocalWarmup:
+    """The LOCAL tier gets a warm-up ack message and a wider timeout.
+
+    Ollama cold-start on a 14B is 30–60s to first token plus ~3–5 tok/s
+    generation — the 120s cloud budget is too tight and the generic
+    "Working on it..." ack is misleading while the model is still loading.
+    """
+
+    def test_ack_text_for_local_is_warmup(self):
+        from marcel_core.channels.telegram.webhook import _ACK_LOCAL_WARMUP, _ack_text_for
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.harness.turn_router import TierSource, TurnPlan
+
+        plan = TurnPlan(tier=Tier.LOCAL, cleaned_text='hi', source=TierSource.USER_PREFIX)
+        assert _ack_text_for(plan) == _ACK_LOCAL_WARMUP
+
+    def test_ack_text_for_cloud_tiers_is_generic(self):
+        from marcel_core.channels.telegram.webhook import _ACK_CLOUD, _ack_text_for
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.harness.turn_router import TierSource, TurnPlan
+
+        for tier in (Tier.FAST, Tier.STANDARD, Tier.POWER):
+            plan = TurnPlan(tier=tier, cleaned_text='hi', source=TierSource.USER_PREFIX)
+            assert _ack_text_for(plan) == _ACK_CLOUD, f'cloud ack expected for {tier}'
+
+    def test_timeout_for_local_reads_setting(self, monkeypatch):
+        from marcel_core.channels.telegram.webhook import _timeout_for
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.harness.turn_router import TierSource, TurnPlan
+
+        monkeypatch.setattr(settings, 'marcel_local_llm_timeout', 987.5)
+        plan = TurnPlan(tier=Tier.LOCAL, cleaned_text='hi', source=TierSource.USER_PREFIX)
+        assert _timeout_for(plan) == 987.5
+
+    def test_timeout_for_cloud_tiers_uses_assistant_timeout(self):
+        from marcel_core.channels.telegram.webhook import _ASSISTANT_TIMEOUT, _timeout_for
+        from marcel_core.harness.model_chain import Tier
+        from marcel_core.harness.turn_router import TierSource, TurnPlan
+
+        for tier in (Tier.FAST, Tier.STANDARD, Tier.POWER):
+            plan = TurnPlan(tier=tier, cleaned_text='hi', source=TierSource.USER_PREFIX)
+            assert _timeout_for(plan) == _ASSISTANT_TIMEOUT, f'cloud timeout expected for {tier}'
+
+    @pytest.mark.asyncio
+    async def test_local_turn_honors_local_timeout(self, tmp_path, monkeypatch):
+        """A ``/local`` turn uses ``marcel_local_llm_timeout`` — firing it proves the branch works."""
+        from marcel_core.channels.telegram.webhook import _process_assistant_message
+        from marcel_core.harness.runner import TextDelta
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(settings, 'marcel_local_llm_timeout', 0.01)
+        # Set the cloud timeout high so a leaky branch would NOT time out,
+        # making the test fail loudly if the local branch is bypassed.
+        monkeypatch.setattr('marcel_core.channels.telegram.webhook._ASSISTANT_TIMEOUT', 100.0)
+
+        async def slow_stream(*args, **kwargs):
+            yield TextDelta(text='partial')
+            await asyncio.sleep(5)
+
+        sent: list[str] = []
+
+        async def fake_send(chat_id, text, **kwargs):
+            sent.append(text)
+            return 1
+
+        with patch('marcel_core.channels.telegram.webhook.stream_turn', slow_stream):
+            with patch('marcel_core.channels.telegram.bot.send_message', fake_send):
+                await _process_assistant_message(
+                    42, 'shaun', '/local hello', {'message_id': None, 'sent': False, 'cancelled': False}
+                )
+
+        assert any('took too long' in t or 'cut short' in t for t in sent), f'expected timeout reply, got: {sent!r}'
+
+    @pytest.mark.asyncio
+    async def test_cloud_turn_still_uses_assistant_timeout(self, tmp_path, monkeypatch):
+        """``/fast`` turns keep the tighter cloud budget unchanged."""
+        from marcel_core.channels.telegram.webhook import _process_assistant_message
+        from marcel_core.harness.runner import TextDelta
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        # If the local branch is accidentally reached, this generous value
+        # would prevent the timeout from firing within the test budget.
+        monkeypatch.setattr(settings, 'marcel_local_llm_timeout', 100.0)
+        monkeypatch.setattr('marcel_core.channels.telegram.webhook._ASSISTANT_TIMEOUT', 0.01)
+
+        async def slow_stream(*args, **kwargs):
+            yield TextDelta(text='partial')
+            await asyncio.sleep(5)
+
+        sent: list[str] = []
+
+        async def fake_send(chat_id, text, **kwargs):
+            sent.append(text)
+            return 1
+
+        with patch('marcel_core.channels.telegram.webhook.stream_turn', slow_stream):
+            with patch('marcel_core.channels.telegram.bot.send_message', fake_send):
+                await _process_assistant_message(
+                    42, 'shaun', '/fast hello', {'message_id': None, 'sent': False, 'cancelled': False}
+                )
+
+        assert any('took too long' in t or 'cut short' in t for t in sent), f'expected timeout reply, got: {sent!r}'
+
+    @pytest.mark.asyncio
+    async def test_delayed_ack_uses_warmup_text_for_local(self, tmp_path, monkeypatch):
+        """When ``/local`` fires the delayed ack, the warm-up text is sent."""
+        from marcel_core.channels.telegram.webhook import _ACK_LOCAL_WARMUP, _process_with_delayed_ack
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        # Fire the ack almost immediately; keep processing slow so the ack
+        # lands before completion.
+        monkeypatch.setattr('marcel_core.channels.telegram.webhook._ACK_DELAY', 0.01)
+
+        async def slow_process(*args, **kwargs):
+            await asyncio.sleep(0.1)
+
+        sent: list[str] = []
+
+        async def fake_send(chat_id, text, **kwargs):
+            sent.append(text)
+            return 1
+
+        with patch('marcel_core.channels.telegram.webhook._process_assistant_message', slow_process):
+            with patch('marcel_core.channels.telegram.bot.send_message', fake_send):
+                await _process_with_delayed_ack(42, 'shaun', '/local hello')
+
+        # The ack goes through escape_html, and the warm-up text contains only
+        # ASCII characters plus an em-dash, so it survives unchanged.
+        assert any(_ACK_LOCAL_WARMUP in t for t in sent), f'expected warmup ack, got: {sent!r}'
+
+    @pytest.mark.asyncio
+    async def test_delayed_ack_uses_cloud_text_for_non_local(self, tmp_path, monkeypatch):
+        """Non-local turns keep the generic ``Working on it...`` ack."""
+        from marcel_core.channels.telegram.webhook import _ACK_CLOUD, _process_with_delayed_ack
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr('marcel_core.channels.telegram.webhook._ACK_DELAY', 0.01)
+
+        async def slow_process(*args, **kwargs):
+            await asyncio.sleep(0.1)
+
+        sent: list[str] = []
+
+        async def fake_send(chat_id, text, **kwargs):
+            sent.append(text)
+            return 1
+
+        with patch('marcel_core.channels.telegram.webhook._process_assistant_message', slow_process):
+            with patch('marcel_core.channels.telegram.bot.send_message', fake_send):
+                await _process_with_delayed_ack(42, 'shaun', '/fast hello')
+
+        assert any(_ACK_CLOUD in t for t in sent), f'expected cloud ack, got: {sent!r}'
