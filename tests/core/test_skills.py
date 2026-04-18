@@ -17,25 +17,45 @@ class TestRegistry:
         # Point registry at an empty JSON file — python integrations still show up
         import marcel_core.skills.registry as reg
 
-        reg.reload()
-        empty = tmp_path / 'skills.json'
-        empty.write_text('{}')
-        monkeypatch.setattr(reg, '_SKILLS_JSON', empty)
-        names = list_skills()
-        # No JSON skills, but python integrations are discovered
-        assert 'banking.balance' in names
-        assert 'banking.sync' in names
+        saved = dict(_registry)
+        _registry.clear()
+
+        @register('fake.handler')
+        async def handler(params, user_slug):
+            return 'ok'
+
+        try:
+            reg.reload()
+            empty = tmp_path / 'skills.json'
+            empty.write_text('{}')
+            monkeypatch.setattr(reg, '_SKILLS_JSON', empty)
+            names = list_skills()
+            assert 'fake.handler' in names
+        finally:
+            _registry.clear()
+            _registry.update(saved)
 
     def test_list_skills_returns_json_and_python_names(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
 
-        reg.reload()
-        f = tmp_path / 'skills.json'
-        f.write_text(json.dumps({'a.b': {}, 'c.d': {}}))
-        monkeypatch.setattr(reg, '_SKILLS_JSON', f)
-        names = set(list_skills())
-        assert {'a.b', 'c.d'}.issubset(names)
-        assert 'banking.balance' in names
+        saved = dict(_registry)
+        _registry.clear()
+
+        @register('fake.handler')
+        async def handler(params, user_slug):
+            return 'ok'
+
+        try:
+            reg.reload()
+            f = tmp_path / 'skills.json'
+            f.write_text(json.dumps({'a.b': {}, 'c.d': {}}))
+            monkeypatch.setattr(reg, '_SKILLS_JSON', f)
+            names = set(list_skills())
+            assert {'a.b', 'c.d'}.issubset(names)
+            assert 'fake.handler' in names
+        finally:
+            _registry.clear()
+            _registry.update(saved)
 
     def test_get_skill_returns_skill_config(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
@@ -292,12 +312,11 @@ class TestIntegrationFramework:
         with pytest.raises(KeyError, match='No python integration'):
             get_handler('nonexistent.skill')
 
-    def test_discover_imports_modules(self):
-        # After discover, first-party python integrations should be registered
+    def test_discover_does_not_raise(self):
+        # Kernel ships zero first-party integrations after the zoo migration.
+        # discover() must still be a safe no-op on the empty package.
         discover()
-        names = list_python_skills()
-        assert 'banking.balance' in names
-        assert 'banking.sync' in names
+        assert isinstance(list_python_skills(), list)
 
     def test_discover_skips_underscore_modules(self, monkeypatch):
         """Modules starting with _ are skipped during discovery."""
@@ -393,26 +412,46 @@ class TestRegistryMerge:
     def test_list_skills_includes_python_integrations(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
 
-        reg.reload()
-        f = tmp_path / 'skills.json'
-        f.write_text(json.dumps({'shell.test': {'type': 'shell', 'command': 'echo hi'}}))
-        monkeypatch.setattr(reg, '_SKILLS_JSON', f)
-        names = list_skills()
-        # Should include both the JSON skill and discovered python integrations
-        assert 'shell.test' in names
-        assert 'banking.balance' in names
-        assert 'banking.sync' in names
+        saved = dict(_registry)
+        _registry.clear()
+
+        @register('fake.handler')
+        async def handler(params, user_slug):
+            return 'ok'
+
+        try:
+            reg.reload()
+            f = tmp_path / 'skills.json'
+            f.write_text(json.dumps({'shell.test': {'type': 'shell', 'command': 'echo hi'}}))
+            monkeypatch.setattr(reg, '_SKILLS_JSON', f)
+            names = list_skills()
+            assert 'shell.test' in names
+            assert 'fake.handler' in names
+        finally:
+            _registry.clear()
+            _registry.update(saved)
 
     def test_get_skill_returns_python_config(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
 
-        reg.reload()
-        f = tmp_path / 'skills.json'
-        f.write_text('{}')
-        monkeypatch.setattr(reg, '_SKILLS_JSON', f)
-        config = get_skill('banking.balance')
-        assert config.type == 'python'
-        assert config.handler == 'banking.balance'
+        saved = dict(_registry)
+        _registry.clear()
+
+        @register('fake.handler')
+        async def handler(params, user_slug):
+            return 'ok'
+
+        try:
+            reg.reload()
+            f = tmp_path / 'skills.json'
+            f.write_text('{}')
+            monkeypatch.setattr(reg, '_SKILLS_JSON', f)
+            config = get_skill('fake.handler')
+            assert config.type == 'python'
+            assert config.handler == 'fake.handler'
+        finally:
+            _registry.clear()
+            _registry.update(saved)
 
 
 # ---------------------------------------------------------------------------

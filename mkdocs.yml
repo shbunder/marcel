@@ -22,8 +22,6 @@ nav:
   - Session Routing: routing.md
   - Local LLM: local-llm.md
   - CLI: cli.md
-  - Integrations:
-    - Banking: integration-banking.md
   - Channels:
     - Telegram: channels/telegram.md
 

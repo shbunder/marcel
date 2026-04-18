@@ -1,8 +1,8 @@
 """Scenario-based tests for jobs/scheduler.py.
 
-Covers: _ensure_default_jobs, _resolve_stuck_runs, _consolidate_memories,
-scheduler state persistence, schedule_job edge cases, _handle_event,
-_dispatch, and the oneshot lifecycle.
+Covers: rebuild_schedule emptiness guarantee, _resolve_stuck_runs,
+_consolidate_memories, scheduler state persistence, schedule_job edge
+cases, _handle_event, _dispatch, and the oneshot lifecycle.
 """
 
 from __future__ import annotations
@@ -260,75 +260,34 @@ class TestConsolidateMemories:
 
 
 # ---------------------------------------------------------------------------
-# _ensure_default_jobs
+# rebuild_schedule — no hardcoded bootstrap (regression for ISSUE-13c7f2)
 # ---------------------------------------------------------------------------
 
 
-class TestEnsureDefaultJobs:
-    def test_creates_bank_sync_for_banking_user(self, tmp_path):
-        from marcel_core.jobs import list_jobs
-        from marcel_core.jobs.scheduler import _ensure_default_jobs
+class TestRebuildScheduleEmptiness:
+    """After banking migrated to the zoo habitat (ISSUE-13c7f2), the kernel
+    must not create any jobs from user state — the only sources of jobs are
+    user-authored ``JOB.md`` files and the ``scheduled_jobs:`` habitat hook.
+    """
 
-        # Set up user with banking creds
+    async def test_no_habitats_no_creds_means_zero_jobs(self, tmp_path, monkeypatch):
+        from marcel_core.jobs import list_all_jobs
+        from marcel_core.jobs.scheduler import JobScheduler
+
+        # Empty zoo → no habitats registered
+        monkeypatch.setenv('MARCEL_ZOO_DIR', str(tmp_path / 'empty-zoo'))
+
+        # User with banking creds — the old _ensure_default_jobs would have
+        # created a Bank sync job. Now it must be a no-op.
         user_dir = tmp_path / 'users' / 'alice'
         user_dir.mkdir(parents=True)
         (user_dir / 'credentials.env').write_text('ENABLEBANKING_APP_ID=app123\nENABLEBANKING_SESSION_ID=sess456\n')
 
-        _ensure_default_jobs()
+        scheduler = JobScheduler()
+        await scheduler.rebuild_schedule()
 
-        jobs = list_jobs('alice')
-        assert len(jobs) == 1
-        assert jobs[0].template == 'sync'
-        assert 'banking' in jobs[0].task.lower()
-
-    def test_skips_user_without_banking(self, tmp_path):
-        from marcel_core.jobs import list_jobs
-        from marcel_core.jobs.scheduler import _ensure_default_jobs
-
-        user_dir = tmp_path / 'users' / 'bob'
-        user_dir.mkdir(parents=True)
-        (user_dir / 'credentials.env').write_text('')
-
-        _ensure_default_jobs()
-        assert list_jobs('bob') == []
-
-    def test_does_not_duplicate(self, tmp_path):
-        from marcel_core.jobs import list_jobs
-        from marcel_core.jobs.scheduler import _ensure_default_jobs
-
-        user_dir = tmp_path / 'users' / 'alice'
-        user_dir.mkdir(parents=True)
-        (user_dir / 'credentials.env').write_text('ENABLEBANKING_APP_ID=x\nENABLEBANKING_SESSION_ID=y\n')
-
-        _ensure_default_jobs()
-        _ensure_default_jobs()  # call again
-
-        jobs = list_jobs('alice')
-        assert len(jobs) == 1
-
-    def test_skips_backup_snapshot(self, tmp_path):
-        """Backup user dirs (``<base>.backup-<n>-<ts>``) must not get default jobs.
-
-        Regression for the post-ISSUE-059 drift where `shaun.backup-059-…`
-        snapshots were inheriting banking credentials and then scheduled
-        every 8 hours — each run failing permanently on the old
-        claude-haiku default.
-        """
-        from marcel_core.jobs import list_jobs
-        from marcel_core.jobs.scheduler import _ensure_default_jobs
-
-        live = tmp_path / 'users' / 'alice'
-        live.mkdir(parents=True)
-        (live / 'credentials.env').write_text('ENABLEBANKING_APP_ID=x\nENABLEBANKING_SESSION_ID=y\n')
-
-        backup = tmp_path / 'users' / 'alice.backup-059-20260411T184915'
-        backup.mkdir(parents=True)
-        (backup / 'credentials.env').write_text('ENABLEBANKING_APP_ID=x\nENABLEBANKING_SESSION_ID=y\n')
-
-        _ensure_default_jobs()
-
-        assert len(list_jobs('alice')) == 1
-        assert list_jobs('alice.backup-059-20260411T184915') == []
+        assert list_all_jobs() == []
+        assert scheduler._schedule == {}
 
 
 # ---------------------------------------------------------------------------

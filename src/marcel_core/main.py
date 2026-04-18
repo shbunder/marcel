@@ -46,7 +46,6 @@ from marcel_core.api.conversations import router as conversations_router
 from marcel_core.api.health import router as health_router
 from marcel_core.channels.telegram import router as telegram_router
 from marcel_core.jobs.scheduler import scheduler
-from marcel_core.skills.integrations.banking.sync import start_sync_loop, stop_sync_loop
 from marcel_core.watchdog.flags import read_restart_request, write_restart_result
 
 log = logging.getLogger(__name__)
@@ -135,12 +134,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     restart_task = asyncio.create_task(_restart_watcher())
     summarize_task = asyncio.create_task(_background_summarization_loop())
-    start_sync_loop()
     scheduler.start()
     log.info('main: all background tasks started')
     yield
     scheduler.stop()
-    stop_sync_loop()
     summarize_task.cancel()
     restart_task.cancel()
     log.info('main: shutdown complete')
