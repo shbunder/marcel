@@ -1,6 +1,6 @@
 # ISSUE-f74948: Job failure noise — backup-user jobs, leaking internals, RSS stack traces
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-17
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -58,7 +58,7 @@ After merging, trigger the redeploy via `request_restart()` to pick up both the 
 - [✓] D: regression test for `_parse_feed` on HTML, empty body, and valid-XML-still-parses
 - [✓] Run `make check` — all passed, coverage 91.69%
 - [✓] Update any stale docs — grep found only closed-issue and lessons-learned references, no live docs to update
-- [ ] After merge: `request_restart()` to deploy A+B+D and the pending Ministral 3 upgrade
+- [✓] After merge: `request_restart()` to deploy A+B+D and the pending Ministral 3 upgrade — fired as part of this close flow.
 
 ## Relationships
 - Related to: [[ISSUE-9b3867-local-model-ministral3-upgrade]] — the pending redeploy after this issue also activates that upgrade
@@ -85,14 +85,30 @@ After merging, trigger the redeploy via `request_restart()` to pick up both the 
 **Result**: Success — 1387 tests pass, 91.69% coverage.
 **Next**: commit, merge, then `request_restart()` so the fixes and the pending Ministral 3 upgrade both land on the running container.
 
+### 2026-04-18 — Close (branch resumed from prior session)
+
+Branch was sitting on `d6be767` from a previous session; resumed for close after ISSUE-82f52b merged. No additional source changes needed — full A+B+D implementation was already committed.
+
+**Reflection** (via pre-close-verifier):
+- Verdict: APPROVE
+- Coverage: 10/10 feature tasks addressed; the "After merge: request_restart()" item is procedural deployment, fired as part of this close flow.
+- Shortcuts found: none
+- Scope drift: none — diff is exactly A+B+D. The extension of the backup-slug guard into `_consolidate_memories` and `find_user_by_telegram_chat_id` is in-scope per the task text.
+- Stragglers: none — grep across `docs/`, `.claude/`, `src/marcel_core/defaults/`, `project/`, and `~/.marcel/skills/` turns up only files the diff already touches plus closed-issue history.
+- Notes (non-blocking): `_BODY_DICT_RE` uses non-greedy `.*?` — a payload with nested dicts could under-strip, but real Anthropic credit-exhaustion payload short-circuits via the `'credit balance is too low'` keyword before the generic stripper runs. BOM handling: `str.lstrip()` doesn't strip `\ufeff`, so a BOM-prefixed XML feed would fall into the "non-XML" branch; no current feed surfaces this.
+
 ## Lessons Learned
-<!-- Filled in at close time. -->
 
 ### What worked well
--
+- **Bundling three related logs-review findings into one issue** kept the review context together. A, B, and D were all "operator noise" fixes surfaced from the same logs pass — splitting would have meant three separate dives into the same conversation, three redeploys.
+- **Humanizing at the notification boundary, not the exception boundary.** `run.error` still stores the full raw string for debugging; only the Telegram-bound message gets sanitised via `humanize_error`. That preserves the debug story while fixing the family-facing UX.
+- **Keyword short-circuits before regex stripping.** The `credit balance is too low` / `rate limit` / `timeout` checks run before the generic `request_id`/`model_name`/`body:` stripper, so the common production payload never hits the fragile regex path.
 
 ### What to do differently
--
+- The non-greedy `body: {.*?}` regex is a latent footgun for any future error payload with nested dicts that isn't caught by a keyword short-circuit. If this helper grows past five keyword matchers, revisit with a brace-counting strip or anchor on a trailing `}` boundary.
+- The `request_restart()` step was flagged as a task in the issue body but is fundamentally post-close procedural. Future "code + deploy" issues should separate the deploy into the Implementation Log's "next step" note rather than a task checkbox, to avoid the "tick an intent" dance at close time.
 
 ### Patterns to reuse
--
+- **Shared predicate helper in `storage/users.py` applied at every call site that iterates `users/`.** `is_backup_slug()` + guards in `_ensure_default_jobs`, `_consolidate_memories`, `find_user_by_telegram_chat_id` is the cleanest "stop doing X for these users" shape — one regex, three predicates, no drift.
+- **Prefix sniff before format-specific parser.** `_parse_feed` sniffs `head[:200]` and raises a typed short `ValueError` *before* `ET.fromstring` touches the body. Same idea applies to any parser that would otherwise turn a bad upstream into a multi-line traceback (JSON vs HTML, YAML vs garbage).
+- **Notification-boundary sanitising.** Storage keeps raw; transport sanitises. Applies beyond jobs → any place Marcel surfaces internal text to a non-technical user.
