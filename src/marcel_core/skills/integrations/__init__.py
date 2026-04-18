@@ -96,6 +96,7 @@ def list_integrations() -> list[str]:
     """Return all integration names that have published metadata."""
     return sorted(_metadata.keys())
 
+
 # Skill names must follow the ``family.action`` convention: two dot-separated
 # segments, each containing only lowercase letters, digits, and underscores.
 # Matches the same pattern enforced in registry.py.
@@ -296,8 +297,7 @@ def _load_integration_metadata(pkg_dir: Path) -> None:
     yaml_path = pkg_dir / 'integration.yaml'
     if not yaml_path.exists():
         log.warning(
-            "Integration habitat '%s' has no integration.yaml — depends_on: "
-            'resolution against it will not work',
+            "Integration habitat '%s' has no integration.yaml — depends_on: resolution against it will not work",
             pkg_dir.name,
         )
         return

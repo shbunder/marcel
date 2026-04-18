@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
+from marcel_core.skills.integrations import IntegrationMetadata
 from marcel_core.skills.loader import (
     SkillDoc,
+    _check_depends_on,
     _check_requirements,
     _load_skill_dir,
+    _normalize_depends_on,
     _parse_frontmatter,
     _strip_argument_template,
     format_skills_for_prompt,
@@ -13,6 +18,18 @@ from marcel_core.skills.loader import (
     list_skill_resources,
     load_skills,
 )
+
+
+@pytest.fixture
+def isolated_metadata(monkeypatch):
+    """Provide a clean integration metadata registry for the test."""
+    from marcel_core.skills.integrations import _metadata
+
+    saved = dict(_metadata)
+    _metadata.clear()
+    yield _metadata
+    _metadata.clear()
+    _metadata.update(saved)
 
 
 class TestParseFrontmatter:
@@ -557,3 +574,231 @@ class TestLoadSkillsEdgeCases:
 
         docs = load_skills('user')
         assert docs == []
+
+
+class TestNormalizeDependsOn:
+    def test_none_returns_empty(self):
+        assert _normalize_depends_on(None) == []
+
+    def test_empty_string_returns_empty(self):
+        assert _normalize_depends_on('') == []
+
+    def test_single_string_wrapped_in_list(self):
+        assert _normalize_depends_on('docker') == ['docker']
+
+    def test_list_of_strings_returned_as_list(self):
+        assert _normalize_depends_on(['docker', 'icloud']) == ['docker', 'icloud']
+
+    def test_list_with_non_string_warns_and_returns_empty(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger='marcel_core.skills.loader'):
+            assert _normalize_depends_on(['docker', 42]) == []
+        assert any('depends_on' in r.message for r in caplog.records)
+
+    def test_dict_warns_and_returns_empty(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger='marcel_core.skills.loader'):
+            assert _normalize_depends_on({'docker': True}) == []
+        assert any('depends_on' in r.message for r in caplog.records)
+
+
+class TestCheckDependsOn:
+    def test_empty_list_passes(self, isolated_metadata):
+        assert _check_depends_on([], 'user') is True
+
+    def test_unregistered_integration_returns_false(self, isolated_metadata):
+        # No metadata registered → treat as unmet so SETUP.md is shown.
+        assert _check_depends_on(['docker'], 'user') is False
+
+    def test_registered_integration_with_no_requires_passes(self, isolated_metadata):
+        isolated_metadata['docker'] = IntegrationMetadata(name='docker', requires={})
+        assert _check_depends_on(['docker'], 'user') is True
+
+    def test_env_requirement_propagates(self, isolated_metadata, monkeypatch):
+        isolated_metadata['docker'] = IntegrationMetadata(
+            name='docker',
+            requires={'env': ['DOCKER_HOST']},
+        )
+        monkeypatch.delenv('DOCKER_HOST', raising=False)
+        assert _check_depends_on(['docker'], 'user') is False
+
+        monkeypatch.setenv('DOCKER_HOST', 'unix:///var/run/docker.sock')
+        assert _check_depends_on(['docker'], 'user') is True
+
+    def test_any_unmet_dep_fails_the_whole_check(self, isolated_metadata, monkeypatch):
+        isolated_metadata['docker'] = IntegrationMetadata(name='docker', requires={})
+        isolated_metadata['icloud'] = IntegrationMetadata(
+            name='icloud',
+            requires={'env': ['ICLOUD_PW']},
+        )
+        monkeypatch.delenv('ICLOUD_PW', raising=False)
+        assert _check_depends_on(['docker', 'icloud'], 'user') is False
+
+
+class TestLoadSkillDirDependsOn:
+    def test_depends_on_met_returns_skill_md(self, tmp_path, isolated_metadata, monkeypatch):
+        isolated_metadata['docker'] = IntegrationMetadata(
+            name='docker',
+            requires={'env': ['DOCKER_HOST']},
+        )
+        monkeypatch.setenv('DOCKER_HOST', 'unix:///var/run/docker.sock')
+
+        skill_dir = tmp_path / 'docker'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text(
+            '---\nname: docker\ndescription: Manage Docker\ndepends_on:\n  - docker\n---\n\nSkill body.'
+        )
+        (skill_dir / 'SETUP.md').write_text('---\nname: docker\n---\n\nSetup body.')
+
+        doc = _load_skill_dir(skill_dir, 'user', 'zoo')
+        assert doc is not None
+        assert doc.is_setup is False
+        assert 'Skill body.' in doc.content
+
+    def test_depends_on_unmet_returns_setup_md(self, tmp_path, isolated_metadata, monkeypatch):
+        isolated_metadata['docker'] = IntegrationMetadata(
+            name='docker',
+            requires={'env': ['DOCKER_HOST']},
+        )
+        monkeypatch.delenv('DOCKER_HOST', raising=False)
+
+        skill_dir = tmp_path / 'docker'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text(
+            '---\nname: docker\ndescription: Manage Docker\ndepends_on:\n  - docker\n---\n\nSkill body.'
+        )
+        (skill_dir / 'SETUP.md').write_text('---\nname: docker\n---\n\nSetup body.')
+
+        doc = _load_skill_dir(skill_dir, 'user', 'zoo')
+        assert doc is not None
+        assert doc.is_setup is True
+        assert 'Setup body.' in doc.content
+
+    def test_depends_on_aggregates_credentials_into_skill_doc(self, tmp_path, isolated_metadata):
+        isolated_metadata['banking'] = IntegrationMetadata(
+            name='banking',
+            requires={'credentials': ['BANK_API_KEY']},
+        )
+
+        skill_dir = tmp_path / 'banking'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text(
+            '---\nname: banking\ndepends_on:\n  - banking\n---\n\nBody.'
+        )
+
+        # Requirement check will fail (no credentials in test store) — but the
+        # SETUP.md path also receives the aggregated credential keys, so we can
+        # assert against either return value.
+        doc = _load_skill_dir(skill_dir, 'user', 'zoo')
+        assert doc is not None
+        assert 'BANK_API_KEY' in doc.credential_keys
+
+    def test_string_form_depends_on_normalized(self, tmp_path, isolated_metadata):
+        isolated_metadata['docker'] = IntegrationMetadata(name='docker', requires={})
+
+        skill_dir = tmp_path / 'docker'
+        skill_dir.mkdir()
+        (skill_dir / 'SKILL.md').write_text(
+            '---\nname: docker\ndepends_on: docker\n---\n\nBody.'
+        )
+
+        doc = _load_skill_dir(skill_dir, 'user', 'zoo')
+        assert doc is not None
+        assert doc.is_setup is False
+
+
+class TestSkillDirsAndZooDiscovery:
+    def test_skill_dirs_zoo_then_data(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+
+        zoo = tmp_path / 'zoo'
+        (zoo / 'skills').mkdir(parents=True)
+        data = tmp_path / 'data'
+        (data / 'skills').mkdir(parents=True)
+
+        # Patch zoo via settings.zoo_dir; data via _skills_dir() override.
+        from marcel_core.config import settings
+
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo))
+        monkeypatch.setattr(loader, '_skills_dir', lambda: data / 'skills')
+
+        dirs = loader._skill_dirs()
+        assert dirs == [zoo / 'skills', data / 'skills']
+
+    def test_skill_dirs_omits_zoo_when_unset(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+        from marcel_core.config import settings
+
+        data = tmp_path / 'data'
+        (data / 'skills').mkdir(parents=True)
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', None)
+        monkeypatch.setattr(loader, '_skills_dir', lambda: data / 'skills')
+
+        dirs = loader._skill_dirs()
+        assert dirs == [data / 'skills']
+
+    def test_skill_dirs_omits_zoo_when_skills_subdir_missing(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+        from marcel_core.config import settings
+
+        zoo = tmp_path / 'zoo'
+        zoo.mkdir()  # no `skills/` subdir
+
+        data = tmp_path / 'data'
+        (data / 'skills').mkdir(parents=True)
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo))
+        monkeypatch.setattr(loader, '_skills_dir', lambda: data / 'skills')
+
+        dirs = loader._skill_dirs()
+        assert dirs == [data / 'skills']
+
+    def test_load_skills_discovers_zoo_skills(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+        from marcel_core.config import settings
+
+        zoo = tmp_path / 'zoo'
+        zoo_skills = zoo / 'skills'
+        zoo_skills.mkdir(parents=True)
+        d = zoo_skills / 'docker'
+        d.mkdir()
+        (d / 'SKILL.md').write_text('---\nname: docker\ndescription: From zoo\n---\n\nZoo body.')
+
+        # Empty data dir
+        data = tmp_path / 'data'
+        (data / 'skills').mkdir(parents=True)
+
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo))
+        monkeypatch.setattr(loader, '_skills_dir', lambda: data / 'skills')
+
+        docs = load_skills('user')
+        names = [d.name for d in docs]
+        assert 'docker' in names
+        docker = next(d for d in docs if d.name == 'docker')
+        assert docker.source == 'zoo'
+        assert 'Zoo body.' in docker.content
+
+    def test_data_dir_overrides_zoo_on_collision(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as loader
+        from marcel_core.config import settings
+
+        # Same skill name in both — data_dir should win.
+        zoo = tmp_path / 'zoo'
+        zoo_skill = zoo / 'skills' / 'docker'
+        zoo_skill.mkdir(parents=True)
+        (zoo_skill / 'SKILL.md').write_text('---\nname: docker\ndescription: zoo\n---\n\nZoo version.')
+
+        data = tmp_path / 'data'
+        data_skill = data / 'skills' / 'docker'
+        data_skill.mkdir(parents=True)
+        (data_skill / 'SKILL.md').write_text('---\nname: docker\ndescription: user\n---\n\nUser override.')
+
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo))
+        monkeypatch.setattr(loader, '_skills_dir', lambda: data / 'skills')
+
+        docs = load_skills('user')
+        docker = next(d for d in docs if d.name == 'docker')
+        assert docker.source == 'data'
+        assert 'User override.' in docker.content
+        assert 'Zoo version.' not in docker.content

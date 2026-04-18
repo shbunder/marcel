@@ -291,9 +291,7 @@ _VALID_HANDLER_BODY = (
 
 
 class TestIntegrationMetadata:
-    def test_valid_yaml_populates_metadata(
-        self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules
-    ):
+    def test_valid_yaml_populates_metadata(self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules):
         """A valid integration.yaml is parsed and exposed via get_integration_metadata."""
         from marcel_core.config import settings
 
@@ -411,13 +409,7 @@ class TestIntegrationMetadata:
             tmp_path,
             'metatest',
             _VALID_HANDLER_BODY,
-            yaml=(
-                'name: metatest\n'
-                'provides: [metatest.ping]\n'
-                'requires:\n'
-                '  env: [X]\n'
-                '  unknown_key: [Y]\n'
-            ),
+            yaml=('name: metatest\nprovides: [metatest.ping]\nrequires:\n  env: [X]\n  unknown_key: [Y]\n'),
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
