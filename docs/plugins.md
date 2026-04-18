@@ -91,6 +91,79 @@ Errors in one external integration never abort discovery of its siblings:
 
 The net effect is that a user's marcel-zoo checkout can have one broken habitat without taking the rest of the install down.
 
+## Scheduled jobs from habitats
+
+A habitat can declare periodic background work by adding a `scheduled_jobs:` block to its `integration.yaml`. Each entry becomes a system-scope [`JobDefinition`](architecture.md#agent-loop-sequence) at scheduler startup — same retry, alerting, notification, and observability story as kernel jobs. No kernel code changes required.
+
+### Why declarative
+
+Marcel's periodic jobs are not raw cron handlers; they are full **agent jobs** dispatched through the LLM executor. That keeps two cases on one pipeline:
+
+- **Deterministic case** — "call handler X on cron Y, report the result." The default auto-generated `system_prompt` and `task` cover this — declare three fields and you are done.
+- **LLM-creative case** — "every morning, summarize today's calendar and surface conflicts." Override `task` / `system_prompt` / `model` per entry to inject the prompt the agent should run.
+
+The alternative imperative shape (a `register_scheduled(scheduler)` callback in `__init__.py`) was considered and rejected — see [ISSUE-82f52b](https://github.com/shbunder/marcel/blob/main/project/issues/closed/ISSUE-260418-82f52b-scheduled-jobs-from-habitats.md): data is auditable without import side effects, validates uniformly, and rolls back uniformly. We will add an imperative path the day a habitat actually needs it; today none does.
+
+### Schema
+
+```yaml
+# integration.yaml
+name: news
+provides:
+  - news.sync
+
+scheduled_jobs:
+  - name: "News digest"
+    handler: news.sync                # required, must be in provides:
+    cron: "0 7 * * *"                 # required (XOR with interval_seconds)
+    params:                           # optional dict — passed to the handler
+      sources: "rss,atom"
+    description: "Pull every feed and summarise"  # optional
+    notify: on_failure                # optional: always | on_failure | on_output | silent (default)
+    channel: telegram                 # optional, default 'telegram'
+    timezone: "Europe/Brussels"       # optional, applies to cron only
+    task: "Summarize today's news as bullets."   # optional override
+    system_prompt: "You are the morning briefer." # optional override
+    model: "anthropic:claude-sonnet-4-6"          # optional override
+```
+
+| Key | Required | Notes |
+|---|---|---|
+| `name` | yes | Unique within the habitat *and* across every other loaded habitat's job names. Used as the `JobDefinition.name`. |
+| `handler` | yes | Must appear in this habitat's `provides:` list. |
+| `cron` | XOR with `interval_seconds` | Standard 5-field cron expression validated by croniter. |
+| `interval_seconds` | XOR with `cron` | Positive integer. |
+| `params` | no | Dict passed to the handler. Stringify your values — Marcel does not coerce types. |
+| `notify` | no | `silent` by default. `on_failure` is the right choice for sync jobs that should only ping the user when something breaks. |
+| `task`, `system_prompt`, `model` | no | Per-entry overrides. The defaults synthesize a "call handler X with these params and report" prompt — fine for deterministic syncs, swap them out for anything richer. |
+
+### Lifecycle
+
+- **First discovery.** Each spec is materialized as a `JobDefinition` with a deterministic ID (`sha256("<habitat>:<name>")[:12]`), saved to the same `<data_root>/jobs/<slug>/` flat layout as kernel jobs. The job is `template='habitat:<name>'` so reconciliation can find it later.
+- **Subsequent restarts.** Already-on-disk jobs (matched by stable ID) are left untouched — user edits to the JOB.md file survive. Add a new entry → it appears next startup.
+- **Reconciliation.** On every scheduler rebuild, any job with `template='habitat:<name>'` whose habitat is no longer in the metadata registry — or whose entry name no longer appears in that habitat's `scheduled_jobs:` — is **deleted from disk**. Uninstalling a habitat (removing its directory) cleanly removes its jobs too.
+
+### Validation and rollback
+
+`scheduled_jobs:` is the **strict** part of `integration.yaml`. Where a malformed `provides:` only suppresses metadata (handlers keep dispatching), a malformed `scheduled_jobs:` entry **rolls back the entire habitat**: handlers are removed from the registry, no metadata is published, the scheduler never sees the broken state.
+
+This is the same all-or-nothing principle the directory-name ↔ handler-namespace check uses (ISSUE-6ad5c7). The reasoning: a half-shipped scheduled job is a silent gap users would not notice — they would only learn about it the next time the missing job *should have* fired.
+
+Conditions that trigger habitat rollback:
+
+- `scheduled_jobs:` is not a list, or an entry is not a mapping
+- Missing/empty `name`, missing `handler`
+- `handler` not declared in `provides:`
+- Neither (or both) of `cron` / `interval_seconds` set
+- `cron` fails croniter validation
+- `interval_seconds` is non-positive or boolean
+- Duplicate `name` within the habitat
+- `name` collision against a different already-loaded habitat
+- `notify` not in `{always, on_failure, on_output, silent}`
+- `params` is not a mapping
+
+All such failures log at ERROR level naming the offending habitat and entry; sibling habitats continue loading.
+
 ### What `marcel_core.plugin` exposes
 
 ```python

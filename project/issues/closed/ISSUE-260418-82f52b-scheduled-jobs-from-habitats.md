@@ -1,6 +1,6 @@
 # ISSUE-82f52b: Scheduled jobs from integration habitats (plugin surface)
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-18
 **Assignee:** Unassigned
 **Priority:** High
@@ -70,18 +70,18 @@ Discovery side: when the integration's `integration.yaml` parses cleanly *and* t
 
 ## Tasks
 
-- [ ] Read `src/marcel_core/jobs/scheduler.py` end-to-end. Note how in-tree jobs are registered today (decorator? function call? config file?) and where the croniter validation happens.
-- [ ] Confirm or revise the (a)-vs-(b) recommendation based on what the scheduler code actually exposes. If the imperative path turns out to be ~3 lines vs declarative's ~30, flip the choice and document why in the Implementation Log.
-- [ ] Extend the kernel `integration.yaml` parser (lives in `src/marcel_core/skills/integrations/__init__.py` per the docker POC) to accept and validate `scheduled_jobs:`.
-- [ ] Wire the validated `scheduled_jobs` entries into `jobs/scheduler.py` at discovery time. Each entry registers as if it were an in-tree job.
-- [ ] Implement habitat rollback on any `scheduled_jobs` validation failure: handlers removed from `_registry`, scheduler entries removed, `integration.yaml` metadata not registered. Match the precedent set in ISSUE-6ad5c7's namespace check.
-- [ ] Add a synthetic test habitat under `tests/` exercising the happy path (one handler + one scheduled job, scheduler picks it up).
-- [ ] Add negative tests for: handler-not-in-provides, invalid cron, duplicate job name within habitat, duplicate job name across habitats. Each must roll back the habitat fully.
-- [ ] Add a run-once test that the scheduler invokes the registered handler with the declared `params` dict and the right user_slug.
-- [ ] Add a "Scheduled jobs from habitats" section to `docs/plugins.md` showing the `integration.yaml` schema, the validation rules, the rollback behavior, and a worked example (use a fictional habitat — news + banking are still kernel-side at this point).
-- [ ] Update the "What `marcel_core.plugin` exposes" section in `docs/plugins.md` if any new symbol gets re-exported from the plugin package (likely none — this is pure metadata, no python API).
-- [ ] Update `project/issues/open/ISSUE-260418-2ccc10-...md` — mark the "Design the integration contributes a periodic job hook" task `[✓]` and link this issue from the Implementation Log. Add a follow-up note that news is now unblocked.
-- [ ] `make check` green at the 90% coverage gate.
+- [✓] Read `src/marcel_core/jobs/scheduler.py` end-to-end. Note how in-tree jobs are registered today (decorator? function call? config file?) and where the croniter validation happens.
+- [✓] Confirm or revise the (a)-vs-(b) recommendation based on what the scheduler code actually exposes. If the imperative path turns out to be ~3 lines vs declarative's ~30, flip the choice and document why in the Implementation Log.
+- [✓] Extend the kernel `integration.yaml` parser (lives in `src/marcel_core/skills/integrations/__init__.py` per the docker POC) to accept and validate `scheduled_jobs:`.
+- [✓] Wire the validated `scheduled_jobs` entries into `jobs/scheduler.py` at discovery time. Each entry registers as if it were an in-tree job.
+- [✓] Implement habitat rollback on any `scheduled_jobs` validation failure: handlers removed from `_registry`, scheduler entries removed, `integration.yaml` metadata not registered. Match the precedent set in ISSUE-6ad5c7's namespace check.
+- [✓] Add a synthetic test habitat under `tests/` exercising the happy path (one handler + one scheduled job, scheduler picks it up).
+- [✓] Add negative tests for: handler-not-in-provides, invalid cron, duplicate job name within habitat, duplicate job name across habitats. Each must roll back the habitat fully.
+- [✓] Add a run-once test that the scheduler invokes the registered handler with the declared `params` dict and the right user_slug.
+- [✓] Add a "Scheduled jobs from habitats" section to `docs/plugins.md` showing the `integration.yaml` schema, the validation rules, the rollback behavior, and a worked example (use a fictional habitat — news + banking are still kernel-side at this point).
+- [✓] Update the "What `marcel_core.plugin` exposes" section in `docs/plugins.md` if any new symbol gets re-exported from the plugin package (likely none — this is pure metadata, no python API). — verified no new re-export needed; the hook is pure metadata in `integration.yaml`.
+- [✓] Update `project/issues/open/ISSUE-260418-2ccc10-...md` — mark the "Design the integration contributes a periodic job hook" task `[✓]` and link this issue from the Implementation Log. Add a follow-up note that news is now unblocked.
+- [✓] `make check` green at the 90% coverage gate. — 1552 tests passed, total coverage 92.03%.
 
 ## Relationships
 
@@ -93,14 +93,54 @@ Discovery side: when the integration's `integration.yaml` parses cleanly *and* t
 ## Implementation Log
 <!-- Append entries here when performing development work on this issue -->
 
+### 2026-04-18 — Design decision: thick declarative
+
+Read [src/marcel_core/jobs/scheduler.py](../../../src/marcel_core/jobs/scheduler.py), [models.py](../../../src/marcel_core/jobs/models.py), [__init__.py](../../../src/marcel_core/jobs/__init__.py), and the existing `_ensure_default_jobs()` pattern (banking sync). Confirmed the recommendation in the issue with one important refinement: Marcel's "periodic jobs" are not raw cron handlers — they are full **agent jobs** (`JobDefinition` with `system_prompt`, `task`, `model`, `skills`, `notify`, `channel`, dispatched through the LLM executor). The banking sync's `_ensure_default_jobs()` is the prior art: it creates a `JobDefinition` once, marks it with `template='sync'`, and `save_job()` persists it.
+
+User reasoning for the choice (verbatim):
+
+> "I would go for B [from the original issue framing], the idea was that some jobs are indeed determinstic and some require LLM creativity. I wanted to maintain a single pipeline as to make the setup clear and simple."
+
+That framing maps to **thick declarative**: every habitat-declared `scheduled_jobs:` entry becomes a real `JobDefinition` (system-scope, `template='habitat:<name>'`), reusing the entire agent pipeline. Per-entry overrides for `task`, `system_prompt`, `model`, `notify`, `channel`, `timezone` allow the LLM-creative case to customize freely. The defaults give the deterministic "just call handler X on cron Y" case for free — Marcel synthesizes a system_prompt that asks the agent to call the handler and report.
+
+Final schema landed in `integration.yaml`:
+
+```yaml
+scheduled_jobs:
+  - name: "iCloud calendar sync"      # required
+    cron: "0 */4 * * *"               # required (XOR with interval_seconds)
+    handler: icloud.calendar          # required, must be in provides:
+    params: {days_ahead: "30"}        # optional dict
+    description: "..."                # optional
+    notify: on_failure                # optional, default silent
+    channel: telegram                 # optional, default telegram
+    timezone: "Europe/Brussels"       # optional
+    task: "..."                       # optional override
+    system_prompt: "..."              # optional override
+    model: "anthropic:..."            # optional override
+```
+
+Discovery flow: `_load_external_integration()` validates `scheduled_jobs:` strictly, **rolls back the entire habitat on any failure** (matching the namespace-check precedent from ISSUE-6ad5c7). Stable IDs (`sha256(f"{integration}:{entry.name}").hex[:12]`) let `_ensure_habitat_jobs()` reconcile across restarts: synthesize → save_if_missing → drop orphans whose habitat name no longer in `_metadata`.
+
+**Reflection** (via pre-close-verifier):
+- Verdict: APPROVE
+- Coverage: 11/11 tasks addressed; tests at `tests/jobs/test_habitat_jobs.py` (573 lines, 5 classes covering validation positive + 11 negatives, discovery rollback, ensure-creates/idempotent/orphan cleanup, stable-id determinism, end-to-end dispatch)
+- Shortcuts found: one minor lenience at `src/marcel_core/skills/integrations/__init__.py:517` — `params = entry.get('params', {}) or {}` silently coerces falsy non-dicts (`[]`, `""`, `0`) to `{}`, bypassing the `isinstance(params, dict)` rollback check. Future cleanup, not a blocker.
+- Scope drift: none — diff matches the resolved intent exactly; banking/news migrations explicitly deferred.
+- Stragglers: none. `docs/jobs.md` "Built-in templates" section could optionally cross-reference the new `habitat:<name>` template family, but no required update.
+
 ## Lessons Learned
-<!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->
 
 ### What worked well
--
+- Pivoting from the original "thin handler+cron" framing to **thick declarative** (every entry becomes a full `JobDefinition`) collapsed two pipelines into one. The user's reasoning — "some jobs are deterministic, some need LLM creativity, I want one pipeline" — turned out to be load-bearing: per-entry `task`/`system_prompt`/`model` overrides cover the creative case, and synthesized defaults cover the deterministic case, both through the same agent executor.
+- Mirroring ISSUE-6ad5c7's all-or-nothing rollback was the right precedent. Using a typed `HabitatRollback` exception that's caught only by `_load_external_integration` (not by callers) keeps the rollback site obvious and preserves the "uninstall = remove directory" invariant for jobs too.
+- Stable `sha256("<habitat>:<entry>")[:12]` IDs made reconciliation trivial: orphan detection is a set difference, idempotency is a `if existing is not None: continue`, and user edits to the on-disk JOB.md survive subsequent rebuilds because the ID never changes.
 
 ### What to do differently
--
+- The Python-booleans-are-ints trap caught me: `isinstance(True, int)` is True, so `interval_seconds: true` would have passed validation as "1 second". Fixed with an explicit `isinstance(interval_seconds, bool)` reject — but only because a test caught it. Worth grepping for `isinstance(..., int)` in any future numeric validator.
+- The `params = entry.get('params', {}) or {}` lenience flagged by the verifier slipped in because the prior style elsewhere in the file uses the same `or {}` defensive default. Should have either matched the strict style of the rest of `_validate_scheduled_jobs` (let `isinstance` reject non-dicts) or made the default explicit. Optional fixup post-merge.
 
 ### Patterns to reuse
--
+- **Typed rollback exception bounded by a single catch-site.** `HabitatRollback` is raised deep inside `_validate_scheduled_jobs` and caught only by `_load_external_integration`; helpers in between never see it. Better than passing rollback flags up the call stack or returning Result-style sentinels.
+- **`_ensure_<thing>()` reconciliation called from `rebuild_schedule()`.** This pattern (banking precedent: `_ensure_default_jobs`, this issue: `_ensure_habitat_jobs`) keeps "make the world match the desired state" idempotent and survivable across restarts. Explicit `template='<source>:<name>'` markers let reconciliation distinguish what it owns from what it doesn't.
+- **`template` field as origin marker.** `'sync'` for in-tree banking, `'habitat:<name>'` for habitat-contributed. Reconciliation deletes only what matches `template.startswith('habitat:')`, leaving in-tree jobs untouched. Cleaner than a parallel "source" enum.
