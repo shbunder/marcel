@@ -81,7 +81,7 @@ class TestExternalDiscovery:
                 '    return "pong"\n'
             ),
         )
-        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         _discover_external()
 
@@ -105,7 +105,7 @@ class TestExternalDiscovery:
                 "    return f\"said {params.get('msg', '')} for {user_slug}\"\n"
             ),
         )
-        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         _discover_external()
 
@@ -129,7 +129,7 @@ class TestExternalDiscovery:
                 '    return "never reached"\n'
             ),
         )
-        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
             _discover_external()
@@ -158,7 +158,7 @@ class TestExternalDiscovery:
                 '    return "bad"\n'
             ),
         )
-        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         _discover_external()
 
@@ -187,7 +187,7 @@ class TestExternalDiscovery:
                 '    return "ok"\n'
             ),
         )
-        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
             _discover_external()
@@ -202,7 +202,7 @@ class TestExternalDiscovery:
         from marcel_core.config import settings
 
         (tmp_path / 'integrations' / 'orphan').mkdir(parents=True)
-        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         with caplog.at_level('WARNING', logger='marcel_core.skills.integrations'):
             _discover_external()
@@ -210,12 +210,20 @@ class TestExternalDiscovery:
         assert any('orphan' in r.message and '__init__.py' in r.message for r in caplog.records)
 
     def test_missing_integrations_dir_is_noop(self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules):
-        """No ``integrations/`` dir at the data root is a silent no-op."""
+        """``MARCEL_ZOO_DIR`` set but no ``integrations/`` subdir is a silent no-op."""
         from marcel_core.config import settings
 
-        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         _discover_external()  # must not raise
+
+    def test_unset_zoo_dir_is_noop(self, monkeypatch, isolated_registry, cleanup_external_modules):
+        """``MARCEL_ZOO_DIR`` unset is a silent no-op — kernel ships no habitats."""
+        from marcel_core.config import settings
+
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', None)
+
+        _discover_external()  # must not raise; nothing loaded
 
     def test_dotfile_and_underscore_dirs_are_skipped(
         self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules
@@ -229,7 +237,7 @@ class TestExternalDiscovery:
             'from marcel_core.plugin import register\n',
         )
         (tmp_path / 'integrations' / '.hidden').mkdir()
-        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         _discover_external()
 
@@ -252,7 +260,7 @@ class TestExternalDiscovery:
                 '    return "hit"\n'
             ),
         )
-        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         _discover_external()
         _discover_external()  # second call must not raise

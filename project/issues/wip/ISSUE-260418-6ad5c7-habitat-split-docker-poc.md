@@ -1,6 +1,6 @@
 # ISSUE-6ad5c7: Skill/integration habitat split + docker proof-of-concept
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-18
 **Assignee:** Unassigned
 **Priority:** High

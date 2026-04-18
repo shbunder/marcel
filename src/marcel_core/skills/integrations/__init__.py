@@ -130,19 +130,26 @@ def _discover_builtin() -> None:
 
 
 def _discover_external() -> None:
-    """Import external integration habitats from ``<data_root>/integrations/``.
+    """Import external integration habitats from ``<MARCEL_ZOO_DIR>/integrations/``.
 
     Each subdirectory is loaded as a package. See :func:`_load_external_integration`
     for the per-package loading contract (namespace enforcement, error isolation).
+
+    Returns silently when ``MARCEL_ZOO_DIR`` is unset — the kernel ships no
+    habitats; users opt in by pointing the env var at a marcel-zoo checkout.
     """
     try:
         from marcel_core.config import settings
 
-        external_dir = settings.data_dir / 'integrations'
+        zoo_dir = settings.zoo_dir
     except Exception:
-        log.exception('Failed to resolve data_dir for external integration discovery')
+        log.exception('Failed to resolve zoo_dir for external integration discovery')
         return
 
+    if zoo_dir is None:
+        return
+
+    external_dir = zoo_dir / 'integrations'
     if not external_dir.is_dir():
         return
 

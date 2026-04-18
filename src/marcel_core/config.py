@@ -46,6 +46,16 @@ class Settings(BaseSettings):
     marcel_credentials_key: str = ''
 
     # ---------------------------------------------------------------------------
+    # Habitats (marcel-zoo)
+    # ---------------------------------------------------------------------------
+    # Path to the marcel-zoo checkout: an external repository (default location:
+    # ``~/projects/marcel-zoo``) that holds modular habitats — integrations,
+    # skills, channels, jobs, agents — discovered by the kernel at startup.
+    # Unset is a silent no-op: only first-party habitats inside ``marcel_core``
+    # are loaded. Set in ``.env.local`` to enable. See ISSUE-6ad5c7.
+    marcel_zoo_dir: str | None = None
+
+    # ---------------------------------------------------------------------------
     # Telegram
     # ---------------------------------------------------------------------------
     telegram_bot_token: str = ''
@@ -150,6 +160,17 @@ class Settings(BaseSettings):
         if self.marcel_data_dir:
             return Path(self.marcel_data_dir)
         return Path.home() / '.marcel'
+
+    @property
+    def zoo_dir(self) -> Path | None:
+        """Resolved path to the marcel-zoo checkout, or ``None`` if not set.
+
+        Discovery code treats ``None`` as a silent no-op: only first-party
+        habitats are loaded. The kernel ships nothing in zoo.
+        """
+        if not self.marcel_zoo_dir:
+            return None
+        return Path(self.marcel_zoo_dir).expanduser()
 
 
 settings = Settings()
