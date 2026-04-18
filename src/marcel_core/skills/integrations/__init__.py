@@ -153,7 +153,7 @@ def discover() -> None:
     """Discover first-party and external integrations.
 
     First-party modules are siblings of this package. External habitats
-    live at ``<data_root>/integrations/<name>/`` and are loaded via
+    live at ``<MARCEL_ZOO_DIR>/integrations/<name>/`` and are loaded via
     :func:`_discover_external`. Safe to call multiple times — already-
     imported modules are skipped by Python's import machinery.
     """

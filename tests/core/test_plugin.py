@@ -1,7 +1,7 @@
 """Tests for the marcel_core.plugin surface and external integration discovery.
 
-Covers ISSUE-3c87dd: the stable plugin re-exports plus the widened
-``discover()`` path that walks ``<data_root>/integrations/``.
+Covers ISSUE-3c87dd / ISSUE-6ad5c7: the stable plugin re-exports plus the
+``discover()`` path that walks ``<MARCEL_ZOO_DIR>/integrations/``.
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ class TestExternalDiscovery:
     def test_external_integration_loads_and_registers(
         self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules
     ):
-        """A minimal habitat at <data_root>/integrations/<name>/ is discovered."""
+        """A minimal habitat at <MARCEL_ZOO_DIR>/integrations/<name>/ is discovered."""
         from marcel_core.config import settings
 
         _write_integration(

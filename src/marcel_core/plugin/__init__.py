@@ -13,7 +13,7 @@ jobs, agents) will add their surfaces here as their plugin plumbing lands
 (see ISSUE-2ccc10, ISSUE-7d6b3f, ISSUE-a7d69a).
 
 Example — minimal external integration at
-``<data_root>/integrations/demo/__init__.py``::
+``<MARCEL_ZOO_DIR>/integrations/demo/__init__.py``::
 
     from marcel_core.plugin import register, get_logger
 
