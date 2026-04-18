@@ -8,14 +8,15 @@ Discovery is automatic. :func:`discover` imports:
 
 1. Every sibling module in this package (first-party integrations shipped
    inside ``marcel_core``).
-2. Every integration habitat directory under ``<data_root>/integrations/``
-   — external, data-root-sourced integrations, the marcel-zoo pattern
-   (ISSUE-3c87dd).
+2. Every integration habitat directory under
+   ``<MARCEL_ZOO_DIR>/integrations/`` — external, zoo-sourced integrations
+   (ISSUE-3c87dd, ISSUE-6ad5c7). Discovery is a silent no-op when
+   ``MARCEL_ZOO_DIR`` is unset.
 
 External habitats are packages: a directory with its own ``__init__.py``
 that calls ``@register`` at import time. The directory name must match
 the ``family`` segment of every handler name it registers — e.g. an
-integration at ``<data_root>/integrations/docker/`` may register
+integration at ``<zoo>/integrations/docker/`` may register
 ``docker.list`` but **not** ``container.start``. Handlers that violate
 this are rejected and the whole integration is rolled back (no partial
 registrations leak into the registry).
