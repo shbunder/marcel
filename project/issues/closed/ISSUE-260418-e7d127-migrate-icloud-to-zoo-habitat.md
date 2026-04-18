@@ -1,6 +1,6 @@
 # ISSUE-e7d127: Migrate iCloud integration to a marcel-zoo habitat
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-18
 **Assignee:** Unassigned
 **Priority:** High
@@ -102,14 +102,28 @@ First zoo-side tests (the docker POC shipped no tests). Set the precedent with m
 - Repo grep for `marcel_core.skills.integrations.icloud` and `defaults/skills/icloud`: only historical hits in `project/issues/closed/ISSUE-034-...` and this issue file remain.
 - Zoo unit tests: 3/3 passing.
 
+### 2026-04-18 — Pre-close straggler fix
+Pre-close-verifier flagged `docs/architecture.md:63` still listing `icloud/` under the kernel `integrations/` tree (mirror of the docker fix in `bca946c`). Dropped that line, plus the adjacent stale `settings.py` line left over from ISSUE-e1b9c4 — same paragraph, batched per verifier guidance. Final shape now points readers at `<MARCEL_ZOO_DIR>/integrations/` for icloud + docker.
+
+**Reflection** (via pre-close-verifier):
+- Verdict: REQUEST CHANGES → addressed (architecture.md straggler dropped + bonus settings.py straggler from ISSUE-e1b9c4 cleaned in the same paragraph)
+- Coverage: 13/13 requirements addressed
+- Shortcuts found: none
+- Scope drift: none
+- Stragglers: `docs/architecture.md:63` (icloud line, fixed); `docs/architecture.md:65` (settings.py from ISSUE-e1b9c4, fixed opportunistically)
+
 ## Lessons Learned
-<!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->
 
 ### What worked well
--
+- **Audit-first paid off again.** Confirming up-front that icloud's only kernel-internal imports were `register` + `load_credentials` (already covered by the plugin surface) meant zero plumbing work mid-migration. The discipline ISSUE-e1b9c4 set up keeps paying.
+- **Smoke check + negative smoke check together.** Running `discover()` with `MARCEL_ZOO_DIR=…` and then again with it unset (and asserting zero icloud handlers in the second case) catches both "zoo discovery actually fired" and "kernel deletion is complete" in two cheap shells. Adopt for every zoo migration going forward.
+- **Verifier as second pair of eyes.** The straggler in `docs/architecture.md` would have shipped as a fixup-after-merge without it. Cost: one extra `🔧 impl:` commit; benefit: clean main.
 
 ### What to do differently
--
+- **Run the architecture.md tree grep up front.** The kernel module-tree block in `docs/architecture.md` had stale entries from *both* this issue and the prior ISSUE-e1b9c4 — i.e. the ISSUE-e1b9c4 close also missed this file. Future zoo migrations: grep `docs/architecture.md` for the integration name as part of the "files to update" list before committing the deletion.
+- **The zoo-tests double-import trap is now a known pattern.** Document it in the next zoo migration's plan up front rather than hitting it again at commit time. Solution lives in `~/projects/marcel-zoo/integrations/icloud/tests/test_handlers.py` — load the client module via `importlib.util.spec_from_file_location` under a synthetic name to bypass package-level `@register` collisions.
 
 ### Patterns to reuse
--
+- **`[project.optional-dependencies] zoo` group as the dep-move sink.** Cheap, reversible, doesn't force the zoo-pyproject decision today, and `uv sync --all-extras` (already what dev + Docker do) keeps the deps installed for the zoo to import. Use the same group for `enable_banking_client` (banking) and `feedparser` (news) when those migrate, until ISSUE-2ccc10 settles whether the zoo gets its own pyproject.
+- **Dual-commit migration shape.** One commit on the kernel branch (deletions + dep move + docs + issue file), one commit on the zoo repo (new habitat). Each repo's history reads cleanly on its own; the cross-link is the issue ID in both messages.
+- **Keep first-party tests pointing at first-party handlers.** When a kernel test asserts that `discover()` produces a known integration name as proof-of-discovery, point it at the most stable still-kernel-bundled handler (`news.*` after icloud left). Avoids the test having to move with each zoo migration.
