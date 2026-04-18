@@ -95,13 +95,72 @@ The net effect is that a user's marcel-zoo checkout can have one broken habitat 
 
 ```python
 from marcel_core.plugin import register, IntegrationHandler, get_logger
+from marcel_core.plugin import credentials, paths, models
 ```
+
+#### Top-level
 
 | Symbol | Purpose |
 |---|---|
 | `register(skill_name)` | Decorator that registers an async handler. Validates the `family.action` naming convention. |
 | `IntegrationHandler` | Type alias for the handler signature: `Callable[[dict, str], Awaitable[str]]`. |
 | `get_logger(name)` | Returns a module logger. Prefer this over `logging.getLogger` directly so future plugin-specific filtering hooks can be added without rewriting habitats. |
+
+#### `marcel_core.plugin.credentials`
+
+Per-user credential storage. Encrypted with `MARCEL_CREDENTIALS_KEY` when set, plaintext fallback otherwise — habitats need not care which.
+
+| Symbol | Purpose |
+|---|---|
+| `load(slug) -> dict[str, str]` | Read every key/value pair stored for the user. Returns `{}` when no file exists. |
+| `save(slug, creds: dict[str, str])` | Overwrite the user's credential file with *creds*. Writes are atomic and chmod'd to `0600`. |
+
+`save()` replaces the entire blob, so the standard pattern is read–mutate–write rather than per-key set:
+
+```python
+from marcel_core.plugin import credentials
+
+creds = credentials.load(user_slug)
+creds["MY_SERVICE_API_KEY"] = new_value
+credentials.save(user_slug, creds)
+```
+
+#### `marcel_core.plugin.paths`
+
+Per-user filesystem helpers. Hides the data-root layout so a habitat never sees `<data_root>/users/{slug}/...` literally.
+
+| Symbol | Purpose |
+|---|---|
+| `user_dir(slug) -> Path` | The user's data directory. **Not** created by this call — caller does `mkdir(parents=True, exist_ok=True)` on the specific subpath it needs. |
+| `cache_dir(slug) -> Path` | The user's cache subdirectory, created on first call. Use this for any `*.db` / `*.json` cache file the habitat owns. |
+| `list_user_slugs() -> list[str]` | The slugs of every existing user — used by integration sync loops that need to enumerate linked accounts. Returns `[]` when no users dir exists. |
+
+```python
+from marcel_core.plugin import paths
+
+cache_file = paths.cache_dir(user_slug) / "mything.db"
+key_file = paths.user_dir(user_slug) / "signing_key.pem"
+for slug in paths.list_user_slugs():
+    sync_one_user(slug)
+```
+
+#### `marcel_core.plugin.models`
+
+Model registry + per-channel preference, used by the settings habitat to render and persist model choices.
+
+| Symbol | Purpose |
+|---|---|
+| `all_models() -> dict[str, str]` | Curated `model_id -> display_name` mapping (Anthropic + OpenAI + optional local model). |
+| `default_model() -> str` | The currently-configured tier-1 model, read live from `settings.marcel_standard_model`. |
+| `get_channel_model(slug, channel) -> str \| None` | The user's preferred model for a channel, or `None` when unset (use `default_model()` as fallback). |
+| `set_channel_model(slug, channel, model)` | Persist the user's preferred model for a channel. |
+
+```python
+from marcel_core.plugin import models
+
+current = models.get_channel_model(user_slug, "telegram") or models.default_model()
+models.set_channel_model(user_slug, "telegram", "anthropic:claude-sonnet-4-6")
+```
 
 Anything not listed above is internal — zoo code that imports it owns the breakage on any future Marcel upgrade.
 

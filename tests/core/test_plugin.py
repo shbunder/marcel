@@ -420,3 +420,161 @@ class TestIntegrationMetadata:
         assert meta is not None
         assert meta.requires == {'env': ['X'], 'unknown_key': ['Y']}
         assert any('unknown_key' in r.message for r in caplog.records)
+
+
+@pytest.fixture
+def isolated_data_root(tmp_path, monkeypatch):
+    """Point storage helpers at a per-test data root."""
+    from marcel_core.storage import _root
+
+    monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+    return tmp_path
+
+
+class TestPluginCredentialsSurface:
+    """``marcel_core.plugin.credentials`` is the only path zoo habitats use to
+    read or write per-user secrets. The wrappers must round-trip via the same
+    encrypted file that the underlying storage helpers use, otherwise the
+    abstraction silently splits the credential namespace in two."""
+
+    def test_save_then_load_round_trips(self, isolated_data_root, monkeypatch):
+        from marcel_core.config import settings as cfg
+        from marcel_core.plugin import credentials
+
+        monkeypatch.setattr(cfg, 'marcel_credentials_key', 'test-passphrase')
+
+        credentials.save('alice', {'API_KEY': 'secret', 'OTHER': 'value'})
+        loaded = credentials.load('alice')
+
+        assert loaded == {'API_KEY': 'secret', 'OTHER': 'value'}
+
+    def test_load_missing_user_returns_empty_dict(self, isolated_data_root):
+        from marcel_core.plugin import credentials
+
+        assert credentials.load('nobody') == {}
+
+    def test_plugin_credentials_are_kernel_helpers(self):
+        """Re-exports must point at the kernel helpers — not parallel copies."""
+        from marcel_core.plugin import credentials
+        from marcel_core.storage.credentials import load_credentials, save_credentials
+
+        assert credentials.load is load_credentials
+        assert credentials.save is save_credentials
+
+
+class TestPluginPathsSurface:
+    """``marcel_core.plugin.paths`` hides the data-root layout from habitats.
+    Tests pin the resolved paths so a future refactor of ``data_root()`` doesn't
+    silently change where habitats put their files."""
+
+    def test_user_dir_resolves_under_data_root(self, isolated_data_root):
+        from marcel_core.plugin import paths
+
+        assert paths.user_dir('alice') == isolated_data_root / 'users' / 'alice'
+
+    def test_user_dir_does_not_create_directory(self, isolated_data_root):
+        """Read-style call must not have a side effect — empty user dirs would
+        confuse :func:`list_user_slugs`."""
+        from marcel_core.plugin import paths
+
+        paths.user_dir('ghost')
+
+        assert not (isolated_data_root / 'users' / 'ghost').exists()
+
+    def test_cache_dir_creates_and_returns_subdir(self, isolated_data_root):
+        from marcel_core.plugin import paths
+
+        result = paths.cache_dir('alice')
+
+        assert result == isolated_data_root / 'users' / 'alice' / 'cache'
+        assert result.is_dir()
+
+    def test_cache_dir_is_idempotent(self, isolated_data_root):
+        from marcel_core.plugin import paths
+
+        first = paths.cache_dir('alice')
+        second = paths.cache_dir('alice')
+
+        assert first == second
+        assert first.is_dir()
+
+    def test_list_user_slugs_returns_existing_directories(self, isolated_data_root):
+        from marcel_core.plugin import paths
+
+        (isolated_data_root / 'users' / 'alice').mkdir(parents=True)
+        (isolated_data_root / 'users' / 'bob').mkdir(parents=True)
+        # Non-directory entries must be ignored.
+        (isolated_data_root / 'users' / 'README').write_text('not a user', encoding='utf-8')
+
+        assert sorted(paths.list_user_slugs()) == ['alice', 'bob']
+
+    def test_list_user_slugs_returns_empty_when_root_missing(self, isolated_data_root):
+        from marcel_core.plugin import paths
+
+        # No 'users/' subdirectory exists yet — must not raise.
+        assert paths.list_user_slugs() == []
+
+
+class TestPluginModelsSurface:
+    """``marcel_core.plugin.models`` is the channel-model preference surface
+    used by the settings habitat. Round-tripping a preference through the
+    plugin re-exports must hit the same on-disk file the kernel reads, so a
+    set followed by a get returns the value."""
+
+    def test_all_models_returns_known_models(self):
+        from marcel_core.plugin import models
+
+        result = models.all_models()
+
+        assert isinstance(result, dict)
+        assert 'anthropic:claude-sonnet-4-6' in result
+
+    def test_default_model_returns_configured_model(self, monkeypatch):
+        from marcel_core.config import settings as cfg
+        from marcel_core.plugin import models
+
+        monkeypatch.setattr(cfg, 'marcel_standard_model', 'anthropic:claude-test-model')
+
+        assert models.default_model() == 'anthropic:claude-test-model'
+
+    def test_set_then_get_channel_model_round_trips(self, isolated_data_root):
+        from marcel_core.plugin import models
+
+        models.set_channel_model('alice', 'telegram', 'openai:gpt-4o')
+
+        assert models.get_channel_model('alice', 'telegram') == 'openai:gpt-4o'
+
+    def test_get_channel_model_unset_returns_none(self, isolated_data_root):
+        from marcel_core.plugin import models
+
+        assert models.get_channel_model('alice', 'telegram') is None
+
+    def test_plugin_models_are_kernel_helpers(self):
+        """Re-exports must point at the kernel helpers — not parallel copies."""
+        from marcel_core.harness.agent import all_models, default_model
+        from marcel_core.plugin import models
+        from marcel_core.storage.settings import load_channel_model, save_channel_model
+
+        assert models.all_models is all_models
+        assert models.default_model is default_model
+        assert models.get_channel_model is load_channel_model
+        assert models.set_channel_model is save_channel_model
+
+
+class TestPluginSurfaceCompleteness:
+    """The plugin package must re-export every promised submodule. A missed
+    re-export silently breaks ``from marcel_core.plugin import paths`` even
+    though every other test would still pass."""
+
+    def test_all_submodules_importable_from_plugin(self):
+        from marcel_core.plugin import credentials, models, paths
+
+        assert credentials is not None
+        assert paths is not None
+        assert models is not None
+
+    def test_dunder_all_lists_every_export(self):
+        from marcel_core import plugin
+
+        for name in ('IntegrationHandler', 'register', 'get_logger', 'credentials', 'paths', 'models'):
+            assert name in plugin.__all__, f'plugin.__all__ missing {name}'
