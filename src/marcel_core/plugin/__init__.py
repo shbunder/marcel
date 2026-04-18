@@ -12,7 +12,7 @@ Surface today (integration habitat focus):
 - :func:`register`, :data:`IntegrationHandler`, :func:`get_logger` — declare
   and log from a handler.
 - :mod:`marcel_core.plugin.credentials` — encrypted per-user credential
-  load/save (banking, icloud).
+  load/save (used by zoo banking + icloud habitats).
 - :mod:`marcel_core.plugin.paths` — per-user data and cache directories,
   user enumeration (banking sync, news cache).
 - :mod:`marcel_core.plugin.models` — model registry + per-channel model
