@@ -1,6 +1,6 @@
 # ISSUE-3c87dd: Define `marcel_core.plugin` API + widen integration discovery to data root
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-18
 **Assignee:** Unassigned
 **Priority:** High
@@ -58,14 +58,28 @@ No integrations move in this issue — that's ISSUE-6ad5c7. This is purely the p
 - Docs: new [docs/plugins.md](../../docs/plugins.md) describing the plugin API surface, the directory-name ↔ handler-namespace rule, and error isolation. Added `Plugin API: plugins.md` to [mkdocs.yml](../../mkdocs.yml) nav. Updated "Adding a Python integration" in [docs/skills.md](../../docs/skills.md) to mention both discovery paths (first-party and external habitat) share the same `@register` decorator.
 - `make check`: **1478 passed, 91.84% coverage — green.**
 
+**Reflection** (via pre-close-verifier):
+- Verdict: APPROVE
+- Coverage: 10/10 tasks addressed
+- Shortcuts found: none (the two `except Exception:` blocks wrap untrusted import machinery and are justified with `log.exception` + explicit rollback)
+- Scope drift: none — pure plumbing, no integrations moved (correctly deferred to ISSUE-6ad5c7)
+- Stragglers: none blocking. First-party integrations still import `register` from `marcel_core.skills.integrations` directly; that is intentionally allowed during the migration window (plugin surface is additive, not a forced rename) and is the exact scope of ISSUE-6ad5c7/2ccc10.
+- Known limitation captured for ISSUE-6ad5c7: if a future multi-file habitat uses relative imports (`from ._helpers import foo`), the `_marcel_ext_integrations` parent not being registered in `sys.modules` may cause Python to fail resolving the parent. Single-file habitats (this issue's scope) work; this only matters when real multi-file habitats land.
+
 ## Lessons Learned
-<!-- Filled in at close time. -->
 
 ### What worked well
--
+
+- **Ship the plumbing empty first.** No integrations moved in this issue — just the surface and the discovery path. Kept the diff focused, the rollback semantics reviewable, and the test matrix small. The "widen the door, don't push anyone through" framing made ISSUE-6ad5c7 a much cleaner downstream step.
+- **Rollback-on-any-invalid is simpler than per-handler validation.** Tracking the registry diff with `before = set(_registry)` / `added = set(_registry) - before` and popping everything if any handler is out-of-namespace is easier to reason about than trying to validate the module's intent upfront. Half-loaded habitats never exist in the registry, even transiently to callers.
+- **Private module-name prefix (`_marcel_ext_integrations.*`) was a good hedge.** Reserving the `marcel_zoo.*` namespace for a future real package means we can eventually ship marcel-zoo as an installable without a rename on the zoo side. Cheap now, expensive later.
 
 ### What to do differently
--
+
+- **Register the parent module in `sys.modules` when loading multi-file habitats.** The verifier flagged that relative imports inside a habitat package (`from ._helpers import foo`) may fail because `_marcel_ext_integrations` itself is never registered. Single-file habitats work (and are all this issue claims), but when ISSUE-6ad5c7 moves real multi-file integrations, this needs to be handled — create a synthetic parent namespace package and insert it into `sys.modules` before `exec_module`.
 
 ### Patterns to reuse
--
+
+- **Stability-contract docstring on the plugin package.** "Anything not re-exported here is internal and may break" is a one-line promise that makes future refactors free. Use this same pattern for the skill/channel/job/agent plugin surfaces in ISSUE-6ad5c7/7d6b3f/a7d69a/e22176.
+- **`monkeypatch.setattr(module, '_registry', {})` + manual save/restore** for test isolation around module-level mutable state. Clean teardown, no leakage across tests, no need to patch every callsite.
+- **Idempotency via `sys.modules` check.** `if module_name in sys.modules: return` at the top of the loader makes repeat `discover()` calls safe — useful both for tests and for any future hot-reload path.
