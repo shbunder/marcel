@@ -14,6 +14,7 @@ nav:
   - Self-Modification: self-modification.md
   - Claude Code Setup: claude-code-setup.md
   - Skills: skills.md
+  - Plugin API: plugins.md
   - Subagents: subagents.md
   - Web Tool: web.md
   - Jobs: jobs.md

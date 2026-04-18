@@ -49,13 +49,18 @@ When all requirements are met, the agent sees `SKILL.md`. When any are missing, 
 
 ## Adding a Python integration
 
-Create a module in `src/marcel_core/skills/integrations/`:
+Python integrations can live in two places, discovered at the same registry load:
+
+1. **First-party** — `src/marcel_core/skills/integrations/<name>.py` or `src/marcel_core/skills/integrations/<name>/__init__.py`, shipped inside the kernel.
+2. **External habitat** — `<data_root>/integrations/<name>/__init__.py`, an installable component of marcel-zoo. See [Plugins](plugins.md) for the full habitat contract. External habitats must use `from marcel_core.plugin import register` (the stable plugin surface) and obey the directory-name ↔ handler-namespace rule (an integration at `.../integrations/myservice/` may only register `myservice.*` handlers).
+
+Both paths use the same `@register` decorator:
 
 ```python
-# src/marcel_core/skills/integrations/myservice.py
+# Either path — same code.
 
 import json
-from marcel_core.skills.integrations import register
+from marcel_core.plugin import register
 
 @register("myservice.action")
 async def action(params: dict, user_slug: str) -> str:
