@@ -93,6 +93,35 @@ Discovery side: when the integration's `integration.yaml` parses cleanly *and* t
 ## Implementation Log
 <!-- Append entries here when performing development work on this issue -->
 
+### 2026-04-18 — Design decision: thick declarative
+
+Read [src/marcel_core/jobs/scheduler.py](../../../src/marcel_core/jobs/scheduler.py), [models.py](../../../src/marcel_core/jobs/models.py), [__init__.py](../../../src/marcel_core/jobs/__init__.py), and the existing `_ensure_default_jobs()` pattern (banking sync). Confirmed the recommendation in the issue with one important refinement: Marcel's "periodic jobs" are not raw cron handlers — they are full **agent jobs** (`JobDefinition` with `system_prompt`, `task`, `model`, `skills`, `notify`, `channel`, dispatched through the LLM executor). The banking sync's `_ensure_default_jobs()` is the prior art: it creates a `JobDefinition` once, marks it with `template='sync'`, and `save_job()` persists it.
+
+User reasoning for the choice (verbatim):
+
+> "I would go for B [from the original issue framing], the idea was that some jobs are indeed determinstic and some require LLM creativity. I wanted to maintain a single pipeline as to make the setup clear and simple."
+
+That framing maps to **thick declarative**: every habitat-declared `scheduled_jobs:` entry becomes a real `JobDefinition` (system-scope, `template='habitat:<name>'`), reusing the entire agent pipeline. Per-entry overrides for `task`, `system_prompt`, `model`, `notify`, `channel`, `timezone` allow the LLM-creative case to customize freely. The defaults give the deterministic "just call handler X on cron Y" case for free — Marcel synthesizes a system_prompt that asks the agent to call the handler and report.
+
+Final schema landed in `integration.yaml`:
+
+```yaml
+scheduled_jobs:
+  - name: "iCloud calendar sync"      # required
+    cron: "0 */4 * * *"               # required (XOR with interval_seconds)
+    handler: icloud.calendar          # required, must be in provides:
+    params: {days_ahead: "30"}        # optional dict
+    description: "..."                # optional
+    notify: on_failure                # optional, default silent
+    channel: telegram                 # optional, default telegram
+    timezone: "Europe/Brussels"       # optional
+    task: "..."                       # optional override
+    system_prompt: "..."              # optional override
+    model: "anthropic:..."            # optional override
+```
+
+Discovery flow: `_load_external_integration()` validates `scheduled_jobs:` strictly, **rolls back the entire habitat on any failure** (matching the namespace-check precedent from ISSUE-6ad5c7). Stable IDs (`sha256(f"{integration}:{entry.name}").hex[:12]`) let `_ensure_habitat_jobs()` reconcile across restarts: synthesize → save_if_missing → drop orphans whose habitat name no longer in `_metadata`.
+
 ## Lessons Learned
 <!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->
 

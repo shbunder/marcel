@@ -39,7 +39,7 @@ The three integrations' tests move with the code. Core-side tests that currently
 
 - [✓] Extend `marcel_core.plugin` with `credentials`, `paths`, `get_logger`, `models` submodules — landed in ISSUE-c48967. Every addition documented in `docs/plugins.md`.
 - [✓] Audit the `settings` integration — turned out to be dead code; deleted in ISSUE-e1b9c4 rather than migrated.
-- [ ] Design the "integration contributes a periodic job" hook. Options: (a) `integration.yaml` declares `scheduled_jobs: [...]`, kernel scheduler reads them; (b) handler exports a `register_scheduled(scheduler)` function called at discovery. Pick one.
+- [✓] Design the "integration contributes a periodic job" hook. Options: (a) `integration.yaml` declares `scheduled_jobs: [...]`, kernel scheduler reads them; (b) handler exports a `register_scheduled(scheduler)` function called at discovery. Pick one. — landed in ISSUE-82f52b as **thick declarative** (every entry becomes a system-scope `JobDefinition` with `template='habitat:<name>'`, full agent-pipeline reuse, per-entry overrides for the LLM-creative case). News migration unblocked.
 - [✓] Migrate **icloud** first (smallest remaining, no scheduled jobs): handler + client + SKILL.md + SETUP.md. Credentials via plugin surface — landed in ISSUE-e7d127.
 - [ ] Migrate **news**: handler + cache + sync + SKILL.md + SETUP.md + `feeds.yaml` resource. Scheduled-job hook required.
 - [ ] Migrate **banking**: handler + client + cache + sync + SKILL.md + SETUP.md + components.yaml. Scheduled-job hook + credentials + EnableBanking dep.
@@ -64,6 +64,12 @@ The three integrations' tests move with the code. Core-side tests that currently
 - Imports switched to `marcel_core.plugin.register` and `marcel_core.plugin.credentials.load(slug)`.
 - `caldav` + `vobject` moved out of kernel `dependencies` into `[project.optional-dependencies] zoo` group (still installed by `uv sync --all-extras` in dev + Docker).
 - Two remaining: news (scheduled-job hook needed), banking (largest — sync, cache, components.yaml, EnableBanking dep).
+
+### 2026-04-18 — scheduled-jobs hook landed (sub-issue ISSUE-82f52b)
+- `integration.yaml` accepts a `scheduled_jobs:` block (declarative). Each entry becomes a system-scope `JobDefinition` with `template='habitat:<name>'`, stable ID `sha256("<habitat>:<name>")[:12]`, default-or-override `task` / `system_prompt` / `model`.
+- Reconciliation built into `_ensure_habitat_jobs()` (called from `rebuild_schedule()`): orphans whose habitat no longer declares them are deleted from disk on next startup. "Uninstall = remove directory" now holds for jobs too.
+- Validation strict — any malformed `scheduled_jobs:` entry rolls back the *whole habitat* (handlers + metadata), mirroring the namespace-check precedent from ISSUE-6ad5c7.
+- Documented in `docs/plugins.md` under "Scheduled jobs from habitats". News migration is now fully unblocked — handler + scheduled `news.sync` move together as the first real consumer of the hook.
 
 ## Lessons Learned
 <!-- Filled in at close time. -->
