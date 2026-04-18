@@ -152,8 +152,10 @@ def _parse_feed(xml_text: str) -> list[dict[str, str]]:
 async def fetch_feed(url: str, max_articles: int = 50) -> list[dict[str, str]]:
     """Fetch and parse an RSS/Atom feed, returning structured articles.
 
-    This is the programmatic entry point — used by ``news.sync`` and other
-    code that needs parsed feed data without going through the agent tool.
+    This is the programmatic entry point — re-exported via
+    :mod:`marcel_core.plugin.rss` for habitats (e.g. the news habitat) and
+    used directly by other kernel code that needs parsed feed data without
+    going through the agent tool.
 
     Raises on network or parse errors (callers should handle exceptions).
     """

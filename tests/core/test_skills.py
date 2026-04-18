@@ -23,8 +23,8 @@ class TestRegistry:
         monkeypatch.setattr(reg, '_SKILLS_JSON', empty)
         names = list_skills()
         # No JSON skills, but python integrations are discovered
-        assert 'news.search' in names
-        assert 'news.recent' in names
+        assert 'banking.balance' in names
+        assert 'banking.sync' in names
 
     def test_list_skills_returns_json_and_python_names(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
@@ -35,7 +35,7 @@ class TestRegistry:
         monkeypatch.setattr(reg, '_SKILLS_JSON', f)
         names = set(list_skills())
         assert {'a.b', 'c.d'}.issubset(names)
-        assert 'news.search' in names
+        assert 'banking.balance' in names
 
     def test_get_skill_returns_skill_config(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
@@ -296,8 +296,8 @@ class TestIntegrationFramework:
         # After discover, first-party python integrations should be registered
         discover()
         names = list_python_skills()
-        assert 'news.search' in names
-        assert 'news.recent' in names
+        assert 'banking.balance' in names
+        assert 'banking.sync' in names
 
     def test_discover_skips_underscore_modules(self, monkeypatch):
         """Modules starting with _ are skipped during discovery."""
@@ -400,8 +400,8 @@ class TestRegistryMerge:
         names = list_skills()
         # Should include both the JSON skill and discovered python integrations
         assert 'shell.test' in names
-        assert 'news.search' in names
-        assert 'news.recent' in names
+        assert 'banking.balance' in names
+        assert 'banking.sync' in names
 
     def test_get_skill_returns_python_config(self, tmp_path, monkeypatch):
         import marcel_core.skills.registry as reg
@@ -410,9 +410,9 @@ class TestRegistryMerge:
         f = tmp_path / 'skills.json'
         f.write_text('{}')
         monkeypatch.setattr(reg, '_SKILLS_JSON', f)
-        config = get_skill('news.search')
+        config = get_skill('banking.balance')
         assert config.type == 'python'
-        assert config.handler == 'news.search'
+        assert config.handler == 'banking.balance'
 
 
 # ---------------------------------------------------------------------------
