@@ -115,6 +115,15 @@ class Settings(BaseSettings):
     marcel_local_llm_url: str | None = None
     marcel_local_llm_model: str | None = None
 
+    # Per-turn wall-clock budget for turns routed to the LOCAL tier
+    # (``/local`` prefix, or session/default resolving to LOCAL). Wider than
+    # the cloud-tier budget because Ollama cold-start is 30–60s on a 14B plus
+    # ~3–5 tok/s generation on CPU. Tune down on faster hardware. Only
+    # affects channels that enforce a turn-level timeout (the Telegram
+    # webhook today); the WebSocket chat endpoint streams incrementally and
+    # has no overall wait_for.
+    marcel_local_llm_timeout: float = 300.0
+
     # ---------------------------------------------------------------------------
     # Browser
     # ---------------------------------------------------------------------------
