@@ -1,19 +1,29 @@
 # Plugin API
 
-Marcel is moving toward a clean kernel / userspace split. The kernel is [`marcel_core`](https://github.com/shbunder/marcel) — harness, runner, storage, agent loop, tool protocol. The userspace is **marcel-zoo**, a separate repository containing the modular components (habitats) a Marcel install actually runs: integrations, skills, channels, jobs, agents. Zoo habitats are installed under `<data_root>/` (default `~/.marcel/`) and discovered at startup.
+Marcel is moving toward a clean kernel / userspace split. The kernel is [`marcel_core`](https://github.com/shbunder/marcel) — harness, runner, storage, agent loop, tool protocol. The userspace is **marcel-zoo**, a separate repository containing the modular components (habitats) a Marcel install actually runs: integrations, skills, channels, jobs, agents. The location of the zoo checkout is configured via the `MARCEL_ZOO_DIR` environment variable (no default — discovery is a silent no-op when unset).
 
 `marcel_core.plugin` is the stable surface zoo habitats import from. Anything re-exported there is a stability promise; anything else in `marcel_core` is internal and may change between versions.
 
 !!! note "Status"
-    The plugin surface currently covers **integrations only**. Skill, channel, job, and agent surfaces are being added incrementally — see the open issues in `project/issues/open/` for the roadmap (ISSUE-6ad5c7, ISSUE-7d6b3f, ISSUE-a7d69a, ISSUE-e22176).
+    The plugin surface currently covers **integrations + skill habitats**. Channel, job, and agent surfaces are being added incrementally — see the open issues in `project/issues/open/` for the roadmap (ISSUE-7d6b3f, ISSUE-a7d69a, ISSUE-e22176).
+
+## Configuring the zoo location
+
+Set `MARCEL_ZOO_DIR` in `.env.local` (or the environment) to point at your marcel-zoo checkout:
+
+```bash
+MARCEL_ZOO_DIR=~/projects/marcel-zoo
+```
+
+When unset, Marcel still runs — it loads only the kernel-bundled first-party integrations and the user's data-root skills. Pointing at a zoo checkout layers in additional habitats from `<MARCEL_ZOO_DIR>/integrations/` and `<MARCEL_ZOO_DIR>/skills/`.
 
 ## Integration habitat
 
-An external integration lives at `<data_root>/integrations/<name>/` and is discovered automatically on the next registry load. The directory is treated as a Python package — `__init__.py` is required and runs at discovery time to trigger `@register` decorators.
+An external integration lives at `<MARCEL_ZOO_DIR>/integrations/<name>/` and is discovered automatically on the next registry load. The directory is a Python package — `__init__.py` is required and runs at discovery time to trigger `@register` decorators. A sibling `integration.yaml` declares the integration's metadata (see [Integration metadata](#integration-metadata) below).
 
 ### Minimal example
 
-`<data_root>/integrations/demo/__init__.py`:
+`<MARCEL_ZOO_DIR>/integrations/demo/__init__.py`:
 
 ```python
 from marcel_core.plugin import get_logger, register
@@ -27,7 +37,36 @@ async def ping(params: dict, user_slug: str) -> str:
     return "pong"
 ```
 
+`<MARCEL_ZOO_DIR>/integrations/demo/integration.yaml`:
+
+```yaml
+name: demo
+description: Trivial demo integration
+provides:
+  - demo.ping
+requires: {}
+```
+
 Calling `integration(id="demo.ping")` from the agent dispatches to the handler above. No changes to kernel code, no entry in `skills.json`, no restart beyond whatever the user's normal reload path is.
+
+## Integration metadata
+
+Each integration habitat ships an `integration.yaml` next to its `__init__.py`. The kernel uses it to resolve a skill habitat's `depends_on:` (see [Skills](skills.md)) back to the integration's requirements.
+
+| Key | Required | Description |
+|---|---|---|
+| `name` | yes (when set) | Must equal the directory name. Defaults to the directory name when omitted. |
+| `description` | no | One-line description shown in tooling. |
+| `provides` | no | List of handler names registered by this integration. Every entry must start with `<name>.`. Used for documentation and consistency checks; the source of truth for dispatch is still `@register`. |
+| `requires` | no | Dict of resources the integration needs to function. Recognised keys: `credentials`, `env`, `files`, `packages`. Unknown keys log a warning and are ignored. |
+
+Validation rules — any failure logs an error and skips metadata registration; the handlers continue to dispatch normally, but `depends_on:` resolution against this integration will return `None` (treated as "requirements not met"):
+
+- `name` must equal the directory name.
+- `provides` must be a list of strings, all in the `<name>.*` namespace.
+- `requires` must be a mapping.
+
+A habitat without `integration.yaml` logs a warning and registers no metadata — perfectly valid for integrations that no skill habitat depends on, but means future skills cannot link to it via `depends_on:`.
 
 ### Directory-name ↔ handler-namespace rule
 
@@ -68,7 +107,7 @@ Anything not listed above is internal — zoo code that imports it owns the brea
 
 ### First-party vs. external integrations
 
-Internally, Marcel still ships several first-party integrations inside `src/marcel_core/skills/integrations/` (banking, icloud, news, settings, docker). These continue to work unchanged during the zoo migration — they are discovered via the same `discover()` entry point alongside external habitats. They will move to the zoo over the following issues (ISSUE-6ad5c7 onwards).
+Internally, Marcel still ships several first-party integrations inside `src/marcel_core/skills/integrations/` (banking, icloud, news, settings). These continue to work unchanged during the zoo migration — they are discovered via the same `discover()` entry point alongside external habitats. The first complete migration target was `docker`, now living entirely in marcel-zoo (ISSUE-6ad5c7); the remaining first-party integrations follow over subsequent issues.
 
 ## See also
 

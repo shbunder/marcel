@@ -178,7 +178,6 @@ omit = [
     "*/skills/integrations/banking/sync.py",
     "*/skills/integrations/icloud/client.py",
     "*/skills/integrations/icloud/__init__.py",
-    "*/skills/integrations/docker/__init__.py",
     "*/skills/tool.py",
     "*/browser/manager.py",
     "*/browser/tools.py",

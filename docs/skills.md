@@ -10,12 +10,12 @@ Integrations can be defined as:
 - **Python modules** with `@register` decorators — for integrations that need custom logic (API clients, stateful connections)
 - **JSON entries** in `skills.json` — for simple HTTP calls or shell commands
 
-Skill documentation lives in `.marcel/skills/<name>/SKILL.md`. These teach the agent how to use each integration. Skills are loaded from two directories and injected into the system prompt:
+Skill documentation lives in `<dir>/skills/<name>/SKILL.md`. These teach the agent how to use each integration. Skills are loaded from two directories and injected into the system prompt:
 
-1. **`.marcel/skills/`** (project directory) — built-in skills shipped with Marcel
-2. **`~/.marcel/skills/`** (user home / `MARCEL_DATA_DIR`) — user-level overrides and custom skills
+1. **`<MARCEL_ZOO_DIR>/skills/`** — habitats from the marcel-zoo checkout (skipped when `MARCEL_ZOO_DIR` is unset). See [Plugin API](plugins.md).
+2. **`<MARCEL_DATA_DIR>/skills/`** (typically `~/.marcel/skills/`) — user-level overrides and custom skills.
 
-Home directory skills override project skills with the same name.
+Data-root skills override zoo skills with the same name. The override is silent — drop a `~/.marcel/skills/<name>/SKILL.md` to replace any zoo-shipped version.
 
 ## How it works
 
@@ -27,9 +27,11 @@ Home directory skills override project skills with the same name.
 
 ## Skill fallback (SETUP.md)
 
-Each integration skill can have a `SETUP.md` alongside `SKILL.md`. When the skill's requirements (credentials, env vars, files) are not met, the loader serves `SETUP.md` instead. This guides new users through first-time setup rather than failing silently.
+Each integration skill can have a `SETUP.md` alongside `SKILL.md`. When the skill's requirements (credentials, env vars, files, packages) are not met, the loader serves `SETUP.md` instead. This guides new users through first-time setup rather than failing silently.
 
-Requirements are declared in the `SKILL.md` frontmatter:
+There are two ways to declare requirements in `SKILL.md` frontmatter:
+
+### Inline `requires:` — for self-contained skills
 
 ```yaml
 ---
@@ -42,17 +44,36 @@ requires:
     - SOME_ENV_VAR        # must be set in the environment
   files:
     - signing_key.pem     # must exist in user's data directory
+  packages:
+    - some_python_pkg     # must be importable
 ---
 ```
 
-When all requirements are met, the agent sees `SKILL.md`. When any are missing, it sees `SETUP.md` (marked as "not configured" in the prompt).
+### `depends_on:` — for skills that call an integration habitat
+
+When a skill is just the documentation that fronts an integration habitat (the typical case), declare the link instead of duplicating the requirements:
+
+```yaml
+---
+name: docker
+description: Manage Docker containers
+depends_on:
+  - docker
+---
+```
+
+The loader looks up `<MARCEL_ZOO_DIR>/integrations/docker/integration.yaml`, reads its `requires:` block, and treats those as the skill's requirements. This keeps the credential / env list in one place — the integration's `integration.yaml` — and avoids drift between the integration and its skill doc. See [Plugin API → Integration metadata](plugins.md#integration-metadata).
+
+Both forms can be combined; the skill's effective requirements are the union of inline `requires:` and every `depends_on:` integration's `requires:`.
+
+When all requirements are met, the agent sees `SKILL.md`. When any are missing — including a `depends_on:` integration whose metadata is not registered (zoo not loaded or `integration.yaml` missing) — it sees `SETUP.md` (marked as "not configured" in the prompt).
 
 ## Adding a Python integration
 
 Python integrations can live in two places, discovered at the same registry load:
 
 1. **First-party** — `src/marcel_core/skills/integrations/<name>.py` or `src/marcel_core/skills/integrations/<name>/__init__.py`, shipped inside the kernel.
-2. **External habitat** — `<data_root>/integrations/<name>/__init__.py`, an installable component of marcel-zoo. See [Plugins](plugins.md) for the full habitat contract. External habitats must use `from marcel_core.plugin import register` (the stable plugin surface) and obey the directory-name ↔ handler-namespace rule (an integration at `.../integrations/myservice/` may only register `myservice.*` handlers).
+2. **Zoo habitat** — `<MARCEL_ZOO_DIR>/integrations/<name>/__init__.py` (plus `integration.yaml`), an installable component of marcel-zoo. See [Plugins](plugins.md) for the full habitat contract. Zoo habitats must use `from marcel_core.plugin import register` (the stable plugin surface) and obey the directory-name ↔ handler-namespace rule (an integration at `.../integrations/myservice/` may only register `myservice.*` handlers).
 
 Both paths use the same `@register` decorator:
 
@@ -70,18 +91,15 @@ async def action(params: dict, user_slug: str) -> str:
     return json.dumps(result, indent=2)
 ```
 
-Then create a skill doc at `.marcel/skills/myservice/SKILL.md`:
+Then create the paired skill habitat at `<MARCEL_ZOO_DIR>/skills/myservice/SKILL.md`:
 
 ```markdown
 ---
 name: myservice
 description: Short description of what myservice does
-requires:
-  credentials:
-    - MY_API_KEY
+depends_on:
+  - myservice
 ---
-
-Help the user with: $ARGUMENTS
 
 You have access to the `integration` tool to interact with myservice.
 
@@ -102,7 +120,7 @@ integration(id="myservice.action", params={"key": "value"})
 Returns: description of the response format.
 ```
 
-And a setup fallback at `.marcel/skills/myservice/SETUP.md`:
+And a setup fallback at `<MARCEL_ZOO_DIR>/skills/myservice/SETUP.md`:
 
 ```markdown
 ---
@@ -117,7 +135,7 @@ The user is asking about myservice, but it is **not yet configured**.
 [Step-by-step instructions for the user...]
 ```
 
-No changes to core code are needed — the module is auto-discovered at startup, and the skill docs are loaded from `.marcel/skills/` automatically.
+No changes to kernel code are needed — the integration module is auto-discovered at startup, the skill habitat is loaded from `<MARCEL_ZOO_DIR>/skills/` automatically, and `depends_on:` resolves the credentials/env block from the integration's `integration.yaml`.
 
 ## Adding a JSON skill (HTTP or shell)
 

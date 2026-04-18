@@ -25,10 +25,43 @@ log = logging.getLogger(__name__)
 
 
 def _skills_dir() -> Path:
-    """Return the skills directory under the data root."""
+    """Return the skills directory under the data root.
+
+    Backwards-compatible single-path accessor — prefer :func:`_skill_dirs`
+    for new callsites that need the full search order (zoo + data root).
+    """
     from marcel_core.config import settings
 
     return settings.data_dir / 'skills'
+
+
+def _skill_dirs() -> list[Path]:
+    """Return all skill directories in load order.
+
+    Skills are discovered from two sources:
+
+    1. ``<MARCEL_ZOO_DIR>/skills/`` — habitats from the marcel-zoo checkout
+       (skipped when ``MARCEL_ZOO_DIR`` is unset).
+    2. ``<MARCEL_DATA_DIR>/skills/`` — user-installed/customized skills.
+
+    The data-root entry comes last so a user customization with the same
+    skill name overrides the zoo habitat.
+
+    Note: the data-root entry is sourced from :func:`_skills_dir` so test
+    monkeypatches against that accessor continue to work.
+    """
+    from marcel_core.config import settings
+
+    dirs: list[Path] = []
+    zoo = settings.zoo_dir
+    if zoo is not None:
+        zoo_skills = zoo / 'skills'
+        if zoo_skills.is_dir():
+            dirs.append(zoo_skills)
+    data_skills = _skills_dir()
+    if data_skills.is_dir():
+        dirs.append(data_skills)
+    return dirs
 
 
 _VALID_PREFERRED_TIERS = {'local', 'fast', 'standard', 'power'}
@@ -121,6 +154,7 @@ def _check_requirements(requires: dict, user_slug: str) -> bool:
     - ``env``: list of environment variable names that must be set.
     - ``files``: list of filenames that must exist in the user's data
       directory.
+    - ``packages``: list of importable Python module names.
 
     Returns True if all requirements are satisfied (or if ``requires`` is
     empty).
@@ -175,6 +209,57 @@ def _check_requirements(requires: dict, user_slug: str) -> bool:
     return True
 
 
+def _check_depends_on(depends_on: list[str], user_slug: str) -> bool:
+    """Check that every listed integration's requires are met.
+
+    Each entry in ``depends_on`` names an integration (e.g. ``"docker"``).
+    The integration's ``integration.yaml`` is consulted via
+    :func:`get_integration_metadata`; its ``requires:`` block is then
+    checked using :func:`_check_requirements`.
+
+    Returns False (not met) when:
+    - an integration name is not registered in the metadata registry
+      (zoo not loaded, integration.yaml missing, or load failure), OR
+    - any integration's own requires are not satisfied for *user_slug*.
+
+    A missing integration is treated as unmet so the user is shown the
+    skill's SETUP.md fallback rather than a SKILL.md they cannot exercise.
+    """
+    if not depends_on:
+        return True
+
+    from marcel_core.skills.integrations import get_integration_metadata
+
+    for name in depends_on:
+        meta = get_integration_metadata(name)
+        if meta is None:
+            log.debug(
+                'Skill depends_on %r but integration metadata is not registered (zoo not '
+                'loaded or integration.yaml missing); treating as unmet',
+                name,
+            )
+            return False
+        if not _check_requirements(meta.requires, user_slug):
+            return False
+    return True
+
+
+def _normalize_depends_on(value: object) -> list[str]:
+    """Normalize the ``depends_on`` frontmatter field to a list of names.
+
+    Accepts a list, a single string, or absent/empty. Anything else is
+    treated as absent with a warning.
+    """
+    if value is None or value == '':
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return list(value)
+    log.warning('skills: depends_on must be a list of strings or a single string; got %r — ignoring', value)
+    return []
+
+
 def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc | None:
     """Load a single skill from its directory, applying fallback logic.
 
@@ -202,14 +287,26 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
         name = fm.get('name', skill_path.name)
         description = fm.get('description', '')
         requires = fm.get('requires', {})
-        cred_keys = requires.get('credentials', []) if requires else []
+        depends_on = _normalize_depends_on(fm.get('depends_on'))
+        # Credentials may be declared inline (legacy frontmatter) OR via
+        # depends_on (the integration's integration.yaml). Aggregate both
+        # for the system-prompt auto-injection list — the agent benefits
+        # from seeing every credential the skill might touch.
+        cred_keys = list(requires.get('credentials', []) if requires else [])
+        if depends_on:
+            from marcel_core.skills.integrations import get_integration_metadata
+
+            for dep_name in depends_on:
+                dep_meta = get_integration_metadata(dep_name)
+                if dep_meta is not None:
+                    cred_keys.extend(dep_meta.requires.get('credentials', []) or [])
         preferred_tier = _parse_preferred_tier(fm.get('preferred_tier'), name)
 
         # Update component skill names to match the resolved skill name
         for c in components:
             c.skill = name
 
-        if _check_requirements(requires, user_slug):
+        if _check_requirements(requires, user_slug) and _check_depends_on(depends_on, user_slug):
             return SkillDoc(
                 name=name,
                 description=description,
@@ -266,9 +363,16 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
 
 
 def load_skills(user_slug: str) -> list[SkillDoc]:
-    """Discover and load all skills from the data root skills directory.
+    """Discover and load all skills from every configured skills directory.
 
-    Scans ``<data_root>/skills/`` for skill directories.
+    Walks the directories returned by :func:`_skill_dirs` in load order:
+
+    1. ``<MARCEL_ZOO_DIR>/skills/`` (when set) — habitats from marcel-zoo.
+    2. ``<MARCEL_DATA_DIR>/skills/`` — user-installed/customized skills.
+
+    When the same skill name is found in both, the later entry wins, so a
+    user customization in the data root overrides the zoo habitat. The
+    ``source`` field on the returned doc reflects where it came from.
 
     Args:
         user_slug: The user slug, used for per-user requirement checks.
@@ -276,13 +380,18 @@ def load_skills(user_slug: str) -> list[SkillDoc]:
     Returns:
         List of SkillDoc instances sorted by name.
     """
+    from marcel_core.config import settings
+
+    zoo = settings.zoo_dir
+    zoo_skills = (zoo / 'skills').resolve() if zoo is not None else None
+
     skills: dict[str, SkillDoc] = {}
 
-    skills_path = _skills_dir()
-    if skills_path.is_dir():
+    for skills_path in _skill_dirs():
+        source = 'zoo' if zoo_skills is not None and skills_path.resolve() == zoo_skills else 'data'
         for entry in sorted(skills_path.iterdir()):
             if entry.is_dir() and not entry.name.startswith(('_', '.')):
-                doc = _load_skill_dir(entry, user_slug, source='data')
+                doc = _load_skill_dir(entry, user_slug, source=source)
                 if doc:
                     skills[doc.name] = doc
 
@@ -352,31 +461,31 @@ _SKILL_MD_NAME = 'SKILL.md'
 
 
 def _find_skill_dir(skill_name: str) -> Path | None:
-    """Locate the directory for *skill_name* under the data root skills path.
+    """Locate the directory for *skill_name* across every skills source.
 
-    Checks each skill dir's ``SKILL.md`` frontmatter ``name`` field, falling
-    back to the directory name.  Returns ``None`` if not found.
+    Walks the directories returned by :func:`_skill_dirs` in reverse order
+    so the data root wins over the zoo habitat — same precedence as
+    :func:`load_skills`. Checks each skill dir's ``SKILL.md`` frontmatter
+    ``name`` field, falling back to the directory name. Returns ``None``
+    if not found.
     """
-    skills_path = _skills_dir()
-    if not skills_path.is_dir():
-        return None
-
-    for entry in skills_path.iterdir():
-        if not entry.is_dir() or entry.name.startswith(('_', '.')):
-            continue
-        skill_md = entry / _SKILL_MD_NAME
-        if skill_md.exists():
-            try:
-                text = skill_md.read_text(encoding='utf-8')
-                fm, _ = _parse_frontmatter(text)
-                resolved_name = fm.get('name', entry.name)
-            except Exception:
+    for skills_path in reversed(_skill_dirs()):
+        for entry in skills_path.iterdir():
+            if not entry.is_dir() or entry.name.startswith(('_', '.')):
+                continue
+            skill_md = entry / _SKILL_MD_NAME
+            if skill_md.exists():
+                try:
+                    text = skill_md.read_text(encoding='utf-8')
+                    fm, _ = _parse_frontmatter(text)
+                    resolved_name = fm.get('name', entry.name)
+                except Exception:
+                    resolved_name = entry.name
+            else:
                 resolved_name = entry.name
-        else:
-            resolved_name = entry.name
 
-        if resolved_name == skill_name:
-            return entry
+            if resolved_name == skill_name:
+                return entry
 
     return None
 
