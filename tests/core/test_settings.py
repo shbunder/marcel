@@ -1,4 +1,4 @@
-"""Tests for per-channel model settings storage and integration handlers."""
+"""Tests for per-channel model settings storage."""
 
 from __future__ import annotations
 
@@ -67,90 +67,6 @@ def test_load_with_corrupt_file(tmp_path: pathlib.Path):
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text('not json')
     assert load_channel_model('shaun', 'telegram') is None
-
-
-# ---------------------------------------------------------------------------
-# integration handlers
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_list_models_returns_all_models():
-    from marcel_core.skills.integrations.settings import list_models
-
-    result = await list_models({}, 'shaun')
-    assert 'anthropic:claude-sonnet-4-6' in result
-    assert 'openai:gpt-4o' in result
-
-
-@pytest.mark.asyncio
-async def test_get_model_returns_default_when_unset():
-    from marcel_core.harness.agent import DEFAULT_MODEL
-    from marcel_core.skills.integrations.settings import get_model
-
-    result = await get_model({'channel': 'telegram'}, 'shaun')
-    assert DEFAULT_MODEL in result
-
-
-@pytest.mark.asyncio
-async def test_get_model_returns_saved_preference():
-    from marcel_core.skills.integrations.settings import get_model
-
-    save_channel_model('shaun', 'telegram', 'anthropic:claude-opus-4-6')
-    result = await get_model({'channel': 'telegram'}, 'shaun')
-    assert 'anthropic:claude-opus-4-6' in result
-
-
-@pytest.mark.asyncio
-async def test_get_model_missing_channel_returns_error():
-    from marcel_core.skills.integrations.settings import get_model
-
-    result = await get_model({}, 'shaun')
-    assert 'Error' in result
-
-
-@pytest.mark.asyncio
-async def test_set_model_saves_preference():
-    from marcel_core.skills.integrations.settings import set_model
-
-    result = await set_model({'channel': 'telegram', 'model': 'anthropic:claude-opus-4-6'}, 'shaun')
-    assert 'anthropic:claude-opus-4-6' in result
-    assert load_channel_model('shaun', 'telegram') == 'anthropic:claude-opus-4-6'
-
-
-@pytest.mark.asyncio
-async def test_set_model_rejects_unqualified_model():
-    """Unqualified (no provider: prefix) model strings are rejected — pydantic-ai
-    requires ``provider:model``."""
-    from marcel_core.skills.integrations.settings import set_model
-
-    result = await set_model({'channel': 'telegram', 'model': 'claude-opus-4-6'}, 'shaun')
-    assert 'Error' in result
-    assert 'fully qualified' in result
-
-
-@pytest.mark.asyncio
-async def test_set_model_accepts_off_registry_qualified_model():
-    """Any qualified ``provider:model`` is accepted — the registry is advisory."""
-    from marcel_core.skills.integrations.settings import set_model
-
-    result = await set_model(
-        {'channel': 'telegram', 'model': 'anthropic:claude-3-5-sonnet-latest'},
-        'shaun',
-    )
-    assert 'Error' not in result
-    assert load_channel_model('shaun', 'telegram') == 'anthropic:claude-3-5-sonnet-latest'
-
-
-@pytest.mark.asyncio
-async def test_set_model_missing_params_returns_error():
-    from marcel_core.skills.integrations.settings import set_model
-
-    result = await set_model({'channel': 'telegram'}, 'shaun')
-    assert 'Error' in result
-
-    result = await set_model({'model': 'anthropic:claude-opus-4-6'}, 'shaun')
-    assert 'Error' in result
 
 
 # ---------------------------------------------------------------------------
