@@ -180,9 +180,6 @@ branch = true
 omit = [
     "*/watchdog/main.py",
     "*/skills/install_skills.py",
-    "*/skills/integrations/banking/client.py",
-    "*/skills/integrations/banking/__init__.py",
-    "*/skills/integrations/banking/sync.py",
     "*/skills/tool.py",
     "*/browser/manager.py",
     "*/browser/tools.py",

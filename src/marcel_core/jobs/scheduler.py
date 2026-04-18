@@ -201,65 +201,6 @@ def _ensure_habitat_jobs() -> None:
         log.info("Created habitat job '%s' (%s) from habitat '%s'", spec.name, job.id, habitat_name)
 
 
-def _ensure_default_jobs() -> None:
-    """Create default jobs for users that have the required integrations.
-
-    Currently creates a bank-sync job for every user with EnableBanking
-    credentials, replacing the old hardcoded sync loop. Default jobs stay
-    per-user (``users=[slug]``) — population is manual for any future
-    multi-user or system-scope defaults.
-    """
-    from marcel_core.jobs import list_jobs, save_job
-    from marcel_core.jobs.models import JobDefinition, NotifyPolicy, TriggerSpec
-    from marcel_core.storage._root import data_root
-    from marcel_core.storage.credentials import load_credentials
-    from marcel_core.storage.users import is_backup_slug
-
-    users_dir = data_root() / 'users'
-    if not users_dir.is_dir():
-        return
-
-    for user_dir in users_dir.iterdir():
-        if not user_dir.is_dir():
-            continue
-        slug = user_dir.name
-        if is_backup_slug(slug):
-            continue
-        creds = load_credentials(slug)
-        has_banking = bool(
-            creds.get('ENABLEBANKING_APP_ID')
-            and (creds.get('ENABLEBANKING_SESSIONS') or creds.get('ENABLEBANKING_SESSION_ID'))
-        )
-        if not has_banking:
-            continue
-
-        # Check if a bank-sync job already exists for this user
-        existing = list_jobs(slug)
-        if any(j.template == 'sync' and 'banking' in j.task.lower() for j in existing):
-            continue
-
-        job = JobDefinition(
-            name=f'Bank sync ({slug})',
-            description='Sync bank transactions and balances every 8 hours',
-            users=[slug],
-            trigger=TriggerSpec(type=TriggerType.INTERVAL, interval_seconds=8 * 60 * 60),
-            system_prompt=(
-                'You are a background sync worker for Marcel. '
-                'Call the banking.sync integration to sync transactions and balances. '
-                'Then call banking.balance to check all account balances. '
-                'Report a brief summary. If any warnings were returned, include them.'
-            ),
-            task='Run banking.sync to sync all linked bank accounts. Report the results.',
-            model='anthropic:claude-haiku-4-5-20251001',
-            skills=['banking.sync', 'banking.balance'],
-            notify=NotifyPolicy.ON_FAILURE,
-            channel='telegram',
-            template='sync',
-        )
-        save_job(job)
-        log.info('Created default bank-sync job %s for user %s', job.id, slug)
-
-
 class JobScheduler:
     """Manages the scheduling and dispatch of background jobs."""
 
@@ -350,7 +291,6 @@ class JobScheduler:
         # ``<data_root>/users/*/jobs/`` directories are already gone.
         migrate_legacy_jobs()
 
-        _ensure_default_jobs()
         _ensure_habitat_jobs()
 
         # Clean up orphaned RUNNING records from previous process

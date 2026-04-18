@@ -1,6 +1,6 @@
 # ISSUE-13c7f2: Migrate banking integration to a marcel-zoo habitat
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-18
 **Assignee:** Unassigned
 **Priority:** High
@@ -85,27 +85,27 @@ Mirrors news. The filtering (`_live_user_slugs`) deduplicates backup slugs and `
 
 ## Tasks
 
-- [ ] Audit current banking code — enumerate every `marcel_core.*` import in `__init__.py`, `cache.py`, `client.py`, `sync.py`. Expected reach-past: `storage.credentials` (load + save), `storage._root.data_root`, `jobs` (unlikely — the scheduled-job creation happens from the scheduler, not from banking code). Document findings in the Implementation Log.
-- [ ] Decide credentials write-path: does `marcel_core.plugin.credentials` need a `save(slug, key, value)` helper (recommended — mirrors `load`) or is there already an existing write path? If the surface needs to grow, do it in the first `🔧 impl:` commit and update `docs/plugins.md` accordingly.
-- [ ] Verify kernel loader finds `components.yaml` under `<zoo>/integrations/<name>/` — grep the loader code, confirm the search path already covers external habitats. If not, flag as a follow-up issue and do NOT take on loader work inside this migration.
-- [ ] Create `<zoo>/integrations/banking/{__init__.py, cache.py, client.py, sync.py, integration.yaml, components.yaml}` — imports rewritten to the plugin surface; `cache.py` uses `paths.cache_dir(slug) / 'banking.db'`; all relative imports follow `from .module import name`.
-- [ ] Write `integration.yaml`: `provides:` lists all seven handlers; `requires:` declares credential keys + `enable_banking_client` package; `scheduled_jobs:` declares the sync on `0 */8 * * *` with `notify: on_failure`, `channel: telegram`.
-- [ ] Implement `banking.sync` fan-out on `user_slug='_system'` — iterate live user slugs, filter those without EnableBanking creds (silently skip), call `sync_bank(slug)` per user with per-user exception handling (log warning, continue batch).
-- [ ] Create `<zoo>/skills/banking/{SKILL.md, SETUP.md}` — copy from `src/marcel_core/defaults/skills/banking/`, add `depends_on: [banking]` to SKILL.md frontmatter.
-- [ ] Move `enable_banking_client` from kernel `[project.dependencies]` to `[project.optional-dependencies] zoo` in `pyproject.toml`. Run `uv lock` to regenerate the lock file. Verify `grep enable_banking pyproject.toml` shows only the optional entry.
-- [ ] Add `<zoo>/integrations/banking/tests/test_banking.py` — full coverage of the migrated code using the `types.ModuleType(_PKG)` synthetic-parent-package test loader pattern from news. Mock the EnableBanking HTTP client — no live API calls in the suite.
-- [ ] Delete `src/marcel_core/skills/integrations/banking/` (full directory).
-- [ ] Delete `src/marcel_core/defaults/skills/banking/` (full directory).
-- [ ] Check `src/marcel_core/skills/skills.json` for any `banking` entry — delete if present.
-- [ ] Delete `_ensure_default_jobs()` in [src/marcel_core/jobs/scheduler.py](../../src/marcel_core/jobs/scheduler.py) and its single call site in `rebuild_schedule()`. Remove now-unused imports (`load_credentials`, `is_backup_slug`, `JobDefinition`, `NotifyPolicy`, `TriggerSpec`, `list_jobs`, `save_job` — audit after deletion, `ruff` will flag).
-- [ ] Delete `tests/core/test_banking.py` and any kernel-side tests targeting `_ensure_default_jobs()`. Relocate any test that was really testing kernel storage/jobs (not banking) to an appropriate kernel test file.
-- [ ] Add one kernel regression test: `rebuild_schedule()` with no habitats and no user credentials returns zero jobs. Guards against re-introduction of hardcoded job bootstrap.
-- [ ] Verify the `scheduled_jobs:` round-trip for banking: with the habitat loaded, `_ensure_habitat_jobs()` creates `JobDefinition(id=<sha256 prefix>, template='habitat:banking', users=[], cron='0 */8 * * *')`. Orphan cleanup verified by clearing `_metadata['banking']` and re-running reconciliation. Capture IDs and result in the Implementation Log.
-- [ ] Verify fresh install story: `MARCEL_ZOO_DIR` unset → zero banking handlers, zero `template='habitat:banking'` jobs. `MARCEL_ZOO_DIR` set → all seven handlers live, scheduled job on disk.
-- [ ] Docs: delete `docs/integration-banking.md`, strip the Integrations section from `mkdocs.yml`, update `docs/index.md` / `docs/plugins.md` / `docs/architecture.md` per the Description above. All four files ship in the final `🔧 impl:` commit.
-- [ ] Update `project/issues/open/ISSUE-260418-2ccc10-...md` — mark the banking migration task `[✓]` and append an Implementation Log entry linking this issue. With banking done, mark the umbrella ready to close in a follow-up.
-- [ ] `make check` green at 90% coverage after the deletion + dep move.
-- [ ] Document in the Implementation Log: cadence decision (kept as cron or interval), credentials write-path decision, components.yaml loader check result, fan-out verification, and one paragraph on the `bank-sync` on-disk JOB — archived manually per the news-sync precedent (NOT auto-deleted).
+- [✓] Audit current banking code — enumerate every `marcel_core.*` import in `__init__.py`, `cache.py`, `client.py`, `sync.py`. Expected reach-past: `storage.credentials` (load + save), `storage._root.data_root`, `jobs` (unlikely — the scheduled-job creation happens from the scheduler, not from banking code). Document findings in the Implementation Log.
+- [✓] Decide credentials write-path: does `marcel_core.plugin.credentials` need a `save(slug, key, value)` helper (recommended — mirrors `load`) or is there already an existing write path? If the surface needs to grow, do it in the first `🔧 impl:` commit and update `docs/plugins.md` accordingly. — `credentials.save()` already existed on the plugin surface; no surface growth needed.
+- [✓] Verify kernel loader finds `components.yaml` under `<zoo>/integrations/<name>/` — grep the loader code, confirm the search path already covers external habitats. If not, flag as a follow-up issue and do NOT take on loader work inside this migration. — Loader looks at `skill_path / 'components.yaml'`, so components.yaml belongs under `<zoo>/skills/banking/`, NOT `<zoo>/integrations/banking/`. Placed under the skill habitat.
+- [✓] Create `<zoo>/integrations/banking/{__init__.py, cache.py, client.py, sync.py, integration.yaml}` — imports rewritten to the plugin surface; `cache.py` uses `paths.cache_dir(slug) / 'banking.db'`; all relative imports follow `from .module import name`. (components.yaml moved to skill habitat — see audit finding above.)
+- [✓] Write `integration.yaml`: `provides:` lists all seven handlers; `requires:` declares credential keys + `enablebanking.pem` file; `scheduled_jobs:` declares the sync on `0 */8 * * *` with `notify: on_failure`, `channel: telegram`.
+- [✓] Implement `banking.sync` fan-out on `user_slug='_system'` — iterate live user slugs, filter those without EnableBanking creds (silently skip), call `sync_bank(slug)` per user with per-user exception handling (log warning, continue batch).
+- [✓] Create `<zoo>/skills/banking/{SKILL.md, SETUP.md, components.yaml}` — copy from `src/marcel_core/defaults/skills/banking/`, add `depends_on: [banking]` to SKILL.md frontmatter.
+- [✓] ~~Move `enable_banking_client` from kernel `[project.dependencies]` to `[project.optional-dependencies] zoo` in `pyproject.toml`.~~ — **No-op.** Audit showed `enable_banking_client` is not an actual pypi package; the banking integration uses kernel-shared `httpx` + `PyJWT` directly. `pyproject.toml` unchanged except for coverage omit cleanup.
+- [✓] Add `<zoo>/integrations/banking/tests/test_banking.py` — full coverage of the migrated code using the `types.ModuleType(_PKG)` synthetic-parent-package test loader pattern from news. Mock the EnableBanking HTTP client — no live API calls in the suite. (34 tests, all passing.)
+- [✓] Delete `src/marcel_core/skills/integrations/banking/` (full directory).
+- [✓] Delete `src/marcel_core/defaults/skills/banking/` (full directory).
+- [✓] Check `src/marcel_core/skills/skills.json` for any `banking` entry — delete if present. (No entry present.)
+- [✓] Delete `_ensure_default_jobs()` in [src/marcel_core/jobs/scheduler.py](../../src/marcel_core/jobs/scheduler.py) and its single call site in `rebuild_schedule()`. Remove now-unused imports (`load_credentials`, `is_backup_slug`, `JobDefinition`, `NotifyPolicy`, `TriggerSpec`, `list_jobs`, `save_job` — audit after deletion, `ruff` will flag).
+- [✓] Delete `tests/core/test_banking.py` and any kernel-side tests targeting `_ensure_default_jobs()`. Relocate any test that was really testing kernel storage/jobs (not banking) to an appropriate kernel test file. Also dropped `start_sync_loop` / `stop_sync_loop` calls + import from `main.py` (banking's old in-process loop — superseded by the habitat scheduler).
+- [✓] Add one kernel regression test: `rebuild_schedule()` with no habitats and no user credentials returns zero jobs. Guards against re-introduction of hardcoded job bootstrap. (`TestRebuildScheduleEmptiness` in `tests/jobs/test_scheduler_scenarios.py`.)
+- [✓] Verify the `scheduled_jobs:` round-trip for banking: with the habitat loaded, `_ensure_habitat_jobs()` creates `JobDefinition(id=<sha256 prefix>, template='habitat:banking', users=[], cron='0 */8 * * *')`. Orphan cleanup verified by clearing `_metadata['banking']` and re-running reconciliation. Capture IDs and result in the Implementation Log.
+- [✓] Verify fresh install story: `MARCEL_ZOO_DIR` unset → zero banking handlers, zero `template='habitat:banking'` jobs. `MARCEL_ZOO_DIR` set → all seven handlers live, scheduled job on disk.
+- [✓] Docs: delete `docs/integration-banking.md`, strip the Integrations section from `mkdocs.yml`, update `docs/index.md` / `docs/plugins.md` / `docs/architecture.md` per the Description above. All four files ship in the final `🔧 impl:` commit.
+- [✓] Update `project/issues/open/ISSUE-260418-2ccc10-...md` — mark the banking migration task `[✓]` and append an Implementation Log entry linking this issue. With banking done, mark the umbrella ready to close in a follow-up.
+- [✓] `make check` green at 90% coverage after the deletion + dep move. (91.95% — 1508 passed, 0 failed.)
+- [✓] Document in the Implementation Log: cadence decision (kept as cron or interval), credentials write-path decision, components.yaml loader check result, fan-out verification, and one paragraph on the `bank-sync` on-disk JOB — archived manually per the news-sync precedent (NOT auto-deleted).
 
 ## Relationships
 
@@ -120,14 +120,75 @@ Mirrors news. The filtering (`_live_user_slugs`) deduplicates backup slugs and `
 ## Implementation Log
 <!-- Append entries here when performing development work on this issue -->
 
+### 2026-04-18 — migration landed + kernel cleanup
+
+**Banking habitat** — zoo checkout `/home/shbunder/projects/marcel-zoo`:
+
+- `<zoo>/integrations/banking/` holds `__init__.py` (7 `@register` handlers: `banking.setup`, `banking.complete_setup`, `banking.status`, `banking.accounts`, `banking.balance`, `banking.transactions`, `banking.sync`), `cache.py` (SQLite at `paths.cache_dir(slug)/'banking.db'`), `client.py` (EnableBanking HTTP + JWT via kernel httpx/PyJWT), `sync.py` (per-slug `sync_account` + consent expiry check), `integration.yaml` (provides all seven; requires `ENABLEBANKING_APP_ID` + `enablebanking.pem`; `scheduled_jobs: [{name: 'Bank sync', handler: banking.sync, cron: '0 */8 * * *', notify: on_failure, channel: telegram}]`).
+- `<zoo>/skills/banking/` holds `SKILL.md` (with `depends_on: [banking]`), `SETUP.md` (EnableBanking onboarding), `components.yaml` (A2UI: `transaction_list`, `balance_card`).
+- Handler fan-out on `_system`: `banking.sync` iterates `paths.list_user_slugs()` filtering backup-slug regex + `_system`, then filters users missing banking creds via `_has_banking_creds(slug)`, per-user try/except logging warnings and continuing. Mirrors news.
+- 34 habitat tests under `<zoo>/integrations/banking/tests/test_banking.py` using the `types.ModuleType(_PKG)` synthetic-parent-package loader pattern from news. All pass; no network calls (EnableBanking client mocked via `respx` + `patch.object`).
+
+**Kernel cleanup** — `/home/shbunder/projects/marcel`:
+
+- `_ensure_default_jobs()` removed from [src/marcel_core/jobs/scheduler.py](../../src/marcel_core/jobs/scheduler.py) along with its call site in `rebuild_schedule()`. Kernel now creates zero jobs from user state. `is_backup_slug` remained legitimately used by `_consolidate_memories()` — left in place.
+- `start_sync_loop` / `stop_sync_loop` + their import removed from `src/marcel_core/main.py`. Banking's old in-process sync loop is fully replaced by the habitat cron schedule.
+- `src/marcel_core/skills/integrations/banking/` and `src/marcel_core/defaults/skills/banking/` deleted.
+- `tests/core/test_banking.py` deleted (migrated to zoo habitat).
+- `tests/core/test_skills.py` rewrote `TestRegistry.test_list_skills_empty_json_still_has_python`, `TestRegistry.test_list_skills_returns_json_and_python_names`, `TestRegistryMerge.*` to use fake `@register('fake.handler')` in place of hardcoded `banking.balance` — kernel tests no longer depend on any real integration. `TestIntegrationFramework.test_discover_imports_modules` replaced by `test_discover_does_not_raise` (no first-party integrations to discover).
+- `tests/jobs/test_scheduler_scenarios.py`: `TestEnsureDefaultJobs` class removed; `TestRebuildScheduleEmptiness` regression added (empty zoo + user creds on disk → `list_all_jobs() == []`).
+- `pyproject.toml` coverage omits cleaned up (banking modules gone).
+
+**Docs:**
+
+- `docs/integration-banking.md` deleted.
+- `mkdocs.yml` Integrations nav section removed (was down to one entry — banking — after news left in ISSUE-d5f8ab).
+- `docs/plugins.md` "First-party vs. external integrations" rewritten: kernel ships zero first-party integrations; lists migrated habitats (docker, icloud, news, banking).
+- `docs/plugins.md` zoo-location paragraph updated to state the kernel-only case has no integrations available.
+- `docs/index.md` "Adding a new skill or integration" row: drops the in-kernel banking reference, points to the zoo habitats.
+- `docs/architecture.md` source tree: `integrations/banking/` comment replaced with a note that all integrations live in `<MARCEL_ZOO_DIR>/integrations/`.
+
+**Verification:**
+
+- `make check` green: 1508 passed, 0 failed, coverage 91.95% (well above the 90% gate).
+- Habitat round-trip verified inline: `_ensure_habitat_jobs()` with `MARCEL_ZOO_DIR=/home/shbunder/projects/marcel-zoo` creates `JobDefinition(id='0dea8f65d244', template='habitat:banking', users=[], cron='0 */8 * * *')` — `id` matches `sha256(b'banking:Bank sync').hexdigest()[:12]`. Orphan cleanup verified by popping `_metadata['banking']` and re-running reconciliation — the banking job disappears, the news job stays.
+- Handler surface after `discover()`: all seven `banking.*` handlers registered alongside `docker.*`, `icloud.*`, `news.*`.
+- Straggler grep: `grep -r 'marcel_core.skills.integrations.banking\|defaults/skills/banking\|_ensure_default_jobs\|start_sync_loop' src/ docs/ tests/ mkdocs.yml pyproject.toml` returns only the comment in `tests/jobs/test_scheduler_scenarios.py:280` that documents the regression ("the old _ensure_default_jobs would have created a Bank sync job"). All other matches are in `project/issues/` (historical).
+
+**Cadence decision:** kept as cron (`0 */8 * * *`) rather than `interval_seconds: 28800`. Cron reads better for human operators (8-hourly at :00) and matches the news precedent; `scheduled_jobs:` supports both so this was a style call, not a technical one.
+
+**Credentials write-path decision:** `credentials.save()` already existed on the plugin surface. No growth. Documented by looking at `src/marcel_core/plugin/credentials.py`.
+
+**components.yaml placement:** The loader reads `components.yaml` relative to the **skill** habitat, not the integration habitat. File went to `<zoo>/skills/banking/components.yaml` (where the SKILL.md lives), not `<zoo>/integrations/banking/`. The task description initially assumed integration-habitat placement — was a pre-task misread.
+
+**Dependency move:** was a no-op. The original issue assumed a pypi package `enable_banking_client`; audit showed the code imports only `httpx` and `jwt` (PyJWT), both kernel-shared. `pyproject.toml` had no banking-specific deps to move.
+
+**On-disk JOB archival:** `~/.marcel/jobs/bank-sync/` (user-scope, created by the old `_ensure_default_jobs`) archived to `.archived-bank-sync-20260418`. Two stale backup-slug variants (`bank-sync-shaun-backup-059-20260411t184915` and `...t184951`) that leaked in before the `is_backup_slug` filter landed were also archived with descriptive suffixes. Same hands-off pattern as news-sync — user history stays on disk under a dot-prefix, not auto-deleted.
+
+**Reflection** (via pre-close-verifier):
+- Verdict: APPROVE
+- Coverage: 20/20 tasks addressed with diff evidence
+- Shortcuts found: none
+- Scope drift: none — umbrella tick in `75d5c75` was explicitly expected since banking was the last sub-issue
+- Stragglers: none outside intentional references. Sole live match outside `project/issues/` is the regression-test comment in `tests/jobs/test_scheduler_scenarios.py:280`, which documents what `_ensure_default_jobs` used to do (intentional).
+
+
 ## Lessons Learned
-<!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->
 
 ### What worked well
--
+
+- **Synthetic-parent-package loader for habitat tests** (imported verbatim from the news migration): `types.ModuleType(_PKG)` + `__path__` + `sys.modules[_PKG] = parent` gave the test file a real package context under which `from .cache import X` resolves without polluting `sys.modules` with the real `_marcel_ext_integrations.banking`. 34 tests ran in <1 second, no flakiness. The pattern is now clearly a reusable template — if a fourth habitat needs tests, copy the loader block as-is.
+- **Round-trip verification inline (not just in tests)** — running `_ensure_habitat_jobs()` from a one-liner `uv run python -c` with `MARCEL_ZOO_DIR` set produced the exact `sha256("banking:Bank sync")[:12]` = `0dea8f65d244` the issue described. Fast confidence check, no test overhead. Worth doing for any habitat work that touches the declarative-jobs hook.
+- **Pre-close verifier caught the empty Lessons section** before the close commit. The subagent reads the issue file in a fresh context, so "oh I'll fill that in later" slips past you but not past it.
 
 ### What to do differently
--
+
+- **Verify the assumed dependency BEFORE writing the issue.** The issue captured `enable_banking_client` as a pypi package needing a `[dependencies] → [optional-dependencies] zoo` move, following the icloud precedent. Audit showed no such package existed — banking uses `httpx` + `PyJWT` directly. Ten minutes of `grep -r 'import' src/marcel_core/skills/integrations/banking/` during issue authoring would have preempted this. Not a blocker; just a chunk of the issue text that turned into a strikethrough task.
+- **Check the loader before assuming placement.** The issue put `components.yaml` under `<zoo>/integrations/banking/`. The loader actually reads `components.yaml` relative to the skill habitat (`skills/<name>/`, not `integrations/<name>/`), so the file moved there. Similar one-grep-fix — worth running the loader-path check at issue-authoring time, not audit time.
+- **Broken import in `main.py` after deleting the sync loop** was caught by `make check` (pyright `reportMissingImports`) rather than by the impl-time audit. Should have run `grep -r 'from marcel_core.skills.integrations.banking'` in the kernel tree immediately after deletion; instead it took a full check cycle to surface. Lesson: after deleting a package, grep for ALL imports of any module under it, not just the obvious ones.
 
 ### Patterns to reuse
--
+
+- **Kernel-side "no hardcoded bootstrap" regression test.** `TestRebuildScheduleEmptiness` is cheap insurance against someone re-adding a "helpfully create a job when we see credentials" function. If any future work touches `rebuild_schedule()` flow, keep that test green — it's the architectural guarantee that all periodic work flows through `scheduled_jobs:`.
+- **System-scope fan-out sentinel.** `user_slug='_system'` as the "do it for every user" trigger is now used by both news and banking. Works well because handlers own the per-user iteration (they know what "eligible user" means — e.g. banking needs EnableBanking creds, news might filter differently). Kernel stays agnostic. Reuse as-is for any future periodic habitat work.
+- **Rewriting kernel tests to use fake handlers.** `TestRegistry` / `TestRegistryMerge` in `tests/core/test_skills.py` used to hardcode `'banking.balance'` as the sample integration. Rewrote to save/restore `_registry`, register a `fake.handler`, and assert against that. Kernel tests now have zero dependency on any real integration existing — a necessary property once the kernel ships zero first-party integrations. Do this when shipping the kernel extraction (ISSUE-63a946) to make sure no leftover test secretly relies on a zoo habitat being loaded.

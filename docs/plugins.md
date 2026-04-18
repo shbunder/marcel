@@ -15,7 +15,7 @@ Set `MARCEL_ZOO_DIR` in `.env.local` (or the environment) to point at your marce
 MARCEL_ZOO_DIR=~/projects/marcel-zoo
 ```
 
-When unset, Marcel still runs — it loads only the kernel-bundled first-party integrations and the user's data-root skills. Pointing at a zoo checkout layers in additional habitats from `<MARCEL_ZOO_DIR>/integrations/` and `<MARCEL_ZOO_DIR>/skills/`.
+When unset, Marcel still runs — the kernel ships zero first-party integrations, so only the user's data-root skills are available. Pointing at a zoo checkout layers in habitats from `<MARCEL_ZOO_DIR>/integrations/` and `<MARCEL_ZOO_DIR>/skills/`.
 
 ## Integration habitat
 
@@ -255,7 +255,7 @@ Anything not listed above is internal — zoo code that imports it owns the brea
 
 ### First-party vs. external integrations
 
-Internally, Marcel still ships one first-party integration inside `src/marcel_core/skills/integrations/` (banking). It continues to work unchanged during the zoo migration — discovered via the same `discover()` entry point alongside external habitats. Migrated so far: `docker` (ISSUE-6ad5c7), `icloud` (ISSUE-e7d127), `news` (ISSUE-d5f8ab). The settings integration handler was retired as dead code under ISSUE-e1b9c4 — the live settings surface is the `marcel(action="...")` utility tool, not an `integration(id="settings.*")` handler.
+The kernel ships zero first-party integrations. Every real integration lives in marcel-zoo as an external habitat — `docker` (ISSUE-6ad5c7), `icloud` (ISSUE-e7d127), `news` (ISSUE-d5f8ab), and `banking` (ISSUE-13c7f2) have all migrated out. The settings integration handler was retired as dead code under ISSUE-e1b9c4 — the live settings surface is the `marcel(action="...")` utility tool, not an `integration(id="settings.*")` handler.
 
 ## See also
 

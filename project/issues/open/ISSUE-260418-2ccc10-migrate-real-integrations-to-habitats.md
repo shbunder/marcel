@@ -42,14 +42,14 @@ The three integrations' tests move with the code. Core-side tests that currently
 - [✓] Design the "integration contributes a periodic job" hook. Options: (a) `integration.yaml` declares `scheduled_jobs: [...]`, kernel scheduler reads them; (b) handler exports a `register_scheduled(scheduler)` function called at discovery. Pick one. — landed in ISSUE-82f52b as **thick declarative** (every entry becomes a system-scope `JobDefinition` with `template='habitat:<name>'`, full agent-pipeline reuse, per-entry overrides for the LLM-creative case). News migration unblocked.
 - [✓] Migrate **icloud** first (smallest remaining, no scheduled jobs): handler + client + SKILL.md + SETUP.md. Credentials via plugin surface — landed in ISSUE-e7d127.
 - [✓] Migrate **news**: handler + cache + sync + SKILL.md + SETUP.md + `feeds.yaml` resource. Scheduled-job hook required — landed in ISSUE-d5f8ab.
-- [ ] Migrate **banking**: handler + client + cache + sync + SKILL.md + SETUP.md + components.yaml. Scheduled-job hook + credentials + EnableBanking dep.
-- [ ] Decide: does the zoo get its own `pyproject.toml` now (with `enable_banking_client`, `pyicloud`, `feedparser` as deps) or stay pure-python? If its own pyproject, Docker image needs to `pip install` the zoo after clone. Document the decision.
-- [ ] Move integration-specific tests out of [tests/core/test_banking.py](../../tests/core/test_banking.py) and [tests/tools/test_news.py](../../tests/tools/test_news.py) into each habitat's `tests/` dir.
-- [ ] Replace moved tests with fake-plugin fixtures that cover `discover()` + dispatch + `depends_on` resolution.
-- [ ] Delete `src/marcel_core/skills/integrations/{banking,icloud,news}/` and `src/marcel_core/defaults/skills/{banking,icloud,news}/`.
-- [ ] Delete any remaining entries in [skills/skills.json](../../src/marcel_core/skills/skills.json) that referenced these integrations.
-- [ ] Docs: per-integration pages [docs/integration-banking.md](../../docs/integration-banking.md), [docs/integration-news.md](../../docs/integration-news.md) — update to reflect habitat layout, or move the canonical docs to live inside the habitats themselves.
-- [ ] Verify: fresh Marcel install (empty `~/.marcel/`) has none of these integrations; user needs to install marcel-zoo to get them back.
+- [✓] Migrate **banking**: handler + client + cache + sync + SKILL.md + SETUP.md + components.yaml. Scheduled-job hook + credentials — landed in ISSUE-13c7f2. No dep move needed (EnableBanking uses httpx + PyJWT which are kernel-shared).
+- [✓] Decide: does the zoo get its own `pyproject.toml` now (with `enable_banking_client`, `pyicloud`, `feedparser` as deps) or stay pure-python? — Answered in ISSUE-e7d127 (icloud): zoo stays pure-python; icloud-only deps (`caldav`, `vobject`) moved into `[project.optional-dependencies] zoo` group in kernel pyproject. News added nothing; banking added nothing (httpx + PyJWT stay kernel-shared).
+- [✓] Move integration-specific tests out of `tests/core/test_banking.py` and `tests/tools/test_news.py` into each habitat's `tests/` dir — banking tests moved under ISSUE-13c7f2, news tests under ISSUE-d5f8ab.
+- [✓] Replace moved tests with fake-plugin fixtures that cover `discover()` + dispatch + `depends_on` resolution — `tests/core/test_skills.py` now uses fake registered handlers instead of `banking.balance`; dispatch + loader exercised by `tests/core/test_skill_loader.py` and `tests/core/test_plugin.py`.
+- [✓] Delete `src/marcel_core/skills/integrations/{banking,icloud,news}/` and `src/marcel_core/defaults/skills/{banking,icloud,news}/` — done per sub-issue. Kernel integrations/ directory is now empty.
+- [✓] Delete any remaining entries in `src/marcel_core/skills/skills.json` that referenced these integrations — none present; skills.json stays JSON-skill-only.
+- [✓] Docs: per-integration pages updated — `integration-banking.md` deleted (ISSUE-13c7f2), `integration-news.md` deleted (ISSUE-d5f8ab). Canonical integration docs now live inside each habitat.
+- [✓] Verify: fresh Marcel install (empty `~/.marcel/`) has none of these integrations; user needs to install marcel-zoo to get them back — verified via regression test `TestRebuildScheduleEmptiness` and habitat round-trip (jobs id=`sha256("<habitat>:<entry>")[:12]`).
 
 ## Relationships
 
@@ -73,6 +73,17 @@ The three integrations' tests move with the code. Core-side tests that currently
 - No dependency move: news parses RSS/Atom through stdlib `xml.etree` wrapped by `marcel_core.tools.rss`; no `feedparser` import anywhere. Kernel `pyproject.toml` unchanged.
 - External-habitat relative-import trap: external habitats load under `_marcel_ext_integrations.<name>` via `spec_from_file_location`, but that parent is not a real `sys.modules` package. `from . import cache` fails; `from .cache import <names>` (icloud's pattern) works.
 - Only banking remains under ISSUE-2ccc10 before ISSUE-63a946 (zoo repo extraction) unblocks.
+
+### 2026-04-18 — banking migrated (sub-issue ISSUE-13c7f2) — umbrella work complete
+
+- Banking handler + client + cache + sync moved to `<MARCEL_ZOO_DIR>/integrations/banking/`, skill habitat to `<MARCEL_ZOO_DIR>/skills/banking/` with `depends_on: [banking]`. All 7 handlers (`banking.setup`, `banking.complete_setup`, `banking.status`, `banking.accounts`, `banking.balance`, `banking.transactions`, `banking.sync`) migrated.
+- Scheduled-job hook (ISSUE-82f52b) used for the 8-hourly sync: `integration.yaml` declares `banking.sync` on cron `0 */8 * * *`. `_ensure_habitat_jobs()` reconciles to `JobDefinition(template='habitat:banking', id=0dea8f65d244, users=[])`; orphan cleanup confirmed on habitat removal.
+- `_ensure_default_jobs()` **deleted** from [jobs/scheduler.py](../../src/marcel_core/jobs/scheduler.py) — last kernel code that created jobs from user state. All periodic work now flows through the habitat hook. Kernel ships zero first-party integrations.
+- System-scope fan-out: `banking.sync` with `user_slug='_system'` iterates `paths.list_user_slugs()` filtering backups and users without banking creds (`_has_banking_creds(slug)`), mirroring news.
+- No dependency move — `enable_banking_client` doesn't exist as a package; the integration uses kernel-shared httpx + PyJWT directly. `pyproject.toml` stays lean.
+- 34 habitat tests using the synthetic-parent-package loader pattern. `tests/core/test_skills.py` rewritten to use fake handlers instead of `banking.balance` (kernel tests now depend on zero real integrations). `tests/jobs/test_scheduler_scenarios.py` adds `TestRebuildScheduleEmptiness` regression to guard against reintroducing user-state-based bootstrap.
+- Docs: `docs/integration-banking.md` deleted, mkdocs Integrations nav section removed (empty after banking left), `docs/plugins.md` "First-party vs. external integrations" rewritten to state kernel ships zero, `docs/index.md` + `docs/architecture.md` updated accordingly.
+- **Umbrella complete.** All three real integrations (icloud, news, banking) migrated. ISSUE-63a946 (zoo repo extraction to github.com/shbunder/marcel-zoo) unblocks.
 
 ### 2026-04-18 — scheduled-jobs hook landed (sub-issue ISSUE-82f52b)
 - `integration.yaml` accepts a `scheduled_jobs:` block (declarative). Each entry becomes a system-scope `JobDefinition` with `template='habitat:<name>'`, stable ID `sha256("<habitat>:<name>")[:12]`, default-or-override `task` / `system_prompt` / `model`.
