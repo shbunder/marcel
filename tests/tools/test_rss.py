@@ -139,6 +139,35 @@ class TestAtomParsing:
 
 
 # ---------------------------------------------------------------------------
+# Non-XML bodies (dead feeds, HTML redirects)
+# ---------------------------------------------------------------------------
+
+
+class TestNonXmlBody:
+    """Guard against the Knack Trends symptom: a dead feed redirects to an
+    HTML page, and ``ET.fromstring`` emits a 6-line traceback per bad feed
+    per sync. ``_parse_feed`` must raise a short ``ValueError`` instead so
+    the caller can log one line."""
+
+    def test_html_body_raises_valueerror(self):
+        html = (
+            '<!DOCTYPE html><html><head><title>Feed moved</title></head>'
+            '<body><p>This feed has been retired.</p></body></html>'
+        )
+        with pytest.raises(ValueError, match='did not return XML'):
+            _parse_feed(html)
+
+    def test_empty_body_raises_valueerror(self):
+        with pytest.raises(ValueError, match='empty body'):
+            _parse_feed('')
+
+    def test_valid_xml_still_parses(self):
+        """Don't regress the XML path — well-formed feeds still parse."""
+        articles = _parse_feed(_RSS_FEED)
+        assert len(articles) >= 1
+
+
+# ---------------------------------------------------------------------------
 # RDF / RSS 1.0
 # ---------------------------------------------------------------------------
 

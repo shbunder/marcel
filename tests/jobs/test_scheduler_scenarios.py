@@ -306,6 +306,30 @@ class TestEnsureDefaultJobs:
         jobs = list_jobs('alice')
         assert len(jobs) == 1
 
+    def test_skips_backup_snapshot(self, tmp_path):
+        """Backup user dirs (``<base>.backup-<n>-<ts>``) must not get default jobs.
+
+        Regression for the post-ISSUE-059 drift where `shaun.backup-059-…`
+        snapshots were inheriting banking credentials and then scheduled
+        every 8 hours — each run failing permanently on the old
+        claude-haiku default.
+        """
+        from marcel_core.jobs import list_jobs
+        from marcel_core.jobs.scheduler import _ensure_default_jobs
+
+        live = tmp_path / 'users' / 'alice'
+        live.mkdir(parents=True)
+        (live / 'credentials.env').write_text('ENABLEBANKING_APP_ID=x\nENABLEBANKING_SESSION_ID=y\n')
+
+        backup = tmp_path / 'users' / 'alice.backup-059-20260411T184915'
+        backup.mkdir(parents=True)
+        (backup / 'credentials.env').write_text('ENABLEBANKING_APP_ID=x\nENABLEBANKING_SESSION_ID=y\n')
+
+        _ensure_default_jobs()
+
+        assert len(list_jobs('alice')) == 1
+        assert list_jobs('alice.backup-059-20260411T184915') == []
+
 
 # ---------------------------------------------------------------------------
 # _dispatch

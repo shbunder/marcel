@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import UTC, datetime
 
 from marcel_core.harness.model_chain import FALLBACK_ELIGIBLE_CATEGORIES, TierEntry, classify_error
@@ -26,7 +27,79 @@ log = logging.getLogger(__name__)
 # where the fallback policy is defined. Keeping the symbols visible in this
 # module's namespace preserves ``from marcel_core.jobs.executor import
 # classify_error`` for the existing tests that spell it that way.
-__all__ = ['FALLBACK_ELIGIBLE_CATEGORIES', 'classify_error']
+__all__ = ['FALLBACK_ELIGIBLE_CATEGORIES', 'classify_error', 'humanize_error']
+
+
+_REQUEST_ID_RE = re.compile(r",?\s*'?request_id'?\s*[:=]\s*'?req_[A-Za-z0-9]+'?")
+_MODEL_NAME_RE = re.compile(r",?\s*'?model_name'?\s*[:=]\s*'?[a-zA-Z0-9:._-]+'?")
+_STATUS_CODE_RE = re.compile(r'status_code:\s*\d+,?\s*')
+_BODY_DICT_RE = re.compile(r'body:\s*\{.*?\}\s*,?', re.DOTALL)
+_EXC_CLASS_PREFIX_RE = re.compile(r'^[\w.]+\.[A-Z][a-zA-Z0-9_]*:\s*')
+_REQUEST_LIMIT_RE = re.compile(r'request_limit of (\d+)')
+
+
+def humanize_error(err_text: str) -> str:
+    """Return a user-safe version of a raw exception string.
+
+    The raw ``str(exc)`` from pydantic_ai and friends contains things a
+    family member should never see — ``request_id``, model tags, Python
+    exception class paths, raw dict bodies. This helper:
+
+    1. Matches known patterns (credit exhaustion, rate limits, timeouts,
+       request-limit caps) and returns a short human message.
+    2. Otherwise strips the obvious technical noise (``request_id=…``,
+       ``model_name=…``, ``body: {…}``, ``status_code: …``, Python
+       exception class prefixes).
+
+    Always returns a non-empty string — falls back to ``err_text`` if
+    stripping leaves nothing.
+    """
+    if not err_text:
+        return 'unknown error'
+
+    low = err_text.lower()
+
+    if 'credit balance is too low' in low or ('credit' in low and 'too low' in low):
+        return 'the Claude API credit balance is exhausted — please top up to resume.'
+    if 'rate limit' in low or 'rate_limit' in low or 'too many requests' in low:
+        return 'the model provider rate-limited us — will retry on the next schedule.'
+    m = _REQUEST_LIMIT_RE.search(err_text)
+    if m:
+        return (
+            f'the job ran out of model requests (limit: {m.group(1)}) — '
+            'raise ``request_limit`` on the job or simplify the task.'
+        )
+    if 'job timed out' in low:
+        # Already a clean internal message, let it through.
+        return err_text
+    if 'timeout' in low or 'timed out' in low:
+        return 'the request timed out.'
+    if 'connection' in low and ('refused' in low or 'reset' in low or 'error' in low):
+        return 'could not reach the model provider — network error.'
+
+    cleaned = _BODY_DICT_RE.sub('', err_text)
+    cleaned = _REQUEST_ID_RE.sub('', cleaned)
+    cleaned = _MODEL_NAME_RE.sub('', cleaned)
+    cleaned = _STATUS_CODE_RE.sub('', cleaned)
+    cleaned = _EXC_CLASS_PREFIX_RE.sub('', cleaned)
+    cleaned = re.sub(r',\s*,', ',', cleaned)
+    cleaned = cleaned.strip().strip(',').strip()
+    return cleaned or err_text
+
+
+def _presentable_job_name(job: JobDefinition, slug: str) -> str:
+    """Strip a redundant ``(slug)`` suffix from a job name before showing it.
+
+    The default job factory names backup / per-user jobs as
+    ``"Bank sync (shaun)"`` to disambiguate internally — but the user
+    reading the Telegram message already knows which slug they are.
+    Exposing their internal slug (especially a ``.backup-…`` one) is
+    noise at best and a mild privacy leak at worst.
+    """
+    suffix = f' ({slug})'
+    if job.name.endswith(suffix):
+        return job.name[: -len(suffix)]
+    return job.name
 
 
 def _resolve_run_user(job: JobDefinition, user_slug: str | None) -> str:
@@ -587,16 +660,18 @@ async def _notify_if_needed(
     if not should_notify:
         return 'skipped', None
 
-    # Build notification message
+    # Build notification message — strip internal slug from the job name
+    # and humanise the raw exception text before it reaches the user.
+    display_name = _presentable_job_name(job, slug)
     if run.status == RunStatus.COMPLETED:
-        message = run.output.strip() if run.output.strip() else f'Job "{job.name}" completed.'
+        message = run.output.strip() if run.output.strip() else f'Job "{display_name}" completed.'
     elif run.status == RunStatus.TIMED_OUT:
-        message = f'Job "{job.name}" timed out after {job.timeout_seconds}s'
+        message = f'Job "{display_name}" timed out after {job.timeout_seconds}s'
     else:
-        error_detail = run.error or 'unknown error'
+        error_detail = humanize_error(run.error or '')
         if job.consecutive_errors > 1:
             error_detail += f' ({job.consecutive_errors} consecutive failures)'
-        message = f'Job "{job.name}" failed: {error_detail}'
+        message = f'Job "{display_name}" failed: {error_detail}'
 
     try:
         if job.channel == 'telegram':

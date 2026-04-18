@@ -53,6 +53,26 @@ class TestUserExists:
         assert user_exists('shaun') is True
 
 
+class TestIsBackupSlug:
+    def test_live_user_is_not_a_backup(self) -> None:
+        from marcel_core.storage.users import is_backup_slug
+
+        assert is_backup_slug('shaun') is False
+        assert is_backup_slug('alice.smith') is False
+
+    def test_backup_snapshot_is_detected(self) -> None:
+        from marcel_core.storage.users import is_backup_slug
+
+        assert is_backup_slug('shaun.backup-059-20260411T184915') is True
+        assert is_backup_slug('alice.backup-12-abc') is True
+
+    def test_plain_backup_without_digit_is_not_a_snapshot(self) -> None:
+        """A user named ``ops.backup-manager`` is a real user, not a snapshot."""
+        from marcel_core.storage.users import is_backup_slug
+
+        assert is_backup_slug('ops.backup-manager') is False
+
+
 class TestLoadUserProfile:
     def test_returns_empty_string_when_missing(self) -> None:
         assert load_user_profile('ghost') == ''
