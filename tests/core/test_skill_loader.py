@@ -684,9 +684,7 @@ class TestLoadSkillDirDependsOn:
 
         skill_dir = tmp_path / 'banking'
         skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text(
-            '---\nname: banking\ndepends_on:\n  - banking\n---\n\nBody.'
-        )
+        (skill_dir / 'SKILL.md').write_text('---\nname: banking\ndepends_on:\n  - banking\n---\n\nBody.')
 
         # Requirement check will fail (no credentials in test store) — but the
         # SETUP.md path also receives the aggregated credential keys, so we can
@@ -700,9 +698,7 @@ class TestLoadSkillDirDependsOn:
 
         skill_dir = tmp_path / 'docker'
         skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text(
-            '---\nname: docker\ndepends_on: docker\n---\n\nBody.'
-        )
+        (skill_dir / 'SKILL.md').write_text('---\nname: docker\ndepends_on: docker\n---\n\nBody.')
 
         doc = _load_skill_dir(skill_dir, 'user', 'zoo')
         assert doc is not None
