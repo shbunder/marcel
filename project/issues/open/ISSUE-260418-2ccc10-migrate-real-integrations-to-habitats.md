@@ -40,7 +40,7 @@ The three integrations' tests move with the code. Core-side tests that currently
 - [✓] Extend `marcel_core.plugin` with `credentials`, `paths`, `get_logger`, `models` submodules — landed in ISSUE-c48967. Every addition documented in `docs/plugins.md`.
 - [✓] Audit the `settings` integration — turned out to be dead code; deleted in ISSUE-e1b9c4 rather than migrated.
 - [ ] Design the "integration contributes a periodic job" hook. Options: (a) `integration.yaml` declares `scheduled_jobs: [...]`, kernel scheduler reads them; (b) handler exports a `register_scheduled(scheduler)` function called at discovery. Pick one.
-- [ ] Migrate **icloud** first (smallest remaining, no scheduled jobs): handler + client + SKILL.md + SETUP.md. Credentials via plugin surface.
+- [✓] Migrate **icloud** first (smallest remaining, no scheduled jobs): handler + client + SKILL.md + SETUP.md. Credentials via plugin surface — landed in ISSUE-e7d127.
 - [ ] Migrate **news**: handler + cache + sync + SKILL.md + SETUP.md + `feeds.yaml` resource. Scheduled-job hook required.
 - [ ] Migrate **banking**: handler + client + cache + sync + SKILL.md + SETUP.md + components.yaml. Scheduled-job hook + credentials + EnableBanking dep.
 - [ ] Decide: does the zoo get its own `pyproject.toml` now (with `enable_banking_client`, `pyicloud`, `feedparser` as deps) or stay pure-python? If its own pyproject, Docker image needs to `pip install` the zoo after clone. Document the decision.
@@ -58,6 +58,12 @@ The three integrations' tests move with the code. Core-side tests that currently
 
 ## Implementation Log
 <!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-18 — icloud migrated (sub-issue ISSUE-e7d127)
+- icloud handler + client moved to `<MARCEL_ZOO_DIR>/integrations/icloud/`, skill habitat to `<MARCEL_ZOO_DIR>/skills/icloud/` with `depends_on: [icloud]`.
+- Imports switched to `marcel_core.plugin.register` and `marcel_core.plugin.credentials.load(slug)`.
+- `caldav` + `vobject` moved out of kernel `dependencies` into `[project.optional-dependencies] zoo` group (still installed by `uv sync --all-extras` in dev + Docker).
+- Two remaining: news (scheduled-job hook needed), banking (largest — sync, cache, components.yaml, EnableBanking dep).
 
 ## Lessons Learned
 <!-- Filled in at close time. -->

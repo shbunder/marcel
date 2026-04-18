@@ -166,7 +166,7 @@ Anything not listed above is internal — zoo code that imports it owns the brea
 
 ### First-party vs. external integrations
 
-Internally, Marcel still ships several first-party integrations inside `src/marcel_core/skills/integrations/` (banking, icloud, news, settings). These continue to work unchanged during the zoo migration — they are discovered via the same `discover()` entry point alongside external habitats. The first complete migration target was `docker`, now living entirely in marcel-zoo (ISSUE-6ad5c7); the remaining first-party integrations follow over subsequent issues.
+Internally, Marcel still ships two first-party integrations inside `src/marcel_core/skills/integrations/` (banking, news). These continue to work unchanged during the zoo migration — they are discovered via the same `discover()` entry point alongside external habitats. Migrated so far: `docker` (ISSUE-6ad5c7), `icloud` (ISSUE-e7d127). The settings integration handler was retired as dead code under ISSUE-e1b9c4 — the live settings surface is the `marcel(action="...")` utility tool, not an `integration(id="settings.*")` handler.
 
 ## See also
 
