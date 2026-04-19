@@ -28,6 +28,25 @@ class _FakeChannel:
     capabilities: ChannelCapabilities
     router: APIRouter | None = None
 
+    async def send_message(self, user_slug: str, text: str) -> bool:  # noqa: ARG002
+        return False
+
+    async def send_photo(
+        self,
+        user_slug: str,  # noqa: ARG002
+        image_bytes: bytes,  # noqa: ARG002
+        caption: str | None = None,  # noqa: ARG002
+    ) -> bool:
+        return False
+
+    async def send_artifact_link(
+        self,
+        user_slug: str,  # noqa: ARG002
+        artifact_id: str,  # noqa: ARG002
+        title: str,  # noqa: ARG002
+    ) -> bool:
+        return False
+
 
 @pytest.fixture
 def isolated_registry(monkeypatch):
@@ -87,3 +106,50 @@ class TestRichUICapability:
     def test_adapter_falls_back_to_builtin_when_unregistered(self, isolated_registry):
         assert channel_supports_rich_ui('websocket') is True
         assert channel_supports_rich_ui('cli') is False
+
+
+class TestTelegramPluginDelegation:
+    """Verify the real telegram plugin wires its push methods correctly.
+
+    Each push method delegates to ``bot``/``sessions``/``formatting`` —
+    mocking those and checking the plugin short-circuits on missing
+    chat_ids is the cheapest end-to-end proof the registry is exercised.
+    """
+
+    @pytest.fixture
+    def telegram(self):
+        import marcel_core.channels.telegram  # noqa: F401  — triggers self-registration
+
+        plugin = get_channel('telegram')
+        assert plugin is not None, 'telegram plugin should self-register on import'
+        return plugin
+
+    @pytest.mark.asyncio
+    async def test_send_message_returns_false_when_no_chat_id(self, telegram, monkeypatch):
+        from marcel_core.channels.telegram import sessions
+
+        monkeypatch.setattr(sessions, 'get_chat_id', lambda _slug: None)
+        assert await telegram.send_message('ghost', 'hi') is False
+
+    @pytest.mark.asyncio
+    async def test_send_photo_returns_false_when_no_chat_id(self, telegram, monkeypatch):
+        from marcel_core.channels.telegram import sessions
+
+        monkeypatch.setattr(sessions, 'get_chat_id', lambda _slug: None)
+        assert await telegram.send_photo('ghost', b'\x89PNG\r\n') is False
+
+    @pytest.mark.asyncio
+    async def test_send_artifact_link_returns_false_without_public_url(self, telegram, monkeypatch):
+        from marcel_core.channels.telegram import bot, sessions
+
+        monkeypatch.setattr(sessions, 'get_chat_id', lambda _slug: '123')
+        monkeypatch.setattr(bot, 'artifact_markup', lambda _aid: None)
+        assert await telegram.send_artifact_link('alice', 'art-1', 'Chart') is False
+
+    def test_telegram_capabilities(self, telegram):
+        caps = telegram.capabilities
+        assert caps.markdown is True
+        assert caps.rich_ui is True
+        assert caps.streaming is True
+        assert caps.progress_updates is True
+        assert caps.attachments is True

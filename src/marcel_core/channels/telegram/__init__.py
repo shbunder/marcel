@@ -15,7 +15,9 @@ Setup summary:
 See ``docs/channels/telegram.md`` for the full setup guide.
 """
 
-from dataclasses import dataclass
+from __future__ import annotations
+
+import logging
 
 from fastapi import APIRouter
 
@@ -24,26 +26,79 @@ from marcel_core.plugin import register_channel
 
 from .webhook import router
 
+log = logging.getLogger(__name__)
 
-@dataclass(frozen=True)
+
 class _TelegramPlugin:
-    name: str
-    capabilities: ChannelCapabilities
-    router: APIRouter | None
+    """Channel plugin for Telegram.
 
+    Wraps the ``bot``/``sessions``/``formatting`` helpers so the rest of the
+    kernel can push messages, photos, and artifact links through the plugin
+    surface without importing telegram internals directly.
+    """
 
-_plugin = _TelegramPlugin(
-    name='telegram',
-    capabilities=ChannelCapabilities(
+    name = 'telegram'
+    capabilities = ChannelCapabilities(
         markdown=True,
         rich_ui=True,
         streaming=True,
         progress_updates=True,
         attachments=True,
-    ),
-    router=router,
-)
+    )
 
+    @property
+    def router(self) -> APIRouter | None:
+        return router
+
+    async def send_message(self, user_slug: str, text: str) -> bool:
+        from marcel_core.channels.telegram import bot, sessions
+        from marcel_core.channels.telegram.formatting import markdown_to_telegram_html
+
+        chat_id = sessions.get_chat_id(user_slug)
+        if not chat_id:
+            return False
+        await bot.send_message(int(chat_id), markdown_to_telegram_html(text))
+        return True
+
+    async def send_photo(
+        self,
+        user_slug: str,
+        image_bytes: bytes,
+        caption: str | None = None,
+    ) -> bool:
+        from marcel_core.channels.telegram import bot, sessions
+
+        chat_id = sessions.get_chat_id(user_slug)
+        if not chat_id:
+            return False
+        await bot.send_photo(int(chat_id), image_bytes, caption=caption or '')
+        return True
+
+    async def send_artifact_link(
+        self,
+        user_slug: str,
+        artifact_id: str,
+        title: str,
+    ) -> bool:
+        from marcel_core.channels.telegram import bot, sessions
+        from marcel_core.channels.telegram.formatting import escape_html
+
+        chat_id = sessions.get_chat_id(user_slug)
+        if not chat_id:
+            return False
+        markup = bot.artifact_markup(artifact_id)
+        if markup is None:
+            log.warning(
+                '[telegram:send_artifact_link] MARCEL_PUBLIC_URL not set; cannot send Mini App button for artifact %s',
+                artifact_id,
+            )
+            return False
+        caption = f'<b>{escape_html(title)}</b>'
+        await bot.send_message(int(chat_id), caption, reply_markup=markup)
+        return True
+
+
+_plugin = _TelegramPlugin()
 register_channel(_plugin)
 
 __all__ = ['router']

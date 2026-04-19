@@ -84,6 +84,19 @@ The registry needs a stable public API — something like `marcel_core.plugin.ch
 - [tests/core/test_plugin_channels.py](../../tests/core/test_plugin_channels.py) — new module covering registry CRUD, re-registration warnings, plugin-over-builtin precedence, and the builtin fallback.
 - No call sites migrated yet. Stage 2 (push sites: `tools/marcel/notifications.py`, `tools/charts.py`, `jobs/executor.py`, `tools/marcel/ui.py`) and stage 3 (pull sites: the four `api/*.py` files reading `get_user_slug`) will grow the Protocol with `send_message`/`send_artifact` and `resolve_user_slug` respectively.
 
+### 2026-04-19 — stage 2: push-side refactor (4 call sites)
+
+- Extended the `ChannelPlugin` Protocol with three push methods — `send_message(user_slug, text)`, `send_photo(user_slug, image_bytes, caption)`, `send_artifact_link(user_slug, artifact_id, title)`. Each returns `bool` ("did the recipient receive it?"), with `False` covering both unsupported shape and unresolved recipient.
+- Replaced the frozen dataclass in [src/marcel_core/channels/telegram/__init__.py](../../src/marcel_core/channels/telegram/__init__.py) with a `_TelegramPlugin` class that implements the three methods. Every call into `bot`/`sessions`/`formatting` now flows through this class — it is the single place that imports those modules for push delivery.
+- Refactored 4 push sites to route through the registry:
+  - [src/marcel_core/tools/marcel/notifications.py](../../src/marcel_core/tools/marcel/notifications.py) — `get_channel('telegram').send_message(...)` replaces the direct `bot.send_message`. Covers the `'telegram'` and `'job'` channel cases.
+  - [src/marcel_core/tools/charts.py](../../src/marcel_core/tools/charts.py) — `send_photo(...)` replaces the direct `bot.send_photo` for the chart-to-Telegram flow.
+  - [src/marcel_core/tools/marcel/ui.py](../../src/marcel_core/tools/marcel/ui.py) — `send_artifact_link(...)` replaces the bespoke `artifact_markup` + `send_message(reply_markup=...)` sequence for the A2UI Mini App button delivery.
+  - [src/marcel_core/jobs/executor.py](../../src/marcel_core/jobs/executor.py) — `_notify_telegram` now resolves the channel through the registry; if telegram is not registered (e.g. host-only fresh install), it logs and returns instead of raising.
+- [tests/core/test_plugin_channels.py](../../tests/core/test_plugin_channels.py) gains a `TestTelegramPluginDelegation` class: imports the real telegram module, asserts it self-registers with the expected capabilities, and exercises all three push methods against mocked `bot` / `sessions` (no network).
+- `make check` green, 1523 tests pass, coverage 91.94%.
+- Pull sites (`api/chat.py`, `api/artifacts.py`, `api/components.py`, `api/conversations.py`) remain untouched — they get `resolve_user_slug` in stage 3.
+
 ## Lessons Learned
 <!-- Filled in at close time. -->
 

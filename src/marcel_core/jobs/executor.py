@@ -692,13 +692,13 @@ async def _notify_if_needed(
 async def _notify_telegram(user_slug: str, message: str) -> None:
     """Send a notification via Telegram."""
     try:
-        from marcel_core.channels.telegram import bot, sessions
-        from marcel_core.channels.telegram.formatting import markdown_to_telegram_html
+        from marcel_core.plugin import get_channel
 
-        chat_id = sessions.get_chat_id(user_slug)
-        if chat_id:
-            await bot.send_message(int(chat_id), markdown_to_telegram_html(message))
-        else:
+        channel = get_channel('telegram')
+        if channel is None:
+            log.warning('%s-job: telegram channel not registered', user_slug)
+            return
+        if not await channel.send_message(user_slug, message):
             log.warning('%s-job: no Telegram chat ID found', user_slug)
     except Exception:
         log.exception('%s-job: Telegram notification failed', user_slug)

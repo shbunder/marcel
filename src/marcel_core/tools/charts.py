@@ -111,11 +111,10 @@ async def generate_chart(
     # Send directly as Telegram photo if on Telegram channel
     if ctx.deps.channel == 'telegram':
         try:
-            from marcel_core.channels.telegram import bot, sessions
+            from marcel_core.plugin import get_channel
 
-            chat_id = sessions.get_chat_id(ctx.deps.user_slug)
-            if chat_id:
-                await bot.send_photo(int(chat_id), png_bytes, caption=title)
+            channel = get_channel('telegram')
+            if channel is not None and await channel.send_photo(ctx.deps.user_slug, png_bytes, caption=title):
                 return f'Chart sent to Telegram. Artifact ID: {artifact_id}'
         except Exception as exc:
             log.warning('Failed to send chart photo to Telegram: %s', exc)

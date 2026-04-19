@@ -100,24 +100,13 @@ async def render(
     # to make one tool call.
     if ctx.deps.channel == 'telegram':
         try:
-            from marcel_core.channels.telegram import bot, sessions
-            from marcel_core.channels.telegram.formatting import escape_html
+            from marcel_core.plugin import get_channel
 
-            chat_id = sessions.get_chat_id(ctx.deps.user_slug)
-            if chat_id:
-                markup = bot.artifact_markup(artifact_id)
-                if markup is None:
-                    # No public URL configured — fall through to text-only.
-                    log.warning(
-                        '[marcel:render] MARCEL_PUBLIC_URL not set; skipping Mini App button for artifact %s',
-                        artifact_id,
-                    )
-                else:
-                    caption = f'<b>{escape_html(resolved_title)}</b>'
-                    await bot.send_message(int(chat_id), caption, reply_markup=markup)
-                    return (
-                        f'rendered component {component!r} as artifact {artifact_id}; Mini App button sent to Telegram'
-                    )
+            channel = get_channel('telegram')
+            if channel is not None and await channel.send_artifact_link(
+                ctx.deps.user_slug, artifact_id, resolved_title
+            ):
+                return f'rendered component {component!r} as artifact {artifact_id}; Mini App button sent to Telegram'
         except Exception as exc:
             log.warning('[marcel:render] failed to deliver Telegram button: %s', exc)
             return (
