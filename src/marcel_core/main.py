@@ -128,9 +128,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Seed default MARCEL.md and skills if not present
     from marcel_core.defaults import seed_defaults
+    from marcel_core.skills.integrations import discover as discover_integrations
     from marcel_core.storage._root import data_root
 
     seed_defaults(data_root())
+
+    # Populate integration handlers and habitat metadata before the scheduler
+    # starts — rebuild_schedule() → _ensure_habitat_jobs() reads _metadata to
+    # decide which habitat:* jobs to materialize and which to treat as orphan.
+    # Skipping this means every habitat-scheduled job is deleted on cold start.
+    discover_integrations()
 
     restart_task = asyncio.create_task(_restart_watcher())
     summarize_task = asyncio.create_task(_background_summarization_loop())

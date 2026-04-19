@@ -1,6 +1,6 @@
 # ISSUE-efbaaa: Wire MARCEL_ZOO_DIR into prod Docker container
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-19
 **Assignee:** Unassigned
 **Priority:** High
@@ -23,21 +23,44 @@ Scope: only `docker-compose.yml`. No code changes. No docs (aside from the issue
 
 ## Description
 
-After ISSUE-13c7f2 (banking→zoo migration, merged today), prod Marcel has `Schedule rebuilt: 1 jobs scheduled` on startup — the hardcoded `Good morning` — because `MARCEL_ZOO_DIR` is unset in the container environment. `docker inspect marcel` confirms no `MARCEL_ZOO_DIR` in `Config.Env`. The zoo checkout (`/home/shbunder/projects/marcel-zoo`) is *already accessible* inside the container via the `/home/shbunder` bind mount declared in `docker-compose.yml:23`; the missing piece is the env var telling `discover()` where to look.
+After ISSUE-13c7f2 (banking→zoo migration, merged today), prod Marcel has `Schedule rebuilt: 1 jobs scheduled` on startup — the hardcoded `Good morning` — because (a) `MARCEL_ZOO_DIR` was unset in the container environment and (b) even after fixing (a), `discover()` is not called in the kernel lifespan before `scheduler.rebuild_schedule()` → `_ensure_habitat_jobs()`, so `_metadata` is empty and every habitat-sourced job is treated as an orphan and deleted on startup.
+
+### Bug 1 — `MARCEL_ZOO_DIR` missing from compose env
+
+`docker inspect marcel` confirmed no `MARCEL_ZOO_DIR` in `Config.Env`. The zoo checkout is *already accessible* inside the container via the `/home/shbunder` bind mount declared in `docker-compose.yml:23`; the missing piece was the env var telling `discover()` where to look.
+
+### Bug 2 — lifespan startup order: `rebuild_schedule()` runs before `discover()`
+
+Empirically confirmed in the running container (with `MARCEL_ZOO_DIR` wired and zoo symlink in place):
+
+```
+before discover: _metadata = {}
+after discover: _metadata keys = ['banking', 'docker', 'icloud', 'news']
+  banking: 1 scheduled_jobs
+  news: 1 scheduled_jobs
+```
+
+Nothing in the kernel lifespan or in routers' module-level imports triggers `discover()` before `scheduler.start()` calls `rebuild_schedule()` → `_ensure_habitat_jobs()`. Result: `_metadata` is empty, every `habitat:*` job on disk is declared orphan and deleted, no new habitat jobs are materialized. On first chat request, `registry._load_registry()` fires `discover()` and populates `_metadata`, but by then the scheduler has already committed its "zero habitat jobs" view.
+
+This bug was latent since ISSUE-82f52b (scheduled_jobs feature) and/or ISSUE-e7d127 (first kernel→zoo migration), masked because banking was still in-kernel and `_ensure_default_jobs` (now deleted in ISSUE-13c7f2) created the `Bank sync` job unconditionally.
 
 This was masked for two prior migrations because banking was still in-kernel. The first-time user-visible signal was "banking stopped working in prod this morning" after today's merge.
 
-The fix is small and structural — compose-level config, not code. Adjacent entries (`MARCEL_PORT`, `MARCEL_DATA_DIR`) are already set the same way, so the pattern exists.
+Fix: (1) compose-level config for the env var; (2) call `discover()` explicitly in the kernel lifespan before `scheduler.start()` — smallest-possible change, one import + one call. Both fixes ship in this issue because either alone leaves prod broken.
 
 ## Tasks
 
-- [ ] Add `MARCEL_ZOO_DIR=/home/shbunder/projects/marcel-zoo` to `docker-compose.yml` `environment:` block, adjacent to the existing `MARCEL_PORT` and `MARCEL_DATA_DIR` entries
-- [ ] `docker compose up -d --force-recreate marcel` (or equivalent) to apply the change without bouncing via `request_restart()` — this is a compose-level config change, not a code change
+- [ ] Add `MARCEL_ZOO_DIR=${MARCEL_ZOO_DIR:-${HOME}/.marcel/zoo}` to `docker-compose.yml` `environment:` block, adjacent to `MARCEL_PORT` and `MARCEL_DATA_DIR` — matches the existing `${HOME}/.marcel`-style pattern, defaults to `~/.marcel/zoo`, overridable per-deployment via shell env or `.env.local`
+- [ ] Create `~/.marcel/zoo` symlink → `~/projects/marcel-zoo` on this host so the default path resolves to the real checkout (`ln -s ~/projects/marcel-zoo ~/.marcel/zoo`) — the `/home/shbunder` bind mount already makes the target reachable inside the container
+- [ ] Call `discover()` in [src/marcel_core/main.py](src/marcel_core/main.py) `lifespan()` before `scheduler.start()`, so `_metadata` is populated when `rebuild_schedule()` runs and habitat jobs are materialized instead of orphan-deleted
+- [ ] Add a regression test that fails if `discover()` is not called before `scheduler.start()` in the lifespan (or an equivalent test that verifies habitat `scheduled_jobs` reach the scheduler on cold startup)
+- [ ] `docker compose up -d --force-recreate marcel` to apply the compose change without bouncing via `request_restart()` — this is a compose-level config change plus a kernel fix, not a user-data change
 - [ ] Verify via `docker inspect marcel --format '{{range .Config.Env}}{{println .}}{{end}}' | grep ZOO` that the env var is set on the running container
 - [ ] Verify via `docker logs marcel 2>&1 | grep "Schedule rebuilt"` that N ≥ 3 jobs are scheduled (banking sync + news sync + good morning + icloud if any)
 - [ ] Verify via `docker logs marcel 2>&1 | grep "Removing orphan habitat job"` that NO orphan-cleanup entries appear on startup — the habitats should be discovered, not removed
 - [ ] Verify a banking handler actually executes in prod (either wait for the cron-scheduled `Bank sync` at the next 8-hour boundary, or invoke via Telegram)
-- [ ] Implementation Log entry documenting why this slipped for two migrations (banking-in-kernel masking), and note the lesson for future migrations
+- [ ] `make check` green at ≥90% coverage
+- [ ] Implementation Log entry documenting both bugs (env var missing + discover-order) and why this slipped for two migrations (banking-in-kernel masking), and note the lesson for future migrations
 
 ## Relationships
 
