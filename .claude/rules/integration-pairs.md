@@ -1,7 +1,6 @@
 ---
 paths:
   - "src/marcel_core/skills/**/*.py"
-  - "src/marcel_core/defaults/skills/**/*"
   - "tests/skills/**/*.py"
 ---
 
@@ -9,7 +8,7 @@ paths:
 
 Every Marcel integration is now **two habitats** that ship together — an *integration habitat* (the handler) and a *skill habitat* (the docs the agent reads). Modifying one without the other is **half-shipped work** — the pre-close-verifier treats it as scope drift.
 
-Habitats live in [marcel-zoo](https://github.com/shbunder/marcel-zoo) (or any directory pointed to by `MARCEL_ZOO_DIR`), not in this repo. A small number of first-party integrations still live under `src/marcel_core/skills/integrations/` for the kernel-tier subset that ships with Marcel itself; the same pair rule applies to those, with the `defaults/skills/` directory acting as the bundled skill habitat.
+Habitats live in [marcel-zoo](https://github.com/shbunder/marcel-zoo) (or any directory pointed to by `MARCEL_ZOO_DIR`), not in this repo. The kernel itself ships zero integrations and zero bundled skills — the loader and plugin surface live under `src/marcel_core/skills/` but the habitats they discover live exclusively in the zoo.
 
 ## The two habitats
 
@@ -55,8 +54,7 @@ A skill without `SETUP.md` means the agent silently fails when the integration i
 - [ ] Removed action → handler, `provides:` entry, and SKILL.md instructions cleaned up; if the whole integration is gone, both habitats removed
 - [ ] New `requires:` entry in `integration.yaml` → SETUP.md in the paired skill habitat walks the user through providing it
 - [ ] New integration must not require changes to `tool.py`, `executor.py`, or `runner.py` — if it does, the abstraction is wrong (per Marcel's "self-contained integrations" principle)
-- [ ] First-party integrations (`src/marcel_core/skills/integrations/<name>/`) follow the same rule, with `defaults/skills/<name>/` as the paired skill habitat
 
 ## Enforcement
 
-[.claude/agents/pre-close-verifier.md](../agents/pre-close-verifier.md) checks any diff touching `skills/integrations/`, `defaults/skills/`, or zoo habitats for mismatched pair updates.
+[.claude/agents/pre-close-verifier.md](../agents/pre-close-verifier.md) checks any diff touching `src/marcel_core/skills/` or zoo habitats for mismatched pair updates.

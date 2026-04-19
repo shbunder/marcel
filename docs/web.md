@@ -39,9 +39,9 @@ The model is instructed to pick the cheapest primitive that does the job:
    session.
 
 This hierarchy lives in the `web` tool's docstring (always visible in the
-tool schema every turn) and is reinforced in
-`defaults/skills/web/SKILL.md` (loaded on demand when the model calls
-`marcel(action="read_skill", name="web")`).
+tool schema every turn) and is reinforced in the `web` skill habitat at
+`<MARCEL_ZOO_DIR>/skills/web/SKILL.md` (loaded on demand when the model
+calls `marcel(action="read_skill", name="web")`).
 
 ## Actions
 

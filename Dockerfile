@@ -32,8 +32,10 @@ COPY src/ ./src/
 # Install the project itself
 RUN uv sync --frozen --all-extras --no-dev
 
-# Skills are seeded from src/marcel_core/defaults/skills/ at first startup
-# via the data root (~/.marcel/skills/), no build-time copy needed.
+# The kernel ships zero bundled skills — every skill lives in marcel-zoo
+# and is loaded from MARCEL_ZOO_DIR at runtime. seed_defaults() still
+# copies channel prompts, routing.yaml, and subagent definitions from
+# src/marcel_core/defaults/ to the data root (~/.marcel/) on first start.
 
 # Create non-root user matching the host user (UID/GID passed at build time)
 ARG USER_UID=1000

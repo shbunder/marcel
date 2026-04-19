@@ -29,40 +29,39 @@ def seed_defaults(data_root: Path) -> None:
             shutil.copy2(src, target_marcel)
             log.info('Seeded %s from defaults', target_marcel)
 
-    # Seed skills directory
+    # Seed skills directory. The kernel no longer bundles any default skills
+    # — they all live in marcel-zoo — but the block stays so third-party
+    # forks can still ship skills under src/marcel_core/defaults/skills/ if
+    # they want a kernel-bundled variant.
     src_skills = _DEFAULTS_DIR / 'skills'
-    if not src_skills.is_dir():
-        return
+    if src_skills.is_dir():
+        target_skills = data_root / 'skills'
+        target_skills.mkdir(parents=True, exist_ok=True)
 
-    target_skills = data_root / 'skills'
-    target_skills.mkdir(parents=True, exist_ok=True)
+        # ISSUE-072 migration: the `browser` skill was renamed to `web`. If an
+        # older install still has `skills/browser/` and the new `skills/web/`
+        # hasn't been seeded yet, remove the stale directory. Idempotent.
+        legacy_browser = target_skills / 'browser'
+        new_web = target_skills / 'web'
+        if legacy_browser.is_dir() and not new_web.exists():
+            shutil.rmtree(legacy_browser)
+            log.info('Removed stale skills/browser/ (renamed to skills/web/ in ISSUE-072)')
 
-    # ISSUE-072 migration: the `browser` skill was renamed to `web` when the
-    # browser tools were consolidated into the `web` god-tool. If an older
-    # install still has `skills/browser/` and the new `skills/web/` hasn't
-    # been seeded yet, remove the stale directory so the fresh `web/` can
-    # seed cleanly below. Idempotent — runs at most once per install.
-    legacy_browser = target_skills / 'browser'
-    new_web = target_skills / 'web'
-    if legacy_browser.is_dir() and not new_web.exists():
-        shutil.rmtree(legacy_browser)
-        log.info('Removed stale skills/browser/ (renamed to skills/web/ in ISSUE-072)')
-
-    for skill_dir in sorted(src_skills.iterdir()):
-        if not skill_dir.is_dir() or skill_dir.name.startswith(('_', '.')):
-            continue
-        target_skill = target_skills / skill_dir.name
-        if not target_skill.exists():
-            shutil.copytree(skill_dir, target_skill)
-            log.info('Seeded skill %s from defaults', skill_dir.name)
-        else:
-            # Seed individual missing files into existing skill directories
-            for src_file in skill_dir.iterdir():
-                if src_file.is_file():
-                    target_file = target_skill / src_file.name
-                    if not target_file.exists():
-                        shutil.copy2(src_file, target_file)
-                        log.info('Seeded %s into existing skill %s', src_file.name, skill_dir.name)
+        for skill_dir in sorted(src_skills.iterdir()):
+            if not skill_dir.is_dir() or skill_dir.name.startswith(('_', '.')):
+                continue
+            target_skill = target_skills / skill_dir.name
+            if not target_skill.exists():
+                shutil.copytree(skill_dir, target_skill)
+                log.info('Seeded skill %s from defaults', skill_dir.name)
+            else:
+                # Seed individual missing files into existing skill directories
+                for src_file in skill_dir.iterdir():
+                    if src_file.is_file():
+                        target_file = target_skill / src_file.name
+                        if not target_file.exists():
+                            shutil.copy2(src_file, target_file)
+                            log.info('Seeded %s into existing skill %s', src_file.name, skill_dir.name)
 
     # Seed channel prompt files
     src_channels = _DEFAULTS_DIR / 'channels'

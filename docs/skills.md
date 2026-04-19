@@ -25,9 +25,34 @@ Data-root skills override zoo skills with the same name. The override is silent 
 4. The executor dispatches to the right handler (python function, HTTP call, or shell command).
 5. The result is returned as plain text to the agent.
 
+## The three skill shapes
+
+A skill's frontmatter determines how the loader treats it and whether a `SETUP.md` fallback is meaningful. There are three distinct shapes:
+
+### 1. Standalone — pure teaching material, no requirements
+
+The simplest shape: no `depends_on:`, no `requires:`. The `SKILL.md` is always loaded because it documents built-in kernel tools (e.g. the `web`, `memory`, or `jobs` utility action families) or pure domain knowledge. No `SETUP.md` is needed because there is nothing to set up.
+
+```yaml
+---
+name: memory
+description: Manage conversation memory — search past conversations, recall facts
+---
+```
+
+Standalone skills live in `<MARCEL_ZOO_DIR>/skills/<name>/` alongside every other skill habitat. The kernel ships none of them by default.
+
+### 2. Self-contained — inline `requires:`
+
+A skill that needs credentials, environment variables, files, or Python packages but has no paired integration handler — for instance, a skill that teaches the agent how to use a tool whose credentials are read directly at call time. Declare the dependencies inline; they drive SKILL.md → SETUP.md switching.
+
+### 3. Integration-backed — `depends_on:`
+
+The typical case for any skill that calls `integration(id="...")`. See below.
+
 ## Skill fallback (SETUP.md)
 
-Each integration skill can have a `SETUP.md` alongside `SKILL.md`. When the skill's requirements (credentials, env vars, files, packages) are not met, the loader serves `SETUP.md` instead. This guides new users through first-time setup rather than failing silently.
+A skill's `SETUP.md` (shapes 2 and 3) activates when the skill's requirements are not met. This guides new users through first-time setup rather than failing silently. Standalone skills (shape 1) do not need a `SETUP.md`.
 
 There are two ways to declare requirements in `SKILL.md` frontmatter:
 

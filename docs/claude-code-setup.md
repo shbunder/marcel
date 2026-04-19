@@ -21,7 +21,7 @@ Marcel's developer-mode harness — the Claude Code session you use when editing
 │   ├── closing-commit-purity.md  # always-loaded
 │   ├── docs-in-impl.md       # always-loaded
 │   ├── debugging.md          # always-loaded
-│   ├── integration-pairs.md  # path-scoped: skills/, defaults/skills/
+│   ├── integration-pairs.md  # path-scoped: src/marcel_core/skills/, tests/skills/
 │   ├── data-boundaries.md    # path-scoped: storage/, auth/, config.py, memory/, channels/
 │   └── role-gating.md        # path-scoped: harness/, tools/, agents/
 ├── skills/
@@ -48,7 +48,7 @@ A rule file with no frontmatter loads every session. A rule file with YAML front
 ---
 paths:
   - "src/marcel_core/skills/**/*.py"
-  - "src/marcel_core/defaults/skills/**/*"
+  - "tests/skills/**/*.py"
 ---
 ```
 
