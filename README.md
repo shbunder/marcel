@@ -102,7 +102,7 @@ Everything Marcel can *do* — check iCloud calendar, read bank balances, fetch 
 
 Adding a service is almost always conversational: Alice says *"I want you to read my iCloud calendar"*, Marcel loads the `icloud` skill's `SETUP.md`, asks for the credentials, stores them encrypted under her user directory, and from then on has the skill available. No config file editing, no restart.
 
-Adding a *new* skill — one that doesn't exist yet — is a developer task: drop a directory in [src/marcel_core/defaults/skills/](src/marcel_core/defaults/skills/) with a `SKILL.md` and either a JSON entry in `skills.json` (for simple HTTP/shell calls) or a Python module with `@register` decorators. See [docs/skills.md](docs/skills.md) for the full integration contract. Because Marcel can modify his own codebase, *he* can help you do this.
+Adding a *new* skill — one that doesn't exist yet — is a developer task: drop a park into the marcel-zoo checkout (`<MARCEL_ZOO_DIR>/skills/<name>/` for pure teaching skills, with a matching `<MARCEL_ZOO_DIR>/integrations/<name>/` park when the skill wraps a handler). See [docs/skills.md](docs/skills.md) for the full integration contract. Because Marcel can modify his own codebase, *he* can help you do this.
 
 ## Architectural decisions
 

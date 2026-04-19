@@ -159,8 +159,7 @@ unbounded nesting and makes the delegation tree easy to reason about.
 ## Default subagents
 
 Three subagents ship with Marcel and are seeded to `<data_root>/agents/`
-on first startup, the same way default skills are seeded from
-`src/marcel_core/defaults/skills/`:
+on first startup from `src/marcel_core/defaults/agents/`:
 
 - **`explore`** — a read-only file/codebase explorer. Tools:
   `read_file`, `web`, `integration`, `marcel`. Good for "find the code
