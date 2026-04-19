@@ -112,6 +112,13 @@ The registry needs a stable public API — something like `marcel_core.plugin.ch
 - `make check` green, 1528 tests pass, coverage 91.95%.
 - Remaining stages: stage 4 migrates the telegram module to `<MARCEL_ZOO_DIR>/channels/telegram/` with channel.yaml + CHANNEL.md + discovery in main.py; stage 5 verifies fresh install behaviour with and without the zoo.
 
+### 2026-04-19 — stage 4a: main.py mounts routers via registry
+
+- [src/marcel_core/main.py](../../src/marcel_core/main.py) — replaced the hard-coded `from marcel_core.channels.telegram import router as telegram_router` + `app.include_router(telegram_router)` with two pieces: (a) a side-effect `import marcel_core.channels.telegram` to trigger self-registration, and (b) a loop over `list_channels()` that mounts each plugin's `.router` when present. Plugins without a router are silently skipped.
+- The side-effect import is the one remaining direct reference to the telegram module in the kernel. It goes away in stage 4c when the habitat moves to `<MARCEL_ZOO_DIR>/channels/telegram/` and stage 4b's zoo-discovery loop takes over.
+- Behaviourally identical today (same router mounted, same URLs). Sets up the discovery path so a second channel registering itself in stage 4b requires zero new lines in main.py.
+- `make check` green, 1528 tests pass, coverage 91.96%.
+
 ## Lessons Learned
 <!-- Filled in at close time. -->
 
