@@ -59,12 +59,11 @@ async def notify(ctx: RunContext[MarcelDeps], message: str | None) -> str:
     # For Telegram (or background jobs that deliver to Telegram), send real-time notification
     if ctx.deps.channel in ('telegram', 'job'):
         try:
-            from marcel_core.channels.telegram import bot, sessions
-            from marcel_core.channels.telegram.formatting import markdown_to_telegram_html
+            from marcel_core.plugin import get_channel
 
-            chat_id = sessions.get_chat_id(ctx.deps.user_slug)
-            if chat_id:
-                await bot.send_message(int(chat_id), markdown_to_telegram_html(message))
+            channel = get_channel('telegram')
+            if channel is not None:
+                await channel.send_message(ctx.deps.user_slug, message)
                 return 'ok'
         except Exception as exc:
             log.warning('[marcel:notify] Telegram notification failed: %s', exc)

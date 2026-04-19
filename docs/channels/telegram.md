@@ -2,6 +2,9 @@
 
 Marcel can receive and respond to messages via Telegram. This works like any other channel: the same agent loop runs with pydantic-ai, the same typed memory system is used, and responses are formatted as Telegram HTML with an automatic plain-text fallback.
 
+!!! info "Telegram ships as a zoo habitat"
+    Since ISSUE-7d6b3f the telegram channel lives at `<MARCEL_ZOO_DIR>/channels/telegram/` — not in the kernel. Discovery happens at `main.py` startup via `marcel_core.plugin.channels.discover()`, which walks every subdirectory of `<zoo>/channels/` and imports it under the `_marcel_ext_channels.<name>` private namespace. If `MARCEL_ZOO_DIR` is unset or the habitat is absent, telegram simply isn't mounted — the server boots without it.
+
 ## How it works
 
 ```
@@ -77,15 +80,10 @@ TELEGRAM_WEBHOOK_SECRET=some-random-secret
 Start your bot in Telegram and send `/start`. It will reply with your chat ID. Then run this once to link it to your Marcel user:
 
 ```bash
-uv run python - <<'EOF'
-from dotenv import load_dotenv; load_dotenv('.env.local')
-from marcel_core.channels.telegram.sessions import link_user
-link_user('shaun', 556632386)   # replace with your actual chat ID
-print('Linked.')
-EOF
+make link-telegram USER=shaun CHAT=556632386   # replace with your actual chat ID
 ```
 
-This writes the `telegram_chat_id` field into `~/.marcel/users/shaun/profile.md` frontmatter.
+The target runs `marcel_core.plugin.channels.discover()` first so the zoo habitat is loaded, then calls its `sessions.link_user(slug, chat_id)`. This writes the `telegram_chat_id` field into `~/.marcel/users/shaun/profile.md` frontmatter.
 
 ### 4. Expose Marcel via Cloudflare Tunnel
 
@@ -172,7 +170,8 @@ Run this once after the tunnel and service are both running:
 ```bash
 cd ~/projects/marcel && uv run python -c "
 from dotenv import load_dotenv; load_dotenv('.env.local')
-from marcel_core.channels.telegram.bot import set_webhook
+from marcel_core.plugin.channels import discover; discover()
+from _marcel_ext_channels.telegram.bot import set_webhook
 import asyncio, os
 result = asyncio.run(set_webhook(
     'https://your-domain.com/telegram/webhook',
@@ -198,10 +197,7 @@ Each family member or household user needs their own Telegram account linked. Th
 2. Run `link_user` for their slug:
 
 ```bash
-uv run python -c "
-from marcel_core.channels.telegram.sessions import link_user
-link_user('alice', 987654321)
-"
+make link-telegram USER=alice CHAT=987654321
 ```
 
 No restart needed — the lookup reads from disk on every message.
@@ -217,7 +213,8 @@ python - <<'EOF'
 import asyncio
 from dotenv import load_dotenv
 load_dotenv()
-from marcel_core.channels.telegram.bot import delete_webhook
+from marcel_core.plugin.channels import discover; discover()
+from _marcel_ext_channels.telegram.bot import delete_webhook
 print(asyncio.run(delete_webhook()))
 EOF
 ```
@@ -234,8 +231,4 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ## Module reference
 
-::: marcel_core.channels.telegram.bot
-
-::: marcel_core.channels.telegram.sessions
-
-::: marcel_core.channels.telegram.webhook
+The telegram habitat's modules (`bot`, `sessions`, `webhook`, `formatting`) live in the zoo repo at `<MARCEL_ZOO_DIR>/channels/telegram/`. See the zoo's own docs — this kernel-side page intentionally does not re-render them, since the kernel no longer ships telegram code.

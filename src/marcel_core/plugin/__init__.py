@@ -19,9 +19,12 @@ Surface today (integration habitat focus):
   preference (settings habitat).
 - :mod:`marcel_core.plugin.rss` — RSS/Atom feed fetcher (news habitat).
 
-Other habitat types (skills, channels, jobs, agents) will add their
-surfaces here as their plugin plumbing lands (see ISSUE-2ccc10,
-ISSUE-7d6b3f, ISSUE-a7d69a).
+- :class:`ChannelPlugin`, :func:`register_channel`, :func:`get_channel`,
+  :func:`list_channels` — channel habitat contract (see
+  :mod:`marcel_core.plugin.channels`).
+
+Other habitat types (skills, jobs, agents) will add their surfaces here as
+their plugin plumbing lands (see ISSUE-2ccc10, ISSUE-a7d69a).
 
 Example — minimal external integration at
 ``<MARCEL_ZOO_DIR>/integrations/demo/__init__.py``::
@@ -44,15 +47,25 @@ from __future__ import annotations
 import logging
 
 from marcel_core.plugin import credentials, models, paths, rss
+from marcel_core.plugin.channels import (
+    ChannelPlugin,
+    get_channel,
+    list_channels,
+    register_channel,
+)
 from marcel_core.skills.integrations import IntegrationHandler, register
 
 __all__ = [
+    'ChannelPlugin',
     'IntegrationHandler',
     'credentials',
+    'get_channel',
     'get_logger',
+    'list_channels',
     'models',
     'paths',
     'register',
+    'register_channel',
     'rss',
 ]
 

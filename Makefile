@@ -56,7 +56,7 @@ test-core: ## Run core package tests
 .PHONY: test-cov
 test-cov: ## Run tests with coverage report (fails below 90%)
 	echo -e "$(INFO) Running all tests with coverage..."
-	uv run pytest tests/ --cov=marcel_core --cov-report=term-missing --cov-fail-under=90
+	uv run pytest tests/ --cov=src/marcel_core --cov-report=term-missing --cov-fail-under=90
 
 .PHONY: install-cli
 install-cli: ## Install the Marcel CLI binary (Rust) to ~/.cargo/bin
@@ -161,7 +161,7 @@ link-telegram: ## Link a Marcel user to a Telegram chat ID (usage: make link-tel
 		echo -e "$(WARNING) Usage: make link-telegram USER=<slug> CHAT=<telegram_chat_id>"; \
 		exit 1; \
 	fi
-	@uv run python -c "from marcel_core.channels.telegram.sessions import link_user; link_user('$(USER)', '$(CHAT)')"
+	@uv run python -c "from marcel_core.plugin.channels import discover; discover(); import _marcel_ext_channels.telegram.sessions as s; s.link_user('$(USER)', '$(CHAT)')"
 	@echo -e "$(INFO) Linked user '$(USER)' to Telegram chat $(CHAT)"
 
 # Docker targets

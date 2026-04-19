@@ -42,8 +42,9 @@ from marcel_core.api.chat import router as chat_router
 from marcel_core.api.components import router as components_router
 from marcel_core.api.conversations import router as conversations_router
 from marcel_core.api.health import router as health_router
-from marcel_core.channels.telegram import router as telegram_router
 from marcel_core.jobs.scheduler import scheduler
+from marcel_core.plugin import get_channel, list_channels
+from marcel_core.plugin.channels import discover as discover_channels
 
 log = logging.getLogger(__name__)
 
@@ -129,7 +130,24 @@ app.include_router(artifacts_router)
 app.include_router(chat_router)
 app.include_router(components_router)
 app.include_router(conversations_router)
-app.include_router(telegram_router)
+
+# Discover external channel habitats from <MARCEL_ZOO_DIR>/channels/
+# before mounting — each habitat's __init__.py calls register_channel()
+# at import time. The kernel ships no channel habitats; Telegram and any
+# future Signal/Discord channels live exclusively in the zoo. No-op when
+# MARCEL_ZOO_DIR is unset — server still boots with WebSocket + REST.
+discover_channels()
+
+# Mount every registered channel plugin's router. This replaces the
+# previous hard-coded `app.include_router(telegram_router)` — any channel
+# habitat (kernel-bundled today, zoo-hosted tomorrow) that exposes a
+# router is discovered here. Plugins without a router (e.g. a future
+# signal-only channel) are silently skipped.
+for _channel_name in list_channels():
+    _plugin = get_channel(_channel_name)
+    if _plugin is not None and _plugin.router is not None:
+        app.include_router(_plugin.router)
+        log.info('main: mounted channel plugin %r', _channel_name)
 
 # Serve the built web frontend (SPA) if it exists
 _WEB_DIST = Path(__file__).resolve().parent.parent / 'web' / 'dist'

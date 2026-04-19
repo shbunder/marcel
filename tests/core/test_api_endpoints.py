@@ -7,7 +7,7 @@ the FastAPI test client with mocked auth.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -16,6 +16,13 @@ from fastapi.testclient import TestClient
 from marcel_core.api.artifacts import router as artifacts_router
 from marcel_core.api.conversations import router as conversations_router
 from marcel_core.storage import _root
+
+
+def _mock_tg_channel(user_slug: str | None) -> MagicMock:
+    """Build a fake ChannelPlugin whose ``resolve_user_slug`` returns *user_slug*."""
+    channel = MagicMock()
+    channel.resolve_user_slug.return_value = user_slug
+    return channel
 
 
 @pytest.fixture(autouse=True)
@@ -54,7 +61,7 @@ class TestArtifactsAPI:
     def test_get_artifact_not_found(self, art_client):
         with (
             patch('marcel_core.api.artifacts.verify_telegram_init_data', return_value={'id': 111}),
-            patch('marcel_core.api.artifacts.get_telegram_user_slug', return_value='alice'),
+            patch('marcel_core.api.artifacts.get_channel', return_value=_mock_tg_channel('alice')),
             patch('marcel_core.api.artifacts.load_artifact', return_value=None),
         ):
             resp = art_client.get('/api/artifact/abc123', params={'initData': 'valid'})
@@ -74,7 +81,7 @@ class TestArtifactsAPI:
         )
         with (
             patch('marcel_core.api.artifacts.verify_telegram_init_data', return_value={'id': 111}),
-            patch('marcel_core.api.artifacts.get_telegram_user_slug', return_value='alice'),
+            patch('marcel_core.api.artifacts.get_channel', return_value=_mock_tg_channel('alice')),
             patch('marcel_core.api.artifacts.load_artifact', return_value=artifact),
         ):
             resp = art_client.get('/api/artifact/abc123', params={'initData': 'valid'})
@@ -96,7 +103,7 @@ class TestArtifactsAPI:
         )
         with (
             patch('marcel_core.api.artifacts.verify_telegram_init_data', return_value={'id': 111}),
-            patch('marcel_core.api.artifacts.get_telegram_user_slug', return_value='alice'),
+            patch('marcel_core.api.artifacts.get_channel', return_value=_mock_tg_channel('alice')),
             patch('marcel_core.api.artifacts.load_artifact', return_value=artifact),
         ):
             resp = art_client.get('/api/artifact/abc123', params={'initData': 'valid'})
@@ -110,7 +117,7 @@ class TestArtifactsAPI:
         ]
         with (
             patch('marcel_core.api.artifacts.verify_telegram_init_data', return_value={'id': 111}),
-            patch('marcel_core.api.artifacts.get_telegram_user_slug', return_value='alice'),
+            patch('marcel_core.api.artifacts.get_channel', return_value=_mock_tg_channel('alice')),
             patch('marcel_core.api.artifacts.list_artifacts', return_value=items),
         ):
             resp = art_client.get('/api/artifacts', params={'initData': 'valid'})
@@ -136,7 +143,7 @@ class TestArtifactsAPI:
 
         with (
             patch('marcel_core.api.artifacts.verify_telegram_init_data', return_value={'id': 111}),
-            patch('marcel_core.api.artifacts.get_telegram_user_slug', return_value='alice'),
+            patch('marcel_core.api.artifacts.get_channel', return_value=_mock_tg_channel('alice')),
             patch('marcel_core.api.artifacts.load_artifact', return_value=artifact),
             patch('marcel_core.api.artifacts.files_dir', return_value=files_dir),
         ):
@@ -156,7 +163,7 @@ class TestArtifactsAPI:
         )
         with (
             patch('marcel_core.api.artifacts.verify_telegram_init_data', return_value={'id': 111}),
-            patch('marcel_core.api.artifacts.get_telegram_user_slug', return_value='alice'),
+            patch('marcel_core.api.artifacts.get_channel', return_value=_mock_tg_channel('alice')),
             patch('marcel_core.api.artifacts.load_artifact', return_value=artifact),
         ):
             resp = art_client.get('/api/artifact/md1/file', params={'initData': 'valid'})
@@ -175,7 +182,7 @@ class TestArtifactsAPI:
     def test_tg_user_not_linked(self, art_client):
         with (
             patch('marcel_core.api.artifacts.verify_telegram_init_data', return_value={'id': 111}),
-            patch('marcel_core.api.artifacts.get_telegram_user_slug', return_value=None),
+            patch('marcel_core.api.artifacts.get_channel', return_value=_mock_tg_channel(None)),
         ):
             resp = art_client.get('/api/artifact/abc', params={'initData': 'valid'})
         assert resp.status_code == 401
@@ -310,7 +317,7 @@ class TestConversationsAPI:
         ]
         with (
             patch('marcel_core.api.conversations.verify_telegram_init_data', return_value={'id': 111}),
-            patch('marcel_core.api.conversations.get_telegram_user_slug', return_value='alice'),
+            patch('marcel_core.api.conversations.get_channel', return_value=_mock_tg_channel('alice')),
             patch('marcel_core.api.conversations.read_active_segment', return_value=messages),
         ):
             resp = conv_client.get('/api/message/conv-1', params={'initData': 'valid'})
@@ -320,7 +327,7 @@ class TestConversationsAPI:
     def test_get_message_not_found(self, conv_client):
         with (
             patch('marcel_core.api.conversations.verify_telegram_init_data', return_value={'id': 111}),
-            patch('marcel_core.api.conversations.get_telegram_user_slug', return_value='alice'),
+            patch('marcel_core.api.conversations.get_channel', return_value=_mock_tg_channel('alice')),
             patch('marcel_core.api.conversations.read_active_segment', return_value=[]),
         ):
             resp = conv_client.get('/api/message/conv-1', params={'initData': 'valid'})
@@ -339,7 +346,7 @@ class TestConversationsAPI:
         ]
         with (
             patch('marcel_core.api.conversations.verify_telegram_init_data', return_value={'id': 111}),
-            patch('marcel_core.api.conversations.get_telegram_user_slug', return_value='alice'),
+            patch('marcel_core.api.conversations.get_channel', return_value=_mock_tg_channel('alice')),
             patch('marcel_core.api.conversations.read_active_segment', return_value=messages),
         ):
             resp = conv_client.get('/api/message/conv-1', params={'initData': 'valid', 'turn': 0})
@@ -353,7 +360,7 @@ class TestConversationsAPI:
         ]
         with (
             patch('marcel_core.api.conversations.verify_telegram_init_data', return_value={'id': 111}),
-            patch('marcel_core.api.conversations.get_telegram_user_slug', return_value='alice'),
+            patch('marcel_core.api.conversations.get_channel', return_value=_mock_tg_channel('alice')),
             patch('marcel_core.api.conversations.read_active_segment', return_value=messages),
         ):
             resp = conv_client.get('/api/message/conv-1', params={'initData': 'valid', 'turn': 5})
