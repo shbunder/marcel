@@ -1,10 +1,11 @@
-"""Seed default skills into the data root.
+"""Seed bundled defaults into the data root.
 
-Skills live at ``<data_root>/skills/`` (``~/.marcel/skills/``).  Default
-skills are bundled in ``src/marcel_core/defaults/skills/`` and seeded
-automatically on server startup if not already present.
+The kernel ships zero bundled skills — every skill lives in marcel-zoo
+and is loaded from ``MARCEL_ZOO_DIR`` at runtime. ``seed_defaults()``
+still copies channel prompts, ``routing.yaml``, and subagent definitions
+from ``src/marcel_core/defaults/`` to the data root on first startup.
 
-This script can be run manually to force-seed defaults.
+This script can be run manually to force-seed the non-skill defaults.
 """
 
 if __name__ == '__main__':

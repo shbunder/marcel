@@ -48,16 +48,16 @@ When rewriting Marcel's own code:
 
 ## Integration pattern (summary)
 
-New integrations follow this pattern:
+New integrations ship as a pair of habitats in marcel-zoo (or any checkout pointed to by `MARCEL_ZOO_DIR`):
 
-1. **Create a python integration module** at `src/marcel_core/skills/integrations/<name>.py`. Use `@register("name.action")` to register async handlers. Each handler receives `(params: dict, user_slug: str)` and returns a string.
-2. **Create a skill doc** at `<data_root>/skills/<name>/SKILL.md` (and the default in `src/marcel_core/defaults/skills/<name>/`). Teaches the agent how to call `integration(id="name.action", params={...})` with inline examples. Add a `requires` field listing credentials, env vars, or files needed.
-3. **Create a setup fallback** at `<data_root>/skills/<name>/SETUP.md`. Shown when the skill's requirements are not met.
-4. **For simple HTTP/shell integrations**, add a JSON entry to `skills.json` instead — no Python module needed. Still create SKILL.md and SETUP.md.
+1. **Create the integration habitat** at `<MARCEL_ZOO_DIR>/integrations/<name>/__init__.py`. Use `@register("name.action")` from `marcel_core.plugin` to register async handlers. Each handler receives `(params: dict, user_slug: str)` and returns a string. Add an `integration.yaml` alongside declaring `provides:` (the handler IDs) and `requires:` (credentials, env vars, files, packages).
+2. **Create the skill habitat** at `<MARCEL_ZOO_DIR>/skills/<name>/SKILL.md` with `depends_on: [<name>]` in the frontmatter. Teaches the agent how to call `integration(id="name.action", params={...})` with inline examples.
+3. **Create a setup fallback** at `<MARCEL_ZOO_DIR>/skills/<name>/SETUP.md`. Shown when the integration's requirements are not met — the agent walks the user through providing them.
+4. **For simple HTTP/shell integrations**, add a JSON entry to `skills.json` instead — no Python module needed. Still create the paired skill habitat with `SKILL.md` and `SETUP.md`.
 
-Skills live at `<data_root>/skills/` (`~/.marcel/skills/`). Default skills are bundled in `src/marcel_core/defaults/skills/` and seeded on first startup. The loader in `skills/loader.py` reads from the data root and injects docs into the system prompt.
+Skill habitats are discovered at startup from `<MARCEL_ZOO_DIR>/skills/` (zoo) and `<data_root>/skills/` (`~/.marcel/skills/` — user customizations, data root wins on collision). The kernel itself ships zero bundled skills. The loader in `src/marcel_core/skills/loader.py` reads from both sources and injects docs into the system prompt.
 
-Integrations must be self-contained — they should not require changes to core Marcel code (`tool.py`, `executor.py`, `runner.py`). Verify the pattern works end-to-end before committing.
+Integrations must be self-contained — they should not require changes to core Marcel code (`tool.py`, `executor.py`, `runner.py`). Verify the pattern works end-to-end before committing. Full habitat contract: [docs/plugins.md](../docs/plugins.md).
 
 ## Telegram-initiated changes
 
