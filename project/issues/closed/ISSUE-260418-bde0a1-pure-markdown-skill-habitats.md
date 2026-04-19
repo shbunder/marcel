@@ -1,6 +1,6 @@
 # ISSUE-bde0a1: Migrate pure-markdown skill habitats to the zoo
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-18
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -65,14 +65,39 @@ All six pure-markdown skills (`developer`, `jobs`, `memory`, `settings`, `ui`, `
 
 **Not touched:** `src/marcel_core/skills/integrations/` (still houses zero integrations, per ISSUE-2ccc10). Loader itself unchanged — the existing `_normalize_depends_on` and `_check_depends_on` logic already handles the "no depends_on" case correctly.
 
+### 2026-04-19 — Straggler sweep (final impl)
+
+Pre-close-verifier caught five files that still pointed contributors at `src/marcel_core/defaults/skills/` as the place to drop new skills — directly contradicting the resolved intent of this issue. Fixed in a final `🔧 impl:` commit:
+
+- `project/CLAUDE.md` — "Integration pattern (summary)" rewritten to target `<MARCEL_ZOO_DIR>/integrations/` and `<MARCEL_ZOO_DIR>/skills/`. Required unlocking the restricted-path guard (CLAUDE.md files are protected) — user granted permission for this specific edit.
+- `.claude/rules/integration-pairs.md` — path-scope glob dropped, obsolete checklist item removed, enforcement reference updated.
+- `src/marcel_core/skills/install_skills.py` — docstring rewritten.
+- `Dockerfile` — comment updated.
+- `docs/claude-code-setup.md` — example and layout comment updated to live paths.
+
+**Reflection** (via pre-close-verifier):
+- Verdict: REQUEST CHANGES → addressed
+- Coverage: 8/8 tasks addressed; loader unchanged (existing `_normalize_depends_on([]) → []` + `_check_depends_on([], …) → True` already handled the no-depends_on case).
+- Shortcuts found: none. Noted that the ISSUE-072 browser→web cleanup block is now behaviorally dead inside the `is_dir()` guard — harmless, deferred.
+- Scope drift: none. Diff is strictly content deletion + seeder guard + docs.
+- Stragglers: 5 instruction-surface files still pointed contributors at `src/marcel_core/defaults/skills/` (fixed above).
+
 ## Lessons Learned
 <!-- Filled in at close time. -->
 
 ### What worked well
--
+
+- **Pre-close-verifier earned its keep again.** The primary agent's straggler grep (run during implementation) missed 5 of the 7 files the fresh-context verifier flagged — including `project/CLAUDE.md`, the single most-read onboarding doc for contributors. A 150-word "what do you actually see in the diff" prompt to a cold context consistently finds things the author rationalized past.
+- **Zoo-README already described "standalone skills"** before any skill filled that slot. Writing the taxonomy before populating it meant the migration was a content move, not a schema change — zero loader code touched, zero tests added, zero regressions possible from new code paths.
+- **One small refactor unblocked full deletion.** Changing the seeder's function-level early return to an `if src_skills.is_dir():` guard let me delete the entire `defaults/skills/` tree without leaving a `.gitkeep` placeholder or a "keep this empty dir" comment. The refactor is 4 lines; its absence would have cost an awkward artifact forever.
 
 ### What to do differently
--
+
+- **Run the straggler grep before the pre-close-verifier, not after.** I grepped `docs/ README.md SETUP.md .claude/` during implementation but missed `project/CLAUDE.md`, `Dockerfile`, and `src/marcel_core/skills/install_skills.py`. Wider scope on the straggler grep (include the repo root, `src/**`, and `Dockerfile`) would catch these in the primary pass and save a round-trip.
+- **Dead code left inside `is_dir()` guards will rot.** The ISSUE-072 browser→web cleanup block is now unreachable from the kernel (nothing in `defaults/skills/` to trigger it). It's harmless today but the next person reading `seed_defaults` will think it's live. Ship with a FIXME or move the block to run even without a bundled skills dir — a TODO for ISSUE-63a946.
 
 ### Patterns to reuse
--
+
+- **Content-move issues benefit from an explicit "three shapes" doc update.** Before the migration, `docs/skills.md` implied every skill had either `requires:` or `depends_on:`. Adding shape 1 (standalone, no requirements) made the habitat contract complete — future contributors will know "no requirements" is a valid choice, not an oversight.
+- **`unlock-safety → edit → re-lock` is the pattern for targeted CLAUDE.md edits.** Touch the file, remove the unlock marker in the same working tree, commit. The guard hook blocks accidental edits; the unlock is scoped to a single deliberate change.
+- **Kernel commit + zoo commit travel together, referenced by kernel ISSUE hash.** The zoo commit message should contain the kernel ISSUE tag so `git log --all --grep="ISSUE-bde0a1"` across both repos finds everything. Consistent with banking (ISSUE-13c7f2), news (ISSUE-d5f8ab).
