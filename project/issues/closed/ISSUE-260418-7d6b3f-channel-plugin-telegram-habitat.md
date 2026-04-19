@@ -1,6 +1,6 @@
 # ISSUE-7d6b3f: Channel plugin contract + migrate Telegram habitat
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-18
 **Assignee:** Unassigned
 **Priority:** High
@@ -149,13 +149,21 @@ Pre-close-verifier caught two items that belong with the last impl commit:
 No kernel source-code changes in this commit — only the kernel-side docs update lands here. The zoo-side fix is already committed upstream (`483ecda`).
 
 ## Lessons Learned
-<!-- Filled in at close time. -->
 
 ### What worked well
--
+
+- **Five-stage slicing.** Cutting the migration into (1) scaffolding, (2) push sites, (3) pull sites, (4a) main.py mount loop, (4b) zoo discovery, (4c) physical move kept every step testable against the previous step's output. `make check` went green at every stage boundary and caught the one real issue (the coverage-scope trap at 4c) inside a narrow diff window rather than under a mountain of churn.
+- **Plugin push/pull split.** Defining the push surface (`send_message` / `send_photo` / `send_artifact_link`) and the pull surface (`resolve_user_slug`) on the same `ChannelPlugin` Protocol let both directions migrate to registry lookups without adding a second abstraction. The `resolve_user_slug(external_id) -> str | None` shape covered every call site unchanged.
+- **Registry-before-move.** Moving the plugin registry + discovery in stages 1–4b *before* touching the filesystem in 4c meant 4c was almost pure deletion on the kernel side: the discovery path was already proven against a concrete plugin (the kernel-hosted telegram self-register) before it ever had to load from the zoo.
 
 ### What to do differently
--
+
+- **Run the verifier earlier.** Both findings the pre-close-verifier flagged — the missing `docs/plugins.md` section and the zoo habitat's absolute imports — were visible in the code days before the close. Invoking the verifier mid-stage instead of only at the gate would have caught them without a late scramble. Next migration, run it after stage-2-style milestones, not just before close.
+- **Check both load paths for external habitats.** The zoo habitat's absolute `from marcel_core.channels.telegram import ...` imports passed tests because the conftest alias installed the habitat under the legacy name. They would have failed the moment the kernel loaded the habitat in production (where no alias exists). The takeaway: when a module is loadable under two different namespaces, the rule is *relative imports inside, absolute imports only for external kernel surfaces*. Write this into the channel habitat docs so future habitats start from the right pattern.
+- **`--cov` scope is not an incidental flag.** `--cov=marcel_core` (package) and `--cov=src/marcel_core` (path) look interchangeable and behave identically until `sys.modules['marcel_core.X']` points at files outside `src/`. The conftest alias was the trigger here; any future sys.modules-level injection would reopen the same trap. Prefer the path form by default and justify the package form when it is needed.
 
 ### Patterns to reuse
--
+
+- **Conftest alias for cross-repo migration with zero-change test imports.** `sys.modules['<old_name>'] = module` plus attaching to the parent package via `parent.child = module` (pytest's `monkeypatch.setattr` walks attribute chains, not just sys.modules) lets existing `patch('old.path')` and `from old.path import X` sites keep resolving after the module physically moves. Strictly a test-time pattern — production code must use the real runtime namespace. Reuse on future channel / integration / subagent migrations where the test suite has many deep patches.
+- **`_marcel_ext_<kind>.<name>` private namespace.** Mirrors the integration loader's convention (`_marcel_ext_integrations`, `_marcel_ext_channels`) and keeps externally-loaded habitats syntactically distinct from kernel modules. Discoverable with one grep; impossible to confuse with a real top-level package.
+- **Three-valued capability query.** `channel_has_rich_ui(name) -> bool | None` — registered True / registered False / unknown. The `None` bucket lets the caller fall back to a built-in set for kernel-native surfaces without the registered-False and unknown cases collapsing. Apply the same shape to any future registry whose "default" and "explicitly off" need to stay distinguishable.
