@@ -19,8 +19,10 @@ services:
       - MARCEL_DATA_DIR=${HOME}/.marcel
       - MARCEL_ZOO_DIR=${MARCEL_ZOO_DIR:-${HOME}/.marcel/zoo}
     volumes:
-      # Source code — bind-mounted so uvicorn --reload picks up edits without rebuilds
-      - .:/app
+      # Source code only — uvicorn --reload picks up edits without rebuilds.
+      # Scoped to ./src (not the repo root) so pyproject.toml / Dockerfile /
+      # docker-compose.*.yml changes still require a rebuild, matching prod.
+      - ./src:/app/src
       # User home — same shape as prod
       - ${HOME}:${HOME}
       - ${HOME}/.marcel:${HOME}/.marcel
