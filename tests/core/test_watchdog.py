@@ -17,9 +17,14 @@ from marcel_core.watchdog import flags, health, rollback
 
 
 @pytest.fixture(autouse=True)
-def isolated_data_dir(tmp_path: pathlib.Path):
-    """Redirect flag file I/O to a temporary directory for every test."""
+def isolated_data_dir(tmp_path: pathlib.Path, monkeypatch):
+    """Redirect flag file I/O to a temporary directory for every test.
+
+    Pin ``MARCEL_ENV=prod`` so the base flag-file tests exercise a deterministic
+    suffix; env-specific behavior is covered by the dedicated tests below.
+    """
     flags._set_data_dir(tmp_path)
+    monkeypatch.setenv('MARCEL_ENV', 'prod')
     yield tmp_path
     flags._set_data_dir(None)
 
@@ -43,7 +48,7 @@ def test_clear_restart_request_removes_file(tmp_path: pathlib.Path):
     flags.request_restart('deadbeef')
     flags.clear_restart_request()
     assert flags.read_restart_request() is None
-    assert not (tmp_path / 'restart_requested').exists()
+    assert not (tmp_path / 'restart_requested.prod').exists()
 
 
 def test_clear_restart_request_noop_when_absent():
@@ -74,7 +79,7 @@ def test_clear_restart_result_removes_file(tmp_path: pathlib.Path):
     flags.write_restart_result('ok')
     flags.clear_restart_result()
     assert flags.read_restart_result() is None
-    assert not (tmp_path / 'restart_result').exists()
+    assert not (tmp_path / 'restart_result.prod').exists()
 
 
 def test_clear_restart_result_noop_when_absent():
@@ -202,3 +207,70 @@ def test_atomic_write_unlink_fails_during_exception(tmp_path: pathlib.Path, monk
 
     with pytest.raises(OSError, match='replace failed'):
         flags._atomic_write(tmp_path / 'test.txt', 'content')
+
+
+# ---------------------------------------------------------------------------
+# flags.py — env-aware flag file names (ISSUE-6b02d0)
+# ---------------------------------------------------------------------------
+
+
+def test_request_restart_writes_env_suffixed_file_dev(tmp_path: pathlib.Path, monkeypatch):
+    """MARCEL_ENV=dev must write to restart_requested.dev, not .prod."""
+    monkeypatch.setenv('MARCEL_ENV', 'dev')
+
+    flags.request_restart('abc1234')
+
+    assert (tmp_path / 'restart_requested.dev').exists()
+    assert not (tmp_path / 'restart_requested.prod').exists()
+    assert not (tmp_path / 'restart_requested').exists()
+
+
+def test_request_restart_writes_env_suffixed_file_prod(tmp_path: pathlib.Path, monkeypatch):
+    """MARCEL_ENV=prod must write to restart_requested.prod, not .dev."""
+    monkeypatch.setenv('MARCEL_ENV', 'prod')
+
+    flags.request_restart('abc1234')
+
+    assert (tmp_path / 'restart_requested.prod').exists()
+    assert not (tmp_path / 'restart_requested.dev').exists()
+
+
+def test_dev_and_prod_flags_are_isolated(tmp_path: pathlib.Path, monkeypatch):
+    """A dev request must not be visible to prod readers (and vice versa).
+
+    This is the core parity property: self-mod in one env cannot trigger the
+    other env's restart path.
+    """
+    monkeypatch.setenv('MARCEL_ENV', 'dev')
+    flags.request_restart('dev-sha')
+
+    monkeypatch.setenv('MARCEL_ENV', 'prod')
+    assert flags.read_restart_request() is None  # prod reader sees no request
+
+    monkeypatch.setenv('MARCEL_ENV', 'dev')
+    assert flags.read_restart_request() == 'dev-sha'
+
+
+def test_unknown_env_value_falls_back_to_prod(tmp_path: pathlib.Path, monkeypatch):
+    """A typoed MARCEL_ENV must fall back to prod (fail-safe default).
+
+    A dev flag file cannot accidentally trigger a prod rebuild because an
+    unrecognized value never matches the dev suffix.
+    """
+    monkeypatch.setenv('MARCEL_ENV', 'staging')  # not in {dev, prod}
+
+    flags.request_restart('abc')
+
+    assert (tmp_path / 'restart_requested.prod').exists()
+
+
+def test_write_restart_result_is_env_scoped(tmp_path: pathlib.Path, monkeypatch):
+    """restart_result is also env-scoped so dev/prod results cannot collide."""
+    monkeypatch.setenv('MARCEL_ENV', 'dev')
+    flags.write_restart_result('ok')
+
+    assert (tmp_path / 'restart_result.dev').exists()
+    assert not (tmp_path / 'restart_result.prod').exists()
+
+    monkeypatch.setenv('MARCEL_ENV', 'prod')
+    assert flags.read_restart_result() is None  # prod reader sees no result

@@ -44,6 +44,7 @@ stop_unit() {
   fi
 }
 
+stop_unit "marcel-dev-redeploy.path"
 stop_unit "marcel-redeploy.path"
 stop_unit "marcel.service"
 
@@ -52,6 +53,8 @@ UNITS=(
   "$SYSTEMD_DIR/marcel.service"
   "$SYSTEMD_DIR/marcel-redeploy.path"
   "$SYSTEMD_DIR/marcel-redeploy.service"
+  "$SYSTEMD_DIR/marcel-dev-redeploy.path"
+  "$SYSTEMD_DIR/marcel-dev-redeploy.service"
 )
 
 for unit_file in "${UNITS[@]}"; do

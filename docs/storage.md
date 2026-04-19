@@ -43,8 +43,8 @@ synchronous Python API for reading and writing users, conversations, and memory.
     {id}.json                 # artifact metadata + content
     files/                    # binary files (images, charts)
   watchdog/
-    restart_requested         # flag file for self-restart
-    restart_result            # restart outcome (ok, rolled_back, rollback_failed)
+    restart_requested.{env}   # flag file for self-restart — suffix is 'prod' or 'dev'
+    restart_result.{env}      # restart outcome (ok, rolled_back, rollback_failed)
 ```
 
 The data root defaults to `~/.marcel/`.  Set the `MARCEL_DATA_DIR`

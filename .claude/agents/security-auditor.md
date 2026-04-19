@@ -25,7 +25,7 @@ Marcel runs on a home server. The threat model is a mix of "kids mess around" (a
 
 ### 3. Self-modification restart path
 
-- The ONLY legal restart mechanism is `request_restart()` writing to the flag file that `marcel-redeploy.path` watches. Any new code path that invokes `systemctl`, `docker restart`, `os.execv`, or similar is a Critical unless it's the dev-mode restart watcher in `main.py`.
+- The ONLY legal restart mechanism is `request_restart()` writing to the env-suffixed flag file (`restart_requested.prod` or `restart_requested.dev`) that `marcel-redeploy.path` / `marcel-dev-redeploy.path` watches. Any new code path that invokes `systemctl`, `docker restart`, `os.execv`, or similar is a Critical — there is no dev-mode exception (dev is containerized and uses the same mechanism as prod).
 - The flag file's contents are a git SHA that `redeploy.sh` checks out. If any diff lets user-controllable input reach that file's contents, it's remote code execution on the host.
 
 ### 4. Role-gated tools

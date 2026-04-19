@@ -1,11 +1,15 @@
 """Flag file helpers for watchdog ↔ agent communication.
 
-Flag files live at ``~/.marcel/watchdog/`` (or ``MARCEL_DATA_DIR/watchdog/``):
+Flag files live at ``~/.marcel/watchdog/`` (or ``MARCEL_DATA_DIR/watchdog/``)
+with an env suffix so the dev and prod containers cannot race each other's
+restart cycles:
 
-- ``restart_requested`` — written by the agent to request a restart;
+- ``restart_requested.<env>`` — written by the agent to request a restart;
   contains the pre-change git commit SHA.
-- ``restart_result`` — written by the watchdog after a restart:
+- ``restart_result.<env>`` — written by the watchdog after a restart:
   ``"ok"`` or ``"rolled_back"``.
+
+``<env>`` is resolved from ``MARCEL_ENV`` at call time (default ``prod``).
 
 All writes use an atomic write-to-temp-then-rename pattern so the watchdog
 never sees a partially-written file.
@@ -48,6 +52,18 @@ def _set_data_dir(path: pathlib.Path | None) -> None:
     _data_dir_override = path
 
 
+def _env() -> str:
+    """Resolve ``MARCEL_ENV`` at call time, defaulting to ``prod``.
+
+    Validated against the same ``{dev, prod}`` set as ``Settings.marcel_env``.
+    Invalid values fall back to ``prod`` — safest default if a typo ever
+    appears in a compose file, since a dev flag cannot accidentally trigger
+    the prod rebuild path.
+    """
+    val = os.environ.get('MARCEL_ENV', 'prod')
+    return val if val in ('dev', 'prod') else 'prod'
+
+
 def _atomic_write(path: pathlib.Path, text: str) -> None:
     """Write *text* to *path* atomically (write temp file, then rename)."""
     dir_ = path.parent
@@ -70,24 +86,27 @@ def _atomic_write(path: pathlib.Path, text: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _request_path() -> pathlib.Path:
+    return data_dir() / f'restart_requested.{_env()}'
+
+
 def request_restart(pre_change_sha: str) -> None:
-    """Write the ``restart_requested`` flag containing *pre_change_sha*."""
-    _atomic_write(data_dir() / 'restart_requested', pre_change_sha)
+    """Write the env-scoped ``restart_requested`` flag containing *pre_change_sha*."""
+    _atomic_write(_request_path(), pre_change_sha)
 
 
 def read_restart_request() -> str | None:
     """Return the pre-change SHA if a restart is requested, else ``None``."""
-    path = data_dir() / 'restart_requested'
     try:
-        return path.read_text().strip() or None
+        return _request_path().read_text().strip() or None
     except FileNotFoundError:
         return None
 
 
 def clear_restart_request() -> None:
-    """Delete the ``restart_requested`` flag file (no-op if absent)."""
+    """Delete the env-scoped ``restart_requested`` flag file (no-op if absent)."""
     try:
-        (data_dir() / 'restart_requested').unlink()
+        _request_path().unlink()
     except FileNotFoundError:
         pass
 
@@ -97,23 +116,26 @@ def clear_restart_request() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _result_path() -> pathlib.Path:
+    return data_dir() / f'restart_result.{_env()}'
+
+
 def write_restart_result(result: str) -> None:
-    """Write *result* (``"ok"`` or ``"rolled_back"``) to ``restart_result``."""
-    _atomic_write(data_dir() / 'restart_result', result)
+    """Write *result* (``"ok"`` or ``"rolled_back"``) to the env-scoped flag."""
+    _atomic_write(_result_path(), result)
 
 
 def read_restart_result() -> str | None:
     """Return the result string if present, else ``None``."""
-    path = data_dir() / 'restart_result'
     try:
-        return path.read_text().strip() or None
+        return _result_path().read_text().strip() or None
     except FileNotFoundError:
         return None
 
 
 def clear_restart_result() -> None:
-    """Delete the ``restart_result`` flag file (no-op if absent)."""
+    """Delete the env-scoped ``restart_result`` flag file (no-op if absent)."""
     try:
-        (data_dir() / 'restart_result').unlink()
+        _result_path().unlink()
     except FileNotFoundError:
         pass

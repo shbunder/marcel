@@ -1,7 +1,5 @@
 import asyncio
 import logging
-import os
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -46,41 +44,8 @@ from marcel_core.api.conversations import router as conversations_router
 from marcel_core.api.health import router as health_router
 from marcel_core.channels.telegram import router as telegram_router
 from marcel_core.jobs.scheduler import scheduler
-from marcel_core.watchdog.flags import read_restart_request, write_restart_result
 
 log = logging.getLogger(__name__)
-
-_RESTART_POLL_INTERVAL = 2.0  # seconds
-
-
-def _is_docker() -> bool:
-    """Return True if running inside a Docker container."""
-    return Path('/.dockerenv').exists()
-
-
-async def _restart_watcher() -> None:
-    """Poll for a restart request flag and trigger a restart when found.
-
-    In Docker: the flag file is left in place for the host-side systemd path
-    unit (marcel-redeploy.path) to detect and trigger redeploy.sh. The
-    watchdog (PID 1) handles the process lifecycle within the container.
-
-    Outside Docker (dev mode): exec-replaces the process in-place so the PID
-    stays the same and the Python interpreter reloads fresh from disk.
-    """
-    while True:
-        await asyncio.sleep(_RESTART_POLL_INTERVAL)
-        sha = read_restart_request()
-        if sha:
-            log.info('Restart requested (pre-change SHA: %s)', sha)
-
-            if _is_docker():
-                # Leave the flag file in place — the host-side systemd path
-                # unit watches it and triggers redeploy.sh on the host.
-                log.info('Docker detected — restart flag written, waiting for host-side redeploy')
-            else:
-                write_restart_result('ok')
-                os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 async def _background_summarization_loop() -> None:
@@ -139,14 +104,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Skipping this means every habitat-scheduled job is deleted on cold start.
     discover_integrations()
 
-    restart_task = asyncio.create_task(_restart_watcher())
     summarize_task = asyncio.create_task(_background_summarization_loop())
     scheduler.start()
     log.info('main: all background tasks started')
     yield
     scheduler.stop()
     summarize_task.cancel()
-    restart_task.cancel()
     log.info('main: shutdown complete')
 
 

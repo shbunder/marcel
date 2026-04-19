@@ -100,9 +100,18 @@ install-skills: ## Symlink Marcel integration skills into .marcel/skills/
 	@uv run python -m marcel_core.skills.install_skills
 
 .PHONY: serve
-serve: install-skills ## Start marcel-core development server (uvicorn with reload)
-	echo -e "$(INFO) Starting marcel-core (dev) on http://0.0.0.0:$(MARCEL_DEV_PORT) ..."
-	MARCEL_PORT=$(MARCEL_DEV_PORT) uv run uvicorn marcel_core.main:app --host 0.0.0.0 --port $(MARCEL_DEV_PORT) --reload
+serve: install-skills ## Start marcel-core dev container (Docker, uvicorn --reload on $(MARCEL_DEV_PORT))
+	echo -e "$(INFO) Starting marcel-dev container on http://0.0.0.0:$(MARCEL_DEV_PORT) ..."
+	docker compose -f docker-compose.dev.yml up -d --build
+	echo -e "$(INFO) Follow logs: make serve-logs  |  stop: make serve-down"
+
+.PHONY: serve-logs
+serve-logs: ## Tail marcel-dev container logs
+	docker compose -f docker-compose.dev.yml logs -f marcel-dev
+
+.PHONY: serve-down
+serve-down: ## Stop the marcel-dev container
+	docker compose -f docker-compose.dev.yml down
 
 .PHONY: test-v2
 test-v2: ## Test v2 endpoint with a message (usage: make test-v2 MSG="your message")

@@ -7,14 +7,16 @@ Marcel is a self-adapting personal agent built on Claude Code — it can observe
 ## Commands
 
 ```bash
-make serve          # dev backend (uvicorn --reload on :7421, separate from prod :7420)
+make serve          # dev container (Docker, uvicorn --reload on :7421, separate from prod :7420)
+make serve-logs     # tail the dev container logs
+make serve-down     # stop the dev container
 make check          # format + lint + typecheck + tests with 90% coverage (also runs as pre-commit hook)
 make test           # tests only
 make cli-dev        # build + run the Rust CLI in debug mode
 make docker-logs    # tail the prod container logs
 ```
 
-Dev and prod run on different ports: `make serve` binds `:7421`, the Docker container binds `:7420`. You can run both at once.
+Dev and prod both run as Docker containers on different ports: `make serve` brings up `marcel-dev` on `:7421` via `docker-compose.dev.yml`; `make docker-up` brings up `marcel` on `:7420` via `docker-compose.yml`. Both can run simultaneously and share one restart mechanism (env-aware flag files — see [docs/self-modification.md](docs/self-modification.md)).
 
 ## Core principles
 
