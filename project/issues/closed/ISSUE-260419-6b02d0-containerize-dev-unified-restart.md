@@ -1,6 +1,6 @@
 # ISSUE-6b02d0: Containerize dev on :7421 with unified flag-file restart
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-19
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -137,14 +137,29 @@ The fix:
 - `grep -rn 'os.execv' src/ tests/` → no matches.
 - `watchdog/flags.py` at 100% coverage.
 
+**Note on `project/plans/architecture-overview.md`**
+- Task ticked without a diff. That file carries a prominent `Status: **Superseded**` marker and is deliberately kept as frozen phase-planning history. Updating it would mislead future readers about what the superseded plan said at the time — leaving it alone is correct.
+
+**Reflection** (via pre-close-verifier):
+- Verdict: REQUEST CHANGES → addressed (verdict would now be APPROVE — the one straggler was a doc/code mismatch on the bind-mount scope, which we fixed by narrowing `docker-compose.dev.yml` to `./src:/app/src` to match the docs and the original scope).
+- Coverage: 22/22 tasks addressed (architecture-overview.md task intentionally a no-op, noted above).
+- Shortcuts found: none.
+- Scope drift: none — every change maps back to a Task or Resolved intent.
+- Stragglers (pre-fix): three doc sites said `./src` bind-mount while compose mounted the whole repo; fixed in commit `c40064a` by narrowing the compose mount. No remaining stragglers.
+
 ## Lessons Learned
-<!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->
 
 ### What worked well
--
+- **Env-aware flag files are the right unification primitive.** The whole dev/prod restart divergence collapsed into a single string-suffix change in `watchdog/flags.py`. No new abstractions, no branches in `request_restart()` — just one path with one parameter. That's what a "strong primitive" looks like.
+- **Reading `MARCEL_ENV` from `os.environ` inside `flags.py` instead of importing `settings`.** Keeps the watchdog layer dependency-light (the watchdog is PID 1 in prod and has to boot before config loading gets interesting). Paid off immediately — the `_env()` helper is four lines and testable without a pydantic-settings fixture.
+- **`test_unknown_env_value_falls_back_to_prod` as a safety-rail test.** Explicitly locks in the invariant that a typo in `MARCEL_ENV` can never trigger the dev rebuild path. The kind of test that costs nothing to write and would be painful to add retroactively after a prod incident.
 
 ### What to do differently
--
+- **Narrow the bind-mount scope from the start.** First draft mounted `.:/app` (the whole repo), docs said `./src`. Pre-close-verifier caught the mismatch. Should have matched the original issue scope ("bind-mount `./src`") verbatim when writing the compose file — the docs weren't wrong, the compose was.
+- **Remember to clean up call sites when deleting a helper.** `_restart_watcher` was deleted cleanly but the `lifespan()` call site (`restart_task = asyncio.create_task(...)`) survived. Would have crashed at startup. The post-compaction context summary caught it before `make check`, but a cold read would have been faster. Grep for the symbol before declaring the delete done.
+- **Run `make check` after deleting functions, not just after adding them.** The `_restart_watcher` mock in `test_main_lifespan.py` broke silently in the diff review — only `pytest` surfaced it.
 
 ### Patterns to reuse
--
+- **"Delete the carve-out" as a refactor shape.** Whenever two environments need the same safety boundary but ship different implementations, the fix is usually not "add a third abstraction" — it's "containerize the weaker one until the stronger mechanism fits both." Cost: a 50-line `docker-compose.dev.yml`. Benefit: one code path to audit, one mechanism to test, one class of divergence gone.
+- **Env-suffixed flag files for any "two long-running deployments with the same host" scenario.** Same shape would work for a staging container alongside prod, or a canary alongside stable. The `{env}` suffix + `MARCEL_ENV` convention generalizes cleanly.
+- **`Literal['dev', 'prod']` typing in settings drives exhaustive handling downstream.** Pyright forces `_env()` to handle both cases and the unknown fallback; tests naturally align with the type surface.
