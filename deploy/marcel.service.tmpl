@@ -1,7 +1,8 @@
 [Unit]
 Description=Marcel personal assistant (Docker)
-After=docker.service
-Requires=docker.service
+# Docker runs as a system service, not a user service — a user unit can't
+# Require/After it. ExecStart will fail loudly if Docker isn't running, which
+# is the correct behavior. (Regression from ISSUE-d2a2ce of the ISSUE-027 fix.)
 
 [Service]
 Type=oneshot
