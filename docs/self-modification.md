@@ -13,13 +13,18 @@ the Docker container with automatic rollback on failure).
 
 ```
 Host
-  ├── marcel.service          (systemd user unit — manages docker compose)
-  ├── marcel-redeploy.path    (systemd — watches restart flag file)
-  └── marcel-redeploy.service (systemd — runs redeploy.sh when triggered)
+  ├── marcel.service              (systemd user unit — manages docker compose)
+  ├── marcel-redeploy.path        (systemd — watches restart_requested.prod)
+  ├── marcel-redeploy.service     (systemd — runs redeploy.sh --env prod)
+  ├── marcel-dev-redeploy.path    (systemd — watches restart_requested.dev)
+  └── marcel-dev-redeploy.service (systemd — runs redeploy.sh --env dev)
 
-Docker container (marcel)
+Docker container (marcel, prod)
   └── marcel-watchdog   (marcel_core.watchdog.main, PID 1)
         └── uvicorn     (marcel_core.main:app)
+
+Docker container (marcel-dev)
+  └── uvicorn --reload  (marcel_core.main:app, bind-mounted ./src)
 ```
 
 The container runs with `network_mode: host` and has access to:
@@ -35,10 +40,13 @@ Self-restart is handled entirely by host-side systemd — the container does
 ### Development
 
 ```
-make serve   →   uvicorn --reload   (port 7421, no watchdog)
+make serve   →   docker compose -f docker-compose.dev.yml up -d --build
+                 (container: marcel-dev, port 7421, uvicorn --reload, no watchdog)
 ```
 
-Dev and prod can run simultaneously on different ports.
+The dev container uses the same `Dockerfile` as prod but bind-mounts `./src`
+into `/app/src` and runs `uvicorn --reload` directly (no watchdog PID 1). Dev
+and prod can run simultaneously on their respective ports.
 
 ---
 
@@ -71,32 +79,43 @@ To tear down: `make teardown` (stops everything, removes systemd units, preserve
 
 ---
 
-## Restart flow (Docker)
+## Restart flow
+
+Dev and prod share one mechanism. The only differences are the flag-file
+suffix (resolved from `MARCEL_ENV`) and the compose file the redeploy script
+drives.
 
 When Marcel modifies its own code:
 
 1. Commits all changes via git.
 2. Calls `request_restart(pre_change_sha)` which writes the SHA to
-   `~/.marcel/watchdog/restart_requested`.
+   `~/.marcel/watchdog/restart_requested.{env}` (where `{env}` is `dev` or
+   `prod`, taken from `MARCEL_ENV`).
 
-The host-side systemd path unit (`marcel-redeploy.path`) detects the flag file
-and triggers `marcel-redeploy.service`, which runs `redeploy.sh`:
+The matching host-side systemd path unit fires:
 
-1. Clears the `restart_requested` flag.
-2. Records the current commit as known-good.
-3. Runs `docker compose build` (rebuilds the image with new code).
-4. Runs `docker compose up -d` (restarts the container).
-5. Polls `GET http://localhost:7420/health` for up to 60 seconds.
-6. **If healthy**: writes `"ok"` to `~/.marcel/watchdog/restart_result`.
-7. **If unhealthy**: reverts to the known-good commit, rebuilds, restarts,
+- `marcel-redeploy.path` watches `restart_requested.prod` → runs
+  `redeploy.sh --env prod` (drives `docker-compose.yml`, port 7420)
+- `marcel-dev-redeploy.path` watches `restart_requested.dev` → runs
+  `redeploy.sh --env dev` (drives `docker-compose.dev.yml`, port 7421)
+
+`redeploy.sh`:
+
+1. Clears the `restart_requested.{env}` flag.
+2. Records the current commit as known-good (prod only).
+3. Runs `docker compose -f <compose-file> build` (rebuilds the image with new code).
+4. Runs `docker compose -f <compose-file> up -d` (recreates the container).
+5. Polls `GET http://localhost:{port}/health` for up to 60 seconds.
+6. **If healthy**: writes `"ok"` to `~/.marcel/watchdog/restart_result.{env}`.
+7. **If unhealthy (prod)**: reverts to the known-good commit, rebuilds, restarts,
    and writes `"rolled_back"` or `"rollback_failed"`.
 
 Because `redeploy.sh` runs on the host (not inside the container), the rollback
 logic works reliably — it survives the container restart.
 
-### Watchdog (inside the container)
+### Watchdog (prod container only)
 
-The watchdog still runs as PID 1 inside the container and provides a second
+The watchdog runs as PID 1 inside the **prod** container and provides a second
 layer of safety:
 
 1. Starts `uvicorn` and polls `/health`.
@@ -104,14 +123,8 @@ layer of safety:
    if the new code fails health checks.
 3. On unexpected uvicorn exit: restarts immediately.
 
----
-
-## Restart flow (Development)
-
-When running without Docker (`make serve`), the restart watcher in `main.py`
-detects the flag file and uses `os.execv` to replace the running process
-in-place. The PID stays the same and the Python interpreter reloads fresh from
-disk. No rollback is attempted in dev mode.
+The dev container does not run the watchdog — uvicorn is PID 1 and
+`--reload` handles code reloads during interactive development.
 
 ---
 
@@ -121,11 +134,14 @@ Flag files live at `~/.marcel/watchdog/` (or `$MARCEL_DATA_DIR/watchdog/`).
 
 | File | Writer | Reader | Contents |
 |------|--------|--------|----------|
-| `restart_requested` | agent | systemd path unit / main.py | pre-change git SHA (plain text) |
-| `restart_result` | redeploy.sh / watchdog | agent | `"ok"`, `"rolled_back"`, or `"rollback_failed"` |
+| `restart_requested.prod` | prod agent | `marcel-redeploy.path` | pre-change git SHA (plain text) |
+| `restart_requested.dev` | dev agent | `marcel-dev-redeploy.path` | pre-change git SHA (plain text) |
+| `restart_result.prod` | `redeploy.sh --env prod` / prod watchdog | prod agent | `"ok"`, `"rolled_back"`, or `"rollback_failed"` |
+| `restart_result.dev` | `redeploy.sh --env dev` | dev agent | `"ok"` |
 
-All writes use an **atomic write-to-temp-then-rename** pattern so neither side
-ever reads a partially-written file.
+The `.{env}` suffix ensures a dev self-mod cannot trigger the prod rebuild
+path and vice versa. All writes use an **atomic write-to-temp-then-rename**
+pattern so neither side ever reads a partially-written file.
 
 The agent API for triggering a restart:
 
@@ -140,7 +156,9 @@ request_restart(pre_change_sha)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MARCEL_PORT` | `7420` | Port passed to `uvicorn` |
+| `MARCEL_ENV` | `prod` | `dev` or `prod`; selects the flag-file suffix in `request_restart()` |
+| `MARCEL_PORT` | `7420` | Port passed to `uvicorn` (dev container overrides to `MARCEL_DEV_PORT`) |
+| `MARCEL_DEV_PORT` | `7421` | Port the dev container binds |
 | `MARCEL_DATA_DIR` | `~/.marcel/` | Runtime data directory |
 | `MARCEL_HEALTH_TIMEOUT` | `30` | Seconds to wait for `/health` |
 | `MARCEL_POLL_INTERVAL` | `2` | Seconds between health polls |
@@ -149,13 +167,13 @@ request_restart(pre_change_sha)
 
 ## Dual-port setup
 
-| Mode | Port | How to start | How to connect |
-|------|------|-------------|----------------|
-| Production (Docker) | 7420 | `make setup` | `marcel` |
-| Development | 7421 (configurable) | `make serve` | `marcel --dev` |
+| Mode | Port | How to start | Compose file | `MARCEL_ENV` |
+|------|------|-------------|--------------|--------------|
+| Production | 7420 | `make setup` / `make docker-up` | `docker-compose.yml` | `prod` |
+| Development | 7421 | `make serve` | `docker-compose.dev.yml` | `dev` |
 
 Both can run simultaneously. The dev port can be overridden via
-`MARCEL_DEV_PORT` in the Makefile or `dev_port` in `~/.marcel/config.toml`.
+`MARCEL_DEV_PORT` in `.env` or the Makefile.
 
 ---
 
@@ -165,17 +183,24 @@ All units are user-level (`~/.config/systemd/user/`) — no root access needed.
 
 | Unit | Type | Purpose |
 |------|------|---------|
-| `marcel.service` | oneshot (RemainAfterExit) | Runs `docker compose up -d --build` |
-| `marcel-redeploy.path` | path | Watches `restart_requested` flag file |
-| `marcel-redeploy.service` | oneshot | Runs `redeploy.sh` when triggered |
+| `marcel.service` | oneshot (RemainAfterExit) | Runs `docker compose up -d --build` (prod) |
+| `marcel-redeploy.path` | path | Watches `restart_requested.prod` flag file |
+| `marcel-redeploy.service` | oneshot | Runs `redeploy.sh --env prod` when triggered |
+| `marcel-dev-redeploy.path` | path | Watches `restart_requested.dev` flag file |
+| `marcel-dev-redeploy.service` | oneshot | Runs `redeploy.sh --env dev` when triggered |
+
+The dev container itself is started manually via `make serve` (not a systemd
+unit), but self-mod restarts go through the same host-side path.
 
 Useful commands:
 
 ```bash
-systemctl --user status marcel              # container status
-systemctl --user restart marcel             # manual restart (full rebuild)
-systemctl --user status marcel-redeploy.path  # is the watcher active?
-journalctl --user -u marcel-redeploy -f     # follow redeploy logs
+systemctl --user status marcel                  # prod container status
+systemctl --user restart marcel                 # manual restart (full rebuild)
+systemctl --user status marcel-redeploy.path    # prod watcher active?
+systemctl --user status marcel-dev-redeploy.path # dev watcher active?
+journalctl --user -u marcel-redeploy -f         # follow prod redeploy logs
+journalctl --user -u marcel-dev-redeploy -f     # follow dev redeploy logs
 ```
 
 ---

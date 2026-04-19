@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for Marcel (dev) restart request flag
+
+[Path]
+PathExists=@@DATA_DIR@@/watchdog/restart_requested.dev
+Unit=marcel-dev-redeploy.service
+
+[Install]
+WantedBy=default.target

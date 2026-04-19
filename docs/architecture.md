@@ -178,4 +178,4 @@ Optional LLM tracing via OpenTelemetry + Phoenix (Arize). When `MARCEL_TRACING_E
 make serve
 ```
 
-Starts uvicorn on `0.0.0.0:8000`. In development, `--reload` is enabled. See the [self-modification docs](self-modification.md) for the production watchdog setup.
+Starts the `marcel-dev` Docker container on `0.0.0.0:${MARCEL_DEV_PORT:-7421}` with `uvicorn --reload` and `./src` bind-mounted. See the [self-modification docs](self-modification.md) for the production watchdog setup and the unified (dev + prod) restart flow.

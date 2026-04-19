@@ -101,6 +101,4 @@ sha = subprocess.check_output(['git', 'rev-parse', 'HEAD~1']).decode().strip()
 request_restart(sha)  # writes flag file → host systemd triggers redeploy
 ```
 
-This writes the `restart_requested` flag file. A host-side systemd path unit (`marcel-redeploy.path`) watches for this file and triggers `redeploy.sh` on the host — which rebuilds the Docker image, restarts the container, health-checks, and rolls back on failure. Marcel does **not** restart itself from inside the container.
-
-In dev mode (`make serve`), the restart watcher in `main.py` detects the flag and exec-replaces the process in-place. See [docs/self-modification.md](../docs/self-modification.md) for full details.
+This writes the `restart_requested.{env}` flag file (the suffix comes from `MARCEL_ENV` — `prod` or `dev`). The matching host-side systemd path unit (`marcel-redeploy.path` for prod, `marcel-dev-redeploy.path` for dev) watches the flag and triggers `redeploy.sh --env {env}` — which rebuilds the Docker image, recreates the container, health-checks, and rolls back on failure (prod). Marcel does **not** restart itself from inside the container. See [docs/self-modification.md](../docs/self-modification.md) for full details.

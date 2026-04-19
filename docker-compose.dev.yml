@@ -1,0 +1,47 @@
+services:
+  marcel-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USER_UID: ${MARCEL_UID:-1000}
+        USER_GID: ${MARCEL_GID:-1000}
+    container_name: marcel-dev
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
+      - .env.local
+    environment:
+      - HOME=${HOME}
+      - MARCEL_ENV=dev
+      - MARCEL_PORT=${MARCEL_DEV_PORT:-7421}
+      - MARCEL_DATA_DIR=${HOME}/.marcel
+      - MARCEL_ZOO_DIR=${MARCEL_ZOO_DIR:-${HOME}/.marcel/zoo}
+    volumes:
+      # Source code — bind-mounted so uvicorn --reload picks up edits without rebuilds
+      - .:/app
+      # User home — same shape as prod
+      - ${HOME}:${HOME}
+      - ${HOME}/.marcel:${HOME}/.marcel
+      # Docker socket — dev can also manage sibling containers
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Override the prod CMD (watchdog + uvicorn) with a direct uvicorn --reload.
+    # Self-mod restarts in dev go through the flag file → marcel-dev-redeploy.path
+    # → redeploy.sh --env dev path, exactly mirroring prod's mechanism.
+    command:
+      - uv
+      - run
+      - uvicorn
+      - marcel_core.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - ${MARCEL_DEV_PORT:-7421}
+      - --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${MARCEL_DEV_PORT:-7421}/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3

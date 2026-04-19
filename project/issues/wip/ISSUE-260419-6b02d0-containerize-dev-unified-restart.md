@@ -69,27 +69,27 @@ The fix:
 
 ## Tasks
 
-- [ ] Add `MARCEL_ENV: Literal["dev", "prod"] = "prod"` to [src/marcel_core/config.py](../../src/marcel_core/config.py)
-- [ ] Write `docker-compose.dev.yml` — same image, `MARCEL_ENV=dev`, `MARCEL_PORT=7421`, bind-mount `./src:/app/src`, `command: uvicorn marcel_core.main:app --host 0.0.0.0 --port 7421 --reload`, healthcheck on `/health`
-- [ ] Rewrite `make serve` target in the Makefile to drive the dev compose file (`docker compose -f docker-compose.dev.yml up --build`), update the help text + the dev-port comment
-- [ ] Split flag file naming in [src/marcel_core/watchdog/flags.py](../../src/marcel_core/watchdog/flags.py) to `restart_requested.{env}` and `restart_result.{env}`; read/write by `settings.marcel_env`
-- [ ] Update `request_restart()` to pick the right flag file based on `MARCEL_ENV`; update the docstring
-- [ ] Add a regression test: `request_restart(sha)` with `MARCEL_ENV=dev` writes to `restart_requested.dev` (and NOT `restart_requested.prod`); vice versa for `prod`
-- [ ] Add systemd templates: `deploy/systemd/marcel-dev-redeploy.path.tmpl` + `marcel-dev-redeploy.service.tmpl` (parameterised — or a single template rendered twice with `{env}` substitution)
-- [ ] Update [scripts/setup.sh](../../scripts/setup.sh) to render + install both the prod and dev systemd unit pairs
-- [ ] Update [scripts/teardown.sh](../../scripts/teardown.sh) to stop + remove both unit pairs
-- [ ] Update [scripts/redeploy.sh](../../scripts/redeploy.sh) to accept `--env dev|prod` (default `prod`) and drive the corresponding compose file
-- [ ] Delete the `os.execv` branch in `_restart_watcher` in [src/marcel_core/main.py](../../src/marcel_core/main.py); simplify the function — flag file + write_restart_result is the whole job
-- [ ] Update `_is_docker()` call site — now always Docker, so the branch can go away; remove the helper if it has no other callers
-- [ ] Update [.claude/rules/self-modification.md](../../.claude/rules/self-modification.md) — remove the "dev-mode watcher is the sole exception" carve-out; the rule is now "flag-file is the only mechanism"
-- [ ] Update [docs/self-modification.md](../../docs/self-modification.md) — regenerate the ports table (dev + prod are now structurally identical), remove the dev `os.execv` section, document `redeploy.sh --env` flag
-- [ ] Update [CLAUDE.md](../../CLAUDE.md) — "make serve" still works but now spins the dev container; dev port is 7421 (unchanged). Ensure the "Dev and prod run on different ports" line reflects the new shape
-- [ ] Update [project/plans/architecture-overview.md](../../project/plans/architecture-overview.md) — dev container row in the topology diagram if present
-- [ ] Verify: `docker compose -f docker-compose.dev.yml up -d --build` yields a healthy container on :7421, `./src` edits trigger `--reload`
-- [ ] Verify: `request_restart(sha)` from inside the dev container triggers `marcel-dev-redeploy.path`, `redeploy.sh --env dev` rebuilds, container comes back healthy
-- [ ] Verify: `request_restart(sha)` from inside prod still triggers the prod path (unchanged behavior)
-- [ ] Verify: `grep -rn "os.execv" src/ tests/` returns no matches
-- [ ] `make check` green at ≥90% coverage
+- [✓] Add `MARCEL_ENV: Literal["dev", "prod"] = "prod"` to [src/marcel_core/config.py](../../src/marcel_core/config.py)
+- [✓] Write `docker-compose.dev.yml` — same image, `MARCEL_ENV=dev`, `MARCEL_PORT=7421`, bind-mount `./src:/app/src`, `command: uvicorn marcel_core.main:app --host 0.0.0.0 --port 7421 --reload`, healthcheck on `/health`
+- [✓] Rewrite `make serve` target in the Makefile to drive the dev compose file (`docker compose -f docker-compose.dev.yml up --build`), update the help text + the dev-port comment
+- [✓] Split flag file naming in [src/marcel_core/watchdog/flags.py](../../src/marcel_core/watchdog/flags.py) to `restart_requested.{env}` and `restart_result.{env}`; read/write by `settings.marcel_env`
+- [✓] Update `request_restart()` to pick the right flag file based on `MARCEL_ENV`; update the docstring
+- [✓] Add a regression test: `request_restart(sha)` with `MARCEL_ENV=dev` writes to `restart_requested.dev` (and NOT `restart_requested.prod`); vice versa for `prod`
+- [✓] Add systemd templates: `deploy/systemd/marcel-dev-redeploy.path.tmpl` + `marcel-dev-redeploy.service.tmpl` (parameterised — or a single template rendered twice with `{env}` substitution)
+- [✓] Update [scripts/setup.sh](../../scripts/setup.sh) to render + install both the prod and dev systemd unit pairs
+- [✓] Update [scripts/teardown.sh](../../scripts/teardown.sh) to stop + remove both unit pairs
+- [✓] Update [scripts/redeploy.sh](../../scripts/redeploy.sh) to accept `--env dev|prod` (default `prod`) and drive the corresponding compose file
+- [✓] Delete the `os.execv` branch in `_restart_watcher` in [src/marcel_core/main.py](../../src/marcel_core/main.py); simplify the function — flag file + write_restart_result is the whole job
+- [✓] Update `_is_docker()` call site — now always Docker, so the branch can go away; remove the helper if it has no other callers
+- [✓] Update [.claude/rules/self-modification.md](../../.claude/rules/self-modification.md) — remove the "dev-mode watcher is the sole exception" carve-out; the rule is now "flag-file is the only mechanism"
+- [✓] Update [docs/self-modification.md](../../docs/self-modification.md) — regenerate the ports table (dev + prod are now structurally identical), remove the dev `os.execv` section, document `redeploy.sh --env` flag
+- [✓] Update [CLAUDE.md](../../CLAUDE.md) — "make serve" still works but now spins the dev container; dev port is 7421 (unchanged). Ensure the "Dev and prod run on different ports" line reflects the new shape
+- [✓] Update [project/plans/architecture-overview.md](../../project/plans/architecture-overview.md) — dev container row in the topology diagram if present
+- [✓] Verify: `docker compose -f docker-compose.dev.yml up -d --build` yields a healthy container on :7421, `./src` edits trigger `--reload`
+- [✓] Verify: `request_restart(sha)` from inside the dev container triggers `marcel-dev-redeploy.path`, `redeploy.sh --env dev` rebuilds, container comes back healthy
+- [✓] Verify: `request_restart(sha)` from inside prod still triggers the prod path (unchanged behavior)
+- [✓] Verify: `grep -rn "os.execv" src/ tests/` returns no matches
+- [✓] `make check` green at ≥90% coverage
 
 ## Relationships
 
@@ -99,6 +99,43 @@ The fix:
 
 ## Implementation Log
 <!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-19 — unified dev/prod restart path via containerized dev
+
+**Config & flag files**
+- `src/marcel_core/config.py`: added `marcel_env: Literal['dev', 'prod'] = 'prod'`.
+- `src/marcel_core/watchdog/flags.py`: env-scoped every path (`restart_requested.{env}`, `restart_result.{env}`) via an `_env()` helper that reads `MARCEL_ENV` from `os.environ` (keeping the watchdog layer dependency-light — no `settings` import). Unknown `MARCEL_ENV` values fall back to `prod`.
+
+**Containers**
+- `docker-compose.dev.yml` (new): same `Dockerfile`, `network_mode: host`, `MARCEL_ENV=dev`, `MARCEL_PORT=${MARCEL_DEV_PORT:-7421}`, bind-mount `.:/app`, `command: uvicorn marcel_core.main:app --host 0.0.0.0 --port $MARCEL_DEV_PORT --reload`, healthcheck on `/health`. No watchdog PID 1 — uvicorn is PID 1 in dev, and `--reload` handles code changes without the rollback mechanism.
+- `docker-compose.yml`: added `MARCEL_ENV=prod` to the environment block.
+
+**systemd + scripts**
+- `deploy/marcel-redeploy.path.tmpl`: `PathExists` updated to `restart_requested.prod`; description tagged `(prod)`.
+- `deploy/marcel-redeploy.service.tmpl`: `ExecStart` now `redeploy.sh --env prod --force`.
+- `deploy/marcel-dev-redeploy.{path,service}.tmpl` (new): mirror of the prod pair, wired to `restart_requested.dev` and `redeploy.sh --env dev --force`.
+- `scripts/redeploy.sh`: added `--env dev|prod` parsing (default `prod`), maps to the matching compose file, running-check and rebuild/restart both go through `$COMPOSE_FILE`.
+- `scripts/setup.sh` / `scripts/teardown.sh`: install/remove both unit pairs, updated help hints.
+
+**Delete dev carve-out**
+- `src/marcel_core/main.py`: removed the `_restart_watcher` async function, the `_is_docker()` helper, the `_RESTART_POLL_INTERVAL` constant, and the `os`/`sys`/flag-reader imports. `lifespan()` no longer creates a restart task — dev uses the same host-side systemd mechanism as prod.
+
+**Make target**
+- `Makefile`: `make serve` now runs `docker compose -f docker-compose.dev.yml up -d --build`; added `make serve-logs` and `make serve-down`.
+
+**Docs + rule**
+- `.claude/rules/self-modification.md`: removed the dev-mode `os.execv` exception; rule is now "one mechanism, one flag file per env".
+- `docs/self-modification.md`: regenerated topology diagram, ports table, flag-file table, systemd unit table.
+- `docs/storage.md`, `docs/architecture.md`, `CLAUDE.md`, `README.md`, `project/FEATURE_WORKFLOW.md`, `scripts/setup.sh` warn, `.claude/agents/security-auditor.md`: updated references from the old unsuffixed `restart_requested` path and the "`make serve` starts host-native uvicorn" phrasing.
+
+**Tests**
+- `tests/core/test_watchdog.py`: autouse fixture now pins `MARCEL_ENV=prod` and asserts the suffixed filenames; 5 new tests cover env-aware flag writing, dev/prod isolation, unknown-env fallback, and env-scoped `write_restart_result`.
+- `tests/core/test_main_lifespan.py`: dropped the `_restart_watcher` mock (function no longer exists).
+
+**Verification**
+- `make check` green — 1514 tests pass, coverage 91.96%.
+- `grep -rn 'os.execv' src/ tests/` → no matches.
+- `watchdog/flags.py` at 100% coverage.
 
 ## Lessons Learned
 <!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->

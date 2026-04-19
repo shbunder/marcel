@@ -39,7 +39,7 @@ done
 if [[ "$(uname -s)" != "Linux" ]]; then
   warn "Marcel's systemd setup is Linux-only."
   warn "On this machine ($(uname -s)) you can run Marcel with:"
-  warn "  make serve      — development server (no Docker, hot-reload)"
+  warn "  make serve      — development server (Docker, hot-reload on :7421)"
   warn "  make docker-up  — Docker container (no systemd watcher)"
   exit 0
 fi
@@ -123,9 +123,14 @@ render_template() {
   info "  Installed $dest"
 }
 
-render_template "$DEPLOY_DIR/marcel.service.tmpl"          "$SYSTEMD_DIR/marcel.service"
-render_template "$DEPLOY_DIR/marcel-redeploy.path.tmpl"    "$SYSTEMD_DIR/marcel-redeploy.path"
-render_template "$DEPLOY_DIR/marcel-redeploy.service.tmpl" "$SYSTEMD_DIR/marcel-redeploy.service"
+render_template "$DEPLOY_DIR/marcel.service.tmpl"              "$SYSTEMD_DIR/marcel.service"
+render_template "$DEPLOY_DIR/marcel-redeploy.path.tmpl"        "$SYSTEMD_DIR/marcel-redeploy.path"
+render_template "$DEPLOY_DIR/marcel-redeploy.service.tmpl"     "$SYSTEMD_DIR/marcel-redeploy.service"
+# Dev environment: same flag-file mechanism, different flag suffix + compose file.
+# The marcel-dev container itself is started manually via `make serve` (not a
+# systemd unit), but self-mod restarts go through the same host-side path.
+render_template "$DEPLOY_DIR/marcel-dev-redeploy.path.tmpl"    "$SYSTEMD_DIR/marcel-dev-redeploy.path"
+render_template "$DEPLOY_DIR/marcel-dev-redeploy.service.tmpl" "$SYSTEMD_DIR/marcel-dev-redeploy.service"
 
 systemctl --user daemon-reload
 info "systemd units reloaded."
@@ -134,10 +139,12 @@ info "systemd units reloaded."
 info "Enabling services..."
 systemctl --user enable marcel.service
 systemctl --user enable marcel-redeploy.path
+systemctl --user enable marcel-dev-redeploy.path
 
 info "Starting Marcel..."
 systemctl --user start marcel.service
 systemctl --user start marcel-redeploy.path
+systemctl --user start marcel-dev-redeploy.path
 
 # ── Health check ──────────────────────────────────────────────────────────────
 HEALTH_URL="http://localhost:7420/health"
@@ -160,7 +167,9 @@ done
 
 info ""
 info "Setup complete. Useful commands:"
-info "  systemctl --user status marcel              — container status"
-info "  systemctl --user status marcel-redeploy.path — restart watcher status"
-info "  journalctl --user -u marcel -f              — follow Marcel logs"
-info "  make teardown                               — stop everything"
+info "  systemctl --user status marcel                  — prod container status"
+info "  systemctl --user status marcel-redeploy.path    — prod restart watcher"
+info "  systemctl --user status marcel-dev-redeploy.path — dev restart watcher"
+info "  journalctl --user -u marcel -f                  — follow Marcel logs"
+info "  make serve                                      — start dev container on :\${MARCEL_DEV_PORT:-7421}"
+info "  make teardown                                   — stop everything"

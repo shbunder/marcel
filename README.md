@@ -160,7 +160,7 @@ lives in [docs/architecture.md](docs/architecture.md).
 ## Development
 
 ```bash
-make serve          # dev backend (uvicorn --reload on :7421, separate from the :7420 Docker prod)
+make serve          # dev container (Docker, uvicorn --reload on :7421, separate from the :7420 prod)
 make cli-dev        # build + run CLI (debug)
 make cli            # build + run CLI (release)
 make check          # format, lint, typecheck, test

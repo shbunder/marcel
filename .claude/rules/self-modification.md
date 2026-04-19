@@ -11,15 +11,15 @@ sha = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip()
 request_restart(sha)
 ```
 
-This writes the `restart_requested` flag file. A host-side systemd path unit (`marcel-redeploy.path`) watches it and triggers `redeploy.sh`, which rebuilds the Docker image, restarts the container, health-checks, and **rolls back on failure**. See [docs/self-modification.md](../../docs/self-modification.md) for the full mechanism.
+This writes the `restart_requested.{env}` flag file (where `{env}` is `dev` or `prod`, resolved from `MARCEL_ENV`). A host-side systemd path unit watches the matching flag — `marcel-redeploy.path` for prod, `marcel-dev-redeploy.path` for dev — and triggers `redeploy.sh --env {env}`, which rebuilds the Docker image, recreates the container, health-checks, and (prod) **rolls back on failure**. See [docs/self-modification.md](../../docs/self-modification.md) for the full mechanism.
 
-In dev mode (`make serve`), the restart watcher in `main.py` detects the same flag and exec-replaces the process in-place — same contract, different implementation.
+Dev and prod share one code path and one mechanism — only the flag suffix and compose file differ. There is no dev-mode exception.
 
 ## Never
 
 - `sudo systemctl restart marcel`
 - `docker restart marcel`
-- `os.execv(...)` from inside the container (except the dev-mode watcher in `main.py`, which is the sole exception)
+- `os.execv(...)` from inside the container — there are no exceptions
 - `subprocess.run(['/path/to/redeploy.sh', ...])` — bypasses the flag and the rollback
 - Any new code path that invokes a restart without going through `request_restart()`
 
