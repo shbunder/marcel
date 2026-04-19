@@ -124,6 +124,17 @@ class ChannelPlugin(Protocol):
         """
         ...
 
+    def resolve_user_slug(self, external_id: str) -> str | None:
+        """Map a channel-side identity (*external_id*) to the marcel user
+        slug that owns it, or ``None`` if unlinked.
+
+        For telegram, *external_id* is the ``tg_user['id']`` stringified.
+        Channels that do not carry a separate identity space (e.g. the
+        plain WebSocket channel, which authenticates via API token) return
+        ``None``.
+        """
+        ...
+
 
 _registry: dict[str, ChannelPlugin] = {}
 

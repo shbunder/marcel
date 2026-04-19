@@ -24,7 +24,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
 from marcel_core.channels.adapter import dispatch_event
-from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug
 from marcel_core.channels.websocket import WebSocketAdapter
 from marcel_core.config import settings
 from marcel_core.harness.runner import (
@@ -34,6 +33,7 @@ from marcel_core.harness.runner import (
 from marcel_core.harness.turn_router import resolve_turn_for_user
 from marcel_core.memory import extract_and_save_memories
 from marcel_core.memory.conversation import ensure_channel
+from marcel_core.plugin import get_channel
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +66,8 @@ async def chat(websocket: WebSocket) -> None:
                         await adapter.send_error('Invalid Telegram credentials')
                         await websocket.close(code=4001, reason='Unauthorized')
                         return
-                    slug = get_telegram_user_slug(tg_user['id'])
+                    tg_channel = get_channel('telegram')
+                    slug = tg_channel.resolve_user_slug(str(tg_user['id'])) if tg_channel else None
                     if slug is None:
                         await adapter.send_error('Telegram user not linked to a Marcel account')
                         await websocket.close(code=4001, reason='Unauthorized')

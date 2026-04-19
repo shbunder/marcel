@@ -97,6 +97,21 @@ The registry needs a stable public API — something like `marcel_core.plugin.ch
 - `make check` green, 1523 tests pass, coverage 91.94%.
 - Pull sites (`api/chat.py`, `api/artifacts.py`, `api/components.py`, `api/conversations.py`) remain untouched — they get `resolve_user_slug` in stage 3.
 
+### 2026-04-19 — stage 3: pull-side refactor (4 api sites)
+
+- Added `resolve_user_slug(external_id: str) -> str | None` to the `ChannelPlugin` Protocol. Telegram's plugin implements it by delegating to `sessions.get_user_slug`. Channels without a separate identity space (e.g. plain WebSocket) return `None`.
+- Dropped the `from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug` import from four API modules:
+  - [src/marcel_core/api/chat.py](../../src/marcel_core/api/chat.py)
+  - [src/marcel_core/api/components.py](../../src/marcel_core/api/components.py)
+  - [src/marcel_core/api/artifacts.py](../../src/marcel_core/api/artifacts.py)
+  - [src/marcel_core/api/conversations.py](../../src/marcel_core/api/conversations.py)
+- Each site now does `tg_channel = get_channel('telegram'); slug = tg_channel.resolve_user_slug(str(tg_user['id'])) if tg_channel else None`. The auth helper (`verify_telegram_init_data`) stays in `marcel_core.auth` — it is generic auth surface, not channel-specific.
+- [tests/core/test_api_endpoints.py](../../tests/core/test_api_endpoints.py) — 11 `patch('marcel_core.api.X.get_telegram_user_slug')` calls rewritten to patch `get_channel` with a `MagicMock` whose `resolve_user_slug` returns the test user slug. Added a small `_mock_tg_channel()` helper to keep the patterns tight.
+- [tests/core/test_plugin_channels.py](../../tests/core/test_plugin_channels.py) gains a direct `resolve_user_slug` test against the telegram plugin with mocked sessions.
+- `grep "marcel_core.channels.telegram"` in `src/` now shows only telegram's own internals, `main.py` (the import + router mount), and a Makefile CLI helper. Everything in `tools/` and `api/` has been migrated.
+- `make check` green, 1528 tests pass, coverage 91.95%.
+- Remaining stages: stage 4 migrates the telegram module to `<MARCEL_ZOO_DIR>/channels/telegram/` with channel.yaml + CHANNEL.md + discovery in main.py; stage 5 verifies fresh install behaviour with and without the zoo.
+
 ## Lessons Learned
 <!-- Filled in at close time. -->
 

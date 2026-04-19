@@ -11,12 +11,12 @@ from pydantic import BaseModel
 log = logging.getLogger(__name__)
 
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
-from marcel_core.channels.telegram.sessions import get_user_slug as get_telegram_user_slug
 from marcel_core.memory.conversation import (
     list_channels,
     load_latest_summary,
     read_active_segment,
 )
+from marcel_core.plugin import get_channel
 
 router = APIRouter()
 
@@ -91,7 +91,8 @@ async def get_last_message(
         tg_user = verify_telegram_init_data(initData)
         if tg_user is None:
             raise HTTPException(status_code=401, detail='Invalid Telegram credentials')
-        user_slug = get_telegram_user_slug(tg_user['id'])
+        tg_channel = get_channel('telegram')
+        user_slug = tg_channel.resolve_user_slug(str(tg_user['id'])) if tg_channel else None
         if user_slug is None:
             raise HTTPException(status_code=401, detail='Telegram user not linked')
     else:

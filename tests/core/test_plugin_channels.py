@@ -47,6 +47,9 @@ class _FakeChannel:
     ) -> bool:
         return False
 
+    def resolve_user_slug(self, external_id: str) -> str | None:  # noqa: ARG002
+        return None
+
 
 @pytest.fixture
 def isolated_registry(monkeypatch):
@@ -145,6 +148,13 @@ class TestTelegramPluginDelegation:
         monkeypatch.setattr(sessions, 'get_chat_id', lambda _slug: '123')
         monkeypatch.setattr(bot, 'artifact_markup', lambda _aid: None)
         assert await telegram.send_artifact_link('alice', 'art-1', 'Chart') is False
+
+    def test_resolve_user_slug_delegates_to_sessions(self, telegram, monkeypatch):
+        from marcel_core.channels.telegram import sessions
+
+        monkeypatch.setattr(sessions, 'get_user_slug', lambda cid: 'alice' if cid == '12345' else None)
+        assert telegram.resolve_user_slug('12345') == 'alice'
+        assert telegram.resolve_user_slug('99999') is None
 
     def test_telegram_capabilities(self, telegram):
         caps = telegram.capabilities

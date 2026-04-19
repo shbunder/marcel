@@ -97,6 +97,11 @@ class _TelegramPlugin:
         await bot.send_message(int(chat_id), caption, reply_markup=markup)
         return True
 
+    def resolve_user_slug(self, external_id: str) -> str | None:
+        from marcel_core.channels.telegram import sessions
+
+        return sessions.get_user_slug(external_id)
+
 
 _plugin = _TelegramPlugin()
 register_channel(_plugin)
