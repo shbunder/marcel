@@ -16,6 +16,7 @@ from marcel_core.channels.adapter import ChannelCapabilities, channel_supports_r
 from marcel_core.plugin import channels as plugin_channels
 from marcel_core.plugin.channels import (
     channel_has_rich_ui,
+    discover,
     get_channel,
     list_channels,
     register_channel,
@@ -163,3 +164,101 @@ class TestTelegramPluginDelegation:
         assert caps.streaming is True
         assert caps.progress_updates is True
         assert caps.attachments is True
+
+
+class TestDiscoverExternalChannels:
+    """Stage 4b — channel habitats in ``<MARCEL_ZOO_DIR>/channels/`` load at
+    startup. Each habitat's ``__init__.py`` calls :func:`register_channel`.
+
+    Failures in one habitat never abort discovery of its siblings; a missing
+    zoo dir is a silent no-op.
+    """
+
+    def _write_habitat(self, root, name, body):
+        habitat = root / 'channels' / name
+        habitat.mkdir(parents=True)
+        (habitat / '__init__.py').write_text(body)
+        return habitat
+
+    def _stub_zoo_dir(self, monkeypatch, path):
+        from marcel_core import config as cfg
+
+        monkeypatch.setattr(
+            cfg.settings,
+            'marcel_zoo_dir',
+            str(path) if path is not None else None,
+        )
+
+    def test_discover_imports_channel_habitat(self, isolated_registry, tmp_path, monkeypatch):
+        self._write_habitat(
+            tmp_path,
+            'demo',
+            'from marcel_core.channels.adapter import ChannelCapabilities\n'
+            'from marcel_core.plugin import register_channel\n'
+            '\n'
+            'class _Demo:\n'
+            '    name = "demo"\n'
+            '    capabilities = ChannelCapabilities()\n'
+            '    router = None\n'
+            '    async def send_message(self, u, t): return False\n'
+            '    async def send_photo(self, u, b, caption=None): return False\n'
+            '    async def send_artifact_link(self, u, a, t): return False\n'
+            '    def resolve_user_slug(self, x): return None\n'
+            '\n'
+            'register_channel(_Demo())\n',
+        )
+        self._stub_zoo_dir(monkeypatch, tmp_path)
+        import sys
+
+        monkeypatch.setitem(sys.modules, '_marcel_ext_channels.demo', None)
+        sys.modules.pop('_marcel_ext_channels.demo', None)
+
+        discover()
+        assert 'demo' in list_channels()
+        assert get_channel('demo') is not None
+
+    def test_discover_skips_sibling_failure(self, isolated_registry, tmp_path, monkeypatch, caplog):
+        self._write_habitat(
+            tmp_path,
+            'broken',
+            'raise RuntimeError("boom")\n',
+        )
+        self._write_habitat(
+            tmp_path,
+            'good',
+            'from marcel_core.channels.adapter import ChannelCapabilities\n'
+            'from marcel_core.plugin import register_channel\n'
+            '\n'
+            'class _Good:\n'
+            '    name = "good"\n'
+            '    capabilities = ChannelCapabilities()\n'
+            '    router = None\n'
+            '    async def send_message(self, u, t): return False\n'
+            '    async def send_photo(self, u, b, caption=None): return False\n'
+            '    async def send_artifact_link(self, u, a, t): return False\n'
+            '    def resolve_user_slug(self, x): return None\n'
+            '\n'
+            'register_channel(_Good())\n',
+        )
+        self._stub_zoo_dir(monkeypatch, tmp_path)
+        import sys
+
+        for mod in ('_marcel_ext_channels.broken', '_marcel_ext_channels.good'):
+            sys.modules.pop(mod, None)
+
+        with caplog.at_level('ERROR', logger='marcel_core.plugin.channels'):
+            discover()
+
+        assert 'good' in list_channels()
+        assert 'broken' not in list_channels()
+        assert any("Failed to load channel habitat 'broken'" in rec.message for rec in caplog.records)
+
+    def test_discover_no_zoo_dir_is_noop(self, isolated_registry, monkeypatch):
+        self._stub_zoo_dir(monkeypatch, None)
+        discover()
+        assert list_channels() == []
+
+    def test_discover_missing_channels_subdir_is_noop(self, isolated_registry, tmp_path, monkeypatch):
+        self._stub_zoo_dir(monkeypatch, tmp_path)
+        discover()
+        assert list_channels() == []

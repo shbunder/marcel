@@ -119,6 +119,13 @@ The registry needs a stable public API — something like `marcel_core.plugin.ch
 - Behaviourally identical today (same router mounted, same URLs). Sets up the discovery path so a second channel registering itself in stage 4b requires zero new lines in main.py.
 - `make check` green, 1528 tests pass, coverage 91.96%.
 
+### 2026-04-19 — stage 4b: zoo channel discovery
+
+- [src/marcel_core/plugin/channels.py](../../src/marcel_core/plugin/channels.py) — added `discover()` and `_load_external_channel()`, mirroring `marcel_core.skills.integrations.discover` but scoped to `<MARCEL_ZOO_DIR>/channels/`. Each habitat is loaded under the private `_marcel_ext_channels.<name>` module namespace via `importlib.util.spec_from_file_location`. Failures in one habitat are logged and contained; siblings continue loading. Unset `MARCEL_ZOO_DIR` → silent no-op.
+- [src/marcel_core/main.py](../../src/marcel_core/main.py) — calls `discover_channels()` at module load before the `list_channels()` mount loop, so zoo-hosted channel routers are available when FastAPI assembles. The telegram side-effect import stays for one more stage; stage 4c removes it after telegram moves into the zoo.
+- [tests/core/test_plugin_channels.py](../../tests/core/test_plugin_channels.py) — new `TestDiscoverExternalChannels` with four cases: successful import, sibling failure isolation, unset zoo dir is a no-op, missing `channels/` subdir is a no-op. Tests patch `settings.marcel_zoo_dir` (the mutable pydantic field) rather than the computed `zoo_dir` property.
+- `make check` green, 1532 tests pass, coverage 91.86%.
+
 ## Lessons Learned
 <!-- Filled in at close time. -->
 

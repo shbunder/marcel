@@ -39,8 +39,9 @@ logging.getLogger('httpcore').setLevel(logging.WARNING)
 
 # Importing the telegram package has the side effect of registering the
 # telegram channel plugin with ``marcel_core.plugin.channels``. Once the
-# channel habitat migrates to the zoo (later stages of ISSUE-7d6b3f) this
-# import goes away and a zoo-discovery loop takes its place.
+# channel habitat migrates to the zoo (stage 4c of ISSUE-7d6b3f) this
+# import goes away — the discover_channels() call below will pick it up
+# from ``<MARCEL_ZOO_DIR>/channels/telegram/`` instead.
 import marcel_core.channels.telegram  # noqa: F401, E402
 from marcel_core.api.artifacts import router as artifacts_router
 from marcel_core.api.chat import router as chat_router
@@ -49,6 +50,7 @@ from marcel_core.api.conversations import router as conversations_router
 from marcel_core.api.health import router as health_router
 from marcel_core.jobs.scheduler import scheduler
 from marcel_core.plugin import get_channel, list_channels
+from marcel_core.plugin.channels import discover as discover_channels
 
 log = logging.getLogger(__name__)
 
@@ -134,6 +136,13 @@ app.include_router(artifacts_router)
 app.include_router(chat_router)
 app.include_router(components_router)
 app.include_router(conversations_router)
+
+# Discover external channel habitats from <MARCEL_ZOO_DIR>/channels/
+# before mounting — each habitat's __init__.py calls register_channel()
+# at import time. Kernel-bundled channels (today: the telegram import
+# above) register themselves independently; discover_channels() is a
+# no-op when no zoo is configured.
+discover_channels()
 
 # Mount every registered channel plugin's router. This replaces the
 # previous hard-coded `app.include_router(telegram_router)` — any channel
