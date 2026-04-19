@@ -112,60 +112,6 @@ class TestRichUICapability:
         assert channel_supports_rich_ui('cli') is False
 
 
-class TestTelegramPluginDelegation:
-    """Verify the real telegram plugin wires its push methods correctly.
-
-    Each push method delegates to ``bot``/``sessions``/``formatting`` —
-    mocking those and checking the plugin short-circuits on missing
-    chat_ids is the cheapest end-to-end proof the registry is exercised.
-    """
-
-    @pytest.fixture
-    def telegram(self):
-        import marcel_core.channels.telegram  # noqa: F401  — triggers self-registration
-
-        plugin = get_channel('telegram')
-        assert plugin is not None, 'telegram plugin should self-register on import'
-        return plugin
-
-    @pytest.mark.asyncio
-    async def test_send_message_returns_false_when_no_chat_id(self, telegram, monkeypatch):
-        from marcel_core.channels.telegram import sessions
-
-        monkeypatch.setattr(sessions, 'get_chat_id', lambda _slug: None)
-        assert await telegram.send_message('ghost', 'hi') is False
-
-    @pytest.mark.asyncio
-    async def test_send_photo_returns_false_when_no_chat_id(self, telegram, monkeypatch):
-        from marcel_core.channels.telegram import sessions
-
-        monkeypatch.setattr(sessions, 'get_chat_id', lambda _slug: None)
-        assert await telegram.send_photo('ghost', b'\x89PNG\r\n') is False
-
-    @pytest.mark.asyncio
-    async def test_send_artifact_link_returns_false_without_public_url(self, telegram, monkeypatch):
-        from marcel_core.channels.telegram import bot, sessions
-
-        monkeypatch.setattr(sessions, 'get_chat_id', lambda _slug: '123')
-        monkeypatch.setattr(bot, 'artifact_markup', lambda _aid: None)
-        assert await telegram.send_artifact_link('alice', 'art-1', 'Chart') is False
-
-    def test_resolve_user_slug_delegates_to_sessions(self, telegram, monkeypatch):
-        from marcel_core.channels.telegram import sessions
-
-        monkeypatch.setattr(sessions, 'get_user_slug', lambda cid: 'alice' if cid == '12345' else None)
-        assert telegram.resolve_user_slug('12345') == 'alice'
-        assert telegram.resolve_user_slug('99999') is None
-
-    def test_telegram_capabilities(self, telegram):
-        caps = telegram.capabilities
-        assert caps.markdown is True
-        assert caps.rich_ui is True
-        assert caps.streaming is True
-        assert caps.progress_updates is True
-        assert caps.attachments is True
-
-
 class TestDiscoverExternalChannels:
     """Stage 4b — channel habitats in ``<MARCEL_ZOO_DIR>/channels/`` load at
     startup. Each habitat's ``__init__.py`` calls :func:`register_channel`.

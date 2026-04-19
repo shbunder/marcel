@@ -37,12 +37,6 @@ logging.getLogger('uvicorn.access').addFilter(_HealthCheckFilter())
 logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('httpcore').setLevel(logging.WARNING)
 
-# Importing the telegram package has the side effect of registering the
-# telegram channel plugin with ``marcel_core.plugin.channels``. Once the
-# channel habitat migrates to the zoo (stage 4c of ISSUE-7d6b3f) this
-# import goes away — the discover_channels() call below will pick it up
-# from ``<MARCEL_ZOO_DIR>/channels/telegram/`` instead.
-import marcel_core.channels.telegram  # noqa: F401, E402
 from marcel_core.api.artifacts import router as artifacts_router
 from marcel_core.api.chat import router as chat_router
 from marcel_core.api.components import router as components_router
@@ -139,9 +133,9 @@ app.include_router(conversations_router)
 
 # Discover external channel habitats from <MARCEL_ZOO_DIR>/channels/
 # before mounting — each habitat's __init__.py calls register_channel()
-# at import time. Kernel-bundled channels (today: the telegram import
-# above) register themselves independently; discover_channels() is a
-# no-op when no zoo is configured.
+# at import time. The kernel ships no channel habitats; Telegram and any
+# future Signal/Discord channels live exclusively in the zoo. No-op when
+# MARCEL_ZOO_DIR is unset — server still boots with WebSocket + REST.
 discover_channels()
 
 # Mount every registered channel plugin's router. This replaces the

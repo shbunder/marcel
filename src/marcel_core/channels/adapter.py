@@ -43,14 +43,10 @@ class ChannelCapabilities:
 # plugin — native clients (app, ios, macos) consume the /api/components
 # catalog but have no Python module to register themselves, and `websocket`
 # is a transport primitive that lives in this repo. Transport plugins
-# (e.g. telegram) declare `rich_ui` on their `ChannelCapabilities` at
-# registration time and are resolved via the plugin registry below.
-#
-# `telegram` is listed here for now because the telegram module still lives
-# in the kernel and may not be imported in every test context; once it
-# migrates to the zoo channel habitat (later stages of ISSUE-7d6b3f), this
-# entry is removed and the plugin registry becomes the only source.
-_BUILTIN_RICH_UI_CHANNELS = frozenset({'telegram', 'websocket', 'app', 'ios', 'macos'})
+# (telegram, and future signal/discord channel habitats) declare
+# `rich_ui` on their `ChannelCapabilities` at registration time and are
+# resolved via the plugin registry below — they do not appear here.
+_BUILTIN_RICH_UI_CHANNELS = frozenset({'websocket', 'app', 'ios', 'macos'})
 
 
 def channel_supports_rich_ui(channel: str) -> bool:

@@ -156,7 +156,11 @@ class TestMarcelNotify:
     @pytest.mark.asyncio
     async def test_telegram_sends_message_when_chat_linked(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        from marcel_core.channels.telegram import sessions
+        import importlib
+
+        # Telegram lives in the zoo since ISSUE-7d6b3f stage 4c; resolve
+        # at runtime via the conftest alias rather than a static import.
+        sessions = importlib.import_module('marcel_core.channels.telegram.sessions')
 
         sessions.link_user('shaun', 42)
 
@@ -174,7 +178,11 @@ class TestMarcelNotify:
     @pytest.mark.asyncio
     async def test_telegram_handles_send_failure(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        from marcel_core.channels.telegram import sessions
+        import importlib
+
+        # Telegram lives in the zoo since ISSUE-7d6b3f stage 4c; resolve
+        # at runtime via the conftest alias rather than a static import.
+        sessions = importlib.import_module('marcel_core.channels.telegram.sessions')
 
         sessions.link_user('shaun', 42)
 
@@ -332,7 +340,11 @@ class TestMarcelRender:
     async def test_telegram_sends_mini_app_button(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         monkeypatch.setattr('marcel_core.config.settings.marcel_public_url', 'https://example.invalid')
-        from marcel_core.channels.telegram import sessions
+        import importlib
+
+        # Telegram lives in the zoo since ISSUE-7d6b3f stage 4c; resolve
+        # at runtime via the conftest alias rather than a static import.
+        sessions = importlib.import_module('marcel_core.channels.telegram.sessions')
         from marcel_core.skills.components import ComponentSchema
 
         sessions.link_user('shaun', 42)
@@ -360,7 +372,11 @@ class TestMarcelRender:
     async def test_telegram_without_public_url_still_creates_artifact(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         monkeypatch.setattr('marcel_core.config.settings.marcel_public_url', '')
-        from marcel_core.channels.telegram import sessions
+        import importlib
+
+        # Telegram lives in the zoo since ISSUE-7d6b3f stage 4c; resolve
+        # at runtime via the conftest alias rather than a static import.
+        sessions = importlib.import_module('marcel_core.channels.telegram.sessions')
         from marcel_core.skills.components import ComponentSchema
 
         sessions.link_user('shaun', 42)

@@ -144,11 +144,10 @@ TELEGRAM_WEBHOOK_SECRET=<generate with: python3 -c "import secrets; print(secret
 
 ```bash
 cd ~/projects/marcel
-python3 -c "
-from marcel_core.channels.telegram.sessions import link_user
-link_user('alice', 123456789)  # replace with actual slug and chat ID
-"
+make link-telegram USER=alice CHAT=123456789  # replace with actual slug and chat ID
 ```
+
+The `link-telegram` target runs channel discovery against `MARCEL_ZOO_DIR`, loads the telegram habitat, and writes the mapping into the user's profile.
 
 ### 6d. Expose Marcel to the internet
 

@@ -54,18 +54,18 @@ The registry needs a stable public API — something like `marcel_core.plugin.ch
 
 ## Tasks
 
-- [ ] Define channel habitat layout + `channel.yaml` schema. Document in `docs/plugins.md`.
-- [ ] Define `marcel_core.plugin.channels` — registry, channel interface protocol, `get(name)`, `list()`, `capabilities(name)`.
-- [ ] Spike: refactor `tools/marcel/notifications.py` + `tools/charts.py` to use the registry. Confirm the API is ergonomic.
-- [ ] Refactor remaining 10 files that import `marcel_core.channels.telegram.*` to use the registry. File list at top of issue.
-- [ ] Refactor `main.py` to discover channel habitats from `<data_root>/channels/` and mount their routers at `/channels/<name>/*` (or whatever path convention the current telegram webhook uses — preserve URLs).
-- [ ] Migrate Telegram: move `src/marcel_core/channels/telegram/` → `~/.marcel/channels/telegram/`. Include CHANNEL.md from `defaults/channels/telegram.md`.
-- [ ] Update the `_RICH_UI_CHANNELS` set in [channels/adapter.py](../../src/marcel_core/channels/adapter.py) — this currently hardcodes channel names; must move into the plugin contract (each channel declares `rich_ui: true` in its `ChannelCapabilities`).
-- [ ] Move Telegram tests to the habitat's `tests/` dir.
-- [ ] Kernel-side tests: a fake channel habitat exercised against the registry + main.py mounting flow.
-- [ ] Docs: `docs/channels/` gets updated to reflect habitat layout; [docs/channels/telegram.md](../../docs/channels/telegram.md) links into the zoo.
-- [ ] Verify: fresh install with no zoo → Telegram not mounted, server still boots (WebSocket + REST still work).
-- [ ] Verify: webhook URL still resolves (don't change public URLs during the migration).
+- [✓] Define channel habitat layout + `channel.yaml` schema. Document in `docs/plugins.md`.
+- [✓] Define `marcel_core.plugin.channels` — registry, channel interface protocol, `get(name)`, `list()`, `capabilities(name)`.
+- [✓] Spike: refactor `tools/marcel/notifications.py` + `tools/charts.py` to use the registry. Confirm the API is ergonomic.
+- [✓] Refactor remaining 10 files that import `marcel_core.channels.telegram.*` to use the registry. File list at top of issue.
+- [✓] Refactor `main.py` to discover channel habitats from `<data_root>/channels/` and mount their routers at `/channels/<name>/*` (or whatever path convention the current telegram webhook uses — preserve URLs).
+- [✓] Migrate Telegram: move `src/marcel_core/channels/telegram/` → `<MARCEL_ZOO_DIR>/channels/telegram/`. Include CHANNEL.md from `defaults/channels/telegram.md`.
+- [✓] Update the `_RICH_UI_CHANNELS` set in [channels/adapter.py](../../src/marcel_core/channels/adapter.py) — this currently hardcodes channel names; must move into the plugin contract (each channel declares `rich_ui: true` in its `ChannelCapabilities`).
+- [✓] Move Telegram tests to the habitat's `tests/` dir.
+- [✓] Kernel-side tests: a fake channel habitat exercised against the registry + main.py mounting flow.
+- [✓] Docs: `docs/channels/` gets updated to reflect habitat layout; [docs/channels/telegram.md](../../docs/channels/telegram.md) links into the zoo.
+- [✓] Verify: fresh install with no zoo → Telegram not mounted, server still boots (WebSocket + REST still work).
+- [✓] Verify: webhook URL still resolves (don't change public URLs during the migration).
 
 ## Relationships
 
@@ -125,6 +125,19 @@ The registry needs a stable public API — something like `marcel_core.plugin.ch
 - [src/marcel_core/main.py](../../src/marcel_core/main.py) — calls `discover_channels()` at module load before the `list_channels()` mount loop, so zoo-hosted channel routers are available when FastAPI assembles. The telegram side-effect import stays for one more stage; stage 4c removes it after telegram moves into the zoo.
 - [tests/core/test_plugin_channels.py](../../tests/core/test_plugin_channels.py) — new `TestDiscoverExternalChannels` with four cases: successful import, sibling failure isolation, unset zoo dir is a no-op, missing `channels/` subdir is a no-op. Tests patch `settings.marcel_zoo_dir` (the mutable pydantic field) rather than the computed `zoo_dir` property.
 - `make check` green, 1532 tests pass, coverage 91.86%.
+
+### 2026-04-19 — stage 4c: migrate telegram to zoo habitat
+
+- Moved five modules (`__init__.py`, `bot.py`, `formatting.py`, `sessions.py`, `webhook.py`) and the `CHANNEL.md` prompt fragment out of `src/marcel_core/channels/telegram/` and `src/marcel_core/defaults/channels/telegram.md` into `<MARCEL_ZOO_DIR>/channels/telegram/` in the companion marcel-zoo repo (copy, not `git mv` — cross-repo history loss is the expected cost; attribution lives in this issue). The habitat ships with its own `channel.yaml` declaring `TELEGRAM_BOT_TOKEN` under `requires.credentials` and the full `capabilities` block.
+- [src/marcel_core/main.py](../../src/marcel_core/main.py) — dropped the stage-4a side-effect `import marcel_core.channels.telegram`. The kernel now has zero references to a concrete channel transport; `discover_channels()` + the `list_channels()` mount loop handle every case.
+- [src/marcel_core/channels/adapter.py](../../src/marcel_core/channels/adapter.py) — `_BUILTIN_RICH_UI_CHANNELS` reduced to `{'websocket', 'app', 'ios', 'macos'}`. Telegram's `rich_ui=True` now comes from the plugin's declared `ChannelCapabilities` at registration time.
+- Deleted seven kernel-side test modules (`test_telegram*.py`, `test_formatting.py`, `test_webhook_scenarios.py`). Equivalent tests live in the zoo at `channels/telegram/tests/` with their own conftest that loads the habitat as `marcel_core.channels.telegram` so existing `patch('marcel_core.channels.telegram.*')` sites keep working.
+- [conftest.py](../../conftest.py) — new `_load_zoo_telegram_at_legacy_namespace()` hook (pytest-only) that searches `MARCEL_ZOO_DIR`, `../marcel-zoo`, and `~/projects/marcel-zoo` for the habitat, loads it via `importlib.util.spec_from_file_location`, and aliases it under the legacy `marcel_core.channels.telegram` name so kernel tests that monkey-patch `marcel_core.channels.telegram.{bot,sessions}` continue to resolve. Runtime production code uses the private `_marcel_ext_channels.telegram` namespace via `discover()`; the alias is strictly a test-side convenience.
+- [tests/core/test_conversations.py](../../tests/core/test_conversations.py), [tests/tools/test_integration_tools.py](../../tests/tools/test_integration_tools.py) — rewrote the half-dozen `from marcel_core.channels.telegram.sessions import ...` imports as `importlib.import_module('marcel_core.channels.telegram.sessions').<name>`. Static form would break pyright once the kernel module vanishes; importlib resolves at runtime against the conftest alias.
+- [tests/core/test_plugin_channels.py](../../tests/core/test_plugin_channels.py) — deleted the `TestTelegramPluginDelegation` class. Those assertions now belong to the zoo habitat's own test suite.
+- [Makefile](../../Makefile) — two fixes: (a) `test-cov` now runs `--cov=src/marcel_core` (path) rather than `--cov=marcel_core` (package), so pytest-cov stops tracing the zoo habitat files loaded via the conftest alias as uncovered kernel lines — this is what dropped reported coverage from 91.95% to 86.08% after the migration. (b) The `link-telegram` operator helper calls `marcel_core.plugin.channels.discover()` first and then imports from `_marcel_ext_channels.telegram.sessions`, the real runtime path (the conftest alias is test-only).
+- [SETUP.md](../../SETUP.md), [docs/channels/telegram.md](../../docs/channels/telegram.md) — updated every operator-facing `link_user` example to `make link-telegram USER=... CHAT=...`, replaced the ad-hoc `set_webhook` / `delete_webhook` snippets with the `discover()`-then-`_marcel_ext_channels.telegram.bot` form, added a banner explaining the zoo-habitat location, and deleted the `::: marcel_core.channels.telegram.*` mkdocstrings references (the kernel package no longer exports them).
+- `make check` green, 1337 tests pass, coverage 91.46%. 195 tests live in the zoo now, so the absolute test count is lower but each kernel line is still covered.
 
 ## Lessons Learned
 <!-- Filled in at close time. -->

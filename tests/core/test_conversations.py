@@ -93,12 +93,16 @@ class TestGetLastMessage:
     def test_missing_conversation_returns_404(self, monkeypatch):
         import hashlib
         import hmac
+        import importlib
         import json
         import time
         from urllib.parse import quote, urlencode
 
-        from marcel_core.channels.telegram.sessions import link_user
         from marcel_core.config import settings
+
+        # Telegram lives in the zoo since ISSUE-7d6b3f stage 4c; resolve at
+        # runtime via the conftest alias rather than a static import.
+        link_user = importlib.import_module('marcel_core.channels.telegram.sessions').link_user
 
         bot_token = 'test-bot-token'
         monkeypatch.setattr(settings, 'telegram_bot_token', bot_token)
