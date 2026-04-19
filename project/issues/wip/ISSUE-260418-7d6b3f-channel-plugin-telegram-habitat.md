@@ -1,6 +1,6 @@
 # ISSUE-7d6b3f: Channel plugin contract + migrate Telegram habitat
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-18
 **Assignee:** Unassigned
 **Priority:** High
@@ -74,6 +74,15 @@ The registry needs a stable public API — something like `marcel_core.plugin.ch
 
 ## Implementation Log
 <!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-19 — stage 1: channel plugin registry scaffolding
+
+- Added [src/marcel_core/plugin/channels.py](../../src/marcel_core/plugin/channels.py) with `ChannelPlugin` Protocol (`name`, `capabilities`, optional `router`), the `register_channel` / `get_channel` / `list_channels` registry API, and a `channel_has_rich_ui` three-valued query (registered True/False, or `None` for unknown).
+- Re-exported the surface from [src/marcel_core/plugin/__init__.py](../../src/marcel_core/plugin/__init__.py) so zoo channel habitats get a stable import path (`from marcel_core.plugin import register_channel`).
+- [src/marcel_core/channels/adapter.py](../../src/marcel_core/channels/adapter.py) — `channel_supports_rich_ui()` now consults the plugin registry first and only falls back to `_BUILTIN_RICH_UI_CHANNELS` (`websocket`, `app`, `ios`, `macos`, and temporarily `telegram`) when the channel is unregistered. The `telegram` entry in the builtin set is a stage-1 bootstrap and will be removed when the habitat migrates (stage 4 of this issue).
+- [src/marcel_core/channels/telegram/__init__.py](../../src/marcel_core/channels/telegram/__init__.py) — telegram self-registers a `_TelegramPlugin` dataclass declaring its `ChannelCapabilities(markdown=True, rich_ui=True, streaming=True, progress_updates=True, attachments=True)` at import time. Behaviourally identical to today; the capability is now declared *by the channel* rather than hardcoded in the kernel.
+- [tests/core/test_plugin_channels.py](../../tests/core/test_plugin_channels.py) — new module covering registry CRUD, re-registration warnings, plugin-over-builtin precedence, and the builtin fallback.
+- No call sites migrated yet. Stage 2 (push sites: `tools/marcel/notifications.py`, `tools/charts.py`, `jobs/executor.py`, `tools/marcel/ui.py`) and stage 3 (pull sites: the four `api/*.py` files reading `get_user_slug`) will grow the Protocol with `send_message`/`send_artifact` and `resolve_user_slug` respectively.
 
 ## Lessons Learned
 <!-- Filled in at close time. -->

@@ -39,24 +39,42 @@ class ChannelCapabilities:
     """Can receive/send files."""
 
 
-# Channels that can render A2UI components — Telegram Mini App, the
-# WebSocket-based web viewer, and the app channel all have a frontend that
-# consumes the component catalog via /api/components.
+# Built-in rich-UI channels the kernel knows about without a registered
+# plugin — native clients (app, ios, macos) consume the /api/components
+# catalog but have no Python module to register themselves, and `websocket`
+# is a transport primitive that lives in this repo. Transport plugins
+# (e.g. telegram) declare `rich_ui` on their `ChannelCapabilities` at
+# registration time and are resolved via the plugin registry below.
 #
-# This is the single source of truth used by the system prompt builder to
-# decide whether to advertise A2UI components to the agent. Keep it in sync
-# with any new rich-UI channel that gets added.
-_RICH_UI_CHANNELS = frozenset({'telegram', 'websocket', 'app', 'ios', 'macos'})
+# `telegram` is listed here for now because the telegram module still lives
+# in the kernel and may not be imported in every test context; once it
+# migrates to the zoo channel habitat (later stages of ISSUE-7d6b3f), this
+# entry is removed and the plugin registry becomes the only source.
+_BUILTIN_RICH_UI_CHANNELS = frozenset({'telegram', 'websocket', 'app', 'ios', 'macos'})
 
 
 def channel_supports_rich_ui(channel: str) -> bool:
     """Return True if the channel can render A2UI component artifacts.
 
+    Resolution order:
+
+    1. Registered :class:`~marcel_core.plugin.channels.ChannelPlugin` — the
+       plugin's ``capabilities.rich_ui`` flag wins if the channel is
+       registered.
+    2. Built-in rich-UI set — kernel-native clients (websocket, app, ios,
+       macos) that have no plugin module.
+    3. Otherwise ``False``.
+
     Used by the harness to decide whether to inject the A2UI component
     catalog into the system prompt. Text-only channels (cli, job) should
     not be told about components they cannot render.
     """
-    return channel in _RICH_UI_CHANNELS
+    from marcel_core.plugin.channels import channel_has_rich_ui
+
+    registered = channel_has_rich_ui(channel)
+    if registered is not None:
+        return registered
+    return channel in _BUILTIN_RICH_UI_CHANNELS
 
 
 class ChannelAdapter(Protocol):
