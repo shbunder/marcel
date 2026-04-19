@@ -139,6 +139,15 @@ The registry needs a stable public API — something like `marcel_core.plugin.ch
 - [SETUP.md](../../SETUP.md), [docs/channels/telegram.md](../../docs/channels/telegram.md) — updated every operator-facing `link_user` example to `make link-telegram USER=... CHAT=...`, replaced the ad-hoc `set_webhook` / `delete_webhook` snippets with the `discover()`-then-`_marcel_ext_channels.telegram.bot` form, added a banner explaining the zoo-habitat location, and deleted the `::: marcel_core.channels.telegram.*` mkdocstrings references (the kernel package no longer exports them).
 - `make check` green, 1337 tests pass, coverage 91.46%. 195 tests live in the zoo now, so the absolute test count is lower but each kernel line is still covered.
 
+### 2026-04-19 — stage 4c follow-up: docs/plugins.md + zoo relative imports
+
+Pre-close-verifier caught two items that belong with the last impl commit:
+
+- [docs/plugins.md](../../docs/plugins.md) — Task 1 ("Document channel habitat + `channel.yaml` schema") was unmet. Added a full `## Channel habitat` section (directory layout, minimal example, `ChannelPlugin` protocol table, `channel.yaml` schema, discovery + error isolation) at parity with the existing integration/skill docs. Also corrected the Status callout — channels are now listed as shipped, ISSUE-7d6b3f removed from the roadmap list.
+- Zoo habitat ([marcel-zoo commit 483ecda](../../../../marcel-zoo/channels/telegram/)) — the verifier noticed that `channels/telegram/__init__.py`, `bot.py`, and `webhook.py` still imported sibling modules via the absolute `from marcel_core.channels.telegram import ...` path. At runtime the kernel loads the habitat as `_marcel_ext_channels.telegram`, so absolute imports referencing the deleted kernel namespace would fail. Kernel `make check` only passed because the test-only conftest alias installs the habitat under the legacy name for pytest. Rewrote every non-test import inside the habitat as relative (`from . import bot, sessions`), which resolves correctly under either namespace. Kernel tests still green (1337 passed); zoo tests still green (190 passed).
+
+No kernel source-code changes in this commit — only the kernel-side docs update lands here. The zoo-side fix is already committed upstream (`483ecda`).
+
 ## Lessons Learned
 <!-- Filled in at close time. -->
 

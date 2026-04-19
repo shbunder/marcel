@@ -5,7 +5,7 @@ Marcel is moving toward a clean kernel / userspace split. The kernel is [`marcel
 `marcel_core.plugin` is the stable surface zoo habitats import from. Anything re-exported there is a stability promise; anything else in `marcel_core` is internal and may change between versions.
 
 !!! note "Status"
-    The plugin surface currently covers **integrations + skill habitats**. Channel, job, and agent surfaces are being added incrementally — see the open issues in `project/issues/open/` for the roadmap (ISSUE-7d6b3f, ISSUE-a7d69a, ISSUE-e22176).
+    The plugin surface currently covers **integrations, skill habitats, and channel habitats**. Job and agent surfaces are being added incrementally — see the open issues in `project/issues/open/` for the roadmap (ISSUE-a7d69a, ISSUE-e22176).
 
 ## Configuring the zoo location
 
@@ -256,6 +256,111 @@ Anything not listed above is internal — zoo code that imports it owns the brea
 ### First-party vs. external integrations
 
 The kernel ships zero first-party integrations. Every real integration lives in marcel-zoo as an external habitat — `docker` (ISSUE-6ad5c7), `icloud` (ISSUE-e7d127), `news` (ISSUE-d5f8ab), and `banking` (ISSUE-13c7f2) have all migrated out. The settings integration handler was retired as dead code under ISSUE-e1b9c4 — the live settings surface is the `marcel(action="...")` utility tool, not an `integration(id="settings.*")` handler.
+
+## Channel habitat
+
+A channel habitat is a concrete transport plugin — Telegram, Signal, Discord, etc. It lives at `<MARCEL_ZOO_DIR>/channels/<name>/` and self-registers with the kernel at discovery time so `main.py` can mount routers, the prompt builder can query capabilities, and push helpers (`notify`, `charts`, `ui`) can deliver without importing transport-specific modules.
+
+Kernel-native surfaces (`websocket`, `cli`, `app`, `ios`, `macos`) are **not** channel habitats — they are built into the kernel. Only concrete transport plugins (Telegram and its future siblings) ship as habitats.
+
+### Directory layout
+
+```
+<MARCEL_ZOO_DIR>/channels/<name>/
+├── __init__.py          # required — imports register_channel() at load time
+├── channel.yaml         # required — name, capabilities, requires
+├── CHANNEL.md           # agent-visible formatting hint for this channel
+├── <transport>.py       # bot.py, webhook.py, sessions.py, formatting.py, …
+└── tests/               # habitat-owned tests (run from the zoo checkout)
+```
+
+The habitat's `__init__.py` must call `register_channel(plugin)` at import time — discovery is side-effect-driven, mirroring the integration registry. Use **relative imports** inside the habitat (`from . import bot, sessions`); the kernel loads habitats under the private `_marcel_ext_channels.<name>` namespace, not under `marcel_core.*`, so absolute imports of sibling modules will fail at runtime.
+
+### Minimal example
+
+`<MARCEL_ZOO_DIR>/channels/demo/__init__.py`:
+
+```python
+from fastapi import APIRouter
+
+from marcel_core.channels.adapter import ChannelCapabilities
+from marcel_core.plugin import register_channel
+
+router = APIRouter(prefix='/channels/demo')
+
+
+class DemoChannel:
+    name = 'demo'
+    capabilities = ChannelCapabilities(
+        markdown=True,
+        rich_ui=False,
+        streaming=False,
+        progress_updates=False,
+        attachments=False,
+    )
+    router = router
+
+    async def send_message(self, user_slug: str, text: str) -> bool:
+        return False
+
+    async def send_photo(self, user_slug, image_bytes, caption=None) -> bool:
+        return False
+
+    async def send_artifact_link(self, user_slug, artifact_id, title) -> bool:
+        return False
+
+    def resolve_user_slug(self, external_id: str) -> str | None:
+        return None
+
+
+register_channel(DemoChannel())
+```
+
+`<MARCEL_ZOO_DIR>/channels/demo/channel.yaml`:
+
+```yaml
+name: demo
+description: Trivial demo channel
+requires:
+  credentials: []
+capabilities:
+  markdown: true
+  rich_ui: false
+  streaming: false
+  progress_updates: false
+  attachments: false
+```
+
+After a kernel restart, `list_channels()` contains `'demo'`, `main.py` mounts `router` at `/channels/demo/*`, and kernel code can push via `get_channel('demo').send_message(user_slug, text)`.
+
+### The `ChannelPlugin` protocol
+
+`marcel_core.plugin.channels.ChannelPlugin` is the runtime-checkable Protocol every habitat satisfies — duck-typed, so a plugin may be a class instance, a dataclass, or any object exposing the right names:
+
+| Member | Purpose |
+|---|---|
+| `name: str` | Unique channel identifier. Must equal the directory name. |
+| `capabilities: ChannelCapabilities` | Declares `markdown`, `rich_ui`, `streaming`, `progress_updates`, `attachments`. The prompt builder reads `rich_ui` to decide whether to inject the A2UI component catalog. |
+| `router: APIRouter \| None` | Optional FastAPI router. Kernel-internal transports (e.g. the websocket) can return `None` if routing lives elsewhere. |
+| `async send_message(user_slug, text) -> bool` | Deliver a text message; `False` when the recipient is not registered. |
+| `async send_photo(user_slug, image_bytes, caption=None) -> bool` | Deliver an image; `False` when unsupported or unresolved. |
+| `async send_artifact_link(user_slug, artifact_id, title) -> bool` | Deliver an artifact (e.g. Mini App button). Only meaningful when `capabilities.rich_ui` is true. |
+| `resolve_user_slug(external_id) -> str \| None` | Map a transport-side identity (e.g. a Telegram user id) to a Marcel user slug. Channels without a separate identity space return `None`. |
+
+### Channel metadata (`channel.yaml`)
+
+| Key | Required | Notes |
+|---|---|---|
+| `name` | yes | Must equal the directory name. |
+| `description` | no | One-line description for tooling. |
+| `requires.credentials` | no | List of env-var names the channel needs (e.g. `TELEGRAM_BOT_TOKEN`). Today this is advisory — the kernel does not yet gate discovery on credential presence. |
+| `capabilities` | no | Redundant declaration of what `ChannelCapabilities(...)` in `__init__.py` already says. Kept for tooling that wants to inspect the habitat without running its Python. |
+
+### Discovery and error isolation
+
+`marcel_core.plugin.channels.discover()` is called once from `main.py` at module load before the router-mount loop. It walks `<MARCEL_ZOO_DIR>/channels/` and imports every subdirectory. A habitat that raises at import time is logged and skipped; siblings continue loading. If `MARCEL_ZOO_DIR` is unset or `<zoo>/channels/` does not exist, `discover()` is a silent no-op — the kernel still boots, just without any channel habitat.
+
+Subsequent calls to `discover()` are idempotent: already-loaded habitats are skipped via their presence in `sys.modules`.
 
 ## See also
 
