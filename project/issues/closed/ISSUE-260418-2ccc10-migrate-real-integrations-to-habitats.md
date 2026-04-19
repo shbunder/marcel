@@ -1,6 +1,6 @@
 # ISSUE-2ccc10: Migrate banking, icloud, news to integration habitats
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-18
 **Assignee:** Unassigned
 **Priority:** High
@@ -91,14 +91,33 @@ The three integrations' tests move with the code. Core-side tests that currently
 - Validation strict — any malformed `scheduled_jobs:` entry rolls back the *whole habitat* (handlers + metadata), mirroring the namespace-check precedent from ISSUE-6ad5c7.
 - Documented in `docs/plugins.md` under "Scheduled jobs from habitats". News migration is now fully unblocked — handler + scheduled `news.sync` move together as the first real consumer of the hook.
 
+### 2026-04-19 — umbrella close
+
+**Reflection** (via pre-close-verifier):
+- Verdict: APPROVE
+- Coverage: 13/13 tasks — every ticked task maps to observable state on main. Kernel `src/marcel_core/skills/integrations/` contains only `__init__.py`; `src/marcel_core/defaults/skills/` has no banking/icloud/news; `_ensure_default_jobs` is truly gone from `jobs/scheduler.py`; `TestRebuildScheduleEmptiness` regression present in `tests/jobs/test_scheduler_scenarios.py:267`; plugin surface exposes `credentials`, `paths`, `models`, `get_logger`, `rss`; habitats populated at `~/.marcel/zoo/integrations/{banking,icloud,news}` + `~/.marcel/zoo/skills/{banking,icloud,news}`; `docs/plugins.md` has the "First-party vs. external" + "Scheduled jobs from habitats" sections.
+- Shortcuts found: none.
+- Scope drift: none — umbrella branch diff is a single `open/` → `wip/` rename with zero content change; no code snuck into the close flow.
+- Stragglers: none in live code/docs. References to the retired kernel-integration layout survive only in `project/issues/closed/*.md` (historical audit trail — correct) and one commented regression-test assertion in `tests/jobs/test_scheduler_scenarios.py:280` that explicitly guards against reintroducing the old behavior.
+
 ## Lessons Learned
-<!-- Filled in at close time. -->
 
 ### What worked well
--
+- **Order of operations: plugin surface before the migrations.** Landing `marcel_core.plugin.credentials`/`paths`/`models`/`get_logger` (ISSUE-c48967) first, *then* migrating integrations, meant every sub-issue had a ready target. If we'd done it the other way around, each migration would have discovered its own missing surface piece and we'd have six surface-expansion fights instead of one.
+- **Audit before migrate.** The "settings integration" turned out to be dead code (ISSUE-e1b9c4) — had we blindly migrated it, we'd have shipped a zero-consumer handler into the zoo. The decision to audit each target before planning the migration saved an entire sub-issue of wasted work.
+- **Start with the smallest credential-bearing migration (icloud).** It exercised `plugin.credentials` end-to-end without also stress-testing scheduled jobs or component registries. By the time banking landed (the largest), every dimension of the surface had already been proven on a simpler integration.
+- **Declarative `scheduled_jobs:` over a `register_scheduled(scheduler)` callback.** The declarative YAML shape is inspectable, diffable, and orphan-reconcilable; the callback shape would have needed a whole second mechanism just to support "uninstall = remove directory."
+- **Reconciliation at `rebuild_schedule()` tick, not at handler registration.** Made "habitat removed → jobs cleaned up" a *startup invariant* instead of a *teardown step*. Removing a habitat directory is now a single-action operation again.
+- **Umbrella Implementation Log linking each claim to its sub-issue.** Made the pre-close verification mechanical rather than subjective. Pattern worth reusing for future umbrella issues.
 
 ### What to do differently
--
+- **The synthetic-parent-package loader trap cost time across two sub-issues.** External habitats load under `_marcel_ext_integrations.<name>` via `spec_from_file_location`, but that parent isn't a real `sys.modules` package — so `from . import cache` fails silently in a way that only shows up at runtime. Next time we introduce a loader that synthesizes a parent module, document the import style (`from .cache import X` works; `from . import cache` doesn't) **in the loader's docstring**, not after the fact in a sub-issue log.
+- **Dependency-group policy should have been decided up front.** The "does the zoo get its own pyproject.toml?" question drifted across sub-issues (icloud moved `caldav`/`vobject` into `[project.optional-dependencies] zoo`, news moved nothing, banking moved nothing). Worked out fine, but the decision could have been a one-paragraph ADR before the first migration instead of an emergent policy.
+- **The 29-hour discover() outage (ISSUE-efbaaa) was downstream of this umbrella** — kernel `settings.marcel_zoo_dir` not being wired into prod Docker meant habitats never loaded on the NUC. Cross-cutting config changes (like "integrations now load from a second data root") need a deployment-smoke step before any sub-issue claims to be complete. The per-sub-issue verification checked dev-container shape but never cold-started the prod container.
 
 ### Patterns to reuse
--
+- **"Extract then delete" as a migration shape.** Each sub-issue built the habitat *and* deleted the kernel copy in the same branch, keeping main cold-starts always correct. No "both trees simultaneously" period to test.
+- **Fake-plugin fixtures for dispatch/loader tests.** After an integration migrates out of the kernel, its tests go with it; core tests switch to fake registered handlers. Kernel test coverage becomes about the **framework**, not the integrations that happen to be plugged in. Decouples kernel CI from zoo CI.
+- **Stable IDs via `sha256("<habitat>:<entry>")[:12]`.** Same pattern used for habitat scheduled jobs should work anywhere we need reconcilable identity without a migration step — habitats, skills, jobs, components.
+- **Umbrella issue with sub-issues merging to main independently.** Each sub-issue was a full "ship it" on its own, so main was always deployable. The umbrella's only role is tracking "is the whole migration done?" — no code of its own.
+- **Decision → sub-issue rather than decision → debate.** "Is `settings` dead code?" → open ISSUE-e1b9c4, audit, answer. "Declarative vs callback for scheduled jobs?" → open ISSUE-82f52b, pick one, ship. Smaller branches, faster cycle time, cheaper rollback if the decision was wrong.
