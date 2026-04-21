@@ -1,8 +1,10 @@
-"""Default MARCEL.md and skill files seeded on first startup.
+"""Default MARCEL.md, channel prompts, and routing.yaml seeded on first startup.
 
-If the data root does not yet contain a MARCEL.md or skills/ directory,
-the bundled defaults are copied from this package.  Existing files are
-never overwritten — the data root is the authoritative source.
+If the data root does not yet contain these files, the bundled defaults
+are copied from this package.  Existing files are never overwritten —
+the data root is the authoritative source. Skills and subagents ship
+as zoo habitats (see ``marcel_core.skills.loader`` and
+``marcel_core.agents.loader``) and are not seeded.
 """
 
 import logging
