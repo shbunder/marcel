@@ -52,14 +52,19 @@ def _set_data_dir(path: pathlib.Path | None) -> None:
     _data_dir_override = path
 
 
+# Why not ``settings.marcel_env``? MARCEL_ENV is intentionally not a Settings
+# field — this function is the single source of truth. Three reasons:
+#   1. Call-time semantics. ``settings`` is a module-level singleton bound once
+#      at import. Tests override ``MARCEL_ENV`` per-test with monkeypatch and
+#      expect the next flag-file read/write to reflect the new value.
+#   2. Safety default on garbage input. We fall back to ``'prod'`` on any value
+#      outside ``{dev, prod}`` — a dev flag cannot accidentally trigger the
+#      prod rebuild path. pydantic-settings would raise ``ValidationError`` at
+#      boot on the same input, preventing the process from starting at all.
+#   3. No import cycle. ``watchdog/flags.py`` sits below ``config.py`` in the
+#      dep graph; reading ``os.environ`` keeps it that way.
 def _env() -> str:
-    """Resolve ``MARCEL_ENV`` at call time, defaulting to ``prod``.
-
-    Validated against the same ``{dev, prod}`` set as ``Settings.marcel_env``.
-    Invalid values fall back to ``prod`` — safest default if a typo ever
-    appears in a compose file, since a dev flag cannot accidentally trigger
-    the prod rebuild path.
-    """
+    """Resolve ``MARCEL_ENV`` at call time, defaulting to ``prod``."""
     val = os.environ.get('MARCEL_ENV', 'prod')
     return val if val in ('dev', 'prod') else 'prod'
 

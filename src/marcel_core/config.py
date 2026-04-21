@@ -14,7 +14,6 @@ Usage::
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -28,17 +27,11 @@ class Settings(BaseSettings):
     )
 
     # ---------------------------------------------------------------------------
-    # Runtime environment
-    # ---------------------------------------------------------------------------
-    # Distinguishes the dev container (port 7421, live-reload) from the prod
-    # container (port 7420, watchdog-managed). Drives env-suffixed restart-flag
-    # filenames in watchdog/flags.py so a dev self-mod cannot trigger the prod
-    # rebuild path (and vice versa). See ISSUE-6b02d0.
-    marcel_env: Literal['dev', 'prod'] = 'prod'
-
-    # ---------------------------------------------------------------------------
     # Server
     # ---------------------------------------------------------------------------
+    # Note: MARCEL_ENV is intentionally NOT a Settings field. The single live
+    # reader is watchdog.flags._env(), which reads os.environ at call time.
+    # See the "Why not settings.marcel_env?" comment above _env() for why.
     marcel_port: int = 8000
     marcel_cors_origins: str = 'http://localhost:5173'
     marcel_public_url: str | None = None
