@@ -1,10 +1,29 @@
 # ISSUE-0f046c: Containerize the dev server + unify the restart path
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-21
+**Closed:** 2026-04-21
 **Assignee:** Unassigned
 **Priority:** High
-**Labels:** infra, dev-environment, self-modification, docker, reliability
+**Labels:** infra, dev-environment, self-modification, docker, reliability, duplicate
+
+## Closed — duplicate of ISSUE-6b02d0
+
+This issue duplicates [ISSUE-6b02d0](../closed/ISSUE-260419-6b02d0-containerize-dev-unified-restart.md), which shipped the identical scope two days earlier (2026-04-19) with all 22 tasks complete and `make check` green at 91.96% coverage.
+
+Verification against the current tree:
+
+| Artifact from the task list | State at close |
+|---|---|
+| `MARCEL_ENV` in `config.py` | Present — [config.py:37](../../src/marcel_core/config.py#L37) |
+| `restart_requested.{env}` in `flags.py` | Present — [flags.py:90](../../src/marcel_core/watchdog/flags.py#L90) |
+| `os.execv` in `src/` | Absent — grep returns zero matches |
+| `docker-compose.dev.yml` | Present |
+| `scripts/redeploy.sh --env` | Present |
+| `deploy/marcel-dev-redeploy.{path,service}.tmpl` | Both present |
+| `.claude/rules/self-modification.md` updated | Already reflects unified path |
+
+No implementation work was performed on this branch — the task list below remains unchecked because those tasks were discharged by ISSUE-6b02d0, not by this issue.
 
 ## Capture
 
@@ -106,16 +125,32 @@
 - Does **not** depend on ISSUE-63a946 (marcel-zoo repo extraction) — they touch different surfaces.
 
 ## Implementation Log
-<!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-21 — Closed as duplicate
+
+**Action:** Closed without implementation. Discovery happened during the first audit of the target surfaces (config, flags, main.py, Dockerfile), which surfaced existing env-aware code and an `ISSUE-6b02d0` reference in the `marcel_env` docstring. A grep of `project/issues/closed/` for "unified restart" + "7421" then located the duplicate.
+
+**Files Modified:** only this issue file (status + Closed-as-duplicate section + log entry). No source code, no tests, no docs.
+
+**Commands Run:** none against the code tree. The issue-creation `📝` commit remains on main as the audit marker that the duplicate was filed.
+
+**Result:** Duplicate documented; branch merged back; audit trail preserved.
+
+**Reflection** (no verifier — trivial close with zero source-diff):
+- Verdict: n/a. The pre-close-verifier is meant to hunt for shortcuts and scope drift in an implementation diff. This branch has no implementation diff (the closing commit touches only the issue file, same as any other close). Running the verifier on an empty body would return no findings by construction — noted here instead of delegated.
+- Coverage: 0/14 tasks in this issue addressed (all pre-discharged by ISSUE-6b02d0).
+- Shortcuts found: none.
+- Scope drift: none.
+- Stragglers: none.
 
 ## Lessons Learned
-<!-- Filled in at close time. -->
 
 ### What worked well
--
+- **Stopping at the audit step instead of plowing into implementation.** The 14-task list looked real, but the first three `Read`s revealed the work was already done. That's the value of the "read the current shape of the code I'm changing" habit — it catches duplicates before they become duplicate *commits*.
 
 ### What to do differently
--
+- **Grep `project/issues/closed/` for motivating keywords before calling `/new-issue`.** The `/new-issue` skill's step 1 ("ensure clean main") does not include a duplicate check, and this is the exact pathology that produces it: a long verbatim request, pasted from a conversation where the earlier issue was already closed, gets treated as novel. The duplicate-detection that should have fired was `grep -rn "7421\|os.execv\|unified restart" project/issues/closed/`. Consider promoting that grep into the `/new-issue` skill itself so future pasted requests are checked automatically.
+- **When the request body contains concrete symbols** (`src/marcel_core/main.py:83`, `MARCEL_DEV_PORT`, `marcel-dev-redeploy.path`), run a codebase grep for those symbols as part of `/new-issue` before committing the issue file. Any hit in the closed/ tree is a near-certain duplicate.
 
 ### Patterns to reuse
--
+- **"Closed-as-duplicate" with explanatory table.** When closing a duplicate, leave a `Closed — duplicate of ISSUE-xxxxxx` section at the top of the file with a verification table proving each claimed deliverable already exists. Keeps the audit trail self-documenting — a future reader does not need to compare the two issue files side-by-side to understand what happened.
