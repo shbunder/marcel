@@ -1,6 +1,6 @@
 # ISSUE-63a946: Delete defaults/ + extract marcel-zoo as a separate repo
 
-**Status:** In Progress
+**Status:** Closed
 **Created:** 2026-04-18
 **Assignee:** Unassigned
 **Priority:** High
@@ -87,9 +87,9 @@ This issue is being shipped in chunks to keep each session's blast radius contai
 
 ## Tasks
 
-- [⚒] Audit: verify [src/marcel_core/defaults/](../../src/marcel_core/defaults/) is empty of anything not already migrated. Anything remaining is a gap in the earlier issues — fix there, don't paper over here.
-- [⚒] Delete `src/marcel_core/defaults/` package, `skills/install_skills.py`, and every call site of `seed_defaults()`.
-- [⚒] Move `~/.marcel/MARCEL.md` and `~/.marcel/routing.yaml` into the zoo's root position (they're already in `~/.marcel/` at runtime per [defaults/__init__.py:83-89](../../src/marcel_core/defaults/__init__.py) — this step is about moving the source-of-truth into the zoo repo).
+- [✓] Audit: verify [src/marcel_core/defaults/](../../src/marcel_core/defaults/) is empty of anything not already migrated. Anything remaining is a gap in the earlier issues — fix there, don't paper over here. *(Audit found `MARCEL.md`, `routing.yaml`, and `channels/*.md` still present. MARCEL.md + routing.yaml moved to zoo. The 5 channel prompts are kernel-owned content — moved to `src/marcel_core/channel_prompts/` rather than zoo, since they describe kernel-shipped channel types.)*
+- [✓] Delete `src/marcel_core/defaults/` package, `skills/install_skills.py`, and every call site of `seed_defaults()`.
+- [✓] Move `~/.marcel/MARCEL.md` and `~/.marcel/routing.yaml` into the zoo's root position (they're already in `~/.marcel/` at runtime per [defaults/__init__.py:83-89](../../src/marcel_core/defaults/__init__.py) — this step is about moving the source-of-truth into the zoo repo).
 - [✓] Create `marcel-zoo` as a new git repo. Initial commit is the full `~/.marcel/` tree minus `users/`. `.gitignore` excludes `users/`, any `*.db`, `*.jsonl`, runtime state. *(done in prior sessions — habitats already migrated)*
 - [ ] Author `marcel-zoo/pyproject.toml` — lists habitat Python deps (EnableBanking, pyicloud, feedparser, docker SDK, etc., whatever ISSUE-2ccc10 decided to externalize). **Deferred to Session B.**
 - [ ] Update Marcel's install process: fresh-boot entrypoint clones marcel-zoo to `~/.marcel/` if empty, runs `pip install -e .` against the zoo's pyproject. **Deferred to Session C.**
@@ -151,14 +151,31 @@ This issue is being shipped in chunks to keep each session's blast radius contai
 - Existing `~/.marcel/` installs are unaffected: their `MARCEL.md` and `routing.yaml` are already on disk; the kernel just stops re-seeding them.
 - Fresh installs without the zoo cloned will now boot with no `MARCEL.md` (generic personality) and the empty routing fallback (every session is STANDARD). A clear error / onboarding prompt is still owed — deferred to Session C.
 
+**Reflection** (via pre-close-verifier):
+- Verdict: APPROVE
+- Coverage: 3/3 Session-A scoped tasks present in the diff; remaining 10 tasks are explicitly deferred to Sessions B/C.
+- Shortcuts found: none
+- Scope drift: none
+- Stragglers: none — `grep` for `marcel_core.defaults` / `seed_defaults` / `install_skills` / `_DEFAULTS_PATH` / `_DEFAULTS_CHANNELS` / `defaults/channels` returns hits only inside `project/issues/` (this file).
+- Notable observation from the verifier: `docs/routing.md` hardcodes the zoo repo URL `https://github.com/shbunder/marcel-zoo`. Not blocking, but if that URL changes before Session C, the line — plus any future SETUP.md mention — will need a sync.
+
 ## Lessons Learned
-<!-- Filled in at close time. -->
 
 ### What worked well
--
+
+- **Surfacing scope honestly before diving in.** The original issue was 13 tasks spanning two repos, Docker, CI, and SETUP docs. Splitting it into Sessions A/B/C up front kept this branch's blast radius small (1 impl commit, 25 files, +260/-631 lines, all tests green) and let the user see the cost-vs-value trade before committing to one mega-PR.
+- **Annotating deferred tasks in-place rather than ripping them out.** Marking the leftover tasks `[ ] ... **Deferred to Session X**` instead of removing them preserves the full plan in one file and gives the verifier explicit context that those `[ ]`s are not shortcuts. The verifier flagged "deferred-by-design — not scope creep" by name.
+- **Auditing the deletion target before deleting.** The issue assumed `defaults/channels/` would already be empty post-ISSUE-7d6b3f; it wasn't. Catching that during audit (and routing the channel prompts to a clean kernel-owned `channel_prompts/` location instead of either hand-waving them into the zoo or leaving them in `defaults/`) was cheaper than discovering it during the close.
+- **Sample fixture instead of zoo coupling for tests.** Inlining `_SAMPLE_ROUTING_YAML` in the test file (matching the zoo's canonical content) is more robust than reading the zoo file at test time — tests stay hermetic even if the zoo isn't checked out.
+- **Updating rules + agent docs alongside the deletion.** Sweeping `src/marcel_core/defaults/` out of the straggler-grep scope in the rule files and the pre-close-verifier prompt in the same commit avoids a class of "follows obsolete advice that points at a deleted path" bugs in future issues.
 
 ### What to do differently
--
+
+- **Pause before `git mv`.** I read several files before moving them and then had to re-Read them after the rename to satisfy the Edit tool's "Read first" precondition. Order is: `Edit` → `git mv` → done. The pre-close-verifier rule file already calls this out; following it earlier would have saved a tool call.
+- **Be explicit that channel prompts ≠ habitat content.** The issue description listed `defaults/channels/` under "what gets deleted" and assumed they'd already moved. They hadn't, and they don't actually belong in the zoo (they describe kernel-shipped channel types, not habitats). Future similar audits should distinguish kernel-owned from habitat-owned content before grouping deletions.
 
 ### Patterns to reuse
--
+
+- **Session-chunking pattern for cross-cutting refactors.** When an issue spans multiple repos / Docker / CI / docs, propose explicit Sessions A/B/C in the issue body, mark in-scope tasks `[⚒]` at branch creation and `[✓]` at close, and leave the rest `[ ] **Deferred to Session X**`. The next session reads the same file and resumes from the same plan.
+- **Empty-but-safe fallback for user-config files.** `_FALLBACK_CONFIG = RoutingConfig(fast_patterns=(), standard_patterns=(), frustration_patterns=(), default_tier=Tier.STANDARD)` lives at module scope and is reused for both `FileNotFoundError` and `yaml.YAMLError` branches. Single source of truth; the rich content lives in the zoo where users can edit it; a missing or broken file degrades to "boring but functional" rather than "crashed router". Apply the same pattern to other config files when their pattern-rich defaults move out of the kernel.
+- **Migration-note rewrites instead of deletions.** When deleting a feature whose old docs describe operator behavior (`docs/web.md`'s ISSUE-072 stale-`browser/` cleanup), rewrite the note to describe the new path (zoo `git pull`) rather than deleting it. Operators tracking history know the old behavior existed; they need a forward-pointer, not silence.
