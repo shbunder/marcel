@@ -48,8 +48,11 @@ git clone https://github.com/shbunder/marcel.git
 cd marcel
 nano .env                   # fill in ANTHROPIC_API_KEY (and optionally the rest)
 make setup-check            # verify prerequisites without touching anything
+make zoo-setup              # clone marcel-zoo (habitats) into ~/.marcel/zoo
 make setup                  # build the image, install systemd, start the container
 ```
+
+The extra `make zoo-setup` step clones [marcel-zoo](https://github.com/shbunder/marcel-zoo) — the habitats repo — into `~/.marcel/zoo`, which is where this kernel looks for skills, integrations, `MARCEL.md`, and `routing.yaml` at runtime. Without it, Marcel boots with zero abilities. See [SETUP.md](SETUP.md) for the split.
 
 `make setup` checks prerequisites (Docker, Docker Compose, docker group, systemd linger), renders the systemd unit templates, builds the image, starts the service, and waits for `/health` on [http://localhost:7420](http://localhost:7420) to come back green. If anything is missing it tells you exactly what to fix. For security hardening (API token, credential encryption key, Telegram webhook secret) see [SETUP.md](SETUP.md) — that's the extended walkthrough; this section is the happy path.
 
@@ -74,7 +77,7 @@ From there, the family member needs a way to actually talk to Marcel. Pick one (
 
 **Option A — Telegram** *(recommended for non-technical users)*. Marcel identifies a chat by its Telegram chat ID, which is stored in the user's `profile.md` frontmatter. The link is one make target away:
 
-1. Zoo keeper sets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET` in `.env.local` (see [SETUP.md](SETUP.md#step-6-set-up-telegram-optional) for BotFather + webhook registration).
+1. Zoo keeper sets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET` in `.env.local` (see [SETUP.md](SETUP.md#step-7-set-up-telegram-optional) for BotFather + webhook registration).
 2. Family member opens Telegram, messages your bot, sends `/start`. The bot replies with their chat ID.
 3. Zoo keeper runs:
    ```bash
@@ -102,12 +105,13 @@ Everything Marcel can *do* — check iCloud calendar, read bank balances, fetch 
 
 Adding a service is almost always conversational: Alice says *"I want you to read my iCloud calendar"*, Marcel loads the `icloud` skill's `SETUP.md`, asks for the credentials, stores them encrypted under her user directory, and from then on has the skill available. No config file editing, no restart.
 
-Adding a *new* skill — one that doesn't exist yet — is a developer task: drop a park into the marcel-zoo checkout (`<MARCEL_ZOO_DIR>/skills/<name>/` for pure teaching skills, with a matching `<MARCEL_ZOO_DIR>/integrations/<name>/` park when the skill wraps a handler). See [docs/skills.md](docs/skills.md) for the full integration contract. Because Marcel can modify his own codebase, *he* can help you do this.
+Adding a *new* skill — one that doesn't exist yet — is a developer task: drop a park into your [marcel-zoo](https://github.com/shbunder/marcel-zoo) checkout (`<MARCEL_ZOO_DIR>/skills/<name>/` for pure teaching skills, with a matching `<MARCEL_ZOO_DIR>/integrations/<name>/` park when the skill wraps a handler). Both repos ship together — the kernel reads the zoo at runtime, but habitat source lives in its own git history. See [docs/skills.md](docs/skills.md) for the full integration contract. Because Marcel can modify his own codebase, *he* can help you do this.
 
 ## Architectural decisions
 
 A few choices shape everything else:
 
+- **Kernel and zoo in separate repos.** Marcel the kernel (this repo) ships zero skills on its own. Every habitat — skills, integrations, channels, `MARCEL.md`, `routing.yaml` — lives in [marcel-zoo](https://github.com/shbunder/marcel-zoo), cloned to `$MARCEL_ZOO_DIR` (default `~/.marcel/zoo`). This lets the kernel evolve independently from the menagerie it carries, lets a zoo keeper fork the zoo without touching kernel internals, and keeps household-specific habitats off the kernel's public git history. Run `make zoo-setup` from this repo to clone the zoo on first boot.
 - **One central server, thin clients.** Marcel runs as a single FastAPI process per household. Telegram and the Rust CLI are both thin shells that stream over WebSocket; no agent state lives on the client. One brain, many mouths.
 - **One continuous conversation per (user, channel).** There are no sessions. Each `(alice, telegram)` pair has an append-only JSONL log that never ends. Segments rotate at 500 messages or 500 KB; a rolling Haiku-generated summary is regenerated after 60 minutes of idle. This matches how Telegram actually works — your chat history with Marcel *is* the chat history, not an ephemeral session.
 - **Flat files over databases.** Users, profiles, memories, conversations, artifacts — all live as markdown and JSONL under `~/.marcel/`. Easy to back up, easy to diff, easy for Marcel to rewrite. No migration pain.

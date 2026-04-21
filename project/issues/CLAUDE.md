@@ -40,7 +40,7 @@ Before closing, verify:
 - All tasks and subtasks show `[✓]`
 - Dependent issues are unblocked and notified
 - Implementation Log reflects all work done
-- All files that reference changed conventions are updated — check skills (`~/.marcel/skills/`), defaults (`src/marcel_core/defaults/`), other CLAUDE.md files, and docs. A `grep` for key terms from your changes is the fastest way to catch stragglers.
+- All files that reference changed conventions are updated — check the zoo (`$MARCEL_ZOO_DIR`, default `~/.marcel/zoo/` — skills, integrations, channels, jobs, agents, `MARCEL.md`, `routing.yaml`), user skills (`~/.marcel/skills/`), other CLAUDE.md files, and docs. A `grep` for key terms from your changes is the fastest way to catch stragglers.
 
 **Closing is mandatory, not optional.** Every issue that reaches "code complete" must be formally closed in the same conversation. Use `/finish-issue` — it handles task status updates, implementation logging, verification, closure, and merging.
 

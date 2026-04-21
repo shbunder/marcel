@@ -12,9 +12,16 @@ This guide is written for the **admin** — the technically inclined person who 
 | **Git** | For cloning the repo and self-modification support |
 | **Telegram account** *(optional)* | To let family members chat with Marcel from their phones |
 
+Marcel is split across **two repos**:
+
+- [`marcel`](https://github.com/shbunder/marcel) — the kernel. The FastAPI server, agent harness, storage, channels framework. Ships zero skills on its own.
+- [`marcel-zoo`](https://github.com/shbunder/marcel-zoo) — the habitats. Every skill, integration, `MARCEL.md`, and `routing.yaml` lives here. Without the zoo, the kernel boots with no abilities.
+
+Both must be cloned. The kernel goes under `~/projects/marcel` (where you edit), the zoo under `~/.marcel/zoo` (where Marcel reads at runtime). Step 1 clones the kernel; **Step 2** clones the zoo.
+
 ---
 
-## Step 1: Clone and configure
+## Step 1: Clone and configure the kernel
 
 ```bash
 git clone https://github.com/shbunder/marcel.git ~/projects/marcel
@@ -38,7 +45,27 @@ You can also use `.env.local` (not checked into git) to keep secrets separate fr
 echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" >> .env.local
 ```
 
-## Step 2: Set up security
+## Step 2: Install the zoo
+
+The kernel doesn't ship any skills — every habitat (skills, integrations, channels, `MARCEL.md`, `routing.yaml`) lives in a separate repo called `marcel-zoo`. Clone it and install its deps with one make target:
+
+```bash
+make zoo-setup
+```
+
+This clones `github.com/shbunder/marcel-zoo` into `$MARCEL_ZOO_DIR` (default `~/.marcel/zoo`) if it isn't already there, then reads the zoo's `[project].dependencies` and installs them into the kernel venv via `uv pip install`. It's idempotent — safe to re-run. To override the location, export `MARCEL_ZOO_DIR` in `.env.local` before running.
+
+After the zoo is cloned, the kernel finds it because `docker-compose.yml` and `docker-compose.dev.yml` both mount `${HOME}/.marcel:${HOME}/.marcel` host → container and default `MARCEL_ZOO_DIR` to `${HOME}/.marcel/zoo`. No further Docker config needed.
+
+When a new habitat lands upstream, run:
+
+```bash
+make zoo-sync
+```
+
+That `git pull`s the zoo and re-installs its deps in one shot.
+
+## Step 3: Set up security
 
 ### API token (recommended)
 
@@ -74,7 +101,7 @@ MARCEL_CREDENTIALS_KEY=paste-your-key-here
 
 **Keep this key safe.** If you lose it, stored credentials must be re-entered.
 
-## Step 3: Install and start the server
+## Step 4: Install and start the server
 
 ```bash
 ./scripts/setup.sh
@@ -94,7 +121,7 @@ To verify prerequisites without starting anything:
 ./scripts/setup.sh --check
 ```
 
-## Step 4: Add family members
+## Step 5: Add family members
 
 Each user needs a directory under `~/.marcel/users/`:
 
@@ -105,7 +132,7 @@ mkdir -p ~/.marcel/users/bob
 
 User slugs must be lowercase letters, numbers, hyphens, or underscores.
 
-## Step 5: Distribute the CLI
+## Step 6: Distribute the CLI
 
 On each family member's computer, run:
 
@@ -118,17 +145,17 @@ curl -fsSL https://raw.githubusercontent.com/shbunder/marcel/main/scripts/instal
 
 Replace `192.168.1.50` with your server's local IP and `alice` with the user's slug. This installs the `marcel` binary and creates `~/.marcel/config.toml`.
 
-## Step 6: Set up Telegram (optional)
+## Step 7: Set up Telegram (optional)
 
 Telegram lets non-technical family members chat with Marcel from their phones without installing anything.
 
-### 6a. Create a bot
+### 7a. Create a bot
 
 1. Open Telegram and message [@BotFather](https://t.me/BotFather)
 2. Send `/newbot` and follow the prompts
 3. Copy the token BotFather gives you (format: `123456789:ABCdef...`)
 
-### 6b. Configure the bot
+### 7b. Configure the bot
 
 Add to `.env.local`:
 
@@ -137,7 +164,7 @@ TELEGRAM_BOT_TOKEN=123456789:ABCdef-your-token
 TELEGRAM_WEBHOOK_SECRET=<generate with: python3 -c "import secrets; print(secrets.token_urlsafe(32))">
 ```
 
-### 6c. Link family members
+### 7c. Link family members
 
 1. Have each person message your bot with `/start` — the bot replies with their chat ID
 2. On your server, link the chat ID to a user slug:
@@ -149,7 +176,7 @@ make link-telegram USER=alice CHAT=123456789  # replace with actual slug and cha
 
 The `link-telegram` target runs channel discovery against `MARCEL_ZOO_DIR`, loads the telegram habitat, and writes the mapping into the user's profile.
 
-### 6d. Expose Marcel to the internet
+### 7d. Expose Marcel to the internet
 
 Telegram needs to reach your server. The easiest option is a [Cloudflare tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/):
 
