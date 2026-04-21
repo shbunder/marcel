@@ -1,6 +1,6 @@
 # ISSUE-5ca6dc: `redeploy.sh` clears the restart flag + sync docs to actual behavior
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-21
 **Assignee:** Unassigned
 **Priority:** Medium
