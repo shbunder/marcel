@@ -1,6 +1,6 @@
 # ISSUE-0baea6: Author marcel-zoo/pyproject.toml and split habitat-only deps out of marcel-core
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-21
 **Assignee:** Unassigned
 **Priority:** Medium
