@@ -1,8 +1,10 @@
-"""Default MARCEL.md and skill files seeded on first startup.
+"""Default MARCEL.md, channel prompts, and routing.yaml seeded on first startup.
 
-If the data root does not yet contain a MARCEL.md or skills/ directory,
-the bundled defaults are copied from this package.  Existing files are
-never overwritten — the data root is the authoritative source.
+If the data root does not yet contain these files, the bundled defaults
+are copied from this package.  Existing files are never overwritten —
+the data root is the authoritative source. Skills and subagents ship
+as zoo habitats (see ``marcel_core.skills.loader`` and
+``marcel_core.agents.loader``) and are not seeded.
 """
 
 import logging
@@ -86,18 +88,3 @@ def seed_defaults(data_root: Path) -> None:
             data_root.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src_routing, target_routing)
             log.info('Seeded routing.yaml from defaults')
-
-    # Seed subagent definitions (ISSUE-074). Each bundled markdown file is
-    # copied into <data_root>/agents/ unless a file with the same name
-    # already exists — the data root wins, so user edits are never clobbered.
-    src_agents = _DEFAULTS_DIR / 'agents'
-    if src_agents.is_dir():
-        target_agents = data_root / 'agents'
-        target_agents.mkdir(parents=True, exist_ok=True)
-
-        for agent_file in sorted(src_agents.glob('*.md')):
-            target_file = target_agents / agent_file.name
-            if target_file.exists():
-                continue  # Don't overwrite user-edited agents
-            shutil.copy2(agent_file, target_file)
-            log.info('Seeded subagent %s from defaults', agent_file.name)

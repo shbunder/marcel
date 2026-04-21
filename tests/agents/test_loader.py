@@ -18,8 +18,14 @@ from marcel_core.config import settings
 
 @pytest.fixture
 def agents_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Point ``settings.data_dir`` at a tmp data root and return the agents subdir."""
+    """Point ``settings.data_dir`` at a tmp data root and return the agents subdir.
+
+    Also clears ``settings.marcel_zoo_dir`` so these tests control the entire
+    agent universe via the data root — otherwise a populated zoo on the
+    test machine would leak in (ISSUE-e22176).
+    """
     monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
+    monkeypatch.setattr(settings, 'marcel_zoo_dir', None, raising=False)
     agents_dir = tmp_path / 'agents'
     agents_dir.mkdir()
     return agents_dir
@@ -34,6 +40,7 @@ def _write_agent(agents_root: Path, name: str, frontmatter: str, body: str = 'sy
 class TestLoadAgentsEmpty:
     def test_returns_empty_when_dir_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', None, raising=False)
         # No agents/ subdir at all
         assert load_agents() == []
 
@@ -163,30 +170,40 @@ class TestFormatAgentIndex:
         assert '**plan**' in lines[1]
 
 
-class TestDefaultsSeeded:
-    """Integration check: the bundled ``explore`` and ``plan`` agents parse cleanly."""
+class TestZooHabitat:
+    """Agents loaded from the zoo habitat path (ISSUE-e22176)."""
 
-    def test_bundled_defaults_parse(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from marcel_core.defaults import seed_defaults
+    def test_loads_from_zoo_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        zoo = tmp_path / 'zoo'
+        zoo_agents = zoo / 'agents'
+        zoo_agents.mkdir(parents=True)
+        (zoo_agents / 'explore.md').write_text(
+            '---\nname: explore\ndescription: From zoo\n---\n\nbody\n', encoding='utf-8'
+        )
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo), raising=False)
+        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path / 'data'))
 
-        seed_defaults(tmp_path)
-        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
         agents = load_agents()
-        names = {a.name for a in agents}
-        assert 'explore' in names
-        assert 'plan' in names
-        assert 'power' in names  # ISSUE-076
-        for agent in agents:
-            assert agent.description  # every default has a description
-            assert agent.system_prompt  # body is non-empty
+        assert len(agents) == 1
+        assert agents[0].name == 'explore'
+        assert agents[0].source == 'zoo'
 
-    def test_power_agent_uses_tier_sentinel(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The bundled power agent must reference the tier sentinel, not a
-        hardcoded model — otherwise MARCEL_POWER_MODEL env overrides are
-        silently ignored."""
-        from marcel_core.defaults import seed_defaults
+    def test_data_root_overrides_zoo(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        zoo = tmp_path / 'zoo'
+        zoo_agents = zoo / 'agents'
+        zoo_agents.mkdir(parents=True)
+        (zoo_agents / 'explore.md').write_text(
+            '---\nname: explore\ndescription: From zoo\n---\n\nzoo body\n', encoding='utf-8'
+        )
+        data = tmp_path / 'data'
+        data_agents = data / 'agents'
+        data_agents.mkdir(parents=True)
+        (data_agents / 'explore.md').write_text(
+            '---\nname: explore\ndescription: From user\n---\n\nuser body\n', encoding='utf-8'
+        )
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo), raising=False)
+        monkeypatch.setattr(settings, 'marcel_data_dir', str(data))
 
-        seed_defaults(tmp_path)
-        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
-        power = load_agent('power')
-        assert power.model == 'tier:power'
+        explore = load_agent('explore')
+        assert explore.description == 'From user'
+        assert explore.source == 'data'

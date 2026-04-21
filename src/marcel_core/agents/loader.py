@@ -1,8 +1,17 @@
-"""Subagent document loader — discovers agent markdown files from the data root.
+"""Subagent document loader — discovers agent markdown files from the zoo and data root.
 
-Agents live at ``<data_root>/agents/`` (``~/.marcel/agents/`` or
-``$MARCEL_DATA_DIR/agents/`` in Docker). Each ``<name>.md`` is a markdown
-file with YAML frontmatter:
+Agents are discovered from two sources:
+
+1. ``<MARCEL_ZOO_DIR>/agents/`` — habitats from the marcel-zoo checkout
+   (skipped when ``MARCEL_ZOO_DIR`` is unset).
+2. ``<data_root>/agents/`` (``~/.marcel/agents/`` or
+   ``$MARCEL_DATA_DIR/agents/`` in Docker) — user-installed/customized
+   subagents.
+
+The data-root entry comes last so a user customization with the same
+agent name overrides the zoo habitat — same precedence as skills.
+
+Each ``<name>.md`` is a markdown file with YAML frontmatter:
 
 .. code-block:: markdown
 
@@ -40,10 +49,40 @@ class AgentNotFoundError(LookupError):
 
 
 def _agents_dir() -> Path:
-    """Return the agents directory under the data root."""
+    """Return the agents directory under the data root.
+
+    Backwards-compatible single-path accessor — prefer :func:`_agent_dirs`
+    for new callsites that need the full search order (zoo + data root).
+    """
     from marcel_core.config import settings
 
     return settings.data_dir / 'agents'
+
+
+def _agent_dirs() -> list[Path]:
+    """Return all agent directories in load order.
+
+    Agents are discovered from two sources:
+
+    1. ``<MARCEL_ZOO_DIR>/agents/`` — habitats from the marcel-zoo checkout
+       (skipped when ``MARCEL_ZOO_DIR`` is unset).
+    2. ``<MARCEL_DATA_DIR>/agents/`` — user-installed/customized agents.
+
+    The data-root entry comes last so a user customization with the same
+    agent name overrides the zoo habitat.
+    """
+    from marcel_core.config import settings
+
+    dirs: list[Path] = []
+    zoo = settings.zoo_dir
+    if zoo is not None:
+        zoo_agents = zoo / 'agents'
+        if zoo_agents.is_dir():
+            dirs.append(zoo_agents)
+    data_agents = _agents_dir()
+    if data_agents.is_dir():
+        dirs.append(data_agents)
+    return dirs
 
 
 @dataclass
@@ -146,26 +185,37 @@ def _load_agent_file(path: Path, source: str) -> AgentDoc | None:
 
 
 def load_agents() -> list[AgentDoc]:
-    """Discover and load all agents from the data-root agents directory.
+    """Discover and load all agents from every configured agents directory.
 
-    Returns agents sorted by name. Returns an empty list if the directory
-    does not exist (fresh install before seeding, tests without a data
-    root, etc.).
+    Walks the directories returned by :func:`_agent_dirs` in load order:
+
+    1. ``<MARCEL_ZOO_DIR>/agents/`` (when set) — habitats from marcel-zoo.
+    2. ``<MARCEL_DATA_DIR>/agents/`` — user-installed/customized agents.
+
+    When the same agent name is found in both, the later entry wins, so a
+    user customization in the data root overrides the zoo habitat. The
+    ``source`` field on the returned doc reflects where it came from.
+
+    Returns agents sorted by name. Returns an empty list if no directory
+    exists (fresh install with no zoo and no data-root agents/).
     """
+    from marcel_core.config import settings
+
+    zoo = settings.zoo_dir
+    zoo_agents = (zoo / 'agents').resolve() if zoo is not None else None
+
     agents: dict[str, AgentDoc] = {}
 
-    agents_path = _agents_dir()
-    if not agents_path.is_dir():
-        return []
-
-    for entry in sorted(agents_path.iterdir()):
-        if not entry.is_file() or not entry.name.endswith('.md'):
-            continue
-        if entry.name.startswith(('_', '.')):
-            continue
-        doc = _load_agent_file(entry, source='data')
-        if doc:
-            agents[doc.name] = doc
+    for agents_path in _agent_dirs():
+        source = 'zoo' if zoo_agents is not None and agents_path.resolve() == zoo_agents else 'data'
+        for entry in sorted(agents_path.iterdir()):
+            if not entry.is_file() or not entry.name.endswith('.md'):
+                continue
+            if entry.name.startswith(('_', '.')):
+                continue
+            doc = _load_agent_file(entry, source=source)
+            if doc:
+                agents[doc.name] = doc
 
     return sorted(agents.values(), key=lambda a: a.name)
 

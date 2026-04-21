@@ -431,9 +431,72 @@ templates exist, the template set is empty and the `job_templates` tool
 returns an empty list. Consistent with other habitat types, the kernel
 is content-free.
 
+## Subagent habitat
+
+A *subagent* is a purpose-built child agent the parent turn delegates
+to via the `delegate` tool — `explore` for read-only codebase searches,
+`plan` for implementation planning, `power` for heavyweight reasoning.
+Each subagent is a single markdown file with YAML frontmatter; there is
+no Python plugin surface because subagents do not run their own code —
+the kernel's `delegate` tool loads the markdown and spins up a
+pydantic-ai agent with the declared tool pool, model, and system
+prompt. This makes subagents the simplest habitat type.
+
+Two sources are scanned, in this precedence order:
+
+1. `<MARCEL_ZOO_DIR>/agents/<name>.md` — habitats from the marcel-zoo
+   checkout (the authoritative source for bundled defaults).
+2. `<data_root>/agents/<name>.md` — per-install override. A subagent
+   with the same name wins over the zoo version.
+
+### File layout
+
+The habitat convention is "one markdown file = one subagent". No
+wrapper directory unless the subagent grows resources (prompt
+fragments, reference data) — at which point promote to
+`<MARCEL_ZOO_DIR>/agents/<name>/agent.md` + siblings. Files-at-the-root
+is fine today; no habitats currently require the directory form.
+
+### Minimal example
+
+`<MARCEL_ZOO_DIR>/agents/explore.md`:
+
+```markdown
+---
+name: explore
+description: Fast codebase explorer
+model: inherit
+tools: [read_file, web, integration, marcel]
+max_requests: 20
+timeout_seconds: 300
+---
+
+You are a fast, read-only codebase explorer. ...
+```
+
+### Frontmatter schema
+
+See [subagents.md](subagents.md) for the full field reference. The
+loader (`marcel_core.agents.loader`) parses every `<name>.md` file in
+either source and returns an `AgentDoc` with the fields the `delegate`
+tool needs to construct the child agent.
+
+### Discovery
+
+`load_agents()` is a cold read on every call — editing a subagent
+markdown takes effect on the next delegation, no restart required. An
+agent file that cannot be parsed or is missing the `name` field is
+logged and skipped; siblings continue loading.
+
+**No kernel fallback.** If `MARCEL_ZOO_DIR` is unset and no local
+subagents exist in the data root, `load_agents()` returns `[]` and the
+`delegate` tool surfaces "no subagent named X" on any call. Consistent
+with the other habitat types, the kernel is content-free.
+
 ## See also
 
 - [Skills](skills.md) — integration handlers vs. skill docs (SKILL.md, SETUP.md, `depends_on:`).
+- [Subagents](subagents.md) — delegation tool, frontmatter fields, recursion guard, cost and safety.
 - [Storage](storage.md) — where `<data_root>` resolves and how per-user data is organized.
 - [Jobs](jobs.md) — the full job system (scheduler, executor, trigger types, notification policy).
 - [Architecture](architecture.md) — kernel / userspace model and where plugins sit in the overall design.

@@ -272,10 +272,11 @@ the bundled `power` subagent:
 delegate(subagent_type='power', prompt='Refactor the X module to decouple Y from Z, think hard.')
 ```
 
-The `power` agent lives at `~/.marcel/agents/power.md` (seeded from
-`src/marcel_core/defaults/agents/power.md` on first startup). Its
-frontmatter uses the `model: power` sentinel, which the delegate tool
-resolves to `MARCEL_POWER_MODEL` at call time.
+The `power` agent ships as a habitat in [marcel-zoo](https://github.com/shbunder/marcel-zoo)
+at `<MARCEL_ZOO_DIR>/agents/power.md` and can be overridden by
+`~/.marcel/agents/power.md`. Its frontmatter uses the `model: power`
+sentinel, which the delegate tool resolves to `MARCEL_POWER_MODEL` at
+call time.
 
 ### Tier sentinels in agent frontmatter
 
