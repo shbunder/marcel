@@ -11,7 +11,7 @@ sha = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip()
 request_restart(sha)
 ```
 
-This writes the `restart_requested.{env}` flag file (where `{env}` is `dev` or `prod`, resolved from `MARCEL_ENV`). A host-side systemd path unit watches the matching flag — `marcel-redeploy.path` for prod, `marcel-dev-redeploy.path` for dev — and triggers `redeploy.sh --env {env}`, which rebuilds the Docker image, recreates the container, health-checks, and (prod) **rolls back on failure**. See [docs/self-modification.md](../../docs/self-modification.md) for the full mechanism.
+This writes the `restart_requested.{env}` flag file (where `{env}` is `dev` or `prod`, resolved from `MARCEL_ENV`). A host-side systemd path unit watches the matching flag — `marcel-redeploy.path` for prod, `marcel-dev-redeploy.path` for dev — and triggers `redeploy.sh --env {env}`, which clears the flag, rebuilds the Docker image, and recreates the container. In prod, a second layer — the in-container watchdog (PID 1) — then polls `/health` and **rolls back via `git revert HEAD` on failure**. Dev has no in-container watchdog by design (uvicorn is PID 1 for `--reload`), so dev self-mod has no automatic rollback. See [docs/self-modification.md](../../docs/self-modification.md) for the full mechanism.
 
 Dev and prod share one code path and one mechanism — only the flag suffix and compose file differ. There is no dev-mode exception.
 
@@ -30,4 +30,4 @@ The flag-file mechanism gives automatic rollback on health-check failure. Direct
 ## Enforcement
 
 - [.claude/agents/pre-close-verifier.md](../agents/pre-close-verifier.md) flags any diff that adds a bypass path.
-- [.claude/agents/security-auditor.md](../agents/security-auditor.md) treats bypass as **Critical** — the flag file's contents are a git SHA that `redeploy.sh` checks out, so any code path where user-controllable input reaches that file is remote code execution on the host.
+- [.claude/agents/security-auditor.md](../agents/security-auditor.md) treats bypass as **Critical** — the flag file's contents are a pre-change git SHA written by `request_restart()` (currently used only for logging by the watchdog, but it sits on the restart boundary). Any future code path that treats that SHA as an execution parameter (e.g. `git checkout $SHA`) makes user-controllable input reaching `request_restart()` a remote-code-execution vector on the host. Gate every call site tightly.

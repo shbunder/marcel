@@ -57,7 +57,7 @@ Day-to-day operations after that:
 
 ```bash
 make docker-logs            # tail the container logs
-make docker-restart         # rebuild and redeploy (with rollback on failure)
+make docker-restart         # rebuild and redeploy
 make teardown               # stop Marcel and remove systemd units
 ```
 
@@ -112,7 +112,7 @@ A few choices shape everything else:
 - **One continuous conversation per (user, channel).** There are no sessions. Each `(alice, telegram)` pair has an append-only JSONL log that never ends. Segments rotate at 500 messages or 500 KB; a rolling Haiku-generated summary is regenerated after 60 minutes of idle. This matches how Telegram actually works — your chat history with Marcel *is* the chat history, not an ephemeral session.
 - **Flat files over databases.** Users, profiles, memories, conversations, artifacts — all live as markdown and JSONL under `~/.marcel/`. Easy to back up, easy to diff, easy for Marcel to rewrite. No migration pain.
 - **Markdown as the source of truth.** System prompts are assembled from five H1 blocks pulled from `MARCEL.md`, `profile.md`, skill docs, memory index, and channel guidance. The agent edits the same files it reads, which is what makes self-modification work.
-- **Self-modification is a feature, not a hack.** Marcel can edit his own code and restart himself. A systemd path watcher observes a flag file; when Marcel writes to it, systemd redeploys the container with automatic rollback on health-check failure. See [docs/self-modification.md](docs/self-modification.md).
+- **Self-modification is a feature, not a hack.** Marcel can edit his own code and restart himself. A systemd path watcher observes a flag file; when Marcel writes to it, systemd runs `redeploy.sh` to rebuild and recreate the container. A second layer — the in-container watchdog (prod only) — polls `/health` and reverts via `git revert HEAD` on failure. See [docs/self-modification.md](docs/self-modification.md).
 - **Role-gated tools.** Admins get the full power set (`bash`, `read_file`, `write_file`, `edit_file`, `git_*`, `claude_code`). Regular users only get `integration` + the `marcel` utility tool. The model never sees tools it isn't allowed to use.
 
 ### Frameworks Marcel is built on
