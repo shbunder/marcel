@@ -1,9 +1,14 @@
 # Self-Modification Safety
 
 Marcel can rewrite its own code.  The safety net that makes this possible has
-two layers: the **watchdog** (manages the `uvicorn` subprocess inside the
-container) and the **redeploy script** (runs on the host, rebuilds and restarts
-the Docker container with automatic rollback on failure).
+two layers with a clean split of responsibility:
+
+- **`redeploy.sh`** runs on the host. It clears the env-scoped restart flag,
+  rebuilds the Docker image, and recreates the container. That's all.
+- **The in-container watchdog** (prod only, PID 1) is the rollback mechanism.
+  It polls `/health` after restart and triggers `git revert HEAD` on failure.
+  Dev has no watchdog by design (uvicorn is PID 1 for `--reload`), so dev has
+  no automatic rollback.
 
 ---
 
@@ -123,8 +128,11 @@ The watchdog is the rollback mechanism — it has nothing to do with
 2. On restart request (flag file seen *inside* the container): stops uvicorn,
    starts it again with the new code, polls `/health`.
 3. **If healthy**: writes `"ok"` to `~/.marcel/watchdog/restart_result.prod`.
-4. **If unhealthy**: triggers `git revert HEAD`, rebuilds, restarts, writes
-   `"rolled_back"` or `"rollback_failed"`.
+4. **If unhealthy**: triggers `git revert HEAD`, restarts uvicorn against the
+   reverted code, writes `"rolled_back"` or `"rollback_failed"`. The watchdog
+   does not rebuild the image — the container is already running the image
+   that `redeploy.sh` built; rolling back a source-level change only requires
+   an uvicorn restart because `./src` is bind-mounted into the container.
 
 ### Dev has no rollback — by design
 

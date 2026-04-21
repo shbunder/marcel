@@ -26,7 +26,7 @@ Marcel runs on a home server. The threat model is a mix of "kids mess around" (a
 ### 3. Self-modification restart path
 
 - The ONLY legal restart mechanism is `request_restart()` writing to the env-suffixed flag file (`restart_requested.prod` or `restart_requested.dev`) that `marcel-redeploy.path` / `marcel-dev-redeploy.path` watches. Any new code path that invokes `systemctl`, `docker restart`, `os.execv`, or similar is a Critical — there is no dev-mode exception (dev is containerized and uses the same mechanism as prod).
-- The flag file's contents are a git SHA that `redeploy.sh` checks out. If any diff lets user-controllable input reach that file's contents, it's remote code execution on the host.
+- The flag file's contents are a pre-change git SHA written by `request_restart()`. Today the watchdog only reads that SHA for logging, but it sits on the restart boundary: any future code path that treats the SHA as an execution parameter (e.g. `git checkout $SHA`, `git reset --hard $SHA`) turns user-controllable input reaching `request_restart()` into remote code execution on the host. Flag diffs that loosen call-site gating or feed user input into the SHA argument as Critical.
 
 ### 4. Role-gated tools
 
