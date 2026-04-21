@@ -1,6 +1,6 @@
 # ISSUE-12e920: First-boot marcel-zoo setup (Makefile + SETUP docs + two-repo model)
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-21
 **Assignee:** Unassigned
 **Priority:** Medium

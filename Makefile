@@ -133,6 +133,15 @@ setup-check: ## Dry-run: verify prerequisites for setup without starting anythin
 teardown: ## Stop Marcel and remove systemd units
 	@./scripts/teardown.sh
 
+# Zoo (habitats repo — marcel-zoo)
+.PHONY: zoo-setup
+zoo-setup: ## Clone marcel-zoo into $MARCEL_ZOO_DIR (default ~/.marcel/zoo) and install its deps into the kernel venv
+	@./scripts/zoo-setup.sh
+
+.PHONY: zoo-sync
+zoo-sync: ## Git-pull the zoo and refresh its deps in the kernel venv
+	@./scripts/zoo-setup.sh --sync
+
 # Onboarding
 DATA_DIR ?= $(HOME)/.marcel
 
