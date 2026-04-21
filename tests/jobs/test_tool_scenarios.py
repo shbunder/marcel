@@ -279,7 +279,24 @@ class TestNoJobs:
 
 class TestJobTemplatesTool:
     @pytest.mark.asyncio
-    async def test_templates(self):
+    async def test_templates(self, tmp_path, monkeypatch):
+        # Templates are disk-backed since ISSUE-a7d69a. Isolate the zoo and
+        # write a couple of fake habitats into the data-root so the tool
+        # renders what we expect.
+        from marcel_core.config import settings
+
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', None, raising=False)
+        for name in ('sync', 'digest', 'scrape'):
+            habitat = tmp_path / 'jobs' / name
+            habitat.mkdir(parents=True)
+            (habitat / 'template.yaml').write_text(
+                f'description: fake {name}\n'
+                'default_trigger: {type: event}\n'
+                'system_prompt: s\n'
+                'notify: silent\n'
+                'model: anthropic:claude-haiku-4-5-20251001\n'
+            )
+
         from marcel_core.jobs.tool import job_templates
 
         result = await job_templates(_ctx())

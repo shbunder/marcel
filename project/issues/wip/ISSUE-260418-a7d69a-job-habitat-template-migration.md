@@ -56,6 +56,42 @@
 ## Implementation Log
 <!-- Append entries here when performing development work on this issue -->
 
+### 2026-04-21 — habitat loader + kernel delegation + zoo port
+
+**What shipped**
+
+- New kernel module `src/marcel_core/plugin/jobs.py` with
+  `discover_templates()` walking `<MARCEL_ZOO_DIR>/jobs/*/template.yaml`
+  then `<data_root>/jobs/*/template.yaml` (data root wins on collision).
+  Required keys (`description`, `system_prompt`, `notify`, `model`)
+  validated at parse time; a broken habitat is logged and skipped so
+  one bad YAML never aborts discovery of its siblings.
+- `src/marcel_core/jobs/templates.py` rewritten as a thin accessor:
+  `get_template` / `list_templates` / `TEMPLATES` (via `__getattr__`)
+  delegate to the loader on every call — cold read, no cache, live
+  edits reflected without a restart. Kernel ships no hardcoded
+  templates and no fallback.
+- Zoo-side ports at `<MARCEL_ZOO_DIR>/jobs/{sync,check,scrape,digest}/template.yaml`
+  — field-for-field equivalents of the old Python dict.
+- Plugin surface `marcel_core.plugin` re-exports `discover_templates`.
+- Tests rewritten in `tests/jobs/test_cache_templates.py` to drive the
+  disk loader: empty-when-no-sources, data-root-overrides-zoo,
+  missing-required-key-skipped, instance-dir-ignored.
+  `tests/jobs/test_tool_scenarios.py::TestJobTemplatesTool` now writes
+  fake habitats into the tmp data root.
+- Docs: `docs/jobs.md` Architecture + Templates + "Adding a new
+  template" rewritten around the habitat loader. `docs/plugins.md`
+  adds a full "Job habitat" section (schema table, minimal example,
+  discovery semantics, no-fallback rationale) and the status note
+  updated (job surface landed; only the agent surface remains).
+
+**Verification**
+
+- `make check` green, coverage 91.37%.
+- Manual smoke: `discover_templates()` against the live zoo returns
+  `{check, digest, scrape, sync}` with field values matching the old
+  Python dict.
+
 ## Lessons Learned
 <!-- Filled in at close time. -->
 

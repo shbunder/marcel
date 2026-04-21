@@ -5,7 +5,7 @@ Marcel is moving toward a clean kernel / userspace split. The kernel is [`marcel
 `marcel_core.plugin` is the stable surface zoo habitats import from. Anything re-exported there is a stability promise; anything else in `marcel_core` is internal and may change between versions.
 
 !!! note "Status"
-    The plugin surface currently covers **integrations, skill habitats, and channel habitats**. Job and agent surfaces are being added incrementally — see the open issues in `project/issues/open/` for the roadmap (ISSUE-a7d69a, ISSUE-e22176).
+    The plugin surface currently covers **integrations, skill habitats, channel habitats, and job templates**. An agent surface is still to come — see the open issues in `project/issues/open/` for the roadmap (ISSUE-e22176).
 
 ## Configuring the zoo location
 
@@ -362,8 +362,78 @@ After a kernel restart, `list_channels()` contains `'demo'`, `main.py` mounts `r
 
 Subsequent calls to `discover()` are idempotent: already-loaded habitats are skipped via their presence in `sys.modules`.
 
+## Job habitat
+
+A job *template* is a reusable set of defaults the agent drops into a new
+`JobDefinition` during conversational job creation — "sync my bank every
+8 hours", "check the weather and alert if it rains", etc. Before
+ISSUE-a7d69a these templates lived in a hardcoded Python dict inside
+the kernel; they now live as `template.yaml` files in habitat
+directories, editable without touching kernel code.
+
+Two sources are scanned, in this precedence order:
+
+1. `<MARCEL_ZOO_DIR>/jobs/<name>/template.yaml` — zoo-provided defaults.
+2. `<data_root>/jobs/<name>/template.yaml` — per-install override. A
+   template with the same name wins over the zoo version.
+
+A `<data_root>/jobs/<slug>/` directory without a `template.yaml` is a
+*job instance* (it has `JOB.md` + `state.json` + `runs/`) and is ignored
+by the template loader — template and instance directories coexist in
+the same tree without conflict.
+
+### Minimal example
+
+`<MARCEL_ZOO_DIR>/jobs/sync/template.yaml`:
+
+```yaml
+description: Periodically sync data from an external service.
+default_trigger:
+  type: interval
+  interval_seconds: 28800
+system_prompt: >-
+  You are a background sync worker for Marcel. Call the specified
+  integration skill and report a brief summary of what was synced.
+task_template: 'Run {skill} now and report the results.'
+notify: on_failure
+model: anthropic:claude-haiku-4-5-20251001
+```
+
+After the next discovery call, `job_templates` lists `sync` and the
+agent can reference it when constructing a new job.
+
+### Template schema
+
+| Key | Required | Notes |
+|---|---|---|
+| `description` | yes | One-line human description; surfaced by `job_templates`. |
+| `default_trigger` | no | `TriggerSpec` dict — `{type: interval\|cron\|event\|oneshot, interval_seconds?, cron?, timezone?, run_at?}`. |
+| `system_prompt` | yes | System prompt injected into the job agent's turn. |
+| `task_template` | no | Optional `str.format`-style template with placeholders the agent fills at job-creation time. |
+| `notify` | yes | `always \| on_failure \| on_output \| silent`. |
+| `model` | yes | Fully-qualified pydantic-ai model id (e.g. `anthropic:claude-haiku-4-5-20251001`). |
+
+Extra keys are preserved and returned to the caller untouched. A
+habitat missing any required key is skipped with a logged error — one
+broken habitat never aborts discovery of its siblings.
+
+### Discovery
+
+`marcel_core.plugin.jobs.discover_templates()` walks both sources, parses
+each `template.yaml`, validates required keys, and returns a
+`dict[str, dict[str, Any]]` keyed by habitat name. It is a cold read on
+every call — editing a YAML takes effect without a restart. `TEMPLATES`,
+`get_template`, and `list_templates` in `marcel_core.jobs.templates`
+delegate to this loader.
+
+**No kernel fallback.** If `MARCEL_ZOO_DIR` is unset and no local
+templates exist, the template set is empty and the `job_templates` tool
+returns an empty list. Consistent with other habitat types, the kernel
+is content-free.
+
 ## See also
 
 - [Skills](skills.md) — integration handlers vs. skill docs (SKILL.md, SETUP.md, `depends_on:`).
 - [Storage](storage.md) — where `<data_root>` resolves and how per-user data is organized.
+- [Jobs](jobs.md) — the full job system (scheduler, executor, trigger types, notification policy).
 - [Architecture](architecture.md) — kernel / userspace model and where plugins sit in the overall design.

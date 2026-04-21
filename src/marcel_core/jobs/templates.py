@@ -1,77 +1,46 @@
-"""Built-in job templates for common patterns.
+"""Job templates — sourced from zoo + data-root habitats.
 
-Templates are dictionaries of defaults that the agent uses during
-conversational job creation.  The agent picks the right template based on
-the user's request, fills in placeholders, and calls ``create_job``.
+Templates are the defaults the agent uses during conversational job
+creation. Historically this module shipped them as a hardcoded Python
+dict; since ISSUE-a7d69a they live as ``template.yaml`` files under
+``<MARCEL_ZOO_DIR>/jobs/<name>/`` (zoo) or ``<data_root>/jobs/<name>/``
+(per-install override). This module is now a thin accessor over
+:func:`marcel_core.plugin.jobs.discover_templates`.
+
+Kernel ships **no** fallback template. If the zoo is not configured and
+the user has not created any local templates, :data:`TEMPLATES` is empty
+and the agent tells the user to set one up. The rationale matches other
+habitat types: the kernel is content-free, habitats supply behavior.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-TEMPLATES: dict[str, dict[str, Any]] = {
-    'sync': {
-        'description': 'Periodically sync data from an external service.',
-        'default_trigger': {'type': 'interval', 'interval_seconds': 28800},
-        'system_prompt': (
-            'You are a background sync worker for Marcel. '
-            'Your job is to call the specified integration skill to sync data. '
-            'Report a brief summary of what was synced. '
-            'If there are warnings or errors, include them clearly.'
-        ),
-        'task_template': 'Run {skill} now and report the results.',
-        'notify': 'on_failure',
-        'model': 'anthropic:claude-haiku-4-5-20251001',
-    },
-    'check': {
-        'description': 'Check a condition and optionally alert the user.',
-        'default_trigger': {'type': 'event'},
-        'system_prompt': (
-            'You are a monitoring worker for Marcel. '
-            'Check the specified condition and decide whether to alert the user. '
-            'Only send a notification if the condition is met. '
-            'Be concise and actionable in your alert.'
-        ),
-        'task_template': 'Check: {condition}. If true, notify the user: {alert_message}',
-        'notify': 'on_output',
-        'model': 'anthropic:claude-haiku-4-5-20251001',
-    },
-    'scrape': {
-        'description': 'Scrape a website for new content on a schedule.',
-        'default_trigger': {'type': 'interval', 'interval_seconds': 3600},
-        'system_prompt': (
-            'You are a content scraper for Marcel. '
-            'Use the browser tools to visit the specified URL, '
-            'extract relevant content, and return a structured summary. '
-            'If login is required, use the provided credentials. '
-            'Focus on new content since the last run.'
-        ),
-        'task_template': 'Scrape {url} for new articles/content. {extra_instructions}',
-        'notify': 'silent',
-        'model': 'anthropic:claude-haiku-4-5-20251001',
-    },
-    'digest': {
-        'description': 'Compose a digest message from multiple sources.',
-        'default_trigger': {'type': 'cron', 'cron': '0 7 * * *'},
-        'system_prompt': (
-            "You are Marcel's digest composer. "
-            'Gather information from the specified sources and compose a single, '
-            'well-formatted message for the user. '
-            'Be warm, concise, and useful. Include only actionable or interesting items. '
-            'Use the notify tool to send the final digest to the user.'
-        ),
-        'task_template': 'Compose a {digest_type} digest. Sources: {sources}',
-        'notify': 'always',
-        'model': 'anthropic:claude-sonnet-4-6',
-    },
-}
+from marcel_core.plugin.jobs import discover_templates
+
+
+def _templates() -> dict[str, dict[str, Any]]:
+    return discover_templates()
 
 
 def get_template(name: str) -> dict[str, Any] | None:
     """Return a template by name, or None if not found."""
-    return TEMPLATES.get(name)
+    return _templates().get(name)
 
 
 def list_templates() -> list[dict[str, str]]:
     """Return a summary of all available templates."""
-    return [{'name': name, 'description': tpl['description']} for name, tpl in TEMPLATES.items()]
+    return [{'name': name, 'description': str(tpl.get('description', ''))} for name, tpl in _templates().items()]
+
+
+def __getattr__(attr: str) -> Any:
+    """Expose :data:`TEMPLATES` as a fresh read on every access.
+
+    Callers that imported ``TEMPLATES`` for backward-compat observe the
+    current on-disk state each time, so editing a ``template.yaml`` does
+    not require a restart.
+    """
+    if attr == 'TEMPLATES':
+        return _templates()
+    raise AttributeError(f'module {__name__!r} has no attribute {attr!r}')
