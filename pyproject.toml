@@ -36,15 +36,6 @@ browser = [
     "playwright>=1.40.0",
     "trafilatura>=2.0.0",
 ]
-# Dependencies pulled in only by zoo habitats (MARCEL_ZOO_DIR). Always
-# installed by Marcel's dev + prod images (`uv sync --all-extras`) so the
-# zoo can ``import`` them against the kernel venv, but conceptually owned
-# by the zoo not the kernel — moved here as habitats migrated out
-# (icloud → ISSUE-e7d127, banking/news upcoming under ISSUE-2ccc10).
-zoo = [
-    "caldav>=3.1.0",
-    "vobject>=0.9.9",
-]
 
 # Local package sources for editable installation
 [tool.uv.sources]
