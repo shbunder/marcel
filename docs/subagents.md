@@ -52,7 +52,8 @@ Arguments:
 
 - **`subagent_type`** *(required)* — the `name` of a subagent from the
   agents directory, e.g. `explore` or `plan`. Must match a markdown file
-  under `<data_root>/agents/` (without the `.md` suffix).
+  under `<MARCEL_ZOO_DIR>/agents/` or `<data_root>/agents/` (without the
+  `.md` suffix).
 - **`prompt`** *(required)* — the task for the subagent. Be specific: the
   subagent has no memory of the parent conversation, so include any file
   paths, line numbers, and context it will need.
@@ -66,8 +67,16 @@ decide how to recover.
 
 ## Agent definition files
 
-Subagents live at `<data_root>/agents/<name>.md` (typically
-`~/.marcel/agents/`). Each is a markdown file with YAML frontmatter:
+Subagents are discovered from two sources:
+
+1. **`<MARCEL_ZOO_DIR>/agents/<name>.md`** — habitats from the marcel-zoo
+   checkout (the authoritative source for bundled defaults).
+2. **`<data_root>/agents/<name>.md`** (typically `~/.marcel/agents/`) —
+   user-installed or customized subagents. Wins on name collisions, so
+   you can override a zoo default by dropping a file with the same name
+   into the data root.
+
+Each is a markdown file with YAML frontmatter:
 
 ```markdown
 ---
@@ -158,8 +167,8 @@ unbounded nesting and makes the delegation tree easy to reason about.
 
 ## Default subagents
 
-Three subagents ship with Marcel and are seeded to `<data_root>/agents/`
-on first startup from `src/marcel_core/defaults/agents/`:
+Three subagents ship as habitats in [marcel-zoo](https://github.com/shbunder/marcel-zoo)
+under `<MARCEL_ZOO_DIR>/agents/`:
 
 - **`explore`** — a read-only file/codebase explorer. Tools:
   `read_file`, `web`, `integration`, `marcel`. Good for "find the code
@@ -175,9 +184,10 @@ on first startup from `src/marcel_core/defaults/agents/`:
   tool pool (admin users get bash/file IO/git; regular users get the safer
   subset). See [docs/model-tiers.md](./model-tiers.md).
 
-Edit these files freely in your data root — the seed step never
-overwrites existing files, so your customizations survive restarts. Add
-new subagents by dropping additional `<name>.md` files alongside them.
+Override any of these by dropping `<name>.md` into `<data_root>/agents/`
+(e.g. `~/.marcel/agents/explore.md`) — the data root wins on name
+collisions. Add new subagents by dropping additional `<name>.md` files
+into either the zoo or the data root.
 
 ## Cost and safety
 

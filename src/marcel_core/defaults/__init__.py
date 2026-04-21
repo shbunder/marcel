@@ -86,18 +86,3 @@ def seed_defaults(data_root: Path) -> None:
             data_root.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src_routing, target_routing)
             log.info('Seeded routing.yaml from defaults')
-
-    # Seed subagent definitions (ISSUE-074). Each bundled markdown file is
-    # copied into <data_root>/agents/ unless a file with the same name
-    # already exists — the data root wins, so user edits are never clobbered.
-    src_agents = _DEFAULTS_DIR / 'agents'
-    if src_agents.is_dir():
-        target_agents = data_root / 'agents'
-        target_agents.mkdir(parents=True, exist_ok=True)
-
-        for agent_file in sorted(src_agents.glob('*.md')):
-            target_file = target_agents / agent_file.name
-            if target_file.exists():
-                continue  # Don't overwrite user-edited agents
-            shutil.copy2(agent_file, target_file)
-            log.info('Seeded subagent %s from defaults', agent_file.name)
