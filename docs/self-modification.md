@@ -82,8 +82,10 @@ To tear down: `make teardown` (stops everything, removes systemd units, preserve
 ## Restart flow
 
 Dev and prod share one mechanism. The only differences are the flag-file
-suffix (resolved from `MARCEL_ENV`) and the compose file the redeploy script
-drives.
+suffix (resolved from `MARCEL_ENV`), the compose file the redeploy script
+drives, and whether rollback is automatic (prod) or developer-driven (dev).
+
+### Agent side (dev or prod)
 
 When Marcel modifies its own code:
 
@@ -92,6 +94,8 @@ When Marcel modifies its own code:
    `~/.marcel/watchdog/restart_requested.{env}` (where `{env}` is `dev` or
    `prod`, taken from `MARCEL_ENV`).
 
+### Host side — `redeploy.sh`
+
 The matching host-side systemd path unit fires:
 
 - `marcel-redeploy.path` watches `restart_requested.prod` → runs
@@ -99,32 +103,40 @@ The matching host-side systemd path unit fires:
 - `marcel-dev-redeploy.path` watches `restart_requested.dev` → runs
   `redeploy.sh --env dev` (drives `docker-compose.dev.yml`, port 7421)
 
+`redeploy.sh` does only three things, identical across dev and prod:
+
+1. **Clears the `restart_requested.{env}` flag.** Idempotent — safe to run
+   even if the in-container watchdog (prod) already cleared it. Without this
+   step, the `PathExists=` condition on the systemd path unit would re-fire
+   the redeploy on any host reboot or `systemctl restart` of the unit.
+2. **Rebuilds the image**: `docker compose -f <compose-file> build`.
+3. **Recreates the container**: `docker compose -f <compose-file> up -d`.
+
+### Health-check and rollback (prod only — in-container watchdog)
+
+The prod container runs a watchdog as PID 1 (see
+[`src/marcel_core/watchdog/main.py`](https://github.com/shbunder/marcel/blob/main/src/marcel_core/watchdog/main.py)).
+The watchdog is the rollback mechanism — it has nothing to do with
 `redeploy.sh`:
 
-1. Clears the `restart_requested.{env}` flag.
-2. Records the current commit as known-good (prod only).
-3. Runs `docker compose -f <compose-file> build` (rebuilds the image with new code).
-4. Runs `docker compose -f <compose-file> up -d` (recreates the container).
-5. Polls `GET http://localhost:{port}/health` for up to 60 seconds.
-6. **If healthy**: writes `"ok"` to `~/.marcel/watchdog/restart_result.{env}`.
-7. **If unhealthy (prod)**: reverts to the known-good commit, rebuilds, restarts,
-   and writes `"rolled_back"` or `"rollback_failed"`.
+1. Starts `uvicorn` and polls `GET /health`.
+2. On restart request (flag file seen *inside* the container): stops uvicorn,
+   starts it again with the new code, polls `/health`.
+3. **If healthy**: writes `"ok"` to `~/.marcel/watchdog/restart_result.prod`.
+4. **If unhealthy**: triggers `git revert HEAD`, rebuilds, restarts, writes
+   `"rolled_back"` or `"rollback_failed"`.
 
-Because `redeploy.sh` runs on the host (not inside the container), the rollback
-logic works reliably — it survives the container restart.
+### Dev has no rollback — by design
 
-### Watchdog (prod container only)
+The dev container does not run the watchdog. `uvicorn --reload` is PID 1, so
+incremental source edits live-reload without the flag-file path at all.
+Full self-mod restarts in dev still go through `redeploy.sh --env dev` — but
+there is no health-check, no rollback, and nothing writes `restart_result.dev`.
 
-The watchdog runs as PID 1 inside the **prod** container and provides a second
-layer of safety:
-
-1. Starts `uvicorn` and polls `/health`.
-2. On restart request: stops and restarts uvicorn, rolls back via `git revert`
-   if the new code fails health checks.
-3. On unexpected uvicorn exit: restarts immediately.
-
-The dev container does not run the watchdog — uvicorn is PID 1 and
-`--reload` handles code reloads during interactive development.
+This is deliberate: dev self-mod is exercised by an attentive developer who
+can read logs and fix a broken restart manually, not by production incident
+response. Introducing a redundant watchdog in dev would re-create the exact
+dev/prod divergence ISSUE-6b02d0 set out to eliminate.
 
 ---
 
@@ -132,12 +144,12 @@ The dev container does not run the watchdog — uvicorn is PID 1 and
 
 Flag files live at `~/.marcel/watchdog/` (or `$MARCEL_DATA_DIR/watchdog/`).
 
-| File | Writer | Reader | Contents |
-|------|--------|--------|----------|
-| `restart_requested.prod` | prod agent | `marcel-redeploy.path` | pre-change git SHA (plain text) |
-| `restart_requested.dev` | dev agent | `marcel-dev-redeploy.path` | pre-change git SHA (plain text) |
-| `restart_result.prod` | `redeploy.sh --env prod` / prod watchdog | prod agent | `"ok"`, `"rolled_back"`, or `"rollback_failed"` |
-| `restart_result.dev` | `redeploy.sh --env dev` | dev agent | `"ok"` |
+| File | Writer | Cleared by | Reader | Contents |
+|------|--------|-----------|--------|----------|
+| `restart_requested.prod` | prod agent (`request_restart`) | prod watchdog + `redeploy.sh --env prod` | `marcel-redeploy.path` (existence trigger) | pre-change git SHA (plain text) |
+| `restart_requested.dev` | dev agent (`request_restart`) | `redeploy.sh --env dev` | `marcel-dev-redeploy.path` (existence trigger) | pre-change git SHA (plain text) |
+| `restart_result.prod` | prod watchdog | (not cleared by redeploy) | prod agent (optional) | `"ok"`, `"rolled_back"`, or `"rollback_failed"` |
+| `restart_result.dev` | *(nothing — dev has no in-container watchdog by design)* | — | — | — |
 
 The `.{env}` suffix ensures a dev self-mod cannot trigger the prod rebuild
 path and vice versa. All writes use an **atomic write-to-temp-then-rename**
