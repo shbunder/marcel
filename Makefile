@@ -94,13 +94,8 @@ web-dev: ## Start web frontend dev server (Vite on :5173)
 # Dev server port — defaults to 7421 to avoid conflicting with Docker prod (7420)
 MARCEL_DEV_PORT ?= 7421
 
-.PHONY: install-skills
-install-skills: ## Symlink Marcel integration skills into .marcel/skills/
-	@echo -e "$(INFO) Installing integration skills (symlink)..."
-	@uv run python -m marcel_core.skills.install_skills
-
 .PHONY: serve
-serve: install-skills ## Start marcel-core dev container (Docker, uvicorn --reload on $(MARCEL_DEV_PORT))
+serve: ## Start marcel-core dev container (Docker, uvicorn --reload on $(MARCEL_DEV_PORT))
 	echo -e "$(INFO) Starting marcel-dev container on http://0.0.0.0:$(MARCEL_DEV_PORT) ..."
 	docker compose -f docker-compose.dev.yml up -d --build
 	echo -e "$(INFO) Follow logs: make serve-logs  |  stop: make serve-down"

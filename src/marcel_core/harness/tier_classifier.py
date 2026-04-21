@@ -6,12 +6,12 @@ signals and bumps the session up one tier when they appear. ``POWER`` is
 never auto-selected here — it's reached only via an explicit skill
 ``preferred_tier: power`` or subagent ``model: power``.
 
-Config file lives at ``<data_root>/routing.yaml``; seeded from
-``defaults/routing.yaml`` on first startup. Reloaded automatically when its
-mtime changes, so a user edit takes effect on the next turn without a
-restart. If the file is missing or malformed, the classifier falls back to
-the baked-in defaults and logs a warning — a broken edit must never brick
-the router.
+Config file lives at ``<data_root>/routing.yaml`` — shipped by the
+marcel-zoo repo (copied in when the zoo is cloned to ``~/.marcel/``).
+Reloaded automatically when its mtime changes, so a user edit takes effect
+on the next turn without a restart. If the file is missing or malformed,
+the classifier falls back to an in-code safe default and logs a warning —
+a broken edit must never brick the router.
 """
 
 from __future__ import annotations
@@ -28,8 +28,6 @@ from marcel_core.config import settings
 from marcel_core.harness.model_chain import Tier
 
 log = logging.getLogger(__name__)
-
-_DEFAULTS_PATH = Path(__file__).resolve().parents[1] / 'defaults' / 'routing.yaml'
 
 
 @dataclass(frozen=True)
@@ -94,20 +92,24 @@ def _load_from(path: Path) -> RoutingConfig:
 
 _cache_lock = threading.Lock()
 _cached: tuple[Path, float, RoutingConfig] | None = None
-_defaults_cache: RoutingConfig | None = None
 
 
-def _defaults() -> RoutingConfig:
-    global _defaults_cache
-    if _defaults_cache is None:
-        _defaults_cache = _load_from(_DEFAULTS_PATH)
-    return _defaults_cache
+# Safe in-code fallback used when ``<data_root>/routing.yaml`` is missing or
+# malformed. Intentionally empty: no trigger patterns means every session
+# starts at ``STANDARD`` (the safe, full-capability tier) and frustration
+# detection is off. A broken or missing zoo must not brick the router.
+_FALLBACK_CONFIG = RoutingConfig(
+    fast_patterns=(),
+    standard_patterns=(),
+    frustration_patterns=(),
+    default_tier=Tier.STANDARD,
+)
 
 
 def load_routing_config() -> RoutingConfig:
     """Return the active routing config, reloading on mtime change.
 
-    Falls back to the baked-in defaults if the user's ``routing.yaml`` is
+    Falls back to a safe in-code default if the user's ``routing.yaml`` is
     missing or fails to parse.
     """
     path = settings.data_dir / 'routing.yaml'
@@ -117,7 +119,7 @@ def load_routing_config() -> RoutingConfig:
         try:
             mtime = path.stat().st_mtime
         except FileNotFoundError:
-            return _defaults()
+            return _FALLBACK_CONFIG
 
         if _cached and _cached[0] == path and _cached[1] == mtime:
             return _cached[2]
@@ -125,8 +127,8 @@ def load_routing_config() -> RoutingConfig:
         try:
             cfg = _load_from(path)
         except (OSError, yaml.YAMLError, ValueError) as exc:
-            log.warning('tier_classifier: failed to load %s (%s) — using defaults', path, exc)
-            return _defaults()
+            log.warning('tier_classifier: failed to load %s (%s) — using fallback', path, exc)
+            return _FALLBACK_CONFIG
 
         _cached = (path, mtime, cfg)
         return cfg

@@ -10,8 +10,11 @@ from pydantic import dataclasses as pydantic_dc
 
 log = logging.getLogger(__name__)
 
-# Path to bundled default channel prompt files.
-_DEFAULTS_CHANNELS = Path(__file__).resolve().parent.parent / 'defaults' / 'channels'
+# Path to bundled channel-type prompt files (kernel-owned; describe how
+# Marcel should format responses on each kernel-shipped channel — CLI,
+# WebSocket, iOS, etc.). Habitat channels like Telegram ship their own
+# prompt inside the habitat.
+_CHANNEL_PROMPTS_DIR = Path(__file__).resolve().parent.parent / 'channel_prompts'
 
 
 @pydantic_dc.dataclass
@@ -151,11 +154,11 @@ def build_server_context(cwd: str | None = None) -> str:
 
 
 def load_channel_prompt(channel: str) -> str:
-    """Load channel-specific prompt from the data root, falling back to defaults.
+    """Load channel-specific prompt from the data root, falling back to the kernel bundle.
 
     Looks for ``<data_root>/channels/<channel>.md`` first (user-editable),
-    then falls back to the bundled default at
-    ``src/marcel_core/defaults/channels/<channel>.md``.
+    then falls back to the bundled kernel prompt at
+    ``src/marcel_core/channel_prompts/<channel>.md``.
 
     Args:
         channel: The channel name (e.g., 'telegram', 'cli').
@@ -177,10 +180,10 @@ def load_channel_prompt(channel: str) -> str:
     except Exception:
         log.debug('Could not check data root channel prompt for %s', channel, exc_info=True)
 
-    # 2. Bundled default
-    default = _DEFAULTS_CHANNELS / f'{channel}.md'
-    if default.exists():
-        _, body = _parse_frontmatter(default.read_text(encoding='utf-8'))
+    # 2. Kernel-bundled prompt for kernel channel types (cli, ws, ios, app, job)
+    bundled = _CHANNEL_PROMPTS_DIR / f'{channel}.md'
+    if bundled.exists():
+        _, body = _parse_frontmatter(bundled.read_text(encoding='utf-8'))
         return _strip_channel_preamble(body).strip()
 
     # 3. Generic fallback — keep as plain guidance (no preamble to strip)

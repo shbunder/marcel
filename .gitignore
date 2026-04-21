@@ -47,7 +47,8 @@ notebooks/*.ipynb
 *.deb
 
 # Runtime config lives in ~/.marcel/ (data root), not in the repo.
-# Defaults are bundled in src/marcel_core/defaults/ and seeded on first startup.
+# The zoo repo (cloned into ~/.marcel/ on first boot) supplies MARCEL.md,
+# routing.yaml, and every habitat; the kernel itself bundles none of them.
 .marcel/
 
 # Build artifacts

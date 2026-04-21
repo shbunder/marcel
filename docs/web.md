@@ -247,10 +247,9 @@ tool uses.
 
 ISSUE-072 renamed the `browser` skill (at
 `~/.marcel/skills/browser/`) to `web` (at `~/.marcel/skills/web/`). The
-skill seeder in
-[src/marcel_core/defaults/__init__.py](../src/marcel_core/defaults/__init__.py)
-detects stale `browser/` directories and removes them on the first
-startup after upgrade. The migration is idempotent and runs at most once
-per install — once `web/` is seeded, the migration is a no-op.
+rename ships through the marcel-zoo repo — `git pull` in `~/.marcel/`
+replaces the `browser/` habitat with `web/`. Any stale `browser/` that
+predates the migration can be removed by hand; Marcel no longer bundles
+a seeder to do it automatically.
 
-No action required by operators.
+No action required by operators on installs that track the zoo.
