@@ -80,12 +80,12 @@ Scan the new code for these patterns. Do not rationalize them away:
 
 ### 6. Straggler grep
 
-Marcel has convention-referencing files scattered across `~/.marcel/skills/`, `src/marcel_core/defaults/skills/`, `docs/`, and `project/`. When conventions change, these drift.
+Marcel has convention-referencing files scattered across `~/.marcel/` (the zoo checkout — skills, integrations, channels, agents, jobs, `MARCEL.md`, `routing.yaml`), `docs/`, and `project/`. When conventions change, these drift.
 
 Extract the key terms from the diff (emoji, command strings, format strings, renamed symbols, new flags) and grep for them:
 
 ```bash
-grep -rn "<term>" ~/.marcel/skills/ src/marcel_core/defaults/ docs/ project/ .claude/
+grep -rn "<term>" ~/.marcel/ docs/ project/ .claude/
 ```
 
 For every match outside the files the writer already changed, ask: does this reference still describe the new behavior? If not, it's a straggler — flag it.

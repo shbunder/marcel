@@ -17,6 +17,33 @@ from marcel_core.harness.tier_classifier import (
     maybe_bump_tier,
 )
 
+# Sample routing.yaml used by classifier tests that need real patterns to
+# match. Mirrors the canonical routing.yaml shipped in marcel-zoo — the
+# kernel itself no longer bundles this content, so tests write it
+# explicitly rather than relying on an in-code fallback.
+_SAMPLE_ROUTING_YAML = r"""
+fast_triggers:
+  en:
+    - "\\bwhat(?:'s| is)\\b"
+    - "\\btime\\b"
+  nl:
+    - "\\bhoe laat\\b"
+standard_triggers:
+  en:
+    - "\\bdebug\\b"
+    - "```"
+  nl:
+    - "\\bimplementeer\\b"
+frustration_triggers:
+  en:
+    - "\\bwtf\\b"
+    - "\\bthis sucks\\b"
+    - "\\bterrible\\b"
+  nl:
+    - "\\bverdomme\\b"
+default_tier: standard
+"""
+
 
 @pytest.fixture(autouse=True)
 def _isolated_data_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -34,13 +61,13 @@ def _write_routing_yaml(root: Path, body: str) -> Path:
 
 
 class TestLoadRoutingConfig:
-    def test_defaults_when_file_missing(self, _isolated_data_root: Path) -> None:
-        """Fresh install has no routing.yaml → we use the baked-in defaults."""
+    def test_missing_file_uses_safe_fallback(self, _isolated_data_root: Path) -> None:
+        """Fresh install without a routing.yaml → safe empty fallback, STANDARD default."""
         cfg = load_routing_config()
         assert cfg.default_tier == Tier.STANDARD
-        assert len(cfg.fast_patterns) > 0
-        assert len(cfg.standard_patterns) > 0
-        assert len(cfg.frustration_patterns) > 0
+        assert cfg.fast_patterns == ()
+        assert cfg.standard_patterns == ()
+        assert cfg.frustration_patterns == ()
 
     def test_loads_user_file(self, _isolated_data_root: Path) -> None:
         _write_routing_yaml(
@@ -83,14 +110,15 @@ default_tier: fast
         assert any(p.search('pong') for p in cfg2.fast_patterns)
         assert not any(p.search('ping') for p in cfg2.fast_patterns)
 
-    def test_broken_yaml_falls_back_to_defaults(
+    def test_broken_yaml_falls_back_to_safe_default(
         self, _isolated_data_root: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         _write_routing_yaml(_isolated_data_root, "fast_triggers: [unclosed: 'quote")
         with caplog.at_level('WARNING', logger='marcel_core.harness.tier_classifier'):
             cfg = load_routing_config()
-        # Defaults still loaded, classifier keeps working.
-        assert len(cfg.fast_patterns) > 0
+        # Broken edit must never brick the router — empty-pattern fallback with STANDARD default.
+        assert cfg.default_tier == Tier.STANDARD
+        assert cfg.fast_patterns == ()
         assert any('failed to load' in r.getMessage() for r in caplog.records)
 
     def test_invalid_pattern_is_skipped(self, _isolated_data_root: Path) -> None:
@@ -107,6 +135,7 @@ default_tier: fast
 class TestClassifyInitialTier:
     @pytest.fixture
     def cfg(self, _isolated_data_root: Path):
+        _write_routing_yaml(_isolated_data_root, _SAMPLE_ROUTING_YAML)
         return load_routing_config()
 
     def test_empty_message_uses_default(self, cfg) -> None:
@@ -149,6 +178,7 @@ class TestClassifyInitialTier:
 class TestFrustration:
     @pytest.fixture
     def cfg(self, _isolated_data_root: Path):
+        _write_routing_yaml(_isolated_data_root, _SAMPLE_ROUTING_YAML)
         return load_routing_config()
 
     def test_english_frustration(self, cfg) -> None:

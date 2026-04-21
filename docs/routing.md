@@ -10,12 +10,15 @@ routing config itself.
 
 ## Where the file lives
 
-`~/.marcel/routing.yaml` is seeded from
-`src/marcel_core/defaults/routing.yaml` the first time Marcel starts. If
-you delete it, it is re-created from the default on the next startup. If
-you corrupt it (invalid YAML, broken regex), Marcel logs a warning and
-falls back to the baked-in defaults — a broken edit never bricks the
-router.
+`~/.marcel/routing.yaml` is shipped by the [marcel-zoo](https://github.com/shbunder/marcel-zoo)
+repository and lands in `~/.marcel/` when the zoo is cloned there. Edits
+are picked up on the next turn — the file's mtime is watched, no restart
+needed. If you delete it, the kernel falls back to an in-code safe default
+(every session starts at `STANDARD`, no frustration detection) and logs a
+warning. If you corrupt it (invalid YAML, broken regex), you get the same
+fallback plus a warning log — a broken edit never bricks the router. To
+get the pattern-rich defaults back, restore the file from the zoo:
+`cd ~/.marcel && git checkout routing.yaml`.
 
 The file is **household-level**: one routing config per Marcel install,
 not per family member. Dutch and English patterns live side by side and

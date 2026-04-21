@@ -179,7 +179,6 @@ asyncio_mode = "auto"
 branch = true
 omit = [
     "*/watchdog/main.py",
-    "*/skills/install_skills.py",
     "*/skills/tool.py",
     "*/browser/manager.py",
     "*/browser/tools.py",

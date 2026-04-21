@@ -32,10 +32,10 @@ COPY src/ ./src/
 # Install the project itself
 RUN uv sync --frozen --all-extras --no-dev
 
-# The kernel ships zero bundled skills and zero bundled subagents —
-# both live in marcel-zoo and are loaded from MARCEL_ZOO_DIR at runtime.
-# seed_defaults() still copies channel prompts and routing.yaml from
-# src/marcel_core/defaults/ to the data root (~/.marcel/) on first start.
+# The kernel ships zero bundled skills, zero bundled subagents, and no
+# MARCEL.md / routing.yaml — everything user-facing lives in marcel-zoo and
+# is loaded from MARCEL_ZOO_DIR at runtime. The host must mount a populated
+# ~/.marcel/ (with the zoo cloned into it) for Marcel to have personality.
 
 # Create non-root user matching the host user (UID/GID passed at build time)
 ARG USER_UID=1000
