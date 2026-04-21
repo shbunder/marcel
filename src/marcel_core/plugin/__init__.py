@@ -23,8 +23,11 @@ Surface today (integration habitat focus):
   :func:`list_channels` — channel habitat contract (see
   :mod:`marcel_core.plugin.channels`).
 
-Other habitat types (skills, jobs, agents) will add their surfaces here as
-their plugin plumbing lands (see ISSUE-2ccc10, ISSUE-a7d69a).
+- :func:`discover_templates` — job template habitat loader (see
+  :mod:`marcel_core.plugin.jobs`).
+
+Other habitat types (skills, agents) will add their surfaces here as
+their plugin plumbing lands (see ISSUE-2ccc10).
 
 Example — minimal external integration at
 ``<MARCEL_ZOO_DIR>/integrations/demo/__init__.py``::
@@ -53,12 +56,14 @@ from marcel_core.plugin.channels import (
     list_channels,
     register_channel,
 )
+from marcel_core.plugin.jobs import discover_templates
 from marcel_core.skills.integrations import IntegrationHandler, register
 
 __all__ = [
     'ChannelPlugin',
     'IntegrationHandler',
     'credentials',
+    'discover_templates',
     'get_channel',
     'get_logger',
     'list_channels',

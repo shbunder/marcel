@@ -10,9 +10,18 @@ src/marcel_core/jobs/
     models.py         # Pydantic data models
     executor.py       # Headless agent execution
     scheduler.py      # Tick loop + event bus
-    templates.py      # Built-in templates
+    templates.py      # Thin accessor over the habitat loader (no hardcoded content)
     tool.py           # Agent-facing tools
 ```
+
+!!! info "Templates ship as zoo habitats"
+    Since ISSUE-a7d69a the built-in templates (`sync`, `check`, `scrape`,
+    `digest`) live at `<MARCEL_ZOO_DIR>/jobs/<name>/template.yaml` — not
+    in the kernel. Discovery walks the zoo on every call via
+    [`marcel_core.plugin.jobs.discover_templates`](plugins.md#job-habitat).
+    The kernel ships **no** fallback: if `MARCEL_ZOO_DIR` is unset and
+    the user has not authored local templates, the template list is
+    empty and `job_templates` tells the user to configure the zoo.
 
 Jobs live in a flat directory at `~/.marcel/jobs/{slug}/`, mirroring the skill layout:
 
@@ -165,7 +174,8 @@ Errors are classified by pattern matching against the error message:
 
 ## Templates
 
-Built-in templates provide sensible defaults for common patterns:
+Templates are habitat-provided defaults for common job patterns. The zoo
+ships four out of the box:
 
 | Template | Default trigger | Model | Notify | Use case |
 |----------|----------------|-------|--------|----------|
@@ -173,6 +183,10 @@ Built-in templates provide sensible defaults for common patterns:
 | `check` | event | haiku | on_output | Monitor and alert |
 | `scrape` | interval (1h) | haiku | silent | Web content scraping |
 | `digest` | cron (daily 7 AM) | sonnet | always | Summary messages |
+
+Each one is a ``template.yaml`` file under
+``<MARCEL_ZOO_DIR>/jobs/<name>/`` — see
+[Job habitat](plugins.md#job-habitat) for the schema.
 
 ## Agent tools
 
@@ -190,20 +204,30 @@ Users create and manage jobs conversationally through these tools:
 
 ## Adding a new template
 
-Add an entry to `TEMPLATES` in `src/marcel_core/jobs/templates.py`:
+Create a habitat directory and drop in a ``template.yaml``. The zoo is
+the usual home; per-install overrides can live at
+``<data_root>/jobs/<name>/template.yaml`` — a data-root entry with the
+same name wins over the zoo.
 
-```python
-TEMPLATES['my_template'] = {
-    'description': 'What this template does.',
-    'default_trigger': {'type': 'interval', 'interval_seconds': 3600},
-    'system_prompt': 'Instructions for the job agent...',
-    'task_template': 'Do {thing} and report results.',
-    'notify': 'on_output',
-    'model': 'anthropic:claude-haiku-4-5-20251001',
-}
+```yaml
+# <MARCEL_ZOO_DIR>/jobs/my_template/template.yaml
+description: What this template does.
+default_trigger:
+  type: interval
+  interval_seconds: 3600
+system_prompt: Instructions for the job agent...
+task_template: 'Do {thing} and report results.'
+notify: on_output
+model: anthropic:claude-haiku-4-5-20251001
 ```
 
-Then update `.marcel/skills/jobs/SKILL.md` to document the new template.
+Discovery is a cold read on every call, so editing the YAML takes
+effect without a restart. Required keys are `description`,
+`system_prompt`, `notify`, and `model`; a habitat missing any of them
+is skipped with a logged error.
+
+Then update `~/.marcel/skills/jobs/SKILL.md` to document the new
+template.
 
 ## Notification policies
 
