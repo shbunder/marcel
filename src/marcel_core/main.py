@@ -88,6 +88,49 @@ async def _background_summarization_loop() -> None:
             log.exception('background summarization loop error')
 
 
+def _log_zoo_summary() -> None:
+    """Log the resolved MARCEL_ZOO_DIR and on-disk habitat counts.
+
+    Counts are on-disk directory counts, not post-discovery registrations, so
+    the line tells the truth about what's available even if a specific habitat
+    failed to load. First-boot operators who forget ``make zoo-setup`` get a
+    WARNING pointing at the fix — the difference between "Marcel is running"
+    and "Marcel is running but has zero habitats" is easy to miss otherwise.
+    """
+    zoo_dir = settings.zoo_dir
+    if zoo_dir is None:
+        log.warning(
+            'main: MARCEL_ZOO_DIR is unset — Marcel has zero habitats. '
+            'Run `make zoo-setup` (host) + `make zoo-docker-deps` (container) to install.'
+        )
+        return
+    if not zoo_dir.is_dir():
+        log.warning(
+            'main: MARCEL_ZOO_DIR=%s does not exist — Marcel has zero habitats. '
+            'Run `make zoo-setup` (host) + `make zoo-docker-deps` (container) to install.',
+            zoo_dir,
+        )
+        return
+
+    counts: dict[str, int] = {}
+    for kind in ('channels', 'integrations', 'skills', 'jobs', 'agents'):
+        subdir = zoo_dir / kind
+        if not subdir.is_dir():
+            counts[kind] = 0
+            continue
+        counts[kind] = sum(1 for entry in subdir.iterdir() if entry.is_dir() and not entry.name.startswith(('_', '.')))
+
+    summary = ' '.join(f'{k}={v}' for k, v in counts.items())
+    if sum(counts.values()) == 0:
+        log.warning(
+            'main: zoo at %s is empty (%s). Run `make zoo-setup` (host) + `make zoo-docker-deps` (container).',
+            zoo_dir,
+            summary,
+        )
+    else:
+        log.info('main: zoo at %s — %s', zoo_dir, summary)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log.info('main: starting Marcel v%s', __version__)
@@ -99,6 +142,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # decide which habitat:* jobs to materialize and which to treat as orphan.
     # Skipping this means every habitat-scheduled job is deleted on cold start.
     discover_integrations()
+    _log_zoo_summary()
 
     summarize_task = asyncio.create_task(_background_summarization_loop())
     scheduler.start()

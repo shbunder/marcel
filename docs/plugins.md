@@ -253,9 +253,9 @@ for art in articles:
 
 Anything not listed above is internal — zoo code that imports it owns the breakage on any future Marcel upgrade.
 
-### First-party vs. external integrations
+### Where integrations live
 
-The kernel ships zero first-party integrations. Every real integration lives in marcel-zoo as an external habitat — `docker` (ISSUE-6ad5c7), `icloud` (ISSUE-e7d127), `news` (ISSUE-d5f8ab), and `banking` (ISSUE-13c7f2) have all migrated out. The settings integration handler was retired as dead code under ISSUE-e1b9c4 — the live settings surface is the `marcel(action="...")` utility tool, not an `integration(id="settings.*")` handler.
+The kernel ships zero bundled integrations. Every real integration lives in marcel-zoo as a habitat — `docker` (ISSUE-6ad5c7), `icloud` (ISSUE-e7d127), `news` (ISSUE-d5f8ab), and `banking` (ISSUE-13c7f2) have all migrated out. The settings integration handler was retired as dead code under ISSUE-e1b9c4 — the live settings surface is the `marcel(action="...")` utility tool, not an `integration(id="settings.*")` handler.
 
 ## Channel habitat
 

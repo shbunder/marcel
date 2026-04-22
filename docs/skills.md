@@ -95,16 +95,11 @@ When all requirements are met, the agent sees `SKILL.md`. When any are missing �
 
 ## Adding a Python integration
 
-Python integrations can live in two places, discovered at the same registry load:
+Python integrations live as zoo habitats: `<MARCEL_ZOO_DIR>/integrations/<name>/__init__.py` (plus `integration.yaml`), installable components of marcel-zoo. See [Plugins](plugins.md) for the full habitat contract. The kernel ships zero bundled integrations — every real integration lives in the zoo.
 
-1. **First-party** — `src/marcel_core/skills/integrations/<name>.py` or `src/marcel_core/skills/integrations/<name>/__init__.py`, shipped inside the kernel.
-2. **Zoo habitat** — `<MARCEL_ZOO_DIR>/integrations/<name>/__init__.py` (plus `integration.yaml`), an installable component of marcel-zoo. See [Plugins](plugins.md) for the full habitat contract. Zoo habitats must use `from marcel_core.plugin import register` (the stable plugin surface) and obey the directory-name ↔ handler-namespace rule (an integration at `.../integrations/myservice/` may only register `myservice.*` handlers).
-
-Both paths use the same `@register` decorator:
+Habitats must use `from marcel_core.plugin import register` (the stable plugin surface) and obey the directory-name ↔ handler-namespace rule: an integration at `.../integrations/myservice/` may only register `myservice.*` handlers; handlers outside that namespace cause the whole habitat to be rolled back.
 
 ```python
-# Either path — same code.
-
 import json
 from marcel_core.plugin import register
 

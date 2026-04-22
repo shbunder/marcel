@@ -49,16 +49,16 @@ Remove the framing — the slot is either vestigial and deliberately so (and sho
 
 ## Tasks
 
-- [ ] Add `make zoo-docker-deps` target that runs zoo dep install inside the running container via `docker exec`
-- [ ] Wire `zoo-docker-deps` into `make setup` (so first-boot gives a container with zoo deps)
-- [ ] Add `make zoo-docker-sync` (or equivalent `--sync` ergonomics) for post-zoo-update re-install
-- [ ] Add startup INFO log: resolved `MARCEL_ZOO_DIR` + habitat counts (channels / skills / jobs / agents)
-- [ ] Add startup WARNING when zoo is missing or empty, pointing at `make zoo-setup` / `make zoo-docker-deps`
-- [ ] Decide on `src/marcel_core/skills/integrations/` — remove the package or mark vestigial with a clear comment
-- [ ] Update `docs/skills.md:100` — remove or rewrite the "first-party integrations slot" framing
-- [ ] Update `src/marcel_core/skills/integrations/__init__.py` docstring to match the decision above
-- [ ] Run straggler grep for `first-party`, `integrations slot`, `src/marcel_core/skills/integrations/<name>`, `defaults/` across docs + zoo + .claude
-- [ ] `make check` green
+- [✓] Add `make zoo-docker-deps` target that runs zoo dep install inside the running container via `docker exec`. Refactored `scripts/zoo-setup.sh` with a `--deps-only` flag so one script drives both host-side and container-side installs.
+- [✓] Wire `zoo-docker-deps` into `make setup` (so first-boot gives a container with zoo deps). `setup.sh` now runs host-side zoo clone + deps install, then `docker exec marcel bash /app/scripts/zoo-setup.sh --deps-only` to refresh container deps.
+- [✓] Add `make zoo-docker-sync`: chains `zoo-sync` (host git pull + deps refresh) → `zoo-docker-deps` (container deps refresh). One command after a zoo update.
+- [✓] Add startup INFO log: resolved `MARCEL_ZOO_DIR` + habitat counts (channels / integrations / skills / jobs / agents). New `_log_zoo_summary()` helper in `main.py`, called from `lifespan()` after integration discovery.
+- [✓] Add startup WARNING when zoo is missing or empty, pointing at `make zoo-setup` and `make zoo-docker-deps`. Three cases covered: unset env var, nonexistent path, existing-but-empty zoo.
+- [✓] Decide on `src/marcel_core/skills/integrations/` — package kept as the plugin surface (decorator, metadata registry, discovery entry), but the empty "first-party integrations slot" is gone: deleted `_discover_builtin()` + its dead `pkgutil`/`importlib` machinery, collapsed `discover()` and `_discover_external()` into a single zoo-only `discover()`.
+- [✓] Update `docs/skills.md:100` — removed the numbered "first-party / zoo habitat" list; integrations live in the zoo, period.
+- [✓] Update `src/marcel_core/skills/integrations/__init__.py` docstring — dropped the "first-party" framing; describes zoo-only discovery.
+- [✓] Run straggler grep for `first-party`, `integrations slot`, `src/marcel_core/skills/integrations/<name>`, `defaults/` across docs + .claude + src + tests. One active section-heading straggler found in `docs/plugins.md:256` ("First-party vs. external integrations") — renamed to "Where integrations live". Five remaining hits ("kernel ships zero first-party integrations") are correct statements of the post-extraction reality and were left alone. One hit in `src/marcel_core/config.py:57` ("only first-party habitats inside marcel_core" — comment describing MARCEL_ZOO_DIR-unset behavior) left alone: `config.py` is a restricted path and the phrasing is misleading-but-technically-correct; not worth an unlock for this session.
+- [✓] `make check` green: 1334 pass, 91.33% coverage, 4 new tests in `test_main_lifespan.py` + 2 test files updated (`_discover_external` → `discover` rename).
 - [ ] `/finish-issue` → merged close commit on main
 
 ## Relationships

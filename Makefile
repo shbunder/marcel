@@ -142,6 +142,18 @@ zoo-setup: ## Clone marcel-zoo into $MARCEL_ZOO_DIR (default ~/.marcel/zoo) and 
 zoo-sync: ## Git-pull the zoo and refresh its deps in the kernel venv
 	@./scripts/zoo-setup.sh --sync
 
+.PHONY: zoo-docker-deps
+zoo-docker-deps: ## Install zoo deps into the running prod container (docker exec zoo-setup --deps-only)
+	@if ! docker compose ps --status running --quiet marcel 2>/dev/null | grep -q .; then \
+		echo -e "$(WARNING) Prod container 'marcel' is not running — start it first with: make docker-up"; \
+		exit 1; \
+	fi
+	@echo -e "$(INFO) Installing zoo deps into the prod container..."
+	@docker exec marcel bash /app/scripts/zoo-setup.sh --deps-only
+
+.PHONY: zoo-docker-sync
+zoo-docker-sync: zoo-sync zoo-docker-deps ## Pull the zoo (host) and refresh deps in both the kernel venv and the prod container
+
 # Onboarding
 DATA_DIR ?= $(HOME)/.marcel
 

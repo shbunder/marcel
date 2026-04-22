@@ -22,10 +22,10 @@ from marcel_core.skills.integrations import (
     HabitatRollback,
     IntegrationMetadata,
     ScheduledJobSpec,
-    _discover_external,
     _metadata,
     _registry,
     _validate_scheduled_jobs,
+    discover,
 )
 
 VALID_HANDLER = (
@@ -270,7 +270,7 @@ class TestDiscoveryRollback:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        _discover_external()
+        discover()
 
         assert 'syncer.run' in _registry
         meta = _metadata.get('syncer')
@@ -300,7 +300,7 @@ class TestDiscoveryRollback:
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
-            _discover_external()
+            discover()
 
         assert 'syncer.run' not in _registry
         assert 'syncer' not in _metadata
@@ -324,7 +324,7 @@ class TestDiscoveryRollback:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        _discover_external()
+        discover()
 
         assert 'syncer.run' not in _registry
         assert 'syncer' not in _metadata

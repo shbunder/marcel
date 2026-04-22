@@ -13,9 +13,9 @@ import pytest
 
 from marcel_core.skills.integrations import (
     _EXTERNAL_MODULE_PREFIX,
-    _discover_external,
     _metadata,
     _registry,
+    discover,
     get_handler,
     get_integration_metadata,
     list_integrations,
@@ -96,7 +96,7 @@ class TestExternalDiscovery:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        _discover_external()
+        discover()
 
         assert 'demotest.ping' in list_python_skills()
         handler = get_handler('demotest.ping')
@@ -120,7 +120,7 @@ class TestExternalDiscovery:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        _discover_external()
+        discover()
 
         result = await get_handler('echotest.say')({'msg': 'hi'}, 'alice')
         assert result == 'said hi for alice'
@@ -145,7 +145,7 @@ class TestExternalDiscovery:
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
-            _discover_external()
+            discover()
 
         assert 'bar.baz' not in list_python_skills()
         assert any('foo' in r.message and 'namespace' in r.message for r in caplog.records)
@@ -173,7 +173,7 @@ class TestExternalDiscovery:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        _discover_external()
+        discover()
 
         assert 'foo.ok' not in list_python_skills()
         assert 'other.nope' not in list_python_skills()
@@ -203,7 +203,7 @@ class TestExternalDiscovery:
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
-            _discover_external()
+            discover()
 
         assert 'working.ok' in list_python_skills()
         assert any('broken' in r.message for r in caplog.records)
@@ -218,7 +218,7 @@ class TestExternalDiscovery:
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         with caplog.at_level('WARNING', logger='marcel_core.skills.integrations'):
-            _discover_external()
+            discover()
 
         assert any('orphan' in r.message and '__init__.py' in r.message for r in caplog.records)
 
@@ -228,7 +228,7 @@ class TestExternalDiscovery:
 
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        _discover_external()  # must not raise
+        discover()  # must not raise
 
     def test_unset_zoo_dir_is_noop(self, monkeypatch, isolated_registry, cleanup_external_modules):
         """``MARCEL_ZOO_DIR`` unset is a silent no-op — kernel ships no habitats."""
@@ -236,7 +236,7 @@ class TestExternalDiscovery:
 
         monkeypatch.setattr(settings, 'marcel_zoo_dir', None)
 
-        _discover_external()  # must not raise; nothing loaded
+        discover()  # must not raise; nothing loaded
 
     def test_dotfile_and_underscore_dirs_are_skipped(
         self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules
@@ -252,14 +252,14 @@ class TestExternalDiscovery:
         (tmp_path / 'integrations' / '.hidden').mkdir()
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        _discover_external()
+        discover()
 
         # No sys.modules entry should have been created for either.
         assert f'{_EXTERNAL_MODULE_PREFIX}._private' not in sys.modules
         assert f'{_EXTERNAL_MODULE_PREFIX}..hidden' not in sys.modules
 
-    def test_discover_external_is_idempotent(self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules):
-        """Calling _discover_external twice does not raise 'already registered'."""
+    def testdiscover_is_idempotent(self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules):
+        """Calling discover twice does not raise 'already registered'."""
         from marcel_core.config import settings
 
         _write_integration(
@@ -275,8 +275,8 @@ class TestExternalDiscovery:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        _discover_external()
-        _discover_external()  # second call must not raise
+        discover()
+        discover()  # second call must not raise
 
         assert 'idemtest.hit' in list_python_skills()
 
@@ -311,7 +311,7 @@ class TestIntegrationMetadata:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        _discover_external()
+        discover()
 
         meta = get_integration_metadata('metatest')
         assert meta is not None
@@ -331,7 +331,7 @@ class TestIntegrationMetadata:
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         with caplog.at_level('WARNING', logger='marcel_core.skills.integrations'):
-            _discover_external()
+            discover()
 
         assert get_integration_metadata('metatest') is None
         assert 'metatest.ping' in list_python_skills()  # handler still works
@@ -352,7 +352,7 @@ class TestIntegrationMetadata:
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
-            _discover_external()
+            discover()
 
         assert get_integration_metadata('metatest') is None
         assert 'metatest.ping' in list_python_skills()
@@ -373,7 +373,7 @@ class TestIntegrationMetadata:
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
-            _discover_external()
+            discover()
 
         assert get_integration_metadata('metatest') is None
         assert get_integration_metadata('not_metatest') is None
@@ -394,7 +394,7 @@ class TestIntegrationMetadata:
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
-            _discover_external()
+            discover()
 
         assert get_integration_metadata('metatest') is None
         assert any('outside its namespace' in r.message for r in caplog.records)
@@ -414,7 +414,7 @@ class TestIntegrationMetadata:
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         with caplog.at_level('WARNING', logger='marcel_core.skills.integrations'):
-            _discover_external()
+            discover()
 
         meta = get_integration_metadata('metatest')
         assert meta is not None
