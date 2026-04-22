@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from marcel_core.skills.integrations import (
+from marcel_core.toolkit import (
     _EXTERNAL_MODULE_PREFIX,
     _metadata,
     _registry,
@@ -28,8 +28,8 @@ def isolated_registry(monkeypatch):
     """Give each test a fresh integration + metadata registry, restored on teardown."""
     saved_registry = dict(_registry)
     saved_metadata = dict(_metadata)
-    monkeypatch.setattr('marcel_core.skills.integrations._registry', {})
-    monkeypatch.setattr('marcel_core.skills.integrations._metadata', {})
+    monkeypatch.setattr('marcel_core.toolkit._registry', {})
+    monkeypatch.setattr('marcel_core.toolkit._metadata', {})
     yield
     _registry.clear()
     _registry.update(saved_registry)
@@ -64,7 +64,7 @@ class TestPluginSurface:
     def test_plugin_reexports_register_and_types(self):
         """marcel_core.plugin re-exports the integration surface."""
         from marcel_core import plugin
-        from marcel_core.skills.integrations import IntegrationHandler, register
+        from marcel_core.toolkit import IntegrationHandler, register
 
         assert plugin.register is register
         assert plugin.IntegrationHandler is IntegrationHandler
@@ -144,7 +144,7 @@ class TestExternalDiscovery:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
+        with caplog.at_level('ERROR', logger='marcel_core.toolkit'):
             discover()
 
         assert 'bar.baz' not in list_python_skills()
@@ -202,7 +202,7 @@ class TestExternalDiscovery:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
+        with caplog.at_level('ERROR', logger='marcel_core.toolkit'):
             discover()
 
         assert 'working.ok' in list_python_skills()
@@ -217,7 +217,7 @@ class TestExternalDiscovery:
         (tmp_path / 'integrations' / 'orphan').mkdir(parents=True)
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        with caplog.at_level('WARNING', logger='marcel_core.skills.integrations'):
+        with caplog.at_level('WARNING', logger='marcel_core.toolkit'):
             discover()
 
         assert any('orphan' in r.message and '__init__.py' in r.message for r in caplog.records)
@@ -324,18 +324,18 @@ class TestIntegrationMetadata:
     def test_missing_yaml_logs_warning_no_metadata(
         self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules, caplog
     ):
-        """Habitat with no integration.yaml works but registers no metadata + logs a warning."""
+        """Habitat with no toolkit.yaml works but registers no metadata + logs a warning."""
         from marcel_core.config import settings
 
         _write_integration(tmp_path, 'metatest', _VALID_HANDLER_BODY)
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        with caplog.at_level('WARNING', logger='marcel_core.skills.integrations'):
+        with caplog.at_level('WARNING', logger='marcel_core.toolkit'):
             discover()
 
         assert get_integration_metadata('metatest') is None
         assert 'metatest.ping' in list_python_skills()  # handler still works
-        assert any('integration.yaml' in r.message for r in caplog.records)
+        assert any('toolkit.yaml' in r.message for r in caplog.records)
 
     def test_invalid_yaml_logs_error_no_metadata(
         self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules, caplog
@@ -351,7 +351,7 @@ class TestIntegrationMetadata:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
+        with caplog.at_level('ERROR', logger='marcel_core.toolkit'):
             discover()
 
         assert get_integration_metadata('metatest') is None
@@ -372,7 +372,7 @@ class TestIntegrationMetadata:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
+        with caplog.at_level('ERROR', logger='marcel_core.toolkit'):
             discover()
 
         assert get_integration_metadata('metatest') is None
@@ -393,7 +393,7 @@ class TestIntegrationMetadata:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
+        with caplog.at_level('ERROR', logger='marcel_core.toolkit'):
             discover()
 
         assert get_integration_metadata('metatest') is None
@@ -413,7 +413,7 @@ class TestIntegrationMetadata:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        with caplog.at_level('WARNING', logger='marcel_core.skills.integrations'):
+        with caplog.at_level('WARNING', logger='marcel_core.toolkit'):
             discover()
 
         meta = get_integration_metadata('metatest')

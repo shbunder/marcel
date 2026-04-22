@@ -1,6 +1,6 @@
 """End-to-end tests for the UDS-isolated habitat mechanism (ISSUE-f60b09 Phase 1).
 
-Spawns the fixture habitat at ``tests/fixtures/uds_habitat/`` via the
+Spawns the fixture habitat at ``tests/fixtures/uds_toolkit/`` via the
 real loader, calls the proxy coroutines the loader registered, and
 validates every reachable shape:
 
@@ -31,7 +31,7 @@ import pytest
 import yaml
 
 from marcel_core.plugin import _uds_supervisor
-from marcel_core.skills.integrations import (
+from marcel_core.toolkit import (
     _make_uds_proxy,
     _metadata,
     _registry,
@@ -39,7 +39,7 @@ from marcel_core.skills.integrations import (
     get_handler,
 )
 
-_FIXTURE_DIR = Path(__file__).resolve().parent.parent / 'fixtures' / 'uds_habitat'
+_FIXTURE_DIR = Path(__file__).resolve().parent.parent / 'fixtures' / 'uds_toolkit'
 
 
 @pytest.fixture

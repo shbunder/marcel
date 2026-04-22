@@ -17,7 +17,7 @@ import struct
 import pytest
 
 from marcel_core.plugin import _uds_bridge
-from marcel_core.skills.integrations import _registry, register
+from marcel_core.toolkit import _registry, register
 
 
 @pytest.fixture

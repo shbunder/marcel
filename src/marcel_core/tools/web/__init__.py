@@ -2,7 +2,7 @@
 
 A single pydantic-ai tool that dispatches to many actions. Mirrors the
 pattern used by :mod:`marcel_core.tools.marcel.dispatcher` and
-:mod:`marcel_core.tools.integration`.
+:mod:`marcel_core.tools.toolkit`.
 
 See :func:`marcel_core.tools.web.dispatcher.web` for the full action list
 and docstring.

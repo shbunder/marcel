@@ -228,7 +228,7 @@ def _check_depends_on(depends_on: list[str], user_slug: str) -> bool:
     if not depends_on:
         return True
 
-    from marcel_core.skills.integrations import get_integration_metadata
+    from marcel_core.toolkit import get_integration_metadata
 
     for name in depends_on:
         meta = get_integration_metadata(name)
@@ -294,7 +294,7 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
         # from seeing every credential the skill might touch.
         cred_keys = list(requires.get('credentials', []) if requires else [])
         if depends_on:
-            from marcel_core.skills.integrations import get_integration_metadata
+            from marcel_core.toolkit import get_integration_metadata
 
             for dep_name in depends_on:
                 dep_meta = get_integration_metadata(dep_name)

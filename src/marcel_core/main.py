@@ -136,7 +136,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log.info('main: starting Marcel v%s', __version__)
 
     from marcel_core.plugin import _uds_supervisor
-    from marcel_core.skills.integrations import discover as discover_integrations
+    from marcel_core.toolkit import discover as discover_integrations
 
     # Populate integration handlers and habitat metadata before the scheduler
     # starts — rebuild_schedule() → _ensure_habitat_jobs() reads _metadata to

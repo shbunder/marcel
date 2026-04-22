@@ -8,8 +8,8 @@ import pytest
 
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.storage import _root
-from marcel_core.tools.integration import integration
 from marcel_core.tools.marcel import marcel
+from marcel_core.tools.toolkit import integration
 
 
 def _ctx(channel: str = 'cli', user_slug: str = 'shaun') -> MagicMock:
@@ -28,19 +28,19 @@ def _ctx(channel: str = 'cli', user_slug: str = 'shaun') -> MagicMock:
 class TestIntegrationTool:
     @pytest.mark.asyncio
     async def test_dispatches_to_skill(self, monkeypatch):
-        from marcel_core.skills.integrations import _registry
+        from marcel_core.toolkit import _registry
 
         saved = dict(_registry)
-        monkeypatch.setattr('marcel_core.skills.integrations._registry', {})
+        monkeypatch.setattr('marcel_core.toolkit._registry', {})
 
-        from marcel_core.skills.integrations import register
+        from marcel_core.toolkit import register
 
         @register('test.ping')
         async def ping(params, user_slug):
             return 'pong'
 
-        with patch('marcel_core.tools.integration.get_skill', return_value={'type': 'python', 'handler': 'test.ping'}):
-            with patch('marcel_core.tools.integration.run', AsyncMock(return_value='pong')):
+        with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'test.ping'}):
+            with patch('marcel_core.tools.toolkit.run', AsyncMock(return_value='pong')):
                 result = await integration(_ctx(), 'test.ping', {})
 
         assert 'pong' in result
@@ -54,15 +54,15 @@ class TestIntegrationTool:
 
     @pytest.mark.asyncio
     async def test_none_params_defaults_to_empty(self):
-        with patch('marcel_core.tools.integration.get_skill', return_value={'type': 'python', 'handler': 'x'}):
-            with patch('marcel_core.tools.integration.run', AsyncMock(side_effect=RuntimeError('boom'))):
+        with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
+            with patch('marcel_core.tools.toolkit.run', AsyncMock(side_effect=RuntimeError('boom'))):
                 result = await integration(_ctx(), 'x', None)
         assert 'error' in result.lower()
 
     @pytest.mark.asyncio
     async def test_skill_execution_error_returns_message(self):
-        with patch('marcel_core.tools.integration.get_skill', return_value={'type': 'python', 'handler': 'x'}):
-            with patch('marcel_core.tools.integration.run', AsyncMock(side_effect=Exception('oops'))):
+        with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
+            with patch('marcel_core.tools.toolkit.run', AsyncMock(side_effect=Exception('oops'))):
                 result = await integration(_ctx(), 'x', {})
         assert 'oops' in result or 'error' in result.lower()
 
@@ -70,8 +70,8 @@ class TestIntegrationTool:
     async def test_auto_injects_skill_docs_on_first_call(self):
         """When skill docs haven't been read yet, integration prepends them."""
         ctx = _ctx()
-        with patch('marcel_core.tools.integration.get_skill', return_value={'type': 'python', 'handler': 'x'}):
-            with patch('marcel_core.tools.integration.run', AsyncMock(return_value='result-data')):
+        with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
+            with patch('marcel_core.tools.toolkit.run', AsyncMock(return_value='result-data')):
                 with patch('marcel_core.skills.loader.get_skill_content', return_value='Full banking docs here'):
                     result = await integration(ctx, 'banking.balance', {})
 
@@ -86,8 +86,8 @@ class TestIntegrationTool:
         """If skill was read via marcel tool first, integration doesn't re-inject."""
         ctx = _ctx()
         ctx.deps.turn.read_skills.add('banking')
-        with patch('marcel_core.tools.integration.get_skill', return_value={'type': 'python', 'handler': 'x'}):
-            with patch('marcel_core.tools.integration.run', AsyncMock(return_value='result-data')):
+        with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
+            with patch('marcel_core.tools.toolkit.run', AsyncMock(return_value='result-data')):
                 result = await integration(ctx, 'banking.balance', {})
 
         assert 'Auto-loaded' not in result

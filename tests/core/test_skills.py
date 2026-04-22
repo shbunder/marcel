@@ -8,8 +8,8 @@ import respx
 from httpx import Response
 
 from marcel_core.skills.executor import _apply_transform, _run_shell, run
-from marcel_core.skills.integrations import _registry, discover, get_handler, list_python_skills, register
 from marcel_core.skills.registry import SkillConfig, get_skill, list_skills
+from marcel_core.toolkit import _registry, discover, get_handler, list_python_skills, register
 
 
 class TestRegistry:
@@ -250,7 +250,7 @@ class TestIntegrationFramework:
     def test_register_and_get_handler(self, monkeypatch):
         # Work on a clean registry
         saved = dict(_registry)
-        monkeypatch.setattr('marcel_core.skills.integrations._registry', {})
+        monkeypatch.setattr('marcel_core.toolkit._registry', {})
 
         @register('test.skill')
         async def handler(params, user_slug):
@@ -265,7 +265,7 @@ class TestIntegrationFramework:
 
     def test_duplicate_registration_raises(self, monkeypatch):
         saved = dict(_registry)
-        monkeypatch.setattr('marcel_core.skills.integrations._registry', {})
+        monkeypatch.setattr('marcel_core.toolkit._registry', {})
 
         @register('dup.skill')
         async def handler1(params, user_slug):
@@ -281,16 +281,16 @@ class TestIntegrationFramework:
         _registry.update(saved)
 
     def test_invalid_name_raises_on_register(self, monkeypatch):
-        monkeypatch.setattr('marcel_core.skills.integrations._registry', {})
-        with pytest.raises(ValueError, match='Invalid skill name'):
+        monkeypatch.setattr('marcel_core.toolkit._registry', {})
+        with pytest.raises(ValueError, match='Invalid tool name'):
 
             @register('InvalidName')
             async def handler(params, user_slug):
                 return 'bad'
 
     def test_no_dot_name_raises_on_register(self, monkeypatch):
-        monkeypatch.setattr('marcel_core.skills.integrations._registry', {})
-        with pytest.raises(ValueError, match='Invalid skill name'):
+        monkeypatch.setattr('marcel_core.toolkit._registry', {})
+        with pytest.raises(ValueError, match='Invalid tool name'):
 
             @register('nodot')
             async def handler(params, user_slug):
@@ -298,7 +298,7 @@ class TestIntegrationFramework:
 
     def test_valid_names_with_underscores_and_digits(self, monkeypatch):
         saved = dict(_registry)
-        monkeypatch.setattr('marcel_core.skills.integrations._registry', {})
+        monkeypatch.setattr('marcel_core.toolkit._registry', {})
 
         @register('my_service.get_v2')
         async def handler(params, user_slug):
@@ -309,7 +309,7 @@ class TestIntegrationFramework:
         _registry.update(saved)
 
     def test_get_handler_unknown_raises(self):
-        with pytest.raises(KeyError, match='No python integration'):
+        with pytest.raises(KeyError, match='No toolkit handler registered'):
             get_handler('nonexistent.skill')
 
     def test_discover_noop_when_zoo_unset(self, monkeypatch):
@@ -364,7 +364,7 @@ class TestPythonExecutor:
     @pytest.mark.asyncio
     async def test_python_skill_dispatches_to_handler(self, monkeypatch):
         saved = dict(_registry)
-        monkeypatch.setattr('marcel_core.skills.integrations._registry', {})
+        monkeypatch.setattr('marcel_core.toolkit._registry', {})
 
         @register('test.echo')
         async def echo_handler(params, user_slug):

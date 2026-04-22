@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from marcel_core.skills.integrations import discover, list_python_skills
+from marcel_core.toolkit import discover, list_python_skills
 
 log = logging.getLogger(__name__)
 

@@ -128,7 +128,7 @@ async def _handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWri
     """
     # Import lazily so tests that only exercise the framing layer don't
     # need the habitat loaded.
-    from marcel_core.skills.integrations import get_handler
+    from marcel_core.toolkit import get_handler
 
     try:
         while True:
