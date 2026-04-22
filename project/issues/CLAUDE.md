@@ -46,6 +46,21 @@ Before closing, verify:
 
 **Guardrail:** Before ending any conversation where you committed `🔧 [ISSUE-{hash}] impl:` commits, check whether the feature branch has been merged. If not, close and merge now — or explicitly tell the user the branch remains open and why.
 
+## Updating issue files — use `issue-task`, not full rewrites
+
+For checkbox flips, status changes, and Implementation Log appends, use the structured CLI at [.claude/scripts/issue-task](../../.claude/scripts/issue-task). Modelled on Claude Code's `TodoWrite`: small subcommand calls cost tens of tokens; rewriting the whole markdown file via `Write` costs thousands.
+
+```bash
+.claude/scripts/issue-task --help                              # see all subcommands
+.claude/scripts/issue-task check "<unique substring>"          # [ ] or [⚒] → [✓]
+.claude/scripts/issue-task start "<unique substring>"          # [ ] → [⚒]
+.claude/scripts/issue-task status WIP                          # set Status: header
+.claude/scripts/issue-task log "<action>" --files a.py b.py    # append to ## Implementation Log
+.claude/scripts/issue-task add "<task description>"            # append a new task
+```
+
+The CLI auto-locates the single WIP file under `project/issues/wip/`. It fails loud (exit 3) when a regex matches multiple tasks rather than guessing. The [.claude/hooks/issue-reminder.py](../../.claude/hooks/issue-reminder.py) `UserPromptSubmit` hook surfaces this every turn while a WIP file exists. Reserve `Edit` for free-form prose (Description tweaks, Lessons Learned subsections); reserve `Write` for the brand-new issue file in `/new-issue`.
+
 ## Commit format (quick reference)
 
 ```

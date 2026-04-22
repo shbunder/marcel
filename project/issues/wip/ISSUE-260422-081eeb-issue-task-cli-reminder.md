@@ -98,6 +98,15 @@ The CLI alone fails if the agent doesn't remember to use it. The hook alone fail
 ## Implementation Log
 <!-- Append entries here when performing development work on this issue -->
 
+### 2026-04-22 21:17 - LLM Implementation
+**Action**: Added UserPromptSubmit reminder hook + registered in settings.json + updated /new-issue, /finish-issue, and project/issues/CLAUDE.md to prescribe issue-task usage
+**Files Modified**:
+- `.claude/hooks/issue-reminder.py`
+- `.claude/settings.json`
+- `.claude/skills/new-issue/SKILL.md`
+- `.claude/skills/finish-issue/SKILL.md`
+- `project/issues/CLAUDE.md`
+
 ### 2026-04-22 21:03 - LLM Implementation
 **Action**: Implemented CLI + tests + TEMPLATE anchor
 **Files Modified**:

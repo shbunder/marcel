@@ -26,6 +26,17 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/issue-reminder.py",
+            "timeout": 2
+          }
+        ]
+      }
     ]
   }
 }

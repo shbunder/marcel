@@ -270,7 +270,9 @@ class TestCLIEntrypoint:
     def test_help_exits_zero(self):
         result = subprocess.run(
             [sys.executable, str(_SCRIPT), '--help'],
-            capture_output=True, text=True, check=False,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         assert result.returncode == 0
         assert 'check' in result.stdout
@@ -280,7 +282,10 @@ class TestCLIEntrypoint:
         _write_issue(fake_repo, _BASE)
         result = subprocess.run(
             [sys.executable, str(_SCRIPT), 'show'],
-            capture_output=True, text=True, check=False, cwd=fake_repo,
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=fake_repo,
         )
         assert result.returncode == 0
         assert 'ISSUE-260422-aaaaaa-fake.md' in result.stdout
