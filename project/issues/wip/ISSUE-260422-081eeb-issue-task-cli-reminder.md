@@ -1,6 +1,6 @@
 # ISSUE-081eeb: `issue-task` CLI helper + WIP-file session reminder hook
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-22
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -97,6 +97,13 @@ The CLI alone fails if the agent doesn't remember to use it. The hook alone fail
 
 ## Implementation Log
 <!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-22 21:03 - LLM Implementation
+**Action**: Implemented CLI + tests + TEMPLATE anchor
+**Files Modified**:
+- `.claude/scripts/issue-task`
+- `tests/claude/test_issue_task.py`
+- `project/issues/TEMPLATE.md`
 
 ## Lessons Learned
 <!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->
