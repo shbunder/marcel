@@ -165,6 +165,34 @@ while true; do
   (( elapsed += INTERVAL ))
 done
 
+# ── Install the zoo + its deps ────────────────────────────────────────────────
+# The kernel ships zero habitats — integrations, skills, channels, jobs, and
+# agents all live in marcel-zoo. A first-boot operator who stops here would
+# have a silent Marcel with no habitats. We do two installs:
+#   1. Host-side: clone the zoo + `uv pip install` its deps into the kernel
+#      venv. Required for dev workflows (`make serve`, `make cli-dev`).
+#   2. Container-side: the prod image bakes in kernel deps only, so zoo deps
+#      (e.g. caldav/vobject for iCloud) need a second `uv pip install` inside
+#      the running container, run through `docker exec`. The zoo pyproject is
+#      read from the bind-mounted ${HOME}/.marcel/zoo volume.
+# Idempotent — re-running after first boot is a no-op.
+info "Installing marcel-zoo (host)..."
+"$SCRIPT_DIR/zoo-setup.sh"
+
+info "Installing zoo deps into the prod container..."
+docker exec marcel bash /app/scripts/zoo-setup.sh --deps-only
+
+# The prod container already finished discover_integrations() at startup, so
+# handlers that import the newly-installed deps (caldav for iCloud, vobject,
+# …) are currently still broken for this boot. A restart makes them
+# importable. First-boot operators who stop at `make setup` without this
+# restart will see "iCloud: caldav not installed" errors until they cycle
+# the container.
+warn ""
+warn "NOTE: The container started before zoo deps were installed."
+warn "      Restart to pick them up — zoo integrations won't import until then:"
+warn "        make docker-restart"
+
 info ""
 info "Setup complete. Useful commands:"
 info "  systemctl --user status marcel                  — prod container status"
@@ -172,4 +200,5 @@ info "  systemctl --user status marcel-redeploy.path    — prod restart watcher
 info "  systemctl --user status marcel-dev-redeploy.path — dev restart watcher"
 info "  journalctl --user -u marcel -f                  — follow Marcel logs"
 info "  make serve                                      — start dev container on :\${MARCEL_DEV_PORT:-7421}"
+info "  make zoo-docker-sync                            — pull zoo updates + refresh container deps"
 info "  make teardown                                   — stop everything"

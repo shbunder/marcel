@@ -1,31 +1,28 @@
 """Pluggable integration modules for the ``integration`` tool.
 
-Each integration module defines async handler functions decorated with
-:func:`register`.  At import time the decorator adds the function to a
+Each integration habitat defines async handler functions decorated with
+:func:`register`. At import time the decorator adds the function to a
 global registry keyed by dotted skill name (e.g. ``"icloud.calendar"``).
 
-Discovery is automatic. :func:`discover` imports:
+Discovery is automatic. :func:`discover` imports every integration habitat
+directory under ``<MARCEL_ZOO_DIR>/integrations/``. The kernel ships zero
+bundled integrations — every real integration lives in marcel-zoo as an
+external habitat (``icloud``, ``banking``, ``news``, ``docker``, …).
+Discovery is a silent no-op when ``MARCEL_ZOO_DIR`` is unset.
 
-1. Every sibling module in this package (first-party integrations shipped
-   inside ``marcel_core``).
-2. Every integration habitat directory under
-   ``<MARCEL_ZOO_DIR>/integrations/`` — external, zoo-sourced integrations
-   (ISSUE-3c87dd, ISSUE-6ad5c7). Discovery is a silent no-op when
-   ``MARCEL_ZOO_DIR`` is unset.
-
-External habitats are packages: a directory with its own ``__init__.py``
-that calls ``@register`` at import time. The directory name must match
-the ``family`` segment of every handler name it registers — e.g. an
+Habitats are packages: a directory with its own ``__init__.py`` that
+calls ``@register`` at import time. The directory name must match the
+``family`` segment of every handler name it registers — e.g. an
 integration at ``<zoo>/integrations/docker/`` may register
 ``docker.list`` but **not** ``container.start``. Handlers that violate
 this are rejected and the whole integration is rolled back (no partial
 registrations leak into the registry).
 
-Errors in one external integration never abort discovery of its siblings
-— the failure is logged, the integration is disabled, and the rest load
+Errors in one habitat never abort discovery of its siblings — the
+failure is logged, the integration is disabled, and the rest load
 normally.
 
-Usage in an integration module::
+Usage in a zoo integration habitat::
 
     from marcel_core.plugin import register
 
@@ -37,10 +34,8 @@ Usage in an integration module::
 
 from __future__ import annotations
 
-import importlib
 import importlib.util
 import logging
-import pkgutil
 import re
 import sys
 from collections.abc import Awaitable, Callable
@@ -112,9 +107,8 @@ class IntegrationMetadata:
 
 
 # Metadata registry: integration_name -> IntegrationMetadata.
-# Populated when an external habitat ships ``integration.yaml`` alongside
-# its ``__init__.py``. First-party integrations and habitats without a
-# YAML file simply do not appear here.
+# Populated when a zoo habitat ships ``integration.yaml`` alongside its
+# ``__init__.py``. Habitats without a YAML file simply do not appear here.
 _metadata: dict[str, IntegrationMetadata] = {}
 
 
@@ -184,45 +178,22 @@ def list_python_skills() -> list[str]:
 
 
 def discover() -> None:
-    """Discover first-party and external integrations.
+    """Discover integration habitats from ``<MARCEL_ZOO_DIR>/integrations/``.
 
-    First-party modules are siblings of this package. External habitats
-    live at ``<MARCEL_ZOO_DIR>/integrations/<name>/`` and are loaded via
-    :func:`_discover_external`. Safe to call multiple times — already-
-    imported modules are skipped by Python's import machinery.
-    """
-    _discover_builtin()
-    _discover_external()
-
-
-def _discover_builtin() -> None:
-    """Import all sibling modules to trigger ``@register`` decorators."""
-    package_path = __path__
-    for info in pkgutil.iter_modules(package_path):
-        if info.name.startswith('_'):
-            continue
-        module_name = f'{__name__}.{info.name}'
-        try:
-            importlib.import_module(module_name)
-        except Exception:
-            log.exception('Failed to import integration module %s', module_name)
-
-
-def _discover_external() -> None:
-    """Import external integration habitats from ``<MARCEL_ZOO_DIR>/integrations/``.
-
-    Each subdirectory is loaded as a package. See :func:`_load_external_integration`
-    for the per-package loading contract (namespace enforcement, error isolation).
-
-    Returns silently when ``MARCEL_ZOO_DIR`` is unset — the kernel ships no
-    habitats; users opt in by pointing the env var at a marcel-zoo checkout.
+    Each subdirectory is loaded as a package. See
+    :func:`_load_external_integration` for the per-package loading contract
+    (namespace enforcement, error isolation). Returns silently when
+    ``MARCEL_ZOO_DIR`` is unset or ``<zoo>/integrations/`` does not exist —
+    the kernel ships no habitats; operators opt in by pointing the env var
+    at a marcel-zoo checkout. Safe to call multiple times: already-imported
+    habitats are skipped via ``sys.modules``.
     """
     try:
         from marcel_core.config import settings
 
         zoo_dir = settings.zoo_dir
     except Exception:
-        log.exception('Failed to resolve zoo_dir for external integration discovery')
+        log.exception('Failed to resolve zoo_dir for integration discovery')
         return
 
     if zoo_dir is None:

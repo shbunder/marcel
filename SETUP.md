@@ -60,10 +60,14 @@ After the zoo is cloned, the kernel finds it because `docker-compose.yml` and `d
 When a new habitat lands upstream, run:
 
 ```bash
-make zoo-sync
+make zoo-sync          # dev-only: git pull + refresh host kernel venv
+make zoo-docker-sync   # prod: pull + refresh host venv + refresh container deps
 ```
 
-That `git pull`s the zoo and re-installs its deps in one shot.
+`zoo-sync` only updates the host kernel venv — enough for `make serve` /
+`make cli-dev`. The prod container has its own venv (deps baked into the image),
+so zoo additions like `caldav` or `vobject` need a second `uv pip install` inside
+the running container. `zoo-docker-sync` chains both steps in one command.
 
 ## Step 3: Set up security
 

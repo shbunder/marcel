@@ -312,50 +312,20 @@ class TestIntegrationFramework:
         with pytest.raises(KeyError, match='No python integration'):
             get_handler('nonexistent.skill')
 
-    def test_discover_does_not_raise(self):
-        # Kernel ships zero first-party integrations after the zoo migration.
-        # discover() must still be a safe no-op on the empty package.
+    def test_discover_noop_when_zoo_unset(self, monkeypatch):
+        """Discovery is a silent no-op when MARCEL_ZOO_DIR is unset.
+
+        The kernel ships zero bundled integrations — all habitats live in
+        marcel-zoo. Discovery must not raise in the unset-zoo case and must
+        leave the registry shape intact.
+        """
+        monkeypatch.delenv('MARCEL_ZOO_DIR', raising=False)
+        from marcel_core.config import settings
+
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', None)
+
         discover()
         assert isinstance(list_python_skills(), list)
-
-    def test_discover_skips_underscore_modules(self, monkeypatch):
-        """Modules starting with _ are skipped during discovery."""
-        import pkgutil
-        from types import SimpleNamespace
-
-        fake_info = SimpleNamespace(name='_private')
-        monkeypatch.setattr(pkgutil, 'iter_modules', lambda path: [fake_info])
-
-        with monkeypatch.context() as m:
-            import importlib as imp
-
-            calls = []
-            original_import = imp.import_module
-
-            def track_import(name):
-                calls.append(name)
-                return original_import(name)
-
-            m.setattr(imp, 'import_module', track_import)
-            discover()
-
-        # _private should NOT have been imported
-        assert not any('_private' in c for c in calls)
-
-    def test_discover_handles_import_error(self, monkeypatch):
-        """Failed module imports during discovery are logged, not raised."""
-        import pkgutil
-        from types import SimpleNamespace
-
-        fake_info = SimpleNamespace(name='broken_module')
-        monkeypatch.setattr(pkgutil, 'iter_modules', lambda path: [fake_info])
-
-        import importlib as imp
-
-        monkeypatch.setattr(imp, 'import_module', lambda name: (_ for _ in ()).throw(RuntimeError('broken')))
-
-        # Should not raise
-        discover()
 
 
 class TestShellDispatch:
