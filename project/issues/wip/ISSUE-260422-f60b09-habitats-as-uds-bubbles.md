@@ -118,17 +118,20 @@ The "single pattern" commitment is Phase 4. Phases 1–3 are a disciplined rollo
 
 ## Tasks
 
-- [ ] Design JSON-RPC wire format (method / params / result / error) and document it in `docs/plugins.md` under a new "Isolation modes" section
-- [ ] Implement `src/marcel_core/plugin/_uds_bridge.py` — per-habitat entry point that runs inside the habitat's venv, imports the habitat, starts a UDS server, routes JSON-RPC calls to registered handlers
-- [ ] Implement the loader fork in `src/marcel_core/skills/integrations/__init__.py` — when `integration.yaml` declares `isolation: uds`, spawn the habitat subprocess, wait for the socket, register proxy coroutines under each handler name in `provides:`
-- [ ] Implement `src/marcel_core/plugin/_uds_supervisor.py` — asyncio task that watches spawned habitats, respawns on crash with exponential backoff, shuts them down cleanly on kernel teardown
-- [ ] Wire the supervisor into `lifespan()` in `src/marcel_core/main.py` (startup + teardown)
-- [ ] Add `tests/fixtures/uds_habitat/` — a minimal test habitat (integration.yaml + `__init__.py`) that registers a simple handler
-- [ ] Add `tests/core/test_uds_integrations.py` — end-to-end tests covering: successful spawn + RPC call, concurrent calls on one habitat, habitat crash + respawn, clean teardown, error propagation (handler raises), invalid-method error shape
-- [ ] Update `docs/plugins.md` — new "Isolation modes" section explaining UDS as the target pattern; note that Phase 1 ships the mechanism only
-- [ ] Straggler grep — terms: "in-process integration", "first-party habitats", anywhere the docs imply in-process is the permanent model, soften to "current" / "today" language
-- [ ] `make check` green (coverage target: the new modules contribute ≥90 % to their own coverage; no regressions elsewhere)
-- [ ] File Phase 2, Phase 3, Phase 4 follow-up issues in `open/` with clear scopes
+- [✓] Design JSON-RPC wire format (method / params / result / error). Chose JSON-RPC 2.0 framed with 4-byte big-endian length prefix. Documented in `docs/plugins.md` under the new "Isolation modes" section.
+- [✓] Implement `src/marcel_core/plugin/_uds_bridge.py` — per-habitat entry point. Loads the habitat via `spec_from_file_location`, starts `asyncio.start_unix_server` at mode `0600`, dispatches JSON-RPC frames to registered handlers, handles SIGTERM cleanly.
+- [✓] Implement the loader fork in `src/marcel_core/skills/integrations/__init__.py`. New `_load_uds_habitat()` + `_declared_isolation()` + `_make_uds_proxy()` + `_uds_connect_with_retry()` + `_habitat_socket_path()` + `_bridge_command()`. Rejects out-of-namespace `provides:`, handler-name collisions, missing/empty `provides:`. Proxy retries transient ECONNREFUSED/ENOENT for ≤3 s to mask the supervisor's unlink-then-bind respawn window.
+- [✓] Implement `src/marcel_core/plugin/_uds_supervisor.py` — `HabitatHandle` dataclass, module-level state, `spawn_habitat` / `start_supervisor` / `_check_and_respawn` / `stop_supervisor`. Exponential backoff 1→60 s. Process-group signalling so grandchildren go down with the parent. `habitat_python()` prefers `<habitat>/.venv/bin/python` with `sys.executable` fallback.
+- [✓] Wire supervisor into `lifespan()` in `src/marcel_core/main.py`. `start_supervisor()` after `discover_integrations()`; `await stop_supervisor()` before shutdown-complete log.
+- [✓] `tests/fixtures/uds_habitat/` — 3-handler fixture (`echo` / `add` / `boom`) exercising success, concurrency, and error shapes.
+- [✓] `tests/core/test_uds_integrations.py` — 10 end-to-end subprocess-spawning tests. `tests/core/test_uds_bridge.py` — 12 in-process unit tests for bridge framing + dispatch (compensates for coverage.py's Popen blindspot: the bridge module is 0 % under pytest-cov of the parent process).
+- [✓] Updated `docs/plugins.md` with a new "Isolation modes" section — two modes described, JSON-RPC wire format documented, pros/cons honest, phased-rollout narrative clear.
+- [✓] Straggler grep for "in-process integration", "isolation:", `_uds_bridge`, `_uds_supervisor` across docs + `.claude` + src + README + SETUP. All live references are either in the new code or the new docs section. No stale copy.
+- [✓] `make check` green: 1356 tests pass, coverage 90.46 % (back over the 90 % floor after the in-process bridge tests).
+- [✓] File Phase 2, Phase 3, Phase 4 follow-up issues in `open/`:
+  - [[ISSUE-14b034]] — migrate docker/icloud/news/banking to UDS + per-habitat venvs in zoo-setup
+  - [[ISSUE-931b3f]] — channels (Telegram, bidirectional HTTP proxy) and any python-carrying jobs
+  - [[ISSUE-807a26]] — delete the in-process path; single-pattern end state
 - [ ] `/finish-issue` → merged close commit on main
 
 ## Non-scope (explicitly deferred)
@@ -149,16 +152,41 @@ The "single pattern" commitment is Phase 4. Phases 1–3 are a disciplined rollo
 - Related: [[ISSUE-792e8e]] (zoo-docker-deps + startup summary) — this issue replaces the flat-dep model that ISSUE-792e8e wired end-to-end for the prod container
 
 ## Implementation Log
-<!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-22 — Phase 1: kernel-side UDS mechanism
+
+Shipped as two commits on `issue/f60b09-habitats-as-uds-bubbles`:
+
+- **impl 1** — full Phase 1 mechanism: bridge + supervisor + loader fork + fixture + 22 new tests (10 subprocess e2e + 12 in-process bridge unit) + docs + three Phase 2/3/4 follow-up issues filed. `make check` 1356 tests, 90.46 % coverage, ruff + pyright clean.
+
+**Design decisions captured during implementation** (for the next reader):
+
+- **Registry in the bridge is the habitat's own `_registry`, not the kernel's.** The bridge imports `marcel_core.skills.integrations` in its subprocess — Python's module system gives it a fresh `_registry` dict per process. The habitat's `@register` calls populate the bridge-local registry; the kernel's registry only holds proxies. This is the right answer because it preserves the existing `@register` API unchanged — habitat authors don't learn a new decorator when their habitat migrates to UDS.
+- **Proxy retry window is ≤3 s with exponential backoff (50 ms → 100 ms → 200 ms → 400 ms → 500 ms cap).** Long enough to cover the bridge's `unlink-then-bind` race during supervisor respawn; short enough that a genuinely-down habitat fails fast.
+- **Process-group signalling (`start_new_session=True` + `os.killpg`)** so a habitat that spawns its own grandchildren (hypothetical: a habitat shelling out to `rg`) has its whole subtree torn down on kernel teardown.
+- **Coverage workaround via in-process unit tests** for the bridge. `pytest-cov` doesn't trace through `Popen` boundaries; the subprocess end-to-end tests execute every bridge line, but coverage-py never sees them. Rather than wire up `coverage run --parallel` (an ergonomic headache), I added `tests/core/test_uds_bridge.py` that exercises the bridge's framing + dispatch helpers directly via an `asyncio` socketpair. Same logic paths, visible to coverage, easier to reason about.
+- **`isolation:` key defaults to `inprocess` (current behaviour) in Phase 1.** Phase 4 flips the default to `uds` and removes the fork entirely. Phase 1 is a **no-op in production** because no real habitat declares `isolation: uds` yet — the mechanism is ready, awaiting Phase 2 migration.
+
+**Reflection** (via pre-close-verifier): to be filled in by the closing step.
 
 ## Lessons Learned
-<!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->
 
 ### What worked well
--
+
+- **Phasing a substantial refactor.** The user asked for a single holistic pattern; the right response was not to try to migrate everything in one go. Phase 1 = mechanism + fixture. Phases 2/3/4 = migration, channels, teardown. Each phase ships green and independently, so a family NUC is never mid-refactor. This is how the marcel-zoo extraction (ISSUE-63a946) went too — same lesson, reaffirmed.
+- **Fixture habitat validates the end-to-end contract without touching marcel-zoo.** A single `tests/fixtures/uds_habitat/` directory (integration.yaml + 3-handler `__init__.py`) exercises every branch the mechanism handles. Real zoo habitats only migrate in Phase 2, isolated from "does the kernel work."
+- **JSON-RPC 2.0 as the wire format.** Zero bikeshedding about the protocol — there is a well-documented spec, MCP and LSP both use it, error codes are standard. The only implementation choice was the framing (4-byte BE length prefix), which is also a well-trodden path.
+- **Compensating for coverage's subprocess blindspot with unit tests.** Could have wired up `coverage run --parallel`; didn't. The `test_uds_bridge.py` file is easier to understand than subprocess coverage plumbing, and it also runs ≈200× faster (no Popen per test).
 
 ### What to do differently
--
+
+- **Write the fixture habitat first, then the loader, then the bridge.** I started with the bridge, then the supervisor, then the loader, then the fixture. The order works but the bridge had to be re-read twice when the loader contract firmed up. "Mock-first" (here: fixture-first) would have forced the contract to settle earlier.
+- **Pyright's bytes-or-None return type on `_read_frame`** bit the tests five times in a row before I added the `_read_response` helper. Should have added the helper in the first pass — `_read_frame` returning `None` on EOF is a deliberate API shape, and every test that expects a payload needs a narrowing wrapper.
+- **`ruff` caught two unused imports / variables** that I would have missed without the lint pass. Specifically: a leftover `last_exc` from a retry-loop iteration I simplified, and an `asyncio` import I absorbed into a helper. Note for next refactor: delete-as-you-simplify, don't trust a second pass.
 
 ### Patterns to reuse
--
+
+- **`HabitatHandle` dataclass with a backoff state machine.** `(proc, socket_path, backoff_next, paused, last_restart_at)` is the minimum state for "supervise a subprocess with exponential retry." Reusable shape for any future supervisor (background jobs that need restart semantics, e.g. a future event-bus consumer process).
+- **`_reset_for_tests()` on the supervisor module.** Explicit hook in the implementation file (not a test-only monkeypatch) acknowledging module-level state exists and must be reset between tests. Better to make it deliberate than to have tests `monkeypatch.setattr(..._state, ...)` against module internals. Precedent: `flags._set_data_dir` in the watchdog module.
+- **Per-habitat `.venv` via uv.** Not used yet (Phase 2), but the `habitat_python()` helper picks it up automatically. `uv venv` is fast enough (≈100 ms) that per-habitat isolation doesn't kill first-boot time.
+- **Proxy retry on transient connect errors, bounded by a total-time budget.** This is the correct shape wherever a client connects to a supervised server — retry the exceptions that mean "server is restarting right now," fail fast on anything else. Reusable pattern for any future IPC boundary (e.g. if a habitat ever talks to a sibling habitat over UDS).

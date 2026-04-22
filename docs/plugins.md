@@ -91,6 +91,60 @@ Errors in one external integration never abort discovery of its siblings:
 
 The net effect is that a user's marcel-zoo checkout can have one broken habitat without taking the rest of the install down.
 
+### Isolation modes
+
+A habitat's `integration.yaml` can declare one of two `isolation:` modes, controlling whether its python code runs inside the kernel or in a separate OS process. This is the target architecture from ISSUE-f60b09 — Phase 1 ships the mechanism, existing habitats still default to `inprocess`.
+
+```yaml
+# integration.yaml
+name: docker
+description: Manage docker containers on the home NUC
+isolation: uds            # optional; default = inprocess
+provides:
+  - docker.list
+  - docker.status
+requires:
+  packages: [docker]      # phase 2 installs these into the habitat's own .venv
+```
+
+**`isolation: inprocess`** — today's default. The habitat's `__init__.py` is imported into the kernel process via `importlib.util.spec_from_file_location`; `@register` populates the kernel-local registry directly. Zero latency overhead, shared python heap, shared venv.
+
+**`isolation: uds`** — the habitat runs as a separate subprocess with its own venv, listening on a UDS socket under `<data_root>/sockets/<name>.sock` (mode `0600`, user-only). The kernel registers proxy coroutines that forward calls over the socket using JSON-RPC 2.0 framed with a 4-byte big-endian length prefix:
+
+```
+[4-byte BE length][JSON body]
+```
+
+Request body:
+```json
+{"jsonrpc": "2.0", "id": 1, "method": "docker.list",
+ "params": {"params": {...}, "user_slug": "alice"}}
+```
+
+Response bodies — success echoes the id with `result`; errors echo the id with `error` and a JSON-RPC-standard code:
+
+| Code | Meaning |
+|---|---|
+| `-32700` | parse error (malformed JSON or framing) |
+| `-32601` | method not found |
+| `-32000` | handler raised an exception — message carries `<ExceptionClass>: <str>` |
+
+The kernel's supervisor (`marcel_core.plugin._uds_supervisor`) spawns each UDS habitat at `lifespan()` startup, polls `Popen.poll()` every two seconds, and respawns any that exit uncleanly with exponential backoff (1 s → 2 s → 4 s → … capped at 60 s). On `lifespan()` teardown, SIGTERM to every child, five-second grace window, then SIGKILL.
+
+What UDS buys over `inprocess`:
+
+- **Dependency isolation** — habitat A can use `caldav==0.11` while habitat B uses `caldav==0.12`.
+- **Failure isolation** — a habitat that segfaults or deadlocks doesn't take the kernel down; the supervisor restarts it.
+- **Concurrent calls per habitat** — the bridge's accept loop handles multiple clients in parallel; stdio-based patterns serialise on one pipe.
+
+What it costs:
+
+- Per-call RPC overhead (≈ connect + JSON round-trip, dominated by kernel-local UDS latency — single-digit milliseconds).
+- Connection timing: during a supervisor respawn, the `unlink-then-bind` window can produce transient `ConnectionRefusedError`/`FileNotFoundError`; the proxy retries up to 3 s with exponential backoff before surfacing the error.
+- Credentials flow in RPC params — kernel decrypts, passes over UDS. Same level of exposure as in-process for a single-user home NUC; not suitable for multi-tenant / third-party-habitat scenarios without a capability model.
+
+The long-term direction (tracked in follow-up issues) is `isolation: uds` for every python habitat — integrations in Phase 2, channels/jobs in Phase 3, with the `inprocess` path removed in Phase 4. Markdown-only habitats (skills, agents) stay in-process because there is no python code to isolate.
+
 ## Scheduled jobs from habitats
 
 A habitat can declare periodic background work by adding a `scheduled_jobs:` block to its `integration.yaml`. Each entry becomes a system-scope [`JobDefinition`](architecture.md#agent-loop-sequence) at scheduler startup — same retry, alerting, notification, and observability story as kernel jobs. No kernel code changes required.

@@ -135,13 +135,16 @@ def _log_zoo_summary() -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log.info('main: starting Marcel v%s', __version__)
 
+    from marcel_core.plugin import _uds_supervisor
     from marcel_core.skills.integrations import discover as discover_integrations
 
     # Populate integration handlers and habitat metadata before the scheduler
     # starts — rebuild_schedule() → _ensure_habitat_jobs() reads _metadata to
     # decide which habitat:* jobs to materialize and which to treat as orphan.
     # Skipping this means every habitat-scheduled job is deleted on cold start.
+    # Discovery also spawns any UDS-isolated habitats (ISSUE-f60b09).
     discover_integrations()
+    _uds_supervisor.start_supervisor()
     _log_zoo_summary()
 
     summarize_task = asyncio.create_task(_background_summarization_loop())
@@ -150,6 +153,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
     scheduler.stop()
     summarize_task.cancel()
+    await _uds_supervisor.stop_supervisor()
     log.info('main: shutdown complete')
 
 
