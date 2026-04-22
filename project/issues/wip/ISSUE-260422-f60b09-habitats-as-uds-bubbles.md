@@ -167,7 +167,22 @@ Shipped as two commits on `issue/f60b09-habitats-as-uds-bubbles`:
 - **Coverage workaround via in-process unit tests** for the bridge. `pytest-cov` doesn't trace through `Popen` boundaries; the subprocess end-to-end tests execute every bridge line, but coverage-py never sees them. Rather than wire up `coverage run --parallel` (an ergonomic headache), I added `tests/core/test_uds_bridge.py` that exercises the bridge's framing + dispatch helpers directly via an `asyncio` socketpair. Same logic paths, visible to coverage, easier to reason about.
 - **`isolation:` key defaults to `inprocess` (current behaviour) in Phase 1.** Phase 4 flips the default to `uds` and removes the fork entirely. Phase 1 is a **no-op in production** because no real habitat declares `isolation: uds` yet — the mechanism is ready, awaiting Phase 2 migration.
 
-**Reflection** (via pre-close-verifier): to be filled in by the closing step.
+### 2026-04-22 — verifier-driven fixup (second 🔧 impl)
+
+Pre-close-verifier returned APPROVE with two non-blocking notes. One addressed here:
+
+- **Socket-mode race (tightened):** `src/marcel_core/plugin/_uds_bridge.py:_serve` wraps `start_unix_server` + `chmod` inside a temporary `os.umask(0o077)` block. Closes the microsecond window where the socket file was born under the process default umask before the explicit chmod landed. Umask is restored immediately after the bind so habitat code creating files later uses its caller's umask, not ours. Defense-in-depth — the single-user-NUC threat model already makes this theoretical, but the fix is one line and the cost is zero.
+
+The other note (three Phase 2/3/4 issue files created inside the Phase 1 impl commit rather than as standalone `📝` commits on main) is accepted as convention drift — see Lessons Learned below.
+
+**Reflection** (via pre-close-verifier):
+- Verdict: APPROVE (with two non-blocking notes — both addressed or accepted)
+- Coverage: 11/11 tasks addressed, all mapped to specific file/function references
+- Shortcuts found: none
+- Scope drift: one convention drift (follow-up issues in impl commit) — accepted + noted
+- Stragglers: none — grep clean
+- Dormancy confirmed: existing zoo habitats fall through to the unchanged `_load_external_integration` path
+- Focus-area gaps identified for Phase 2 (async `_wait_for_socket`, untested robustness paths) — correctly deferred
 
 ## Lessons Learned
 
@@ -183,6 +198,7 @@ Shipped as two commits on `issue/f60b09-habitats-as-uds-bubbles`:
 - **Write the fixture habitat first, then the loader, then the bridge.** I started with the bridge, then the supervisor, then the loader, then the fixture. The order works but the bridge had to be re-read twice when the loader contract firmed up. "Mock-first" (here: fixture-first) would have forced the contract to settle earlier.
 - **Pyright's bytes-or-None return type on `_read_frame`** bit the tests five times in a row before I added the `_read_response` helper. Should have added the helper in the first pass — `_read_frame` returning `None` on EOF is a deliberate API shape, and every test that expects a payload needs a narrowing wrapper.
 - **`ruff` caught two unused imports / variables** that I would have missed without the lint pass. Specifically: a leftover `last_exc` from a retry-loop iteration I simplified, and an `asyncio` import I absorbed into a helper. Note for next refactor: delete-as-you-simplify, don't trust a second pass.
+- **Follow-up issues in impl commit is a convention drift.** Three Phase 2/3/4 issue files (`ISSUE-14b034`, `ISSUE-931b3f`, `ISSUE-807a26`) were created inside the Phase 1 `🔧 impl:` commit rather than as standalone `📝 created:` commits on `main` per [project/issues/GIT_CONVENTIONS.md](../GIT_CONVENTIONS.md). The files exist, are correctly linked, and describe real scope derived from Phase 1's analysis — but `git blame` on them points at a code-implementation commit, not an issue-creation one. Mitigation for next time: when a closing issue naturally spawns follow-ups, pause the impl, switch to main, run three `📝` commits, then resume. The cost is a few `git checkout` cycles; the audit-trail win is real.
 
 ### Patterns to reuse
 

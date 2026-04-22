@@ -51,6 +51,7 @@ import asyncio
 import importlib.util
 import json
 import logging
+import os
 import signal
 import struct
 import sys
@@ -179,8 +180,18 @@ async def _handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWri
 async def _serve(socket_path: Path) -> None:
     socket_path.parent.mkdir(parents=True, exist_ok=True)
     socket_path.unlink(missing_ok=True)  # clean stale socket from a prior unclean exit
-    server = await asyncio.start_unix_server(_handle_client, path=str(socket_path))
-    socket_path.chmod(0o600)
+
+    # Tighten umask across the bind so the socket is born with mode 0600 —
+    # closes the microsecond window between start_unix_server() creating
+    # the file under the process default umask and our explicit chmod.
+    # Restored immediately so habitat code that creates files later uses
+    # the caller's umask, not ours.
+    old_umask = os.umask(0o077)
+    try:
+        server = await asyncio.start_unix_server(_handle_client, path=str(socket_path))
+        socket_path.chmod(0o600)  # belt-and-braces; umask already gave us 0600
+    finally:
+        os.umask(old_umask)
 
     loop = asyncio.get_running_loop()
     stop = loop.create_future()
