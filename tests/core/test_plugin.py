@@ -258,7 +258,7 @@ class TestExternalDiscovery:
         assert f'{_EXTERNAL_MODULE_PREFIX}._private' not in sys.modules
         assert f'{_EXTERNAL_MODULE_PREFIX}..hidden' not in sys.modules
 
-    def testdiscover_is_idempotent(self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules):
+    def test_discover_is_idempotent(self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules):
         """Calling discover twice does not raise 'already registered'."""
         from marcel_core.config import settings
 

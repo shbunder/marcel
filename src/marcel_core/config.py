@@ -52,10 +52,11 @@ class Settings(BaseSettings):
     # Habitats (marcel-zoo)
     # ---------------------------------------------------------------------------
     # Path to the marcel-zoo checkout: an external repository (default location:
-    # ``~/projects/marcel-zoo``) that holds modular habitats — integrations,
-    # skills, channels, jobs, agents — discovered by the kernel at startup.
-    # Unset is a silent no-op: only first-party habitats inside ``marcel_core``
-    # are loaded. Set in ``.env.local`` to enable. See ISSUE-6ad5c7.
+    # ``~/.marcel/zoo`` — matches docker-compose defaults and ``make zoo-setup``)
+    # that holds modular habitats — integrations, skills, channels, jobs, agents —
+    # discovered by the kernel at startup. Unset means zero habitats load: the
+    # kernel itself ships none. Set in ``.env.local`` to override the default.
+    # See ISSUE-6ad5c7.
     marcel_zoo_dir: str | None = None
 
     # ---------------------------------------------------------------------------
@@ -177,8 +178,8 @@ class Settings(BaseSettings):
     def zoo_dir(self) -> Path | None:
         """Resolved path to the marcel-zoo checkout, or ``None`` if not set.
 
-        Discovery code treats ``None`` as a silent no-op: only first-party
-        habitats are loaded. The kernel ships nothing in zoo.
+        Discovery code treats ``None`` as a silent no-op — zero habitats load.
+        The kernel itself ships none.
         """
         if not self.marcel_zoo_dir:
             return None

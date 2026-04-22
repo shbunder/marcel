@@ -68,16 +68,47 @@ Remove the framing — the slot is either vestigial and deliberately so (and sho
 - Parent: [[ISSUE-63a946-marcel-zoo-extraction]] — this session closes the kernel-side work; only zoo-repo follow-ups remain.
 
 ## Implementation Log
-<!-- Append entries here when performing development work on this issue -->
+
+### 2026-04-21 — three-thread impl commit (ca934ec)
+
+- **Thread 1 — container zoo deps**: `scripts/zoo-setup.sh` gains a `--deps-only` flag (skips git clone/pull, requires the zoo to already exist at `$MARCEL_ZOO_DIR` — used inside the prod container where the zoo is bind-mounted from host). Mutex with `--sync`. Makefile adds `zoo-docker-deps` (with a running-container precondition check) and `zoo-docker-sync` (chains `zoo-sync` → `zoo-docker-deps`). `scripts/setup.sh` now runs host-side `zoo-setup.sh` + `docker exec marcel bash /app/scripts/zoo-setup.sh --deps-only` after the health check.
+- **Thread 2 — empty-zoo UX**: `_log_zoo_summary()` in `main.py` resolves `settings.zoo_dir`, counts on-disk habitats under `channels/integrations/skills/jobs/agents/`, emits one INFO line on success or a WARNING pointing at `make zoo-setup` + `make zoo-docker-deps` for the three failure modes (unset env, nonexistent path, empty zoo). Called from `lifespan()` after `discover_integrations()`. Four tests added in `tests/core/test_main_lifespan.py`.
+- **Thread 3 — first-party integrations slot removal**: deleted `_discover_builtin()` and its dead `pkgutil` + `importlib` machinery from `src/marcel_core/skills/integrations/__init__.py`. Collapsed `discover()` and `_discover_external()` into a single zoo-only `discover()`. Module docstring rewritten to drop the "first-party" framing. `docs/skills.md` "Adding a Python integration" section rewritten. `docs/plugins.md` section heading "First-party vs. external integrations" renamed to "Where integrations live" to match body. Two obsolete tests deleted (`test_discover_skips_underscore_modules`, `test_discover_handles_import_error` — testing `pkgutil` behavior that no longer exists). `test_discover_does_not_raise` replaced with `test_discover_noop_when_zoo_unset`. Renamed `_discover_external` → `discover` in 24 callsites across `tests/core/test_plugin.py` and `tests/jobs/test_habitat_jobs.py` (sed-rename).
+
+### 2026-04-21 — verifier-driven fixups (second 🔧 impl commit)
+
+Pre-close-verifier returned REQUEST CHANGES. Two blockers and two deferrable-but-fix-now items addressed:
+
+- **(Shortcut)** `tests/core/test_plugin.py:261` — method name `testdiscover_is_idempotent` (missing underscore after `test_`, sed-rename collateral). Pytest still picked it up via the `test*` pattern, but the naming was inconsistent. Fixed to `test_discover_is_idempotent`.
+- **(Straggler)** `SETUP.md:60-66` — "When a new habitat lands upstream, run `make zoo-sync`" was incomplete for prod-container operators: post-this-issue `zoo-sync` only refreshes the host kernel venv. Updated to show both `make zoo-sync` (dev) and `make zoo-docker-sync` (prod), with a two-line explanation of why two targets exist.
+- **(Deferrable — fixed anyway)** `src/marcel_core/config.py:55,57,180` — three comments that this issue made actively wrong: the `marcel_zoo_dir` field's docstring claimed the default was `~/projects/marcel-zoo` (actual: `~/.marcel/zoo`, pre-existing C.1 straggler) and said "only first-party habitats inside marcel_core are loaded" when unset (post-this-issue: zero are loaded). Same inaccuracy at the `zoo_dir` property's docstring. Rewrote both blocks. `config.py` is a restricted path; unlocked via `.claude/.unlock-safety`, made the edits, re-locked immediately.
+- **(UX note — fixed anyway)** `scripts/setup.sh` post-install message: the container finished `discover_integrations()` at startup *before* the zoo deps got installed, so the first-boot container has broken imports for any zoo integration that depends on the newly-installed deps (caldav, vobject). Added a WARN block instructing the operator to run `make docker-restart` to pick them up. Not blocking, but the verifier correctly pointed out the silent gap.
+
+**Reflection** (via pre-close-verifier):
+- Initial verdict: REQUEST CHANGES (1 shortcut + 1 straggler + 2 deferrable stragglers)
+- Follow-up: all four addressed in a second 🔧 impl commit before the close
+- Coverage: 10/10 tasks addressed (task #11 is `/finish-issue` merge itself)
+- Shortcuts found: 1 (typo) — fixed
+- Scope drift: none
+- Stragglers: 2 active (SETUP.md zoo-sync, config.py comments) — both fixed; 5 "kernel ships zero first-party integrations" references left alone as correct statements of post-extraction reality
+- Restricted-path unlock: `config.py` touched via `.claude/.unlock-safety`, cleanup confirmed
 
 ## Lessons Learned
-<!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->
 
 ### What worked well
--
+
+- **Single impl commit for the three threads**: they share the same "close out zoo extraction" narrative, and splitting them would have meant three pre-close-verifier runs instead of one. The verifier's per-commit feedback is high-signal; investing in one coherent commit + one verifier pass beats three thin commits + three passes.
+- **Test seam for the startup log**: `_log_zoo_summary()` takes no arguments and reads `settings.zoo_dir` fresh, so `monkeypatch.setattr(main_module.settings, 'marcel_zoo_dir', ...)` is enough to exercise every branch. No need to plumb an optional path argument for testability.
+- **Empirical straggler grep**: grepping for `first-party|integrations slot|skills/integrations/<name>` across `src/ docs/ .claude/ tests/` caught the `docs/plugins.md` section heading I would otherwise have missed. The verifier still found two more (SETUP.md zoo-sync, config.py comments) — the grep caught the string-level stragglers but the *semantic* stragglers (claims that became wrong after this change, without sharing the key term) need a different tool.
 
 ### What to do differently
--
+
+- **Run the straggler grep against operator-facing docs separately**: I grepped for specific terms (`first-party`, etc.) but didn't think to grep for `make zoo-sync` to find operator instructions that became incomplete for a different reason (container deps). Next time, when a change splits an existing flow into two targets, grep for the old target name as its own straggler pass.
+- **Sed-rename pitfalls**: `sed -i 's/_discover_external/discover/g'` swept over a method name that contained `_discover_external_`, producing `testdiscover_is_idempotent`. Running a post-sed `grep -E "def (test[^_]|test_$)"` or equivalent would have caught it before commit. Next time I do a mass-rename, verify test method names still match the `test_*` convention via a shape check, not just a "tests still pass" check (pytest's default pattern is lenient).
+- **Restricted-path comments drift**: the `config.py:55,57,180` comments were wrong from the moment I deleted `_discover_builtin()`, but because `config.py` was restricted I excluded it from scope without re-reading whether my change made existing comments incorrect. The rule: when a change touches the semantics that a nearby restricted file's comments describe, grep that file even though you can't edit it — and decide whether the unlock is worth it. Usually yes.
 
 ### Patterns to reuse
--
+
+- **On-disk habitat count as startup signal**: counting directories under `<zoo>/{channels,integrations,skills,jobs,agents}/` is cheap, independent of discovery ordering, and tells the operator what's *available* rather than what successfully *loaded*. The two are subtly different (a broken habitat still counts on disk) and the on-disk count is the right signal for "did my `make zoo-setup` work?" questions. Pattern reusable for any discovery system that wants a boot-time sanity signal separate from registration.
+- **`--deps-only` test seam for bash setup scripts**: when a script has two phases (fetch + apply), a flag that skips the first phase makes the second testable in isolation and also gives a clean handle for docker-exec'ing part of the flow. Same shape as the `DRY_RUN=1` seam in `redeploy.sh` from ISSUE-5ca6dc — two recent issues, same pattern.
+- **Chained Makefile targets for composite ergonomics**: `zoo-docker-sync: zoo-sync zoo-docker-deps` is cleaner than a shell script that calls both. Operator muscle memory picks the verb; Make picks the order; each target remains individually invocable.

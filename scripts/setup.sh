@@ -182,6 +182,17 @@ info "Installing marcel-zoo (host)..."
 info "Installing zoo deps into the prod container..."
 docker exec marcel bash /app/scripts/zoo-setup.sh --deps-only
 
+# The prod container already finished discover_integrations() at startup, so
+# handlers that import the newly-installed deps (caldav for iCloud, vobject,
+# …) are currently still broken for this boot. A restart makes them
+# importable. First-boot operators who stop at `make setup` without this
+# restart will see "iCloud: caldav not installed" errors until they cycle
+# the container.
+warn ""
+warn "NOTE: The container started before zoo deps were installed."
+warn "      Restart to pick them up — zoo integrations won't import until then:"
+warn "        make docker-restart"
+
 info ""
 info "Setup complete. Useful commands:"
 info "  systemctl --user status marcel                  — prod container status"
