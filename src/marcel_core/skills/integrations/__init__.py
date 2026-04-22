@@ -180,13 +180,26 @@ def list_python_skills() -> list[str]:
 def discover() -> None:
     """Discover integration habitats from ``<MARCEL_ZOO_DIR>/integrations/``.
 
-    Each subdirectory is loaded as a package. See
-    :func:`_load_external_integration` for the per-package loading contract
-    (namespace enforcement, error isolation). Returns silently when
-    ``MARCEL_ZOO_DIR`` is unset or ``<zoo>/integrations/`` does not exist —
-    the kernel ships no habitats; operators opt in by pointing the env var
-    at a marcel-zoo checkout. Safe to call multiple times: already-imported
-    habitats are skipped via ``sys.modules``.
+    Each subdirectory is loaded as a package. Two isolation modes are
+    supported:
+
+    - ``isolation: inprocess`` (default) — the habitat's ``__init__.py``
+      is imported into the kernel process; ``@register`` calls populate
+      the kernel-local ``_registry`` directly. See
+      :func:`_load_external_integration` for the per-package loading
+      contract (namespace enforcement, error isolation).
+    - ``isolation: uds`` — the habitat runs as a separate subprocess
+      with its own venv, listening on a UDS socket under
+      ``<data_root>/sockets/<name>.sock``. The kernel registers proxy
+      coroutines (one per ``provides:`` entry) that forward JSON-RPC
+      calls over the socket. See :func:`_load_uds_habitat`.
+
+    Returns silently when ``MARCEL_ZOO_DIR`` is unset or
+    ``<zoo>/integrations/`` does not exist — the kernel ships no
+    habitats; operators opt in by pointing the env var at a marcel-zoo
+    checkout. Safe to call multiple times: already-imported in-process
+    habitats are skipped via ``sys.modules``; already-spawned UDS
+    habitats are skipped via the supervisor's handle table.
     """
     try:
         from marcel_core.config import settings
@@ -206,7 +219,31 @@ def discover() -> None:
     for entry in sorted(external_dir.iterdir()):
         if not entry.is_dir() or entry.name.startswith(('_', '.')):
             continue
-        _load_external_integration(entry)
+        if _declared_isolation(entry) == 'uds':
+            _load_uds_habitat(entry)
+        else:
+            _load_external_integration(entry)
+
+
+def _declared_isolation(pkg_dir: Path) -> str:
+    """Return the ``isolation:`` mode from the habitat's ``integration.yaml``.
+
+    Defaults to ``'inprocess'`` when the key is missing or the YAML is
+    malformed — malformed YAML is surfaced later by
+    :func:`_load_external_integration`'s existing parser. Keeping this
+    probe defensive avoids crashing discovery on a bad file.
+    """
+    yaml_path = pkg_dir / 'integration.yaml'
+    if not yaml_path.exists():
+        return 'inprocess'
+    try:
+        raw = yaml.safe_load(yaml_path.read_text(encoding='utf-8')) or {}
+    except yaml.YAMLError:
+        return 'inprocess'
+    if not isinstance(raw, dict):
+        return 'inprocess'
+    value = raw.get('isolation', 'inprocess')
+    return value if isinstance(value, str) else 'inprocess'
 
 
 def _load_external_integration(pkg_dir: Path) -> None:
@@ -308,6 +345,229 @@ class HabitatRollback(Exception):
     handlers the package registered before metadata parsing failed. Bubbling
     out of discovery would be a bug.
     """
+
+
+# ---------------------------------------------------------------------------
+# UDS-isolated habitats (ISSUE-f60b09 Phase 1)
+# ---------------------------------------------------------------------------
+
+
+def _load_uds_habitat(pkg_dir: Path) -> None:
+    """Spawn a UDS-isolated habitat subprocess and register proxy handlers.
+
+    The habitat runs as a separate Python process (see
+    :mod:`marcel_core.plugin._uds_bridge`) with its own venv and own
+    ``_registry``. The kernel never imports the habitat's ``__init__.py``
+    in-process; instead, for each handler name listed in
+    ``integration.yaml``'s ``provides:``, the kernel registers a proxy
+    coroutine that forwards JSON-RPC calls over the habitat's UDS
+    socket.
+
+    Errors during spawn (YAML invalid, missing ``provides:``, subprocess
+    fails to create socket) are logged and contained — no partial
+    registration leaks into ``_registry`` or ``_metadata``. This mirrors
+    the rollback discipline of :func:`_load_external_integration`.
+
+    Idempotency: if the supervisor already tracks a habitat of this
+    name, the call is a no-op. Matches the ``module_name in sys.modules``
+    shortcut on the in-process path.
+    """
+    from marcel_core.plugin import _uds_supervisor
+
+    if pkg_dir.name in _uds_supervisor.list_habitats():
+        return
+
+    yaml_path = pkg_dir / 'integration.yaml'
+    if not yaml_path.exists():
+        log.error(
+            "UDS habitat '%s' has no integration.yaml — cannot determine provides: list, skipping",
+            pkg_dir.name,
+        )
+        return
+
+    try:
+        raw = yaml.safe_load(yaml_path.read_text(encoding='utf-8')) or {}
+    except yaml.YAMLError:
+        log.exception(
+            "UDS habitat '%s' has invalid integration.yaml — skipping",
+            pkg_dir.name,
+        )
+        return
+
+    if not isinstance(raw, dict):
+        log.error("UDS habitat '%s': integration.yaml root must be a mapping, skipping", pkg_dir.name)
+        return
+
+    provides = raw.get('provides') or []
+    if not isinstance(provides, list) or not all(isinstance(p, str) for p in provides):
+        log.error(
+            "UDS habitat '%s': provides: must be a list of strings (source of truth for handler names), skipping",
+            pkg_dir.name,
+        )
+        return
+
+    if not provides:
+        log.warning(
+            "UDS habitat '%s' declares empty provides: — spawning will register zero handlers. Skipping.",
+            pkg_dir.name,
+        )
+        return
+
+    bad = [p for p in provides if not p.startswith(f'{pkg_dir.name}.')]
+    if bad:
+        log.error(
+            "UDS habitat '%s': provides: entries outside the '%s.*' namespace: %s. Skipping.",
+            pkg_dir.name,
+            pkg_dir.name,
+            bad,
+        )
+        return
+
+    # Namespace collision guard: proxy registration must not clobber a handler
+    # already in the registry (from a prior in-process habitat with the same
+    # handler name, or from a previous discover() call that registered in-process).
+    collisions = [p for p in provides if p in _registry]
+    if collisions:
+        log.error(
+            "UDS habitat '%s': handler names already registered: %s. Skipping.",
+            pkg_dir.name,
+            collisions,
+        )
+        return
+
+    socket_path = _habitat_socket_path(pkg_dir.name)
+    command = _bridge_command(pkg_dir, socket_path)
+
+    try:
+        _uds_supervisor.spawn_habitat(pkg_dir.name, command, socket_path)
+    except Exception:
+        log.exception("UDS habitat '%s' failed to spawn — skipping", pkg_dir.name)
+        return
+
+    for handler_name in provides:
+        _registry[handler_name] = _make_uds_proxy(handler_name, socket_path)
+
+    # Also parse + publish integration.yaml metadata so ``depends_on:`` from
+    # paired skill habitats continues to work. Failures here disable metadata
+    # only; handler proxies stay registered (same discipline as the in-process
+    # path for non-scheduled-jobs errors).
+    try:
+        _load_integration_metadata(pkg_dir)
+    except HabitatRollback as exc:
+        # A malformed scheduled_jobs block on a UDS habitat is as bad as
+        # on an in-process one: tear the habitat down to avoid a partial
+        # scheduler state.
+        log.error("UDS habitat '%s' rolled back: %s", pkg_dir.name, exc)
+        for handler_name in provides:
+            _registry.pop(handler_name, None)
+        # Supervisor-level teardown is deferred to kernel shutdown; marking
+        # the habitat as "to-remove" mid-run would complicate the poll loop.
+        # A rolled-back habitat just leaves a sleeping subprocess until
+        # lifespan teardown sweeps it.
+
+
+def _habitat_socket_path(name: str) -> Path:
+    from marcel_core.config import settings
+
+    return settings.data_dir / 'sockets' / f'{name}.sock'
+
+
+def _bridge_command(pkg_dir: Path, socket_path: Path) -> list[str]:
+    """Return the argv to launch *pkg_dir*'s UDS bridge.
+
+    Prefers the habitat's own ``.venv/bin/python`` if present (Phase 2+
+    when ``make zoo-setup`` creates per-habitat venvs); falls back to
+    the kernel's ``sys.executable`` so Phase 1 fixture habitats with no
+    declared deps work out of the box.
+    """
+    from marcel_core.plugin import _uds_supervisor
+
+    python = _uds_supervisor.habitat_python(pkg_dir)
+    return [python, '-m', 'marcel_core.plugin._uds_bridge', str(pkg_dir), str(socket_path)]
+
+
+def _make_uds_proxy(method: str, socket_path: Path) -> IntegrationHandler:
+    """Return a coroutine that forwards calls for *method* over *socket_path*.
+
+    Phase 1 opens one connection per call — simple, no state. Each
+    request carries a fixed ``id`` because the connection is single-use;
+    connection pooling (which requires unique ids) is a Phase 5 concern.
+
+    Connect retries briefly on ``ConnectionRefusedError`` /
+    ``FileNotFoundError`` (total window ≈ ``_UDS_CONNECT_TOTAL_TIMEOUT``).
+    Both errors are transient during supervisor respawn: the bridge's
+    ``unlink-then-bind`` race leaves a window where the socket file
+    exists but is not yet accepting. Retrying masks that window without
+    masking a habitat that's genuinely down (persistent refusal after
+    the window → real error).
+
+    Errors surface as ``RuntimeError`` with a prefix identifying the
+    habitat and method — the ``integration`` tool's existing exception
+    handler wraps them into user-facing error strings, so no new error
+    type is introduced in Phase 1.
+    """
+    import json
+    import struct
+
+    async def proxy(params: dict, user_slug: str) -> str:
+        reader, writer = await _uds_connect_with_retry(method, socket_path)
+        try:
+            body = json.dumps(
+                {
+                    'jsonrpc': '2.0',
+                    'id': 1,
+                    'method': method,
+                    'params': {'params': params, 'user_slug': user_slug},
+                }
+            ).encode()
+            writer.write(struct.pack('>I', len(body)) + body)
+            await writer.drain()
+
+            hdr = await reader.readexactly(4)
+            (length,) = struct.unpack('>I', hdr)
+            resp = json.loads(await reader.readexactly(length))
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+        if 'error' in resp:
+            err = resp['error']
+            raise RuntimeError(f'uds habitat error in {method!r}: {err.get("message", err)!s}')
+        return resp.get('result', '')
+
+    return proxy
+
+
+# Transient-connect retry knobs. Small values — the window we're masking
+# is the few hundred ms between a bridge's unlink-then-bind on respawn.
+_UDS_CONNECT_TOTAL_TIMEOUT = 3.0
+_UDS_CONNECT_INITIAL_DELAY = 0.05
+
+
+async def _uds_connect_with_retry(method: str, socket_path: Path):
+    """Open a UDS connection, retrying on transient 'not yet ready' errors.
+
+    Returns ``(reader, writer)`` on success; raises ``RuntimeError`` with
+    habitat context if the total window expires or a non-transient error
+    is raised (e.g. ``PermissionError`` from wrong socket mode).
+    """
+    import asyncio
+
+    deadline = asyncio.get_running_loop().time() + _UDS_CONNECT_TOTAL_TIMEOUT
+    delay = _UDS_CONNECT_INITIAL_DELAY
+    while True:
+        try:
+            return await asyncio.open_unix_connection(str(socket_path))
+        except (FileNotFoundError, ConnectionRefusedError) as exc:
+            if asyncio.get_running_loop().time() + delay >= deadline:
+                raise RuntimeError(
+                    f'uds habitat unavailable for {method!r} after {_UDS_CONNECT_TOTAL_TIMEOUT:.1f}s of retries: {exc}'
+                ) from exc
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 0.5)
 
 
 _VALID_REQUIRES_KEYS = frozenset({'credentials', 'env', 'files', 'packages'})

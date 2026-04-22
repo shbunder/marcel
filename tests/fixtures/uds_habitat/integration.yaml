@@ -1,0 +1,7 @@
+name: uds_fixture
+description: End-to-end fixture habitat for UDS sidecar tests (ISSUE-f60b09).
+isolation: uds
+provides:
+  - uds_fixture.echo
+  - uds_fixture.add
+  - uds_fixture.boom
