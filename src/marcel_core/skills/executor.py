@@ -121,7 +121,7 @@ async def _run_shell(config: SkillConfig, params: dict) -> str:
 
 async def _run_python(config: SkillConfig, params: dict, user_slug: str) -> str:
     """Dispatch to a registered python integration handler."""
-    from marcel_core.skills.integrations import get_handler
+    from marcel_core.toolkit import get_handler
 
     handler_name: str = config.handler or ''
     handler = get_handler(handler_name)

@@ -25,7 +25,7 @@ from marcel_core.jobs.models import JobDefinition, JobStatus, TriggerType
 
 if TYPE_CHECKING:
     from marcel_core.jobs.models import JobRun
-    from marcel_core.skills.integrations import ScheduledJobSpec
+    from marcel_core.toolkit import ScheduledJobSpec
 
 log = logging.getLogger(__name__)
 
@@ -139,7 +139,7 @@ def _ensure_habitat_jobs() -> None:
     """
     from marcel_core.jobs import delete_job, list_all_jobs, save_job
     from marcel_core.jobs.models import JobDefinition, NotifyPolicy, TriggerSpec
-    from marcel_core.skills.integrations import _metadata
+    from marcel_core.toolkit import _metadata
 
     desired: dict[str, tuple[str, 'ScheduledJobSpec']] = {}  # job_id -> (habitat_name, spec)
     for habitat_name, meta in _metadata.items():

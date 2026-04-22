@@ -20,8 +20,8 @@ from marcel_core.tools import (
     claude_code as claude_code_tool,
     core as core_tools,
     delegate as delegate_tool,
-    integration as integration_tools,
     marcel as marcel_tools,
+    toolkit as toolkit_tools,
 )
 from marcel_core.tools.web import web as web_tool
 from marcel_core.tracing import get_instrumentation_settings
@@ -132,7 +132,9 @@ _TOOL_REGISTRY: list[tuple[str, object, str | None]] = [
     ('delegate', delegate_tool.delegate, 'admin'),
     # All-user tools
     ('generate_chart', chart_tools.generate_chart, None),
-    ('integration', integration_tools.integration, None),
+    ('toolkit', toolkit_tools.toolkit, None),
+    # Back-compat alias — removed in ISSUE-3c1534 Phase 5.
+    ('integration', toolkit_tools.integration, None),
     ('marcel', marcel_tools.marcel, None),
     # Job management
     ('create_job', job_tools.create_job, None),

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from marcel_core.skills.integrations import IntegrationMetadata
 from marcel_core.skills.loader import (
     SkillDoc,
     _check_depends_on,
@@ -18,12 +17,13 @@ from marcel_core.skills.loader import (
     list_skill_resources,
     load_skills,
 )
+from marcel_core.toolkit import IntegrationMetadata
 
 
 @pytest.fixture
 def isolated_metadata(monkeypatch):
     """Provide a clean integration metadata registry for the test."""
-    from marcel_core.skills.integrations import _metadata
+    from marcel_core.toolkit import _metadata
 
     saved = dict(_metadata)
     _metadata.clear()

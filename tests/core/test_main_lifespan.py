@@ -27,7 +27,7 @@ async def test_lifespan_runs_discover_before_scheduler_start(tmp_path, monkeypat
     call_order: list[str] = []
 
     with (
-        patch('marcel_core.skills.integrations.discover') as discover,
+        patch('marcel_core.toolkit.discover') as discover,
         patch('marcel_core.main.scheduler') as scheduler,
         patch('marcel_core.main._background_summarization_loop'),
     ):

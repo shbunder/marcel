@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from marcel_core.skills.integrations import (
+from marcel_core.toolkit import (
     _EXTERNAL_MODULE_PREFIX,
     HabitatRollback,
     IntegrationMetadata,
@@ -299,7 +299,7 @@ class TestDiscoveryRollback:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
-        with caplog.at_level('ERROR', logger='marcel_core.skills.integrations'):
+        with caplog.at_level('ERROR', logger='marcel_core.toolkit'):
             discover()
 
         assert 'syncer.run' not in _registry

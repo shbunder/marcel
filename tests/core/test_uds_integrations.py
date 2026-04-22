@@ -31,7 +31,7 @@ import pytest
 import yaml
 
 from marcel_core.plugin import _uds_supervisor
-from marcel_core.skills.integrations import (
+from marcel_core.toolkit import (
     _make_uds_proxy,
     _metadata,
     _registry,

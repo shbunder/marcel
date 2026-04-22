@@ -57,7 +57,7 @@ from marcel_core.plugin.channels import (
     register_channel,
 )
 from marcel_core.plugin.jobs import discover_templates
-from marcel_core.skills.integrations import IntegrationHandler, register
+from marcel_core.toolkit import IntegrationHandler, register
 
 __all__ = [
     'ChannelPlugin',
