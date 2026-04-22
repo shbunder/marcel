@@ -1,6 +1,6 @@
 # ISSUE-f60b09: Habitats as UDS bubbles — kernel-side mechanism (Phase 1)
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-22
 **Assignee:** Unassigned
 **Priority:** High
@@ -132,7 +132,7 @@ The "single pattern" commitment is Phase 4. Phases 1–3 are a disciplined rollo
   - [[ISSUE-14b034]] — migrate docker/icloud/news/banking to UDS + per-habitat venvs in zoo-setup
   - [[ISSUE-931b3f]] — channels (Telegram, bidirectional HTTP proxy) and any python-carrying jobs
   - [[ISSUE-807a26]] — delete the in-process path; single-pattern end state
-- [ ] `/finish-issue` → merged close commit on main
+- [✓] `/finish-issue` → merged close commit on main
 
 ## Non-scope (explicitly deferred)
 
