@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+"""Structured updater for Marcel WIP issue files.
+
+Lets the agent flip checkboxes, change Status, add tasks, and append
+Implementation Log entries via small subcommand calls instead of full
+file rewrites — modelled on Claude Code's TodoWrite. See ISSUE-081eeb.
+
+Auto-discovers the single WIP file under project/issues/wip/ via
+`git rev-parse --show-toplevel`, so the script works from any cwd
+inside the repo.
+
+Exit codes:
+  0  success
+  1  usage error (bad arg, section not found, etc.)
+  2  no WIP issue file
+  3  ambiguous match (multiple tasks match the regex; or multiple WIP files)
+  4  no match (regex matched zero tasks)
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+TODO = ' '
+WIP_STATE = '⚒'
+DONE = '✓'
+
+VALID_STATUS = ('Open', 'WIP', 'Closed')
+
+TASK_LINE_RE = re.compile(r'^(\s*- \[)([ ⚒✓])(\] )(.+?)(\s*)$')
+STATUS_RE = re.compile(r'^\*\*Status:\*\*\s.*$', re.MULTILINE)
+TASKS_HEADER_RE = re.compile(r'^## Tasks\s*$', re.MULTILINE)
+NEXT_HEADER_RE = re.compile(r'^## ', re.MULTILINE)
+LOG_HEADER_RE = re.compile(r'^## Implementation Log\s*$', re.MULTILINE)
+
+LOG_ANCHOR = '<!-- issue-task:log-append -->'
+LOG_LEGACY_ANCHOR = '<!-- Append entries here when performing development work on this issue -->'
+
+
+def _err(msg: str, code: int = 1) -> None:
+    sys.stderr.write(f'issue-task: {msg}\n')
+    sys.exit(code)
+
+
+def _repo_root() -> Path:
+    try:
+        out = subprocess.check_output(
+            ['git', 'rev-parse', '--show-toplevel'], text=True, stderr=subprocess.DEVNULL
+        ).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        _err('not a git repository')
+    return Path(out)
+
+
+def locate_wip(root: Path | None = None) -> Path:
+    root = root or _repo_root()
+    matches = sorted((root / 'project' / 'issues' / 'wip').glob('ISSUE-*.md'))
+    if not matches:
+        _err('no WIP issue file found under project/issues/wip/', 2)
+    if len(matches) > 1:
+        _err(
+            'multiple WIP files found:\n  ' + '\n  '.join(str(m) for m in matches),
+            3,
+        )
+    return matches[0]
+
+
+def _find_task_matches(lines: list[str], pattern: str) -> list[int]:
+    rx = re.compile(pattern, re.IGNORECASE)
+    hits: list[int] = []
+    for i, line in enumerate(lines):
+        m = TASK_LINE_RE.match(line.rstrip('\n'))
+        if m and rx.search(m.group(4)):
+            hits.append(i)
+    return hits
+
+
+def cmd_mutate_task(path: Path, pattern: str, new_state: str) -> None:
+    raw = path.read_text(encoding='utf-8')
+    lines = raw.splitlines(keepends=True)
+    hits = _find_task_matches(lines, pattern)
+    if not hits:
+        _err(f'no task matches {pattern!r}', 4)
+    if len(hits) > 1:
+        details = '\n  '.join(lines[i].rstrip('\n') for i in hits)
+        _err(f'ambiguous — {len(hits)} tasks match {pattern!r}:\n  ' + details, 3)
+
+    idx = hits[0]
+    line = lines[idx].rstrip('\n')
+    m = TASK_LINE_RE.match(line)
+    assert m is not None
+    if m.group(2) == new_state:
+        print(f'(already [{new_state}]) {m.group(4)}')
+        return
+    new_line = f'{m.group(1)}{new_state}{m.group(3)}{m.group(4)}{m.group(5)}'
+    if lines[idx].endswith('\n'):
+        new_line += '\n'
+    lines[idx] = new_line
+    path.write_text(''.join(lines), encoding='utf-8')
+    print(f'[{new_state}] {m.group(4)}')
+
+
+def cmd_status(path: Path, value: str) -> None:
+    if value not in VALID_STATUS:
+        _err(f'invalid status {value!r}; use one of {list(VALID_STATUS)}')
+    text = path.read_text(encoding='utf-8')
+    new_text, n = STATUS_RE.subn(f'**Status:** {value}', text, count=1)
+    if n == 0:
+        _err('Status: line not found in issue file')
+    if new_text == text:
+        print(f'(already) Status: {value}')
+        return
+    path.write_text(new_text, encoding='utf-8')
+    print(f'Status: {value}')
+
+
+def cmd_add(path: Path, description: str) -> None:
+    text = path.read_text(encoding='utf-8')
+    m = TASKS_HEADER_RE.search(text)
+    if not m:
+        _err('"## Tasks" section not found')
+    after = text[m.end():]
+    next_m = NEXT_HEADER_RE.search(after)
+    section_end = m.end() + (next_m.start() if next_m else len(after))
+    section = text[m.end():section_end].rstrip('\n')
+    new_section = section + '\n- [ ] ' + description + '\n\n'
+    new_text = text[:m.end()] + new_section + text[section_end:]
+    path.write_text(new_text, encoding='utf-8')
+    print(f'added: [ ] {description}')
+
+
+def cmd_log(path: Path, action: str, files: list[str] | None) -> None:
+    text = path.read_text(encoding='utf-8')
+    m = LOG_HEADER_RE.search(text)
+    if not m:
+        _err('"## Implementation Log" section not found')
+
+    now = _dt.datetime.now().strftime('%Y-%m-%d %H:%M')
+    parts = [f'### {now} - LLM Implementation', f'**Action**: {action}']
+    if files:
+        parts.append('**Files Modified**:')
+        parts.extend(f'- `{f}`' for f in files)
+    entry = '\n'.join(parts) + '\n'
+
+    # Insertion point preference order:
+    # 1. Stable anchor `<!-- issue-task:log-append -->`
+    # 2. Legacy placeholder comment from older TEMPLATE.md
+    # 3. Right after the `## Implementation Log` header line
+    insert_at = -1
+    for anchor in (LOG_ANCHOR, LOG_LEGACY_ANCHOR):
+        pos = text.find(anchor, m.end())
+        if pos != -1:
+            nl = text.find('\n', pos)
+            insert_at = (nl + 1) if nl != -1 else len(text)
+            break
+    if insert_at == -1:
+        insert_at = m.end()
+        if insert_at < len(text) and text[insert_at] == '\n':
+            insert_at += 1
+
+    new_text = text[:insert_at] + '\n' + entry + text[insert_at:]
+    path.write_text(new_text, encoding='utf-8')
+    print(f'logged: {action}')
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog='issue-task',
+        description='Structured updater for Marcel WIP issue files. Use this instead of rewriting the file.',
+    )
+    sub = p.add_subparsers(dest='cmd', required=True)
+
+    for name, helptext in (
+        ('check', 'flip a task to [✓] (accepts [ ] or [⚒])'),
+        ('start', 'flip a task to [⚒] (accepts [ ] or [✓])'),
+        ('reopen', 'flip a task to [ ] (accepts [✓] or [⚒])'),
+    ):
+        sp = sub.add_parser(name, help=helptext)
+        sp.add_argument('pattern', help='case-insensitive regex matching the task text')
+
+    sp = sub.add_parser('add', help='append a new task under ## Tasks')
+    sp.add_argument('description', help='task description')
+
+    sp = sub.add_parser('status', help='set the Status: header line')
+    sp.add_argument('value', choices=list(VALID_STATUS))
+
+    sp = sub.add_parser('log', help='append an Implementation Log entry')
+    sp.add_argument('action', help='one-line description of what was done')
+    sp.add_argument('--files', nargs='+', default=None, help='files modified (space-separated)')
+
+    sub.add_parser('show', help='print the resolved WIP issue file path')
+    return p
+
+
+_STATE_FOR_CMD = {'check': DONE, 'start': WIP_STATE, 'reopen': TODO}
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    path = locate_wip()
+
+    if args.cmd == 'show':
+        print(str(path))
+    elif args.cmd in _STATE_FOR_CMD:
+        cmd_mutate_task(path, args.pattern, _STATE_FOR_CMD[args.cmd])
+    elif args.cmd == 'add':
+        cmd_add(path, args.description)
+    elif args.cmd == 'status':
+        cmd_status(path, args.value)
+    elif args.cmd == 'log':
+        cmd_log(path, args.action, args.files)
+    else:
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

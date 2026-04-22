@@ -40,16 +40,28 @@ Read the changed files to understand what was implemented. Cross-reference with 
 
 ### 4. Update task and subtask statuses
 
-Go through every `- [ ]` and `- [⚒]` item in the issue. For each one:
+Go through every `- [ ]` and `- [⚒]` item in the issue. For each one, use the `issue-task` CLI rather than rewriting the file:
+
+```bash
+.claude/scripts/issue-task check "<unique substring of the task>"   # → [✓]
+.claude/scripts/issue-task start "<unique substring of the task>"   # → [⚒]
+```
+
 - Mark `[✓]` if the corresponding work is present in the diff
 - Mark `[⚒]` if it was started but is incomplete
 - Leave `[ ]` if there is no evidence it was touched
 
-If any subtask statuses changed, include those updates in the closing commit (step 8) — do not create separate commits for subtask checkbox changes.
+The CLI fails loud on ambiguous matches (multiple tasks matching the regex) — narrow your pattern in that case. If any subtask statuses changed, include those updates in the closing commit (step 8) — do not create separate commits for subtask checkbox changes.
 
 ### 5. Append an implementation log entry
 
-Add a log entry at the bottom of the issue file under `## Implementation Log` using the format in [project/issues/TEMPLATE.md](../../../project/issues/TEMPLATE.md).
+Use the helper instead of editing the section by hand:
+
+```bash
+.claude/scripts/issue-task log "<one-line description>" --files <file1> <file2> ...
+```
+
+This inserts a properly formatted entry at the `<!-- issue-task:log-append -->` anchor (or right under the `## Implementation Log` header for older files). Format matches [project/issues/TEMPLATE.md](../../../project/issues/TEMPLATE.md). For richer entries (Result, Next, multi-paragraph notes), use `Edit` to extend the entry the CLI just inserted.
 
 ### 6. Delegate verification to the pre-close-verifier subagent
 
@@ -96,14 +108,16 @@ Before creating the close commit:
 
 Before committing, fill in the `## Lessons Learned` section in the issue file (still in `wip/` at this point). Be concrete — bullets that surprised you, caused rework, or would save time next issue. Delete subsections that have nothing useful to say rather than leaving placeholder bullets.
 
-Then move and commit:
+Then flip the status and move:
 
 ```bash
+.claude/scripts/issue-task status Closed
 git mv project/issues/wip/ISSUE-{YYMMDD}-{hash}-{slug}.md project/issues/closed/ISSUE-{YYMMDD}-{hash}-{slug}.md
-# Update Status: Closed inside the file
 git add "project/issues/closed/ISSUE-{YYMMDD}-{hash}-{slug}.md"
 git commit -m "✅ [ISSUE-{hash}] closed: <one-line summary of what was completed>"
 ```
+
+`issue-task status Closed` mutates the `**Status:**` line in place — far cheaper than rewriting the file. Note the order: flip status BEFORE `git mv`, since the CLI auto-locates the file under `project/issues/wip/`.
 
 The Lessons Learned is part of the close commit — no separate fixup commit needed.
 

@@ -39,6 +39,7 @@ Copy this template when creating a new issue. The `/new-issue` skill fills it in
 Comment text...
 
 ## Implementation Log
+<!-- issue-task:log-append -->
 <!-- Append entries here when performing development work on this issue -->
 
 ## Lessons Learned

@@ -72,6 +72,16 @@ git checkout -b "issue/${HASH}-${SLUG}"
 
 All subsequent work for this issue happens on this branch. The user is now ready to start implementation.
 
+The first `🔧 impl:` commit will move the file from `open/` to `wip/` and flip the `Status:` line. Use the helper rather than rewriting the file:
+
+```bash
+git mv "project/issues/open/ISSUE-${DATE}-${HASH}-${SLUG}.md" "project/issues/wip/ISSUE-${DATE}-${HASH}-${SLUG}.md"
+.claude/scripts/issue-task status WIP
+.claude/scripts/issue-task log "<one-line description>" --files <changed file paths>
+```
+
+Subsequent task / status / log changes also use `issue-task` — see `.claude/scripts/issue-task --help` and [project/issues/CLAUDE.md](../../../project/issues/CLAUDE.md). The `UserPromptSubmit` reminder hook will surface this every turn while a WIP file exists.
+
 ### 7. Report back
 
 Tell the user:
