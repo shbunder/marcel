@@ -1,6 +1,6 @@
 # ISSUE-3c1534: Five-habitat taxonomy — rename integrations → toolkit, align vocabulary with pydantic-ai tools
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-22
 **Assignee:** Unassigned
 **Priority:** High
