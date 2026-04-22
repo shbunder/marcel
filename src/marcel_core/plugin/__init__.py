@@ -57,16 +57,23 @@ from marcel_core.plugin.channels import (
     register_channel,
 )
 from marcel_core.plugin.jobs import discover_templates
-from marcel_core.toolkit import IntegrationHandler, register
+from marcel_core.toolkit import (
+    IntegrationHandler,
+    ToolkitHandler,
+    marcel_tool,
+    register,
+)
 
 __all__ = [
     'ChannelPlugin',
     'IntegrationHandler',
+    'ToolkitHandler',
     'credentials',
     'discover_templates',
     'get_channel',
     'get_logger',
     'list_channels',
+    'marcel_tool',
     'models',
     'paths',
     'register',
