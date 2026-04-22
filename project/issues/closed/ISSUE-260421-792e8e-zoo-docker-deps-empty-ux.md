@@ -1,6 +1,6 @@
 # ISSUE-792e8e: Close kernel-side zoo extraction — container deps, empty-zoo UX, first-party slot cleanup
 
-**Status:** Open
+**Status:** Closed
 **Created:** 2026-04-21
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -59,7 +59,7 @@ Remove the framing — the slot is either vestigial and deliberately so (and sho
 - [✓] Update `src/marcel_core/skills/integrations/__init__.py` docstring — dropped the "first-party" framing; describes zoo-only discovery.
 - [✓] Run straggler grep for `first-party`, `integrations slot`, `src/marcel_core/skills/integrations/<name>`, `defaults/` across docs + .claude + src + tests. One active section-heading straggler found in `docs/plugins.md:256` ("First-party vs. external integrations") — renamed to "Where integrations live". Five remaining hits ("kernel ships zero first-party integrations") are correct statements of the post-extraction reality and were left alone. One hit in `src/marcel_core/config.py:57` ("only first-party habitats inside marcel_core" — comment describing MARCEL_ZOO_DIR-unset behavior) left alone: `config.py` is a restricted path and the phrasing is misleading-but-technically-correct; not worth an unlock for this session.
 - [✓] `make check` green: 1334 pass, 91.33% coverage, 4 new tests in `test_main_lifespan.py` + 2 test files updated (`_discover_external` → `discover` rename).
-- [ ] `/finish-issue` → merged close commit on main
+- [✓] `/finish-issue` → merged close commit on main
 
 ## Relationships
 - Follows: [[ISSUE-12e920-zoo-first-boot-setup-docs]] (Session C.1, closed 5a3536f)
