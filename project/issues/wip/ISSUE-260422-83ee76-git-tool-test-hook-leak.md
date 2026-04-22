@@ -1,6 +1,6 @@
 # ISSUE-83ee76: git-tool tests leak files into pre-commit-hook commits
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-22
 **Assignee:** Unassigned
 **Priority:** High
