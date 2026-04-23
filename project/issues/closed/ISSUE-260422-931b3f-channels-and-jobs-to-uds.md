@@ -1,6 +1,6 @@
 # ISSUE-931b3f: Extend UDS isolation to channel and job habitats (Phase 3 of f60b09)
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-22
 **Assignee:** Claude
 **Priority:** Medium
@@ -45,15 +45,15 @@ If no python-carrying job habitats land before Phase 4, this half of Phase 3 is 
 
 ## Tasks
 
-- [ ] Design the kernel-side HTTP→UDS proxy route — path shape, request serialisation format, response reconstruction
+- [✓] Design the kernel-side HTTP→UDS proxy route — path shape, request serialisation format, response reconstruction
 - [ ] Extend `marcel_core.plugin._uds_bridge` to dispatch `channel.*` methods (same wire format, new method namespace)
 - [ ] Add a `channels.yaml` (or extend `channel.yaml`) schema with `isolation: uds` support
 - [ ] Migrate `telegram` habitat to UDS isolation (zoo PR) — bidirectional: webhook inbound, `send_message` + friends outbound
 - [ ] Evaluate identity resolution latency (`resolve_user_slug` over UDS); add caching only if it matters
-- [ ] Decide whether to introduce python-carrying job habitats; if so, adopt the same UDS pattern. If not, mark job-side of Phase 3 closed-as-designed.
-- [ ] Update `docs/plugins.md` — UDS channel pattern section
+- [✓] Decide whether to introduce python-carrying job habitats; if so, adopt the same UDS pattern. If not, mark job-side of Phase 3 closed-as-designed.
+- [✓] Update `docs/plugins.md` — UDS channel pattern section
 - [ ] `make check` green; live-test a telegram webhook round-trip
-- [ ] `/finish-issue` → merged close commit on main
+- [✓] `/finish-issue` → merged close commit on main
 
 ## Non-scope
 
@@ -168,3 +168,31 @@ design-only issue that unblocks the real implementation.
 - Follow-up issue file present in `project/issues/open/` with a
   complete Implementation Approach so `/new-issue` isn't needed later
   when someone picks it up.
+
+## Implementation Log
+<!-- issue-task:log-append -->
+
+### 2026-04-23 - LLM Implementation
+**Action**: Shipped the channel UDS design as a new "UDS isolation — design" section in `docs/channels.md` covering the bidirectional proxy route, `channel.*` RPC method namespace, binary-payload base64 handling, mid-turn reverse notify path, identity resolution strategy, Telegram-specific constraints, and the `channel.yaml isolation:` schema. Jobs-half closed as designed (zoo jobs are YAML-only, four `template.yaml` files, zero Python). Carved out the actual implementation + Telegram migration to new ISSUE-092fd4 (Phase 3a) with a pre-populated Implementation Approach. Updated `docs/plugins.md` roadmap paragraph with the right cross-link.
+**Files Modified**:
+- `docs/channels.md` — replaced placeholder "UDS roadmap" with full design section
+- `docs/plugins.md` — isolation-modes roadmap paragraph now names ISSUE-092fd4 and links into channels.md
+- `project/issues/open/ISSUE-260423-092fd4-channel-uds-phase-3a-implementation.md` — new follow-up
+**Commands Run**: `uv run mkdocs build --strict` (green), `make check` (1442 passed, 90.55% coverage)
+**Result**: Success. Design shipped; implementation carved out; jobs-half formally closed-as-designed.
+
+## Lessons Learned
+
+### What worked well
+- **Scope revision in the Implementation Approach, up front.** Naming "this session ships design, Phase 3a implements" before the first impl commit meant reviewer expectations matched reality from the start, rather than discovering at close time that the issue's task list couldn't all be ticked. The issue capture itself had anticipated this outcome ("If no python-carrying job habitats land before Phase 4, this half of Phase 3 is a no-op") — reading the issue carefully exposed that the author had baked a scope-revision option into it.
+- **Design-first, implementation-later, with the design in docs (not in a closed issue).** `docs/channels.md#uds-isolation-design` is now the canonical reference for anyone picking up ISSUE-092fd4, and it stays current as the codebase evolves. Burying the design inside a closed-issue file would have made it effectively lost.
+- **Filesystem survey before committing to "jobs-half closed as designed".** A one-line `find /zoo/jobs -type f` surfaced zero `.py` files — concrete evidence rather than "I think jobs are YAML-only". That phrasing went straight into the Implementation Approach.
+- **Creating the follow-up issue file inline rather than telling the user to run `/new-issue`.** ISSUE-092fd4 lives at `project/issues/open/ISSUE-260423-092fd4-channel-uds-phase-3a-implementation.md` with its own Implementation Approach placeholder and a starting pointer to the shipped design. Whoever picks it up loses zero time to "what even is this issue".
+
+### What to do differently
+- **Anchor-checking during docs authoring.** `mkdocs build --strict` caught that `#uds-isolation--design` (double-hyphen, em-dash preserved) didn't match the generated `#uds-isolation-design`. Quickest verification: `grep -oE 'id="[^"]*"' site/channels/index.html` after the first build, then use those exact anchors in cross-page links. Don't guess how mkdocs slugifies em-dashes, en-dashes, or parenthesised section names.
+- **Resist the "close harder" temptation on scope-revised issues.** The original task list has several unchecked items (`_uds_bridge` channel.* dispatch, telegram migration, etc.). The instinct is to check them off as "covered by follow-up issue" — don't. Leave them unchecked and let the close commit's summary make it clear that the follow-up owns them. The close-verifier's "coverage X/Y" math should reflect reality, not a reframed version of it.
+
+### Patterns to reuse
+- **The design-ship / implementation-carve-out pattern for over-sized issues.** When an open issue turns out to need both design thinking and multi-session implementation, splitting it via scope revision in the Implementation Approach lets the session ship a real deliverable (the design, in docs) rather than a shallow multi-scope attempt. The carved-out follow-up inherits the design as its starting point.
+- **Close-as-designed with filesystem evidence.** For issues whose capture already included a conditional no-op clause (here: "if no python-carrying job habitats..."), grounding the close in a one-line filesystem survey is cheaper and more honest than debating the framing. Quote the no-op clause verbatim in the close rationale so the audit trail is self-explanatory.
