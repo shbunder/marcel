@@ -58,9 +58,9 @@ src/marcel_core/
     registry.py    # Merges skills.json with auto-discovered python integrations
     executor.py    # Routes to shell/http/python handlers
     loader.py      # Skill document loader (SKILL.md, SETUP.md)
-                   # All integrations (banking, icloud, docker, news, …) live
-                   # under <MARCEL_ZOO_DIR>/integrations/ — see Plugin API docs.
-                   # Kernel ships zero first-party integrations.
+                   # All toolkit habitats (banking, icloud, docker, news, …)
+                   # live under <MARCEL_ZOO_DIR>/toolkit/ — see Toolkit docs.
+                   # Kernel ships zero first-party toolkits.
   storage/         # Flat-file read/write helpers (users, memory, artifacts)
     artifacts.py   # Artifact storage for rich content (Mini App)
   auth/            # Token verification, Telegram initData, input validation

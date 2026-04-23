@@ -13,17 +13,18 @@ sense once you know where they sit in the taxonomy.
 
 ## Overview
 
-| Kind | Directory | Artefact | Discovered by | What it contains |
+| Kind | Directory | Artefact | Deep dive | What it contains |
 |---|---|---|---|---|
-| **Toolkit** | `toolkit/<name>/` | `__init__.py` + `toolkit.yaml` | [`ToolkitHabitat.discover_all`](#) | Python handlers registered with `@marcel_tool("<name>.<action>")`. The *executable* layer. |
-| **Skill** | `skills/<name>/` | `SKILL.md` + optional `SETUP.md` | [`SkillHabitat.discover_all`](#) | Markdown that teaches the agent *when* to reach for a tool. The *prompting* layer. |
-| **Subagent** | `agents/<name>.md` | single Markdown file | [`SubagentHabitat.discover_all`](#) | Named, scoped agents (with their own tool filter + model) the main agent can `delegate()` to. |
-| **Channel** | `channels/<name>/` | `__init__.py` + `channel.yaml` | [`ChannelHabitat.discover_all`](#) | Bidirectional transports: FastAPI router for inbound webhooks + `send_message` / `send_photo` / friends for outbound push. |
-| **Job** | `jobs/<name>/template.yaml` | YAML + optional scripts | [`JobHabitat.discover_all`](#) | Scheduled background work: cron / interval / event / oneshot triggers, run by the executor under one of three *dispatch types*. |
+| **Toolkit** | `toolkit/<name>/` | `__init__.py` + `toolkit.yaml` | [Toolkit habitats](plugins.md) | Python handlers registered with `@marcel_tool("<name>.<action>")`. The *executable* layer. |
+| **Skill** | `skills/<name>/` | `SKILL.md` + optional `SETUP.md` | [Skills](skills.md) | Markdown that teaches the agent *when* to reach for a tool. The *prompting* layer. |
+| **Subagent** | `agents/<name>.md` | single Markdown file | [Agents](agents.md) | Named, scoped agents (with their own tool filter + model) the main agent can `delegate()` to. |
+| **Channel** | `channels/<name>/` | `__init__.py` + `channel.yaml` | [Channels](channels.md) | Bidirectional transports: FastAPI router for inbound webhooks + `send_message` / `send_photo` / friends for outbound push. |
+| **Job** | `jobs/<name>/template.yaml` | YAML + optional scripts | [Jobs](jobs.md) | Scheduled background work: cron / interval / event / oneshot triggers, run by the executor under one of three *dispatch types*. |
 
-(The `discover_all` links are placeholders until the per-kind deep-dives
-land — for now, read the source in
-[`src/marcel_core/plugin/habitat.py`](https://github.com/shbunder/marcel/blob/main/src/marcel_core/plugin/habitat.py).)
+The uniform discovery surface for every kind lives in
+[`src/marcel_core/plugin/habitat.py`](https://github.com/shbunder/marcel/blob/main/src/marcel_core/plugin/habitat.py)
+— each kind has a `*Habitat.discover_all()` classmethod so the
+orchestrator, logging, and admin tooling treat them identically.
 
 ## Pick your habitat
 
@@ -195,16 +196,14 @@ uniformly.
 
 ## Cross-links to per-kind deep dives
 
-Richer material lives in the kind-specific pages. (During the Phase 4
-docs rewrite these will become dedicated deep-dives; the links below
-resolve to the current pages for now.)
+Richer material lives in the kind-specific pages.
 
 | Kind | Deep dive |
 |---|---|
-| Toolkit | [Plugin API](plugins.md) |
+| Toolkit | [Toolkit habitats](plugins.md) |
 | Skill | [Skills](skills.md) |
-| Subagent | [Subagents](subagents.md) |
-| Channel | [Telegram](channels/telegram.md) (one concrete example; a kind-level page is pending) |
+| Subagent | [Agents](agents.md) |
+| Channel | [Channels](channels.md) (kind-level) • [Telegram](channels/telegram.md) (one concrete example) |
 | Job | [Jobs](jobs.md) |
 
 ## Further reading
