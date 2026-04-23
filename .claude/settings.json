@@ -1,7 +1,14 @@
 {
-  "statusLine": {
-    "type": "command",
-    "command": "bash .claude/statusline.sh"
+  "permissions": {
+    "allow": [
+      "Bash(.claude/scripts/issue-task status *)",
+      "Bash(.claude/scripts/issue-task check *)",
+      "Bash(.claude/scripts/issue-task log *)",
+      "Edit(/.claude/skills/new-issue/**)",
+      "Bash(.claude/scripts/issue-task --help)",
+      "Bash(.claude/scripts/issue-task reopen *)"
+    ],
+    "additionalDirectories": []
   },
   "hooks": {
     "SessionStart": [
@@ -38,5 +45,9 @@
         ]
       }
     ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash .claude/statusline.sh"
   }
 }

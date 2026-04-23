@@ -82,6 +82,11 @@ The trigger lives in `/new-issue` Step 4 (before writing the issue file). When p
 ## Implementation Log
 <!-- issue-task:log-append -->
 
+### 2026-04-23 08:59 - LLM Implementation
+**Action**: Commit harness-added permission allowlist entries for issue-task (status/check/log) — byproduct of dogfooding the new workflow; keeps the tree clean before close
+**Files Modified**:
+- `.claude/settings.json`
+
 ### 2026-04-23 08:54 - LLM Implementation
 **Action**: Task 7 pivoted from 'create throwaway test issues' to dogfooding on this very issue: populated Implementation Approach retroactively, ran plan-verifier against it — verdict APPROVE. Self-hosted verification is stronger evidence the pipeline works than throwaway issues would have been, and avoids creating / deleting extra WIP state.
 **Files Modified**:
