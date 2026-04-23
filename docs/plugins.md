@@ -227,10 +227,75 @@ What it costs:
   without a capability model.
 
 The long-term direction is `isolation: uds` for every Python habitat —
-toolkits in **Phase 2** (tracked under ISSUE-14b034), channels/jobs in
+toolkits in **Phase 2** (shipped under ISSUE-14b034: `docker`, `news`,
+`banking`, `icloud` all run UDS-isolated today), channels/jobs in
 **Phase 3** (ISSUE-931b3f), with the `inprocess` path removed in
 **Phase 4** (ISSUE-807a26). Markdown-only habitats (skills, subagents)
 stay in-process because there is no Python code to isolate.
+
+### Migrating an inprocess habitat to UDS
+
+Each migration touches two files in the zoo and runs one kernel-side
+script. The kernel itself does not change.
+
+1. **Declare `isolation: uds`** in the habitat's `toolkit.yaml`:
+
+   ```yaml
+   name: myhabitat
+   description: What this habitat does
+   isolation: uds              # ← the one line that flips the shape
+   provides:
+     - myhabitat.action
+   ```
+
+2. **Write `<habitat>/pyproject.toml`** with the habitat's
+   *non-kernel* deps. `marcel-core` is installed automatically by
+   `scripts/zoo-setup.sh` so the bridge subprocess can import it —
+   you only declare deps the habitat itself uniquely needs.
+
+   Habitats that use only stdlib + kernel-transitive deps (`httpx`,
+   `PyJWT`, `yaml`) declare an empty `dependencies = []` list. The
+   migration is still worthwhile: UDS buys **failure isolation** even
+   when there is no dep isolation to win.
+
+   ```toml
+   [project]
+   name = "marcel-toolkit-myhabitat"
+   version = "0.1.0"
+   requires-python = ">=3.11,<3.13"
+   dependencies = [
+       "some-pinned-lib>=1.2.3",   # or [] for stdlib-only habitats
+   ]
+   ```
+
+3. **Drop the same deps from the zoo root `pyproject.toml`.** Once a
+   habitat owns its deps, duplicating them at the root causes version
+   drift. The rule of thumb: the root `pyproject.toml` contains only
+   deps for *inprocess* habitats; every UDS habitat is self-contained.
+
+4. **Run `./scripts/zoo-setup.sh`.** The script walks
+   `<zoo>/toolkit/*/`, detects `isolation: uds`, creates
+   `<habitat>/.venv` via `uv venv --python 3.12`, and installs
+   `marcel-core` (editable, from the kernel checkout) + the habitat's
+   declared deps into it. Idempotent on re-runs.
+
+5. **Verify.** Import-smoke the bridge entry point from inside the
+   habitat venv:
+
+   ```bash
+   ./toolkit/myhabitat/.venv/bin/python -c \
+       "import marcel_core.plugin._uds_bridge; print('ok')"
+   ```
+
+   Then run the kernel's `discover()` and check the supervisor
+   spawned the subprocess — the kernel logs
+   `uds-supervisor: spawned habitat 'myhabitat' (pid=...)` on
+   success.
+
+**Rollback** is a one-line edit: remove `isolation: uds` from the
+habitat's `toolkit.yaml` and the kernel drops back to `inprocess`
+dispatch on the next discovery. No kernel restart required beyond
+whatever `request_restart()` would normally trigger.
 
 ## Scheduled jobs
 
