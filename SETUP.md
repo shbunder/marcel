@@ -253,6 +253,9 @@ systemctl --user stop marcel
 | `MARCEL_IDLE_SUMMARIZE_MINUTES` | No | Idle threshold before auto-summarization (default: `60`) |
 | `MARCEL_TRACING_ENABLED` | No | Enable OpenTelemetry LLM tracing (default: `false`) |
 | `MARCEL_TRACING_ENDPOINT` | No | OTLP endpoint for traces (default: `http://localhost:6006`) |
+| `MARCEL_CORS_ORIGINS` | No | Comma-separated allowlist of origins for the FastAPI CORS middleware. Default: `http://localhost:5173` (Vite dev server). |
+| `MARCEL_WS_RATE_LIMIT_PER_SECOND` | No | Sustained-rate cap on incoming WebSocket messages per user (token-bucket refill rate). Default: `5.0`. |
+| `MARCEL_WS_RATE_LIMIT_BURST` | No | Burst cap on incoming WebSocket messages per user (token-bucket capacity). Default: `10`. |
 
 #### Model tiers (optional — four-tier ladder with per-tier backups)
 
