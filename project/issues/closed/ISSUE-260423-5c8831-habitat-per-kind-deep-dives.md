@@ -1,6 +1,6 @@
 # ISSUE-5c8831: Per-kind habitat deep-dives (follow-up to ISSUE-71e905)
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-23
 **Assignee:** Claude
 **Priority:** Low
@@ -35,16 +35,16 @@ Originally captured as a task here. Carved out to [[ISSUE-2e903d]] and shipped s
 
 ## Tasks
 
-- [ ] Rewrite `docs/plugins.md` as the toolkit deep dive
-- [ ] Author `docs/agents.md` (new, subagent deep dive)
-- [ ] Author `docs/channels.md` (new, channel deep dive)
-- [ ] Rewrite `docs/jobs.md` with coherent structure around `dispatch_type`
-- [ ] Leave `docs/subagents.md` as a stub redirecting to `docs/agents.md`
-- [ ] Update `docs/habitats.md` "Cross-links" table to point at the new pages
-- [ ] Update `mkdocs.yml` nav to include the new kind-level pages
-- [ ] `uv run mkdocs build --strict` still green (pre-existing warnings cleaned up in [[ISSUE-2e903d]]; new pages must not reintroduce them)
-- [ ] `make check` green
-- [ ] `/finish-issue` → merged close commit on main
+- [✓] Rewrite `docs/plugins.md` as the toolkit deep dive
+- [✓] Author `docs/agents.md` (new, subagent deep dive)
+- [✓] Author `docs/channels.md` (new, channel deep dive)
+- [✓] Rewrite `docs/jobs.md` with coherent structure around `dispatch_type`
+- [✓] Leave `docs/subagents.md` as a stub redirecting to `docs/agents.md`
+- [✓] Update `docs/habitats.md` "Cross-links" table to point at the new pages
+- [✓] Update `mkdocs.yml` nav to include the new kind-level pages
+- [✓] `uv run mkdocs build --strict` still green (pre-existing warnings cleaned up in [[ISSUE-2e903d]]; new pages must not reintroduce them)
+- [✓] `make check` green
+- [✓] `/finish-issue` → merged close commit on main
 
 ## Relationships
 
@@ -91,3 +91,47 @@ Four pages shipped coherently in one branch so cross-references cannot drift mid
 - `docs/subagents.md` — stub
 - `docs/habitats.md` — cross-link table + placeholder note removal
 - `mkdocs.yml` — nav
+
+## Implementation Log
+<!-- issue-task:log-append -->
+
+### 2026-04-23 18:57 - LLM Implementation
+**Action**: Authored new docs/agents.md and docs/channels.md as kind-level deep-dives; rewrote docs/plugins.md as toolkit-only + back-compat section; rewrote docs/jobs.md with dispatch_type as a first-class section; stub docs/subagents.md pointing at agents.md; habitats.md Cross-links + mkdocs.yml nav updated; straggler fixes in skills.md, architecture.md, claude-code-setup.md.
+**Files Modified**:
+- `docs/agents.md`
+- `docs/channels.md`
+- `docs/plugins.md`
+- `docs/jobs.md`
+- `docs/subagents.md`
+- `docs/habitats.md`
+- `docs/skills.md`
+- `docs/architecture.md`
+- `docs/claude-code-setup.md`
+- `mkdocs.yml`
+**Commands Run**: `uv run mkdocs build --strict`, `make check` (both green)
+**Result**: Success — 4 pages shipped coherently, `--strict` still green on main.
+
+**Reflection** (via pre-close-verifier):
+- Verdict: APPROVE
+- Coverage: 9/9 implemented tasks addressed (`/finish-issue` itself is the 10th).
+- Shortcuts found: none.
+- Scope drift: none. `@register` still appears in `docs/skills.md` lines 18/110/219 — flagged as a minor pre-existing straggler that the writer deliberately left for ISSUE-3c1534 Phase 5 alias removal.
+- Stragglers: none. All legacy vocabulary contained in the `plugins.md` "Back-compat aliases" section as designed.
+- Spot-checks of source claims (`ChannelPlugin`, `ChannelCapabilities`, `SubagentHabitat.discover_all`, `_marcel_ext_channels`, `backup` sentinel rejection) all accurate against `src/marcel_core/`.
+- Non-blocking out-of-scope finding: `docs/habitats.md:111-130` uses `ChannelPlugin(...)` call-style as if the Protocol were constructible — inconsistent with the class-based example in the new `docs/channels.md`. Pre-existing from ISSUE-71e905, not in this diff. Candidate for a follow-up fixup.
+<!-- Append entries here when performing development work on this issue -->
+
+## Lessons Learned
+
+### What worked well
+- **New pages before rewrites.** Authoring `docs/agents.md` and `docs/channels.md` first meant the `docs/plugins.md` rewrite could simply link into them as "sections moved here → there" — no temporary duplicated content during the transition. The four-page rewrite stayed coherent in one commit because cross-references resolved in the direction of the work.
+- **Verifying source claims before the rewrite.** Spot-checking `ChannelCapabilities` fields, `ChannelPlugin` Protocol members, and `CHANNEL.md` wiring in `src/marcel_core/` before writing the new pages caught a false claim up front — the issue body said "CHANNEL.md format-hint injection" as if it were automatic, but the kernel actually reads `<data_root>/channels/<name>.md` + bundled `channel_prompts/<name>.md`. Documenting the real resolution order instead of the aspirational one saved a reviewer from filing a bug against accurate code.
+- **Tight Implementation Approach before the first line of prose.** The 7-step outline (new pages → rewrites → habitats.md cross-links + nav) in the plan survived verbatim. When the plan is the page structure, writing is mechanical.
+
+### What to do differently
+- **Issue-task log helper needs the sections to exist.** The template embeds `## Implementation Log` / `## Lessons Learned` inside the `markdown` code fence, so `/new-issue`-generated files have them, but issues written by hand (or edited early by Edit) can lack them. When the log helper fails with "section not found", add the two sections from the template and re-run rather than filling in by hand. Cost: +1 Edit.
+- **The legacy stub nav entry matters.** `Subagents (legacy): subagents.md` in `mkdocs.yml` nav is what keeps the stub page reachable via the sidebar for users who bookmarked the old URL before the rename. Forgetting this entry would have made the stub discoverable only by direct URL — defeating its reason for existing.
+
+### Patterns to reuse
+- **Stub-in-place redirect for renamed pages.** When renaming a doc page to match a taxonomy (here `subagents.md` → `agents.md`), keep the old slug alive as a 3–5 line stub pointing at the new one, and keep a legacy nav entry. Old bookmarks stay live without history rewrites, and `mkdocs --strict` keeps passing.
+- **Back-compat section for vocabulary migrations.** Collecting every legacy alias (`integrations/`, `integration.yaml`, `@register`, `integration(id=...)`, `IntegrationHandler`) in one table at the bottom of the canonical page gives Phase 5 alias removal exactly one section to delete — no scavenger hunt across the docs tree.
