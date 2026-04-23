@@ -1,14 +1,12 @@
 {
   "permissions": {
-    "allow": [
-      "Bash(.claude/scripts/issue-task status *)",
-      "Bash(.claude/scripts/issue-task check *)",
-      "Bash(.claude/scripts/issue-task log *)",
-      "Edit(/.claude/skills/new-issue/**)",
-      "Bash(.claude/scripts/issue-task --help)",
-      "Bash(.claude/scripts/issue-task reopen *)"
+    "additionalDirectories": [
+      "/home/shbunder/projects/marcel/.claude"
     ],
-    "additionalDirectories": []
+    "allow": [
+      "Bash(rm .claude/.unlock-safety)",
+      "Bash(.claude/scripts/issue-task log *)"
+    ]
   },
   "hooks": {
     "SessionStart": [

@@ -82,10 +82,12 @@ The trigger lives in `/new-issue` Step 4 (before writing the issue file). When p
 ## Implementation Log
 <!-- issue-task:log-append -->
 
-### 2026-04-23 08:59 - LLM Implementation
-**Action**: Commit harness-added permission allowlist entries for issue-task (status/check/log) — byproduct of dogfooding the new workflow; keeps the tree clean before close
+### 2026-04-23 09:11 - LLM Implementation
+**Action**: Straggler fixes + scope revert: (a) revert b3890f7 (settings.json permissions belong in settings.local.json per docs/claude-code-setup.md:40); (b) add plan-verifier row to docs/claude-code-setup.md tree + Subagent roster; (c) add plan-verifier to root CLAUDE.md subagents list (restricted, unlocked/edited/relocked)
 **Files Modified**:
 - `.claude/settings.json`
+- `docs/claude-code-setup.md`
+- `CLAUDE.md`
 
 ### 2026-04-23 08:54 - LLM Implementation
 **Action**: Task 7 pivoted from 'create throwaway test issues' to dogfooding on this very issue: populated Implementation Approach retroactively, ran plan-verifier against it — verdict APPROVE. Self-hosted verification is stronger evidence the pipeline works than throwaway issues would have been, and avoids creating / deleting extra WIP state.
