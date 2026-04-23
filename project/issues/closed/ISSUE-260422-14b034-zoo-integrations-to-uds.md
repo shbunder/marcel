@@ -1,6 +1,6 @@
 # ISSUE-14b034: Migrate zoo integrations to UDS isolation (Phase 2 of f60b09)
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-22
 **Assignee:** Claude
 **Priority:** Medium
@@ -47,16 +47,16 @@ Each migration is a separate `🔧 impl:` commit. If one blows up, the others st
 
 ## Tasks
 
-- [ ] Extend `scripts/zoo-setup.sh` with per-habitat `.venv` creation gated on `isolation: uds`
-- [ ] Update `scripts/zoo-setup.sh --deps-only` to mirror the same per-habitat path for container-side installs
-- [ ] Migrate `docker` habitat to UDS (zoo PR)
-- [ ] Migrate `news` habitat to UDS (zoo PR)
-- [ ] Migrate `banking` habitat to UDS (zoo PR)
-- [ ] Migrate `icloud` habitat to UDS (zoo PR)
-- [ ] Remove migrated habitats' deps from zoo root `pyproject.toml`
-- [ ] Verify `make check` stays green across all migrations
-- [ ] Document the migration pattern in `docs/plugins.md` ("how to migrate an inprocess habitat to UDS")
-- [ ] `/finish-issue` → merged close commit on main
+- [✓] Extend `scripts/zoo-setup.sh` with per-habitat `.venv` creation gated on `isolation: uds`
+- [✓] Update `scripts/zoo-setup.sh --deps-only` to mirror the same per-habitat path for container-side installs
+- [✓] Migrate `docker` habitat to UDS (zoo PR)
+- [✓] Migrate `news` habitat to UDS (zoo PR)
+- [✓] Migrate `banking` habitat to UDS (zoo PR)
+- [✓] Migrate `icloud` habitat to UDS (zoo PR)
+- [✓] Remove migrated habitats' deps from zoo root `pyproject.toml`
+- [✓] Verify `make check` stays green across all migrations
+- [✓] Document the migration pattern in `docs/plugins.md` ("how to migrate an inprocess habitat to UDS")
+- [✓] `/finish-issue` → merged close commit on main
 
 ## Non-scope
 
@@ -143,3 +143,30 @@ Low blast radius: a habitat that fails to spawn is logged by the
 supervisor and leaves the registry handler-less (the kernel continues
 to boot). Rollback is a one-line `toolkit.yaml` edit — remove
 `isolation: uds` — no kernel redeploy required.
+
+## Implementation Log
+<!-- issue-task:log-append -->
+
+### 2026-04-23 19:21 - LLM Implementation
+**Action**: Extended scripts/zoo-setup.sh with per-habitat .venv provisioning gated on isolation: uds; walks toolkit/ and legacy integrations/ layouts; installs marcel-core (editable, from $REPO_ROOT) plus each habitat's declared deps. Documented migration recipe in docs/plugins.md. Zoo side: migrated all four toolkit habitats (icloud dep-isolation, docker/news/banking failure-isolation) in four separate commits on issue/14b034-icloud-to-uds; merged to zoo main at SHA 611a676. End-to-end verified: zoo-setup provisions 4 venvs, kernel discovery spawns 4 bridge subprocesses, registers 16 UDS-proxy handlers, supervisor shuts down cleanly.
+**Files Modified**:
+- `scripts/zoo-setup.sh`
+- `docs/plugins.md`
+<!-- Append entries here when performing development work on this issue -->
+
+## Lessons Learned
+
+### What worked well
+- **Dep-survey before the migration.** The `grep '^import\|^from' toolkit/*/*.py` step up front exposed that only icloud had non-kernel deps. This reframed the plan honestly — three of the four migrations are *pure* failure-isolation, not dep-isolation. Writing that into the issue's Implementation Approach up front meant the per-habitat pyproject.toml files for docker/news/banking could declare `dependencies = []` with a comment explaining why, instead of feeling like they were half-finished.
+- **Reaching for `uv pip install -e "$REPO_ROOT"` instead of PYTHONPATH.** The kernel's `habitat_python()` helper picks `<habitat>/.venv/bin/python` when present — but that venv needs `marcel_core` importable from inside to run `python -m marcel_core.plugin._uds_bridge`. Installing marcel-core editable from the kernel checkout is simpler than plumbing PYTHONPATH through `_bridge_command` / `_spawn`, and it makes each habitat venv self-describing. uv's cache means the duplicated install is disk-cheap.
+- **End-to-end spawn-and-shutdown test before committing.** Running `discover(); stop_supervisor()` against the migrated zoo surfaced that all four bridges spawn cleanly and shut down at teardown — concrete evidence the mechanism works beyond just "the script ran without erroring". The approach of separate zoo commits per habitat ([x]-to-UDS) plus the shared kernel-side commit kept audit clean.
+- **Pre-close-verifier as a straggler-hunter.** The verifier flagged `scripts/setup.sh:170-194` as stale (still describing a pre-UDS world where caldav lived in the kernel venv). That's exactly the kind of comment that doesn't break anything but confuses the next operator reading setup.sh — cheap to fix now, expensive to rediscover later.
+
+### What to do differently
+- **CWD drift across repos.** Three times I hit `PreToolUse:Edit hook error: can't open file '/home/shbunder/projects/marcel-zoo/.claude/hooks/guard-restricted.py'` because I'd `cd`-ed into the zoo for a bash command. The hook resolves its own path relative to the shell's cwd, so editing any file while in a non-kernel cwd breaks the hook. Fix: always `cd /home/shbunder/projects/marcel` after any `cd` into a sibling repo, even if the next edit target is outside the kernel repo. The Edit tool uses absolute paths — the hook doesn't.
+- **zoo-setup.sh early-exit.** The original script did `exit 0` when the root `pyproject.toml` had no deps. Fine before, broken post-migration when empty-root-deps is the new normal. When extending an idempotent setup script, always trace the no-op branches — the early exit skipped the UDS provisioning on the first run.
+
+### Patterns to reuse
+- **Empty-deps `pyproject.toml` as a first-class habitat artefact.** For failure-isolation-only migrations (handlers that use stdlib + kernel-transitive deps), declaring `dependencies = []` with a comment explaining "UDS isolation here is pure failure-isolation" is the right shape. The `.venv` still gets created, marcel-core installs into it, and the habitat subprocess runs in true isolation even though it technically could live in the kernel venv.
+- **"Editable kernel install" as the marcel-core propagation mechanism.** `uv pip install --python <habitat_venv>/bin/python -e "$REPO_ROOT"` is the one-liner that makes bridge subprocesses self-sufficient. Pattern: for any subprocess that needs to `python -m marcel_core.<submodule>`, install marcel-core editable into the subprocess's venv. Don't reach for PYTHONPATH unless the subprocess env isn't reachable at setup time.
+- **Cross-repo close summary including zoo SHA.** Recording the zoo merge SHA (`611a676`) in the kernel's close commit + Implementation Log pins the two repos' state together, making a future bisect easier.
