@@ -8,6 +8,7 @@ repo_url: https://github.com/shbunder/marcel
 nav:
   - index.md
   - Architecture: architecture.md
+  - Habitats: habitats.md
   - Storage: storage.md
   - Artifacts: artifacts.md
   - A2UI Components: a2ui-components.md

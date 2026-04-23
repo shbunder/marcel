@@ -1,11 +1,14 @@
 # Plugin API
 
-Marcel is moving toward a clean kernel / userspace split. The kernel is [`marcel_core`](https://github.com/shbunder/marcel) — harness, runner, storage, agent loop, tool protocol. The userspace is **marcel-zoo**, a separate repository containing the modular components (habitats) a Marcel install actually runs: integrations, skills, channels, jobs, agents. The location of the zoo checkout is configured via the `MARCEL_ZOO_DIR` environment variable (no default — discovery is a silent no-op when unset).
+Marcel is moving toward a clean kernel / userspace split. The kernel is [`marcel_core`](https://github.com/shbunder/marcel) — harness, runner, storage, agent loop, tool protocol. The userspace is **marcel-zoo**, a separate repository containing the modular components (habitats) a Marcel install actually runs: toolkit, skills, channels, jobs, subagents. The location of the zoo checkout is configured via the `MARCEL_ZOO_DIR` environment variable (no default — discovery is a silent no-op when unset).
 
 `marcel_core.plugin` is the stable surface zoo habitats import from. Anything re-exported there is a stability promise; anything else in `marcel_core` is internal and may change between versions.
 
-!!! note "Status"
-    The plugin surface currently covers **integrations, skill habitats, channel habitats, and job templates**. An agent surface is still to come — see the open issues in `project/issues/open/` for the roadmap (ISSUE-e22176).
+!!! note "Start with the taxonomy"
+    Read [docs/habitats.md](habitats.md) first — it gives the five-kind overview, a decision flowchart, and minimal examples for every kind. This page is a deep dive on the **toolkit habitat** (Python-handler plugin) and the legacy `integration` vocabulary that remains as a back-compat alias during Phases 1–4 of ISSUE-3c1534.
+
+!!! note "Vocabulary note"
+    Throughout this page, "integration habitat" and "toolkit habitat" refer to the same kind. `integrations/` / `integration.yaml` / `@register` are the legacy names; `toolkit/` / `toolkit.yaml` / `@marcel_tool` are the new canonical names. The kernel walks both directory layouts and accepts both decorator names during the migration.
 
 ## Configuring the zoo location
 

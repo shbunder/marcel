@@ -1,14 +1,24 @@
-# Skills & Integrations
+# Skills & Toolkit habitats
 
-Marcel has two primary tools available to the agent:
+This page covers the **skill habitat** (agent prompting) and its pairing
+with the **toolkit habitat** (Python handlers). See
+[Habitats](habitats.md) for the full five-kind taxonomy.
 
-1. **`integration`** — call registered integrations (iCloud, HTTP APIs, shell commands)
-2. **`marcel`** — internal utilities: `read_skill`, `read_skill_resource`, `search_memory`, `search_conversations`, `compact`, `notify`
+Marcel exposes two primary tools to the agent:
 
-Integrations can be defined as:
+1. **`toolkit`** — call registered handlers (iCloud, HTTP APIs, shell
+   commands). The `integration` name is still accepted as a back-compat
+   alias during Phases 1–4 of [ISSUE-3c1534](https://github.com/shbunder/marcel/blob/main/project/issues/closed/ISSUE-260422-3c1534-five-habitat-taxonomy.md).
+2. **`marcel`** — internal utilities: `read_skill`, `read_skill_resource`,
+   `search_memory`, `search_conversations`, `compact`, `notify`.
 
-- **Python modules** with `@register` decorators — for integrations that need custom logic (API clients, stateful connections)
-- **JSON entries** in `skills.json` — for simple HTTP calls or shell commands
+Toolkit handlers can be defined as:
+
+- **Python modules** with `@marcel_tool` decorators — for handlers that
+  need custom logic (API clients, stateful connections). `@register`
+  remains a working alias for the same decorator.
+- **JSON entries** in `skills.json` — for simple HTTP calls or shell
+  commands.
 
 Skill documentation lives in `<dir>/skills/<name>/SKILL.md`. These teach the agent how to use each integration. Skills are loaded from two directories and injected into the system prompt:
 
@@ -46,7 +56,7 @@ Standalone skills live in `<MARCEL_ZOO_DIR>/skills/<name>/` alongside every othe
 
 A skill that needs credentials, environment variables, files, or Python packages but has no paired integration handler — for instance, a skill that teaches the agent how to use a tool whose credentials are read directly at call time. Declare the dependencies inline; they drive SKILL.md → SETUP.md switching.
 
-### 3. Integration-backed — `depends_on:`
+### 3. Toolkit-backed — `depends_on:`
 
 The typical case for any skill that calls `integration(id="...")`. See below.
 
@@ -74,9 +84,9 @@ requires:
 ---
 ```
 
-### `depends_on:` — for skills that call an integration habitat
+### `depends_on:` — for skills that call a toolkit habitat
 
-When a skill is just the documentation that fronts an integration habitat (the typical case), declare the link instead of duplicating the requirements:
+When a skill is just the documentation that fronts a toolkit habitat (the typical case), declare the link instead of duplicating the requirements:
 
 ```yaml
 ---
@@ -87,23 +97,23 @@ depends_on:
 ---
 ```
 
-The loader looks up `<MARCEL_ZOO_DIR>/integrations/docker/integration.yaml`, reads its `requires:` block, and treats those as the skill's requirements. This keeps the credential / env list in one place — the integration's `integration.yaml` — and avoids drift between the integration and its skill doc. See [Plugin API → Integration metadata](plugins.md#integration-metadata).
+The loader looks up `<MARCEL_ZOO_DIR>/toolkit/docker/toolkit.yaml`, reads its `requires:` block, and treats those as the skill's requirements. This keeps the credential / env list in one place — the toolkit's `toolkit.yaml` — and avoids drift between the handler and its skill doc. See [Plugin API → Integration metadata](plugins.md#integration-metadata).
 
-Both forms can be combined; the skill's effective requirements are the union of inline `requires:` and every `depends_on:` integration's `requires:`.
+Both forms can be combined; the skill's effective requirements are the union of inline `requires:` and every `depends_on:` toolkit's `requires:`.
 
-When all requirements are met, the agent sees `SKILL.md`. When any are missing — including a `depends_on:` integration whose metadata is not registered (zoo not loaded or `integration.yaml` missing) — it sees `SETUP.md` (marked as "not configured" in the prompt).
+When all requirements are met, the agent sees `SKILL.md`. When any are missing — including a `depends_on:` toolkit whose metadata is not registered (zoo not loaded or `toolkit.yaml` missing) — it sees `SETUP.md` (marked as "not configured" in the prompt).
 
-## Adding a Python integration
+## Adding a Python toolkit habitat
 
-Python integrations live as zoo habitats: `<MARCEL_ZOO_DIR>/integrations/<name>/__init__.py` (plus `integration.yaml`), installable components of marcel-zoo. See [Plugins](plugins.md) for the full habitat contract. The kernel ships zero bundled integrations — every real integration lives in the zoo.
+Toolkit habitats live in marcel-zoo: `<MARCEL_ZOO_DIR>/toolkit/<name>/__init__.py` (plus `toolkit.yaml`), installable components of marcel-zoo. See [Plugins](plugins.md) for the full habitat contract. The kernel ships zero bundled toolkits — every real toolkit lives in the zoo.
 
-Habitats must use `from marcel_core.plugin import register` (the stable plugin surface) and obey the directory-name ↔ handler-namespace rule: an integration at `.../integrations/myservice/` may only register `myservice.*` handlers; handlers outside that namespace cause the whole habitat to be rolled back.
+Habitats must use `from marcel_core.plugin import marcel_tool` (the stable plugin surface) and obey the directory-name ↔ handler-namespace rule: a toolkit at `.../toolkit/myservice/` may only register `myservice.*` handlers; handlers outside that namespace cause the whole habitat to be rolled back. `@register` is still accepted as an alias during the migration.
 
 ```python
 import json
-from marcel_core.plugin import register
+from marcel_core.plugin import marcel_tool
 
-@register("myservice.action")
+@marcel_tool("myservice.action")
 async def action(params: dict, user_slug: str) -> str:
     """Each handler receives string params and the user slug."""
     value = params.get("key", "default")
@@ -155,7 +165,7 @@ The user is asking about myservice, but it is **not yet configured**.
 [Step-by-step instructions for the user...]
 ```
 
-No changes to kernel code are needed — the integration module is auto-discovered at startup, the skill habitat is loaded from `<MARCEL_ZOO_DIR>/skills/` automatically, and `depends_on:` resolves the credentials/env block from the integration's `integration.yaml`.
+No changes to kernel code are needed — the toolkit module is auto-discovered at startup, the skill habitat is loaded from `<MARCEL_ZOO_DIR>/skills/` automatically, and `depends_on:` resolves the credentials/env block from the toolkit's `toolkit.yaml`.
 
 ## Adding a JSON skill (HTTP or shell)
 
@@ -206,7 +216,7 @@ JSON skills should also have a SKILL.md (and SETUP.md) in `.marcel/skills/` to t
 |------|-------------|
 | `http` (default) | Makes HTTP requests with configurable auth, params, and response transforms |
 | `shell` | Runs a local shell command with `{param}` placeholder substitution |
-| `python` | Auto-generated for `@register`'d functions — do not add manually |
+| `python` | Auto-generated for `@marcel_tool`'d functions (or `@register` via alias) — do not add manually |
 
 ### HTTP skill fields
 

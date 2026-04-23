@@ -15,7 +15,7 @@ This guide is written for the **admin** — the technically inclined person who 
 Marcel is split across **two repos**:
 
 - [`marcel`](https://github.com/shbunder/marcel) — the kernel. The FastAPI server, agent harness, storage, channels framework. Ships zero skills on its own.
-- [`marcel-zoo`](https://github.com/shbunder/marcel-zoo) — the habitats. Every skill, integration, `MARCEL.md`, and `routing.yaml` lives here. Without the zoo, the kernel boots with no abilities.
+- [`marcel-zoo`](https://github.com/shbunder/marcel-zoo) — the habitats. All five kinds — **toolkit**, **skills**, **subagents**, **channels**, **jobs** ([docs/habitats.md](docs/habitats.md)) — plus `MARCEL.md` and `routing.yaml` live here. Without the zoo, the kernel boots with no abilities.
 
 Both must be cloned. The kernel goes under `~/projects/marcel` (where you edit), the zoo under `~/.marcel/zoo` (where Marcel reads at runtime). Step 1 clones the kernel; **Step 2** clones the zoo.
 
@@ -47,7 +47,7 @@ echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" >> .env.local
 
 ## Step 2: Install the zoo
 
-The kernel doesn't ship any skills — every habitat (skills, integrations, channels, `MARCEL.md`, `routing.yaml`) lives in a separate repo called `marcel-zoo`. Clone it and install its deps with one make target:
+The kernel doesn't ship any habitats — all five kinds (**toolkit**, **skills**, **subagents**, **channels**, **jobs** — see [docs/habitats.md](docs/habitats.md)) plus `MARCEL.md` and `routing.yaml` live in a separate repo called `marcel-zoo`. Clone it and install its deps with one make target:
 
 ```bash
 make zoo-setup
