@@ -82,6 +82,11 @@ The trigger lives in `/new-issue` Step 4 (before writing the issue file). When p
 ## Implementation Log
 <!-- issue-task:log-append -->
 
+### 2026-04-23 09:19 - LLM Implementation
+**Action**: Complete the settings.json revert — git checkout main -- to force HEAD to match main exactly. Harness had mutated the file during the previous commit cycle, leaking per-machine entries (additionalDirectories with absolute path, new allow entries) into the 'revert' commit. Now truly clean.
+**Files Modified**:
+- `.claude/settings.json`
+
 ### 2026-04-23 09:11 - LLM Implementation
 **Action**: Straggler fixes + scope revert: (a) revert b3890f7 (settings.json permissions belong in settings.local.json per docs/claude-code-setup.md:40); (b) add plan-verifier row to docs/claude-code-setup.md tree + Subagent roster; (c) add plan-verifier to root CLAUDE.md subagents list (restricted, unlocked/edited/relocked)
 **Files Modified**:
