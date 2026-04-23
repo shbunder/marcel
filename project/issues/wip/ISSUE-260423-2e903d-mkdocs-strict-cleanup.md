@@ -1,6 +1,6 @@
 # ISSUE-2e903d: Make `mkdocs build --strict` green
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-23
 **Assignee:** Unassigned
 **Priority:** Low
