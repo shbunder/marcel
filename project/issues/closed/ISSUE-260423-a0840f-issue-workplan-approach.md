@@ -1,6 +1,6 @@
 # ISSUE-a0840f: Issue workflow — make issues a self-sufficient workplan
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-23
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -87,6 +87,13 @@ The trigger lives in `/new-issue` Step 4 (before writing the issue file). When p
 **Files Modified**:
 - `.claude/settings.json`
 
+**Reflection** (via pre-close-verifier, three passes):
+- Verdict: REQUEST CHANGES → REQUEST CHANGES → APPROVE (after two fix rounds — stragglers on pass 1, incomplete settings.json revert on pass 2)
+- Coverage: 7/7 tasks implemented; `git diff main..HEAD -- .claude/settings.json` empty
+- Shortcuts found: none
+- Scope drift: resolved — b3890f7 reverted; `.claude/settings.json` byte-for-byte matches main
+- Stragglers: resolved — `plan-verifier` now referenced in `CLAUDE.md`, `docs/claude-code-setup.md` (tree + roster), `project/issues/CLAUDE.md`, `SKILL.md`, and the agent file itself
+
 ### 2026-04-23 09:11 - LLM Implementation
 **Action**: Straggler fixes + scope revert: (a) revert b3890f7 (settings.json permissions belong in settings.local.json per docs/claude-code-setup.md:40); (b) add plan-verifier row to docs/claude-code-setup.md tree + Subagent roster; (c) add plan-verifier to root CLAUDE.md subagents list (restricted, unlocked/edited/relocked)
 **Files Modified**:
@@ -131,13 +138,18 @@ The trigger lives in `/new-issue` Step 4 (before writing the issue file). When p
 <!-- Append entries here when performing development work on this issue -->
 
 ## Lessons Learned
-<!-- Filled in at close time. Three subsections below — delete any that have nothing useful to say. -->
 
 ### What worked well
--
+- **Dogfooding the verifier on the issue that introduced it.** Populating this issue's own Implementation Approach and invoking `plan-verifier` against it was a stronger end-to-end test than creating throwaway test issues would have been — the verifier's APPROVE verdict on a real, substantive plan was real evidence the schema is learnable and the checks are well-calibrated.
+- **Piggybacking on Claude Code's plan mode instead of re-implementing the interview loop.** Marcel's issue workflow gets the output shape (structured plan) from plan mode's protocol without paying its per-turn context overhead on easy issues. Keeps the issue file as the single source of truth; the plan file in `~/.claude/plans/` is throwaway.
+- **Landing the template schema first.** The Implementation Approach section carried most of the value on its own; every subsequent task (heuristic, verifier, plan-mode wiring) filled in supporting behavior around that schema. Building outward from the load-bearing piece kept each commit small and reviewable.
 
 ### What to do differently
--
+- **Harness mutations to `.claude/settings.json` race git operations.** The harness adds permission entries to `settings.json` whenever a new Bash command is approved — and those mutations can happen between `git revert` and `git commit`, sneaking unrelated per-machine state into what looks like a clean commit. Cost me an extra verification round. Next time: treat `.claude/settings.json` as "do not stage from this session" unless I specifically want to ship a permissions change. The authoritative check is `git diff main..HEAD -- <file>`, not `git status` + eyeballing.
+- **Don't fold harness residue into the feature commit even when the user says to.** User asked to "commit all files under this issue and finish"; I bundled `settings.json` mutations and the verifier correctly flagged scope drift. Better path: explicitly exclude files that don't belong before the "commit all" shortcut, or push back when the user's ask conflicts with the rules.
+- **Re-read the task description after renumbering.** Task 2's text said "Step 4 heuristic"; Step 4 got renumbered to Step 5 later in this issue. The task stayed correct in intent but the literal text drifted. For multi-task issues with refactors mid-flight, note the renumber in the log entry so the task description's staleness is obvious.
 
 ### Patterns to reuse
--
+- **Advisory verdict with a hard-BLOCK floor.** `plan-verifier` returns APPROVE/WARN/BLOCK but only BLOCKs on a missing section — everything else is advisory. Mirrors `pre-close-verifier`'s REQUEST CHANGES path but recognises that *plans* have more legitimate variance than *closing commits*. The "trivial" short-circuit keeps the verifier cheap on small issues.
+- **One-way transcode on mode-boundary crossings.** Plan mode writes to `~/.claude/plans/<slug>.md` (session artifact); on `ExitPlanMode` approval, transcode into the issue template's structured sections. The plan file is not kept in sync afterwards — issue file wins. Same pattern could apply to any "thinking-space artifact" → "canonical artifact" handoff (e.g. `ultraplan` output → issue file, research agent results → docs page).
+- **Self-hosted verification as a quality signal.** The first issue that defines a verifier should be verified by that verifier. If the verifier APPROVEs its own creating issue, the schema it checks is at least writable in practice. Extend to: the first issue that defines a schema should itself fill in that schema.
