@@ -33,6 +33,7 @@ Marcel's developer-mode harness — the Claude Code session you use when editing
 │   └── finish-issue/         # /finish-issue (delegates to pre-close-verifier)
 └── agents/
     ├── pre-close-verifier.md # fresh-context verifier invoked by /finish-issue
+    ├── plan-verifier.md      # fresh-context verifier invoked by /new-issue at open→wip
     ├── code-reviewer.md      # 5-axis reviewer, Marcel-aware
     └── security-auditor.md   # scoped to Marcel's real attack surface
 ```
@@ -77,6 +78,7 @@ Subagents run in a fresh context window and report back a single structured resu
 | Agent | When to use | Returns |
 |---|---|---|
 | `pre-close-verifier` | Automatically invoked by `/finish-issue` Step 6. Reads the diff and issue, hunts shortcuts and scope drift, greps for stragglers. | APPROVE / REQUEST CHANGES with line references |
+| `plan-verifier` | Invoked by `/new-issue` at the open→wip transition for non-trivial issues. Checks the issue's `## Implementation Approach` section has real file paths, specific reusable symbols, and executable verification steps. | APPROVE / WARN / BLOCK (advisory — BLOCK only when the section is missing) |
 | `code-reviewer` | Ask for an independent second opinion on a branch. Aware of pydantic-ai, flat-file storage, the integration pattern, and Marcel's role-gated tool split. | 5-axis review with Critical / Important / Suggestion findings |
 | `security-auditor` | Invoke when touching auth, config, credential storage, the restart flag, browser/web fetching, or a new HTTP route. | Findings scoped to Marcel's real threats — not generic OWASP theater |
 

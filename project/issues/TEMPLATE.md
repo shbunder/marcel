@@ -21,6 +21,18 @@ Copy this template when creating a new issue. The `/new-issue` skill fills it in
 ## Description
 [What, why, and any relevant context — can reference the capture above]
 
+## Implementation Approach
+
+### Files to modify
+- `path/to/file.py` — one-line note on what changes
+
+### Existing code to reuse
+- `function_or_symbol` — `src/module.py:42` — why it's a fit
+
+### Verification steps
+- `make check` passes
+- Manual: …
+
 ## Tasks
 - [ ] Task description
 - [✓] Completed task
@@ -54,6 +66,16 @@ Comment text...
 ### Patterns to reuse
 -
 ```
+
+## Implementation Approach
+
+This section is the workplan the reviewer reads. Fill it in before (or during) the first `🔧 impl:` commit — never later. Keep it concrete:
+
+- **Files to modify:** actual paths, one per line. New paths are fine if they sit in an existing directory.
+- **Existing code to reuse:** `symbol — path:line — why`. Forces you to read the code before writing tasks and stops the agent proposing code that already exists.
+- **Verification steps:** at least one executable check — a command, a test name, or an explicit manual procedure. "Tests pass" alone is not a verification step.
+
+Delete any subsection that truly doesn't apply (e.g. a pure-docs issue has no code to reuse) rather than leaving it empty.
 
 ## Subtasks
 

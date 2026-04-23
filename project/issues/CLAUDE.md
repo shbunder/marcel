@@ -32,7 +32,7 @@ Legacy issues (ISSUE-001 through ISSUE-078) use the old sequential counter and a
 ## Lifecycle
 
 1. **Create** via `/new-issue` — issue file written to `open/` on `main`, standalone `📝 [ISSUE-{hash}] created: ...` commit, then feature branch `issue/{hash}-{slug}` is created and checked out.
-2. **Start work** on the feature branch — first `🔧 impl:` commit moves the file from `open/` to `wip/` and includes initial code changes.
+2. **Start work** on the feature branch — first `🔧 impl:` commit moves the file from `open/` to `wip/`, fills in the `## Implementation Approach` section (files to modify, existing code to reuse with `path:line`, executable verification steps — schema in [TEMPLATE.md](./TEMPLATE.md)), and includes initial code changes. For non-trivial issues, invoke the [`plan-verifier`](../../.claude/agents/plan-verifier.md) subagent after that commit to check the plan is concrete.
 3. **Progress** — update task/subtask checkboxes; append to Implementation Log for any code changes. Multiple `🔧 impl:` commits are fine.
 4. **Close** via `/finish-issue` — moves file to `closed/` on the branch with `Status: Closed`, then `git merge --no-ff` back to main.
 

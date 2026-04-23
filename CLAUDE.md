@@ -34,6 +34,6 @@ Dev and prod both run as Docker containers on different ports: `make serve` brin
 ## Subagents and skills
 
 - **Workflow skills** in [.claude/skills/](.claude/skills/): `/new-issue`, `/parallel-issue`, `/finish-issue`.
-- **Subagents** in [.claude/agents/](.claude/agents/): `pre-close-verifier` (invoked automatically by `/finish-issue`), `code-reviewer` (5-axis review with Marcel context), `security-auditor` (scoped to Marcel's real attack surface). Delegate file-heavy investigation to these rather than reading in the main context.
+- **Subagents** in [.claude/agents/](.claude/agents/): `pre-close-verifier` (invoked automatically by `/finish-issue`), `plan-verifier` (invoked by `/new-issue` at open→wip for non-trivial issues), `code-reviewer` (5-axis review with Marcel context), `security-auditor` (scoped to Marcel's real attack surface). Delegate file-heavy investigation to these rather than reading in the main context.
 
 Runtime skills (what Marcel can *do* as an assistant — calendar, banking, news, …) live under `~/.marcel/skills/` and are unrelated to developer-mode work. See [docs/skills.md](docs/skills.md) if you need to touch them.
