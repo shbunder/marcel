@@ -1,7 +1,8 @@
 # ISSUE-807a26: Remove the inprocess habitat path — single-pattern end state (Phase 4 of f60b09)
 
-**Status:** Open
+**Status:** Cancelled
 **Created:** 2026-04-22
+**Cancelled:** 2026-04-23
 **Assignee:** Unassigned
 **Priority:** Low (blocked on Phase 2 + 3 completion)
 **Labels:** refactor, plugin-system, cleanup
@@ -72,3 +73,11 @@ Any habitat still declaring `isolation: inprocess` at the start of Phase 4 is br
 - Follows: [[ISSUE-931b3f]] (Phase 3 — channels/jobs must migrate first)
 - Follows: [[ISSUE-14b034]] (Phase 2 — integrations must migrate first)
 - Closes: [[ISSUE-f60b09]]'s "single pattern" commitment (Phase 4 is the commitment's fulfilment, not an option)
+
+## Cancellation (2026-04-23)
+
+Cancelled as moot. Premise no longer holds: Phase 3a (channel UDS isolation — [[ISSUE-092fd4]]) was cancelled after architectural review rejected UDS-for-channels. Channels will stay `isolation: inprocess` by design (they are transport layers, not dep-isolated plugins), which means the kernel's inprocess loader path is **not** dead code — it is the intended execution mode for every channel habitat going forward.
+
+The narrower cleanup that survives — pruning `_load_external_integration` / `_declared_isolation` if it turns out no integration still uses inprocess — is small enough to pick up as a fresh issue the day it becomes relevant, if ever. Not worth keeping this issue open against that possibility.
+
+If a future habitat kind (e.g. a new sandboxing mode like `wasm:` or `container:`) makes the schema simplification interesting again, open a fresh issue with that mode as the motivation. Don't revive this one.
