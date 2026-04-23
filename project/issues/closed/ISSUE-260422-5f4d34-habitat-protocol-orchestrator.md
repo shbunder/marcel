@@ -1,6 +1,6 @@
 # ISSUE-5f4d34: Habitat Protocol + unified discovery orchestrator (Phase 1.5 of 3c1534)
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-22
 **Assignee:** Unassigned
 **Priority:** Low
@@ -96,13 +96,13 @@ The issue body's line *"Update `_log_zoo_summary` to read from the orchestrator'
 
 ## Tasks
 
-- [ ] Define `Habitat` Protocol in `src/marcel_core/plugin/habitat.py`
-- [ ] Implement `ToolkitHabitat`, `ChannelHabitat`, `SkillHabitat`, `SubagentHabitat`, `JobHabitat` wrappers
-- [ ] Implement `discover_all_habitats` in `src/marcel_core/plugin/orchestrator.py`
-- [ ] Replace `lifespan()`'s `discover_integrations()` call with the orchestrator
-- [ ] Add `tests/core/test_habitat_protocol.py` (per-kind compliance + ordering + isolated-failure)
-- [ ] Verify `test_lifespan_runs_discover_before_scheduler_start` still passes
-- [ ] `make check` green
+- [✓] Define `Habitat` Protocol in `src/marcel_core/plugin/habitat.py`
+- [✓] Implement `ToolkitHabitat`, `ChannelHabitat`, `SkillHabitat`, `SubagentHabitat`, `JobHabitat` wrappers
+- [✓] Implement `discover_all_habitats` in `src/marcel_core/plugin/orchestrator.py`
+- [✓] Replace `lifespan()`'s `discover_integrations()` call with the orchestrator
+- [✓] Add `tests/core/test_habitat_protocol.py` (per-kind compliance + ordering + isolated-failure)
+- [✓] Verify `test_lifespan_runs_discover_before_scheduler_start` still passes
+- [✓] `make check` green
 - [ ] `/finish-issue` → merged close commit on main
 
 ## Relationships
@@ -112,15 +112,36 @@ The issue body's line *"Update `_log_zoo_summary` to read from the orchestrator'
 
 ## Implementation Log
 <!-- issue-task:log-append -->
+
+### 2026-04-23 14:43 - LLM Implementation
+**Action**: Habitat Protocol + discover_all_habitats orchestrator landed. Five frozen-dataclass wrappers (ToolkitHabitat, ChannelHabitat, SkillHabitat, SubagentHabitat, JobHabitat) over existing loaders; fixed-order orchestrator with per-kind failure isolation. Lifespan swaps toolkit.discover() for discover_all_habitats(). _log_zoo_summary deliberately unchanged — its ISSUE-792e8e first-boot diagnostic needs on-disk counts, not post-discovery registrations. 17 new tests + existing ordering regression (test_lifespan_runs_discover_before_scheduler_start) still green. make check: 1428 tests, 90.51% coverage.
+**Files Modified**:
+- `src/marcel_core/plugin/habitat.py`
+- `src/marcel_core/plugin/orchestrator.py`
+- `src/marcel_core/main.py`
+- `tests/core/test_habitat_protocol.py`
 <!-- Append entries here when performing development work on this issue -->
 
 ## Lessons Learned
 
 ### What worked well
--
+- **Lazy imports inside `discover_all`.** `ToolkitHabitat.discover_all` does `from marcel_core.toolkit import _metadata, discover` inside the classmethod body rather than at module load. This is what makes `patch('marcel_core.toolkit.discover')` keep working in the `test_lifespan_runs_discover_before_scheduler_start` regression gate — the patch replaces the name in `marcel_core.toolkit` before the local-import binding resolves at call time. Pattern worth reusing for any future wrapper over a patch-targeted symbol.
+- **Filesystem walk over `load_skills(user_slug)` for `SkillHabitat`.** Forcing a user slug into startup discovery would have been the wrong coupling. Keeping skill discovery user-independent and leaving per-user requirement filtering in `load_skills` preserved the existing contract and avoided a cross-cutting refactor this issue isn't about.
+- **Documenting the `_log_zoo_summary` deviation up front.** The issue body asked for one thing; the function's design intent (ISSUE-792e8e: on-disk counts for first-boot diagnostics) conflicted with it. Calling that out in the Implementation Approach before writing any code turned a "did you miss this?" finding into a "considered and declined" decision — the pre-close-verifier recognised it as documented, not drift.
 
 ### What to do differently
--
+- **Per-kind failure isolation's `except Exception` is broad.** The orchestrator catches *anything* a wrapper raises and substitutes `[]`. That's correct for the "broken habitat shouldn't take down siblings" goal but it also swallows programming errors. `log.exception(...)` emits a stack trace, but a dev reading kernel logs might miss it during a noisy startup. Worth a follow-up: surface orchestrator failures in `_log_zoo_summary`'s output so a broken kind shows up visibly next to the healthy counts.
+- **The `Habitat` Protocol is minimal — maybe too minimal.** `kind`, `name`, `source` is enough for the orchestrator and for logging. Real consumers (a future admin UI, or Phase 5's alias-removal gate) will want more: handler lists for toolkits, capability bits for channels, frontmatter for skills/subagents. Those live on the concrete wrappers as extra fields, not on the Protocol. First caller to need "uniform access to provides/capabilities across kinds" will need to extend the Protocol or introduce a second layer — plan accordingly.
 
 ### Patterns to reuse
--
+- **Additive abstraction — wrapper delegates, native loader unchanged.** Five kinds, five wrappers, zero changes to the existing loaders. The refactor is trivially reversible and the blast radius is two new files + one lifespan-function change.
+- **Orchestrator tests monkeypatch `marcel_core.plugin.orchestrator.KindHabitat.discover_all`**, not the kind's native loader. The orchestrator resolves class references through its own namespace via the `_KINDS` tuple, so stubbing at the orchestrator layer is what exercises the dispatch path. Stubbing the native loader would miss the orchestrator entirely.
+
+### Reflection (via pre-close-verifier)
+
+- **Verdict:** APPROVE — 7/7 requirements addressed.
+- **Additive abstraction verified:** zero changes under `src/marcel_core/toolkit/`, `src/marcel_core/agents/`, `src/marcel_core/skills/`, `plugin/channels.py`, `plugin/jobs.py`. Native loaders untouched; wrappers delegate only.
+- **Lifespan ordering gate passes** — the lazy-import-inside-`discover_all` pattern is the reason the existing mock-based test still intercepts.
+- **Shortcuts found:** none. The only `except Exception` is the orchestrator's per-kind isolation, which uses `log.exception(...)` + returns `[]` — that's the feature, not a shortcut.
+- **Scope drift:** none. `_log_zoo_summary` deviation is documented, not silent.
+- **Stragglers:** none. Grep across `docs/`, `.claude/`, `~/.marcel/`, `CLAUDE.md` turned up zero references to the old or new names — docs land in ISSUE-71e905 (Phase 4 rewrite).
