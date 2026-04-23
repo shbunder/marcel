@@ -50,7 +50,7 @@ The trigger lives in `/new-issue` Step 4 (before writing the issue file). When p
 - [✓] Task 2 — Add a one-line heuristic to [.claude/skills/new-issue/SKILL.md](../../../.claude/skills/new-issue/SKILL.md) Step 4: **"Never ask the user what reading the code can answer — explore first, ask only about requirements, tradeoffs, or preferences."** Place it as a bullet near the top of Step 4 so it's read before the template-fill instructions.
 - [✓] Task 3 — Create [.claude/agents/plan-verifier.md](../../../.claude/agents/plan-verifier.md) mirroring [.claude/agents/pre-close-verifier.md](../../../.claude/agents/pre-close-verifier.md)'s structure. Tools: `Read`, `Grep`, `Glob`, `Bash` (read-only). Checks: (a) `## Implementation Approach` exists and all three subsections are populated with non-placeholder content; (b) **Files to modify** paths actually exist in the repo (or are plausibly new paths within existing directories); (c) **Verification steps** contain at least one executable check (command or explicit manual procedure). Returns a structured verdict (proceed / block / warn).
 - [✓] Task 4 — Wire `plan-verifier` invocation into [.claude/skills/new-issue/SKILL.md](../../../.claude/skills/new-issue/SKILL.md) at the open→wip transition (after the `🔧 impl:` commit that moves the file). Skip for trivial issues (label: `docs` only, or user explicitly said "trivial"). The verifier's verdict is advisory — block only on missing section entirely, warn on weak content.
-- [ ] Task 5 — Add plan-mode escape hatch to [.claude/skills/new-issue/SKILL.md](../../../.claude/skills/new-issue/SKILL.md). New step between Step 3 (slug) and Step 4 (write file): **"If the request is ambiguous, multi-file, or the user said 'plan this': call `EnterPlanMode` and run the planning loop. On `ExitPlanMode` approval, read the resulting plan file from `~/.claude/plans/` and transcode its contents into the Implementation Approach + Description + Tasks sections of the issue template."** Explicit trigger rules (see Description).
+- [✓] Task 5 — Add plan-mode escape hatch to [.claude/skills/new-issue/SKILL.md](../../../.claude/skills/new-issue/SKILL.md). New step between Step 3 (slug) and Step 4 (write file): **"If the request is ambiguous, multi-file, or the user said 'plan this': call `EnterPlanMode` and run the planning loop. On `ExitPlanMode` approval, read the resulting plan file from `~/.claude/plans/` and transcode its contents into the Implementation Approach + Description + Tasks sections of the issue template."** Explicit trigger rules (see Description).
 - [ ] Task 6 — Update [project/issues/CLAUDE.md](../CLAUDE.md) with a one-paragraph reference to the new Implementation Approach section (what it is, when it's filled in). No rule changes — just pointing readers at the schema. Keep it terse.
 - [ ] Task 7 — Manual verification: create a throwaway test issue via `/new-issue` (trivial) and another via `/new-issue` with "plan this" (plan-mode path). Confirm the resulting issue files have populated Implementation Approach sections. Delete the test issues before the `✅ close` commit.
 
@@ -62,6 +62,11 @@ The trigger lives in `/new-issue` Step 4 (before writing the issue file). When p
 
 ## Implementation Log
 <!-- issue-task:log-append -->
+
+### 2026-04-23 08:44 - LLM Implementation
+**Action**: Add plan-mode escape hatch as new Step 4 in /new-issue; renumber subsequent steps 4-7 → 5-8; transcode plan contents into Description + Implementation Approach + Tasks on ExitPlanMode approval
+**Files Modified**:
+- `.claude/skills/new-issue/SKILL.md`
 
 ### 2026-04-23 08:40 - LLM Implementation
 **Action**: Wire plan-verifier invocation into /new-issue Step 6 — fill Implementation Approach as part of first impl commit, then invoke plan-verifier (skip for trivial)

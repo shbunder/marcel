@@ -42,7 +42,30 @@ DATE=$(date +%y%m%d)
 
 Slug: produce a short kebab-case slug from the request (3–5 words, no stop words). Filename will be `project/issues/open/ISSUE-${DATE}-${HASH}-${SLUG}.md`.
 
-### 4. Write the issue file
+### 4. Plan mode — conditional escape hatch
+
+**Enter plan mode if any of these apply:**
+- The user literally said "plan this", "plan first", "/plan", or equivalent.
+- The request is genuinely ambiguous about approach — multiple reasonable implementations that a human would want to choose between.
+- The agent's best guess is that the work will touch more than ~3 files, or introduces a new architectural piece (new integration, new subsystem, cross-cutting refactor).
+
+**Otherwise, skip this step** and proceed straight to Step 5. Most issues should.
+
+When plan mode applies:
+
+1. Call the `EnterPlanMode` tool. You are now read-only except for the plan file.
+2. Explore the codebase, write the plan incrementally, batch clarifying questions via `AskUserQuestion` (never ask what reading the code can answer — Step 5's heuristic applies here too).
+3. When the plan is complete and you're ready for user approval, call `ExitPlanMode`.
+4. **On approval, transcode the plan file's contents into the issue template's sections:**
+   - *What the feature is / why* → `## Description`
+   - *Files to modify / Existing code to reuse / Verification steps* → `## Implementation Approach`
+   - *Concrete checklist* → `## Tasks`
+
+   The plan file in `~/.claude/plans/` is a throwaway session artifact — the issue file is the source of truth. Do not keep the plan file in sync with the issue afterwards.
+
+5. Proceed to Step 5 with the fill-in list below.
+
+### 5. Write the issue file
 
 **Before filling the file: never ask the user what reading the code can answer.** Explore first; reserve questions for requirements, tradeoffs, or preferences — the things only the user can decide.
 
@@ -57,7 +80,7 @@ Use the template in [project/issues/TEMPLATE.md](../../../project/issues/TEMPLAT
 - **Tasks:** a concrete, testable checklist for this issue
 - Leave Relationships empty unless you can infer dependencies from existing issues
 
-### 5. Commit the issue file on main (standalone `📝`)
+### 6. Commit the issue file on main (standalone `📝`)
 
 ```bash
 git add "project/issues/open/ISSUE-${DATE}-${HASH}-${SLUG}.md"
@@ -66,7 +89,7 @@ git commit -m "📝 [ISSUE-${HASH}] created: ${SLUG} — one-line description"
 
 Stage only the issue file — per [.claude/rules/git-staging.md](../../rules/git-staging.md), never `git add .` or `git add -A`.
 
-### 6. Create the feature branch
+### 7. Create the feature branch
 
 ```bash
 git checkout -b "issue/${HASH}-${SLUG}"
@@ -88,7 +111,7 @@ Subsequent task / status / log changes also use `issue-task` — see `.claude/sc
 
 **After the first `🔧 impl:` commit, invoke the [`plan-verifier`](../../agents/plan-verifier.md) subagent** via the `Agent` tool. Inputs: the wip issue file path and the branch name. It returns a structured advisory verdict (APPROVE / WARN / BLOCK). Fix BLOCKs before continuing; address or justify WARNs in the Implementation Log. **Skip for trivial issues** (`docs`-only labels, typo/one-file fixes, or the user explicitly said "trivial") — invoke with the `trivial` flag instead, which short-circuits to APPROVE.
 
-### 7. Report back
+### 8. Report back
 
 Tell the user:
 - The hash ID (`ISSUE-${HASH}`)
