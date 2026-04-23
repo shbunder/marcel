@@ -44,6 +44,8 @@ Slug: produce a short kebab-case slug from the request (3–5 words, no stop wor
 
 ### 4. Write the issue file
 
+**Before filling the file: never ask the user what reading the code can answer.** Explore first; reserve questions for requirements, tradeoffs, or preferences — the things only the user can decide.
+
 Use the template in [project/issues/TEMPLATE.md](../../../project/issues/TEMPLATE.md). Fill in:
 
 - **ID in the heading:** `# ISSUE-${HASH}: {Title}`
