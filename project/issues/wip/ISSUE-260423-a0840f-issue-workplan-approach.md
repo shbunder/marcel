@@ -1,6 +1,6 @@
 # ISSUE-a0840f: Issue workflow — make issues a self-sufficient workplan
 
-**Status:** Open
+**Status:** WIP
 **Created:** 2026-04-23
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -46,7 +46,7 @@ Conservative, explicit, easy to opt out of:
 The trigger lives in `/new-issue` Step 4 (before writing the issue file). When plan mode fires, the agent uses it as the thinking space and the skill resumes the issue-write from the approved plan's contents.
 
 ## Tasks
-- [ ] Task 1 — Add `## Implementation Approach` section to [project/issues/TEMPLATE.md](../TEMPLATE.md) with three subsections: **Files to modify** (bulleted paths), **Existing code to reuse** (bulleted `function/symbol — path:line — why`), **Verification steps** (bulleted commands or manual checks). Place it after `## Description`, before `## Tasks`. Also add a short explainer block below the template code showing how to fill it in.
+- [✓] Task 1 — Add `## Implementation Approach` section to [project/issues/TEMPLATE.md](../TEMPLATE.md) with three subsections: **Files to modify** (bulleted paths), **Existing code to reuse** (bulleted `function/symbol — path:line — why`), **Verification steps** (bulleted commands or manual checks). Place it after `## Description`, before `## Tasks`. Also add a short explainer block below the template code showing how to fill it in.
 - [ ] Task 2 — Add a one-line heuristic to [.claude/skills/new-issue/SKILL.md](../../../.claude/skills/new-issue/SKILL.md) Step 4: **"Never ask the user what reading the code can answer — explore first, ask only about requirements, tradeoffs, or preferences."** Place it as a bullet near the top of Step 4 so it's read before the template-fill instructions.
 - [ ] Task 3 — Create [.claude/agents/plan-verifier.md](../../../.claude/agents/plan-verifier.md) mirroring [.claude/agents/pre-close-verifier.md](../../../.claude/agents/pre-close-verifier.md)'s structure. Tools: `Read`, `Grep`, `Glob`, `Bash` (read-only). Checks: (a) `## Implementation Approach` exists and all three subsections are populated with non-placeholder content; (b) **Files to modify** paths actually exist in the repo (or are plausibly new paths within existing directories); (c) **Verification steps** contain at least one executable check (command or explicit manual procedure). Returns a structured verdict (proceed / block / warn).
 - [ ] Task 4 — Wire `plan-verifier` invocation into [.claude/skills/new-issue/SKILL.md](../../../.claude/skills/new-issue/SKILL.md) at the open→wip transition (after the `🔧 impl:` commit that moves the file). Skip for trivial issues (label: `docs` only, or user explicitly said "trivial"). The verifier's verdict is advisory — block only on missing section entirely, warn on weak content.
@@ -62,6 +62,11 @@ The trigger lives in `/new-issue` Step 4 (before writing the issue file). When p
 
 ## Implementation Log
 <!-- issue-task:log-append -->
+
+### 2026-04-23 08:28 - LLM Implementation
+**Action**: Add Implementation Approach section to TEMPLATE.md (Files to modify / Code to reuse / Verification steps) + explainer block below
+**Files Modified**:
+- `project/issues/TEMPLATE.md`
 <!-- Append entries here when performing development work on this issue -->
 
 ## Lessons Learned
