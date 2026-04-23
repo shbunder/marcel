@@ -136,14 +136,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log.info('main: starting Marcel v%s', __version__)
 
     from marcel_core.plugin import _uds_supervisor
-    from marcel_core.toolkit import discover as discover_integrations
+    from marcel_core.plugin.orchestrator import discover_all_habitats
 
     # Populate integration handlers and habitat metadata before the scheduler
     # starts — rebuild_schedule() → _ensure_habitat_jobs() reads _metadata to
     # decide which habitat:* jobs to materialize and which to treat as orphan.
     # Skipping this means every habitat-scheduled job is deleted on cold start.
-    # Discovery also spawns any UDS-isolated habitats (ISSUE-f60b09).
-    discover_integrations()
+    # Toolkit discovery also spawns any UDS-isolated habitats (ISSUE-f60b09).
+    # The orchestrator (ISSUE-5f4d34) calls the toolkit/channel/skill/
+    # subagent/job loaders in a fixed order, isolating their failures so a
+    # broken kind cannot poison the others. Channel discovery is idempotent
+    # (sys.modules-guarded) so the module-load-time call below stays correct.
+    discover_all_habitats(settings.zoo_dir)
     _uds_supervisor.start_supervisor()
     _log_zoo_summary()
 
