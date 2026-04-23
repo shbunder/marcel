@@ -25,6 +25,20 @@ Dev and prod both run as Docker containers on different ports: `make serve` brin
 - **Human-readable over clever.** Error messages, logs, and responses are read by non-technical family members as often as by developers.
 - **Recoverable over fast.** Before any self-modification, commit current state to git. No change is worth an unrecoverable break.
 
+## Habitat taxonomy (summary)
+
+The kernel ships no behaviour. Everything Marcel can *do* lives in one of five kinds of habitat under `$MARCEL_ZOO_DIR`:
+
+| Kind | Directory | Shape | Teaches / runs |
+|---|---|---|---|
+| **Toolkit** | `toolkit/<name>/` | `@marcel_tool` handlers + `toolkit.yaml` | Python code the agent can call |
+| **Skill** | `skills/<name>/` | `SKILL.md` (+ `SETUP.md`) | *When* to reach for a toolkit |
+| **Subagent** | `agents/<name>.md` | single Markdown | Scoped sub-pass the main agent can `delegate()` to |
+| **Channel** | `channels/<name>/` | router + `channel.yaml` | Inbound webhooks + outbound push (Telegram, …) |
+| **Job** | `jobs/<name>/template.yaml` | YAML template | Scheduled work; `dispatch_type` picks tool / subagent / agent shape |
+
+Full taxonomy + decision flowchart + minimal examples: [docs/habitats.md](docs/habitats.md).
+
 ## When performing code changes
 
 - Feature workflow and core rules: [project/CLAUDE.md](project/CLAUDE.md) (→ [FEATURE_WORKFLOW.md](project/FEATURE_WORKFLOW.md), [CODING_STANDARDS.md](project/CODING_STANDARDS.md))

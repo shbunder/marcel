@@ -132,9 +132,51 @@ The scheduler runs as an asyncio task in the FastAPI lifespan. It:
 8. Runs a daily cleanup loop, removing run records older than `retention_days`
 9. Auto-disables jobs after 3 consecutive schedule computation errors
 
+## Dispatch type
+
+Every job declares **how** its work runs via `dispatch_type`
+([ISSUE-ea6d47](https://github.com/shbunder/marcel/blob/main/project/issues/closed/ISSUE-260422-ea6d47-jobs-trigger-type.md)).
+The field defaults to `agent` so every pre-existing `JOB.md` /
+`template.yaml` keeps working unchanged.
+
+| Value | What runs | When to use it | Extra fields on `JobDefinition` / `template.yaml` |
+|---|---|---|---|
+| `agent` (default) | Full main-agent turn: system prompt, skills, memories, the whole model-fallback chain | Anything conversational, anything that needs the agent to reason about its output | `system_prompt`, `task`, `model`, `skills` (existing fields) |
+| `tool` | One toolkit handler called directly — **no LLM, no retries** | Deterministic periodic work (RSS fetch, health poll, bank sync) where the handler already owns its own idempotency | `tool: <family>.<action>`, `tool_params: {...}` |
+| `subagent` | Scoped subagent run (fresh `MarcelDeps`, tool filter + model from the subagent's frontmatter) — no chain retries | Bounded focused work: morning digest, weekly review — cheap context, no full skill set | `subagent: <name>`, `subagent_task: "..."` (supports `{user_slug}` placeholder) |
+
+`dispatch_type: tool` is the real cost saver. A daily `news.sync` or
+`docker_health_sweep` that doesn't need the agent can skip the whole
+LLM cost — the executor calls the handler, captures its return string,
+writes a `JobRun` with `status=COMPLETED`. Failures still classify
+errors the same way (`timeout`, `network`, `rate_limit`, …) so existing
+telemetry remains uniform across dispatch types.
+
+The validator on `JobDefinition` enforces shape consistency: you cannot
+declare `dispatch_type: tool` without a `tool:` field, or mix `tool:`
+and `subagent:` on the same job. A template that declares a bad shape
+is logged and skipped (the rest of the zoo still loads) — see
+`src/marcel_core/plugin/jobs.py` for the template-loader validation.
+
 ## Executor
 
-The executor runs a job as a **headless agent turn**:
+The executor selects one of three fire functions based on
+`dispatch_type`:
+
+- `_fire_tool_job` — deterministic handler dispatch; no retries, no
+  chain machinery. The tool owns its own idempotency.
+- `_fire_subagent_job` — loads the subagent via the agents loader,
+  builds a fresh pydantic-ai agent with the subagent's tool filter +
+  timeout, runs it against the templated task.
+- `_fire_agent_job` (default) — the **headless agent turn** documented
+  below. This is the only path that uses the full model-fallback
+  chain ([ISSUE-076](https://github.com/shbunder/marcel/blob/main/project/issues/closed/)) with per-tier backoff and local-LLM fallback.
+
+Post-run bookkeeping (`consecutive_errors`, `save_job`,
+`_notify_if_needed`, `append_run`) is shared across all three paths.
+
+The rest of this section describes the `_fire_agent_job` (default) path
+in detail:
 
 1. Picks the concrete run user — the sole entry in `job.users`, the explicitly-passed `user_slug` (for multi-user jobs), or the reserved `_system` slug for system-scope jobs
 2. Creates `MarcelDeps` with `channel="job"` and `role="user"`

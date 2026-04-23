@@ -30,9 +30,9 @@ The two never mix — personal assistant context doesn't leak into coder mode, a
 
 **Flat-file storage.** Everything Marcel remembers lives on disk as plain text or markdown — no database. User data is under `~/.marcel/users/{slug}/`, skills are under `~/.marcel/skills/`, conversations are append-only JSONL segments. See [Storage](storage.md) for the full layout.
 
-**Skills are pluggable.** Every integration (banking, calendar, news, etc.) is a self-contained skill: a Python module registered with `@register("name.action")` plus a `SKILL.md` doc file. Skills can be added or removed without touching core code. See [Skills](skills.md).
+**Habitats are pluggable.** Marcel's kernel ships no behaviour. Every capability (banking, calendar, news, Telegram, scheduled jobs, subagents) is a self-contained habitat in [marcel-zoo](https://github.com/shbunder/marcel-zoo) — one of five kinds (toolkit, skill, subagent, channel, job). Habitats can be added or removed without touching core code. See [Habitats](habitats.md) for the full taxonomy.
 
-**One agent tool per capability.** Instead of advertising dozens of tools to the LLM, Marcel uses a small set of dispatcher tools (`marcel`, `integration`) that route to many actions. This keeps prompt token usage low and reduces tool-selection confusion.
+**One agent tool per capability.** Instead of advertising dozens of tools to the LLM, Marcel uses a small set of dispatcher tools (`marcel`, `toolkit` — with `integration` as a back-compat alias) that route to many actions. This keeps prompt token usage low and reduces tool-selection confusion.
 
 **Recoverable self-modification.** Before Marcel rewrites its own code, it commits the current state to git. A watchdog health-checks every restart and rolls back on failure. See [Self-Modification](self-modification.md).
 
