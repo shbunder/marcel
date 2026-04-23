@@ -1,6 +1,6 @@
 site_name: Marcel
 site_description: A self-adapting personal agent built on Claude.
-strict: false
+strict: true
 
 repo_name: shbunder/marcel
 repo_url: https://github.com/shbunder/marcel

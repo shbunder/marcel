@@ -1,6 +1,6 @@
 # Claude Code setup
 
-Marcel's developer-mode harness — the Claude Code session you use when editing Marcel's own source — has a project-local configuration layer under [.claude/](../.claude/). This page explains what lives there, why, and the one workflow you need to know (the safety unlock flag).
+Marcel's developer-mode harness — the Claude Code session you use when editing Marcel's own source — has a project-local configuration layer under [.claude/](https://github.com/shbunder/marcel/tree/main/.claude/). This page explains what lives there, why, and the one workflow you need to know (the safety unlock flag).
 
 !!! note "Runtime subagents are different"
     The `delegate` tool documented in [Subagents](subagents.md) is how Marcel's **runtime agent** splits work at request time. This page is about the **developer session** only — the subagents under `.claude/agents/` run inside Claude Code when you're editing the Marcel codebase, and never see a family member's request.
@@ -60,9 +60,9 @@ Marcel's five always-loaded rules (`self-modification`, `git-staging`, `closing-
 
 ### How subagents use rules
 
-The [pre-close-verifier](../.claude/agents/pre-close-verifier.md) enumerates applicable rules at runtime: for each file under `.claude/rules/`, it either reads it unconditionally (no `paths:`) or checks the diff's `git diff --name-only` against the globs. Each rule's `## Enforcement` section names which subagent treats what severity — so a rule can be "machine-read" by the verifier to build its checklist, not just human-read by contributors.
+The [pre-close-verifier](https://github.com/shbunder/marcel/blob/main/.claude/agents/pre-close-verifier.md) enumerates applicable rules at runtime: for each file under `.claude/rules/`, it either reads it unconditionally (no `paths:`) or checks the diff's `git diff --name-only` against the globs. Each rule's `## Enforcement` section names which subagent treats what severity — so a rule can be "machine-read" by the verifier to build its checklist, not just human-read by contributors.
 
-[code-reviewer](../.claude/agents/code-reviewer.md) and [security-auditor](../.claude/agents/security-auditor.md) reference rules by name when flagging violations. Adding a rule automatically extends the verifier's checklist without any skill code change.
+[code-reviewer](https://github.com/shbunder/marcel/blob/main/.claude/agents/code-reviewer.md) and [security-auditor](https://github.com/shbunder/marcel/blob/main/.claude/agents/security-auditor.md) reference rules by name when flagging violations. Adding a rule automatically extends the verifier's checklist without any skill code change.
 
 ### Adding a new rule
 
@@ -88,7 +88,7 @@ Invoke them via the `Agent` tool with `subagent_type=<name>`, or — for `pre-cl
 
 ### `PreToolUse` safety guard
 
-Marcel can rewrite its own code. The hook in [.claude/hooks/guard-restricted.py](../.claude/hooks/guard-restricted.py) enforces the "restricted paths" rule automatically. It blocks `Edit`, `Write`, `NotebookEdit`, and `MultiEdit` against any of:
+Marcel can rewrite its own code. The hook in [.claude/hooks/guard-restricted.py](https://github.com/shbunder/marcel/blob/main/.claude/hooks/guard-restricted.py) enforces the "restricted paths" rule automatically. It blocks `Edit`, `Write`, `NotebookEdit`, and `MultiEdit` against any of:
 
 - `CLAUDE.md` (at any depth) — project instructions
 - `src/marcel_core/auth/**` — auth module
@@ -124,7 +124,7 @@ The status line shows `🔓 unlocked` for as long as the flag is present. The fl
 
 ## Status line
 
-[.claude/statusline.sh](../.claude/statusline.sh) renders a compact line at the bottom of every Claude Code session:
+[.claude/statusline.sh](https://github.com/shbunder/marcel/blob/main/.claude/statusline.sh) renders a compact line at the bottom of every Claude Code session:
 
 ```
 🦒 issue/999fa7-claude-code-setup-hardening • ISSUE-999fa7 • 3✎ • 1 wip • 🔓 unlocked
@@ -140,7 +140,7 @@ Fields (all optional — omitted when empty):
 
 ## Permission allowlist
 
-[.claude/settings.local.json](../.claude/settings.local.json) is per-machine (gitignored) and holds the broad permission allowlist. Keep it small — every entry is a thing the harness runs without asking. The canonical baseline lives in the issue history for `ISSUE-999fa7`; grow it from there only when you notice yourself approving the same command repeatedly.
+[.claude/settings.local.json](https://github.com/shbunder/marcel/blob/main/.claude/settings.local.json) is per-machine (gitignored) and holds the broad permission allowlist. Keep it small — every entry is a thing the harness runs without asking. The canonical baseline lives in the issue history for `ISSUE-999fa7`; grow it from there only when you notice yourself approving the same command repeatedly.
 
 **Do not add narrow one-shot entries** like `Bash(ls project/issues/closed/ISSUE-070*)` — those were the archaeology that triggered this cleanup. Prefer a broad rule (`Bash(git log:*)`) over twenty specific ones.
 

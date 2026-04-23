@@ -156,7 +156,7 @@ interface.
 To protect the Brave free-tier quota from runaway loops, `web(action="search")`
 is capped at **5 calls per turn**. The limit is enforced via
 `TurnState.web_search_count` (see
-[src/marcel_core/harness/context.py](../src/marcel_core/harness/context.py))
+[src/marcel_core/harness/context.py](https://github.com/shbunder/marcel/blob/main/src/marcel_core/harness/context.py))
 and resets every turn because `TurnState` is constructed fresh per turn.
 
 When the cap is reached, the tool returns:
@@ -189,7 +189,7 @@ fall back, or report cleanly.
 ## Adding a new backend
 
 1. Create a new module under
-   [src/marcel_core/tools/web/](../src/marcel_core/tools/web/), e.g.
+   [src/marcel_core/tools/web/](https://github.com/shbunder/marcel/tree/main/src/marcel_core/tools/web/), e.g.
    `tavily.py`.
 2. Implement the `SearchBackend` protocol:
 
@@ -212,23 +212,23 @@ fall back, or report cleanly.
    ```
 
 3. Add a settings field in
-   [src/marcel_core/config.py](../src/marcel_core/config.py):
+   [src/marcel_core/config.py](https://github.com/shbunder/marcel/blob/main/src/marcel_core/config.py):
 
    ```python
    tavily_api_key: str | None = None
    ```
 
 4. Wire it into `select_backend()` in
-   [src/marcel_core/tools/web/backends.py](../src/marcel_core/tools/web/backends.py)
+   [src/marcel_core/tools/web/backends.py](https://github.com/shbunder/marcel/blob/main/src/marcel_core/tools/web/backends.py)
    — decide the priority relative to Brave and DDG.
 5. Add unit tests under
-   [tests/tools/test_web_search_tavily.py](../tests/tools/) following the
+   [tests/tools/test_web_search_tavily.py](https://github.com/shbunder/marcel/tree/main/tests/tools/) following the
    pattern in `test_web_search_brave.py` (mock `httpx.AsyncClient`, cover
    happy path and each error branch).
 
 If the new backend takes a user-configurable URL (e.g. a self-hosted
 SearXNG endpoint), call
-[`is_url_allowed`](../src/marcel_core/tools/browser/security.py) on the
+[`is_url_allowed`](https://github.com/shbunder/marcel/blob/main/src/marcel_core/tools/browser/security.py) on the
 URL before any HTTP request — same SSRF protection pattern the browser
 tool uses.
 

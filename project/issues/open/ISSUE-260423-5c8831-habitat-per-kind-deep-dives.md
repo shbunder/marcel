@@ -24,13 +24,13 @@
 - Update `docs/habitats.md` "Cross-links" table to point at the new dedicated pages (currently points at the placeholder existing pages).
 - Update `mkdocs.yml` nav to include `agents.md` and `channels.md` at the kind-level (keep `channels/telegram.md` as a nested example under the new top-level `Channels` entry).
 
-### Pre-existing mkdocs `--strict` warnings
+### Pre-existing mkdocs `--strict` warnings — **done, not in this scope**
 
-[[ISSUE-71e905]]'s pre-close-verifier output flagged 10 pre-existing `--strict` warnings in `docs/claude-code-setup.md` and `docs/web.md` (out-of-`docs/` relative links). Fixing these to use `https://github.com/shbunder/marcel/blob/main/...` URLs would make `uv run mkdocs build --strict` green for the first time. Worth adding as a task here while the author is adjacent to the docs tree.
+Originally captured as a task here. Carved out to [[ISSUE-2e903d]] and shipped separately: 10 out-of-`docs/` relative-path warnings in `claude-code-setup.md` and `web.md` were converted to `github.com/shbunder/marcel/...` URLs, and `mkdocs.yml` flipped to `strict: true`. `uv run mkdocs build --strict` is now green on main. New pages authored under this issue must keep it that way.
 
 ### Non-scope
 
-- Changing `strict: false` in `mkdocs.yml` to `strict: true`. The setting belongs to the deployment pipeline, not a docs-content issue. Can land in its own follow-up after the warnings are cleared.
+- `mkdocs.yml`'s `strict` setting and pre-existing `--strict` warnings — already addressed in [[ISSUE-2e903d]].
 - Moving `docs/subagents.md` to `docs/agents.md` via `git mv`. Parallel naming to the other `docs/<kind>.md` pages is the goal, but a rename would break external bookmarks. Prefer: author `docs/agents.md` fresh, leave `docs/subagents.md` as a stub pointing at it.
 
 ## Tasks
@@ -42,8 +42,7 @@
 - [ ] Leave `docs/subagents.md` as a stub redirecting to `docs/agents.md`
 - [ ] Update `docs/habitats.md` "Cross-links" table to point at the new pages
 - [ ] Update `mkdocs.yml` nav to include the new kind-level pages
-- [ ] Fix the 10 pre-existing `mkdocs build --strict` warnings in `claude-code-setup.md` and `web.md` (out-of-`docs/` relative links → github.com URLs)
-- [ ] `uv run mkdocs build --strict` green
+- [ ] `uv run mkdocs build --strict` still green (pre-existing warnings cleaned up in [[ISSUE-2e903d]]; new pages must not reintroduce them)
 - [ ] `make check` green
 - [ ] `/finish-issue` → merged close commit on main
 
