@@ -15,7 +15,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TriggerType(str, enum.Enum):
@@ -25,6 +25,21 @@ class TriggerType(str, enum.Enum):
     INTERVAL = 'interval'
     EVENT = 'event'
     ONESHOT = 'oneshot'
+
+
+class JobDispatchType(str, enum.Enum):
+    """How a job's work is dispatched when the trigger fires.
+
+    - ``TOOL``: call a toolkit handler directly, no LLM.
+    - ``SUBAGENT``: invoke a named subagent with a scoped task.
+    - ``AGENT``: the historical path — run a full main-agent turn. Default.
+
+    Orthogonal to :class:`TriggerType` (which answers *when* a job fires).
+    """
+
+    TOOL = 'tool'
+    SUBAGENT = 'subagent'
+    AGENT = 'agent'
 
 
 class JobStatus(str, enum.Enum):
@@ -111,7 +126,24 @@ class JobDefinition(BaseModel):
     # Trigger
     trigger: TriggerSpec
 
-    # Execution — the job's "brain"
+    # Dispatch shape — how the job's work runs when the trigger fires.
+    # Default ``AGENT`` preserves pre-ISSUE-ea6d47 behaviour for every
+    # persisted job file: no ``dispatch_type:`` on disk → full agent turn.
+    dispatch_type: JobDispatchType = JobDispatchType.AGENT
+
+    # For dispatch_type=TOOL: which toolkit handler to call + its params.
+    # Handlers are resolved via ``marcel_core.toolkit.get_handler``.
+    tool: str | None = None
+    tool_params: dict = Field(default_factory=dict)
+
+    # For dispatch_type=SUBAGENT: which subagent to invoke + the task
+    # string (``{user_slug}`` is the only template placeholder supported).
+    subagent: str | None = None
+    subagent_task: str | None = None
+
+    # Execution — the job's "brain" (consulted when dispatch_type=AGENT;
+    # the agent path uses system_prompt + task; the subagent path uses
+    # the subagent's own system_prompt and job.subagent_task).
     system_prompt: str
     task: str
     model: str = 'anthropic:claude-haiku-4-5-20251001'
@@ -171,6 +203,43 @@ class JobDefinition(BaseModel):
 
     # Template origin (for display/editing)
     template: str | None = None
+
+    @model_validator(mode='after')
+    def _dispatch_shape_matches_type(self) -> JobDefinition:
+        """Enforce that the shape fields populated match ``dispatch_type``.
+
+        Rules:
+
+        - ``TOOL`` → ``tool`` required; ``subagent``/``subagent_task`` forbidden.
+        - ``SUBAGENT`` → ``subagent`` required; ``tool``/``tool_params`` forbidden.
+        - ``AGENT`` (default) → none of the tool/subagent fields populated.
+
+        ``tool_params`` empty-dict default and ``subagent_task`` absence are
+        treated as "not populated" so a permissive default does not trip
+        the mismatched-shape check.
+        """
+        dt = self.dispatch_type
+        has_tool = self.tool is not None
+        has_tool_params = bool(self.tool_params)
+        has_subagent = self.subagent is not None
+        has_subagent_task = self.subagent_task is not None
+
+        if dt is JobDispatchType.TOOL:
+            if not has_tool:
+                raise ValueError("dispatch_type='tool' requires the `tool` field (toolkit handler name)")
+            if has_subagent or has_subagent_task:
+                raise ValueError("dispatch_type='tool' cannot carry `subagent` or `subagent_task`")
+        elif dt is JobDispatchType.SUBAGENT:
+            if not has_subagent:
+                raise ValueError("dispatch_type='subagent' requires the `subagent` field (subagent name)")
+            if has_tool or has_tool_params:
+                raise ValueError("dispatch_type='subagent' cannot carry `tool` or `tool_params`")
+        else:  # AGENT
+            if has_tool or has_tool_params or has_subagent or has_subagent_task:
+                raise ValueError(
+                    "dispatch_type='agent' must leave `tool`, `tool_params`, `subagent`, and `subagent_task` unset",
+                )
+        return self
 
 
 def _run_id() -> str:
