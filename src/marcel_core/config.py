@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     marcel_public_url: str | None = None
     marcel_default_user: str = ''
 
+    # WebSocket rate limiting (ISSUE-022). Token-bucket over user_slug:
+    # sustained rate caps messages per second; burst is the maximum short-
+    # spike size that can arrive before throttling kicks in. Defaults are
+    # generous enough that a responsive family chat never trips them and
+    # tight enough that a runaway frontend or hostile client gets rejected.
+    marcel_ws_rate_limit_per_second: float = 5.0
+    marcel_ws_rate_limit_burst: int = 10
+
     # ---------------------------------------------------------------------------
     # Auth
     # ---------------------------------------------------------------------------

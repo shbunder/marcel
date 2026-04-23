@@ -34,6 +34,7 @@ from marcel_core.harness.turn_router import resolve_turn_for_user
 from marcel_core.memory import extract_and_save_memories
 from marcel_core.memory.conversation import ensure_channel
 from marcel_core.plugin import get_channel
+from marcel_core.rate_limit import get_ws_bucket
 
 log = logging.getLogger(__name__)
 
@@ -87,6 +88,15 @@ async def chat(websocket: WebSocket) -> None:
             if not valid_user_slug(user_slug):
                 await adapter.send_error('Invalid user slug — only a-z, 0-9, _ and - are allowed')
                 continue
+
+            # Rate limit per user_slug (ISSUE-022). Token bucket absorbs short
+            # bursts (default 10) while capping sustained load (default 5/s);
+            # an over-limit message is rejected with an error frame and the
+            # connection stays open so a runaway tab doesn't lose the session.
+            if not get_ws_bucket().allow(user_slug):
+                await adapter.send_error('Rate limit exceeded — slow down and try again')
+                continue
+
             conversation_id: str | None = data.get('conversation')
             channel: str = data.get('channel', 'cli')
             model: str | None = data.get('model') or None
