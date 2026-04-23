@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 
 from marcel_core.harness.model_chain import FALLBACK_ELIGIBLE_CATEGORIES, TierEntry, classify_error
 from marcel_core.jobs import SYSTEM_USER, append_run
-from marcel_core.jobs.models import JobDefinition, JobRun, NotifyPolicy, RunStatus
+from marcel_core.jobs.models import JobDefinition, JobDispatchType, JobRun, NotifyPolicy, RunStatus
 
 log = logging.getLogger(__name__)
 
@@ -498,36 +498,210 @@ async def _execute_chain(
     return run
 
 
-async def execute_job_with_retries(
+async def _fire_tool_job(
     job: JobDefinition,
-    trigger_reason: str = 'scheduled',
+    trigger_reason: str,
     *,
     user_slug: str | None = None,
 ) -> JobRun:
-    """Execute a job, retrying on transient failure and chaining on outage.
+    """Dispatch a ``dispatch_type=tool`` job by calling a toolkit handler directly.
 
-    Flow (ISSUE-076):
-
-    1. Per-tier exponential backoff via :func:`_run_with_backoff` — retries
-       transient errors on the same model.
-    2. When ``job.allow_fallback_chain`` is True (the default), escalate
-       through the per-tier model chain (``MARCEL_STANDARD_BACKUP_MODEL``,
-       then ``MARCEL_FALLBACK_MODEL`` if ``allow_local_fallback`` also
-       permits running on a local model for completion).
-    3. When ``job.allow_fallback_chain`` is False, pin to ``job.model`` only —
-       no cross-provider backup — but still honour the legacy ISSUE-070
-       local-LLM fallback if ``allow_local_fallback`` is set.
-
-    Post-run bookkeeping (consecutive errors, notifications, run persistence)
-    is shared between both paths.
+    No LLM, no retry chain — tool handlers are expected to be
+    deterministic, and any retry policy belongs inside the handler
+    itself (or the underlying API client). The executor only enforces
+    ``job.timeout_seconds`` via :func:`asyncio.wait_for` and classifies
+    exceptions with :func:`classify_error` so telemetry buckets match
+    the agent path.
     """
-    from marcel_core.jobs import save_job
+    from marcel_core.toolkit import get_handler
 
     slug = _resolve_run_user(job, user_slug)
+    run = JobRun(
+        job_id=job.id,
+        trigger_reason=trigger_reason,
+        status=RunStatus.RUNNING,
+        started_at=datetime.now(UTC),
+    )
+    assert job.tool is not None  # validator guarantees this for dispatch_type=tool
 
-    # ISSUE-b95ac5: local-pinned jobs must never escalate to cloud tiers.
-    # The chain would silently add MARCEL_STANDARD_BACKUP_MODEL as tier 2,
-    # defeating the purpose of pinning to a local model.  Force the pinned path.
+    try:
+        handler = get_handler(job.tool)
+    except KeyError:
+        log.warning('%s-job: no toolkit handler registered for %r (job %s)', slug, job.tool, job.id)
+        run.error = f'No toolkit handler registered for {job.tool!r}'
+        run.error_category = 'config'
+        run.status = RunStatus.FAILED
+        run.finished_at = datetime.now(UTC)
+        return run
+
+    try:
+        result = await asyncio.wait_for(
+            handler(job.tool_params, slug),
+            timeout=job.timeout_seconds,
+        )
+        run.output = '' if result is None else str(result)
+        run.status = RunStatus.COMPLETED
+    except asyncio.TimeoutError:
+        log.warning('%s-job: tool job %s (%s) timed out after %ds', slug, job.id, job.name, job.timeout_seconds)
+        run.error = f'Job timed out after {job.timeout_seconds}s'
+        run.error_category = 'timeout'
+        run.status = RunStatus.TIMED_OUT
+    except Exception as exc:
+        log.exception('%s-job: tool job %s (%s) failed', slug, job.id, job.name)
+        run.error = str(exc)
+        _, category = classify_error(str(exc))
+        run.error_category = category
+        run.status = RunStatus.FAILED
+
+    run.finished_at = datetime.now(UTC)
+    return run
+
+
+async def _fire_subagent_job(
+    job: JobDefinition,
+    trigger_reason: str,
+    *,
+    user_slug: str | None = None,
+) -> JobRun:
+    """Dispatch a ``dispatch_type=subagent`` job via the subagent loader.
+
+    Mirrors the core flow of :func:`marcel_core.tools.delegate.delegate`
+    — load the agent markdown, resolve model and tool filter, spawn a
+    fresh pydantic-ai Agent with its own conversation id and TurnState,
+    run it against ``job.subagent_task`` (with ``{user_slug}`` as the
+    only supported placeholder).
+
+    Runs under role ``user``: the executor always builds user-tier jobs
+    regardless of who authored them, matching :func:`execute_job`. The
+    recursion guard is inherited (``delegate`` stripped unless the
+    subagent frontmatter opts in explicitly).
+
+    Does not use the retry/model-chain machinery; see the ISSUE-ea6d47
+    Implementation Approach for rationale.
+    """
+    from marcel_core.agents.loader import AgentNotFoundError, load_agent
+    from marcel_core.harness.agent import create_marcel_agent, default_model
+    from marcel_core.harness.context import MarcelDeps
+    from marcel_core.harness.model_chain import (
+        TierNotConfigured,
+        is_tier_sentinel,
+        resolve_tier_sentinel,
+    )
+    from marcel_core.tools.delegate import _default_pool_minus, _resolve_tool_filter
+
+    slug = _resolve_run_user(job, user_slug)
+    run = JobRun(
+        job_id=job.id,
+        trigger_reason=trigger_reason,
+        status=RunStatus.RUNNING,
+        started_at=datetime.now(UTC),
+    )
+    assert job.subagent is not None  # validator guarantees this for dispatch_type=subagent
+
+    def _fail(error: str, category: str) -> JobRun:
+        run.error = error
+        run.error_category = category
+        run.status = RunStatus.FAILED
+        run.finished_at = datetime.now(UTC)
+        return run
+
+    try:
+        agent_doc = load_agent(job.subagent)
+    except AgentNotFoundError as exc:
+        log.warning('%s-job: subagent %r not found (job %s)', slug, job.subagent, job.id)
+        return _fail(f'subagent {job.subagent!r} not found: {exc}', 'config')
+
+    task = job.subagent_task or ''
+    try:
+        task = task.format(user_slug=slug)
+    except KeyError as exc:
+        return _fail(f'subagent_task references unsupported placeholder {exc!s}', 'config')
+
+    model = agent_doc.model or job.model or default_model()
+    if is_tier_sentinel(model):
+        try:
+            model = resolve_tier_sentinel(model)
+        except (TierNotConfigured, ValueError) as exc:
+            return _fail(f'subagent model resolution failed: {exc}', 'config')
+
+    if agent_doc.tools is None:
+        tool_filter: set[str] | None = _default_pool_minus(
+            role='user',
+            disallowed=agent_doc.disallowed_tools,
+            include_delegate=False,
+        )
+    else:
+        tool_filter = _resolve_tool_filter(agent_doc.tools, agent_doc.disallowed_tools)
+
+    system_prompt = agent_doc.system_prompt or 'You are a Marcel subagent.'
+
+    deps = MarcelDeps(
+        user_slug=slug,
+        conversation_id=f'job:{job.id}:{run.run_id}:subagent:{job.subagent}',
+        channel='job',
+        model=model,
+        role='user',
+    )
+    deps.turn.suppress_notify = job.notify in (NotifyPolicy.SILENT, NotifyPolicy.ON_FAILURE)
+
+    usage_limits = None
+    if agent_doc.max_requests is not None:
+        from pydantic_ai.usage import UsageLimits
+
+        usage_limits = UsageLimits(request_limit=agent_doc.max_requests)
+
+    try:
+        sub_agent = create_marcel_agent(
+            model=model,
+            system_prompt=system_prompt,
+            role='user',
+            tool_filter=tool_filter,
+        )
+    except Exception as exc:
+        log.exception('%s-job: subagent build failed for %s', slug, job.id)
+        return _fail(f'subagent build failed: {exc}', 'config')
+
+    effective_timeout = min(job.timeout_seconds, agent_doc.timeout_seconds)
+    try:
+        result = await asyncio.wait_for(
+            sub_agent.run(task, deps=deps, usage_limits=usage_limits),
+            timeout=effective_timeout,
+        )
+        run.output = result.output
+        run.status = RunStatus.COMPLETED
+        run.agent_notified = deps.turn.notified
+    except asyncio.TimeoutError:
+        log.warning('%s-job: subagent %s timed out after %ds', slug, job.subagent, effective_timeout)
+        run.error = f'Subagent timed out after {effective_timeout}s'
+        run.error_category = 'timeout'
+        run.status = RunStatus.TIMED_OUT
+    except Exception as exc:
+        log.exception('%s-job: subagent %s failed (job %s)', slug, job.subagent, job.id)
+        run.error = str(exc)
+        _, category = classify_error(str(exc))
+        run.error_category = category
+        run.status = RunStatus.FAILED
+
+    run.finished_at = datetime.now(UTC)
+    return run
+
+
+async def _fire_agent_job(
+    job: JobDefinition,
+    trigger_reason: str,
+    *,
+    user_slug: str | None = None,
+) -> JobRun:
+    """Dispatch a ``dispatch_type=agent`` job — the historical path.
+
+    Runs the job through the ISSUE-076 model-fallback chain when
+    ``allow_fallback_chain`` is True, or through the pinned path
+    with legacy ISSUE-070 local fallback otherwise.
+    ISSUE-b95ac5: local-pinned jobs are forced onto the pinned path
+    regardless of ``allow_fallback_chain`` to prevent cloud escalation.
+    """
+    slug = _resolve_run_user(job, user_slug)
+
     use_chain = job.allow_fallback_chain
     if use_chain and job.model.startswith('local:'):
         log.warning(
@@ -541,11 +715,41 @@ async def execute_job_with_retries(
         use_chain = False
 
     if use_chain:
-        run = await _execute_chain(job, trigger_reason, user_slug=slug)
-    else:
-        run = await _execute_pinned_with_legacy_fallback(job, trigger_reason, user_slug=slug)
+        return await _execute_chain(job, trigger_reason, user_slug=slug)
+    return await _execute_pinned_with_legacy_fallback(job, trigger_reason, user_slug=slug)
 
-    # Update consecutive error tracking on the job definition
+
+async def execute_job_with_retries(
+    job: JobDefinition,
+    trigger_reason: str = 'scheduled',
+    *,
+    user_slug: str | None = None,
+) -> JobRun:
+    """Execute a job and perform post-run bookkeeping.
+
+    Dispatch shape is selected by ``job.dispatch_type`` (ISSUE-ea6d47):
+
+    - ``TOOL`` → :func:`_fire_tool_job` — deterministic handler call,
+      no LLM, no retry chain.
+    - ``SUBAGENT`` → :func:`_fire_subagent_job` — bounded subagent run.
+    - ``AGENT`` (default) → :func:`_fire_agent_job` — full main-agent
+      turn with the ISSUE-076 model-fallback chain.
+
+    Post-run bookkeeping (consecutive-error tracking, ``save_job``,
+    notify-by-policy, ``append_run``) is shared across all three
+    dispatch shapes and runs after the branch returns.
+    """
+    from marcel_core.jobs import save_job
+
+    slug = _resolve_run_user(job, user_slug)
+
+    if job.dispatch_type is JobDispatchType.TOOL:
+        run = await _fire_tool_job(job, trigger_reason, user_slug=slug)
+    elif job.dispatch_type is JobDispatchType.SUBAGENT:
+        run = await _fire_subagent_job(job, trigger_reason, user_slug=slug)
+    else:
+        run = await _fire_agent_job(job, trigger_reason, user_slug=slug)
+
     if run.status in (RunStatus.FAILED, RunStatus.TIMED_OUT):
         job.consecutive_errors += 1
         job.last_error_at = datetime.now(UTC)
@@ -555,7 +759,6 @@ async def execute_job_with_retries(
         job.last_failure_alert_at = None
     save_job(job)
 
-    # Notify based on policy + deliver tracking
     delivery_status, delivery_error = await _notify_if_needed(job, run, user_slug=slug)
     run.delivery_status = delivery_status
     run.delivery_error = delivery_error

@@ -28,10 +28,20 @@ by this loader. Template and instance directories coexist in the same tree.
     notify: str                       # 'always' | 'on_failure' | 'on_output' | 'silent'
     model: str                        # fully-qualified pydantic-ai model id
 
+    # Optional (ISSUE-ea6d47) — selects how the job dispatches its work
+    # when the trigger fires. Omitted ⇒ 'agent' (historical default).
+    dispatch_type: str                # 'tool' | 'subagent' | 'agent'
+    tool: str                         # required if dispatch_type=tool (toolkit handler name)
+    tool_params: dict                 # optional; kwargs passed to the handler
+    subagent: str                     # required if dispatch_type=subagent (subagent name)
+    subagent_task: str                # optional; '{user_slug}' placeholder supported
+
 Extra keys are preserved and returned to the caller. Missing required keys
 (``description``, ``system_prompt``, ``notify``, ``model``) cause the
 habitat to be skipped with a logged error — a broken habitat must never
-abort discovery of its siblings.
+abort discovery of its siblings. A ``dispatch_type`` value outside
+``{'tool', 'subagent', 'agent'}`` or missing the accompanying
+``tool:``/``subagent:`` key is treated the same way.
 """
 
 from __future__ import annotations
@@ -45,6 +55,8 @@ import yaml
 log = logging.getLogger(__name__)
 
 _REQUIRED_KEYS: tuple[str, ...] = ('description', 'system_prompt', 'notify', 'model')
+
+_VALID_DISPATCH_TYPES: frozenset[str] = frozenset({'tool', 'subagent', 'agent'})
 
 
 def discover_templates() -> dict[str, dict[str, Any]]:
@@ -151,6 +163,27 @@ def _load_template_file(pkg_dir: Path) -> dict[str, Any] | None:
             "Job template '%s' is missing required keys: %s",
             pkg_dir.name,
             ', '.join(missing),
+        )
+        return None
+
+    dispatch_type = raw.get('dispatch_type', 'agent')
+    if dispatch_type not in _VALID_DISPATCH_TYPES:
+        log.error(
+            "Job template '%s' has invalid dispatch_type %r (expected one of %s)",
+            pkg_dir.name,
+            dispatch_type,
+            sorted(_VALID_DISPATCH_TYPES),
+        )
+        return None
+    if dispatch_type == 'tool' and 'tool' not in raw:
+        log.error(
+            "Job template '%s' declares dispatch_type='tool' but is missing the required `tool:` key", pkg_dir.name
+        )
+        return None
+    if dispatch_type == 'subagent' and 'subagent' not in raw:
+        log.error(
+            "Job template '%s' declares dispatch_type='subagent' but is missing the required `subagent:` key",
+            pkg_dir.name,
         )
         return None
 
