@@ -228,10 +228,16 @@ What it costs:
 
 The long-term direction is `isolation: uds` for every Python habitat —
 toolkits in **Phase 2** (shipped under ISSUE-14b034: `docker`, `news`,
-`banking`, `icloud` all run UDS-isolated today), channels/jobs in
-**Phase 3** (ISSUE-931b3f), with the `inprocess` path removed in
-**Phase 4** (ISSUE-807a26). Markdown-only habitats (skills, subagents)
-stay in-process because there is no Python code to isolate.
+`banking`, `icloud` all run UDS-isolated today); **Phase 3** (design
+under ISSUE-931b3f, implementation under ISSUE-092fd4) extends the
+same shape to channels — see
+[Channels → UDS isolation — design](channels.md#uds-isolation-design)
+for the bidirectional proxy route, the `channel.*` RPC method
+namespace, and the Telegram-specific constraints. Job habitats are
+YAML-only (no Python to isolate), so Phase 3's jobs half closed as
+designed. **Phase 4** (ISSUE-807a26) removes the `inprocess` path
+entirely. Markdown-only habitats (skills, subagents) stay in-process
+because there is no Python code to isolate.
 
 ### Migrating an inprocess habitat to UDS
 
