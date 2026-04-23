@@ -3,7 +3,7 @@
 Marcel's developer-mode harness — the Claude Code session you use when editing Marcel's own source — has a project-local configuration layer under [.claude/](https://github.com/shbunder/marcel/tree/main/.claude/). This page explains what lives there, why, and the one workflow you need to know (the safety unlock flag).
 
 !!! note "Runtime subagents are different"
-    The `delegate` tool documented in [Subagents](subagents.md) is how Marcel's **runtime agent** splits work at request time. This page is about the **developer session** only — the subagents under `.claude/agents/` run inside Claude Code when you're editing the Marcel codebase, and never see a family member's request.
+    The `delegate` tool documented in [Agents](agents.md) is how Marcel's **runtime agent** splits work at request time. This page is about the **developer session** only — the subagents under `.claude/agents/` run inside Claude Code when you're editing the Marcel codebase, and never see a family member's request.
 
 !!! note "Two repos, two Claude Code sessions"
     Marcel is split across [`marcel`](https://github.com/shbunder/marcel) (the kernel — this repo) and [`marcel-zoo`](https://github.com/shbunder/marcel-zoo) (the habitats). This `.claude/` setup — hooks, rules, subagents, `/new-issue` + `/finish-issue` skills — is scoped to the **kernel** repo. When you're authoring or editing a habitat, open Claude Code in the zoo checkout (`$MARCEL_ZOO_DIR`, default `~/.marcel/zoo`) and follow the zoo's own [README](https://github.com/shbunder/marcel-zoo/blob/main/README.md) for the habitat contract. A kernel change that also touches a habitat should happen as two sessions — one per repo, each with its own issue and commit history.

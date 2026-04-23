@@ -15,8 +15,8 @@ nav:
   - Self-Modification: self-modification.md
   - Claude Code Setup: claude-code-setup.md
   - Skills: skills.md
-  - Plugin API: plugins.md
-  - Subagents: subagents.md
+  - Toolkit: plugins.md
+  - Agents: agents.md
   - Web Tool: web.md
   - Jobs: jobs.md
   - Model Tiers: model-tiers.md
@@ -24,7 +24,9 @@ nav:
   - Local LLM: local-llm.md
   - CLI: cli.md
   - Channels:
+    - Overview: channels.md
     - Telegram: channels/telegram.md
+  - Subagents (legacy): subagents.md
 
 extra:
   generator: false

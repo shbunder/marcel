@@ -22,7 +22,7 @@ Toolkit handlers can be defined as:
 
 Skill documentation lives in `<dir>/skills/<name>/SKILL.md`. These teach the agent how to use each integration. Skills are loaded from two directories and injected into the system prompt:
 
-1. **`<MARCEL_ZOO_DIR>/skills/`** — habitats from the marcel-zoo checkout (skipped when `MARCEL_ZOO_DIR` is unset). See [Plugin API](plugins.md).
+1. **`<MARCEL_ZOO_DIR>/skills/`** — habitats from the marcel-zoo checkout (skipped when `MARCEL_ZOO_DIR` is unset). See [Toolkit habitats](plugins.md).
 2. **`<MARCEL_DATA_DIR>/skills/`** (typically `~/.marcel/skills/`) — user-level overrides and custom skills.
 
 Data-root skills override zoo skills with the same name. The override is silent — drop a `~/.marcel/skills/<name>/SKILL.md` to replace any zoo-shipped version.
@@ -97,7 +97,7 @@ depends_on:
 ---
 ```
 
-The loader looks up `<MARCEL_ZOO_DIR>/toolkit/docker/toolkit.yaml`, reads its `requires:` block, and treats those as the skill's requirements. This keeps the credential / env list in one place — the toolkit's `toolkit.yaml` — and avoids drift between the handler and its skill doc. See [Plugin API → Integration metadata](plugins.md#integration-metadata).
+The loader looks up `<MARCEL_ZOO_DIR>/toolkit/docker/toolkit.yaml`, reads its `requires:` block, and treats those as the skill's requirements. This keeps the credential / env list in one place — the toolkit's `toolkit.yaml` — and avoids drift between the handler and its skill doc. See [Toolkit habitats → Metadata](plugins.md#metadata).
 
 Both forms can be combined; the skill's effective requirements are the union of inline `requires:` and every `depends_on:` toolkit's `requires:`.
 
