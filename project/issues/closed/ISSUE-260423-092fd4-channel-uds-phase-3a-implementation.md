@@ -1,7 +1,8 @@
 # ISSUE-092fd4: Channel UDS isolation — Phase 3a implementation
 
-**Status:** Open
+**Status:** Cancelled
 **Created:** 2026-04-23
+**Cancelled:** 2026-04-23
 **Assignee:** Unassigned
 **Priority:** Medium
 **Labels:** refactor, plugin-system, isolation, channels, marcel-zoo
@@ -78,3 +79,18 @@ This is the part that can't be skipped. The migration is not shipped until:
 ## Implementation Approach
 
 Fill in at open→wip transition. The design section in `docs/channels.md#uds-isolation--design` is the starting point — that section already names every method, serialisation rule, and constraint.
+
+## Cancellation (2026-04-23)
+
+Cancelled before any implementation started. Architectural review with the user rejected the UDS-for-channels premise — the Phase 3 design (ISSUE-931b3f) copy-pasted the Phase 2 toolkit justifications without auditing whether they apply to channels, and they largely don't:
+
+- **Zero unique deps for Telegram.** No SDK; just `httpx` (kernel-transitive). The "dependency isolation" pillar doesn't fire.
+- **Crash isolation already exists.** [`src/marcel_core/tools/marcel/notifications.py:61-70`](../../../src/marcel_core/tools/marcel/notifications.py#L61-L70) wraps `channel.send_message()` in try/except; [`src/marcel_core/plugin/channels.py:259`](../../../src/marcel_core/plugin/channels.py#L259) contains import-time failures per-channel. A crashing channel does not cascade today.
+- **Concurrency already works.** `stream_turn()` is async; multiple webhooks interleave in-process. UDS adds serialisation overhead, not concurrency.
+- **"Closed box" semantic mismatch.** UDS would *replicate* the kernel into a channel subprocess (the habitat imports `stream_turn`, `extract_and_save_memories`, `resolve_turn_for_user`, `create_artifact`), not isolate the channel from the kernel. The design acknowledges this: *"Channel habitats need the full kernel surface installed because the Telegram webhook imports marcel_core.harness.*"*
+
+The root cause exposed by the review is the opposite of what the design proposed: channels aren't too *coupled to the kernel process* — they're too *coupled to kernel logic*. Today's channel habitat (Telegram) runs full agent turns, memory extraction, artifact creation, `/start` user-registration, delayed-ack — none of which is channel-specific. The fix is to make channels actually thin (translation + transport only) and move that logic back into the kernel.
+
+**Replaced by:** `extract-kernel-from-channels` refactor (new issue opened 2026-04-23) — shrinks channel habitats to translation + provider-API wrappers, moves all agent-turn / memory / user-registration logic into a kernel-owned webhook processor.
+
+**Knock-on:** [[ISSUE-807a26]] (Phase 4 — remove inprocess) is also cancelled; its premise that every Python habitat runs UDS no longer holds.
