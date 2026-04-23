@@ -1,7 +1,8 @@
 # ISSUE-078: Conversation Summary Hallucination Loop
 
-**Status:** Open
+**Status:** Cancelled
 **Created:** 2025-01-28
+**Cancelled:** 2026-04-23
 **Assignee:** Unassigned
 **Priority:** High
 **Labels:** bug
@@ -60,3 +61,15 @@ When the user said "Ik ga eens doen alsof ik de vraag opnieuw stel" (I'll preten
 
 ## Implementation Log
 <!-- Append entries here when performing development work on this issue -->
+
+## Cancellation (2026-04-23)
+
+Cancelled as stale. The reported failure mode — conversation summaries containing tool-call *code* which the model then re-executed — cannot occur under the summarization architecture that has shipped since this issue was filed (15 months ago).
+
+The current pipeline:
+
+- `src/marcel_core/memory/summarizer.py` — rolling segment summaries, idle-triggered
+- `src/marcel_core/harness/runner.py:201-211` — sealed-segment loading, idle summarization check
+- Summaries are LLM-compressed prose over sealed segments; tool-call payloads are not preserved verbatim in the summary stream
+
+If a similar loop is observed under the current architecture, open a fresh issue with a reproducible transcript — the old hypotheses here are about a pipeline that no longer exists.
