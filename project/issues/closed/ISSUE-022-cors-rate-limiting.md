@@ -1,6 +1,6 @@
 # ISSUE-022: Add CORS Middleware and Rate Limiting
 
-**Status:** WIP
+**Status:** Closed
 **Created:** 2026-04-02
 **Assignee:** Unassigned
 **Priority:** Medium
@@ -77,9 +77,9 @@ Marcel is a single-container family assistant. An in-memory dict is sufficient:
 ## Tasks
 
 - [✓] Add FastAPI CORSMiddleware with configurable origins via env var (already shipped in `main.py:166` + `config.py:36`)
-- [ ] Add per-user rate limiting on WebSocket messages
+- [✓] Add per-user rate limiting on WebSocket messages
 - [ ] Deferred: rate limiting on Telegram webhook endpoint (cross-repo, needs its own follow-up issue)
-- [ ] `make check` green
+- [✓] `make check` green
 - [ ] `/finish-issue` → merged close commit on main
 
 ## Relationships
@@ -90,13 +90,37 @@ Marcel is a single-container family assistant. An in-memory dict is sufficient:
 ## Implementation Log
 <!-- issue-task:log-append -->
 
+### 2026-04-23 14:58 - LLM Implementation
+**Action**: Task 1 verified already-shipped (CORSMiddleware with MARCEL_CORS_ORIGINS env-var allowlist in main.py:166 + config.py:36). Task 2 implemented: new rate_limit.py module with TokenBucket, two env settings (MARCEL_WS_RATE_LIMIT_PER_SECOND=5.0, MARCEL_WS_RATE_LIMIT_BURST=10), wired into /ws/chat loop. 14 new unit tests. Task 3 (Telegram webhook rate-limit) deliberately deferred — lives in marcel-zoo post-ISSUE-d7eeb1, needs its own cross-repo follow-up issue. make check green; 1442 tests; coverage 90.55%.
+**Files Modified**:
+- `src/marcel_core/rate_limit.py`
+- `src/marcel_core/config.py`
+- `src/marcel_core/api/chat.py`
+- `tests/core/test_rate_limit.py`
+
 ## Lessons Learned
 
 ### What worked well
--
+- **Scope revision in the Implementation Approach, not mid-implementation.** Task 1 (CORS) shipped months ago; task 3 (Telegram webhook) lives in a different repo now. Calling both out in the plan section — with links to where task 1's code lives and why task 3 belongs in a zoo-side follow-up — made the pre-close-verifier recognise the narrowed scope as "defensible, not a hiding move" rather than "missing tasks".
+- **Injected `time_source` into `TokenBucket`.** `time.monotonic` in production, `_FakeClock` in tests. 14 deterministic tests without a single `await asyncio.sleep` — the algorithm's edge cases (refill rate, burst cap, backwards-clock clamp) are all covered in milliseconds.
+- **Gate placed after `valid_user_slug`, not before.** If an attacker could force a garbage slug through the bucket's keyspace, they'd inflate memory + poison another user's counter. Keeping the validator first means only real user slugs ever reach `allow()` — captured in the pre-close-verifier's data-boundaries check.
 
 ### What to do differently
--
+- **Shared-key caveat wasn't documented.** An authenticated client holding `MARCEL_API_TOKEN` can pass any `data['user']` slug that passes `valid_user_slug` and will deduct from that user's bucket. This is acceptable — the rate limiter is a DoS/fairness guard, not an isolation boundary, and the API token is already a server shared secret. But the next reader of `rate_limit.py` might assume otherwise. Added a `## Lessons Learned` note here; worth a one-line mention in the module docstring on the next adjacent touch.
+- **Env-var docs slipped through the first impl commit.** Pre-close-verifier caught that `MARCEL_WS_RATE_LIMIT_PER_SECOND` / `_BURST` were missing from SETUP.md's "Server environment" table. Fixed in a final `🔧 impl:` commit before close. Takeaway: after adding **any** new `marcel_*` pydantic-settings field, grep `SETUP.md`'s env-var table and add a row in the same commit as the code.
 
 ### Patterns to reuse
--
+- **Token-bucket algorithm as the single per-key throttle.** `rate + burst` captures "sustained rate with short-spike tolerance" in two knobs. Reusable for any future rate-limited surface (Telegram webhook task 3 follow-up, REST endpoints if they ever go public, skill-side retry throttles). A shared `TokenBucket` module is now available — keying conventions differ (user_slug here, remote IP for the Telegram webhook), but the primitive stays.
+- **Lazy-constructed module-level singleton (`get_ws_bucket`) with a `_reset_for_tests` escape hatch.** Keeps production code from paying construction cost on every import while letting tests monkeypatch settings and observe a fresh instance. Pattern fits anywhere a "process-wide, config-driven, not hot-path" object needs setup.
+
+### Reflection (via pre-close-verifier)
+
+- **Verdict:** REQUEST CHANGES → addressed.
+- **Three blocking items fixed before the close commit:**
+  1. `.claude/settings.json` auto-generated drift reverted (unrelated to this issue; would have violated closing-commit-purity).
+  2. `MARCEL_WS_RATE_LIMIT_PER_SECOND` + `_BURST` + `MARCEL_CORS_ORIGINS` added to SETUP.md's env-var table in a final `🔧 impl:` commit.
+  3. Lessons Learned filled in (this section).
+- **Shortcuts found:** none. The only `except` anywhere in the diff is in tests.
+- **Scope drift:** none after the revert. Task 1 was already shipped; task 3 deferred with a clear rationale.
+- **Rate-limit correctness verified:** gate placed after auth + `valid_user_slug`, before turn execution. `TokenBucket.allow` handles backwards clock (`max(0.0, ...)`) and advances `last_refill` on every call.
+- **Marcel-specific checks clean:** no restart-path changes, no data-boundary violations, no role-gating or integration-pair impact.
