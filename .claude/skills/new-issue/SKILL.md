@@ -84,6 +84,10 @@ git mv "project/issues/open/ISSUE-${DATE}-${HASH}-${SLUG}.md" "project/issues/wi
 
 Subsequent task / status / log changes also use `issue-task` — see `.claude/scripts/issue-task --help` and [project/issues/CLAUDE.md](../../../project/issues/CLAUDE.md). The `UserPromptSubmit` reminder hook will surface this every turn while a WIP file exists.
 
+**Fill in the Implementation Approach section of the issue file as part of (or before) the first `🔧 impl:` commit** — real file paths, specific reusable symbols with `path:line`, executable verification steps. See [project/issues/TEMPLATE.md](../../../project/issues/TEMPLATE.md) for the schema.
+
+**After the first `🔧 impl:` commit, invoke the [`plan-verifier`](../../agents/plan-verifier.md) subagent** via the `Agent` tool. Inputs: the wip issue file path and the branch name. It returns a structured advisory verdict (APPROVE / WARN / BLOCK). Fix BLOCKs before continuing; address or justify WARNs in the Implementation Log. **Skip for trivial issues** (`docs`-only labels, typo/one-file fixes, or the user explicitly said "trivial") — invoke with the `trivial` flag instead, which short-circuits to APPROVE.
+
 ### 7. Report back
 
 Tell the user:
