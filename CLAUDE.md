@@ -42,12 +42,12 @@ Full taxonomy + decision flowchart + minimal examples: [docs/habitats.md](docs/h
 ## When performing code changes
 
 - Feature workflow and core rules: [project/CLAUDE.md](project/CLAUDE.md) (→ [FEATURE_WORKFLOW.md](project/FEATURE_WORKFLOW.md), [CODING_STANDARDS.md](project/CODING_STANDARDS.md))
-- Issue management and git conventions: [project/issues/CLAUDE.md](project/issues/CLAUDE.md) (→ [TEMPLATE.md](project/issues/TEMPLATE.md), [GIT_CONVENTIONS.md](project/issues/GIT_CONVENTIONS.md))
-- Documentation: [docs/CLAUDE.md](docs/CLAUDE.md) — docs ship in the same change as the code
+- Work tracking + knowledge: the **marcel-admin board** — a separate OKF-bundle repo at `$MARCEL_ADMIN_DIR` (default `~/projects/marcel-admin`). Conventions live in `$MARCEL_ADMIN_DIR/JIRA/CLAUDE.md`. Work is **Feature → Story → Subtask**; each feature links to a requirements page and ADRs. (The old in-repo `project/issues/` is retired — see [project/issues/CLAUDE.md](project/issues/CLAUDE.md); `closed/` stays as frozen history.)
+- Documentation: [docs/CLAUDE.md](docs/CLAUDE.md) — the developer/SDK reference (mkdocs); docs ship in the same change as the code. Working docs (requirements, ADRs) live on the board, not here.
 
 ## Subagents and skills
 
-- **Workflow skills** in [.claude/skills/](.claude/skills/): `/new-issue`, `/parallel-issue`, `/finish-issue`.
-- **Subagents** in [.claude/agents/](.claude/agents/): `pre-close-verifier` (invoked automatically by `/finish-issue`), `plan-verifier` (invoked by `/new-issue` at open→wip for non-trivial issues), `code-reviewer` (5-axis review with Marcel context), `security-auditor` (scoped to Marcel's real attack surface). Delegate file-heavy investigation to these rather than reading in the main context.
+- **Workflow skills** in [.claude/skills/](.claude/skills/): `/new-feature`, `/new-story`, `/new-adr`, `/finish-feature`, `/parallel-feature` — cross-repo wrappers around the marcel-admin board.
+- **Subagents** in [.claude/agents/](.claude/agents/): `pre-close-verifier` (invoked by `/finish-feature` before merge), `plan-verifier` (invoked by `/new-feature` to check the requirements + ADR + story breakdown are concrete), `code-reviewer` (5-axis review with Marcel context), `security-auditor` (scoped to Marcel's real attack surface). Delegate file-heavy investigation to these rather than reading in the main context.
 
 Runtime skills (what Marcel can *do* as an assistant — calendar, banking, news, …) live under `~/.marcel/skills/` and are unrelated to developer-mode work. See [docs/skills.md](docs/skills.md) if you need to touch them.
