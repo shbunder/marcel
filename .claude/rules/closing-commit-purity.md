@@ -1,47 +1,46 @@
-# Rule — ✅ close commit purity
+# Rule — cross-repo commit separation
 
-A closing commit (`✅ [ISSUE-{hash}] closed: ...`) is a **pure status marker**. It contains exactly:
+Work spans two repos: **code** lives in `marcel`, the **board** (tickets, status, requirements,
+ADRs) lives in `marcel-admin`. The two commit streams **never mix**.
 
-1. `git mv project/issues/wip/ISSUE-*.md project/issues/closed/ISSUE-*.md`
-2. `Status: Closed` change inside the file
-3. Task checkbox updates (`[ ]` → `[✓]`, `[⚒]` → `[✓]`)
-4. Implementation Log entry with the summary of work
-5. Reflection block from the `pre-close-verifier` subagent
-6. `## Lessons Learned` section filled in (written into the issue file before the commit)
+- **Code commits** (in `marcel`, on `feat/FEAT-…-slug`, prefixed `[STORY-…]`) contain source and
+  SDK-doc (`docs/`) changes — **nothing from the board**. No ticket files, no status flips, no
+  requirements/ADR edits.
+- **Board commits** (in `marcel-admin`, on `main`, prefixed `FEAT-…:` / `STORY-…:` / `ADR-…:`)
+  contain ticket/status/requirements/ADR/notes — **no source code**.
 
-And **nothing else**. No source code. No docs. No version bumps. No hotfixes. No whitespace cleanup. Nothing.
+There is **no code-side "close commit"**. A feature is marked done by flipping its status on the
+board (`jira set FEAT-… status Done`), committed in `marcel-admin`. That board status commit **is**
+the audit marker that the feature shipped.
 
-## If you discover something missing right before close
+## If you discover something missing right before merge
 
-Commit it as a **final** `🔧 [ISSUE-{hash}] impl: ...` on the feature branch. Then create the close commit. The history should read:
+Commit it in the repo it belongs to. Missing code → a final `[STORY-…] impl:` commit in `marcel`.
+Missing requirement/decision/status → a board commit in `marcel-admin`. Then merge the feature
+branch. The two histories stay readable independently:
 
 ```
-🔧 impl: first feature chunk
-🔧 impl: second chunk
-🔧 impl: final cleanup        ← the thing you just caught
-✅ closed: feature shipped     ← pure status marker (this file only)
+marcel (code):        [STORY-…] impl: first chunk → … → merge feat/FEAT-…-slug (FEAT-…)
+marcel-admin (board): FEAT-…: create … → STORY-…: … → FEAT-…: done — shipped
 ```
 
 ## Why
 
-The close commit is the audit signal that an issue is done. Mixing code into it:
-
-- Muddies the audit trail — `git blame` points at the close commit instead of the real change
-- Makes bisect less useful — "what changed" and "when we marked it done" should be two different commits
-- Hides pre-close shortcuts — a close commit that also modifies source code bypasses the verifier's "no code in close" sanity check
-
-## If you catch it after the fact
-
-If you already merged an impure close commit, fix it with a `🩹 fixup` commit on main. Do not rewrite history on a merged branch.
+Keeping the streams separate keeps both histories useful: `git blame`/`bisect` on the code repo
+point at real code changes, never at a status flip; and the board's history reads as a clean record
+of what was tracked and when, never polluted by source diffs. Mixing them muddies both.
 
 ## Common rationalizations
 
 | Excuse | Reality |
 |--------|---------|
-| "The change is one line, folding it into the close saves a commit" | The close is the audit marker. One line of code in it still breaks `git blame` and still skips the verifier's "no code in close" check. Make the extra `🔧 impl:` commit. |
-| "I'll just stage the issue file and trust my editor not to catch the other change" | Per [git-staging](./git-staging.md), staging is by name — so this path only exists if you deliberately typed the other file. Don't. |
-| "The pre-close-verifier will let it through, it's only a comment" | The verifier flags any diff outside `project/issues/`. Comments, whitespace, docs — all flagged. The rule is literal. |
+| "The status flip is one line, I'll fold it into the code merge" | It lives in a different repo. There is nothing to fold — `jira set` commits in `marcel-admin`. |
+| "I'll just `git add` the board file from the code repo" | The board is a separate working tree; you can't. Run the CLI / `git -C "$MARCEL_ADMIN_DIR"`. |
+| "A quick requirements tweak alongside the code is fine" | Requirements are board working docs. They ship as a board commit, not inside a `[STORY-…]` code commit. |
 
 ## Enforcement
 
-[.claude/agents/pre-close-verifier.md](../agents/pre-close-verifier.md) flags any close commit whose diff touches files outside `project/issues/`. The `/finish-issue` skill's Step 8 repeats the rule.
+[.claude/agents/pre-close-verifier.md](../agents/pre-close-verifier.md) flags any code commit on a
+feature branch whose diff touches board files, or any board commit that carries source. The
+`/finish-feature` skill keeps the merge (code) and the status flip (board) as separate commits in
+separate repos.

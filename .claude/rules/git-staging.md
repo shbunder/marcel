@@ -43,4 +43,4 @@ Use `git status` first to see the complete picture, then `git add` each file you
 
 ## Enforcement
 
-[.claude/agents/pre-close-verifier.md](../agents/pre-close-verifier.md) scans the branch's commits for broad-staging patterns and flags them. The `/new-issue` and `/finish-issue` skills repeat the rule inline for the same reason.
+[.claude/agents/pre-close-verifier.md](../agents/pre-close-verifier.md) scans the branch's commits for broad-staging patterns and flags them. The `/new-feature` and `/finish-feature` skills repeat the rule inline for the same reason — and it applies in **both** repos (code and the marcel-admin board).
