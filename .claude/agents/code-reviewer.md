@@ -22,7 +22,7 @@ Orient yourself on Marcel's architecture. Relevant facts — do not verify every
 ## Review dimensions
 
 ### 1. Correctness
-- Does the code implement the stated intent (check the linked issue file)?
+- Does the code implement the stated intent (check the feature + requirements page on the marcel-admin board)?
 - Are edge cases handled — empty inputs, missing keys, timeouts, concurrent access?
 - Does the diff include tests, and do the tests exercise the behavior (not just invoke it)?
 - For changes to `harness/`, `runner.py`, `executor.py`: are streaming and non-streaming paths both covered?

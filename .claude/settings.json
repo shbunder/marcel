@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "git branch --list 'issue/*' | sed 's/^/  /' | head -5 || true; if [ -z \"$(git branch --list 'issue/*')\" ]; then echo 'No active issue branches'; fi",
+            "command": "git branch --list 'feat/*' | sed 's/^/  /' | head -5 || true; if [ -z \"$(git branch --list 'feat/*')\" ]; then echo 'No active feature branches'; fi",
             "timeout": 2
           }
         ]
@@ -23,17 +23,6 @@
             "type": "command",
             "command": "python3 .claude/hooks/guard-restricted.py",
             "timeout": 3
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 .claude/hooks/issue-reminder.py",
-            "timeout": 2
           }
         ]
       }

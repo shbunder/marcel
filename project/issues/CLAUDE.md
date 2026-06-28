@@ -1,85 +1,33 @@
-# Issue Management
+# Issue tracking has moved to the marcel-admin board
 
-Issues are tracked as markdown files in this directory, versioned with git. No external tools or databases — just files, text, and consistent conventions.
+Marcel's project management no longer lives in this repo. It moved to the **marcel-admin board** — a
+separate repo (`$MARCEL_ADMIN_DIR`, default `~/projects/marcel-admin`) that is an
+[Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+bundle. Work is tracked there as **Feature → Story → Subtask**, with a requirements page and ADRs per
+feature.
 
-- **Template:** [TEMPLATE.md](./TEMPLATE.md) — copy this when writing an issue by hand. `/new-issue` fills it in automatically.
-- **Git conventions:** [GIT_CONVENTIONS.md](./GIT_CONVENTIONS.md) — commit sequence, staging rules, merging, fixups, useful queries.
+## Start work
 
-## Directory structure
+- `/new-feature "<title>"` — allocates the feature + requirements page on the board, prints the
+  `feat/FEAT-…-slug` branch to create here.
+- `/new-story FEAT-… "<title>"` — a unit of work under a feature.
+- `/new-adr FEAT-… "<decision>"` — record an architecture decision.
+- `/finish-feature` — verify, `make check`, merge `--no-ff`, flip the feature to `Done` on the board.
 
-```
-./project/issues/
-  open/    # Captured, branch not yet created (backlog) — lives on main
-  wip/     # On a feature branch, work in progress — ONLY exists on feature branches
-  closed/  # Completed or cancelled — reaches main via merge
-```
+Full conventions: `$MARCEL_ADMIN_DIR/JIRA/CLAUDE.md` and `$MARCEL_ADMIN_DIR/WIKI/CLAUDE.md`.
+Procedure: [../FEATURE_WORKFLOW.md](../FEATURE_WORKFLOW.md).
 
-`wip/` never appears on `main`. Active work is surfaced via `git branch --list 'issue/*'` (or `git worktree list` if using parallel agents).
+## What's left in this directory
 
-## File naming (new scheme — ISSUE-079 onward)
+- **`closed/`** — the frozen archive of the 130 legacy issues (`ISSUE-…`, old sequential + date+hash
+  schemes). **Read-only history.** `scripts/query_lessons.py` still mines it for `## Lessons Learned`.
+- **`open/ISSUE-…f5796b-…`** — one issue was mid-flight at the cutover (the kernel/channels refactor).
+  It finishes under the **old** flow on its own branch (which still carries the retired skills), then
+  this file and that residue can be removed.
 
-`ISSUE-{YYMMDD}-{hash}-{brief-title}.md` — e.g. `ISSUE-260415-a1b2c3-conversation-summary-hallucination.md`
+## Retired (do not reintroduce)
 
-- `{YYMMDD}` is the UTC creation date, for chronological `ls` ordering
-- `{hash}` is a 6-char random hex string generated at creation time (`python3 -c 'import secrets; print(secrets.token_hex(3))'`), collision-checked against existing files
-- `{brief-title}` is kebab-case, 3–5 words, no stop words
-- The short form `ISSUE-{hash}` is used in commit messages, code comments, and `[[...]]` wiki-links
-
-The self-generated hash prevents *counter collisions* when two agents create issues at the same time. For true parallel work (two Claude Code sessions editing the repo simultaneously), see "Parallel agents — git worktrees" in [GIT_CONVENTIONS.md](./GIT_CONVENTIONS.md): hash IDs alone aren't enough because two sessions in the same checkout share one `HEAD`. Use `/parallel-issue` to spin up an isolated worktree.
-
-Legacy issues (ISSUE-001 through ISSUE-078) use the old sequential counter and are NOT migrated. Treat them as read-only history.
-
-## Lifecycle
-
-1. **Create** via `/new-issue` — issue file written to `open/` on `main`, standalone `📝 [ISSUE-{hash}] created: ...` commit, then feature branch `issue/{hash}-{slug}` is created and checked out.
-2. **Start work** on the feature branch — first `🔧 impl:` commit moves the file from `open/` to `wip/`, fills in the `## Implementation Approach` section (files to modify, existing code to reuse with `path:line`, executable verification steps — schema in [TEMPLATE.md](./TEMPLATE.md)), and includes initial code changes. For non-trivial issues, invoke the [`plan-verifier`](../../.claude/agents/plan-verifier.md) subagent after that commit to check the plan is concrete.
-3. **Progress** — update task/subtask checkboxes; append to Implementation Log for any code changes. Multiple `🔧 impl:` commits are fine.
-4. **Close** via `/finish-issue` — moves file to `closed/` on the branch with `Status: Closed`, then `git merge --no-ff` back to main.
-
-Before closing, verify:
-- All tasks and subtasks show `[✓]`
-- Dependent issues are unblocked and notified
-- Implementation Log reflects all work done
-- All files that reference changed conventions are updated — check the zoo (`$MARCEL_ZOO_DIR`, default `~/.marcel/zoo/` — skills, integrations, channels, jobs, agents, `MARCEL.md`, `routing.yaml`), user skills (`~/.marcel/skills/`), other CLAUDE.md files, and docs. A `grep` for key terms from your changes is the fastest way to catch stragglers.
-
-**Closing is mandatory, not optional.** Every issue that reaches "code complete" must be formally closed in the same conversation. Use `/finish-issue` — it handles task status updates, implementation logging, verification, closure, and merging.
-
-**Guardrail:** Before ending any conversation where you committed `🔧 [ISSUE-{hash}] impl:` commits, check whether the feature branch has been merged. If not, close and merge now — or explicitly tell the user the branch remains open and why.
-
-## Updating issue files — use `issue-task`, not full rewrites
-
-For checkbox flips, status changes, and Implementation Log appends, use the structured CLI at [.claude/scripts/issue-task](../../.claude/scripts/issue-task). Modelled on Claude Code's `TodoWrite`: small subcommand calls cost tens of tokens; rewriting the whole markdown file via `Write` costs thousands.
-
-```bash
-.claude/scripts/issue-task --help                              # see all subcommands
-.claude/scripts/issue-task check "<unique substring>"          # [ ] or [⚒] → [✓]
-.claude/scripts/issue-task start "<unique substring>"          # [ ] → [⚒]
-.claude/scripts/issue-task status WIP                          # set Status: header
-.claude/scripts/issue-task log "<action>" --files a.py b.py    # append to ## Implementation Log
-.claude/scripts/issue-task add "<task description>"            # append a new task
-```
-
-The CLI auto-locates the single WIP file under `project/issues/wip/`. It fails loud (exit 3) when a regex matches multiple tasks rather than guessing. The [.claude/hooks/issue-reminder.py](../../.claude/hooks/issue-reminder.py) `UserPromptSubmit` hook surfaces this every turn while a WIP file exists. Reserve `Edit` for free-form prose (Description tweaks, Lessons Learned subsections); reserve `Write` for the brand-new issue file in `/new-issue`.
-
-## Commit format (quick reference)
-
-```
-📝 [ISSUE-{hash}] created: <description>   ← on main, standalone, issue file only
-🔧 [ISSUE-{hash}] impl: <description>      ← on branch, issue file + source code
-✅ [ISSUE-{hash}] closed: <summary>        ← on branch, standalone, status marker
-🩹 [ISSUE-{hash}] fixup: <correction>      ← on main after merge, trivial corrections
-```
-
-Full staging rules, multi-commit patterns, and merge commands are in [GIT_CONVENTIONS.md](./GIT_CONVENTIONS.md).
-
-## Common rationalizations (things you might try to skip)
-
-| Excuse | Reality |
-|--------|---------|
-| "This is too trivial to need an issue" | Anything beyond a one-line typo needs an issue. The `📝` commit IS the audit trail. |
-| "Tests can come in a follow-up PR" | Tests ship in the same closing commit as the code. No exceptions. |
-| "I'll update docs in a fixup later" | Docs ship in the last `🔧 impl:` before close, not in a `🩹 fixup`. Fixups are for typos, not missing docs. |
-| "The lessons-learned entry is optional" | It's not. `/finish-issue` Step 8 writes `## Lessons Learned` into the issue file before the close commit. |
-| "I can work directly on main for this one, it's quick" | No. Parallel-agent conflicts are the exact problem this workflow fixes. |
-| "I'll leave this `wip/` file around, I'll get back to it" | No. Close the issue or explicitly tell the user why it stays open. Invisible WIP debt accumulates silently. |
-| "I can combine the code change and the close commit" | No. `✅ close` is a pure status marker. Code changes go in `🔧 impl:` before it. |
+The `/new-issue` · `/finish-issue` · `/parallel-issue` skills, the `open/`→`wip/`→`closed/` lifecycle,
+the `issue-task` CLI, the `📝`/`🔧`/`✅`/`🩹` commit emojis, and `TEMPLATE.md` / `GIT_CONVENTIONS.md`
+are all retired. The board's `jira.py` (`check` / `note` / `set`) replaces `issue-task`; the cross-repo
+git conventions live in `$MARCEL_ADMIN_DIR/JIRA/CLAUDE.md`.
