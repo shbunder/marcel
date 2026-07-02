@@ -39,6 +39,11 @@ feature's **acceptance criteria** + **story list**, and each ADR's **decision ou
 The page must exist with real content (not just template placeholders):
 
 - **Missing, or every section still a `_placeholder_` → BLOCK.**
+- **Unresolved `[NEEDS CLARIFICATION: …]` markers** in the requirements page, feature file, or ADR
+  → **BLOCK.** A live marker means the writer flagged an under-specified requirement and has not
+  settled it — the plan is not ready to execute against. Count only *live* markers: a mention
+  wrapped in backticks or inside a ``` fenced block is documentation about the convention, not a
+  live marker. Run `python3 "$MARCEL_ADMIN_DIR/JIRA/jira.py" clarifications FEAT-…` to list them.
 - **Context & problem** states a real situation → ✓; empty/placeholder → WARN.
 - **Scenarios (Gherkin)** has at least one concrete `Given/When/Then` that names real behaviour → ✓;
   none, or only `Scenario: …` stubs → WARN.
@@ -62,11 +67,13 @@ For each architecture decision the feature forces:
   outcome → WARN.
 - Feature has zero stories but is non-trivial → WARN (break it down before coding).
 
-### 5. Scope sanity
+### 5. Traceability (scenario → story)
 
-Do the stories plausibly cover the requirements' scenarios? If a scenario describes Telegram
-behaviour but no story touches it, flag the gap. Spot-check 2–3 real paths named in the
-requirements/stories with `ls`/`Read` to confirm they exist (or sit in an existing directory).
+Build an explicit map: one row per Gherkin scenario in the requirements page → the story that covers
+it (or `ORPHAN` if none does). A scenario no story covers is a coverage gap → WARN on a non-trivial
+feature. Spot-check 2–3 real paths named in the requirements/stories with `ls`/`Read` to confirm they
+exist (or sit in an existing directory). Emit the map as the Traceability table in the report — it is
+the first half of the requirement→story→test chain that `pre-close-verifier` completes at merge.
 
 ## Output format
 
@@ -79,6 +86,7 @@ Return a single markdown report with this exact structure:
 
 ### Requirements page
 - Presence: present | missing/empty — <details>
+- Clarifications: none live | N unresolved — <list each live marker; BLOCK if any>
 - Context: stated | weak — <note>
 - Scenarios: N concrete — <note>
 - Requirements: N FR / N NFR — <note>
@@ -87,10 +95,12 @@ Return a single markdown report with this exact structure:
 - <ADR-… records the X decision (Accepted)> | <load-bearing choice X has no ADR — WARN> | none needed
 
 ### Story breakdown
-- N stories — <coverage vs scenarios; testability note>
+- N stories — <testability note>
 
-### Scope sanity
-- <gap between scenarios and stories> | none
+### Traceability (scenario → story)
+| Scenario | Covering story |
+|---|---|
+| <scenario title> | <STORY-… | **ORPHAN → WARN**> |
 
 ### Notes
 - <anything the writer should know but that doesn't block>
@@ -99,10 +109,14 @@ Return a single markdown report with this exact structure:
 ## Rules
 
 1. **Be advisory, not pedantic.** A WARN means "consider fixing this." Reserve BLOCK for a
-   missing/empty requirements page.
+   missing/empty requirements page **or an unresolved `[NEEDS CLARIFICATION]` marker** — both mean
+   the plan is not ready to execute.
 2. **Every finding needs a concrete suggestion.** "Scenarios are vague" is not useful; "Scenario
    'Configure a Cube' has no Then asserting an observable outcome" is.
 3. **Approve readily when the plan is solid.** Positive verdicts tell the writer what to repeat.
 4. **You cannot modify files.** Your only output is the report.
 5. **If invoked with the "trivial" flag**, return APPROVE with `### Notes: skipped — trivial feature`.
    Don't second-guess the classification.
+6. **Cite the principle.** When a finding maps to a Core principle (Lightweight / Generic /
+   Human-readable / Recoverable — see [CLAUDE.md](../../CLAUDE.md#core-principles)), name it, e.g.
+   "Core principle: Recoverable". It ties the finding to the standard it serves.

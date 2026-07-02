@@ -189,7 +189,7 @@ Harness turn ── reads ──► Skill habitats (SKILL.md in system prompt)
 
 The kernel wrappers in
 [`src/marcel_core/plugin/habitat.py`](https://github.com/shbunder/marcel/blob/main/src/marcel_core/plugin/habitat.py)
-([`ISSUE-5f4d34`](https://github.com/shbunder/marcel/blob/main/project/issues/closed/ISSUE-260422-5f4d34-habitat-protocol-orchestrator.md))
+(`ISSUE-5f4d34`, marcel-admin board archive)
 provide the uniform `Habitat` Protocol — `kind`, `name`, `source` — over
 all five kinds so discovery, logging, and admin tooling treat them
 uniformly.

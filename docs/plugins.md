@@ -149,7 +149,7 @@ broken toolkit without taking the rest of the install down.
 A toolkit's `toolkit.yaml` can declare one of two `isolation:` modes,
 controlling whether its Python code runs inside the kernel or in a
 separate OS process. This is the target architecture from
-[ISSUE-f60b09](https://github.com/shbunder/marcel/blob/main/project/issues/closed/ISSUE-260420-f60b09-uds-isolation-phase-1.md)
+`ISSUE-f60b09` (marcel-admin board archive)
 — Phase 1 shipped the mechanism, existing habitats still default to
 `inprocess`.
 
@@ -328,7 +328,7 @@ dispatched through the scheduler. That keeps two cases on one pipeline:
 
 The alternative imperative shape (a `register_scheduled(scheduler)`
 callback in `__init__.py`) was considered and rejected — see
-[ISSUE-82f52b](https://github.com/shbunder/marcel/blob/main/project/issues/closed/ISSUE-260418-82f52b-scheduled-jobs-from-habitats.md):
+`ISSUE-82f52b` (marcel-admin board archive):
 declarative data is auditable without import side effects, validates
 uniformly, and rolls back uniformly.
 

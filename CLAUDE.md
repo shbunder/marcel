@@ -20,10 +20,12 @@ Dev and prod both run as Docker containers on different ports: `make serve` brin
 
 ## Core principles
 
-- **Lightweight over bloated.** Marcel has no unnecessary dependencies. Every skill and integration must be self-contained and removable.
-- **Generic over specific.** A general extension point beats a hardcoded one-off. Prefer strong primitives.
-- **Human-readable over clever.** Error messages, logs, and responses are read by non-technical family members as often as by developers.
-- **Recoverable over fast.** Before any self-modification, commit current state to git. No change is worth an unrecoverable break.
+These four are Marcel's constitution — the standard every change is held to and the name every review cites. Refer to one by its **handle** (e.g. "Core principle: Recoverable"); the [`plan-verifier`](.claude/agents/plan-verifier.md) and [`pre-close-verifier`](.claude/agents/pre-close-verifier.md) name the relevant handle in their findings, and the [rules](.claude/rules/) enforce them mechanically.
+
+- **Lightweight** *(over bloated).* Marcel has no unnecessary dependencies. Every skill and integration must be self-contained and removable — the [toolkit-skill-pairs](.claude/rules/toolkit-skill-pairs.md) rule keeps each habitat shipping complete, never half.
+- **Generic** *(over specific).* A general extension point beats a hardcoded one-off. Prefer strong primitives.
+- **Human-readable** *(over clever).* Error messages, logs, and responses are read by non-technical family members as often as by developers.
+- **Recoverable** *(over fast).* Before any self-modification, commit current state to git. No change is worth an unrecoverable break — enforced by [self-modification](.claude/rules/self-modification.md) (the one legal restart path) and [debugging](.claude/rules/debugging.md) (a regression test ships with every fix).
 
 ## Habitat taxonomy (summary)
 
@@ -41,8 +43,8 @@ Full taxonomy + decision flowchart + minimal examples: [docs/habitats.md](docs/h
 
 ## When performing code changes
 
-- Feature workflow and core rules: [project/CLAUDE.md](project/CLAUDE.md) (→ [FEATURE_WORKFLOW.md](project/FEATURE_WORKFLOW.md), [CODING_STANDARDS.md](project/CODING_STANDARDS.md))
-- Work tracking + knowledge: the **marcel-admin board** — a separate OKF-bundle repo at `$MARCEL_ADMIN_DIR` (default `~/projects/marcel-admin`). Conventions live in `$MARCEL_ADMIN_DIR/JIRA/CLAUDE.md`. Work is **Feature → Story → Subtask**; each feature links to a requirements page and ADRs. (The old in-repo `project/issues/` is retired — see [project/issues/CLAUDE.md](project/issues/CLAUDE.md); `closed/` stays as frozen history.)
+- Feature workflow, coding standards, and versioning live on the **marcel-admin board** under `$MARCEL_ADMIN_DIR/WIKI/docs/` (`feature-workflow.md`, `coding-standards.md`, `versioning.md`). The enforceable single-concept rules live in [.claude/rules/](.claude/rules/) and auto-load each session.
+- Work tracking + knowledge: the **marcel-admin board** — a separate OKF-bundle repo at `$MARCEL_ADMIN_DIR` (default `~/projects/marcel-admin`). Conventions live in `$MARCEL_ADMIN_DIR/JIRA/CLAUDE.md`. Work is **Feature → Story → Subtask**; each feature links to a requirements page and ADRs. (The retired in-repo `project/issues/` is archived read-only at `$MARCEL_ADMIN_DIR/JIRA/archive/`.)
 - Documentation: [docs/CLAUDE.md](docs/CLAUDE.md) — the developer/SDK reference (mkdocs); docs ship in the same change as the code. Working docs (requirements, ADRs) live on the board, not here.
 
 ## Subagents and skills

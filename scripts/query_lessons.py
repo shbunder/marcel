@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """
-Search lessons learned across all closed issue files.
+Search lessons learned across the archived issue files.
 
-Greps the ## Lessons Learned section of every closed issue for the given
+Greps the ## Lessons Learned section of every archived issue for the given
 keywords, scores by hit count, and prints matches sorted by date (most
 recent first).
+
+The archive lives on the marcel-admin board — the legacy ISSUE-… files were
+migrated out of this repo's old project/issues/closed/ into
+`$MARCEL_ADMIN_DIR/JIRA/archive/` (default ~/projects/marcel-admin). This
+script reads them from there.
 
 Usage:
     python scripts/query_lessons.py <keyword> [keyword ...]
@@ -19,18 +24,20 @@ total hit count across all keywords.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).parent.parent
-CLOSED_DIR = REPO_ROOT / 'project' / 'issues' / 'closed'
+# The legacy issue archive lives on the marcel-admin board, not in this repo.
+ADMIN_DIR = Path(os.environ.get('MARCEL_ADMIN_DIR') or (Path.home() / 'projects' / 'marcel-admin'))
+CLOSED_DIR = ADMIN_DIR / 'JIRA' / 'archive'
 
-# Legacy files that predate per-issue sections — searched as a fallback
+# Legacy global lessons files that predate per-issue sections — searched as a fallback
 LEGACY_FILES = [
-    REPO_ROOT / 'project' / 'lessons-learned.md',
-    REPO_ROOT / 'project' / 'lessons-learned-archive.md',
+    ADMIN_DIR / 'lessons-learned.md',
+    ADMIN_DIR / 'lessons-learned-archive.md',
 ]
 
 # Matches new-style filenames: ISSUE-260416-a7085c-slug.md
@@ -96,7 +103,7 @@ def score_text(text: str, keywords: list[str]) -> int:
 
 def search_issue_files(keywords: list[str], since: date | None) -> list[Match]:
     matches: list[Match] = []
-    for path in sorted(CLOSED_DIR.glob('*.md')):
+    for path in sorted(CLOSED_DIR.glob('ISSUE-*.md')):
         text = path.read_text(encoding='utf-8')
         m = LESSONS_SECTION_RE.search(text)
         if not m:

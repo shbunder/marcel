@@ -7,7 +7,7 @@ When something is broken — a failing test, a 500 from a route, a skill returni
 1. **Reproduce.** Get the bug to happen reliably, on demand. If you cannot reproduce it, you cannot fix it; you can only guess. Capture the exact command, input, and expected-vs-actual output.
 2. **Localize.** Narrow the failure to one function, one call site, or one commit. Use `git bisect`, `pytest -k`, log statements, or a debugger — whichever is fastest for *this* bug. The goal is a single place to stare at, not a neighbourhood.
 3. **Reduce.** Shrink the repro to the smallest input that still fails. A three-line test beats a full integration run every time; a minimal repro often reveals the cause on its own.
-4. **Fix.** Change the code. Per [CODING_STANDARDS.md](../../project/CODING_STANDARDS.md) (Tests), the minimal repro from step 3 becomes a failing test *before* you touch production code.
+4. **Fix.** Change the code. Per the Marcel coding standards (`$MARCEL_ADMIN_DIR/WIKI/docs/coding-standards.md`, Tests), the minimal repro from step 3 becomes a failing test *before* you touch production code.
 5. **Guard.** Leave the regression test in place. If the bug revealed a class of problems wider than the single failure — e.g. unchecked `None`, missing timeout, silent swallow — add an assertion, type narrowing, or log so the next instance fails loud instead of quiet.
 
 ## Never

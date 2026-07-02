@@ -251,9 +251,9 @@ or a future SMS channel.
 Channel habitats today run **in-process** — the kernel imports each
 habitat's `__init__.py` and shares its Python heap. Phases 1 + 2 of
 the UDS isolation story
-([ISSUE-f60b09](https://github.com/shbunder/marcel/blob/main/project/issues/closed/ISSUE-260420-f60b09-uds-isolation-phase-1.md)
+(`ISSUE-f60b09`
 and
-[ISSUE-14b034](https://github.com/shbunder/marcel/blob/main/project/issues/closed/ISSUE-260422-14b034-zoo-integrations-to-uds.md))
+`ISSUE-14b034`)
 landed UDS for the toolkit kind. Channel UDS is architecturally the
 most complex piece because channels are **bidirectional**:
 
@@ -267,7 +267,7 @@ most complex piece because channels are **bidirectional**:
   through the same habitat. Habitat → kernel → habitat, recursively.
 
 What follows is the design shipped under
-[ISSUE-931b3f](https://github.com/shbunder/marcel/blob/main/project/issues/closed/ISSUE-260422-931b3f-channels-and-jobs-to-uds.md);
+`ISSUE-931b3f` (marcel-admin board archive);
 the kernel implementation + Telegram migration are carved out to a
 follow-up **(Phase 3a)**.
 
@@ -507,8 +507,7 @@ Default stays `inprocess` — operators opt in per habitat.
 
 This design ships in this issue; the kernel implementation + Telegram
 migration are carved out to a separate follow-up that references this
-section as its starting point. See
-[`project/issues/open/`](https://github.com/shbunder/marcel/tree/main/project/issues/open/)
+section as its starting point. See the **marcel-admin** board
 for the active queue.
 
 Until the follow-up ships, channel habitats are in-process and must

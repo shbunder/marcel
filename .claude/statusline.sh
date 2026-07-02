@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Claude Code status line for Marcel.
 # Reads session JSON on stdin (per Claude Code statusLine protocol),
-# emits a single compact line: branch • uncommitted • wip-issues • active-issue • safety-flag.
+# emits a single compact line: branch • active-feature • uncommitted • safety-flag.
 
 set -uo pipefail
 
@@ -17,15 +17,19 @@ BRANCH="$(git branch --show-current 2>/dev/null)"
 BRANCH="${BRANCH:-detached}"
 
 UNCOMMITTED="$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
-WIP_ISSUES="$(ls project/issues/wip/ISSUE-*.md 2>/dev/null | wc -l | tr -d ' ')"
 
-# Active issue (if current branch encodes one as issue/<hash>-<slug>)
-ACTIVE_ISSUE=""
+# Active work id parsed from the branch name:
+#   feat/FEAT-YYMMDD-hash-slug → FEAT-YYMMDD-hash   (marcel-admin board flow)
+#   issue/<hash>-slug          → ISSUE-<hash>        (retired flow; lingering branches only)
+ACTIVE=""
 case "$BRANCH" in
+  feat/FEAT-*)
+    ACTIVE=" • $(printf '%s' "${BRANCH#feat/}" | cut -d- -f1-3)"
+    ;;
   issue/*)
     HASH="${BRANCH#issue/}"
     HASH="${HASH%%-*}"
-    ACTIVE_ISSUE=" • ISSUE-${HASH}"
+    ACTIVE=" • ISSUE-${HASH}"
     ;;
 esac
 
@@ -40,9 +44,4 @@ if [ "$UNCOMMITTED" -gt 0 ]; then
   DIRTY=" • ${UNCOMMITTED}✎"
 fi
 
-WIP=""
-if [ "$WIP_ISSUES" -gt 0 ]; then
-  WIP=" • ${WIP_ISSUES} wip"
-fi
-
-printf '🦒 %s%s%s%s%s\n' "$BRANCH" "$ACTIVE_ISSUE" "$DIRTY" "$WIP" "$SAFETY"
+printf '🦒 %s%s%s%s\n' "$BRANCH" "$ACTIVE" "$DIRTY" "$SAFETY"

@@ -55,13 +55,23 @@ do the rows that mention `pre-close-verifier`. In particular check
 [closing-commit-purity](../rules/closing-commit-purity.md): **no code commit on this branch may touch
 board files**, and the diff must carry no ticket/status edits.
 
-### 3. Coverage check
+### 3. Traceability (acceptance criterion → test)
 
-For the feature's acceptance criteria and every story's acceptance criteria + subtasks:
-- Does the diff contain work that addresses it? Name the specific file and function.
+Build an explicit matrix: one row per feature/story acceptance criterion (and per Gherkin scenario in
+the requirements page) → the implementing file/function, and the test that asserts it
+(`path::test_name`), or `NONE`.
+
+- A criterion whose behaviour has **no backing test → REQUEST CHANGES.** A criterion is not "done"
+  until a test proves it; this is the teeth of the requirement→story→test chain that `plan-verifier`
+  began with its scenario→story map.
 - A criterion ticked on the board but absent from the diff → the writer is mistaken (flag it).
 - Work present in the diff but its criterion un-ticked → the writer forgot to update the board.
 - A story still `In Progress`/`Backlog` whose work the writer claims is done → flag the mismatch.
+
+Emit the matrix as the Traceability section of the report. `/finish-feature` records it in the
+feature's Reflection note, so it becomes the durable scenario→test map for the shipped feature.
+Exempt criteria that genuinely have nothing to unit-test (pure agent-instruction / doc prose) by
+marking the test cell `by inspection` with a one-line why — do not let that become a blanket excuse.
 
 ### 4. Shortcut hunt
 
@@ -89,11 +99,11 @@ Scan the new code for these patterns. Do not rationalize them away:
 ### 6. Straggler grep
 
 When conventions change, convention-referencing files drift across `~/.marcel/` (the zoo checkout),
-`docs/`, `project/`, `.claude/`, and the board (`$MARCEL_ADMIN_DIR`). Extract the key terms from the
+`docs/`, `.claude/`, and the board (`$MARCEL_ADMIN_DIR`). Extract the key terms from the
 diff (command strings, format strings, renamed symbols, new flags, branch/commit format) and grep:
 
 ```bash
-grep -rn "<term>" ~/.marcel/ docs/ project/ .claude/ "$MARCEL_ADMIN_DIR"
+grep -rn "<term>" ~/.marcel/ docs/ .claude/ "$MARCEL_ADMIN_DIR"
 ```
 
 For every match outside the files the writer changed, ask: does this reference still describe the new
@@ -123,8 +133,10 @@ Return a single markdown report with this exact structure:
 
 **Verdict:** APPROVE | REQUEST CHANGES
 
-### Coverage
-- N/M acceptance criteria addressed. <details for any unmet>
+### Traceability (acceptance criterion → test)
+| Criterion | Implemented in | Test |
+|---|---|---|
+| <criterion or scenario> | <file::func> | <path::test_name \| `by inspection: …` \| **NONE → REQUEST CHANGES**> |
 
 ### Shortcuts found
 - <file:line> — <what and why> | none
@@ -154,3 +166,6 @@ Return a single markdown report with this exact structure:
 4. **If you are uncertain whether something is a shortcut, ask.** A clarifying question beats a wrong
    flag.
 5. **You cannot modify files.** Your only output is the report.
+6. **Cite the principle.** When a finding maps to a Core principle (Lightweight / Generic /
+   Human-readable / Recoverable — see [CLAUDE.md](../../CLAUDE.md#core-principles)), name it, e.g.
+   "Core principle: Recoverable". It ties the finding to the standard it serves.

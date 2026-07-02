@@ -47,7 +47,17 @@ python3 "$JIRA" new-adr FEAT-… "<short decision title>"
 
 Fill the MADR template (Context, Drivers, Considered options, Decision outcome, Consequences) in `$ADMIN/WIKI/decisions/ADR-…-slug.md`, then `python3 "$JIRA" set ADR-… status Accepted` once decided. The CLI appends the ADR id to the feature's `decisions:` list. Skip if the feature introduces no new architecture decision.
 
-### 5. Commit the ticket + docs in marcel-admin (NOT the code repo)
+### 5. Resolve clarifications *(the clarify gate)*
+
+The requirements you just wrote may carry `[NEEDS CLARIFICATION: …]` markers wherever something was under-specified. Settle them **now** — a feature cannot leave `Backlog` while any marker is live (`jira set` refuses the status flip and `plan-verifier` BLOCKs).
+
+```bash
+python3 "$JIRA" clarifications FEAT-…      # lists live markers; exit 1 while any remain
+```
+
+For each marker: ask the user the question, settle it, then **delete the marker from the requirements prose and log the question + answer under the page's `## Clarifications` section**. Re-run until it reports none. A genuinely deferred question is not a marker — move it to `## Out of scope` or leave it under `## Open questions` instead.
+
+### 6. Commit the ticket + docs in marcel-admin (NOT the code repo)
 
 ```bash
 git -C "$ADMIN" add JIRA/features/FEAT-….md WIKI/requirements/FEAT-….md WIKI/decisions/ADR-*.md log.md
@@ -56,7 +66,7 @@ git -C "$ADMIN" commit -m "FEAT-…: create <slug> — feature, requirements, AD
 
 `marcel-admin` stays on `main` (it is the board). Ticket/doc edits never go into code commits.
 
-### 6. Create the feature branch in the code repo
+### 7. Create the feature branch in the code repo
 
 ```bash
 git checkout -b "feat/FEAT-…-slug"
@@ -64,10 +74,10 @@ git checkout -b "feat/FEAT-…-slug"
 
 All of this feature's stories are implemented on this one branch. The first code commit is prefixed `[STORY-…]` (create stories with `/new-story` first).
 
-### 7. Verify the plan is concrete *(skip for trivial features)*
+### 8. Verify the plan is concrete *(skip for trivial features)*
 
-Invoke the [`plan-verifier`](../../agents/plan-verifier.md) subagent via the `Agent` tool. Inputs: the requirements page path, the feature file path, and the ADR path(s). It checks that the requirements + decision are concrete enough to execute against and returns an advisory verdict (APPROVE / WARN / BLOCK). Fix BLOCKs; address or justify WARNs. Skip for docs-only or one-file features.
+Invoke the [`plan-verifier`](../../agents/plan-verifier.md) subagent via the `Agent` tool. Inputs: the requirements page path, the feature file path, and the ADR path(s). It checks that the requirements + decision are concrete enough to execute against and returns an advisory verdict (APPROVE / WARN / BLOCK). It **BLOCKs on any surviving `[NEEDS CLARIFICATION]` marker**, so make sure step 5 left none. Fix BLOCKs; address or justify WARNs. Skip for docs-only or one-file features.
 
-### 8. Report back
+### 9. Report back
 
 Tell the user: the `FEAT-…` id, the branch name, the requirements + ADR paths, and the acceptance criteria you wrote — so they can confirm scope before stories are broken out with `/new-story FEAT-… "…"`.
