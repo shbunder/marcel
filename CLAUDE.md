@@ -20,10 +20,12 @@ Dev and prod both run as Docker containers on different ports: `make serve` brin
 
 ## Core principles
 
-- **Lightweight over bloated.** Marcel has no unnecessary dependencies. Every skill and integration must be self-contained and removable.
-- **Generic over specific.** A general extension point beats a hardcoded one-off. Prefer strong primitives.
-- **Human-readable over clever.** Error messages, logs, and responses are read by non-technical family members as often as by developers.
-- **Recoverable over fast.** Before any self-modification, commit current state to git. No change is worth an unrecoverable break.
+These four are Marcel's constitution — the standard every change is held to and the name every review cites. Refer to one by its **handle** (e.g. "Core principle: Recoverable"); the [`plan-verifier`](.claude/agents/plan-verifier.md) and [`pre-close-verifier`](.claude/agents/pre-close-verifier.md) name the relevant handle in their findings, and the [rules](.claude/rules/) enforce them mechanically.
+
+- **Lightweight** *(over bloated).* Marcel has no unnecessary dependencies. Every skill and integration must be self-contained and removable — enforced when integrations ship complete via [integration-pairs](.claude/rules/integration-pairs.md).
+- **Generic** *(over specific).* A general extension point beats a hardcoded one-off. Prefer strong primitives.
+- **Human-readable** *(over clever).* Error messages, logs, and responses are read by non-technical family members as often as by developers.
+- **Recoverable** *(over fast).* Before any self-modification, commit current state to git. No change is worth an unrecoverable break — enforced by [self-modification](.claude/rules/self-modification.md) (the one legal restart path) and [debugging](.claude/rules/debugging.md) (a regression test ships with every fix).
 
 ## Habitat taxonomy (summary)
 

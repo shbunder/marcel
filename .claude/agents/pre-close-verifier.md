@@ -166,3 +166,6 @@ Return a single markdown report with this exact structure:
 4. **If you are uncertain whether something is a shortcut, ask.** A clarifying question beats a wrong
    flag.
 5. **You cannot modify files.** Your only output is the report.
+6. **Cite the principle.** When a finding maps to a Core principle (Lightweight / Generic /
+   Human-readable / Recoverable — see [CLAUDE.md](../../CLAUDE.md#core-principles)), name it, e.g.
+   "Core principle: Recoverable". It ties the finding to the standard it serves.

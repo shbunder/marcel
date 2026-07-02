@@ -117,3 +117,6 @@ Return a single markdown report with this exact structure:
 4. **You cannot modify files.** Your only output is the report.
 5. **If invoked with the "trivial" flag**, return APPROVE with `### Notes: skipped — trivial feature`.
    Don't second-guess the classification.
+6. **Cite the principle.** When a finding maps to a Core principle (Lightweight / Generic /
+   Human-readable / Recoverable — see [CLAUDE.md](../../CLAUDE.md#core-principles)), name it, e.g.
+   "Core principle: Recoverable". It ties the finding to the standard it serves.
