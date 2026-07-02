@@ -84,7 +84,7 @@ When you cannot delegate, run the same checks inline using [.claude/agents/pre-c
 ### 7. Straggler grep + Lessons
 
 ```bash
-grep -rn "<key term>" "$ADMIN/WIKI" "$ADMIN/JIRA" .claude/ docs/ project/ ~/.marcel/ 2>/dev/null
+grep -rn "<key term>" "$ADMIN/WIKI" "$ADMIN/JIRA" .claude/ docs/ ~/.marcel/ 2>/dev/null
 ```
 
 for convention names / symbols you changed; update any stragglers (as code commits in marcel, or doc commits in marcel-admin, whichever repo they live in). Append a **Lessons** note to the feature (`python3 "$JIRA" note FEAT-… "Lessons: …"`).

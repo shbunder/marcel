@@ -70,7 +70,7 @@ the two-habitat pattern that most real features use.
 ## Back-compat
 
 During Phases 1–4 of the five-habitat-taxonomy migration
-([ISSUE-3c1534](../../project/issues/closed/ISSUE-260422-3c1534-five-habitat-taxonomy.md))
+(ISSUE-3c1534 — archived at `$MARCEL_ADMIN_DIR/JIRA/archive/ISSUE-260422-3c1534-five-habitat-taxonomy.md`)
 the kernel still accepts both `@register(...)` and the legacy
 `integration.yaml` filename as aliases. Phase 5 drops them. New code
 should always use `@marcel_tool` and `toolkit.yaml`.

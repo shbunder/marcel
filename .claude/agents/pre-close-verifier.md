@@ -99,11 +99,11 @@ Scan the new code for these patterns. Do not rationalize them away:
 ### 6. Straggler grep
 
 When conventions change, convention-referencing files drift across `~/.marcel/` (the zoo checkout),
-`docs/`, `project/`, `.claude/`, and the board (`$MARCEL_ADMIN_DIR`). Extract the key terms from the
+`docs/`, `.claude/`, and the board (`$MARCEL_ADMIN_DIR`). Extract the key terms from the
 diff (command strings, format strings, renamed symbols, new flags, branch/commit format) and grep:
 
 ```bash
-grep -rn "<term>" ~/.marcel/ docs/ project/ .claude/ "$MARCEL_ADMIN_DIR"
+grep -rn "<term>" ~/.marcel/ docs/ .claude/ "$MARCEL_ADMIN_DIR"
 ```
 
 For every match outside the files the writer changed, ask: does this reference still describe the new

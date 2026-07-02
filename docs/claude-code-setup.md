@@ -127,22 +127,21 @@ The status line shows `🔓 unlocked` for as long as the flag is present. The fl
 [.claude/statusline.sh](https://github.com/shbunder/marcel/blob/main/.claude/statusline.sh) renders a compact line at the bottom of every Claude Code session:
 
 ```
-🦒 issue/999fa7-claude-code-setup-hardening • ISSUE-999fa7 • 3✎ • 1 wip • 🔓 unlocked
+🦒 feat/FEAT-260702-8c77d1-tighten-spec-driven-lifecycle • FEAT-260702-8c77d1 • 3✎ • 🔓 unlocked
 ```
 
 Fields (all optional — omitted when empty):
 
 - Branch (always shown)
-- `ISSUE-<hash>` — parsed from the branch name when it matches `issue/<hash>-<slug>`
+- Active work id parsed from the branch — `FEAT-<date>-<hash>` from `feat/FEAT-…-slug` (the marcel-admin board flow), or `ISSUE-<hash>` from a lingering `issue/<hash>-<slug>` branch
 - `N✎` — uncommitted-file count
-- `N wip` — issue files currently under `project/issues/wip/`
 - `🔓 unlocked` — the safety flag is present
 
 ## Permission allowlist
 
 [.claude/settings.local.json](https://github.com/shbunder/marcel/blob/main/.claude/settings.local.json) is per-machine (gitignored) and holds the broad permission allowlist. Keep it small — every entry is a thing the harness runs without asking. The canonical baseline lives in the issue history for `ISSUE-999fa7`; grow it from there only when you notice yourself approving the same command repeatedly.
 
-**Do not add narrow one-shot entries** like `Bash(ls project/issues/closed/ISSUE-070*)` — those were the archaeology that triggered this cleanup. Prefer a broad rule (`Bash(git log:*)`) over twenty specific ones.
+**Do not add narrow one-shot entries** like `Bash(ls .claude/skills/new-feature/*)` — those were the archaeology that triggered this cleanup. Prefer a broad rule (`Bash(git log:*)`) over twenty specific ones.
 
 ## Lessons learned
 

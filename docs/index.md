@@ -47,6 +47,6 @@ Every change to Marcel must uphold these principles (see [CLAUDE.md](https://git
 
 ## Contributing
 
-Contributions follow the feature development procedure in [project/CLAUDE.md](https://github.com/shbunder/marcel/blob/main/project/CLAUDE.md): capture the request, create an issue, implement, test, document, ship. Coding conventions are in [project/CODING_STANDARDS.md](https://github.com/shbunder/marcel/blob/main/project/CODING_STANDARDS.md).
+Contributions follow the feature development procedure tracked on the **marcel-admin board** (the separate project-management repo): capture the request, create a feature and its requirements page, implement on a feature branch, test, document, ship. The workflow conventions live in the board's `JIRA/CLAUDE.md`; the step-by-step procedure and Marcel-specific coding standards are in the board's `WIKI/docs/` (`feature-workflow.md`, `coding-standards.md`).
 
 Documentation is non-optional — every shipped feature gets a doc page or section update in the same change. See [docs/CLAUDE.md](https://github.com/shbunder/marcel/blob/main/docs/CLAUDE.md) for documentation standards.
