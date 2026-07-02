@@ -76,6 +76,11 @@ to compile against.
 Write tests derived from the story acceptance criteria, not from the implementation. Tests go in
 `tests/` and cover all reachable code paths. `make test` — they should be red at this point.
 
+**Every acceptance criterion should map to a test.** At merge, `pre-close-verifier` builds a
+criterion→test traceability matrix and returns REQUEST CHANGES for any criterion with no backing test
+(criteria that are pure agent-instruction/doc prose are marked `by inspection` instead). That matrix
+is recorded in the feature's Reflection note — the durable record that requirements were met.
+
 > For small changes: write tests alongside the implementation instead of before.
 
 ## Step 7 — Implement

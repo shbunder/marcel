@@ -67,11 +67,13 @@ For each architecture decision the feature forces:
   outcome → WARN.
 - Feature has zero stories but is non-trivial → WARN (break it down before coding).
 
-### 5. Scope sanity
+### 5. Traceability (scenario → story)
 
-Do the stories plausibly cover the requirements' scenarios? If a scenario describes Telegram
-behaviour but no story touches it, flag the gap. Spot-check 2–3 real paths named in the
-requirements/stories with `ls`/`Read` to confirm they exist (or sit in an existing directory).
+Build an explicit map: one row per Gherkin scenario in the requirements page → the story that covers
+it (or `ORPHAN` if none does). A scenario no story covers is a coverage gap → WARN on a non-trivial
+feature. Spot-check 2–3 real paths named in the requirements/stories with `ls`/`Read` to confirm they
+exist (or sit in an existing directory). Emit the map as the Traceability table in the report — it is
+the first half of the requirement→story→test chain that `pre-close-verifier` completes at merge.
 
 ## Output format
 
@@ -93,10 +95,12 @@ Return a single markdown report with this exact structure:
 - <ADR-… records the X decision (Accepted)> | <load-bearing choice X has no ADR — WARN> | none needed
 
 ### Story breakdown
-- N stories — <coverage vs scenarios; testability note>
+- N stories — <testability note>
 
-### Scope sanity
-- <gap between scenarios and stories> | none
+### Traceability (scenario → story)
+| Scenario | Covering story |
+|---|---|
+| <scenario title> | <STORY-… | **ORPHAN → WARN**> |
 
 ### Notes
 - <anything the writer should know but that doesn't block>

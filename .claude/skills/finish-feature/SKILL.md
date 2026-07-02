@@ -73,7 +73,11 @@ Agent(
 )
 ```
 
-Fix every Critical/Important finding (as `[STORY-…]` commits) before merging. Record the verdict as a **Reflection** note on the feature (`python3 "$JIRA" note FEAT-… "Reflection (pre-close-verifier): verdict …; shortcuts …; scope drift …; stragglers …"`).
+Fix every Critical/Important finding (as `[STORY-…]` commits) before merging. Record the verdict as a **Reflection** note on the feature, and capture the verifier's **traceability matrix** (each acceptance criterion → the test that proves it) in that note — it is the durable record that the feature's requirements were actually met:
+
+```bash
+python3 "$JIRA" note FEAT-… "Reflection (pre-close-verifier): verdict …; traceability (criterion → test): …; shortcuts …; scope drift …; stragglers …"
+```
 
 When you cannot delegate, run the same checks inline using [.claude/agents/pre-close-verifier.md](../../agents/pre-close-verifier.md) as the checklist.
 
