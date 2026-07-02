@@ -134,7 +134,7 @@ the field.
 ## Dispatch types
 
 Every job declares **how** its work runs via `dispatch_type`
-([ISSUE-ea6d47](https://github.com/shbunder/marcel/blob/main/project/issues/closed/ISSUE-260422-ea6d47-jobs-trigger-type.md)).
+(`ISSUE-ea6d47`, marcel-admin board archive).
 The field defaults to `agent`, so every pre-existing `JOB.md` /
 `template.yaml` keeps working unchanged.
 
@@ -197,7 +197,7 @@ fire functions based on `dispatch_type`:
   timeout, runs it against the templated task.
 - `_fire_agent_job` (default) — the **headless agent turn** described
   below. This is the only path that uses the full model-fallback chain
-  ([ISSUE-076](https://github.com/shbunder/marcel/blob/main/project/issues/closed/))
+  (`ISSUE-076`)
   with per-tier backoff and local-LLM fallback.
 
 Post-run bookkeeping (`consecutive_errors`, `save_job`,

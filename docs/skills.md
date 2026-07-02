@@ -8,7 +8,7 @@ Marcel exposes two primary tools to the agent:
 
 1. **`toolkit`** — call registered handlers (iCloud, HTTP APIs, shell
    commands). The `integration` name is still accepted as a back-compat
-   alias during Phases 1–4 of [ISSUE-3c1534](https://github.com/shbunder/marcel/blob/main/project/issues/closed/ISSUE-260422-3c1534-five-habitat-taxonomy.md).
+   alias during Phases 1–4 of `ISSUE-3c1534` (marcel-admin board archive).
 2. **`marcel`** — internal utilities: `read_skill`, `read_skill_resource`,
    `search_memory`, `search_conversations`, `compact`, `notify`.
 
