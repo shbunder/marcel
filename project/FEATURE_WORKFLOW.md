@@ -34,6 +34,12 @@ implementation detail. Before continuing: read existing related code, check for 
 integration, and identify where the change belongs (skill, integration, config, core). If the
 request is vague or conflicts with the architecture, ask rather than guess.
 
+When a requirement is under-specified and you cannot settle it yet, **mark the gap** with an inline
+`[NEEDS CLARIFICATION: …]` in the requirements page rather than recording a guess as fact. The
+feature cannot leave `Backlog` while any marker is live — `/new-feature` surfaces them (step 5) and
+both `jira set` and `plan-verifier` refuse to let it advance — so resolve each (settle it, delete the
+marker, log the answer under the page's `## Clarifications` section) before the feature moves on.
+
 > Always do this.
 
 ## Step 3 — Create a feature
