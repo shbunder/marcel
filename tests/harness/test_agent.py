@@ -186,11 +186,23 @@ class TestAvailableToolNames:
 def _registered_tool_names(agent) -> set[str]:
     """Introspect the tool names registered on a pydantic-ai Agent.
 
-    Uses ``_function_toolset.tools`` — not part of pydantic-ai's public API
-    but stable enough for test assertions. If this breaks on upgrade, the
-    fix is a one-liner.
+    Marcel builds a ``FunctionToolset``, wraps it in ``MarcelBusToolset``
+    (the event-bus interception layer), and passes it via ``toolsets=``.
+    Unwrap each toolset to its underlying ``FunctionToolset`` and read
+    ``.tools``. Not part of pydantic-ai's public API but stable enough for
+    test assertions; kept in one helper so a pydantic-ai bump touches one
+    place.
     """
-    return set(agent._function_toolset.tools.keys())
+    from pydantic_ai.toolsets import FunctionToolset, WrapperToolset
+
+    names: set[str] = set()
+    for toolset in agent.toolsets:
+        current = toolset
+        while isinstance(current, WrapperToolset):
+            current = current.wrapped
+        if isinstance(current, FunctionToolset):
+            names |= set(current.tools.keys())
+    return names
 
 
 class TestToolFilter:

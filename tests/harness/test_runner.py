@@ -1204,3 +1204,72 @@ class TestStreamTurnWithHistory:
                 pass
 
         assert captured_history[0] == []
+
+
+class TestStreamTurnEventBus:
+    """The lifecycle event bus is wired into stream_turn (F0.2)."""
+
+    @pytest.mark.asyncio
+    async def test_emits_lifecycle_events_in_order(self, tmp_path, monkeypatch):
+        """A real stream_turn fires each stream_turn-level lifecycle event
+        once, in order (session_start → input → before_agent_start →
+        before_provider_request → agent_end)."""
+        from marcel_sdk.events import EventBus
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        recorded: list[str] = []
+        real_emit = EventBus.emit
+
+        async def spy_emit(self, event, ctx):
+            recorded.append(event.NAME)
+            return await real_emit(self, event, ctx)
+
+        monkeypatch.setattr(EventBus, 'emit', spy_emit)
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', return_value=_make_mock_agent(['Hi'])):
+            _ = [e async for e in stream_turn('shaun', 'cli', 'hello', 'conv-1')]
+
+        assert recorded == [
+            'session_start',
+            'input',
+            'before_agent_start',
+            'before_provider_request',
+            'agent_end',
+        ]
+
+    @pytest.mark.asyncio
+    async def test_before_agent_start_can_rewrite_system_prompt(self, tmp_path, monkeypatch):
+        """A before_agent_start handler mutating the system prompt is honoured —
+        the rewritten prompt reaches create_marcel_agent."""
+        from marcel_sdk.events import BeforeAgentStartEvent
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        # Inject a handler into every bus created this turn.
+        real_register = None
+        from marcel_core.harness import runner as runner_mod
+
+        real_register = runner_mod.register_core_handlers
+
+        def register_with_injection(bus):
+            real_register(bus)
+            bus.on(
+                BeforeAgentStartEvent.NAME,
+                lambda e, c: setattr(e, 'system_prompt', e.system_prompt + '\n[INJECTED]'),
+            )
+
+        monkeypatch.setattr(runner_mod, 'register_core_handlers', register_with_injection)
+
+        captured: list[str] = []
+
+        def _capture_create(*args, **kwargs):
+            captured.append(kwargs.get('system_prompt', args[1] if len(args) > 1 else ''))
+            return _make_mock_agent(['ok'])
+
+        monkeypatch.setattr('marcel_core.harness.runner.create_marcel_agent', _capture_create)
+
+        _ = [e async for e in stream_turn('shaun', 'cli', 'hello', 'conv-1')]
+
+        assert captured, 'agent should have been built'
+        assert any('[INJECTED]' in sp for sp in captured)
