@@ -587,6 +587,12 @@ async def stream_turn(
     # (:class:`~marcel_core.harness.tool_bus.MarcelBusToolset`) can reach it.
     event_bus = EventBus()
     register_core_handlers(event_bus)
+    # Replay extension-registered on() subscriptions onto this turn's bus.
+    # Imported lazily: marcel_core.plugin.__init__ pulls in the channel
+    # registry, which imports this module — a top-level import would cycle.
+    from marcel_core.plugin.extension import extension_registry
+
+    extension_registry().apply_to_bus(event_bus)
     event_ctx = EventContext(user_slug=user_slug, role=role)
     await event_bus.emit(SessionStartEvent(), event_ctx)
 
