@@ -24,6 +24,7 @@ from marcel_core.tools import (
     core as core_tools,
     delegate as delegate_tool,
     marcel as marcel_tools,
+    promote as promote_tools,
     toolkit as toolkit_tools,
 )
 from marcel_core.tools.web import web as web_tool
@@ -133,6 +134,8 @@ _TOOL_REGISTRY: list[tuple[str, object, str | None]] = [
     ('git_push', core_tools.git_push, 'admin'),
     ('claude_code', claude_code_tool.claude_code, 'admin'),
     ('delegate', delegate_tool.delegate, 'admin'),
+    # Promote a proven script into a durable register(marcel) extension (F3).
+    ('promote_extension', promote_tools.promote_extension, 'admin'),
     # All-user tools
     ('generate_chart', chart_tools.generate_chart, None),
     ('toolkit', toolkit_tools.toolkit, None),
