@@ -1,7 +1,7 @@
 # Toolkit habitats
 
 A **toolkit habitat** is a Python package that registers handlers the
-agent can call through the `toolkit` (legacy name: `integration`) tool.
+agent can call through the `toolkit` tool.
 It is the *executable* layer of Marcel's userspace — the code that
 actually talks to external services, runs shell commands, or encodes
 deterministic logic. Toolkit handlers are what skills *reach for*; the
@@ -95,7 +95,6 @@ The kernel uses it to resolve a skill habitat's `depends_on:` (see
 | `description` | no | One-line description shown in tooling. |
 | `provides` | no | List of handler names registered by this toolkit. Every entry must start with `<name>.`. Used for documentation and consistency checks; the source of truth for dispatch is still the `@marcel_tool` decorator. |
 | `requires` | no | Dict of resources the toolkit needs to function. Recognised keys: `credentials`, `env`, `files`, `packages`. Unknown keys log a warning and are ignored. |
-| `isolation` | no | `inprocess` (default) or `uds`. See [Isolation modes](#isolation-modes). |
 | `scheduled_jobs` | no | List of background job declarations — see [Scheduled jobs](#scheduled-jobs). |
 
 Validation rules — any failure logs an error and skips metadata
@@ -144,164 +143,23 @@ Errors in one toolkit never abort discovery of its siblings:
 The net effect is that a user's marcel-zoo checkout can have one
 broken toolkit without taking the rest of the install down.
 
-## Isolation modes
+## Isolation
 
-A toolkit's `toolkit.yaml` can declare one of two `isolation:` modes,
-controlling whether its Python code runs inside the kernel or in a
-separate OS process. This is the target architecture from
-`ISSUE-f60b09` (marcel-admin board archive)
-— Phase 1 shipped the mechanism, existing habitats still default to
-`inprocess`.
+Toolkits run **in-process** — no subprocess, no UDS mesh, no per-habitat
+kernel clone (lean isolation, ADR-260628-6101c5). Two tiers:
 
-```yaml
-# toolkit.yaml
-name: docker
-description: Manage docker containers on the home NUC
-isolation: uds            # optional; default = inprocess
-provides:
-  - docker.list
-  - docker.status
-requires:
-  packages: [docker]      # phase 2 installs these into the habitat's own .venv
-```
+- **Dependency-free** (the common case) — the habitat has no
+  `pyproject.toml`; its `__init__.py` runs directly in the kernel process.
+  Nothing to provision.
+- **Thin dep-venv** — a habitat with real PyPI deps ships a
+  `pyproject.toml` declaring *only* those deps. `make zoo-setup` builds a
+  small `.venv` holding just them (never a `marcel-core` clone); the kernel
+  appends that venv's `site-packages` to `sys.path` at load time, so the
+  deps import in-process. Example: `icloud` (caldav + vobject).
 
-**`isolation: inprocess`** — today's default. The habitat's
-`__init__.py` is imported into the kernel process via
-`importlib.util.spec_from_file_location`; `@marcel_tool` populates the
-kernel-local registry directly. Zero latency overhead, shared Python
-heap, shared venv.
-
-**`isolation: uds`** — the habitat runs as a separate subprocess with
-its own venv, listening on a UDS socket under
-`<data_root>/sockets/<name>.sock` (mode `0600`, user-only). The kernel
-registers proxy coroutines that forward calls over the socket using
-JSON-RPC 2.0 framed with a 4-byte big-endian length prefix:
-
-```text
-[4-byte BE length][JSON body]
-```
-
-Request body:
-
-```json
-{"jsonrpc": "2.0", "id": 1, "method": "docker.list",
- "params": {"params": {...}, "user_slug": "alice"}}
-```
-
-Response bodies — success echoes the id with `result`; errors echo the
-id with `error` and a JSON-RPC-standard code:
-
-| Code | Meaning |
-|---|---|
-| `-32700` | parse error (malformed JSON or framing) |
-| `-32601` | method not found |
-| `-32000` | handler raised an exception — message carries `<ExceptionClass>: <str>` |
-
-The kernel's supervisor (`marcel_core.plugin._uds_supervisor`) spawns
-each UDS habitat at `lifespan()` startup, polls `Popen.poll()` every
-two seconds, and respawns any that exit uncleanly with exponential
-backoff (1 s → 2 s → 4 s → … capped at 60 s). On `lifespan()` teardown,
-SIGTERM to every child, five-second grace window, then SIGKILL.
-
-What UDS buys over `inprocess`:
-
-- **Dependency isolation** — habitat A can use `caldav==0.11` while
-  habitat B uses `caldav==0.12`.
-- **Failure isolation** — a habitat that segfaults or deadlocks
-  doesn't take the kernel down; the supervisor restarts it.
-- **Concurrent calls per habitat** — the bridge's accept loop handles
-  multiple clients in parallel; stdio-based patterns serialise on one
-  pipe.
-
-What it costs:
-
-- Per-call RPC overhead (≈ connect + JSON round-trip, dominated by
-  kernel-local UDS latency — single-digit milliseconds).
-- Connection timing: during a supervisor respawn, the
-  `unlink-then-bind` window can produce transient
-  `ConnectionRefusedError`/`FileNotFoundError`; the proxy retries up
-  to 3 s with exponential backoff before surfacing the error.
-- Credentials flow in RPC params — kernel decrypts, passes over UDS.
-  Same level of exposure as in-process for a single-user home NUC;
-  not suitable for multi-tenant / third-party-habitat scenarios
-  without a capability model.
-
-The long-term direction is `isolation: uds` for every Python habitat —
-toolkits in **Phase 2** (shipped under ISSUE-14b034: `docker`, `news`,
-`banking`, `icloud` all run UDS-isolated today); **Phase 3** (design
-under ISSUE-931b3f, implementation under ISSUE-092fd4) extends the
-same shape to channels — see
-[Channels → UDS isolation — design](channels.md#uds-isolation-design)
-for the bidirectional proxy route, the `channel.*` RPC method
-namespace, and the Telegram-specific constraints. Job habitats are
-YAML-only (no Python to isolate), so Phase 3's jobs half closed as
-designed. **Phase 4** (ISSUE-807a26) removes the `inprocess` path
-entirely. Markdown-only habitats (skills, subagents) stay in-process
-because there is no Python code to isolate.
-
-### Migrating an inprocess habitat to UDS
-
-Each migration touches two files in the zoo and runs one kernel-side
-script. The kernel itself does not change.
-
-1. **Declare `isolation: uds`** in the habitat's `toolkit.yaml`:
-
-   ```yaml
-   name: myhabitat
-   description: What this habitat does
-   isolation: uds              # ← the one line that flips the shape
-   provides:
-     - myhabitat.action
-   ```
-
-2. **Write `<habitat>/pyproject.toml`** with the habitat's
-   *non-kernel* deps. `marcel-core` is installed automatically by
-   `scripts/zoo-setup.sh` so the bridge subprocess can import it —
-   you only declare deps the habitat itself uniquely needs.
-
-   Habitats that use only stdlib + kernel-transitive deps (`httpx`,
-   `PyJWT`, `yaml`) declare an empty `dependencies = []` list. The
-   migration is still worthwhile: UDS buys **failure isolation** even
-   when there is no dep isolation to win.
-
-   ```toml
-   [project]
-   name = "marcel-toolkit-myhabitat"
-   version = "0.1.0"
-   requires-python = ">=3.11,<3.13"
-   dependencies = [
-       "some-pinned-lib>=1.2.3",   # or [] for stdlib-only habitats
-   ]
-   ```
-
-3. **Drop the same deps from the zoo root `pyproject.toml`.** Once a
-   habitat owns its deps, duplicating them at the root causes version
-   drift. The rule of thumb: the root `pyproject.toml` contains only
-   deps for *inprocess* habitats; every UDS habitat is self-contained.
-
-4. **Run `./scripts/zoo-setup.sh`.** The script walks
-   `<zoo>/toolkit/*/`, detects `isolation: uds`, creates
-   `<habitat>/.venv` via `uv venv --python 3.12`, and installs
-   `marcel-core` (editable, from the kernel checkout) + the habitat's
-   declared deps into it. Idempotent on re-runs.
-
-5. **Verify.** Import-smoke the bridge entry point from inside the
-   habitat venv:
-
-   ```bash
-   ./toolkit/myhabitat/.venv/bin/python -c \
-       "import marcel_core.plugin._uds_bridge; print('ok')"
-   ```
-
-   Then run the kernel's `discover()` and check the supervisor
-   spawned the subprocess — the kernel logs
-   `uds-supervisor: spawned habitat 'myhabitat' (pid=...)` on
-   success.
-
-**Rollback** is a one-line edit: remove `isolation: uds` from the
-habitat's `toolkit.yaml` and the kernel drops back to `inprocess`
-dispatch on the next discovery. No kernel restart required beyond
-whatever `request_restart()` would normally trigger.
+A slow or hung handler is contained by a **call-boundary timeout** in the
+`toolkit` tool (`asyncio.wait_for`), not by process isolation — a
+misbehaving handler cannot stall the turn.
 
 ## Scheduled jobs
 
@@ -422,7 +280,7 @@ from marcel_core.plugin import credentials, paths, models, rss
 
 | Symbol | Purpose |
 |---|---|
-| `marcel_tool(handler_name)` | Decorator that registers an async handler. Validates the `family.action` naming convention. `@register` is a back-compat alias (see [Back-compat aliases](#back-compat-aliases)). |
+| `marcel_tool(handler_name)` | Decorator that registers an async handler. Validates the `family.action` naming convention. |
 | `ToolkitHandler` | Type alias for the handler signature: `Callable[[dict, str], Awaitable[str]]`. |
 | `get_logger(name)` | Returns a module logger. Prefer this over `logging.getLogger` directly so future plugin-specific filtering hooks can be added without rewriting habitats. |
 | `register_channel(plugin)` | Register a channel habitat with the channel registry. See [Channels](channels.md). |
@@ -515,26 +373,6 @@ marcel-zoo — `docker` (ISSUE-6ad5c7), `icloud` (ISSUE-e7d127), `news`
 settings toolkit handler was retired as dead code under ISSUE-e1b9c4 —
 the live settings surface is the `marcel(action="...")` utility tool,
 not a `toolkit(id="settings.*")` handler.
-
-## Back-compat aliases
-
-The five-habitat taxonomy rename (ISSUE-3c1534) is in a multi-phase
-rollout. During the transition, the kernel accepts the legacy names so
-existing zoo checkouts keep working:
-
-| Legacy name | Canonical name | Phase removed |
-|---|---|---|
-| `integrations/` directory | `toolkit/` | Phase 5 |
-| `integration.yaml` | `toolkit.yaml` | Phase 5 |
-| `@register(...)` | `@marcel_tool(...)` | Phase 5 |
-| `integration(id=...)` tool | `toolkit(id=...)` | Phase 5 |
-| `IntegrationHandler` | `ToolkitHandler` | Phase 5 |
-
-The kernel walks both `toolkit/` and `integrations/` directories and
-accepts both decorator names during the migration. A habitat in
-`integrations/` with a `integration.yaml` still loads identically to
-its modern counterpart. New habitats should use the canonical names
-exclusively.
 
 ## See also
 

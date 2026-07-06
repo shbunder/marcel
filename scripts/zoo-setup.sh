@@ -96,82 +96,40 @@ PY
 )
 
 if [[ "${#ZOO_DEPS[@]}" -eq 0 ]]; then
-  info "Zoo declares no root [project].dependencies (all UDS-isolated or stdlib-only)."
+  info "Zoo declares no root [project].dependencies (habitats are in-process/stdlib-only)."
 else
   info "Installing ${#ZOO_DEPS[@]} dep(s) into kernel venv: ${ZOO_DEPS[*]}"
   cd "$REPO_ROOT"
   uv pip install "${ZOO_DEPS[@]}"
 fi
 
-# ── Step 3: provision per-habitat venvs for UDS-isolated toolkits ─────────────
+# ── Step 3: provision thin dep-venvs for toolkits with real PyPI deps ─────────
 #
-# A toolkit habitat with ``isolation: uds`` in its ``toolkit.yaml`` runs in a
-# separate subprocess with its own ``.venv``. The kernel's ``_bridge_command``
-# (in ``src/marcel_core/toolkit/__init__.py``) prefers ``<habitat>/.venv/bin/python``
-# when present. Each such venv needs:
+# Lean isolation (ADR-260628-6101c5): habitats load **in-process** — no
+# subprocess, no UDS, no kernel clone. A dependency-free toolkit
+# (banking/news/docker) needs no venv; it runs directly in the kernel process.
 #
-#   - The habitat's own deps from ``<habitat>/pyproject.toml``
-#   - ``marcel-core`` installed so ``python -m marcel_core.plugin._uds_bridge``
-#     resolves from inside the habitat venv.
+# A toolkit that declares real deps in its own ``pyproject.toml`` (only
+# ``icloud``: caldav + vobject) gets a **thin** ``.venv`` holding *only* those
+# deps — never an editable ``marcel-core`` clone. The kernel appends the
+# venv's ``site-packages`` to ``sys.path`` at load time
+# (``_dep_venv_site_packages`` in ``src/marcel_core/toolkit/__init__.py``), so
+# the deps import in-process. This replaces the old ~200 MB-per-habitat
+# kernel-clone venvs with one small deps-only venv.
 #
-# Inprocess habitats (no ``isolation: uds`` declaration) remain covered by the
-# root-zoo install in Step 2 — this loop is a no-op for them.
-#
-# Idempotent: if the habitat's ``.venv`` already exists, we still re-run the
-# install so dep changes in ``pyproject.toml`` land. uv's cache makes this fast.
+# Idempotent: an existing ``.venv`` is reused; deps are re-installed so
+# ``pyproject.toml`` changes land (uv's cache makes this fast).
 
-provision_uds_habitat() {
+provision_dep_venv() {
   local habitat_dir="$1"
   local habitat_name
   habitat_name="$(basename "$habitat_dir")"
   local habitat_pyproject="$habitat_dir/pyproject.toml"
   local habitat_venv="$habitat_dir/.venv"
 
-  # Prefer toolkit.yaml over the legacy integration.yaml (ISSUE-3c1534).
-  local yaml_path=""
-  if [[ -f "$habitat_dir/toolkit.yaml" ]]; then
-    yaml_path="$habitat_dir/toolkit.yaml"
-  elif [[ -f "$habitat_dir/integration.yaml" ]]; then
-    yaml_path="$habitat_dir/integration.yaml"
-  else
-    return 0
-  fi
+  # No pyproject.toml → dependency-free → pure in-process, no venv needed.
+  [[ -f "$habitat_pyproject" ]] || return 0
 
-  local is_uds
-  is_uds=$(YAML_PATH="$yaml_path" python3 - <<'PY'
-import os, sys
-try:
-    import yaml
-except ImportError:
-    # Kernel venv must have pyyaml — it's a transitive dep. Bail loudly if
-    # that's ever not true so the operator sees why UDS provisioning broke.
-    sys.stderr.write("zoo-setup: pyyaml missing from kernel venv — cannot parse toolkit.yaml\n")
-    sys.exit(2)
-with open(os.environ["YAML_PATH"], "r", encoding="utf-8") as fh:
-    data = yaml.safe_load(fh) or {}
-print("yes" if data.get("isolation") == "uds" else "no")
-PY
-  )
-
-  [[ "$is_uds" == "yes" ]] || return 0
-
-  if [[ ! -f "$habitat_pyproject" ]]; then
-    warn "UDS habitat '$habitat_name' declares isolation: uds but has no pyproject.toml — skipping"
-    return 0
-  fi
-
-  if [[ ! -d "$habitat_venv" ]]; then
-    info "Creating per-habitat venv for '$habitat_name' at $habitat_venv"
-    uv venv "$habitat_venv" --python 3.12 --quiet
-  fi
-
-  # Install marcel-core from the kernel checkout so `python -m marcel_core...`
-  # resolves inside the habitat venv. Editable install means kernel upgrades
-  # on the host are picked up without a re-provision.
-  info "Installing marcel-core + habitat deps into '$habitat_name' venv"
-  uv pip install --python "$habitat_venv/bin/python" --quiet -e "$REPO_ROOT"
-
-  # Read the habitat's own deps from its pyproject.toml.
   local habitat_deps
   mapfile -t habitat_deps < <(
     HABITAT_PYPROJECT="$habitat_pyproject" python3 - <<'PY'
@@ -183,36 +141,32 @@ for dep in data.get("project", {}).get("dependencies", []) or []:
 PY
   )
 
-  if [[ "${#habitat_deps[@]}" -gt 0 ]]; then
-    uv pip install --python "$habitat_venv/bin/python" --quiet "${habitat_deps[@]}"
-    info "  → installed ${#habitat_deps[@]} dep(s): ${habitat_deps[*]}"
-  else
-    info "  → habitat declares no extra deps (failure-isolation only)"
+  # A pyproject with no deps also needs no venv.
+  [[ "${#habitat_deps[@]}" -gt 0 ]] || return 0
+
+  # Rebuild the venv from scratch so an old fat (kernel-clone) venv is
+  # replaced by a thin deps-only one.
+  if [[ -d "$habitat_venv" ]]; then
+    rm -rf "$habitat_venv"
   fi
+  info "Creating thin dep-venv for '$habitat_name' at $habitat_venv"
+  uv venv "$habitat_venv" --python 3.12 --quiet
+  uv pip install --python "$habitat_venv/bin/python" --quiet "${habitat_deps[@]}"
+  info "  → installed ${#habitat_deps[@]} dep(s) (no kernel clone): ${habitat_deps[*]}"
+  DEP_VENV_COUNT=$((DEP_VENV_COUNT + 1))
 }
 
-# Walk both the new ``toolkit/`` and legacy ``integrations/`` layouts so
-# ISSUE-3c1534's in-flight rename doesn't gate this provisioning.
-UDS_COUNT=0
-for dir_layout in toolkit integrations; do
-  layout_root="$ZOO_DIR/$dir_layout"
-  [[ -d "$layout_root" ]] || continue
-  for habitat_dir in "$layout_root"/*/; do
+DEP_VENV_COUNT=0
+TOOLKIT_ROOT="$ZOO_DIR/toolkit"
+if [[ -d "$TOOLKIT_ROOT" ]]; then
+  for habitat_dir in "$TOOLKIT_ROOT"/*/; do
     habitat_dir="${habitat_dir%/}"  # strip trailing slash
     [[ -d "$habitat_dir" ]] || continue
-    if [[ -f "$habitat_dir/toolkit.yaml" || -f "$habitat_dir/integration.yaml" ]]; then
-      # Canonicalise on toolkit.yaml for the isolation check but honour
-      # integration.yaml as a fallback.
-      provision_uds_habitat "$habitat_dir"
-      # Count only habitats that actually ended up with a .venv (best-effort).
-      if [[ -d "$habitat_dir/.venv" ]]; then
-        UDS_COUNT=$((UDS_COUNT + 1))
-      fi
-    fi
+    provision_dep_venv "$habitat_dir"
   done
-done
+fi
 
 info "Zoo setup complete."
 info "  Zoo dir : $ZOO_DIR"
 info "  Deps    : ${ZOO_DEPS[*]}"
-info "  UDS habitats : $UDS_COUNT per-habitat .venv(s) provisioned"
+info "  Thin dep-venvs : $DEP_VENV_COUNT provisioned (deps-only, in-process)"

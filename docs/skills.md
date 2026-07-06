@@ -15,8 +15,7 @@ Marcel exposes two primary tools to the agent:
 Toolkit handlers can be defined as:
 
 - **Python modules** with `@marcel_tool` decorators — for handlers that
-  need custom logic (API clients, stateful connections). `@register`
-  remains a working alias for the same decorator.
+  need custom logic (API clients, stateful connections).
 - **JSON entries** in `skills.json` — for simple HTTP calls or shell
   commands.
 
@@ -31,7 +30,7 @@ Data-root skills override zoo skills with the same name. The override is silent 
 
 1. The agent receives a user request (e.g. "what's on my calendar?").
 2. Its system prompt includes the relevant SKILL.md content (loaded by the skill loader).
-3. It calls `integration(id="icloud.calendar", params={"days_ahead": "7"})`.
+3. It calls `toolkit(id="icloud.calendar", params={"days_ahead": "7"})`.
 4. The executor dispatches to the right handler (python function, HTTP call, or shell command).
 5. The result is returned as plain text to the agent.
 
@@ -58,7 +57,7 @@ A skill that needs credentials, environment variables, files, or Python packages
 
 ### 3. Toolkit-backed — `depends_on:`
 
-The typical case for any skill that calls `integration(id="...")`. See below.
+The typical case for any skill that calls `toolkit(id="...")`. See below.
 
 ## Skill fallback (SETUP.md)
 
@@ -107,7 +106,7 @@ When all requirements are met, the agent sees `SKILL.md`. When any are missing �
 
 Toolkit habitats live in marcel-zoo: `<MARCEL_ZOO_DIR>/toolkit/<name>/__init__.py` (plus `toolkit.yaml`), installable components of marcel-zoo. See [Plugins](plugins.md) for the full habitat contract. The kernel ships zero bundled toolkits — every real toolkit lives in the zoo.
 
-Habitats must use `from marcel_core.plugin import marcel_tool` (the stable plugin surface) and obey the directory-name ↔ handler-namespace rule: a toolkit at `.../toolkit/myservice/` may only register `myservice.*` handlers; handlers outside that namespace cause the whole habitat to be rolled back. `@register` is still accepted as an alias during the migration.
+Habitats must use `from marcel_core.plugin import marcel_tool` (the stable plugin surface) and obey the directory-name ↔ handler-namespace rule: a toolkit at `.../toolkit/myservice/` may only register `myservice.*` handlers; handlers outside that namespace cause the whole habitat to be rolled back.
 
 ```python
 import json
@@ -140,7 +139,7 @@ You have access to the `integration` tool to interact with myservice.
 Description of what this does.
 
 \`\`\`
-integration(id="myservice.action", params={"key": "value"})
+toolkit(id="myservice.action", params={"key": "value"})
 \`\`\`
 
 | Param | Type   | Required | Default | Description          |
@@ -216,7 +215,7 @@ JSON skills should also have a SKILL.md (and SETUP.md) in `.marcel/skills/` to t
 |------|-------------|
 | `http` (default) | Makes HTTP requests with configurable auth, params, and response transforms |
 | `shell` | Runs a local shell command with `{param}` placeholder substitution |
-| `python` | Auto-generated for `@marcel_tool`'d functions (or `@register` via alias) — do not add manually |
+| `python` | Auto-generated for `@marcel_tool`'d functions — do not add manually |
 
 ### HTTP skill fields
 
@@ -257,7 +256,7 @@ Maps query parameter names to resolution rules:
 
 Only `jq:` expressions are supported (requires the `jq` Python package). If jq is not installed, raw body is returned.
 
-## The integration tool contract
+## The toolkit tool contract
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -269,7 +268,7 @@ Only `jq:` expressions are supported (requires the `jq` Python package). If jq i
 
 ### Auto-loaded skill docs
 
-As a safety net, the first `integration(id="<family>.<method>")` call per conversation prepends the full `SKILL.md` to the tool result so the model always has enough context to interpret what came back. The integration tool tracks which skill families have been loaded in `deps.turn.read_skills`, primed at turn start from past `marcel(action="read_skill", name=...)` calls in the conversation history — so once a skill's docs are in the context window, they are not re-injected on subsequent turns. The model can short-circuit the auto-load on its own by calling `marcel(action="read_skill", name=...)` before the first integration call.
+As a safety net, the first `toolkit(id="<family>.<method>")` call per conversation prepends the full `SKILL.md` to the tool result so the model always has enough context to interpret what came back. The toolkit tool tracks which skill families have been loaded in `deps.turn.read_skills`, primed at turn start from past `marcel(action="read_skill", name=...)` calls in the conversation history — so once a skill's docs are in the context window, they are not re-injected on subsequent turns. The model can short-circuit the auto-load on its own by calling `marcel(action="read_skill", name=...)` before the first toolkit call.
 
 ## The marcel tool contract
 

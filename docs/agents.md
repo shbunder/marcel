@@ -252,16 +252,16 @@ recursion guard prevents unbounded nesting. See
 [Self-modification](self-modification.md) for the broader permission
 model.
 
-## Why subagents are not containerised
+## Why subagents need no extra isolation
 
 Subagents are markdown plus a model instance — there is no Python code
-to isolate. The containerisation / UDS work in ISSUE-f60b09 targets
-Python habitats (toolkit in Phase 2, channels/jobs in Phase 3) where
-dependency isolation and failure isolation have concrete payoffs.
-Subagents already run in a clean context (no parent state bleeds in),
-with tight tool allowlists (role gating + explicit allowlist), under a
-`max_requests` / `timeout_seconds` budget. There is no additional
-isolation ceiling to raise by spawning them in a subprocess.
+to isolate. (Python habitats themselves run in-process under lean
+isolation — a thin dep-venv only where a real PyPI dep requires it; see
+[Toolkit isolation](plugins.md#isolation).) Subagents already run in a
+clean context (no parent state bleeds in), with tight tool allowlists
+(role gating + explicit allowlist), under a `max_requests` /
+`timeout_seconds` budget. There is no additional isolation ceiling to
+raise by spawning them in a subprocess.
 
 ## Scope limits (v1)
 
