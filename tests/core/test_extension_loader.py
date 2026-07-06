@@ -7,6 +7,7 @@ from pathlib import Path
 from marcel_core.plugin.extension import (
     ExtensionRegistry,
     MarcelExtensionAPI,
+    emit_resources_discover,
     load_extensions,
 )
 from marcel_sdk.events import EventBus
@@ -170,6 +171,31 @@ def test_registry_clear():
     reg.commands['c'] = _cmd
     reg.clear()
     assert not reg.skills and not reg.handlers and not reg.commands
+
+
+async def test_emit_resources_discover_collects_contributions(tmp_path):
+    reg = ExtensionRegistry()
+    src = (
+        'def register(marcel):\n'
+        '    def contribute(event, ctx):\n'
+        '        event.skill_paths.append("/zoo/skills/fromext/SKILL.md")\n'
+        '        event.prompt_paths.append("/zoo/prompts/fromext.md")\n'
+        '    marcel.on("resources_discover", contribute)\n'
+    )
+    load_extensions(_write_ext(tmp_path, 'extloader_rd', src), reg)
+
+    event = await emit_resources_discover(reg)
+
+    assert event.skill_paths == ['/zoo/skills/fromext/SKILL.md']
+    assert reg.discovered_skill_paths == ['/zoo/skills/fromext/SKILL.md']
+    assert reg.discovered_prompt_paths == ['/zoo/prompts/fromext.md']
+
+
+async def test_emit_resources_discover_no_handlers_is_empty():
+    reg = ExtensionRegistry()
+    event = await emit_resources_discover(reg)
+    assert event.skill_paths == []
+    assert reg.discovered_skill_paths == []
 
 
 def test_marcel_tool_and_api_tool_share_registry():

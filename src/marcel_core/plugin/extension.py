@@ -32,7 +32,12 @@ from pathlib import Path
 from types import ModuleType
 from typing import cast
 
-from marcel_sdk.events import EventBus, EventHandler
+from marcel_sdk.events import (
+    EventBus,
+    EventContext,
+    EventHandler,
+    ResourcesDiscoverEvent,
+)
 from marcel_sdk.extension import ToolHandler
 
 log = logging.getLogger(__name__)
@@ -56,6 +61,11 @@ class ExtensionRegistry:
     jobs: list[str] = field(default_factory=list)
     agents: list[str] = field(default_factory=list)
     commands: dict[str, Callable[..., Awaitable[None]]] = field(default_factory=dict)
+    # Paths contributed by extensions via the resources_discover event (see
+    # emit_resources_discover). Collected in F0; the skill/prompt loaders
+    # consume them in F1.
+    discovered_skill_paths: list[str] = field(default_factory=list)
+    discovered_prompt_paths: list[str] = field(default_factory=list)
 
     def apply_to_bus(self, bus: EventBus) -> None:
         """Subscribe every extension-registered handler onto *bus*."""
@@ -69,6 +79,8 @@ class ExtensionRegistry:
         self.jobs.clear()
         self.agents.clear()
         self.commands.clear()
+        self.discovered_skill_paths.clear()
+        self.discovered_prompt_paths.clear()
 
 
 # Process-wide registry populated at startup by load_extensions().
@@ -204,3 +216,29 @@ def load_extensions(
         loaded.append(name)
         log.info('extension %r registered', name)
     return loaded
+
+
+async def emit_resources_discover(
+    registry: ExtensionRegistry | None = None,
+    *,
+    reason: str = 'startup',
+) -> ResourcesDiscoverEvent:
+    """Fire the ``resources_discover`` event so extensions contribute paths.
+
+    Emitted once at startup (from ``main.lifespan``) after extensions are
+    loaded. Extension ``on("resources_discover")`` handlers append skill /
+    prompt paths to the event; the contributions are collected onto the
+    registry (``discovered_skill_paths`` / ``discovered_prompt_paths``). The
+    skill and prompt loaders consume them in F1 — F0 establishes the hook
+    and the collection. Returns the event for inspection/tests.
+    """
+    reg = registry if registry is not None else _REGISTRY
+    bus = EventBus()
+    reg.apply_to_bus(bus)
+    event = await bus.emit(
+        ResourcesDiscoverEvent(reason=reason),
+        EventContext(user_slug='', role=''),
+    )
+    reg.discovered_skill_paths.extend(event.skill_paths)
+    reg.discovered_prompt_paths.extend(event.prompt_paths)
+    return event

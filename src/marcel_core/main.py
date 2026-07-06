@@ -136,6 +136,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log.info('main: starting Marcel v%s', __version__)
 
     from marcel_core.plugin import _uds_supervisor
+    from marcel_core.plugin.extension import emit_resources_discover, extension_registry
     from marcel_core.plugin.orchestrator import discover_all_habitats
 
     # Populate integration handlers and habitat metadata before the scheduler
@@ -148,6 +149,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # broken kind cannot poison the others. Channel discovery is idempotent
     # (sys.modules-guarded) so the module-load-time call below stays correct.
     discover_all_habitats(settings.zoo_dir)
+    # Give loaded extensions a resources_discover hook to contribute skill /
+    # prompt paths (collected on the extension registry; consumed in F1).
+    await emit_resources_discover(extension_registry())
     _uds_supervisor.start_supervisor()
     _log_zoo_summary()
 
