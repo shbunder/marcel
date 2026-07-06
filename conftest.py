@@ -18,6 +18,10 @@ import warnings
 
 import pytest
 
+# The scenario-test harness: the `terrarium` fixture plus odile's session
+# guard that makes real model-provider requests impossible suite-wide.
+pytest_plugins = ['marcel_testing.pytest_plugin']
+
 
 def _load_zoo_telegram_at_legacy_namespace() -> None:
     """Alias the zoo telegram habitat as ``marcel_core.channels.telegram``.

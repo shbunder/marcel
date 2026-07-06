@@ -39,6 +39,10 @@ browser = [
 
 # Local package sources for editable installation
 [tool.uv.sources]
+# The scenario-test framework lives in its own repo (sibling checkout, same
+# convention as marcel-zoo / marcel-admin). Dev-group only — the prod image
+# never installs it.
+odile = { path = "../odile", editable = true }
 
 [project.urls]
 Homepage = "https://github.com/shbunder/marcel"
@@ -51,7 +55,10 @@ build-backend = "hatchling.build"
 # marcel_sdk is the versioned extension import wall (ADR-260628-9f4c41).
 # It ships in the same wheel but carries its own `marcel_sdk.__version__`
 # so the contract can be versioned independently of kernel internals.
-packages = ["src/marcel_core", "src/marcel_sdk"]
+# marcel_testing is the Terrarium — the kernel-coupled binding of the odile
+# scenario framework (ADR-260706-b88015); importing it requires the odile
+# dev dependency, which prod never does.
+packages = ["src/marcel_core", "src/marcel_sdk", "src/marcel_testing"]
 
 [tool.uv]
 package = true
@@ -68,6 +75,7 @@ dev = [
     "pytest-recording>=0.13.2",
     "pre-commit<4.0.0,>=3.6.2",
     "respx>=0.21.0",
+    "odile",
     "playwright>=1.40.0",
     "trafilatura>=2.0.0",
 ]
