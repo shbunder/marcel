@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -29,6 +30,39 @@ from marcel_core.storage import approvals as approval_store
 log = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_SECONDS = 300.0
+
+# A command string can carry an inline secret (an auth header, a token, a
+# ``-p<password>``). We persist approval records to disk (audit log + queue)
+# outside the encrypted credential store, so redact obvious secret shapes
+# before writing — never log or persist them in the clear (data-boundaries rule).
+# Each pattern captures at most ONE group — the *keep* prefix; the secret is
+# the un-captured tail, which is replaced. Patterns with no group are masked
+# whole.
+_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r'(?i)(authorization:\s*(?:bearer|basic)\s+)\S+'),
+    re.compile(r'(?i)\b(bearer\s+)[A-Za-z0-9._\-]{8,}'),
+    re.compile(r'(?i)\b((?:api[_-]?key|token|secret|password|passwd|pwd)["\']?\s*[=:]\s*["\']?)\S+'),
+    re.compile(r'(-p)\S{3,}'),  # mysql-style -p<password>
+    re.compile(r'\b[A-Za-z0-9]{4}[A-Za-z0-9._\-]{28,}\b'),  # long high-entropy tokens (no group)
+)
+
+
+def _redact(text: str) -> str:
+    """Mask obvious secret shapes in a command/summary string."""
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub(lambda m: (m.group(1) if m.lastindex else '') + '«redacted»', text)
+    return text
+
+
+def _redacted_record(record: dict) -> dict:
+    """Return a copy of an approval record with secrets masked in its text."""
+    safe = dict(record)
+    if isinstance(safe.get('summary'), str):
+        safe['summary'] = _redact(safe['summary'])
+    args = safe.get('args')
+    if isinstance(args, dict):
+        safe['args'] = {k: _redact(v) if isinstance(v, str) else v for k, v in args.items()}
+    return safe
 
 
 class ApprovalOutcome(str, Enum):
@@ -94,6 +128,7 @@ class ApprovalRegistry:
 
     def __init__(self, default_timeout: float = _DEFAULT_TIMEOUT_SECONDS) -> None:
         self._pending: dict[str, asyncio.Future[ApprovalOutcome]] = {}
+        self._requests: dict[str, ApprovalRequest] = {}
         self._default_timeout = default_timeout
 
     def new_request(
@@ -128,14 +163,16 @@ class ApprovalRegistry:
         loop = asyncio.get_running_loop()
         future: asyncio.Future[ApprovalOutcome] = loop.create_future()
         self._pending[request.id] = future
+        self._requests[request.id] = request
         try:
             outcome = await asyncio.wait_for(future, timeout=window)
         except asyncio.TimeoutError:
             outcome = ApprovalOutcome.EXPIRED
-            approval_store.queue_pending(request.to_dict())
+            approval_store.queue_pending(_redacted_record(request.to_dict()))
             log.info('approval %s expired after %.0fs — queued for later', request.id, window)
         finally:
             self._pending.pop(request.id, None)
+            self._requests.pop(request.id, None)
         self._audit(request, outcome)
         return outcome
 
@@ -155,8 +192,18 @@ class ApprovalRegistry:
         """Ids currently awaiting a verdict (introspection/tests)."""
         return list(self._pending)
 
+    def owner_of(self, approval_id: str) -> str | None:
+        """Return the ``user_slug`` a pending request was forwarded to, or ``None``.
+
+        The channel callback uses this to verify the button-presser is the
+        request's owner before resolving it — a resolve must not be honoured
+        for someone else's approval.
+        """
+        request = self._requests.get(approval_id)
+        return request.user_slug if request is not None else None
+
     def _audit(self, request: ApprovalRequest, outcome: ApprovalOutcome) -> None:
-        record = request.to_dict()
+        record = _redacted_record(request.to_dict())
         record['outcome'] = outcome.value
         record['resolved_at'] = _now_iso()
         try:

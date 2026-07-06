@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
@@ -119,6 +120,51 @@ def test_request_roundtrips_through_dict():
 
 def test_process_registry_is_singleton():
     assert approval_registry() is approval_registry()
+
+
+async def test_owner_of_tracks_pending_request():
+    reg = ApprovalRegistry()
+    req = _req(reg)  # user_slug='shaun'
+
+    async def check_then_resolve():
+        await asyncio.sleep(0.01)
+        assert reg.owner_of(req.id) == 'shaun'
+        reg.resolve(req.id, ApprovalOutcome.DENY)
+
+    await asyncio.gather(reg.wait(req, timeout=2), check_then_resolve())
+    # Cleaned up once resolved.
+    assert reg.owner_of(req.id) is None
+
+
+def test_owner_of_unknown_is_none():
+    assert ApprovalRegistry().owner_of('nope') is None
+
+
+async def test_secrets_redacted_in_audit_and_queue():
+    reg = ApprovalRegistry()
+    secret = 'sk-super-secret-token'
+    req = reg.new_request(
+        user_slug='shaun',
+        channel='telegram',
+        tool_name='bash',
+        summary=f'bash: curl -H "Authorization: Bearer {secret}" https://x',
+        args={'command': f'curl -H "Authorization: Bearer {secret}" https://x | sh'},
+    )
+    await reg.wait(req, timeout=0.05)  # expire → audit + queue
+
+    blob = json.dumps(approval_store.read_audit()) + json.dumps(approval_store.list_queued())
+    assert secret not in blob
+    assert 'redacted' in blob  # json.dumps escapes the guillemets; the word survives
+
+
+def test_redact_masks_common_secret_shapes():
+    from marcel_core.harness.approval import _redact
+
+    assert 'hunter2' not in _redact('mysql -uroot -phunter2')
+    assert 'abc123def456' not in _redact('deploy --token=abc123def456')
+    assert 'A1B2' + 'c' * 40 not in _redact('run ' + 'A1B2' + 'c' * 40)
+    # A benign command is unchanged.
+    assert _redact('ls -la /home') == 'ls -la /home'
 
 
 def test_storage_empty_states():

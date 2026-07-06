@@ -160,3 +160,64 @@ def test_add_rule_front_takes_precedence(policy):
     )
     policy.add_rule(allow_rm, front=True)
     assert policy.classify('bash', {'command': 'rm -rf /tmp/x'}).verdict is Verdict.ALLOW
+
+
+# --- evasion resistance (regression for the F2 security review) ------------
+
+
+@pytest.mark.parametrize(
+    'command',
+    [
+        'cat C"L"AUDE.md',  # quote-split filename
+        "echo x >> .en''v",  # quote-split .env
+        'printf pwned > restart_requested".prod"',  # quote-split the restart flag
+        'rm CLAUDE.md',
+        'echo x > .git/hooks/pre-commit',  # .git internals
+        'rm -rf .git',
+    ],
+)
+def test_self_mod_evasions_are_denied(policy, command):
+    assert policy.classify('bash', {'command': command}).verdict is Verdict.DENY
+
+
+@pytest.mark.parametrize(
+    'command',
+    [
+        'rm -r -f /important',  # split flags
+        'rm  -r  -f  /x',  # extra spaces
+        'rm --recursive --force /x',  # long flags
+        'sudo rm -rf /',  # sudo passes through to rm
+        'git push -f origin main',  # -f, not --force
+        'git reset --hard HEAD~3',  # tree rewrite
+        'git clean -fd',  # delete untracked
+        'find . -delete',  # not in the old pattern
+        'mkfs.ext4 /dev/sdb1',  # mkfs.<fs>
+    ],
+)
+def test_risky_evasions_and_false_negatives_ask(policy, command):
+    assert policy.classify('bash', {'command': command}).verdict is Verdict.ASK
+
+
+def test_malformed_quotes_ask_not_allow(policy):
+    # Unbalanced quotes cannot be tokenized safely → ask rather than allow.
+    d = policy.classify('bash', {'command': 'echo "unterminated'})
+    assert d.verdict is Verdict.ASK
+    assert d.rule == 'malformed-command'
+
+
+def test_echo_of_risky_word_is_not_command_position(policy):
+    # `sudo` as an argument to echo is not a command — should not ask.
+    assert policy.classify('bash', {'command': 'echo sudo is dangerous'}).verdict is Verdict.ALLOW
+
+
+def test_documented_limitations_are_not_caught(policy):
+    """Blocklists over shell text are incomplete by design (F2 security review).
+
+    These evade the *advisory* policy; the OS sandbox (ADR-260628-0fc1e2) is
+    the real containment. Documented here so the gap is explicit, not a
+    surprise — if a future change closes one, flip the assertion.
+    """
+    # cd + relative path (no cwd tracking here):
+    assert policy.classify('bash', {'command': 'cd src/marcel_core && rm config.py'}).verdict is Verdict.ALLOW
+    # environment-variable indirection:
+    assert policy.classify('bash', {'command': 'X=CLAUDE.md; cat $X'}).verdict is Verdict.ALLOW

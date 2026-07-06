@@ -124,12 +124,27 @@ def register(marcel):
     marcel.on("tool_result", redact)
 ```
 
-Two of Marcel's own behaviours already ride this bus as `tool_call`
-handlers, so you can rely on them and pattern-match them: **role-gating**
-(admin-tier tools are blocked in non-admin turns — on top of never being
-registered there) and the **self-modification path guard** (writes to
-`CLAUDE.md`, the auth module, core config, or `.env*` are blocked unless
-`.claude/.unlock-safety` exists).
+Three of Marcel's own behaviours already ride this bus as `tool_call`
+handlers, so you can rely on them and pattern-match them:
+
+- **Role-gating** — admin-tier tools are blocked in non-admin turns (on top
+  of never being registered there).
+- **Self-modification path guard** — writes to `CLAUDE.md`, the auth module,
+  core config, or `.env*` are blocked unless `.claude/.unlock-safety` exists.
+- **Command policy + human approval** — a declarative allow/ask/deny policy
+  over the command surface (`bash`, `code_exec`). It **denies** shell
+  commands that touch the self-mod boundary and **asks** before genuinely
+  destructive ones. An `ask` pauses the turn and forwards a plain-language
+  prompt with *Allow once / Always / Deny* buttons to the user's Telegram;
+  the action runs only on an explicit allow. No answer within
+  `marcel_approval_timeout_seconds` (default 120) → deny, with an auditable
+  pending record queued for later under `~/.marcel/approvals/`. "Allow
+  always" amends the policy for that exact command. Disable the whole layer
+  with `marcel_command_policy_enabled=false`.
+
+These run in that order (a denial short-circuits the rest), and your own
+`tool_call` handlers run after them — so an extension can add its own
+allow/deny rules on top.
 
 ## Relationship to the five habitat kinds
 
