@@ -142,18 +142,6 @@ class TestToolkitHabitatDiscovery:
         assert result[0].provides == ('demo.ping', 'demo.pong')
         assert result[0].kind == 'toolkit'
 
-    def test_falls_back_to_integrations_path_when_toolkit_absent(self, tmp_path, monkeypatch):
-        zoo = tmp_path / 'zoo'
-        (zoo / 'integrations' / 'legacy').mkdir(parents=True)
-
-        fake_metadata = {'legacy': _FakeMeta(['legacy.op'])}
-        monkeypatch.setattr('marcel_core.toolkit.discover', lambda: None)
-        monkeypatch.setattr('marcel_core.toolkit._metadata', fake_metadata)
-
-        result = ToolkitHabitat.discover_all(zoo)
-        assert len(result) == 1
-        assert result[0].source == str(zoo / 'integrations' / 'legacy')
-
 
 class _FakePlugin:
     def __init__(self, *, router=True):

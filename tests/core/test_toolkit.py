@@ -1,7 +1,9 @@
-"""Tests for the marcel_core.plugin surface and external integration discovery.
+"""Tests for the marcel_core.plugin surface and toolkit habitat discovery.
 
-Covers ISSUE-3c87dd / ISSUE-6ad5c7: the stable plugin re-exports plus the
-``discover()`` path that walks ``<MARCEL_ZOO_DIR>/integrations/``.
+Covers the stable plugin re-exports plus the ``discover()`` path that walks
+``<MARCEL_ZOO_DIR>/toolkit/`` and loads each habitat in-process (lean
+isolation, ADR-260628-6101c5), including the thin dep-venv ``sys.path``
+injection for habitats with real PyPI deps.
 """
 
 from __future__ import annotations
@@ -17,9 +19,9 @@ from marcel_core.toolkit import (
     _registry,
     discover,
     get_handler,
-    get_integration_metadata,
-    list_integrations,
-    list_python_skills,
+    get_toolkit_metadata,
+    list_toolkits,
+    list_tools,
 )
 
 
@@ -47,16 +49,16 @@ def cleanup_external_modules():
 
 
 def _write_integration(root: Path, name: str, body: str, *, yaml: str | None = None) -> Path:
-    """Materialize an external integration package under ``root/integrations/``.
+    """Materialize an external toolkit package under ``root/toolkit/``.
 
-    Optionally writes ``integration.yaml`` alongside ``__init__.py`` when
+    Optionally writes ``toolkit.yaml`` alongside ``__init__.py`` when
     *yaml* is provided.
     """
-    pkg = root / 'integrations' / name
+    pkg = root / 'toolkit' / name
     pkg.mkdir(parents=True, exist_ok=True)
     (pkg / '__init__.py').write_text(body, encoding='utf-8')
     if yaml is not None:
-        (pkg / 'integration.yaml').write_text(yaml, encoding='utf-8')
+        (pkg / 'toolkit.yaml').write_text(yaml, encoding='utf-8')
     return pkg
 
 
@@ -64,10 +66,10 @@ class TestPluginSurface:
     def test_plugin_reexports_register_and_types(self):
         """marcel_core.plugin re-exports the integration surface."""
         from marcel_core import plugin
-        from marcel_core.toolkit import IntegrationHandler, register
+        from marcel_core.toolkit import ToolkitHandler, marcel_tool
 
-        assert plugin.register is register
-        assert plugin.IntegrationHandler is IntegrationHandler
+        assert plugin.marcel_tool is marcel_tool
+        assert plugin.ToolkitHandler is ToolkitHandler
 
     def test_plugin_get_logger_returns_logger(self):
         from marcel_core.plugin import get_logger
@@ -87,9 +89,9 @@ class TestExternalDiscovery:
             tmp_path,
             'demotest',
             (
-                'from marcel_core.plugin import register\n'
+                'from marcel_core.plugin import marcel_tool\n'
                 '\n'
-                '@register("demotest.ping")\n'
+                '@marcel_tool("demotest.ping")\n'
                 'async def ping(params, user_slug):\n'
                 '    return "pong"\n'
             ),
@@ -98,7 +100,7 @@ class TestExternalDiscovery:
 
         discover()
 
-        assert 'demotest.ping' in list_python_skills()
+        assert 'demotest.ping' in list_tools()
         handler = get_handler('demotest.ping')
         assert callable(handler)
 
@@ -111,9 +113,9 @@ class TestExternalDiscovery:
             tmp_path,
             'echotest',
             (
-                'from marcel_core.plugin import register\n'
+                'from marcel_core.plugin import marcel_tool\n'
                 '\n'
-                '@register("echotest.say")\n'
+                '@marcel_tool("echotest.say")\n'
                 'async def say(params, user_slug):\n'
                 "    return f\"said {params.get('msg', '')} for {user_slug}\"\n"
             ),
@@ -135,9 +137,9 @@ class TestExternalDiscovery:
             tmp_path,
             'foo',
             (
-                'from marcel_core.plugin import register\n'
+                'from marcel_core.plugin import marcel_tool\n'
                 '\n'
-                '@register("bar.baz")\n'
+                '@marcel_tool("bar.baz")\n'
                 'async def bad(params, user_slug):\n'
                 '    return "never reached"\n'
             ),
@@ -147,7 +149,7 @@ class TestExternalDiscovery:
         with caplog.at_level('ERROR', logger='marcel_core.toolkit'):
             discover()
 
-        assert 'bar.baz' not in list_python_skills()
+        assert 'bar.baz' not in list_tools()
         assert any('foo' in r.message and 'namespace' in r.message for r in caplog.records)
 
     def test_namespace_partial_match_rolls_back_valid_handlers(
@@ -160,13 +162,13 @@ class TestExternalDiscovery:
             tmp_path,
             'foo',
             (
-                'from marcel_core.plugin import register\n'
+                'from marcel_core.plugin import marcel_tool\n'
                 '\n'
-                '@register("foo.ok")\n'
+                '@marcel_tool("foo.ok")\n'
                 'async def good(params, user_slug):\n'
                 '    return "ok"\n'
                 '\n'
-                '@register("other.nope")\n'
+                '@marcel_tool("other.nope")\n'
                 'async def bad(params, user_slug):\n'
                 '    return "bad"\n'
             ),
@@ -175,8 +177,8 @@ class TestExternalDiscovery:
 
         discover()
 
-        assert 'foo.ok' not in list_python_skills()
-        assert 'other.nope' not in list_python_skills()
+        assert 'foo.ok' not in list_tools()
+        assert 'other.nope' not in list_tools()
 
     def test_broken_integration_does_not_stop_siblings(
         self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules, caplog
@@ -193,9 +195,9 @@ class TestExternalDiscovery:
             tmp_path,
             'working',
             (
-                'from marcel_core.plugin import register\n'
+                'from marcel_core.plugin import marcel_tool\n'
                 '\n'
-                '@register("working.ok")\n'
+                '@marcel_tool("working.ok")\n'
                 'async def ok(params, user_slug):\n'
                 '    return "ok"\n'
             ),
@@ -205,7 +207,7 @@ class TestExternalDiscovery:
         with caplog.at_level('ERROR', logger='marcel_core.toolkit'):
             discover()
 
-        assert 'working.ok' in list_python_skills()
+        assert 'working.ok' in list_tools()
         assert any('broken' in r.message for r in caplog.records)
 
     def test_habitat_without_init_is_skipped(
@@ -214,7 +216,7 @@ class TestExternalDiscovery:
         """Directories without __init__.py log a warning and are skipped."""
         from marcel_core.config import settings
 
-        (tmp_path / 'integrations' / 'orphan').mkdir(parents=True)
+        (tmp_path / 'toolkit' / 'orphan').mkdir(parents=True)
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         with caplog.at_level('WARNING', logger='marcel_core.toolkit'):
@@ -247,9 +249,9 @@ class TestExternalDiscovery:
         _write_integration(
             tmp_path,
             '_private',
-            'from marcel_core.plugin import register\n',
+            'from marcel_core.plugin import marcel_tool\n',
         )
-        (tmp_path / 'integrations' / '.hidden').mkdir()
+        (tmp_path / 'toolkit' / '.hidden').mkdir()
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
 
         discover()
@@ -266,9 +268,9 @@ class TestExternalDiscovery:
             tmp_path,
             'idemtest',
             (
-                'from marcel_core.plugin import register\n'
+                'from marcel_core.plugin import marcel_tool\n'
                 '\n'
-                '@register("idemtest.hit")\n'
+                '@marcel_tool("idemtest.hit")\n'
                 'async def hit(params, user_slug):\n'
                 '    return "hit"\n'
             ),
@@ -278,13 +280,13 @@ class TestExternalDiscovery:
         discover()
         discover()  # second call must not raise
 
-        assert 'idemtest.hit' in list_python_skills()
+        assert 'idemtest.hit' in list_tools()
 
 
 _VALID_HANDLER_BODY = (
-    'from marcel_core.plugin import register\n'
+    'from marcel_core.plugin import marcel_tool\n'
     '\n'
-    '@register("metatest.ping")\n'
+    '@marcel_tool("metatest.ping")\n'
     'async def ping(params, user_slug):\n'
     '    return "pong"\n'
 )
@@ -292,7 +294,7 @@ _VALID_HANDLER_BODY = (
 
 class TestIntegrationMetadata:
     def test_valid_yaml_populates_metadata(self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules):
-        """A valid integration.yaml is parsed and exposed via get_integration_metadata."""
+        """A valid toolkit.yaml is parsed and exposed via get_toolkit_metadata."""
         from marcel_core.config import settings
 
         _write_integration(
@@ -313,13 +315,13 @@ class TestIntegrationMetadata:
 
         discover()
 
-        meta = get_integration_metadata('metatest')
+        meta = get_toolkit_metadata('metatest')
         assert meta is not None
         assert meta.name == 'metatest'
         assert meta.description == 'Test integration'
         assert meta.provides == ['metatest.ping']
         assert meta.requires == {'env': ['METATEST_TOKEN']}
-        assert 'metatest' in list_integrations()
+        assert 'metatest' in list_toolkits()
 
     def test_missing_yaml_logs_warning_no_metadata(
         self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules, caplog
@@ -333,8 +335,8 @@ class TestIntegrationMetadata:
         with caplog.at_level('WARNING', logger='marcel_core.toolkit'):
             discover()
 
-        assert get_integration_metadata('metatest') is None
-        assert 'metatest.ping' in list_python_skills()  # handler still works
+        assert get_toolkit_metadata('metatest') is None
+        assert 'metatest.ping' in list_tools()  # handler still works
         assert any('toolkit.yaml' in r.message for r in caplog.records)
 
     def test_invalid_yaml_logs_error_no_metadata(
@@ -354,14 +356,14 @@ class TestIntegrationMetadata:
         with caplog.at_level('ERROR', logger='marcel_core.toolkit'):
             discover()
 
-        assert get_integration_metadata('metatest') is None
-        assert 'metatest.ping' in list_python_skills()
-        assert any('integration.yaml' in r.message and 'metatest' in r.message for r in caplog.records)
+        assert get_toolkit_metadata('metatest') is None
+        assert 'metatest.ping' in list_tools()
+        assert any('toolkit.yaml' in r.message and 'metatest' in r.message for r in caplog.records)
 
     def test_name_mismatch_rejects_metadata(
         self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules, caplog
     ):
-        """integration.yaml whose name differs from the directory name is rejected."""
+        """toolkit.yaml whose name differs from the directory name is rejected."""
         from marcel_core.config import settings
 
         _write_integration(
@@ -375,14 +377,14 @@ class TestIntegrationMetadata:
         with caplog.at_level('ERROR', logger='marcel_core.toolkit'):
             discover()
 
-        assert get_integration_metadata('metatest') is None
-        assert get_integration_metadata('not_metatest') is None
+        assert get_toolkit_metadata('metatest') is None
+        assert get_toolkit_metadata('not_metatest') is None
         assert any('match directory name' in r.message for r in caplog.records)
 
     def test_provides_outside_namespace_rejects_metadata(
         self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules, caplog
     ):
-        """integration.yaml listing handlers outside its namespace is rejected."""
+        """toolkit.yaml listing handlers outside its namespace is rejected."""
         from marcel_core.config import settings
 
         _write_integration(
@@ -396,7 +398,7 @@ class TestIntegrationMetadata:
         with caplog.at_level('ERROR', logger='marcel_core.toolkit'):
             discover()
 
-        assert get_integration_metadata('metatest') is None
+        assert get_toolkit_metadata('metatest') is None
         assert any('outside its namespace' in r.message for r in caplog.records)
 
     def test_unknown_requires_keys_warn_but_register(
@@ -416,7 +418,7 @@ class TestIntegrationMetadata:
         with caplog.at_level('WARNING', logger='marcel_core.toolkit'):
             discover()
 
-        meta = get_integration_metadata('metatest')
+        meta = get_toolkit_metadata('metatest')
         assert meta is not None
         assert meta.requires == {'env': ['X'], 'unknown_key': ['Y']}
         assert any('unknown_key' in r.message for r in caplog.records)
@@ -576,5 +578,62 @@ class TestPluginSurfaceCompleteness:
     def test_dunder_all_lists_every_export(self):
         from marcel_core import plugin
 
-        for name in ('IntegrationHandler', 'register', 'get_logger', 'credentials', 'paths', 'models'):
+        for name in ('ToolkitHandler', 'marcel_tool', 'get_logger', 'credentials', 'paths', 'models'):
             assert name in plugin.__all__, f'plugin.__all__ missing {name}'
+
+
+class TestDepVenvLoading:
+    """Thin dep-venv tier: a habitat's own deps import in-process via sys.path."""
+
+    def test_dep_venv_site_packages_detected(self, tmp_path):
+        from marcel_core.toolkit import _dep_venv_site_packages
+
+        pkg = tmp_path / 'toolkit' / 'deptest'
+        py = f'python{sys.version_info.major}.{sys.version_info.minor}'
+        site = pkg / '.venv' / 'lib' / py / 'site-packages'
+        site.mkdir(parents=True)
+        assert _dep_venv_site_packages(pkg) == site
+
+    def test_no_dep_venv_returns_none(self, tmp_path):
+        from marcel_core.toolkit import _dep_venv_site_packages
+
+        pkg = tmp_path / 'toolkit' / 'nodep'
+        pkg.mkdir(parents=True)
+        assert _dep_venv_site_packages(pkg) is None
+
+    @pytest.mark.asyncio
+    async def test_habitat_dep_importable_in_process(
+        self, tmp_path, monkeypatch, isolated_registry, cleanup_external_modules
+    ):
+        """A habitat with a thin .venv can import its dep and run in-process."""
+        from marcel_core.config import settings
+
+        pkg = _write_integration(
+            tmp_path,
+            'deptest',
+            (
+                'import fakedep\n'
+                'from marcel_core.plugin import marcel_tool\n'
+                '\n'
+                '@marcel_tool("deptest.value")\n'
+                'async def value(params, user_slug):\n'
+                '    return fakedep.VALUE\n'
+            ),
+        )
+        py = f'python{sys.version_info.major}.{sys.version_info.minor}'
+        dep = pkg / '.venv' / 'lib' / py / 'site-packages' / 'fakedep'
+        dep.mkdir(parents=True)
+        (dep / '__init__.py').write_text('VALUE = "from-dep-venv"\n', encoding='utf-8')
+
+        # Snapshot sys.path/modules so the append + import are cleaned on teardown.
+        monkeypatch.setattr(sys, 'path', list(sys.path))
+        monkeypatch.delitem(sys.modules, 'fakedep', raising=False)
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path))
+
+        discover()
+        try:
+            assert 'deptest.value' in list_tools()
+            result = await get_handler('deptest.value')({}, 'alice')
+            assert result == 'from-dep-venv'
+        finally:
+            sys.modules.pop('fakedep', None)

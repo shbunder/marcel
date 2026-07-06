@@ -78,18 +78,15 @@ class ToolkitHabitat:
 
         result: list[ToolkitHabitat] = []
         for habitat_name, meta in sorted(_metadata.items()):
-            # Prefer toolkit/ over integrations/ (Phase 3 of ISSUE-3c1534).
-            for subdir in ('toolkit', 'integrations'):
-                path = zoo_dir / subdir / habitat_name
-                if path.is_dir():
-                    result.append(
-                        cls(
-                            name=habitat_name,
-                            source=str(path),
-                            provides=tuple(meta.provides),
-                        )
+            path = zoo_dir / 'toolkit' / habitat_name
+            if path.is_dir():
+                result.append(
+                    cls(
+                        name=habitat_name,
+                        source=str(path),
+                        provides=tuple(meta.provides),
                     )
-                    break
+                )
         return result
 
 

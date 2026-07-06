@@ -17,7 +17,7 @@ from marcel_core.skills.loader import (
     list_skill_resources,
     load_skills,
 )
-from marcel_core.toolkit import IntegrationMetadata
+from marcel_core.toolkit import ToolkitMetadata
 
 
 @pytest.fixture
@@ -613,11 +613,11 @@ class TestCheckDependsOn:
         assert _check_depends_on(['docker'], 'user') is False
 
     def test_registered_integration_with_no_requires_passes(self, isolated_metadata):
-        isolated_metadata['docker'] = IntegrationMetadata(name='docker', requires={})
+        isolated_metadata['docker'] = ToolkitMetadata(name='docker', requires={})
         assert _check_depends_on(['docker'], 'user') is True
 
     def test_env_requirement_propagates(self, isolated_metadata, monkeypatch):
-        isolated_metadata['docker'] = IntegrationMetadata(
+        isolated_metadata['docker'] = ToolkitMetadata(
             name='docker',
             requires={'env': ['DOCKER_HOST']},
         )
@@ -628,8 +628,8 @@ class TestCheckDependsOn:
         assert _check_depends_on(['docker'], 'user') is True
 
     def test_any_unmet_dep_fails_the_whole_check(self, isolated_metadata, monkeypatch):
-        isolated_metadata['docker'] = IntegrationMetadata(name='docker', requires={})
-        isolated_metadata['icloud'] = IntegrationMetadata(
+        isolated_metadata['docker'] = ToolkitMetadata(name='docker', requires={})
+        isolated_metadata['icloud'] = ToolkitMetadata(
             name='icloud',
             requires={'env': ['ICLOUD_PW']},
         )
@@ -639,7 +639,7 @@ class TestCheckDependsOn:
 
 class TestLoadSkillDirDependsOn:
     def test_depends_on_met_returns_skill_md(self, tmp_path, isolated_metadata, monkeypatch):
-        isolated_metadata['docker'] = IntegrationMetadata(
+        isolated_metadata['docker'] = ToolkitMetadata(
             name='docker',
             requires={'env': ['DOCKER_HOST']},
         )
@@ -658,7 +658,7 @@ class TestLoadSkillDirDependsOn:
         assert 'Skill body.' in doc.content
 
     def test_depends_on_unmet_returns_setup_md(self, tmp_path, isolated_metadata, monkeypatch):
-        isolated_metadata['docker'] = IntegrationMetadata(
+        isolated_metadata['docker'] = ToolkitMetadata(
             name='docker',
             requires={'env': ['DOCKER_HOST']},
         )
@@ -677,7 +677,7 @@ class TestLoadSkillDirDependsOn:
         assert 'Setup body.' in doc.content
 
     def test_depends_on_aggregates_credentials_into_skill_doc(self, tmp_path, isolated_metadata):
-        isolated_metadata['banking'] = IntegrationMetadata(
+        isolated_metadata['banking'] = ToolkitMetadata(
             name='banking',
             requires={'credentials': ['BANK_API_KEY']},
         )
@@ -694,7 +694,7 @@ class TestLoadSkillDirDependsOn:
         assert 'BANK_API_KEY' in doc.credential_keys
 
     def test_string_form_depends_on_normalized(self, tmp_path, isolated_metadata):
-        isolated_metadata['docker'] = IntegrationMetadata(name='docker', requires={})
+        isolated_metadata['docker'] = ToolkitMetadata(name='docker', requires={})
 
         skill_dir = tmp_path / 'docker'
         skill_dir.mkdir()

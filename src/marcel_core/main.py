@@ -113,7 +113,7 @@ def _log_zoo_summary() -> None:
         return
 
     counts: dict[str, int] = {}
-    for kind in ('channels', 'integrations', 'skills', 'jobs', 'agents'):
+    for kind in ('channels', 'toolkit', 'skills', 'jobs', 'agents'):
         subdir = zoo_dir / kind
         if not subdir.is_dir():
             counts[kind] = 0
@@ -135,24 +135,21 @@ def _log_zoo_summary() -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log.info('main: starting Marcel v%s', __version__)
 
-    from marcel_core.plugin import _uds_supervisor
     from marcel_core.plugin.extension import emit_resources_discover, extension_registry
     from marcel_core.plugin.orchestrator import discover_all_habitats
 
-    # Populate integration handlers and habitat metadata before the scheduler
+    # Populate toolkit handlers and habitat metadata before the scheduler
     # starts — rebuild_schedule() → _ensure_habitat_jobs() reads _metadata to
     # decide which habitat:* jobs to materialize and which to treat as orphan.
     # Skipping this means every habitat-scheduled job is deleted on cold start.
-    # Toolkit discovery also spawns any UDS-isolated habitats (ISSUE-f60b09).
     # The orchestrator (ISSUE-5f4d34) calls the toolkit/channel/skill/
     # subagent/job loaders in a fixed order, isolating their failures so a
-    # broken kind cannot poison the others. Channel discovery is idempotent
-    # (sys.modules-guarded) so the module-load-time call below stays correct.
+    # broken kind cannot poison the others. Habitats load in-process (lean
+    # isolation, ADR-260628-6101c5) — no subprocess/UDS supervisor to start.
     discover_all_habitats(settings.zoo_dir)
     # Give loaded extensions a resources_discover hook to contribute skill /
     # prompt paths (collected on the extension registry; consumed in F1).
     await emit_resources_discover(extension_registry())
-    _uds_supervisor.start_supervisor()
     _log_zoo_summary()
 
     summarize_task = asyncio.create_task(_background_summarization_loop())
@@ -161,7 +158,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
     scheduler.stop()
     summarize_task.cancel()
-    await _uds_supervisor.stop_supervisor()
     log.info('main: shutdown complete')
 
 

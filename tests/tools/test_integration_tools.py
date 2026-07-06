@@ -1,4 +1,4 @@
-"""Tests for tools/integration.py and tools/marcel.py — integration dispatcher, memory, notify."""
+"""Tests for tools/toolkit.py and tools/marcel.py — toolkit dispatcher, memory, notify."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.storage import _root
 from marcel_core.tools.marcel import marcel
-from marcel_core.tools.toolkit import integration
+from marcel_core.tools.toolkit import toolkit
 
 
 def _ctx(channel: str = 'cli', user_slug: str = 'shaun') -> MagicMock:
@@ -21,11 +21,11 @@ def _ctx(channel: str = 'cli', user_slug: str = 'shaun') -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# integration tool
+# toolkit tool
 # ---------------------------------------------------------------------------
 
 
-class TestIntegrationTool:
+class TestToolkitTool:
     @pytest.mark.asyncio
     async def test_dispatches_to_skill(self, monkeypatch):
         from marcel_core.toolkit import _registry
@@ -33,15 +33,15 @@ class TestIntegrationTool:
         saved = dict(_registry)
         monkeypatch.setattr('marcel_core.toolkit._registry', {})
 
-        from marcel_core.toolkit import register
+        from marcel_core.toolkit import marcel_tool
 
-        @register('test.ping')
+        @marcel_tool('test.ping')
         async def ping(params, user_slug):
             return 'pong'
 
         with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'test.ping'}):
             with patch('marcel_core.tools.toolkit.run', AsyncMock(return_value='pong')):
-                result = await integration(_ctx(), 'test.ping', {})
+                result = await toolkit(_ctx(), 'test.ping', {})
 
         assert 'pong' in result
         _registry.clear()
@@ -49,21 +49,21 @@ class TestIntegrationTool:
 
     @pytest.mark.asyncio
     async def test_unknown_skill_returns_error(self):
-        result = await integration(_ctx(), 'nonexistent.skill', {})
+        result = await toolkit(_ctx(), 'nonexistent.skill', {})
         assert 'error' in result.lower() or 'available' in result.lower()
 
     @pytest.mark.asyncio
     async def test_none_params_defaults_to_empty(self):
         with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
             with patch('marcel_core.tools.toolkit.run', AsyncMock(side_effect=RuntimeError('boom'))):
-                result = await integration(_ctx(), 'x', None)
+                result = await toolkit(_ctx(), 'x', None)
         assert 'error' in result.lower()
 
     @pytest.mark.asyncio
     async def test_skill_execution_error_returns_message(self):
         with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
             with patch('marcel_core.tools.toolkit.run', AsyncMock(side_effect=Exception('oops'))):
-                result = await integration(_ctx(), 'x', {})
+                result = await toolkit(_ctx(), 'x', {})
         assert 'oops' in result or 'error' in result.lower()
 
     @pytest.mark.asyncio
@@ -73,7 +73,7 @@ class TestIntegrationTool:
         with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
             with patch('marcel_core.tools.toolkit.run', AsyncMock(return_value='result-data')):
                 with patch('marcel_core.skills.loader.get_skill_content', return_value='Full banking docs here'):
-                    result = await integration(ctx, 'banking.balance', {})
+                    result = await toolkit(ctx, 'banking.balance', {})
 
         assert 'Auto-loaded banking skill docs' in result
         assert 'Full banking docs here' in result
@@ -88,10 +88,28 @@ class TestIntegrationTool:
         ctx.deps.turn.read_skills.add('banking')
         with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
             with patch('marcel_core.tools.toolkit.run', AsyncMock(return_value='result-data')):
-                result = await integration(ctx, 'banking.balance', {})
+                result = await toolkit(ctx, 'banking.balance', {})
 
         assert 'Auto-loaded' not in result
         assert result == 'result-data'
+
+    @pytest.mark.asyncio
+    async def test_slow_handler_is_contained_by_timeout(self, monkeypatch):
+        """A hung in-process handler is bounded by the call-boundary timeout —
+        the containment that replaces the old UDS process isolation."""
+        import asyncio as _asyncio
+
+        monkeypatch.setattr('marcel_core.tools.toolkit._HANDLER_TIMEOUT', 0.05)
+
+        async def _hang(*_a, **_kw):
+            await _asyncio.sleep(5)
+            return 'never'
+
+        with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
+            with patch('marcel_core.tools.toolkit.run', _hang):
+                result = await toolkit(_ctx(), 'slow.op', {})
+
+        assert 'timed out' in result.lower()
 
 
 # ---------------------------------------------------------------------------

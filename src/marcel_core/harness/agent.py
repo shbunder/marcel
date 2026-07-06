@@ -135,8 +135,6 @@ _TOOL_REGISTRY: list[tuple[str, object, str | None]] = [
     # All-user tools
     ('generate_chart', chart_tools.generate_chart, None),
     ('toolkit', toolkit_tools.toolkit, None),
-    # Back-compat alias — removed in ISSUE-3c1534 Phase 5.
-    ('integration', toolkit_tools.integration, None),
     ('marcel', marcel_tools.marcel, None),
     # Job management
     ('create_job', job_tools.create_job, None),
