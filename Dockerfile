@@ -3,6 +3,10 @@ FROM python:3.12-slim
 # System dependencies + Docker CLI (to manage sibling containers via mounted socket)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git curl gnupg \
+        # bubblewrap — the agent command/code execution sandbox (F2, ADR-0fc1e2).
+        # Needs unprivileged user namespaces at runtime; see docs/sandbox.md for
+        # the host/Docker enablement (the sandbox falls back safely if absent).
+        bubblewrap \
         # Chromium/Playwright runtime dependencies
         libglib2.0-0 libnspr4 libnss3 libatk1.0-0 libatk-bridge2.0-0 \
         libcups2 libxdamage1 libxkbcommon0 libpango-1.0-0 libcairo2 \
