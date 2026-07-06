@@ -49,7 +49,7 @@ class MarcelBusToolset(WrapperToolset[MarcelDeps]):
         if bus is None:
             return await self.wrapped.call_tool(name, tool_args, ctx, tool)
 
-        ectx = EventContext(user_slug=ctx.deps.user_slug, role=ctx.deps.role)
+        ectx = EventContext(user_slug=ctx.deps.user_slug, role=ctx.deps.role, channel=ctx.deps.channel)
 
         # tool_call — handlers may mutate `args` in place or block the call.
         call_event = await bus.emit(ToolCallEvent(tool_name=name, args=tool_args), ectx)

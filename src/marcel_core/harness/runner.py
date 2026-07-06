@@ -593,7 +593,7 @@ async def stream_turn(
     from marcel_core.plugin.extension import extension_registry
 
     extension_registry().apply_to_bus(event_bus)
-    event_ctx = EventContext(user_slug=user_slug, role=role)
+    event_ctx = EventContext(user_slug=user_slug, role=role, channel=channel)
     await event_bus.emit(SessionStartEvent(), event_ctx)
 
     # The channel has already stripped any slash prefix — use the cleaned

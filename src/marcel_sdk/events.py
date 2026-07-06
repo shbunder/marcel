@@ -45,13 +45,14 @@ log = logging.getLogger(__name__)
 class EventContext:
     """Turn-shared context handed to every event handler.
 
-    Carries the identity and role of the turn so individual events only
-    hold their own event-specific payload. Room to grow (logger, cwd,
-    services) without changing the handler signature.
+    Carries the identity, role, and originating channel of the turn so
+    individual events only hold their own event-specific payload. Room to
+    grow (logger, cwd, services) without changing the handler signature.
     """
 
     user_slug: str
     role: str
+    channel: str = ''
 
 
 @dataclass

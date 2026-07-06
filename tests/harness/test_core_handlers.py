@@ -113,10 +113,11 @@ def test_self_mod_guard_unlock_flag_lifts_block(tmp_path, monkeypatch):
 # --- registration ---------------------------------------------------------
 
 
-def test_register_core_handlers_registers_both():
+def test_register_core_handlers_registers_all():
     bus = EventBus()
     register_core_handlers(bus)
-    assert bus.handler_count('tool_call') == 2
+    # self-mod guard + role gate + command policy
+    assert bus.handler_count('tool_call') == 3
 
 
 async def test_registered_guard_blocks_via_bus():
@@ -127,3 +128,121 @@ async def test_registered_guard_blocks_via_bus():
     event = await bus.emit(ToolCallEvent(tool_name='write_file', args={'path': 'CLAUDE.md'}), ADMIN)
     assert event.blocked is True
     assert 'restricted' in (event.block_reason or '').lower()
+
+
+# --- command policy + approval handler ------------------------------------
+
+import asyncio
+
+from marcel_core.config import settings
+from marcel_core.harness.approval import ApprovalOutcome, approval_registry
+from marcel_core.harness.command_policy import Verdict
+from marcel_core.harness.core_handlers import _command_policy_handler, command_policy
+from marcel_core.plugin.channels import register_channel
+from marcel_core.storage import _root
+
+CLI = EventContext(user_slug='shaun', role='admin', channel='cli')
+
+
+class _FakeApprovalChannel:
+    """A channel plugin that delivers approval prompts and auto-resolves them."""
+
+    def __init__(self, name: str, outcome: ApprovalOutcome | None) -> None:
+        self.name = name
+        self._outcome = outcome
+        self.sent: list[dict] = []
+
+    async def send_approval_request(self, request: dict) -> bool:
+        self.sent.append(request)
+        if self._outcome is None:
+            return False  # delivery failure → safe-default deny
+        approval_id = request['id']
+        outcome = self._outcome
+
+        async def _resolve() -> None:
+            await asyncio.sleep(0.01)
+            approval_registry().resolve(approval_id, outcome)
+
+        asyncio.create_task(_resolve())
+        return True
+
+
+@pytest.fixture
+def _policy_env(tmp_path, monkeypatch):
+    """Fresh policy + data root + enabled + short window for each policy test."""
+    monkeypatch.setattr(core_handlers, '_POLICY', None)
+    monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+    monkeypatch.setattr(settings, 'marcel_command_policy_enabled', True)
+    monkeypatch.setattr(settings, 'marcel_approval_timeout_seconds', 2.0)
+
+
+def _ctx_for(chan: _FakeApprovalChannel) -> EventContext:
+    register_channel(chan)  # type: ignore[arg-type]
+    return EventContext(user_slug='shaun', role='admin', channel=chan.name)
+
+
+async def test_policy_allows_benign_command(_policy_env):
+    event = ToolCallEvent(tool_name='bash', args={'command': 'ls -la'})
+    await _command_policy_handler(event, CLI)
+    assert event.blocked is False
+
+
+async def test_policy_denies_self_mod_shell(_policy_env):
+    event = ToolCallEvent(tool_name='bash', args={'command': 'rm src/marcel_core/auth/x'})
+    await _command_policy_handler(event, CLI)
+    assert event.blocked is True
+    assert 'command policy' in (event.block_reason or '').lower()
+
+
+async def test_policy_ask_allow_once_proceeds(_policy_env):
+    chan = _FakeApprovalChannel('approve_once', ApprovalOutcome.ALLOW_ONCE)
+    ctx = _ctx_for(chan)
+    event = ToolCallEvent(tool_name='bash', args={'command': 'docker rm -f marcel'})
+    await _command_policy_handler(event, ctx)
+    assert event.blocked is False
+    assert chan.sent, 'approval should have been forwarded'
+
+
+async def test_policy_ask_deny_blocks(_policy_env):
+    chan = _FakeApprovalChannel('approve_deny', ApprovalOutcome.DENY)
+    ctx = _ctx_for(chan)
+    event = ToolCallEvent(tool_name='bash', args={'command': 'sudo reboot'})
+    await _command_policy_handler(event, ctx)
+    assert event.blocked is True
+    assert 'declined' in (event.block_reason or '').lower()
+
+
+async def test_policy_ask_allow_always_amends_policy(_policy_env):
+    chan = _FakeApprovalChannel('approve_always', ApprovalOutcome.ALLOW_ALWAYS)
+    ctx = _ctx_for(chan)
+    cmd = 'docker rm -f marcel'
+
+    event1 = ToolCallEvent(tool_name='bash', args={'command': cmd})
+    await _command_policy_handler(event1, ctx)
+    assert event1.blocked is False
+    assert command_policy().classify('bash', {'command': cmd}).verdict is Verdict.ALLOW
+
+    # A second identical command auto-allows without re-forwarding.
+    chan.sent.clear()
+    event2 = ToolCallEvent(tool_name='bash', args={'command': cmd})
+    await _command_policy_handler(event2, ctx)
+    assert event2.blocked is False
+    assert chan.sent == []
+
+
+async def test_policy_ask_undeliverable_channel_denies(_policy_env):
+    # 'cli' has no registered plugin → no send_approval_request → safe deny.
+    event = ToolCallEvent(tool_name='bash', args={'command': 'sudo reboot'})
+    await _command_policy_handler(event, CLI)
+    assert event.blocked is True
+
+
+async def test_policy_disabled_is_noop(_policy_env, monkeypatch):
+    monkeypatch.setattr(settings, 'marcel_command_policy_enabled', False)
+    event = ToolCallEvent(tool_name='bash', args={'command': 'rm src/marcel_core/auth/x'})
+    await _command_policy_handler(event, CLI)
+    assert event.blocked is False
+
+
+def test_command_policy_singleton(_policy_env):
+    assert command_policy() is command_policy()
