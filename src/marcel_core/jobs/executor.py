@@ -15,7 +15,7 @@ import logging
 import re
 from datetime import UTC, datetime
 
-from marcel_core.harness.model_chain import FALLBACK_ELIGIBLE_CATEGORIES, TierEntry, classify_error
+from marcel_core.harness.model_chain import FALLBACK_ELIGIBLE_CATEGORIES, TierEntry, classify_error, model_label
 from marcel_core.jobs import SYSTEM_USER, append_run
 from marcel_core.jobs.models import JobDefinition, JobDispatchType, JobRun, NotifyPolicy, RunStatus
 
@@ -407,7 +407,7 @@ def _fallback_label(entry: TierEntry) -> str:
     ``'backup'`` for the per-tier cross-cloud backup, and falls back to the
     tier name for anything else.
     """
-    if entry.model.startswith('local:'):
+    if model_label(entry.model).startswith('local:'):
         return 'local'
     if entry.purpose == 'backup':
         return 'backup'
@@ -441,10 +441,10 @@ async def _execute_chain(
     # STANDARD backup covers cross-cloud failover. See ISSUE-e0db47.
     chain = build_chain(tier=Tier.STANDARD, primary=job.model, mode='complete')
 
-    has_local_tier = any(e.purpose == 'complete' and e.model.startswith('local:') for e in chain)
+    has_local_tier = any(e.purpose == 'complete' and model_label(e.model).startswith('local:') for e in chain)
     if not job.allow_local_fallback:
         # Strip any local tier 3 but keep cloud tier 2 — confirmed ISSUE-076 decision.
-        chain = [e for e in chain if not (e.purpose == 'complete' and e.model.startswith('local:'))]
+        chain = [e for e in chain if not (e.purpose == 'complete' and model_label(e.model).startswith('local:'))]
     elif not has_local_tier and settings.marcel_local_llm_url and settings.marcel_local_llm_model:
         # Legacy ISSUE-070 bridge: no MARCEL_FALLBACK_MODEL set but the job
         # opted into local fallback and MARCEL_LOCAL_LLM_* are configured.
@@ -470,7 +470,10 @@ async def _execute_chain(
                 job.id,
                 job.name,
             )
-        job.model = current.model
+        # Job chains are always built from string model pins (job.model is a
+        # str) — model_label() is identity here and keeps the assignment
+        # well-typed now that TierEntry.model is str | Model.
+        job.model = model_label(current.model)
         try:
             run = await _run_with_backoff(job, trigger_reason, user_slug=slug)
         finally:

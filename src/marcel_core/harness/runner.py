@@ -24,6 +24,7 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+from pydantic_ai.models import Model
 from pydantic_ai.usage import UsageLimits
 
 from marcel_core.config import settings
@@ -37,6 +38,7 @@ from marcel_core.harness.model_chain import (
     build_explain_system_prompt,
     build_explain_user_prompt,
     is_fallback_eligible,
+    model_label,
     next_tier,
 )
 from marcel_core.harness.tier_classifier import (
@@ -550,7 +552,7 @@ async def stream_turn(
     user_text: str,
     conversation_id: str,
     *,
-    model: str | None = None,
+    model: str | Model | None = None,
     cwd: str | None = None,
     turn_plan: TurnPlan | None = None,
 ) -> AsyncIterator[MarcelEvent]:
@@ -567,7 +569,10 @@ async def stream_turn(
             context building, and the model prompt — the channel has already
             stripped any slash prefix.
         conversation_id: The active conversation identifier.
-        model: Optional model override (e.g., 'openai:gpt-4').
+        model: Optional model override — a qualified string (e.g.
+            ``'openai:gpt-4o'``) or a pydantic-ai ``Model`` instance. An
+            instance short-circuits the fallback chain to a single entry
+            (the scenario-test seam, ADR-260706-b88015).
         turn_plan: Optional pre-resolved plan from the channel adapter. When
             supplied, its ``tier`` wins over the classifier/session path iff
             ``source`` is ``USER_PREFIX`` (one-shot user override); its
@@ -761,7 +766,7 @@ async def stream_turn(
                 continue
 
         await event_bus.emit(
-            BeforeProviderRequestEvent(model=current.model, tier=current.tier.value),
+            BeforeProviderRequestEvent(model=model_label(current.model), tier=current.tier.value),
             event_ctx,
         )
         try:
@@ -776,7 +781,7 @@ async def stream_turn(
                     user_slug,
                     channel,
                     current.tier.value,
-                    current.model,
+                    model_label(current.model),
                 )
                 async for text_delta in result.stream_text(delta=True, debounce_by=0.01):
                     if text_delta:

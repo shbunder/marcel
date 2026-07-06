@@ -148,7 +148,7 @@ async def delegate(
     # are resolved against settings here so every agent that references a
     # tier picks up env-var changes without a restart. See ISSUE-076.
     model = agent_doc.model or ctx.deps.model or default_model()
-    if is_tier_sentinel(model):
+    if isinstance(model, str) and is_tier_sentinel(model):
         try:
             model = resolve_tier_sentinel(model)
         except TierNotConfigured as exc:

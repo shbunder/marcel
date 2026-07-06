@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart, ToolReturnPart, UserPromptPart
+from pydantic_ai.models.test import TestModel
 
 from marcel_core.harness.runner import (
     RunFinished,
@@ -1273,3 +1274,42 @@ class TestStreamTurnEventBus:
 
         assert captured, 'agent should have been built'
         assert any('[INJECTED]' in sp for sp in captured)
+
+
+class TestModelInstanceTurn:
+    """stream_turn with an injected Model instance (STORY-260706-727779).
+
+    Unlike every test above, nothing is patched in the harness: the real
+    ``create_marcel_agent`` builds the agent, the real chain resolves to a
+    single entry, and the real streaming path runs — only the LLM itself is
+    a deterministic ``TestModel``. This is the seam ``marcel_testing``'s
+    scenario harness drives.
+    """
+
+    @pytest.mark.asyncio
+    async def test_full_turn_runs_unpatched(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        model = TestModel(custom_output_text='Hello from the sealed world.', call_tools=[])
+
+        events = [e async for e in stream_turn('shaun', 'cli', 'hi marcel', 'conv-1', model=model)]
+
+        types = [e.type for e in events]
+        assert types[0] == 'run_started'
+        assert types[-1] == 'run_finished'
+        text = ''.join(e.text for e in events if isinstance(e, TextDelta))
+        assert text == 'Hello from the sealed world.'
+        finished = [e for e in events if isinstance(e, RunFinished)]
+        assert finished[0].is_error is False
+
+    @pytest.mark.asyncio
+    async def test_instance_turn_persists_conversation(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        from marcel_core.memory.conversation import read_active_segment
+
+        model = TestModel(custom_output_text='noted!', call_tools=[])
+        _ = [e async for e in stream_turn('shaun', 'cli', 'remember the milk', 'conv-1', model=model)]
+
+        messages = read_active_segment('shaun', 'cli')
+        roles = [(m.role, m.text) for m in messages]
+        assert ('user', 'remember the milk') in roles
+        assert ('assistant', 'noted!') in roles

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.test import TestModel
 
 from marcel_core.config import settings
 from marcel_core.harness.agent import (
@@ -15,6 +16,7 @@ from marcel_core.harness.agent import (
     available_tool_names,
     create_marcel_agent,
 )
+from marcel_core.harness.context import MarcelDeps
 
 
 @pytest.fixture(autouse=True)
@@ -273,3 +275,30 @@ class TestAllModelsLocalEntry:
         monkeypatch.setattr(settings, 'marcel_local_llm_model', None)
         models = all_models()
         assert not any(key.startswith('local:') for key in models)
+
+
+def _deps() -> MarcelDeps:
+    return MarcelDeps(user_slug='alice', conversation_id='c-1', channel='cli', role='user')
+
+
+class TestModelInstanceSeam:
+    """create_marcel_agent accepts a Model instance (STORY-260706-727779).
+
+    The instance passes to ``Agent()`` verbatim: no provider inference, no
+    API key required — the seam ``marcel_testing`` drives scenarios through.
+    """
+
+    def test_instance_builds_agent_without_api_keys(self, monkeypatch):
+        monkeypatch.delenv('ANTHROPIC_API_KEY', raising=False)
+        monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+        agent = create_marcel_agent(model=TestModel(call_tools=[]), system_prompt='hi', role='user')
+        assert agent is not None
+
+    def test_instance_agent_runs_deterministically(self):
+        agent = create_marcel_agent(
+            model=TestModel(custom_output_text='scripted reply', call_tools=[]),
+            system_prompt='You are a test.',
+            role='user',
+        )
+        result = agent.run_sync('hello', deps=_deps())
+        assert result.output == 'scripted reply'

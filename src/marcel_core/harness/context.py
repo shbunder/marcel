@@ -7,13 +7,15 @@ import logging
 from pathlib import Path
 
 from pydantic import ConfigDict, dataclasses as pydantic_dc
+from pydantic_ai.models import Model
 
 from marcel_sdk.events import EventBus
 
 log = logging.getLogger(__name__)
 
-# TurnState carries an EventBus (a plain, non-pydantic class), so its
-# pydantic dataclass must permit arbitrary field types.
+# TurnState carries an EventBus and MarcelDeps may carry an injected
+# pydantic-ai Model instance (the scenario-test seam) — plain, non-pydantic
+# classes, so both dataclasses must permit arbitrary field types.
 _TURN_STATE_CONFIG = ConfigDict(arbitrary_types_allowed=True)
 
 # Path to bundled channel-type prompt files (kernel-owned; describe how
@@ -72,7 +74,7 @@ class TurnState:
     """
 
 
-@pydantic_dc.dataclass
+@pydantic_dc.dataclass(config=_TURN_STATE_CONFIG)
 class MarcelDeps:
     """Dependencies injected into Marcel agent tools via RunContext.
 
@@ -96,9 +98,11 @@ class MarcelDeps:
     channel: str
     """The originating channel: 'cli', 'telegram', 'app', 'ios', 'websocket'."""
 
-    model: str | None = None
+    model: str | Model | None = None
     """Optional model override — fully-qualified pydantic-ai string
-    (e.g. ``'anthropic:claude-opus-4-6'``, ``'openai:gpt-4o'``)."""
+    (e.g. ``'anthropic:claude-opus-4-6'``, ``'openai:gpt-4o'``) or a
+    pydantic-ai ``Model`` instance (the scenario-test seam; subagents
+    spawned via ``delegate`` then inherit the injected model)."""
 
     role: str = 'user'
     """The user's role: 'admin' or 'user'."""

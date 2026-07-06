@@ -69,6 +69,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
+from pydantic_ai.models import Model
+
 from marcel_core.config import settings
 
 log = logging.getLogger(__name__)
@@ -190,8 +192,18 @@ class TierEntry:
     """
 
     tier: Tier
-    model: str
+    model: str | Model
     purpose: Purpose
+
+
+def model_label(model: str | Model) -> str:
+    """Human-readable identifier for a model string or ``Model`` instance.
+
+    Used wherever a model must be rendered as text (log lines, the
+    ``before_provider_request`` event) regardless of which arm of the
+    ``str | Model`` union the caller holds.
+    """
+    return model if isinstance(model, str) else model.model_name
 
 
 def _fallback_tier_usable(model: str) -> bool:
@@ -240,7 +252,7 @@ _TIER_BACKUP_ATTR = {
 def build_chain(
     *,
     tier: Tier = Tier.STANDARD,
-    primary: str | None = None,
+    primary: str | Model | None = None,
     mode: Literal['explain', 'complete'] = 'explain',
     fallback_tier: Tier = Tier.LOCAL,
 ) -> list[TierEntry]:
@@ -255,7 +267,11 @@ def build_chain(
             chain uses ``settings.marcel_<tier>_model``. A per-channel pin
             or explicit caller argument passes in its resolved value here —
             this replaces the primary *only*, the backup still comes from
-            ``settings.marcel_<tier>_backup_model``.
+            ``settings.marcel_<tier>_backup_model``. A pydantic-ai ``Model``
+            *instance* (the scenario-test seam, ADR-260706-b88015) produces
+            a single-entry chain: an injected model is already resolved, so
+            there is no provider to fail over from and backup/fallback
+            entries would be meaningless.
         mode: ``'explain'`` for interactive turns (local fallback gets the
             explain-failure purpose), ``'complete'`` for scheduled jobs
             (local fallback tries to finish the task on the local model,
@@ -282,6 +298,9 @@ def build_chain(
         raise ValueError(f'build_chain: unknown tier {tier!r}')
     if fallback_tier == Tier.POWER:
         raise ValueError('build_chain: fallback_tier cannot be POWER')
+
+    if isinstance(primary, Model):
+        return [TierEntry(tier=tier, model=primary, purpose='primary')]
 
     primary_model = primary or getattr(settings, _TIER_PRIMARY_ATTR[tier])
     chain: list[TierEntry] = [TierEntry(tier=tier, model=primary_model, purpose='primary')]
@@ -487,6 +506,7 @@ __all__ = [
     'tier_from_index',
     'TierEntry',
     'Purpose',
+    'model_label',
     'TIER_SENTINEL_PREFIX',
     'TierNotConfigured',
     'FALLBACK_ELIGIBLE_CATEGORIES',
