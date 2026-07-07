@@ -428,9 +428,7 @@ class TestMoreErrorPaths:
         assert 'references' in result
 
     @pytest.mark.asyncio
-    async def test_subagent_build_failure_returns_clean_error(
-        self, agents_root: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_subagent_build_failure_returns_clean_error(self, agents_root: Path, monkeypatch: pytest.MonkeyPatch):
         _write_agent(agents_root, 'broken', 'description: test')
 
         def boom(**kwargs: Any):

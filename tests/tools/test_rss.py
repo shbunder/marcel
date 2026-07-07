@@ -405,11 +405,7 @@ class TestParseEdges:
         assert articles[0]['category'] == 'Wetenschap'
 
     def test_atom_enclosure_only_links_leave_link_empty(self):
-        xml = (
-            '<feed><entry><title>T</title>'
-            '<link rel="enclosure" href="http://x/audio.mp3"/>'
-            '</entry></feed>'
-        )
+        xml = '<feed><entry><title>T</title><link rel="enclosure" href="http://x/audio.mp3"/></entry></feed>'
         articles = _parse_feed(xml)
         assert articles[0]['link'] == ''
 
