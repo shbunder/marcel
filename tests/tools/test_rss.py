@@ -360,3 +360,60 @@ class TestFetchFeed:
             articles = await fetch_feed('https://example.com/big.xml', max_articles=5)
 
         assert len(articles) == 5
+
+
+# ---------------------------------------------------------------------------
+# ratchet edges (STORY-260707-c332a7)
+# ---------------------------------------------------------------------------
+
+
+class TestParseEdges:
+    def test_text_helper_handles_none_and_content(self):
+        import xml.etree.ElementTree as ET
+
+        from marcel_core.tools.rss import _text
+
+        assert _text(None) == ''
+        assert _text(ET.fromstring('<t>  hi  </t>')) == 'hi'
+        assert _text(ET.fromstring('<t/>')) == ''
+
+    def test_rss_caps_articles_at_max(self):
+        items = ''.join(f'<item><title>t{i}</title></item>' for i in range(105))
+        xml = f'<rss><channel>{items}</channel></rss>'
+        assert len(_parse_feed(xml)) == 100
+
+    def test_atom_caps_articles_at_max(self):
+        entries = ''.join(f'<entry><title>t{i}</title></entry>' for i in range(105))
+        xml = f'<feed>{entries}</feed>'
+        assert len(_parse_feed(xml)) == 100
+
+    def test_rss_unknown_child_tags_are_ignored(self):
+        xml = '<rss><channel><item><title>T</title><guid>xyz-123</guid></item></channel></rss>'
+        articles = _parse_feed(xml)
+        assert articles[0]['title'] == 'T'
+        assert 'guid' not in articles[0]
+
+    def test_atom_vrt_nstag_becomes_category(self):
+        xml = (
+            '<feed xmlns:vrtns="http://vrt.be/ns"><entry><title>T</title>'
+            '<vrtns:nstag>Wetenschap</vrtns:nstag>'
+            '<vrtns:nstag></vrtns:nstag>'
+            '<author><name>VRT</name></author>'
+            '</entry></feed>'
+        )
+        articles = _parse_feed(xml)
+        assert articles[0]['category'] == 'Wetenschap'
+
+    def test_atom_enclosure_only_links_leave_link_empty(self):
+        xml = (
+            '<feed><entry><title>T</title>'
+            '<link rel="enclosure" href="http://x/audio.mp3"/>'
+            '</entry></feed>'
+        )
+        articles = _parse_feed(xml)
+        assert articles[0]['link'] == ''
+
+    def test_unknown_root_falls_back_to_rss_parse(self):
+        xml = '<?xml version="1.0"?><weird><item><title>T</title></item></weird>'
+        articles = _parse_feed(xml)
+        assert articles[0]['title'] == 'T'
