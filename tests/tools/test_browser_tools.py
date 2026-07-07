@@ -565,3 +565,62 @@ class TestBrowserClose:
         mgr.close_context = AsyncMock(side_effect=RuntimeError('crash'))
         result = await browser_close(_ctx())
         assert 'Error' in result
+
+
+# ---------------------------------------------------------------------------
+# ratchet edges (STORY-260707-c332a7)
+# ---------------------------------------------------------------------------
+
+
+class TestLazyHelpers:
+    def test_get_manager_returns_module(self):
+        from marcel_core.tools.browser.pydantic_tools import _get_manager
+
+        assert _get_manager() is not None
+
+    def test_get_allowlist_parses_csv(self, monkeypatch):
+        from marcel_core.config import settings
+        from marcel_core.tools.browser.pydantic_tools import _get_allowlist
+
+        monkeypatch.setattr(settings, 'browser_url_allowlist', ' example.com, , docs.python.org ')
+        assert _get_allowlist() == ['example.com', 'docs.python.org']
+        monkeypatch.setattr(settings, 'browser_url_allowlist', '')
+        assert _get_allowlist() is None
+
+    def test_get_timeout_scales_to_ms(self, monkeypatch):
+        from marcel_core.config import settings
+        from marcel_core.tools.browser.pydantic_tools import _get_timeout
+
+        monkeypatch.setattr(settings, 'browser_timeout', 7)
+        assert _get_timeout() == 7000
+
+
+class TestScrollEdge:
+    @pytest.mark.asyncio
+    async def test_unknown_direction_scrolls_nowhere(self, mock_browser):
+        # The dispatcher only checks presence, not membership — an unknown
+        # direction reaches the tool and wheels (0, 0) rather than crashing.
+        _, page = mock_browser
+        result = await browser_scroll(_ctx(), direction='diagonal')
+        assert 'Scrolled diagonal' in result
+        page.mouse.wheel.assert_called_with(0, 0)
+
+
+class TestSecurityEdges:
+    def test_unresolvable_hostname_returns_empty(self, monkeypatch):
+        import socket
+
+        from marcel_core.tools.browser.security import _resolve_hostname
+
+        def boom(*args, **kwargs):
+            raise socket.gaierror('resolution failed')
+
+        monkeypatch.setattr(socket, 'getaddrinfo', boom)
+        assert _resolve_hostname('nope.invalid') == []
+
+    def test_unparseable_url_is_blocked(self):
+        from marcel_core.tools.browser.security import is_url_allowed
+
+        allowed, reason = is_url_allowed('https://[bad-bracket')
+        assert allowed is False
+        assert 'parse' in reason.lower()
