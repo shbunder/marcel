@@ -11,6 +11,7 @@ from marcel_core.harness.approval import (
     ApprovalOutcome,
     ApprovalRegistry,
     ApprovalRequest,
+    _redacted_record,
     approval_registry,
 )
 from marcel_core.storage import _root, approvals as approval_store
@@ -196,3 +197,23 @@ def test_remove_queued(tmp_path):
     approval_store.remove_queued(req.id)
     assert approval_store.get_queued(req.id) is None
     approval_store.remove_queued(req.id)  # idempotent
+
+
+def test_redacted_record_passes_odd_shapes_through():
+    # Defensive edges: a non-str summary and non-dict args are left untouched.
+    record = {'summary': None, 'args': ['not', 'a', 'dict']}
+    assert _redacted_record(record) == record
+
+
+def test_audit_store_failure_is_swallowed(monkeypatch, caplog):
+    # A failing audit write must never break the resolution path — the
+    # approval outcome matters more than its log line.
+    reg = ApprovalRegistry()
+    req = _req(reg)
+
+    def boom(record):
+        raise OSError('disk full')
+
+    monkeypatch.setattr(approval_store, 'append_audit', boom)
+    reg._audit(req, ApprovalOutcome.DENY)  # must not raise
+    assert 'failed to write approval audit record' in caplog.text

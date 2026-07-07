@@ -162,6 +162,43 @@ def test_add_rule_front_takes_precedence(policy):
     assert policy.classify('bash', {'command': 'rm -rf /tmp/x'}).verdict is Verdict.ALLOW
 
 
+def test_add_rule_back_runs_after_earlier_custom_rules(policy):
+    deny_tmp = Rule(
+        name='deny-tmp',
+        verdict=Verdict.DENY,
+        reason='no tmp deletes',
+        tools=frozenset({'bash'}),
+        arg='command',
+        pattern=re.compile(r'^rm -rf /tmp/'),
+    )
+    allow_tmp = Rule(
+        name='allow-tmp',
+        verdict=Verdict.ALLOW,
+        reason='tmp is fine',
+        tools=frozenset({'bash'}),
+        arg='command',
+        pattern=re.compile(r'^rm -rf /tmp/'),
+    )
+    policy.add_rule(deny_tmp, front=True)
+    policy.add_rule(allow_tmp, front=False)
+    # First match wins among custom rules: the appended rule never fires...
+    assert policy.classify('bash', {'command': 'rm -rf /tmp/x'}).verdict is Verdict.DENY
+    # ...and it sits at the back of the inspection list.
+    assert policy.rules[-1].name == 'allow-tmp'
+
+
+def test_benign_git_command_is_allowed(policy):
+    # A git command with no destructive subcommand walks the whole
+    # git-destructive check and falls through to the default.
+    assert policy.classify('bash', {'command': 'git status'}).verdict is Verdict.ALLOW
+
+
+def test_nul_byte_token_classifies_without_crashing(policy):
+    # os.path.realpath raises ValueError on an embedded NUL byte; a hostile
+    # token must degrade to itself, never crash classification.
+    assert policy.classify('bash', {'command': 'cat bad\x00path'}).verdict is Verdict.ALLOW
+
+
 # --- evasion resistance (regression for the F2 security review) ------------
 
 

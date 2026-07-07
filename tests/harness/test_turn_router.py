@@ -161,6 +161,12 @@ class TestSkillDispatch:
         assert plan.skill_override == 'morning-digest'
         assert plan.cleaned_text == 'tomorrow'
 
+    def test_command_with_invalid_char_is_plain_text(self) -> None:
+        # '$' fails the name-charset check → the whole text stays plain text.
+        plan = _resolve('/foo$bar hello', known_skills=('foo',))
+        assert plan.skill_override is None
+        assert plan.cleaned_text == '/foo$bar hello'
+
     def test_known_skill_cannot_shadow_tier_prefix(self) -> None:
         """Even if a skill is registered as 'fast', the tier prefix wins."""
         plan = _resolve('/fast hello', known_skills=('fast',))
