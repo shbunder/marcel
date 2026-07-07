@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
 
 from marcel_core.skills.component_registry import ComponentRegistry, build_registry
 from marcel_core.skills.components import ComponentPayload, ComponentSchema, parse_components_yaml
@@ -393,3 +394,90 @@ class TestSkillLoaderComponents:
         assert doc.is_setup is True
         assert len(doc.components) == 1
         assert doc.components[0].name == 'test_widget'
+
+
+# ---------------------------------------------------------------------------
+# /api/components REST endpoints
+# ---------------------------------------------------------------------------
+
+
+class _LinkedTelegramChannel:
+    def resolve_user_slug(self, external_id: str) -> str | None:
+        return 'alice' if external_id == '42' else None
+
+
+class TestComponentsAPI:
+    @pytest.fixture(autouse=True)
+    def _auth_and_catalog(self, monkeypatch):
+        """Fake Telegram auth + a one-component catalog for the endpoints."""
+        monkeypatch.setattr(
+            'marcel_core.api.components.verify_telegram_init_data',
+            lambda init: {'id': 42} if init == 'valid-init' else None,
+        )
+        monkeypatch.setattr('marcel_core.api.components.get_channel', lambda name: _LinkedTelegramChannel())
+        registry = ComponentRegistry(
+            [
+                ComponentSchema(
+                    name='transaction_list',
+                    description='List of bank transactions',
+                    skill='banking',
+                    props={'type': 'object', 'properties': {'transactions': {'type': 'array'}}},
+                )
+            ]
+        )
+        monkeypatch.setattr('marcel_core.api.components.build_registry', lambda user_slug: registry)
+
+    def _client(self):
+        from marcel_core.main import app
+
+        return TestClient(app)
+
+    def test_list_components_with_telegram_auth(self):
+        resp = self._client().get('/api/components', params={'initData': 'valid-init'})
+        assert resp.status_code == 200
+        components = resp.json()['components']
+        assert [c['name'] for c in components] == ['transaction_list']
+        assert components[0]['skill'] == 'banking'
+        assert components[0]['props']['type'] == 'object'
+
+    def test_get_component_by_name(self):
+        resp = self._client().get('/api/components/transaction_list', params={'initData': 'valid-init'})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body['name'] == 'transaction_list'
+        assert body['description'] == 'List of bank transactions'
+
+    def test_get_unknown_component_returns_404(self):
+        resp = self._client().get('/api/components/flux_capacitor', params={'initData': 'valid-init'})
+        assert resp.status_code == 404
+        assert 'flux_capacitor' in resp.json()['detail']
+
+    def test_invalid_init_data_returns_401(self):
+        resp = self._client().get('/api/components', params={'initData': 'tampered-blob'})
+        assert resp.status_code == 401
+        assert 'telegram' in resp.json()['detail'].lower()
+
+    def test_unlinked_telegram_user_returns_401(self, monkeypatch):
+        monkeypatch.setattr('marcel_core.api.components.get_channel', lambda name: None)
+        resp = self._client().get('/api/components', params={'initData': 'valid-init'})
+        assert resp.status_code == 401
+        assert 'not linked' in resp.json()['detail'].lower()
+
+    def test_bad_api_token_returns_401(self, monkeypatch):
+        from marcel_core.config import settings
+
+        monkeypatch.setattr(settings, 'marcel_api_token', 'real-secret')
+        resp = self._client().get('/api/components', headers={'authorization': 'Bearer wrong-token'})
+        assert resp.status_code == 401
+
+    def test_valid_api_token_still_requires_init_data(self, monkeypatch):
+        from marcel_core.config import settings
+
+        monkeypatch.setattr(settings, 'marcel_api_token', 'real-secret')
+        resp = self._client().get('/api/components', headers={'authorization': 'Bearer real-secret'})
+        assert resp.status_code == 400
+        assert 'initData' in resp.json()['detail']
+
+    def test_get_component_auth_failure_returns_401(self):
+        resp = self._client().get('/api/components/transaction_list', params={'initData': 'tampered'})
+        assert resp.status_code == 401

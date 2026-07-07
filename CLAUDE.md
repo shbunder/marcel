@@ -10,13 +10,15 @@ Marcel is a self-adapting personal agent built on Claude Code — it can observe
 make serve          # dev container (Docker, uvicorn --reload on :7421, separate from prod :7420)
 make serve-logs     # tail the dev container logs
 make serve-down     # stop the dev container
-make check          # format + lint + typecheck + tests with 90% coverage (also runs as pre-commit hook)
+make check          # format + lint + typecheck + tests with 95% coverage (also runs as pre-commit hook)
 make test           # tests only
 make cli-dev        # build + run the Rust CLI in debug mode
 make docker-logs    # tail the prod container logs
 ```
 
 Dev and prod both run as Docker containers on different ports: `make serve` brings up `marcel-dev` on `:7421` via `docker-compose.dev.yml`; `make docker-up` brings up `marcel` on `:7420` via `docker-compose.yml`. Both can run simultaneously and share one restart mechanism (env-aware flag files — see [docs/self-modification.md](docs/self-modification.md)).
+
+**Prefer `make` targets over bare commands** (`uv sync`, `pytest`, `docker …`) whenever a target exists — the targets encode the full environment contract. Concretely: a bare `uv sync` leaves zoo park dep-venvs stale or missing; `make env-install` / `make env-sync` provision them too (`make zoo-deps` on its own re-provisions). The same applies in marcel-zoo (`make test`, `make deps`) and odile (`make check`).
 
 ## Core principles
 

@@ -15,6 +15,7 @@ from pydantic_ai.toolsets import FunctionToolset
 
 from marcel_core.config import settings
 from marcel_core.harness.context import MarcelDeps
+from marcel_core.harness.model_chain import model_label
 from marcel_core.harness.tool_bus import MarcelBusToolset
 from marcel_core.jobs import tool as job_tools
 from marcel_core.tools import (
@@ -172,7 +173,7 @@ def admin_tool_names() -> frozenset[str]:
 
 
 def create_marcel_agent(
-    model: str | None = None,
+    model: str | Model | None = None,
     system_prompt: str = '',
     role: str = 'user',
     tool_filter: set[str] | None = None,
@@ -190,7 +191,11 @@ def create_marcel_agent(
                The special prefix ``'local:<tag>'`` routes to the self-hosted
                OpenAI-compatible server at ``settings.marcel_local_llm_url``
                (used by the job local-fallback path — see ISSUE-070). All
-               other strings pass through to ``Agent()`` verbatim. When
+               other strings pass through to ``Agent()`` verbatim. A
+               pydantic-ai ``Model`` *instance* is also accepted and used
+               verbatim — the scenario-test seam (ADR-260706-b88015) that
+               lets ``marcel_testing`` drive this factory with a scripted
+               model, with no provider inference and no API key. When
                ``None`` (the default), resolves to :func:`default_model` at
                call time, i.e. ``settings.marcel_standard_model``.
         system_prompt: The system prompt string (must be provided).
@@ -212,7 +217,9 @@ def create_marcel_agent(
         model = default_model()
 
     model_arg: str | Model
-    if model.startswith(_LOCAL_PREFIX):
+    if isinstance(model, Model):
+        model_arg = model
+    elif model.startswith(_LOCAL_PREFIX):
         model_arg = _build_local_model(model)
     else:
         model_arg = model
@@ -247,7 +254,7 @@ def create_marcel_agent(
 
     log.info(
         'agent ready: model=%s role=%s tools=%s%s',
-        model,
+        model_label(model),
         role,
         len(registered),
         ' (filtered)' if tool_filter is not None else '',

@@ -17,15 +17,34 @@ include .env
 .uv: ## Check that uv is installed
 	@uv --version || echo -e "$(WARNING) Please install uv: https://docs.astral.sh/uv/getting-started/installation/"
 
+# Zoo park deps live OUTSIDE uv.lock (thin per-park dep-venvs provisioned by
+# scripts/zoo-setup.sh), so a bare `uv sync` leaves them stale or missing.
+# Both env targets therefore re-provision them — always use these targets,
+# never bare `uv sync`. The ~/.marcel/zoo default is computed INSIDE the
+# zoo-deps recipe: a top-level `MARCEL_ZOO_DIR ?=` would leak to every make
+# child via .EXPORT_ALL_VARIABLES and un-hermetically point tests at the
+# deployed zoo.
+
 .PHONY: env-install
-env-install: .uv ## Install the package, dependencies, and pre-commit for local development
+env-install: .uv ## Install the package, dependencies, and pre-commit for local development (zoo park deps included)
 	echo -e "$(INFO) Installing packages and depencies..."
 	uv sync --frozen --all-extras --all-packages --group dev --group lint --group docs
+	@$(MAKE) --no-print-directory zoo-deps
 
 .PHONY: env-sync
-env-sync: .uv ## Update local packages and uv.lock
+env-sync: .uv ## Update local packages and uv.lock (zoo park deps included)
 	echo -e "$(INFO) Updating packages and uv.lock..."
 	uv sync --all-extras --all-packages --group lint --group docs
+	@$(MAKE) --no-print-directory zoo-deps
+
+.PHONY: zoo-deps
+zoo-deps: ## Provision zoo park dep-venvs at $$MARCEL_ZOO_DIR (no-op when no zoo checkout exists)
+	@ZOO_DIR="$${MARCEL_ZOO_DIR:-$$HOME/.marcel/zoo}"; \
+	if [ -d "$$ZOO_DIR" ] && [ -n "$$(ls -A "$$ZOO_DIR" 2>/dev/null)" ]; then \
+		MARCEL_ZOO_DIR="$$ZOO_DIR" ./scripts/zoo-setup.sh --deps-only; \
+	else \
+		echo -e "$(WARNING) No zoo checkout at $$ZOO_DIR — skipped park deps (run 'make zoo-setup' when you need one)"; \
+	fi
 
 # DOCUMENTATION
 # `--no-strict` so you can build the docs without insiders packages
@@ -54,9 +73,13 @@ test-core: ## Run core package tests
 	uv run pytest tests/core/ -x -v
 
 .PHONY: test-cov
-test-cov: ## Run tests with coverage report (fails below 90%)
+test-cov: ## Run tests with coverage report (fails below 95%; marcel_testing must be 100%)
 	echo -e "$(INFO) Running all tests with coverage..."
-	uv run pytest tests/ --cov=src/marcel_core --cov=src/marcel_sdk --cov-report=term-missing --cov-fail-under=90
+	uv run pytest tests/ --cov=src/marcel_core --cov=src/marcel_sdk --cov=src/marcel_testing --cov-report=term-missing --cov-fail-under=95
+	echo -e "$(INFO) Checking marcel_testing (the test harness itself) is fully covered..."
+	uv run coverage report --include='src/marcel_testing/*' --fail-under=100 > /dev/null || \
+		(echo -e "$(WARNING) marcel_testing must stay at 100% coverage — the harness cannot be the untested part" && \
+		uv run coverage report --include='src/marcel_testing/*' && exit 1)
 
 .PHONY: install-cli
 install-cli: ## Install the Marcel CLI binary (Rust) to ~/.cargo/bin

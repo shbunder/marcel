@@ -41,6 +41,39 @@ def _isolate(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# _resolve_run_user
+# ---------------------------------------------------------------------------
+
+
+class TestResolveRunUser:
+    def test_system_scope_job_resolves_to_system_user(self):
+        from marcel_core.jobs import SYSTEM_USER
+        from marcel_core.jobs.executor import _resolve_run_user
+
+        job = _make_job(users=[])
+        assert _resolve_run_user(job, None) == SYSTEM_USER
+
+    def test_single_user_job_auto_picks_sole_user(self):
+        from marcel_core.jobs.executor import _resolve_run_user
+
+        job = _make_job(users=['alice'])
+        assert _resolve_run_user(job, None) == 'alice'
+
+    def test_explicit_slug_wins(self):
+        from marcel_core.jobs.executor import _resolve_run_user
+
+        job = _make_job(users=['alice', 'bob'])
+        assert _resolve_run_user(job, 'bob') == 'bob'
+
+    def test_multi_user_job_without_slug_raises(self):
+        from marcel_core.jobs.executor import _resolve_run_user
+
+        job = _make_job(users=['alice', 'bob'])
+        with pytest.raises(ValueError, match='explicit user_slug'):
+            _resolve_run_user(job, None)
+
+
+# ---------------------------------------------------------------------------
 # _load_job_memories
 # ---------------------------------------------------------------------------
 
@@ -51,6 +84,27 @@ class TestLoadJobMemories:
 
         result = _load_job_memories('alice')
         assert result == ''
+
+    def test_system_user_gets_no_memories(self):
+        from marcel_core.jobs import SYSTEM_USER
+        from marcel_core.jobs.executor import _load_job_memories
+
+        assert _load_job_memories(SYSTEM_USER) == ''
+
+    def test_empty_memory_files_produce_no_section(self, tmp_path, monkeypatch):
+        """A memory whose content vanished between scan and load (or is blank)
+        is skipped; if all relevant memories are blank, no section is emitted."""
+        import marcel_core.storage.memory as memory_module
+        from marcel_core.jobs.executor import _load_job_memories
+
+        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'coffee.md').write_text(
+            '---\nname: coffee\ndescription: prefers latte\ntype: preference\n---\nAlice prefers lattes.\n'
+        )
+        monkeypatch.setattr(memory_module, 'load_memory_file', lambda slug, topic: '')
+
+        assert _load_job_memories('alice') == ''
 
     def test_loads_preference_and_feedback_memories(self, tmp_path):
         from marcel_core.jobs.executor import _load_job_memories
@@ -65,6 +119,32 @@ class TestLoadJobMemories:
         result = _load_job_memories('alice')
         assert 'User preferences' in result
         assert 'lattes' in result
+
+    def test_memory_without_name_labelled_from_topic(self, tmp_path):
+        """A memory file with no ``name`` in frontmatter falls back to a label
+        derived from the topic (underscores → spaces)."""
+        from marcel_core.jobs.executor import _load_job_memories
+
+        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'work_style.md').write_text(
+            '---\ndescription: how alice likes updates\ntype: feedback\n---\nKeep it terse.\n'
+        )
+
+        result = _load_job_memories('alice')
+        assert '### [feedback] work style' in result
+        assert 'Keep it terse.' in result
+
+    def test_ignores_non_preference_memory_types(self, tmp_path):
+        """Only PREFERENCE and FEEDBACK memories are injected into a job; a
+        plain fact-type memory is left out."""
+        from marcel_core.jobs.executor import _load_job_memories
+
+        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'trivia.md').write_text('---\nname: trivia\ntype: fact\n---\nThe sky is blue.\n')
+
+        assert _load_job_memories('alice') == ''
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +227,50 @@ class TestBuildJobContext:
             context = _build_job_context(job)
 
         assert 'Setup instructions' not in context
+
+    def test_credential_referenced_only_in_task_text_is_injected(self, tmp_path):
+        """A credential named in the job's task/system prompt (but not declared
+        by any skill) is still pulled from the vault and injected."""
+        from marcel_core.jobs.executor import _build_job_context
+
+        user_dir = tmp_path / 'users' / 'alice'
+        user_dir.mkdir(parents=True)
+        (user_dir / 'credentials.env').write_text('FREEFORM_TOKEN=tok999\nUNUSED_SECRET=nope\n')
+
+        job = _make_job(
+            system_prompt='Authenticate as usual.',
+            task='Use FREEFORM_TOKEN to call the API.',
+            skills=[],
+        )
+        with (
+            patch('marcel_core.skills.loader.load_skills', return_value=[]),
+            patch('marcel_core.harness.context.load_channel_prompt', return_value='ch'),
+        ):
+            context = _build_job_context(job)
+
+        assert 'tok999' in context  # referenced token injected
+        assert 'nope' not in context  # unreferenced secret withheld
+
+    def test_memory_section_injected_into_context(self, tmp_path):
+        """Preference/feedback memories for the run user land in the assembled
+        system prompt."""
+        from marcel_core.jobs.executor import _build_job_context
+
+        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'style.md').write_text(
+            '---\nname: style\ndescription: tone\ntype: preference\n---\nAlice likes short bullets.\n'
+        )
+
+        job = _make_job(skills=[])
+        with (
+            patch('marcel_core.skills.loader.load_skills', return_value=[]),
+            patch('marcel_core.harness.context.load_channel_prompt', return_value='ch'),
+        ):
+            context = _build_job_context(job)
+
+        assert 'User preferences & feedback' in context
+        assert 'short bullets' in context
 
     @pytest.mark.parametrize(
         ('policy', 'marker'),
@@ -641,3 +765,144 @@ class TestNotifyIfNeeded:
         run = JobRun(job_id=job.id, status=RunStatus.FAILED, error='timeout')
         status, _ = await _notify_if_needed(job, run)
         assert status == 'sent'
+
+    @pytest.mark.asyncio
+    async def test_system_scope_job_never_notifies(self):
+        from marcel_core.jobs.executor import _notify_if_needed
+
+        job = _make_job(users=[], notify=NotifyPolicy.ALWAYS, channel='telegram')
+        run = JobRun(job_id=job.id, status=RunStatus.COMPLETED, output='result')
+        status, error = await _notify_if_needed(job, run)
+        assert status == 'skipped'
+        assert error is None
+
+    @pytest.mark.asyncio
+    async def test_failure_message_appends_consecutive_count(self):
+        """When more than one consecutive failure has piled up, the count is
+        appended to the humanized error in the delivered message."""
+        from marcel_core.jobs.executor import _notify_if_needed
+
+        job = _make_job(
+            notify=NotifyPolicy.ON_FAILURE,
+            consecutive_errors=4,
+            alert_after_consecutive_failures=1,
+            channel='telegram',
+        )
+        run = JobRun(job_id=job.id, status=RunStatus.FAILED, error='429 Too Many Requests')
+
+        sent: dict = {}
+
+        async def capture(slug, message):
+            sent['slug'] = slug
+            sent['message'] = message
+
+        with patch('marcel_core.jobs.executor._notify_telegram', side_effect=capture):
+            status, _ = await _notify_if_needed(job, run)
+
+        assert status == 'sent'
+        assert '4 consecutive failures' in sent['message']
+        # last_failure_alert_at is stamped for cooldown tracking
+        reloaded_at = job.last_failure_alert_at
+        assert reloaded_at is not None
+
+    @pytest.mark.asyncio
+    async def test_failure_message_omits_count_for_single_failure(self):
+        """A first (or forced) failure with consecutive_errors <= 1 delivers the
+        bare humanized error, without a '(N consecutive failures)' suffix."""
+        from marcel_core.jobs.executor import _notify_if_needed
+
+        job = _make_job(name='Backup', notify=NotifyPolicy.ALWAYS, channel='telegram')
+        run = JobRun(job_id=job.id, status=RunStatus.FAILED, error='429 Too Many Requests')
+
+        sent: dict = {}
+
+        async def capture(slug, message):
+            sent['message'] = message
+
+        with patch('marcel_core.jobs.executor._notify_telegram', side_effect=capture):
+            status, _ = await _notify_if_needed(job, run)
+
+        assert status == 'sent'
+        assert 'consecutive failures' not in sent['message']
+        assert 'Backup' in sent['message']
+
+    @pytest.mark.asyncio
+    async def test_completed_with_empty_output_uses_fallback_message(self):
+        """An ALWAYS job that completes with no output still delivers a generic
+        'completed' line rather than an empty message."""
+        from marcel_core.jobs.executor import _notify_if_needed
+
+        job = _make_job(name='Nightly report', notify=NotifyPolicy.ALWAYS, channel='telegram')
+        run = JobRun(job_id=job.id, status=RunStatus.COMPLETED, output='   ')
+
+        sent: dict = {}
+
+        async def capture(slug, message):
+            sent['message'] = message
+
+        with patch('marcel_core.jobs.executor._notify_telegram', side_effect=capture):
+            status, _ = await _notify_if_needed(job, run)
+
+        assert status == 'sent'
+        assert 'Nightly report' in sent['message']
+        assert 'completed' in sent['message']
+
+
+# ---------------------------------------------------------------------------
+# _notify_telegram
+# ---------------------------------------------------------------------------
+
+
+class TestNotifyTelegram:
+    @pytest.mark.asyncio
+    async def test_sends_via_registered_channel(self):
+        from marcel_core.jobs.executor import _notify_telegram
+
+        channel = MagicMock()
+        channel.send_message = AsyncMock(return_value=True)
+        with patch('marcel_core.plugin.get_channel', return_value=channel):
+            await _notify_telegram('alice', 'hello')
+        channel.send_message.assert_awaited_once_with('alice', 'hello')
+
+    @pytest.mark.asyncio
+    async def test_no_channel_registered_is_noop(self, caplog):
+        import logging
+
+        from marcel_core.jobs.executor import _notify_telegram
+
+        with (
+            patch('marcel_core.plugin.get_channel', return_value=None),
+            caplog.at_level(logging.WARNING, logger='marcel_core.jobs.executor'),
+        ):
+            await _notify_telegram('alice', 'hello')
+        assert 'telegram channel not registered' in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_no_chat_id_logs_warning(self, caplog):
+        import logging
+
+        from marcel_core.jobs.executor import _notify_telegram
+
+        channel = MagicMock()
+        channel.send_message = AsyncMock(return_value=False)  # no chat id found
+        with (
+            patch('marcel_core.plugin.get_channel', return_value=channel),
+            caplog.at_level(logging.WARNING, logger='marcel_core.jobs.executor'),
+        ):
+            await _notify_telegram('alice', 'hello')
+        assert 'no Telegram chat ID found' in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_exception_is_swallowed_and_logged(self, caplog):
+        import logging
+
+        from marcel_core.jobs.executor import _notify_telegram
+
+        channel = MagicMock()
+        channel.send_message = AsyncMock(side_effect=RuntimeError('telegram down'))
+        with (
+            patch('marcel_core.plugin.get_channel', return_value=channel),
+            caplog.at_level(logging.ERROR, logger='marcel_core.jobs.executor'),
+        ):
+            await _notify_telegram('alice', 'hello')  # must not raise
+        assert 'Telegram notification failed' in caplog.text

@@ -90,6 +90,27 @@ class TestComputeNextRun:
         result = _compute_next_run(job)
         assert result is None
 
+    def test_cron_with_timezone_converts_to_utc(self):
+        """A cron with a timezone is evaluated in local time, then converted back
+        to UTC. 07:00 Europe/Brussels in April (CEST, UTC+2) is 05:00 UTC."""
+        job = self._make_job(TriggerType.CRON, cron='0 7 * * *', timezone='Europe/Brussels')
+        now = datetime(2026, 4, 11, 1, 0, tzinfo=UTC)  # 03:00 local — 07:00 local still ahead
+        result = _compute_next_run(job, now=now)
+        assert result is not None
+        base = datetime(2026, 4, 11, 5, 0, tzinfo=UTC)  # 07:00 CEST
+        assert base <= result < base + timedelta(seconds=_STAGGER_WINDOW)
+
+    def test_cron_with_timezone_advances_past_now(self):
+        """If the local next-run computed from last_run_at is already in the past,
+        the schedule advances to the next future local occurrence."""
+        job = self._make_job(TriggerType.CRON, cron='0 7 * * *', timezone='Europe/Brussels')
+        now = datetime(2026, 4, 11, 10, 0, tzinfo=UTC)  # 12:00 local — today's 07:00 has passed
+        last_run = datetime(2026, 4, 10, 5, 0, tzinfo=UTC)  # yesterday 07:00 local
+        result = _compute_next_run(job, last_run_at=last_run, now=now)
+        assert result is not None
+        base = datetime(2026, 4, 12, 5, 0, tzinfo=UTC)  # tomorrow 07:00 CEST
+        assert base <= result < base + timedelta(seconds=_STAGGER_WINDOW)
+
 
 # ---------------------------------------------------------------------------
 # Schedule error auto-disable
@@ -126,6 +147,33 @@ class TestScheduleErrorAutoDisable:
         assert reloaded is not None
         assert reloaded.status == JobStatus.DISABLED
         assert reloaded.schedule_errors >= 3
+        assert job.id not in scheduler._schedule
+
+    def test_error_below_threshold_keeps_job_active(self, tmp_path, monkeypatch):
+        """The first schedule failures only bump the counter — the job stays
+        ACTIVE (though unscheduled) until the third strike."""
+        from marcel_core.jobs import load_job, save_job
+        from marcel_core.jobs.scheduler import JobScheduler
+        from marcel_core.storage import _root
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        job = JobDefinition(
+            name='bad-cron-soft',
+            users=['test'],
+            trigger=TriggerSpec(type=TriggerType.CRON, cron='INVALID'),
+            system_prompt='test',
+            task='test',
+        )
+        save_job(job)
+
+        scheduler = JobScheduler()
+        scheduler.schedule_job(job)
+
+        reloaded = load_job(job.id)
+        assert reloaded is not None
+        assert reloaded.status == JobStatus.ACTIVE
+        assert reloaded.schedule_errors == 1
         assert job.id not in scheduler._schedule
 
 

@@ -18,6 +18,10 @@ import warnings
 
 import pytest
 
+# The scenario-test harness: the `terrarium` fixture plus odile's session
+# guard that makes real model-provider requests impossible suite-wide.
+pytest_plugins = ['marcel_testing.pytest_plugin']
+
 
 def _load_zoo_telegram_at_legacy_namespace() -> None:
     """Alias the zoo telegram habitat as ``marcel_core.channels.telegram``.
@@ -91,3 +95,10 @@ def reset_settings_for_tests(monkeypatch):
     monkeypatch.setattr(settings, 'marcel_api_token', '')
     monkeypatch.setattr(settings, 'telegram_webhook_secret', '')
     monkeypatch.setattr(settings, 'marcel_public_url', None)
+    # Hermeticity: the suite's results must never depend on the machine's
+    # deployed zoo (which parks are provisioned, which scheduled_jobs their
+    # toolkit.yaml declares). A test that wants a zoo declares one — the
+    # terrarium fixture, or an explicit setattr. Without this reset, a
+    # MARCEL_ZOO_DIR reaching pytest (e.g. exported by make from the
+    # environment) flips skill-loader and habitat-job assertions.
+    monkeypatch.setattr(settings, 'marcel_zoo_dir', None)

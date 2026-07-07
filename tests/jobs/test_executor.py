@@ -154,6 +154,40 @@ class TestHumanizeError:
         assert 'pydantic_ai' not in result
         assert 'something went wrong' in result
 
+    def test_connection_error_becomes_network_message(self):
+        from marcel_core.jobs.executor import humanize_error
+
+        result = humanize_error('Connection refused by upstream host')
+        assert result == 'could not reach the model provider — network error.'
+
+
+# ---------------------------------------------------------------------------
+# _fallback_label — naming the chain entry that produced the result
+# ---------------------------------------------------------------------------
+
+
+class TestFallbackLabel:
+    def test_local_model_labelled_local(self):
+        from marcel_core.harness.model_chain import Tier, TierEntry
+        from marcel_core.jobs.executor import _fallback_label
+
+        entry = TierEntry(tier=Tier.LOCAL, model='local:qwen3.5:4b', purpose='complete')
+        assert _fallback_label(entry) == 'local'
+
+    def test_backup_purpose_labelled_backup(self):
+        from marcel_core.harness.model_chain import Tier, TierEntry
+        from marcel_core.jobs.executor import _fallback_label
+
+        entry = TierEntry(tier=Tier.STANDARD, model='openai:gpt-4o', purpose='backup')
+        assert _fallback_label(entry) == 'backup'
+
+    def test_other_entries_fall_back_to_tier_name(self):
+        from marcel_core.harness.model_chain import Tier, TierEntry
+        from marcel_core.jobs.executor import _fallback_label
+
+        entry = TierEntry(tier=Tier.STANDARD, model='openai:gpt-4o', purpose='complete')
+        assert _fallback_label(entry) == 'standard'
+
 
 # ---------------------------------------------------------------------------
 # _presentable_job_name — strip redundant (slug) suffix
@@ -563,6 +597,103 @@ class TestFallbackChain:
         await execute_job_with_retries(job)
 
         assert job.model == 'anthropic:claude-sonnet-4-6'
+
+    @pytest.mark.asyncio
+    async def test_primary_only_chain_fails_without_fallback_label(self, monkeypatch, patched_side_effects):
+        """With no backup or local tier configured, an eligible failure on the
+        primary exhausts the chain immediately — no fallback_used is recorded
+        because no non-primary tier ever ran."""
+        scripted_runs, call_log = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', None)
+        monkeypatch.setattr(settings, 'marcel_fallback_model', None)
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', None)
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', None)
+
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='rate limit exceeded', error_category='rate_limit')
+        )
+
+        run = await execute_job_with_retries(_make_job())
+
+        assert run.status == RunStatus.FAILED
+        assert run.fallback_used is None
+        assert call_log == ['anthropic:claude-sonnet-4-6']
+
+    @pytest.mark.asyncio
+    async def test_local_flag_without_local_config_skips_legacy_bridge(self, monkeypatch, patched_side_effects):
+        """allow_local_fallback=True with MARCEL_LOCAL_LLM_* unset must not
+        synthesize a local tier — the legacy bridge only fires when the local
+        transport is actually configured."""
+        scripted_runs, call_log = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', None)
+        monkeypatch.setattr(settings, 'marcel_fallback_model', None)
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', None)
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', None)
+
+        scripted_runs.append(JobRun(job_id='x', status=RunStatus.COMPLETED, output='primary ok'))
+
+        job = _make_job(allow_local_fallback=True)
+        run = await execute_job_with_retries(job)
+
+        assert run.status == RunStatus.COMPLETED
+        assert run.fallback_used is None
+        assert call_log == ['anthropic:claude-sonnet-4-6']
+
+    @pytest.mark.asyncio
+    async def test_empty_chain_violates_invariant(self, monkeypatch, patched_side_effects):
+        """build_chain guarantees at least the primary tier; if that invariant
+        is ever broken the executor fails loud instead of returning None."""
+        monkeypatch.setattr('marcel_core.harness.model_chain.build_chain', lambda **kwargs: [])
+
+        with pytest.raises(AssertionError):
+            await execute_job_with_retries(_make_job())
+
+    @pytest.mark.asyncio
+    async def test_chain_legacy_bridge_synthesizes_local_tier(self, monkeypatch, patched_side_effects):
+        """ISSUE-070 bridge on the chain path: allow_fallback_chain=True (default)
+        with no MARCEL_FALLBACK_MODEL but MARCEL_LOCAL_LLM_* configured still
+        escalates a failing cloud primary onto a synthesized local tier."""
+        scripted_runs, call_log = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', None)
+        monkeypatch.setattr(settings, 'marcel_fallback_model', None)
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
+
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='401 unauthorized', error_category='auth_or_quota')
+        )
+        scripted_runs.append(JobRun(job_id='x', status=RunStatus.COMPLETED, output='local rescued it'))
+
+        job = _make_job(allow_local_fallback=True)  # allow_fallback_chain defaults True
+        run = await execute_job_with_retries(job)
+
+        assert run.status == RunStatus.COMPLETED
+        assert run.fallback_used == 'local'
+        assert call_log == ['anthropic:claude-sonnet-4-6', 'local:qwen3.5:4b']
+
+    @pytest.mark.asyncio
+    async def test_chain_records_fallback_label_when_last_tier_fails(self, monkeypatch, patched_side_effects):
+        """If the final (non-primary) tier fails with an eligible error and no
+        further tier exists, fallback_used still names the tier that ran last."""
+        scripted_runs, call_log = patched_side_effects
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(settings, 'marcel_fallback_model', None)
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', None)
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', None)
+
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='rate limit', error_category='rate_limit')
+        )
+        scripted_runs.append(
+            JobRun(job_id='x', status=RunStatus.FAILED, error='rate limit', error_category='rate_limit')
+        )
+
+        job = _make_job(allow_local_fallback=False)
+        run = await execute_job_with_retries(job)
+
+        assert run.status == RunStatus.FAILED
+        assert run.fallback_used == 'backup'
+        assert call_log == ['anthropic:claude-sonnet-4-6', 'openai:gpt-4o']
 
 
 class TestAllowFallbackChainDefault:

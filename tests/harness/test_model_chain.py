@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 import pytest
+from pydantic_ai.models.test import TestModel
 
 from marcel_core.config import settings
 from marcel_core.harness.model_chain import (
@@ -15,6 +16,7 @@ from marcel_core.harness.model_chain import (
     build_explain_system_prompt,
     build_explain_user_prompt,
     is_fallback_eligible,
+    model_label,
     next_tier,
     tier_from_index,
 )
@@ -296,3 +298,33 @@ class TestTierIndex:
     def test_tier_from_index_rejects_out_of_range(self, bad_index):
         with pytest.raises(ValueError, match='unknown tier index'):
             tier_from_index(bad_index)
+
+
+class TestModelInstancePrimary:
+    """A pydantic-ai Model instance as primary — the scenario-test seam
+    (STORY-260706-727779): an injected model is already resolved, so the
+    chain must not grow backup or fallback entries around it."""
+
+    def test_instance_primary_yields_single_entry(self):
+        instance = TestModel()
+        chain = build_chain(tier=Tier.STANDARD, primary=instance, mode='explain')
+        assert len(chain) == 1
+        assert chain[0].model is instance
+        assert chain[0].purpose == 'primary'
+        assert chain[0].tier == Tier.STANDARD
+
+    def test_instance_primary_ignores_backup_and_fallback(self, monkeypatch):
+        monkeypatch.setattr(settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
+        monkeypatch.setattr(settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        monkeypatch.setattr(settings, 'marcel_local_llm_model', 'qwen3.5:4b')
+        chain = build_chain(tier=Tier.STANDARD, primary=TestModel(), mode='explain')
+        assert len(chain) == 1, 'an injected Model instance must never gain fallback entries'
+
+
+class TestModelLabel:
+    def test_string_passes_through(self):
+        assert model_label('anthropic:claude-sonnet-4-6') == 'anthropic:claude-sonnet-4-6'
+
+    def test_instance_uses_model_name(self):
+        assert model_label(TestModel()) == 'test'

@@ -841,3 +841,87 @@ class TestDataRoot:
 
         result = data_root()
         assert isinstance(result, Path)
+
+
+# ---------------------------------------------------------------------------
+# users.py — Telegram chat ID lookup
+# ---------------------------------------------------------------------------
+
+
+class TestFindUserByTelegramChatId:
+    def test_no_users_dir_returns_none(self) -> None:
+        from marcel_core.storage.users import find_user_by_telegram_chat_id
+
+        assert find_user_by_telegram_chat_id('556632386') is None
+
+    def test_finds_linked_user(self, tmp_path: pathlib.Path) -> None:
+        from marcel_core.storage.users import (
+            find_user_by_telegram_chat_id,
+            get_telegram_chat_id,
+            set_telegram_chat_id,
+        )
+
+        set_telegram_chat_id('shaun', '556632386')
+        assert get_telegram_chat_id('shaun') == '556632386'
+        assert find_user_by_telegram_chat_id('556632386') == 'shaun'
+        assert find_user_by_telegram_chat_id(556632386) == 'shaun'  # int accepted too
+
+    def test_non_matching_chat_id_returns_none(self) -> None:
+        from marcel_core.storage.users import find_user_by_telegram_chat_id, set_telegram_chat_id
+
+        set_telegram_chat_id('shaun', '111')
+        assert find_user_by_telegram_chat_id('222') is None
+
+    def test_stray_file_in_users_dir_ignored(self, tmp_path: pathlib.Path) -> None:
+        from marcel_core.storage.users import find_user_by_telegram_chat_id, set_telegram_chat_id
+
+        set_telegram_chat_id('shaun', '111')
+        (tmp_path / 'users' / 'README.md').write_text('not a user dir', encoding='utf-8')
+        assert find_user_by_telegram_chat_id('999') is None
+
+    def test_backup_snapshot_skipped(self, tmp_path: pathlib.Path) -> None:
+        from marcel_core.storage.users import find_user_by_telegram_chat_id
+
+        backup = tmp_path / 'users' / 'shaun.backup-059-20260411T184915'
+        backup.mkdir(parents=True)
+        (backup / 'profile.md').write_text('---\ntelegram_chat_id: "42"\n---\n\n# Shaun\n', encoding='utf-8')
+        assert find_user_by_telegram_chat_id('42') is None
+
+    def test_user_without_profile_skipped(self, tmp_path: pathlib.Path) -> None:
+        from marcel_core.storage.users import find_user_by_telegram_chat_id
+
+        (tmp_path / 'users' / 'ghost').mkdir(parents=True)
+        assert find_user_by_telegram_chat_id('42') is None
+
+    def test_unreadable_profile_skipped(self, tmp_path: pathlib.Path) -> None:
+        from marcel_core.storage.users import find_user_by_telegram_chat_id
+
+        # profile.md exists but is a directory — read_text raises OSError,
+        # which must be swallowed rather than crash the lookup.
+        (tmp_path / 'users' / 'broken' / 'profile.md').mkdir(parents=True)
+        assert find_user_by_telegram_chat_id('42') is None
+
+
+# ---------------------------------------------------------------------------
+# users.py — frontmatter serialization quoting
+# ---------------------------------------------------------------------------
+
+
+class TestProfileFrontmatterQuoting:
+    def test_special_char_value_quoted_on_rewrite(self, tmp_path: pathlib.Path) -> None:
+        """A hand-edited frontmatter value with spaces/colons survives a role update, quoted."""
+        profile = tmp_path / 'users' / 'shaun' / 'profile.md'
+        profile.parent.mkdir(parents=True)
+        profile.write_text(
+            '---\nrole: user\ndisplay_name: Shaun: the zoo keeper\n---\n\n# Shaun\n\nLikes coffee.\n',
+            encoding='utf-8',
+        )
+
+        set_user_role('shaun', 'admin')
+
+        raw = profile.read_text(encoding='utf-8')
+        assert 'display_name: "Shaun: the zoo keeper"' in raw
+        assert get_user_role('shaun') == 'admin'
+        from marcel_core.storage.users import load_user_profile
+
+        assert 'Likes coffee.' in load_user_profile('shaun')
