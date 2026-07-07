@@ -15,6 +15,19 @@ from marcel_core.tools.promote import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _clean_git_env(monkeypatch):
+    """Scrub any ambient GIT_* so the tmp-repo fixtures target their own dirs.
+
+    When the suite runs as the pre-commit ``make check``, git exports GIT_DIR /
+    GIT_WORK_TREE / GIT_INDEX_FILE, which override ``git -C`` and would hijack
+    these fixtures' ``git init``. The leak-regression test re-introduces a hook
+    env explicitly, in its own body, to exercise the production scrub.
+    """
+    for var in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
+        monkeypatch.delenv(var, raising=False)
+
+
 def _init_git_zoo(tmp_path):
     zoo = tmp_path / 'zoo'
     zoo.mkdir()
@@ -129,3 +142,43 @@ async def test_promoted_handler_runs(tmp_path):
 
     result = await get_handler('runnable.go')({}, 'alice')
     assert result == 'promoted-output'
+
+
+def test_promote_does_not_leak_under_hook_env(tmp_path, monkeypatch):
+    """Regression: promote's git ops must ignore an ambient GIT_* hook env.
+
+    A parent git hook (notably the pre-commit ``make check``) sets GIT_DIR /
+    GIT_WORK_TREE / GIT_INDEX_FILE, and those override ``git -C``. Before the
+    fix, promote_tool_extension staged+committed the extension into the hook's
+    in-flight repo instead of the target zoo — leaking test fixtures into the
+    real index and (worse) committing to the real repo on the self-mod path.
+    """
+    # Scrub first so the fixtures' own git init/add/commit don't hit the bug.
+    for var in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
+        monkeypatch.delenv(var, raising=False)
+
+    outer = tmp_path / 'outer'
+    outer.mkdir()
+    subprocess.run(['git', '-C', str(outer), 'init', '-q'], check=True)
+    subprocess.run(['git', '-C', str(outer), 'config', 'user.email', 't@e'], check=True)
+    subprocess.run(['git', '-C', str(outer), 'config', 'user.name', 'T'], check=True)
+    subprocess.run(['git', '-C', str(outer), 'commit', '-q', '--allow-empty', '-m', 'seed'], check=True)
+    zoo = _init_git_zoo(tmp_path)
+
+    # Simulate the pre-commit hook env pointing at the outer repo.
+    monkeypatch.setenv('GIT_DIR', str(outer / '.git'))
+    monkeypatch.setenv('GIT_WORK_TREE', str(outer))
+    monkeypatch.setenv('GIT_INDEX_FILE', str(outer / '.git' / 'index'))
+
+    promote_tool_extension(tool_id='leak.check', code='return "x"', zoo_dir=zoo, deploy=False)
+
+    # Restore a clean env before verifying, so these greps target what we name.
+    for var in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
+        monkeypatch.delenv(var, raising=False)
+
+    staged = subprocess.check_output(['git', '-C', str(outer), 'diff', '--cached', '--name-only']).decode()
+    assert 'extensions' not in staged, f'leaked into outer index: {staged!r}'
+    # ...and the extension really landed + committed in the zoo.
+    assert (zoo / 'extensions' / 'leak' / '__init__.py').exists()
+    log = subprocess.run(['git', '-C', str(zoo), 'log', '--oneline'], capture_output=True, text=True)
+    assert 'promote: leak.check' in log.stdout

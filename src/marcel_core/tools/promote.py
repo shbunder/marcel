@@ -16,9 +16,16 @@ degrades to an inert file, never a restart loop.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import subprocess
 from pathlib import Path
+
+# Git env vars that select the repo / index / work-tree. A parent process —
+# most notably a git hook such as the pre-commit ``make check`` — sets these,
+# and they OVERRIDE ``git -C <dir>``. Scrubbing them keeps every promote git
+# operation bound to the directory we pass, never an ambient in-flight repo.
+_GIT_REDIRECT_VARS = ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE')
 
 from pydantic_ai import RunContext
 
@@ -59,7 +66,10 @@ def render_tool_extension(tool_id: str, code: str, description: str = '') -> str
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(['git', '-C', str(cwd), *args], capture_output=True, text=True, check=True)
+    # Scrub the redirecting git env so our ``-C cwd`` operations always target
+    # *cwd*'s repo, even when running under a git hook (see _GIT_REDIRECT_VARS).
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_REDIRECT_VARS}
+    return subprocess.run(['git', '-C', str(cwd), *args], capture_output=True, text=True, check=True, env=env)
 
 
 def _kernel_head_sha() -> str:
