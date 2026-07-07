@@ -156,6 +156,32 @@ class Settings(BaseSettings):
     marcel_bash_max_output: int = 30000
 
     # ---------------------------------------------------------------------------
+    # Command policy + human approval (FEAT-260628-2cd78e F2, ADR-ca8f39)
+    # ---------------------------------------------------------------------------
+    marcel_command_policy_enabled: bool = True
+    """When True, risky commands are classified allow/ask/deny and `ask`
+    actions pause for channel-forwarded human approval."""
+
+    marcel_approval_timeout_seconds: float = 120.0
+    """How long an `ask` action waits for a human verdict before it expires
+    to deny (and is queued for later). Kept at/under the channel turn budget
+    so a turn does not hang; the queued record covers the away case."""
+
+    # ---------------------------------------------------------------------------
+    # Execution sandbox (FEAT-260628-2cd78e F2, ADR-0fc1e2)
+    # ---------------------------------------------------------------------------
+    marcel_sandbox_enabled: bool = True
+    """When True, `bash` (and `code_exec`) run inside a bubblewrap
+    workspace-write sandbox *where unprivileged user namespaces are
+    available*. On a host without that support the run falls back to
+    unsandboxed (the command policy still applies); see docs/sandbox.md."""
+
+    marcel_sandbox_network: bool = True
+    """Whether sandboxed `bash` keeps network access. Default True to preserve
+    admin dev ergonomics; the untrusted `code_exec` path (F3) runs with it
+    off (default-deny egress over the user's data)."""
+
+    # ---------------------------------------------------------------------------
     # Observability / Tracing
     # ---------------------------------------------------------------------------
     marcel_tracing_enabled: bool = False

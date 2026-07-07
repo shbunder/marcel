@@ -6,11 +6,11 @@ Exposes a single pydantic-ai tool that dispatches to the toolkit registry
 
     toolkit(id="docker.list", params={"filter": "running"})
 
-Back-compat during ISSUE-3c1534 Phases 1–4: the kernel ALSO registers this
-same dispatcher under the historical name ``integration`` so existing
-skill markdown that says ``integration(id="...")`` keeps working. The
-:func:`integration` alias logs a one-shot deprecation note on first use.
-Phase 5 removes the alias.
+Habitats run **in-process** (lean isolation, ADR-260628-6101c5). A slow or
+hung handler is contained here by a **call-boundary timeout**
+(``_HANDLER_TIMEOUT``): the dispatch is wrapped in ``asyncio.wait_for`` so
+a misbehaving handler cannot stall the turn — the process-isolation the
+old UDS mesh provided is replaced by this timeout plus try/except.
 
 When the model calls a toolkit handler without having previously loaded
 the skill's documentation via ``marcel(action="read_skill")``, this tool
@@ -19,6 +19,7 @@ auto-injects the skill docs as a prefix to the response (safety net).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from pydantic_ai import RunContext
@@ -29,7 +30,9 @@ from marcel_core.skills.registry import get_skill, list_skills
 
 log = logging.getLogger(__name__)
 
-_DEPRECATION_ALIAS_LOGGED: bool = False
+_HANDLER_TIMEOUT = 60.0
+"""Seconds a single in-process toolkit handler may run before it is
+cancelled — the call-boundary containment that replaces UDS isolation."""
 
 
 async def toolkit(
@@ -80,30 +83,14 @@ async def toolkit(
         ctx.deps.turn.read_skills.add(skill_family)
 
     try:
-        result = await run(config, params, ctx.deps.user_slug)
+        result = await asyncio.wait_for(
+            run(config, params, ctx.deps.user_slug),
+            timeout=_HANDLER_TIMEOUT,
+        )
         return prefix + result
+    except asyncio.TimeoutError:
+        log.error('[toolkit] handler %s timed out after %.0fs', id, _HANDLER_TIMEOUT)
+        return f'{prefix}Error executing {id}: handler timed out after {_HANDLER_TIMEOUT:.0f}s'
     except Exception as exc:
         log.exception('[toolkit] handler execution failed')
         return f'{prefix}Error executing {id}: {exc}'
-
-
-async def integration(
-    ctx: RunContext[MarcelDeps],
-    id: str,
-    params: dict[str, str] | None = None,
-) -> str:
-    """Deprecated alias for :func:`toolkit`. Removed in ISSUE-3c1534 Phase 5.
-
-    Signature and behaviour are identical — this function just logs a
-    one-shot deprecation note then forwards to :func:`toolkit`. Exists so
-    skill markdown that still says ``integration(id="...")`` continues to
-    work during the migration.
-    """
-    global _DEPRECATION_ALIAS_LOGGED
-    if not _DEPRECATION_ALIAS_LOGGED:
-        log.warning(
-            "deprecated: the 'integration' tool is renamed to 'toolkit' in ISSUE-3c1534. "
-            'Update skill markdown from integration(id=...) to toolkit(id=...) before Phase 5.'
-        )
-        _DEPRECATION_ALIAS_LOGGED = True
-    return await toolkit(ctx, id, params)

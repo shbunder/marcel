@@ -9,10 +9,12 @@ nav:
   - index.md
   - Architecture: architecture.md
   - Habitats: habitats.md
+  - Extensions: extensions.md
   - Storage: storage.md
   - Artifacts: artifacts.md
   - A2UI Components: a2ui-components.md
   - Self-Modification: self-modification.md
+  - Execution Sandbox: sandbox.md
   - Claude Code Setup: claude-code-setup.md
   - Skills: skills.md
   - Toolkit: plugins.md

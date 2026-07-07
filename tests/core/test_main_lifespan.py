@@ -111,7 +111,7 @@ def test_log_zoo_summary_populated_zoo(monkeypatch, caplog, tmp_path):
     """Populated zoo logs one INFO line with per-kind counts, no WARNING."""
     zoo = _seed_zoo(
         tmp_path / 'zoo',
-        {'channels': 1, 'integrations': 3, 'skills': 7, 'jobs': 4, 'agents': 2},
+        {'channels': 1, 'toolkit': 3, 'skills': 7, 'jobs': 4, 'agents': 2},
     )
     # Also drop a hidden + underscore entry to confirm they're excluded.
     (zoo / 'skills' / '.hidden').mkdir()
@@ -124,9 +124,9 @@ def test_log_zoo_summary_populated_zoo(monkeypatch, caplog, tmp_path):
         main_module._log_zoo_summary()
 
     infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
-    assert any(
-        f'zoo at {zoo}' in m and 'channels=1' in m and 'integrations=3' in m and 'skills=7' in m for m in infos
-    ), infos
+    assert any(f'zoo at {zoo}' in m and 'channels=1' in m and 'toolkit=3' in m and 'skills=7' in m for m in infos), (
+        infos
+    )
     # Hidden + underscore subdirs must not be counted.
     assert all('skills=9' not in m for m in infos), 'hidden/underscore dirs were not excluded'
     # No WARNING when at least one habitat exists.

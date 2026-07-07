@@ -29,6 +29,7 @@ from pydantic_ai.usage import UsageLimits
 from marcel_core.config import settings
 from marcel_core.harness.agent import create_marcel_agent
 from marcel_core.harness.context import MarcelDeps
+from marcel_core.harness.core_handlers import register_core_handlers
 from marcel_core.harness.model_chain import (
     Tier,
     TierEntry,
@@ -64,6 +65,15 @@ from marcel_core.storage.settings import (
     save_channel_tier,
 )
 from marcel_core.storage.users import get_user_role
+from marcel_sdk.events import (
+    AgentEndEvent,
+    BeforeAgentStartEvent,
+    BeforeProviderRequestEvent,
+    EventBus,
+    EventContext,
+    InputEvent,
+    SessionStartEvent,
+)
 
 log = logging.getLogger(__name__)
 
@@ -570,9 +580,26 @@ async def stream_turn(
     """
     role = get_user_role(user_slug)
 
+    # Per-turn lifecycle event bus. Core behaviours (the self-mod path guard,
+    # role-gating) subscribe as ``tool_call`` handlers via
+    # ``register_core_handlers``; extensions may subscribe too. The bus is
+    # attached to ``deps.turn`` below so the tool interception layer
+    # (:class:`~marcel_core.harness.tool_bus.MarcelBusToolset`) can reach it.
+    event_bus = EventBus()
+    register_core_handlers(event_bus)
+    # Replay extension-registered on() subscriptions onto this turn's bus.
+    # Imported lazily: marcel_core.plugin.__init__ pulls in the channel
+    # registry, which imports this module — a top-level import would cycle.
+    from marcel_core.plugin.extension import extension_registry
+
+    extension_registry().apply_to_bus(event_bus)
+    event_ctx = EventContext(user_slug=user_slug, role=role, channel=channel)
+    await event_bus.emit(SessionStartEvent(), event_ctx)
+
     # The channel has already stripped any slash prefix — use the cleaned
     # text everywhere downstream (segment append, context query, user prompt).
     effective_text = turn_plan.cleaned_text if turn_plan is not None else user_text
+    await event_bus.emit(InputEvent(text=effective_text), event_ctx)
 
     # For admin users on non-CLI channels, default cwd to the user's home directory.
     # For CLI sessions, cwd comes from the client's current directory.
@@ -588,6 +615,7 @@ async def stream_turn(
         role=role,
         cwd=effective_cwd,
     )
+    deps.turn.event_bus = event_bus
 
     # Build context from continuous conversation (handles idle summarization)
     message_history = await build_context(user_slug, channel)
@@ -616,6 +644,14 @@ async def stream_turn(
     from marcel_core.harness.context import build_instructions_async
 
     system_prompt = await build_instructions_async(deps, query=effective_text)
+
+    # before_agent_start — handlers may rewrite the system prompt (inject
+    # guidance) before the agent is built for any tier.
+    start_event = await event_bus.emit(
+        BeforeAgentStartEvent(system_prompt=system_prompt),
+        event_ctx,
+    )
+    system_prompt = start_event.system_prompt
 
     # Tier selection (ISSUE-e0db47, ISSUE-6a38cd): if the channel pre-resolved
     # the turn with a user-prefix override (``/fast`` etc.), honor it; otherwise
@@ -724,6 +760,10 @@ async def stream_turn(
                 current = nxt
                 continue
 
+        await event_bus.emit(
+            BeforeProviderRequestEvent(model=current.model, tier=current.tier.value),
+            event_ctx,
+        )
         try:
             async with tier_agent.run_stream(
                 tier_user_prompt,
@@ -853,6 +893,10 @@ async def stream_turn(
 
     # Save final assistant text response to segment
     assistant_text = ''.join(assistant_text_parts)
+
+    # agent_end — the turn's response is complete (observe-only in F0).
+    await event_bus.emit(AgentEndEvent(response_text=assistant_text), event_ctx)
+
     if assistant_text:
         assistant_msg = HistoryMessage(
             role='assistant',

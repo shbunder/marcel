@@ -14,6 +14,7 @@ import importlib.util
 import os
 import pathlib
 import sys
+import warnings
 
 import pytest
 
@@ -60,7 +61,19 @@ def _load_zoo_telegram_at_legacy_namespace() -> None:
     spec.loader.exec_module(module)
 
 
-_load_zoo_telegram_at_legacy_namespace()
+try:
+    _load_zoo_telegram_at_legacy_namespace()
+except Exception as exc:  # noqa: BLE001 — a broken zoo habitat must not kill kernel collection
+    # A zoo habitat is external code (MARCEL_ZOO_DIR); if it fails to import
+    # we degrade gracefully rather than take down the entire kernel test
+    # run. Tests that actually touch ``marcel_core.channels.telegram`` will
+    # still fail with a clear ImportError; everything else stays runnable.
+    warnings.warn(
+        f'zoo telegram habitat failed to load as marcel_core.channels.telegram '
+        f'({type(exc).__name__}: {exc}); telegram-dependent tests will error, '
+        f'others are unaffected.',
+        stacklevel=2,
+    )
 
 
 @pytest.fixture(autouse=True)

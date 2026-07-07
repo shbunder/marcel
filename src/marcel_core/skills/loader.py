@@ -214,7 +214,7 @@ def _check_depends_on(depends_on: list[str], user_slug: str) -> bool:
 
     Each entry in ``depends_on`` names an integration (e.g. ``"docker"``).
     The integration's ``integration.yaml`` is consulted via
-    :func:`get_integration_metadata`; its ``requires:`` block is then
+    :func:`get_toolkit_metadata`; its ``requires:`` block is then
     checked using :func:`_check_requirements`.
 
     Returns False (not met) when:
@@ -228,10 +228,10 @@ def _check_depends_on(depends_on: list[str], user_slug: str) -> bool:
     if not depends_on:
         return True
 
-    from marcel_core.toolkit import get_integration_metadata
+    from marcel_core.toolkit import get_toolkit_metadata
 
     for name in depends_on:
-        meta = get_integration_metadata(name)
+        meta = get_toolkit_metadata(name)
         if meta is None:
             log.debug(
                 'Skill depends_on %r but integration metadata is not registered (zoo not '
@@ -294,10 +294,10 @@ def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc |
         # from seeing every credential the skill might touch.
         cred_keys = list(requires.get('credentials', []) if requires else [])
         if depends_on:
-            from marcel_core.toolkit import get_integration_metadata
+            from marcel_core.toolkit import get_toolkit_metadata
 
             for dep_name in depends_on:
-                dep_meta = get_integration_metadata(dep_name)
+                dep_meta = get_toolkit_metadata(dep_name)
                 if dep_meta is not None:
                     cred_keys.extend(dep_meta.requires.get('credentials', []) or [])
         preferred_tier = _parse_preferred_tier(fm.get('preferred_tier'), name)

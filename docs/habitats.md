@@ -11,6 +11,12 @@ There are exactly five kinds of habitat. Everything else in these docs
 one kind. Read this page first; the per-kind deep-dives make much more
 sense once you know where they sit in the taxonomy.
 
+> **Extensions.** A newer, unifying entrypoint — a module exposing
+> `def register(marcel)` — lets one extension register any of these kinds
+> through a single object, behind a versioned `marcel-sdk` import wall. It
+> coexists with the per-kind loaders below. See
+> [Extensions](extensions.md).
+
 ## Overview
 
 | Kind | Directory | Artefact | Deep dive | What it contains |

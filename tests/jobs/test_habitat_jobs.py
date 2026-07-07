@@ -3,7 +3,7 @@
 Covers two layers:
 
 - ``_validate_scheduled_jobs`` — strict validation of the
-  ``scheduled_jobs:`` block in ``integration.yaml`` (raises
+  ``scheduled_jobs:`` block in ``toolkit.yaml`` (raises
   :class:`HabitatRollback` on malformed input so the whole habitat is
   rolled back).
 - ``_ensure_habitat_jobs`` — synthesizes :class:`JobDefinition` records
@@ -20,8 +20,8 @@ import pytest
 from marcel_core.toolkit import (
     _EXTERNAL_MODULE_PREFIX,
     HabitatRollback,
-    IntegrationMetadata,
     ScheduledJobSpec,
+    ToolkitMetadata,
     _metadata,
     _registry,
     _validate_scheduled_jobs,
@@ -29,9 +29,9 @@ from marcel_core.toolkit import (
 )
 
 VALID_HANDLER = (
-    'from marcel_core.plugin import register\n'
+    'from marcel_core.plugin import marcel_tool\n'
     '\n'
-    '@register("syncer.run")\n'
+    '@marcel_tool("syncer.run")\n'
     'async def run(params, user_slug):\n'
     '    return "ran"\n'
 )
@@ -69,11 +69,11 @@ def _isolate_data_root(tmp_path, monkeypatch):
 
 
 def _write_habitat(root: Path, name: str, body: str, *, yaml: str | None = None) -> Path:
-    pkg = root / 'integrations' / name
+    pkg = root / 'toolkit' / name
     pkg.mkdir(parents=True, exist_ok=True)
     (pkg / '__init__.py').write_text(body, encoding='utf-8')
     if yaml is not None:
-        (pkg / 'integration.yaml').write_text(yaml, encoding='utf-8')
+        (pkg / 'toolkit.yaml').write_text(yaml, encoding='utf-8')
     return pkg
 
 
@@ -216,7 +216,7 @@ class TestValidateScheduledJobs:
             )
 
     def test_duplicate_name_across_habitats_raises(self, isolated_registry):
-        _metadata['other'] = IntegrationMetadata(
+        _metadata['other'] = ToolkitMetadata(
             name='other',
             scheduled_jobs=[ScheduledJobSpec(name='shared', handler='other.x', cron='0 * * * *')],
         )
@@ -341,7 +341,7 @@ class TestEnsureHabitatJobs:
         from marcel_core.jobs.models import NotifyPolicy, TriggerType
         from marcel_core.jobs.scheduler import _ensure_habitat_jobs, _habitat_job_id
 
-        _metadata['syncer'] = IntegrationMetadata(
+        _metadata['syncer'] = ToolkitMetadata(
             name='syncer',
             provides=['syncer.run'],
             scheduled_jobs=[
@@ -371,7 +371,7 @@ class TestEnsureHabitatJobs:
         from marcel_core.jobs import list_all_jobs
         from marcel_core.jobs.scheduler import _ensure_habitat_jobs
 
-        _metadata['syncer'] = IntegrationMetadata(
+        _metadata['syncer'] = ToolkitMetadata(
             name='syncer',
             provides=['syncer.run'],
             scheduled_jobs=[
@@ -394,7 +394,7 @@ class TestEnsureHabitatJobs:
         from marcel_core.jobs import list_all_jobs
         from marcel_core.jobs.scheduler import _ensure_habitat_jobs
 
-        _metadata['syncer'] = IntegrationMetadata(
+        _metadata['syncer'] = ToolkitMetadata(
             name='syncer',
             provides=['syncer.run'],
             scheduled_jobs=[
@@ -420,7 +420,7 @@ class TestEnsureHabitatJobs:
         from marcel_core.jobs import list_all_jobs
         from marcel_core.jobs.scheduler import _ensure_habitat_jobs
 
-        _metadata['syncer'] = IntegrationMetadata(
+        _metadata['syncer'] = ToolkitMetadata(
             name='syncer',
             provides=['syncer.run'],
             scheduled_jobs=[ScheduledJobSpec(name='nightly', handler='syncer.run', cron='0 3 * * *')],
@@ -436,7 +436,7 @@ class TestEnsureHabitatJobs:
         from marcel_core.jobs import list_all_jobs
         from marcel_core.jobs.scheduler import _ensure_habitat_jobs
 
-        _metadata['syncer'] = IntegrationMetadata(
+        _metadata['syncer'] = ToolkitMetadata(
             name='syncer',
             provides=['syncer.run'],
             scheduled_jobs=[ScheduledJobSpec(name='nightly', handler='syncer.run', cron='0 3 * * *')],
@@ -456,7 +456,7 @@ class TestEnsureHabitatJobs:
         from marcel_core.jobs import list_all_jobs
         from marcel_core.jobs.scheduler import _ensure_habitat_jobs, _habitat_job_id
 
-        _metadata['syncer'] = IntegrationMetadata(
+        _metadata['syncer'] = ToolkitMetadata(
             name='syncer',
             provides=['syncer.run'],
             scheduled_jobs=[ScheduledJobSpec(name='old-name', handler='syncer.run', cron='0 3 * * *')],
@@ -465,8 +465,8 @@ class TestEnsureHabitatJobs:
         old_id = _habitat_job_id('syncer', 'old-name')
         assert any(j.id == old_id for j in list_all_jobs())
 
-        # User renamed the entry in integration.yaml
-        _metadata['syncer'] = IntegrationMetadata(
+        # User renamed the entry in toolkit.yaml
+        _metadata['syncer'] = ToolkitMetadata(
             name='syncer',
             provides=['syncer.run'],
             scheduled_jobs=[ScheduledJobSpec(name='new-name', handler='syncer.run', cron='0 3 * * *')],
@@ -534,7 +534,7 @@ class TestDispatchesHabitatJob:
         from marcel_core.jobs.models import JobRun, RunStatus
         from marcel_core.jobs.scheduler import JobScheduler, _ensure_habitat_jobs
 
-        _metadata['syncer'] = IntegrationMetadata(
+        _metadata['syncer'] = ToolkitMetadata(
             name='syncer',
             provides=['syncer.run'],
             scheduled_jobs=[

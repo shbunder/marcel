@@ -11,9 +11,11 @@ from pydantic_ai import Agent
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.toolsets import FunctionToolset
 
 from marcel_core.config import settings
 from marcel_core.harness.context import MarcelDeps
+from marcel_core.harness.tool_bus import MarcelBusToolset
 from marcel_core.jobs import tool as job_tools
 from marcel_core.tools import (
     charts as chart_tools,
@@ -133,8 +135,6 @@ _TOOL_REGISTRY: list[tuple[str, object, str | None]] = [
     # All-user tools
     ('generate_chart', chart_tools.generate_chart, None),
     ('toolkit', toolkit_tools.toolkit, None),
-    # Back-compat alias — removed in ISSUE-3c1534 Phase 5.
-    ('integration', toolkit_tools.integration, None),
     ('marcel', marcel_tools.marcel, None),
     # Job management
     ('create_job', job_tools.create_job, None),
@@ -157,6 +157,18 @@ def available_tool_names(role: str) -> set[str]:
     guard and any ``disallowed_tools`` can be applied on top.
     """
     return {name for name, _fn, required in _TOOL_REGISTRY if required is None or required == role}
+
+
+def admin_tool_names() -> frozenset[str]:
+    """Return the names of admin-tier (restricted) tools.
+
+    The single source of truth for which tools require ``role == 'admin'``.
+    Used by the event-bus role-gating handler
+    (:mod:`marcel_core.harness.core_handlers`) as a defense-in-depth second
+    layer behind the structural gate in :func:`create_marcel_agent` (which
+    never registers these tools for a non-admin in the first place).
+    """
+    return frozenset(name for name, _fn, required in _TOOL_REGISTRY if required == 'admin')
 
 
 def create_marcel_agent(
@@ -205,15 +217,12 @@ def create_marcel_agent(
     else:
         model_arg = model
 
-    agent: Agent[MarcelDeps, str] = Agent(
-        model_arg,
-        deps_type=MarcelDeps,
-        instructions=system_prompt,
-        retries=2,
-        end_strategy='exhaustive',
-        instrument=get_instrumentation_settings(),
-    )
-
+    # Build the tool set into a FunctionToolset, then wrap it so every call
+    # routes through the turn's event bus (tool_call / tool_result). The
+    # structural role gate below stays the *primary* defense — an admin tool
+    # is simply never added for a non-admin, so the model cannot see it. The
+    # bus (MarcelBusToolset) is a second, harness-level enforcement layer.
+    toolset: FunctionToolset[MarcelDeps] = FunctionToolset()
     registered: list[str] = []
     for name, fn, required_role in _TOOL_REGISTRY:
         # Role gate — admin-only tools are always stripped for non-admin agents,
@@ -223,8 +232,18 @@ def create_marcel_agent(
         # Name gate — when a filter is supplied, drop anything not in it.
         if tool_filter is not None and name not in tool_filter:
             continue
-        agent.tool(fn)  # type: ignore[arg-type]
+        toolset.add_function(fn)  # type: ignore[arg-type]
         registered.append(name)
+
+    agent: Agent[MarcelDeps, str] = Agent(
+        model_arg,
+        deps_type=MarcelDeps,
+        instructions=system_prompt,
+        retries=2,
+        end_strategy='exhaustive',
+        instrument=get_instrumentation_settings(),
+        toolsets=[MarcelBusToolset(toolset)],
+    )
 
     log.info(
         'agent ready: model=%s role=%s tools=%s%s',

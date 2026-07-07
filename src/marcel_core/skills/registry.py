@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from marcel_core.toolkit import discover, list_python_skills
+from marcel_core.toolkit import discover, list_tools
 
 log = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ def _load() -> dict[str, SkillConfig]:
 
     # Auto-discover python integration modules and add them to the registry.
     discover()
-    for name in list_python_skills():
+    for name in list_tools():
         if name not in registry:
             if not SKILL_NAME_PATTERN.match(name):
                 log.warning('Skipping python integration with invalid name: %r', name)

@@ -15,23 +15,14 @@ The directory name must match the ``family`` segment of every handler
 name the habitat registers. Handlers outside the habitat's namespace
 cause the whole habitat to be rolled back — no partial state leaks.
 
-Two isolation modes:
-
-- ``isolation: inprocess`` — habitat code runs in the kernel process.
-- ``isolation: uds`` — habitat runs as a subprocess with its own venv,
-  the kernel connects over a UDS socket (ISSUE-f60b09).
-
-Back-compat (during ISSUE-3c1534 Phases 1–4):
-
-- ``<zoo>/integrations/`` is walked in addition to ``<zoo>/toolkit/``.
-- ``integration.yaml`` is read in addition to ``toolkit.yaml``.
-- The ``@register`` decorator is an alias for :func:`marcel_tool`.
-- ``IntegrationHandler`` / ``IntegrationMetadata`` are aliases for
-  :class:`ToolkitHandler` / :class:`ToolkitMetadata`.
-- ``marcel_core.toolkit`` re-exports everything from this
-  module as a shim.
-
-All back-compat aliases are removed in Phase 5.
+**Lean isolation** (ADR-260628-6101c5). Habitats run **in-process** — no
+subprocess, no UDS mesh, no per-habitat kernel clone. A dependency-free
+habitat runs directly in the kernel process. A habitat with real PyPI
+deps ships a thin ``.venv`` (its own deps + ``marcel-sdk`` only) whose
+``site-packages`` is added to ``sys.path`` at load time
+(:func:`_dep_venv_site_packages`); it still runs in-process. A slow or
+failing handler is contained by a call-boundary timeout in the ``toolkit``
+tool, not by process isolation.
 
 Usage in a zoo toolkit habitat::
 
@@ -60,16 +51,13 @@ log = logging.getLogger(__name__)
 # Handler signature: (params: dict[str, str], user_slug: str) -> str
 ToolkitHandler = Callable[[dict, str], Awaitable[str]]
 
-# Back-compat alias — removed in Phase 5.
-IntegrationHandler = ToolkitHandler
-
 # Global registry: handler name (e.g. "docker.list") -> handler function
 _registry: dict[str, ToolkitHandler] = {}
 
 
 @dataclass
 class ScheduledJobSpec:
-    """One ``scheduled_jobs:`` entry from ``integration.yaml`` (ISSUE-82f52b).
+    """One ``scheduled_jobs:`` entry from ``toolkit.yaml`` (ISSUE-82f52b).
 
     A habitat declares zero or more periodic jobs. The kernel scheduler
     materializes each spec as a system-scope :class:`JobDefinition` with
@@ -104,8 +92,7 @@ class ScheduledJobSpec:
 class ToolkitMetadata:
     """Declarative metadata for one toolkit habitat.
 
-    Loaded from ``<habitat>/toolkit.yaml`` (or legacy ``integration.yaml``
-    during migration). The kernel uses this to resolve ``depends_on:``
+    Loaded from ``<habitat>/toolkit.yaml``. The kernel uses this to resolve ``depends_on:``
     from a skill habitat back to the toolkit's requirements
     (credentials/env/files/packages) — see ISSUE-6ad5c7.
 
@@ -119,10 +106,6 @@ class ToolkitMetadata:
     provides: list[str] = field(default_factory=list)
     requires: dict = field(default_factory=dict)
     scheduled_jobs: list[ScheduledJobSpec] = field(default_factory=list)
-
-
-# Back-compat alias — removed in Phase 5.
-IntegrationMetadata = ToolkitMetadata
 
 
 # Metadata registry: toolkit_name -> ToolkitMetadata.
@@ -140,26 +123,15 @@ def get_toolkit_metadata(name: str) -> ToolkitMetadata | None:
     return _metadata.get(name)
 
 
-# Back-compat alias — removed in Phase 5.
-get_integration_metadata = get_toolkit_metadata
-
-
 def list_toolkits() -> list[str]:
     """Return all toolkit names that have published metadata."""
     return sorted(_metadata.keys())
-
-
-# Back-compat alias — removed in Phase 5.
-list_integrations = list_toolkits
 
 
 # Tool names must follow the ``family.action`` convention: two dot-separated
 # segments, each containing only lowercase letters, digits, and underscores.
 # Matches the same pattern enforced in registry.py.
 _TOOL_NAME_PATTERN: re.Pattern[str] = re.compile(r'^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$')
-
-# Back-compat alias — removed in Phase 5.
-_SKILL_NAME_PATTERN = _TOOL_NAME_PATTERN
 
 # Prefix used for sys.modules entries of dynamically-loaded toolkit
 # habitats. Kept private so it cannot collide with a future real
@@ -194,10 +166,6 @@ def marcel_tool(tool_name: str) -> Callable[[ToolkitHandler], ToolkitHandler]:
     return decorator
 
 
-# Back-compat alias — removed in Phase 5.
-register = marcel_tool
-
-
 def get_handler(tool_name: str) -> ToolkitHandler:
     """Return the handler for *tool_name*, or raise ``KeyError``."""
     try:
@@ -211,33 +179,20 @@ def list_tools() -> list[str]:
     return sorted(_registry.keys())
 
 
-# Back-compat alias — removed in Phase 5.
-list_python_skills = list_tools
-
-
 def discover() -> None:
-    """Discover integration habitats from ``<MARCEL_ZOO_DIR>/integrations/``.
+    """Discover toolkit habitats from ``<MARCEL_ZOO_DIR>/toolkit/`` and load them in-process.
 
-    Each subdirectory is loaded as a package. Two isolation modes are
-    supported:
+    Each subdirectory is loaded as a package: its ``__init__.py`` is
+    imported into the kernel process and ``@marcel_tool`` calls populate
+    the kernel-local ``_registry`` directly (lean isolation — no subprocess,
+    no per-habitat kernel clone; ADR-260628-6101c5). A habitat that carries
+    real PyPI deps ships a thin ``.venv`` whose ``site-packages`` is added
+    to ``sys.path`` at load time (:func:`_load_external_integration`).
 
-    - ``isolation: inprocess`` (default) — the habitat's ``__init__.py``
-      is imported into the kernel process; ``@register`` calls populate
-      the kernel-local ``_registry`` directly. See
-      :func:`_load_external_integration` for the per-package loading
-      contract (namespace enforcement, error isolation).
-    - ``isolation: uds`` — the habitat runs as a separate subprocess
-      with its own venv, listening on a UDS socket under
-      ``<data_root>/sockets/<name>.sock``. The kernel registers proxy
-      coroutines (one per ``provides:`` entry) that forward JSON-RPC
-      calls over the socket. See :func:`_load_uds_habitat`.
-
-    Returns silently when ``MARCEL_ZOO_DIR`` is unset or
-    ``<zoo>/integrations/`` does not exist — the kernel ships no
-    habitats; operators opt in by pointing the env var at a marcel-zoo
-    checkout. Safe to call multiple times: already-imported in-process
-    habitats are skipped via ``sys.modules``; already-spawned UDS
-    habitats are skipped via the supervisor's handle table.
+    Returns silently when ``MARCEL_ZOO_DIR`` is unset or ``<zoo>/toolkit/``
+    does not exist — the kernel ships no habitats; operators opt in by
+    pointing the env var at a marcel-zoo checkout. Safe to call multiple
+    times: already-imported habitats are skipped via ``sys.modules``.
     """
     try:
         from marcel_core.config import settings
@@ -250,73 +205,43 @@ def discover() -> None:
     if zoo_dir is None:
         return
 
-    # Scan both the legacy ``integrations/`` directory and the new ``toolkit/``
-    # directory during Phases 1–4. Phase 5 drops the legacy path.
-    seen: set[str] = set()
-    for subdir_name in ('toolkit', 'integrations'):
-        external_dir = zoo_dir / subdir_name
-        if not external_dir.is_dir():
+    external_dir = zoo_dir / 'toolkit'
+    if not external_dir.is_dir():
+        return
+    for entry in sorted(external_dir.iterdir()):
+        if not entry.is_dir() or entry.name.startswith(('_', '.')):
             continue
-        if subdir_name == 'integrations':
-            log.warning(
-                'deprecated: <zoo>/integrations/ is scanned for back-compat; '
-                'migrate to <zoo>/toolkit/ before ISSUE-3c1534 Phase 5.'
-            )
-        for entry in sorted(external_dir.iterdir()):
-            if not entry.is_dir() or entry.name.startswith(('_', '.')):
-                continue
-            if entry.name in seen:
-                # Already loaded from a higher-precedence directory (toolkit/
-                # wins over integrations/).
-                continue
-            seen.add(entry.name)
-            if _declared_isolation(entry) == 'uds':
-                _load_uds_habitat(entry)
-            else:
-                _load_external_integration(entry)
+        _load_external_integration(entry)
 
 
 def _habitat_yaml_path(pkg_dir: Path) -> Path | None:
-    """Return the habitat's YAML contract path, preferring ``toolkit.yaml``.
+    """Return the habitat's ``toolkit.yaml`` contract path, or ``None``.
 
-    Reads ``toolkit.yaml`` if present; otherwise falls back to the legacy
-    ``integration.yaml``. Returns ``None`` when neither file exists — the
-    habitat has no declarative metadata, discovery treats it as broken.
-
-    Phase 5 drops the ``integration.yaml`` fallback.
+    Returns ``None`` when the file does not exist — the habitat has no
+    declarative metadata, and discovery treats it as broken.
     """
-    new = pkg_dir / 'toolkit.yaml'
-    if new.exists():
-        return new
-    old = pkg_dir / 'integration.yaml'
-    if old.exists():
-        log.warning(
-            "deprecated: %s uses 'integration.yaml'; rename to 'toolkit.yaml' before ISSUE-3c1534 Phase 5.",
-            pkg_dir.name,
-        )
-        return old
+    path = pkg_dir / 'toolkit.yaml'
+    return path if path.exists() else None
+
+
+def _dep_venv_site_packages(pkg_dir: Path) -> Path | None:
+    """Return a habitat's thin dep-venv ``site-packages`` dir, or ``None``.
+
+    A toolkit with real PyPI deps ships a thin ``.venv`` holding only its
+    own deps + ``marcel-sdk`` — never a kernel clone (ADR-260628-6101c5).
+    Its ``site-packages`` is *appended* to ``sys.path`` at load time so the
+    deps import in-process (no subprocess, no UDS) while kernel packages
+    always win — the dep-venv only supplies what the kernel lacks.
+    Returns ``None`` for the common case of a dependency-free habitat.
+    """
+    venv = pkg_dir / '.venv'
+    if not venv.is_dir():
+        return None
+    for lib in sorted((venv / 'lib').glob('python*')):
+        site_packages = lib / 'site-packages'
+        if site_packages.is_dir():
+            return site_packages
     return None
-
-
-def _declared_isolation(pkg_dir: Path) -> str:
-    """Return the ``isolation:`` mode from the habitat's contract YAML.
-
-    Defaults to ``'inprocess'`` when the key is missing or the YAML is
-    malformed — malformed YAML is surfaced later by
-    :func:`_load_external_integration`'s existing parser. Keeping this
-    probe defensive avoids crashing discovery on a bad file.
-    """
-    yaml_path = _habitat_yaml_path(pkg_dir)
-    if yaml_path is None:
-        return 'inprocess'
-    try:
-        raw = yaml.safe_load(yaml_path.read_text(encoding='utf-8')) or {}
-    except yaml.YAMLError:
-        return 'inprocess'
-    if not isinstance(raw, dict):
-        return 'inprocess'
-    value = raw.get('isolation', 'inprocess')
-    return value if isinstance(value, str) else 'inprocess'
 
 
 def _load_external_integration(pkg_dir: Path) -> None:
@@ -327,7 +252,7 @@ def _load_external_integration(pkg_dir: Path) -> None:
     the entire integration to be rolled back — no partial state leaks
     into the registry.
 
-    A malformed ``scheduled_jobs:`` block in ``integration.yaml`` is also
+    A malformed ``scheduled_jobs:`` block in ``toolkit.yaml`` is also
     a rollback condition (ISSUE-82f52b): handlers are removed, no
     metadata is published, and the scheduler never sees a partial habitat.
     Errors are logged and contained; the caller continues with the next
@@ -336,7 +261,7 @@ def _load_external_integration(pkg_dir: Path) -> None:
     init_py = pkg_dir / '__init__.py'
     if not init_py.exists():
         log.warning(
-            "Integration habitat '%s' has no __init__.py — skipping",
+            "Toolkit habitat '%s' has no __init__.py — skipping",
             pkg_dir.name,
         )
         return
@@ -364,10 +289,16 @@ def _load_external_integration(pkg_dir: Path) -> None:
         )
         if spec is None or spec.loader is None:
             log.error(
-                "Could not create module spec for integration habitat '%s'",
+                "Could not create module spec for toolkit habitat '%s'",
                 pkg_dir.name,
             )
             return
+
+        # A habitat with real PyPI deps carries a thin dep-venv; make its
+        # site-packages importable in-process before running its __init__.py.
+        site_packages = _dep_venv_site_packages(pkg_dir)
+        if site_packages is not None and str(site_packages) not in sys.path:
+            sys.path.append(str(site_packages))
 
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
@@ -378,7 +309,7 @@ def _load_external_integration(pkg_dir: Path) -> None:
         if invalid:
             _rollback_handlers()
             log.error(
-                "Integration habitat '%s' registered handlers outside its namespace: %s. "
+                "Toolkit habitat '%s' registered handlers outside its namespace: %s. "
                 "All handler names must start with '%s.'. Integration disabled.",
                 pkg_dir.name,
                 sorted(invalid),
@@ -386,7 +317,7 @@ def _load_external_integration(pkg_dir: Path) -> None:
             )
             return
 
-        # Handlers loaded cleanly — parse integration.yaml.
+        # Handlers loaded cleanly — parse toolkit.yaml.
         #
         # ``provides``/``requires`` failures disable only the metadata; handlers
         # keep working (legacy behaviour from ISSUE-6ad5c7). A malformed
@@ -398,7 +329,7 @@ def _load_external_integration(pkg_dir: Path) -> None:
         except HabitatRollback as exc:
             _rollback_handlers()
             log.error(
-                "Integration habitat '%s' rolled back: %s",
+                "Toolkit habitat '%s' rolled back: %s",
                 pkg_dir.name,
                 exc,
             )
@@ -406,7 +337,7 @@ def _load_external_integration(pkg_dir: Path) -> None:
     except Exception:
         _rollback_handlers()
         log.exception(
-            "Failed to load integration habitat '%s'",
+            "Failed to load toolkit habitat '%s'",
             pkg_dir.name,
         )
 
@@ -418,234 +349,6 @@ class HabitatRollback(Exception):
     handlers the package registered before metadata parsing failed. Bubbling
     out of discovery would be a bug.
     """
-
-
-# ---------------------------------------------------------------------------
-# UDS-isolated habitats (ISSUE-f60b09 Phase 1)
-# ---------------------------------------------------------------------------
-
-
-def _load_uds_habitat(pkg_dir: Path) -> None:
-    """Spawn a UDS-isolated habitat subprocess and register proxy handlers.
-
-    The habitat runs as a separate Python process (see
-    :mod:`marcel_core.plugin._uds_bridge`) with its own venv and own
-    ``_registry``. The kernel never imports the habitat's ``__init__.py``
-    in-process; instead, for each handler name listed in
-    ``integration.yaml``'s ``provides:``, the kernel registers a proxy
-    coroutine that forwards JSON-RPC calls over the habitat's UDS
-    socket.
-
-    Errors during spawn (YAML invalid, missing ``provides:``, subprocess
-    fails to create socket) are logged and contained — no partial
-    registration leaks into ``_registry`` or ``_metadata``. This mirrors
-    the rollback discipline of :func:`_load_external_integration`.
-
-    Idempotency: if the supervisor already tracks a habitat of this
-    name, the call is a no-op. Matches the ``module_name in sys.modules``
-    shortcut on the in-process path.
-    """
-    from marcel_core.plugin import _uds_supervisor
-
-    if pkg_dir.name in _uds_supervisor.list_habitats():
-        return
-
-    yaml_path = _habitat_yaml_path(pkg_dir)
-    if yaml_path is None:
-        log.error(
-            "UDS habitat '%s' has no toolkit.yaml — cannot determine provides: list, skipping",
-            pkg_dir.name,
-        )
-        return
-
-    try:
-        raw = yaml.safe_load(yaml_path.read_text(encoding='utf-8')) or {}
-    except yaml.YAMLError:
-        log.exception(
-            "UDS habitat '%s' has invalid %s — skipping",
-            pkg_dir.name,
-            yaml_path.name,
-        )
-        return
-
-    if not isinstance(raw, dict):
-        log.error(
-            "UDS habitat '%s': %s root must be a mapping, skipping",
-            pkg_dir.name,
-            yaml_path.name,
-        )
-        return
-
-    provides = raw.get('provides') or []
-    if not isinstance(provides, list) or not all(isinstance(p, str) for p in provides):
-        log.error(
-            "UDS habitat '%s': provides: must be a list of strings (source of truth for handler names), skipping",
-            pkg_dir.name,
-        )
-        return
-
-    if not provides:
-        log.warning(
-            "UDS habitat '%s' declares empty provides: — spawning will register zero handlers. Skipping.",
-            pkg_dir.name,
-        )
-        return
-
-    bad = [p for p in provides if not p.startswith(f'{pkg_dir.name}.')]
-    if bad:
-        log.error(
-            "UDS habitat '%s': provides: entries outside the '%s.*' namespace: %s. Skipping.",
-            pkg_dir.name,
-            pkg_dir.name,
-            bad,
-        )
-        return
-
-    # Namespace collision guard: proxy registration must not clobber a handler
-    # already in the registry (from a prior in-process habitat with the same
-    # handler name, or from a previous discover() call that registered in-process).
-    collisions = [p for p in provides if p in _registry]
-    if collisions:
-        log.error(
-            "UDS habitat '%s': handler names already registered: %s. Skipping.",
-            pkg_dir.name,
-            collisions,
-        )
-        return
-
-    socket_path = _habitat_socket_path(pkg_dir.name)
-    command = _bridge_command(pkg_dir, socket_path)
-
-    try:
-        _uds_supervisor.spawn_habitat(pkg_dir.name, command, socket_path)
-    except Exception:
-        log.exception("UDS habitat '%s' failed to spawn — skipping", pkg_dir.name)
-        return
-
-    for handler_name in provides:
-        _registry[handler_name] = _make_uds_proxy(handler_name, socket_path)
-
-    # Also parse + publish integration.yaml metadata so ``depends_on:`` from
-    # paired skill habitats continues to work. Failures here disable metadata
-    # only; handler proxies stay registered (same discipline as the in-process
-    # path for non-scheduled-jobs errors).
-    try:
-        _load_toolkit_metadata(pkg_dir)
-    except HabitatRollback as exc:
-        # A malformed scheduled_jobs block on a UDS habitat is as bad as
-        # on an in-process one: tear the habitat down to avoid a partial
-        # scheduler state.
-        log.error("UDS habitat '%s' rolled back: %s", pkg_dir.name, exc)
-        for handler_name in provides:
-            _registry.pop(handler_name, None)
-        # Supervisor-level teardown is deferred to kernel shutdown; marking
-        # the habitat as "to-remove" mid-run would complicate the poll loop.
-        # A rolled-back habitat just leaves a sleeping subprocess until
-        # lifespan teardown sweeps it.
-
-
-def _habitat_socket_path(name: str) -> Path:
-    from marcel_core.config import settings
-
-    return settings.data_dir / 'sockets' / f'{name}.sock'
-
-
-def _bridge_command(pkg_dir: Path, socket_path: Path) -> list[str]:
-    """Return the argv to launch *pkg_dir*'s UDS bridge.
-
-    Prefers the habitat's own ``.venv/bin/python`` if present (Phase 2+
-    when ``make zoo-setup`` creates per-habitat venvs); falls back to
-    the kernel's ``sys.executable`` so Phase 1 fixture habitats with no
-    declared deps work out of the box.
-    """
-    from marcel_core.plugin import _uds_supervisor
-
-    python = _uds_supervisor.habitat_python(pkg_dir)
-    return [python, '-m', 'marcel_core.plugin._uds_bridge', str(pkg_dir), str(socket_path)]
-
-
-def _make_uds_proxy(method: str, socket_path: Path) -> IntegrationHandler:
-    """Return a coroutine that forwards calls for *method* over *socket_path*.
-
-    Phase 1 opens one connection per call — simple, no state. Each
-    request carries a fixed ``id`` because the connection is single-use;
-    connection pooling (which requires unique ids) is a Phase 5 concern.
-
-    Connect retries briefly on ``ConnectionRefusedError`` /
-    ``FileNotFoundError`` (total window ≈ ``_UDS_CONNECT_TOTAL_TIMEOUT``).
-    Both errors are transient during supervisor respawn: the bridge's
-    ``unlink-then-bind`` race leaves a window where the socket file
-    exists but is not yet accepting. Retrying masks that window without
-    masking a habitat that's genuinely down (persistent refusal after
-    the window → real error).
-
-    Errors surface as ``RuntimeError`` with a prefix identifying the
-    habitat and method — the ``integration`` tool's existing exception
-    handler wraps them into user-facing error strings, so no new error
-    type is introduced in Phase 1.
-    """
-    import json
-    import struct
-
-    async def proxy(params: dict, user_slug: str) -> str:
-        reader, writer = await _uds_connect_with_retry(method, socket_path)
-        try:
-            body = json.dumps(
-                {
-                    'jsonrpc': '2.0',
-                    'id': 1,
-                    'method': method,
-                    'params': {'params': params, 'user_slug': user_slug},
-                }
-            ).encode()
-            writer.write(struct.pack('>I', len(body)) + body)
-            await writer.drain()
-
-            hdr = await reader.readexactly(4)
-            (length,) = struct.unpack('>I', hdr)
-            resp = json.loads(await reader.readexactly(length))
-        finally:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:
-                pass
-
-        if 'error' in resp:
-            err = resp['error']
-            raise RuntimeError(f'uds habitat error in {method!r}: {err.get("message", err)!s}')
-        return resp.get('result', '')
-
-    return proxy
-
-
-# Transient-connect retry knobs. Small values — the window we're masking
-# is the few hundred ms between a bridge's unlink-then-bind on respawn.
-_UDS_CONNECT_TOTAL_TIMEOUT = 3.0
-_UDS_CONNECT_INITIAL_DELAY = 0.05
-
-
-async def _uds_connect_with_retry(method: str, socket_path: Path):
-    """Open a UDS connection, retrying on transient 'not yet ready' errors.
-
-    Returns ``(reader, writer)`` on success; raises ``RuntimeError`` with
-    habitat context if the total window expires or a non-transient error
-    is raised (e.g. ``PermissionError`` from wrong socket mode).
-    """
-    import asyncio
-
-    deadline = asyncio.get_running_loop().time() + _UDS_CONNECT_TOTAL_TIMEOUT
-    delay = _UDS_CONNECT_INITIAL_DELAY
-    while True:
-        try:
-            return await asyncio.open_unix_connection(str(socket_path))
-        except (FileNotFoundError, ConnectionRefusedError) as exc:
-            if asyncio.get_running_loop().time() + delay >= deadline:
-                raise RuntimeError(
-                    f'uds habitat unavailable for {method!r} after {_UDS_CONNECT_TOTAL_TIMEOUT:.1f}s of retries: {exc}'
-                ) from exc
-            await asyncio.sleep(delay)
-            delay = min(delay * 2, 0.5)
 
 
 _VALID_REQUIRES_KEYS = frozenset({'credentials', 'env', 'files', 'packages'})
@@ -671,7 +374,7 @@ def _load_toolkit_metadata(pkg_dir: Path) -> None:
     because a missing scheduled job is a silent gap users would not notice.
 
     Reads ``toolkit.yaml`` preferentially; falls back to legacy
-    ``integration.yaml`` via :func:`_habitat_yaml_path` during Phases 1–4.
+    ``toolkit.yaml`` via :func:`_habitat_yaml_path` during Phases 1–4.
     """
     yaml_path = _habitat_yaml_path(pkg_dir)
     if yaml_path is None:
@@ -685,14 +388,14 @@ def _load_toolkit_metadata(pkg_dir: Path) -> None:
         raw = yaml.safe_load(yaml_path.read_text(encoding='utf-8')) or {}
     except yaml.YAMLError:
         log.exception(
-            "integration.yaml in habitat '%s' is not valid YAML — metadata skipped",
+            "toolkit.yaml in habitat '%s' is not valid YAML — metadata skipped",
             pkg_dir.name,
         )
         return
 
     if not isinstance(raw, dict):
         log.error(
-            "integration.yaml in habitat '%s' must be a mapping at the top level — metadata skipped",
+            "toolkit.yaml in habitat '%s' must be a mapping at the top level — metadata skipped",
             pkg_dir.name,
         )
         return
@@ -700,7 +403,7 @@ def _load_toolkit_metadata(pkg_dir: Path) -> None:
     name = raw.get('name', pkg_dir.name)
     if name != pkg_dir.name:
         log.error(
-            "integration.yaml in habitat '%s' declares name='%s' — must match directory name. Metadata skipped.",
+            "toolkit.yaml in habitat '%s' declares name='%s' — must match directory name. Metadata skipped.",
             pkg_dir.name,
             name,
         )
@@ -709,7 +412,7 @@ def _load_toolkit_metadata(pkg_dir: Path) -> None:
     provides = raw.get('provides', []) or []
     if not isinstance(provides, list) or not all(isinstance(p, str) for p in provides):
         log.error(
-            "integration.yaml in habitat '%s' has invalid 'provides' (must be list of strings) — metadata skipped",
+            "toolkit.yaml in habitat '%s' has invalid 'provides' (must be list of strings) — metadata skipped",
             pkg_dir.name,
         )
         return
@@ -717,7 +420,7 @@ def _load_toolkit_metadata(pkg_dir: Path) -> None:
     bad = [p for p in provides if not p.startswith(f'{pkg_dir.name}.')]
     if bad:
         log.error(
-            "integration.yaml in habitat '%s' lists handlers outside its namespace: %s. Metadata skipped.",
+            "toolkit.yaml in habitat '%s' lists handlers outside its namespace: %s. Metadata skipped.",
             pkg_dir.name,
             bad,
         )
@@ -726,7 +429,7 @@ def _load_toolkit_metadata(pkg_dir: Path) -> None:
     requires = raw.get('requires') or {}
     if not isinstance(requires, dict):
         log.error(
-            "integration.yaml in habitat '%s' has invalid 'requires' (must be a mapping) — metadata skipped",
+            "toolkit.yaml in habitat '%s' has invalid 'requires' (must be a mapping) — metadata skipped",
             pkg_dir.name,
         )
         return
@@ -734,14 +437,14 @@ def _load_toolkit_metadata(pkg_dir: Path) -> None:
     unknown = set(requires) - _VALID_REQUIRES_KEYS
     if unknown:
         log.warning(
-            "integration.yaml in habitat '%s' declares unknown requires keys %s — these will be ignored",
+            "toolkit.yaml in habitat '%s' declares unknown requires keys %s — these will be ignored",
             pkg_dir.name,
             sorted(unknown),
         )
 
     scheduled_jobs = _validate_scheduled_jobs(pkg_dir.name, raw.get('scheduled_jobs'), provides)
 
-    _metadata[name] = IntegrationMetadata(
+    _metadata[name] = ToolkitMetadata(
         name=name,
         description=str(raw.get('description', '')),
         provides=list(provides),
@@ -755,7 +458,7 @@ def _validate_scheduled_jobs(
     raw: object,
     provides: list[str],
 ) -> list[ScheduledJobSpec]:
-    """Validate the ``scheduled_jobs:`` block from ``integration.yaml``.
+    """Validate the ``scheduled_jobs:`` block from ``toolkit.yaml``.
 
     Returns the list of parsed specs. Raises :class:`HabitatRollback` on
     any structural error (caught by :func:`_load_external_integration`,

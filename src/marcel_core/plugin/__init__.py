@@ -7,9 +7,9 @@ matching migration note. Anything **not** re-exported here is internal and
 may change at any time — zoo code that reaches past this surface owns its
 own breakage.
 
-Surface today (integration habitat focus):
+Surface today (toolkit habitat focus):
 
-- :func:`register`, :data:`IntegrationHandler`, :func:`get_logger` — declare
+- :func:`marcel_tool`, :data:`ToolkitHandler`, :func:`get_logger` — declare
   and log from a handler.
 - :mod:`marcel_core.plugin.credentials` — encrypted per-user credential
   load/save (used by zoo banking + icloud habitats).
@@ -29,15 +29,15 @@ Surface today (integration habitat focus):
 Other habitat types (skills, agents) will add their surfaces here as
 their plugin plumbing lands (see ISSUE-2ccc10).
 
-Example — minimal external integration at
-``<MARCEL_ZOO_DIR>/integrations/demo/__init__.py``::
+Example — minimal external toolkit at
+``<MARCEL_ZOO_DIR>/toolkit/demo/__init__.py``::
 
-    from marcel_core.plugin import register, get_logger
+    from marcel_core.plugin import marcel_tool, get_logger
     from marcel_core.plugin import credentials, paths
 
     log = get_logger(__name__)
 
-    @register("demo.ping")
+    @marcel_tool("demo.ping")
     async def ping(params: dict, user_slug: str) -> str:
         log.info("demo.ping called for %s", user_slug)
         api_key = credentials.load(user_slug).get("DEMO_API_KEY")
@@ -58,15 +58,12 @@ from marcel_core.plugin.channels import (
 )
 from marcel_core.plugin.jobs import discover_templates
 from marcel_core.toolkit import (
-    IntegrationHandler,
     ToolkitHandler,
     marcel_tool,
-    register,
 )
 
 __all__ = [
     'ChannelPlugin',
-    'IntegrationHandler',
     'ToolkitHandler',
     'credentials',
     'discover_templates',
@@ -76,7 +73,6 @@ __all__ = [
     'marcel_tool',
     'models',
     'paths',
-    'register',
     'register_channel',
     'rss',
 ]

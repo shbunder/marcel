@@ -9,7 +9,7 @@ from httpx import Response
 
 from marcel_core.skills.executor import _apply_transform, _run_shell, run
 from marcel_core.skills.registry import SkillConfig, get_skill, list_skills
-from marcel_core.toolkit import _registry, discover, get_handler, list_python_skills, register
+from marcel_core.toolkit import _registry, discover, get_handler, list_tools, marcel_tool
 
 
 class TestRegistry:
@@ -20,7 +20,7 @@ class TestRegistry:
         saved = dict(_registry)
         _registry.clear()
 
-        @register('fake.handler')
+        @marcel_tool('fake.handler')
         async def handler(params, user_slug):
             return 'ok'
 
@@ -41,7 +41,7 @@ class TestRegistry:
         saved = dict(_registry)
         _registry.clear()
 
-        @register('fake.handler')
+        @marcel_tool('fake.handler')
         async def handler(params, user_slug):
             return 'ok'
 
@@ -252,11 +252,11 @@ class TestIntegrationFramework:
         saved = dict(_registry)
         monkeypatch.setattr('marcel_core.toolkit._registry', {})
 
-        @register('test.skill')
+        @marcel_tool('test.skill')
         async def handler(params, user_slug):
             return 'ok'
 
-        assert 'test.skill' in list_python_skills()
+        assert 'test.skill' in list_tools()
         assert get_handler('test.skill') is handler
 
         # Restore
@@ -267,13 +267,13 @@ class TestIntegrationFramework:
         saved = dict(_registry)
         monkeypatch.setattr('marcel_core.toolkit._registry', {})
 
-        @register('dup.skill')
+        @marcel_tool('dup.skill')
         async def handler1(params, user_slug):
             return 'first'
 
         with pytest.raises(ValueError, match='already registered'):
 
-            @register('dup.skill')
+            @marcel_tool('dup.skill')
             async def handler2(params, user_slug):
                 return 'second'
 
@@ -284,7 +284,7 @@ class TestIntegrationFramework:
         monkeypatch.setattr('marcel_core.toolkit._registry', {})
         with pytest.raises(ValueError, match='Invalid tool name'):
 
-            @register('InvalidName')
+            @marcel_tool('InvalidName')
             async def handler(params, user_slug):
                 return 'bad'
 
@@ -292,7 +292,7 @@ class TestIntegrationFramework:
         monkeypatch.setattr('marcel_core.toolkit._registry', {})
         with pytest.raises(ValueError, match='Invalid tool name'):
 
-            @register('nodot')
+            @marcel_tool('nodot')
             async def handler(params, user_slug):
                 return 'bad'
 
@@ -300,11 +300,11 @@ class TestIntegrationFramework:
         saved = dict(_registry)
         monkeypatch.setattr('marcel_core.toolkit._registry', {})
 
-        @register('my_service.get_v2')
+        @marcel_tool('my_service.get_v2')
         async def handler(params, user_slug):
             return 'ok'
 
-        assert 'my_service.get_v2' in list_python_skills()
+        assert 'my_service.get_v2' in list_tools()
         _registry.clear()
         _registry.update(saved)
 
@@ -325,7 +325,7 @@ class TestIntegrationFramework:
         monkeypatch.setattr(settings, 'marcel_zoo_dir', None)
 
         discover()
-        assert isinstance(list_python_skills(), list)
+        assert isinstance(list_tools(), list)
 
 
 class TestShellDispatch:
@@ -366,7 +366,7 @@ class TestPythonExecutor:
         saved = dict(_registry)
         monkeypatch.setattr('marcel_core.toolkit._registry', {})
 
-        @register('test.echo')
+        @marcel_tool('test.echo')
         async def echo_handler(params, user_slug):
             return f'echo: {params.get("msg", "")} for {user_slug}'
 
@@ -385,7 +385,7 @@ class TestRegistryMerge:
         saved = dict(_registry)
         _registry.clear()
 
-        @register('fake.handler')
+        @marcel_tool('fake.handler')
         async def handler(params, user_slug):
             return 'ok'
 
@@ -407,7 +407,7 @@ class TestRegistryMerge:
         saved = dict(_registry)
         _registry.clear()
 
-        @register('fake.handler')
+        @marcel_tool('fake.handler')
         async def handler(params, user_slug):
             return 'ok'
 

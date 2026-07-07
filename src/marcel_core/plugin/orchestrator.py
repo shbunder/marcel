@@ -68,4 +68,17 @@ def discover_all_habitats(zoo_dir: Path | None) -> dict[str, list[Habitat]]:
         result[kind_name] = discovered
         log.info('orchestrator: %s discovery → %d habitat(s)', kind_name, len(discovered))
 
+    # register(marcel) extensions (FEAT-260628-2cd78e F0). These coexist
+    # with the five per-kind loaders through the F0 → F1 migration; failures
+    # are isolated inside load_extensions. Not added to the returned dict —
+    # extensions register via side effects into the tool/channel registries
+    # and the extension registry, keeping the five-kind return contract.
+    try:
+        from marcel_core.plugin.extension import load_extensions
+
+        loaded = load_extensions(zoo_dir)
+        log.info('orchestrator: extensions → %d loaded', len(loaded))
+    except Exception:
+        log.exception('orchestrator: extension loading failed — isolating')
+
     return result

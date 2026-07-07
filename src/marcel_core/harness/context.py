@@ -6,9 +6,15 @@ import dataclasses
 import logging
 from pathlib import Path
 
-from pydantic import dataclasses as pydantic_dc
+from pydantic import ConfigDict, dataclasses as pydantic_dc
+
+from marcel_sdk.events import EventBus
 
 log = logging.getLogger(__name__)
+
+# TurnState carries an EventBus (a plain, non-pydantic class), so its
+# pydantic dataclass must permit arbitrary field types.
+_TURN_STATE_CONFIG = ConfigDict(arbitrary_types_allowed=True)
 
 # Path to bundled channel-type prompt files (kernel-owned; describe how
 # Marcel should format responses on each kernel-shipped channel — CLI,
@@ -17,7 +23,7 @@ log = logging.getLogger(__name__)
 _CHANNEL_PROMPTS_DIR = Path(__file__).resolve().parent.parent / 'channel_prompts'
 
 
-@pydantic_dc.dataclass
+@pydantic_dc.dataclass(config=_TURN_STATE_CONFIG)
 class TurnState:
     """Mutable state accumulated during a single agent turn.
 
@@ -26,6 +32,16 @@ class TurnState:
     Tools mutate fields on ``ctx.deps.turn`` (e.g. ``turn.read_skills``,
     ``turn.notified``); post-run code (like the job executor) reads them
     to decide what to do next.
+    """
+
+    event_bus: EventBus | None = None
+    """The turn's lifecycle event bus (:mod:`marcel_sdk.events`).
+
+    Set by :func:`~marcel_core.harness.runner.stream_turn` so the tool
+    interception layer (:class:`~marcel_core.harness.tool_bus.MarcelBusToolset`)
+    can reach it via ``ctx.deps.turn.event_bus``. ``None`` on turns that
+    do not wire a bus (e.g. the job executor / subagent paths pre-F5) —
+    the toolset passes tool calls straight through when it is ``None``.
     """
 
     read_skills: set[str] = dataclasses.field(default_factory=set)
