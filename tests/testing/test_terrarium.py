@@ -32,6 +32,7 @@ class TestSealedWorld:
 
         channels_before = dict(channels_mod._registry)
         handlers_before = list(extension_registry().handlers)
+        policy_before = core_handlers_mod._POLICY
         with Terrarium(tmp_path / 'world') as terrarium:
             terrarium.resolve_approvals('allow_once', channel='cli')
             assert 'cli' in channels_mod._registry
@@ -39,7 +40,7 @@ class TestSealedWorld:
             core_handlers_mod.command_policy()  # instantiate the per-world policy
         assert dict(channels_mod._registry) == channels_before
         assert list(extension_registry().handlers) == handlers_before
-        assert core_handlers_mod._POLICY is None or core_handlers_mod._POLICY is not None  # restored slot
+        assert core_handlers_mod._POLICY is policy_before  # restored slot
 
     def test_two_terrariums_never_share_state(self, tmp_path):
         with Terrarium(tmp_path / 'a') as first:
