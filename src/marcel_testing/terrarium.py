@@ -1,16 +1,18 @@
-"""The Terrarium — a sealed world for scenario-testing Marcel.
+"""The Terrarium — Marcel's binding of odile's sealed world.
 
-A terrarium isolates every stateful surface a turn touches, runs the
-**real** :func:`~marcel_core.harness.runner.stream_turn` against an odile
-model double, and records what happened:
+:class:`odile.Terrarium`/:class:`odile.Scenario`/:class:`odile.TurnResult`
+carry the generic sealed-world discipline (lifecycle, entered guard, fake
+APIs, script rules); this module implements their hooks for the Marcel
+kernel, so a scenario runs the **real**
+:func:`~marcel_core.harness.runner.stream_turn` and records what happened:
 
-- **State**: the storage data root is redirected to a temp dir; the zoo dir
-  is empty unless the scenario points one in. Two terrariums never share
-  state.
-- **Process globals**: the channel registry, extension registry, approval
-  registry, and command-policy singleton are snapshotted on entry and
-  restored on exit, so allow-always amendments or fake channels cannot leak
-  between tests.
+- **State** (``_seal``/``_restore``): the storage data root is redirected to
+  a temp dir; the zoo dir is empty unless the scenario points one in. Two
+  terrariums never share state.
+- **Process globals** (``_seal``/``_restore``): the channel registry,
+  extension registry, approval registry, and command-policy singleton are
+  snapshotted on entry and restored on exit, so allow-always amendments or
+  fake channels cannot leak between tests.
 - **Observation**: recorder handlers ride the extension registry onto each
   turn's event bus, so a :class:`TurnResult` carries the bus events next to
   the harness stream events. (Recorders run *after* the core handlers; a
@@ -19,8 +21,8 @@ model double, and records what happened:
 - **Approvals**: a fake channel plugin resolves ask-tier approval requests
   per the scenario's declared outcome — no human, no real waiting.
 - **Network**: outbound httpx traffic goes to declared fakes
-  (:meth:`Terrarium.fake_api`, odile's :class:`~odile.FakeWorld`) or raises.
-  Model traffic is blocked suite-wide by the pytest plugin.
+  (:meth:`odile.Terrarium.fake_api`) or raises. Model traffic is blocked
+  suite-wide by the pytest plugin.
 
 Use via the ``terrarium`` fixture (``marcel_testing.pytest_plugin``) or as
 a context manager around a data-root path.
@@ -33,11 +35,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from odile import FakeAPI, ScriptedModel
-from odile.fake_api import FakeWorld
-from odile.script import Step
+from odile.terrarium import Scenario as OdileScenario, Terrarium as OdileTerrarium, TurnResult as OdileTurnResult
 from pydantic_ai.models import Model
 
 if TYPE_CHECKING:
@@ -57,7 +57,7 @@ _EXPIRE_TIMEOUT_SECONDS = 0.05
 
 
 @dataclass
-class TurnResult:
+class TurnResult(OdileTurnResult):
     """Everything one scenario turn produced, for assertions.
 
     ``events`` are the harness stream events (``RunStarted`` …
@@ -65,7 +65,6 @@ class TurnResult:
     the turn's event bus, in emission order.
     """
 
-    reply: str
     events: list[MarcelEvent]
     bus_events: list[Event]
 
@@ -101,27 +100,24 @@ class TurnResult:
 
 
 @dataclass
-class Scenario:
-    """One user turn against a model double inside a terrarium."""
+class Scenario(OdileScenario[TurnResult]):
+    """One user turn against a model double inside a terrarium.
+
+    ``run()`` (inherited) accepts ``conversation_id='conv-1'`` and the
+    generic ``check_script=True``; the drive hook streams the turn through
+    the real harness.
+    """
 
     terrarium: Terrarium
-    model: Model
     user_slug: str
     channel: str
 
-    async def run(
-        self,
-        text: str,
-        *,
-        conversation_id: str = 'conv-1',
-        check_script: bool = True,
-    ) -> TurnResult:
-        """Send ``text`` through the real turn loop and collect the result.
-
-        With ``check_script`` (default), a :class:`~odile.ScriptedModel`
-        must have played its whole script by the end of the turn — leftover
-        steps are a failed expectation, not a pass.
-        """
+    async def _drive(self, text: str, *, conversation_id: str = 'conv-1', **turn_kwargs: Any) -> TurnResult:
+        """Send ``text`` through the real turn loop and collect the result."""
+        if turn_kwargs:
+            raise TypeError(
+                f'unknown run option(s): {", ".join(sorted(turn_kwargs))} — supported: conversation_id, check_script'
+            )
         from marcel_core.harness.runner import TextDelta, stream_turn
 
         self.terrarium._bus_recording.clear()
@@ -136,8 +132,6 @@ class Scenario:
             )
         ]
         reply = ''.join(e.text for e in events if isinstance(e, TextDelta))
-        if check_script and isinstance(self.model, ScriptedModel):
-            self.model.assert_done()
         return TurnResult(reply=reply, events=events, bus_events=list(self.terrarium._bus_recording))
 
 
@@ -186,8 +180,8 @@ class _ApprovalChannel:
         return True
 
 
-class Terrarium:
-    """The sealed world. See the module docstring for what it isolates.
+class Terrarium(OdileTerrarium[Scenario]):
+    """The sealed Marcel world. See the module docstring for what it seals.
 
     Usage as a fixture (preferred)::
 
@@ -198,16 +192,15 @@ class Terrarium:
     """
 
     def __init__(self, data_root: Path, *, zoo_dir: Path | None = None) -> None:
+        super().__init__()
         self.data_root = data_root
         self.zoo_dir = zoo_dir
-        self._world = FakeWorld()
         self._bus_recording: list[Event] = []
         self._saved: dict[str, object] = {}
-        self._entered = False
 
-    # -- lifecycle -----------------------------------------------------------
+    # -- lifecycle hooks (odile calls these on enter/exit) --------------------
 
-    def __enter__(self) -> Terrarium:
+    def _seal(self) -> None:
         import marcel_core.harness.approval as approval_mod
         import marcel_core.harness.core_handlers as core_handlers_mod
         import marcel_core.plugin.channels as channels_mod
@@ -258,10 +251,7 @@ class Terrarium:
             ):
                 extension_registry().handlers.append((event_cls.NAME, _record))
 
-        self._entered = True
-        return self
-
-    def __exit__(self, *exc_info: object) -> None:
+    def _restore(self) -> None:
         import marcel_core.harness.approval as approval_mod
         import marcel_core.harness.core_handlers as core_handlers_mod
         import marcel_core.plugin.channels as channels_mod
@@ -270,8 +260,6 @@ class Terrarium:
         from marcel_core.config import settings
         from marcel_core.plugin.extension import extension_registry
         from marcel_core.storage import _root
-
-        self._world.stop()
 
         toolkit_mod._registry.clear()
         toolkit_mod._registry.update(self._saved['toolkit_registry'])  # type: ignore[arg-type]
@@ -290,14 +278,6 @@ class Terrarium:
         settings.marcel_zoo_dir = cast('str | None', self._saved['marcel_zoo_dir'])
         settings.marcel_data_dir = cast('str | None', self._saved['marcel_data_dir'])
         _root._DATA_ROOT = self._saved['data_root']
-        self._entered = False
-
-    def _require_entered(self) -> None:
-        if not self._entered:
-            raise RuntimeError(
-                'this Terrarium is not active — use it as a context manager '
-                '(`with Terrarium(...) as t:`) or through the `terrarium` fixture.'
-            )
 
     # -- world building ------------------------------------------------------
 
@@ -344,15 +324,6 @@ class Terrarium:
                 ),
             )
 
-    def fake_api(self, base_url: str) -> FakeAPI:
-        """Declare a fake external API at ``base_url``.
-
-        Once any fake exists, unmatched outbound httpx traffic raises. See
-        :mod:`odile.fake_api` for ``.returns(...)`` / ``.mount(app)``.
-        """
-        self._require_entered()
-        return self._world.api(base_url)
-
     def resolve_approvals(self, policy: str, *, channel: str = 'cli') -> list[dict]:
         """Declare how ask-tier approval prompts on ``channel`` resolve.
 
@@ -372,25 +343,21 @@ class Terrarium:
         register_channel(plugin)  # type: ignore[arg-type]
         return plugin.requests
 
-    # -- running -------------------------------------------------------------
+    # -- running (scenario() itself is inherited from odile) ------------------
 
-    def scenario(
-        self,
-        *steps: Step,
-        model: Model | None = None,
-        user: str = 'alice',
-        channel: str = 'cli',
-    ) -> Scenario:
-        """Build a scenario from script ``steps`` (or an explicit ``model``).
+    def _build_scenario(self, model: Model, **context: Any) -> Scenario:
+        """Build Marcel's scenario: ``user`` (default ``'alice'``) and
+        ``channel`` (default ``'cli'``) are the supported context keys.
 
         The user is seeded (default role) if it does not exist yet, so the
         one-liner ``terrarium.scenario(reply('hi'))`` just works.
         """
-        self._require_entered()
-        if model is None:
-            model = ScriptedModel(*steps)
-        elif steps:
-            raise ValueError('pass either script steps or model=..., not both')
+        user = cast(str, context.pop('user', 'alice'))
+        channel = cast(str, context.pop('channel', 'cli'))
+        if context:
+            raise TypeError(
+                f'unknown scenario option(s): {", ".join(sorted(context))} — supported: model, user, channel'
+            )
         if not (self.data_root / 'users' / user).is_dir():
             self.user(user)
-        return Scenario(terrarium=self, model=model, user_slug=user, channel=channel)
+        return Scenario(model=model, terrarium=self, user_slug=user, channel=channel)

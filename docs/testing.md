@@ -7,11 +7,13 @@ The pieces that make that possible:
 
 - **[odile](https://github.com/shbunder/odile)** (*Orchestrated Doubles for
   Isolated LLM Exercises*, a sibling repo at `~/projects/odile`) provides the
-  generic parts: a **scripted model double**, in-process **fake APIs**, and a
-  suite-wide guard that makes real LLM calls impossible.
-- **`marcel_testing`** (in this repo, shipped in the wheel) provides the
-  **Terrarium** — a sealed Marcel world that runs the *real*
-  `stream_turn()` loop around the double.
+  generic parts: a **scripted model double**, in-process **fake APIs**, a
+  suite-wide guard that makes real LLM calls impossible, and the abstract
+  **sealed-world constructs** (`Terrarium` / `Scenario` / `TurnResult`).
+- **`marcel_testing`** (in this repo, shipped in the wheel) is Marcel's
+  **binding** of those constructs — a sealed Marcel world that runs the
+  *real* `stream_turn()` loop around the double. See
+  [the hook map](#the-terrarium-is-an-odile-binding) below.
 
 Both are dev-only: the production image never installs odile.
 
@@ -131,6 +133,27 @@ internals and terrarium scenarios for the park as production runs it — load
 the habitat through the kernel loader, fake its external APIs, and drive a
 full scripted turn. `toolkit/news/tests/test_news_scenarios.py` in marcel-zoo
 is the template.
+
+## The Terrarium is an odile binding
+
+Since odile 0.2.0, the sealed-world discipline — the enter/seal → exit/restore
+lifecycle, the entered guard, `fake_api()`, `scenario()`'s steps-vs-`model=`
+exclusivity, and `run()`'s drive-then-`assert_done()` template — lives in
+odile's abstract `Terrarium`/`Scenario`/`TurnResult` base classes, so any
+agent project can adopt the same testing system (the odile README documents
+the implementer's contract, with a toy binding in its test suite). Marcel's
+classes subclass them and implement the four hooks:
+
+| odile hook | What Marcel does in it |
+|---|---|
+| `Terrarium._seal()` | Redirects the storage data root and `settings.marcel_data_dir`/`marcel_zoo_dir` to the per-test temp dir; snapshots the channel, extension, toolkit, and approval registries plus the command-policy singleton; drops the skills-registry cache; installs the bus-event recorder. |
+| `Terrarium._restore()` | Puts every snapshot back exactly (odile has already stopped HTTP interception by this point). |
+| `Terrarium._build_scenario(model, **context)` | Reads Marcel's context vocabulary — `user` (default `'alice'`, seeded if missing) and `channel` (default `'cli'`) — and builds Marcel's `Scenario`. |
+| `Scenario._drive(text, conversation_id='conv-1')` | Streams the turn through the real `stream_turn()`, assembling `TurnResult` from the text deltas, harness events, and recorded bus events. |
+
+Everything Marcel-specific stays in `marcel_testing`: `user()`,
+`seed_history()`, `resolve_approvals()`, and the bus-event recording that
+backs `TurnResult.bus_events`.
 
 ## Coverage discipline
 

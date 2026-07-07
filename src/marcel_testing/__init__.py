@@ -2,12 +2,15 @@
 
 `odile <https://github.com/shbunder/odile>`_ (*Orchestrated Doubles for
 Isolated LLM Exercises*, a sibling repo) provides the generic pieces:
-:class:`~odile.ScriptedModel` doubles, in-process fake APIs, and the
-no-network pytest guard. This package is the **kernel-coupled glue** that
-seals a Marcel world around them — a *terrarium*: temporary data root,
-controlled zoo, snapshot/restore of the kernel's process globals, event-bus
-capture, and human-free approval resolution — so scenario tests drive the
-**real** :func:`~marcel_core.harness.runner.stream_turn` end to end.
+:class:`~odile.ScriptedModel` doubles, in-process fake APIs, the no-network
+pytest guard, and the abstract sealed-world constructs
+(:class:`odile.Terrarium` / :class:`odile.Scenario` /
+:class:`odile.TurnResult`). This package is the **kernel-coupled binding**
+of those constructs — a *terrarium* that seals a Marcel world around them:
+temporary data root, controlled zoo, snapshot/restore of the kernel's
+process globals, event-bus capture, and human-free approval resolution — so
+scenario tests drive the **real**
+:func:`~marcel_core.harness.runner.stream_turn` end to end.
 
 It lives in the kernel repo (and ships in the wheel, so zoo habitats and
 extension authors import the same harness) because it touches kernel
