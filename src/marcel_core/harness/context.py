@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pydantic import ConfigDict, dataclasses as pydantic_dc
 
+from marcel_core.harness.code_exec.session import CellSession
 from marcel_sdk.events import EventBus
 
 log = logging.getLogger(__name__)
@@ -69,6 +70,15 @@ class TurnState:
     agent-initiated delivery (``silent`` or ``on_failure``). Turns
     ``marcel(action="notify")`` into a suppression notice so the policy
     is the single source of truth for whether a job can reach the user.
+    """
+
+    cell_session: CellSession | None = None
+    """The turn's live ``code_exec`` notebook session, if one was opened.
+
+    Created lazily on the first ``code_exec`` call (:mod:`marcel_core.tools.code_exec`)
+    and reused across cells so the namespace persists within the turn. The
+    runner closes it at turn end (after ``agent_end``); the worker also dies
+    with the kernel, so a missed close cannot orphan a sandbox process.
     """
 
 

@@ -897,6 +897,15 @@ async def stream_turn(
     # agent_end — the turn's response is complete (observe-only in F0).
     await event_bus.emit(AgentEndEvent(response_text=assistant_text), event_ctx)
 
+    # Tear down the turn's code_exec notebook (F3): the sandboxed worker is
+    # per-turn, so close it now that the turn is done. Teardown must never break
+    # the turn — worst case the worker dies with the kernel.
+    if deps.turn.cell_session is not None:
+        try:
+            await deps.turn.cell_session.close()
+        except Exception:
+            log.exception('failed to close the code_exec session at turn end')
+
     if assistant_text:
         assistant_msg = HistoryMessage(
             role='assistant',

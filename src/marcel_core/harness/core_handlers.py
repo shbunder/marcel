@@ -37,7 +37,7 @@ import os
 import re
 
 from marcel_core.harness.approval import ApprovalOutcome, approval_registry
-from marcel_core.harness.command_policy import CommandPolicy, Verdict, default_policy
+from marcel_core.harness.command_policy import CommandPolicy, Verdict, command_arg, default_policy
 from marcel_sdk.events import EventBus, EventContext, ToolCallEvent
 
 log = logging.getLogger(__name__)
@@ -129,7 +129,7 @@ def command_policy() -> CommandPolicy:
 
 def _summarize(event: ToolCallEvent, decision) -> str:
     """A plain-language one-liner describing the action, for the approval prompt."""
-    command = str(event.args.get('command', '')).strip()
+    command = str(event.args.get(command_arg(event.tool_name), '')).strip()
     if command:
         preview = command if len(command) <= 200 else command[:200] + '…'
         return f'{event.tool_name}: {preview}'

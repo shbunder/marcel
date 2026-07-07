@@ -182,6 +182,19 @@ class Settings(BaseSettings):
     off (default-deny egress over the user's data)."""
 
     # ---------------------------------------------------------------------------
+    # code_exec co-work notebook (FEAT-260628-2cd78e F3)
+    # ---------------------------------------------------------------------------
+    marcel_code_exec_enabled: bool = True
+    """When True, admins get the `code_exec` tool — a per-turn sandboxed Python
+    notebook (persistent cells). It *requires* the sandbox (bubblewrap + user
+    namespaces); on a host without it, code_exec refuses rather than run
+    untrusted cells unconfined (unlike `bash`, which falls back)."""
+
+    marcel_code_exec_timeout_seconds: float = 30.0
+    """Per-cell wall-clock limit for `code_exec`. A cell that exceeds it is
+    terminated and its session closed."""
+
+    # ---------------------------------------------------------------------------
     # Observability / Tracing
     # ---------------------------------------------------------------------------
     marcel_tracing_enabled: bool = False

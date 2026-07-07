@@ -20,6 +20,7 @@ from marcel_core.jobs import tool as job_tools
 from marcel_core.tools import (
     charts as chart_tools,
     claude_code as claude_code_tool,
+    code_exec as code_exec_tool,
     core as core_tools,
     delegate as delegate_tool,
     marcel as marcel_tools,
@@ -133,7 +134,9 @@ _TOOL_REGISTRY: list[tuple[str, object, str | None]] = [
     ('git_push', core_tools.git_push, 'admin'),
     ('claude_code', claude_code_tool.claude_code, 'admin'),
     ('delegate', delegate_tool.delegate, 'admin'),
-    # Promote a proven script into a durable register(marcel) extension (F3).
+    # Co-work loop (F3): run cells in a sandboxed notebook, then promote a
+    # proven script into a durable register(marcel) extension.
+    ('code_exec', code_exec_tool.code_exec, 'admin'),
     ('promote_extension', promote_tools.promote_extension, 'admin'),
     # All-user tools
     ('generate_chart', chart_tools.generate_chart, None),

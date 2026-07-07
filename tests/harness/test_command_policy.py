@@ -73,9 +73,39 @@ def test_deny_beats_ask_when_both_could_match(policy):
     assert d.verdict is Verdict.DENY
 
 
-def test_code_exec_is_covered(policy):
-    d = policy.classify('code_exec', {'command': 'sudo rm -rf /'})
-    assert d.verdict in (Verdict.ASK, Verdict.DENY)
+def test_code_exec_is_not_shell_classified(policy):
+    # code_exec runs Python inside the sandbox, not shell — it is never
+    # shlex-tokenised (that would false-flag ordinary Python quoting as
+    # "malformed"). The sandbox is its containment, so it rides the default
+    # (allow); the dangerous-looking cell below is NOT auto-denied here.
+    d = policy.classify('code_exec', {'code': 'import os; os.system("rm -rf /")'})
+    assert d.verdict is Verdict.ALLOW
+    assert d.rule == 'default'
+
+
+def test_code_exec_gateable_by_custom_rule_on_code_arg(policy):
+    # An operator can still gate code_exec — via an explicit rule on its `code`
+    # arg (not by shell heuristics).
+    policy.add_rule(
+        Rule(
+            name='no-code-exec',
+            verdict=Verdict.DENY,
+            reason='code_exec disabled on this instance',
+            tools=frozenset({'code_exec'}),
+            arg='code',
+            pattern=re.compile(r'.'),
+        )
+    )
+    assert policy.classify('code_exec', {'code': 'print(1)'}).verdict is Verdict.DENY
+    # ...and the gate is scoped to code_exec; bash is unaffected.
+    assert policy.classify('bash', {'command': 'echo hi'}).verdict is Verdict.ALLOW
+
+
+def test_allow_always_uses_the_code_arg_for_code_exec(policy):
+    # allow-always on a code_exec approval keys off `code`, not `command`.
+    rule = policy.allow_always('code_exec', {'code': 'print(42)'})
+    assert rule.arg == 'code'
+    assert policy.classify('code_exec', {'code': 'print(42)'}).verdict is Verdict.ALLOW
 
 
 def test_non_command_tool_falls_through(policy):

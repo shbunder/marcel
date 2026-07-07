@@ -80,6 +80,17 @@ class Rule:
 
 _COMMAND_TOOLS = frozenset({'bash', 'code_exec'})
 
+# The argument each command tool carries its payload in. ``bash`` takes a shell
+# ``command``; ``code_exec`` takes a Python ``code`` cell. Used so custom rules,
+# allow-always, and approval previews target the right field per tool.
+_COMMAND_ARG = {'bash': 'command', 'code_exec': 'code'}
+
+
+def command_arg(tool_name: str) -> str:
+    """Return the payload arg name for a command tool (default ``'command'``)."""
+    return _COMMAND_ARG.get(tool_name, 'command')
+
+
 # The self-modification boundary — checked against each token *and* the raw
 # command, so quote-splitting cannot hide it (``restart_requested".prod"`` →
 # token ``restart_requested.prod``). Direct writes under ``.git/`` are a hook
@@ -246,7 +257,13 @@ class CommandPolicy:
             if rule.matches(tool_name, args):
                 return PolicyDecision(rule.verdict, rule.reason, rule.name)
 
-        if tool_name in _COMMAND_TOOLS:
+        # Shell classification is for an actual shell command. ``code_exec``
+        # runs Python inside the sandbox — shlex-tokenising a cell is meaningless
+        # (ordinary Python quoting would false-flag as "malformed"), and the
+        # sandbox is its containment. So only ``bash`` is token-classified;
+        # ``code_exec`` rides the default (allow) unless an operator adds a rule
+        # on its ``code`` arg.
+        if tool_name == 'bash':
             command = str(args.get('command', '') or '')
             if command:
                 decision = _classify_command(command)
@@ -255,14 +272,17 @@ class CommandPolicy:
 
         return PolicyDecision(self._default, 'no policy rule matched', 'default')
 
-    def allow_always(self, tool_name: str, args: dict, arg: str = 'command') -> Rule:
+    def allow_always(self, tool_name: str, args: dict, arg: str | None = None) -> Rule:
         """Amend the policy to always allow this exact action, and return the rule.
 
         Prepends an ``allow`` rule matching the exact ``args[arg]`` string
         (``re.escape``\\d, ``^…$``-anchored — no widening) so it wins over the
         built-in ``ask``/``deny`` classification. Returns the new rule so the
-        caller can persist it for audit.
+        caller can persist it for audit. ``arg`` defaults to the tool's payload
+        field (``command`` for bash, ``code`` for code_exec).
         """
+        if arg is None:
+            arg = command_arg(tool_name)
         value = str(args.get(arg, '') or '')
         rule = Rule(
             name=f'allow-always:{tool_name}:{value[:60]}',
