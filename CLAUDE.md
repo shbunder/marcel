@@ -10,7 +10,7 @@ Marcel is a self-adapting personal agent built on Claude Code — it can observe
 make serve          # dev container (Docker, uvicorn --reload on :7421, separate from prod :7420)
 make serve-logs     # tail the dev container logs
 make serve-down     # stop the dev container
-make check          # format + lint + typecheck + tests with 90% coverage (also runs as pre-commit hook)
+make check          # format + lint + typecheck + tests with 95% coverage (also runs as pre-commit hook)
 make test           # tests only
 make cli-dev        # build + run the Rust CLI in debug mode
 make docker-logs    # tail the prod container logs
