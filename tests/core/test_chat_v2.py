@@ -3,11 +3,29 @@
 import asyncio
 import json
 
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
+from marcel_core.channels.websocket import WebSocketAdapter
 from marcel_core.harness.runner import RunFinished, RunStarted, TextDelta, ToolCallCompleted, ToolCallStarted
 from marcel_core.main import app
+from marcel_core.rate_limit import _reset_ws_bucket_for_tests
 from marcel_core.storage import _root
+
+
+@pytest.fixture(autouse=True)
+def _fresh_ws_bucket():
+    """Every test starts with a full rate-limit bucket.
+
+    The bucket is a process-wide singleton keyed by user slug; without a
+    reset, enough websocket tests in one session drain the 'shaun' key and a
+    later turn gets an 'error: rate limit' frame instead of 'done' — which a
+    receive-until-done loop waits on forever (order-dependent hang).
+    """
+    _reset_ws_bucket_for_tests()
+    yield
+    _reset_ws_bucket_for_tests()
 
 
 def _mock_stream(monkeypatch, tokens: list[str], cost: float | None = None):
@@ -135,7 +153,7 @@ class TestChatWebSocket:
         async def boom(*args, **kwargs):
             yield RunStarted(conversation_id='x')
             raise RuntimeError('kaboom')
-            yield TextDelta(text='unreachable')  # noqa: unreachable
+            yield TextDelta(text='unreachable')  # intentionally unreachable — the raise above ends the stream
 
         monkeypatch.setattr('marcel_core.api.chat.stream_turn', boom)
         monkeypatch.setattr('marcel_core.api.chat.extract_and_save_memories', lambda *a, **k: asyncio.sleep(0))
@@ -250,3 +268,173 @@ class TestChatSlashPrefixes:
         assert plan.tier is Tier.FAST
         assert plan.source is TierSource.USER_PREFIX
         assert plan.cleaned_text == 'hello'
+
+
+# ---------------------------------------------------------------------------
+# Telegram initData authentication
+# ---------------------------------------------------------------------------
+
+
+class _LinkedTelegramChannel:
+    def resolve_user_slug(self, external_id: str) -> str | None:
+        return 'alice' if external_id == '42' else None
+
+
+class TestChatTelegramAuth:
+    def test_invalid_init_data_closes_connection(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr('marcel_core.api.chat.verify_telegram_init_data', lambda _: None)
+        _mock_stream(monkeypatch, ['hi'])
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text(json.dumps({'text': 'hi', 'initData': 'tampered-blob'}))
+            msg = json.loads(ws.receive_text())
+            assert msg['type'] == 'error'
+            assert 'telegram' in msg['message'].lower()
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                ws.receive_text()
+            assert exc_info.value.code == 4001
+
+    def test_unlinked_telegram_user_closes_connection(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr('marcel_core.api.chat.verify_telegram_init_data', lambda _: {'id': 999})
+        monkeypatch.setattr('marcel_core.api.chat.get_channel', lambda name: None)
+        _mock_stream(monkeypatch, ['hi'])
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text(json.dumps({'text': 'hi', 'initData': 'valid-but-unlinked'}))
+            msg = json.loads(ws.receive_text())
+            assert msg['type'] == 'error'
+            assert 'not linked' in msg['message'].lower()
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                ws.receive_text()
+            assert exc_info.value.code == 4001
+
+    def test_linked_telegram_user_forces_slug(self, tmp_path, monkeypatch):
+        """The slug resolved from initData wins over any client-supplied 'user' field."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr('marcel_core.api.chat.verify_telegram_init_data', lambda _: {'id': 42})
+        monkeypatch.setattr('marcel_core.api.chat.get_channel', lambda name: _LinkedTelegramChannel())
+        monkeypatch.setattr('marcel_core.api.chat.extract_and_save_memories', lambda *a, **k: asyncio.sleep(0))
+
+        captured: dict = {}
+
+        async def fake_stream(user_slug, channel, user_text, conversation_id, **kwargs):
+            captured['user_slug'] = user_slug
+            yield RunStarted(conversation_id=conversation_id)
+            yield TextDelta(text='ok')
+            yield RunFinished()
+
+        monkeypatch.setattr('marcel_core.api.chat.stream_turn', fake_stream)
+
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text(json.dumps({'text': 'hi', 'initData': 'valid', 'user': 'mallory', 'conversation': None}))
+            while True:
+                msg = json.loads(ws.receive_text())
+                assert msg['type'] != 'error'
+                if msg['type'] == 'done':
+                    break
+
+        assert captured['user_slug'] == 'alice'
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
+
+
+class TestChatRateLimit:
+    def test_over_limit_message_rejected_but_connection_survives(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        _mock_stream(monkeypatch, ['ok'])
+
+        class _FlakyBucket:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def allow(self, key: str) -> bool:
+                self.calls += 1
+                return self.calls > 1  # first message over limit, then recovers
+
+        bucket = _FlakyBucket()
+        monkeypatch.setattr('marcel_core.api.chat.get_ws_bucket', lambda: bucket)
+
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text(json.dumps({'text': 'hi', 'user': 'shaun', 'conversation': None}))
+            msg = json.loads(ws.receive_text())
+            assert msg['type'] == 'error'
+            assert 'rate limit' in msg['message'].lower()
+
+            # The connection stays open — the next message goes through.
+            ws.send_text(json.dumps({'text': 'hi again', 'user': 'shaun', 'conversation': None}))
+            started = json.loads(ws.receive_text())
+            assert started['type'] == 'started'
+
+
+# ---------------------------------------------------------------------------
+# Connection resilience
+# ---------------------------------------------------------------------------
+
+
+class TestChatResilience:
+    def test_second_turn_skips_reauthentication(self, tmp_path, monkeypatch):
+        """One connection, two turns — auth happens once, both turns stream."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        _mock_stream(monkeypatch, ['ok'])
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            for text in ('first turn', 'second turn'):
+                ws.send_text(json.dumps({'text': text, 'user': 'shaun', 'conversation': None}))
+                types = []
+                while True:
+                    msg = json.loads(ws.receive_text())
+                    types.append(msg['type'])
+                    if msg['type'] == 'done':
+                        break
+                assert 'error' not in types
+                assert 'token' in types
+
+    def test_error_frame_send_failure_swallowed(self, tmp_path, monkeypatch):
+        """When the turn fails AND the error frame can't be sent, the connection survives."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr('marcel_core.api.chat.extract_and_save_memories', lambda *a, **k: asyncio.sleep(0))
+
+        class _BrokenErrorAdapter(WebSocketAdapter):
+            async def send_error(self, message: str) -> None:
+                raise RuntimeError('error sink broken')
+
+        monkeypatch.setattr('marcel_core.api.chat.WebSocketAdapter', _BrokenErrorAdapter)
+
+        calls = {'n': 0}
+
+        async def flaky_stream(*args, **kwargs):
+            calls['n'] += 1
+            yield RunStarted(conversation_id='c')
+            if calls['n'] == 1:
+                raise RuntimeError('boom')
+            yield TextDelta(text='recovered')
+            yield RunFinished()
+
+        monkeypatch.setattr('marcel_core.api.chat.stream_turn', flaky_stream)
+
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text(json.dumps({'text': 'hi', 'user': 'shaun', 'conversation': None}))
+            started = json.loads(ws.receive_text())
+            assert started['type'] == 'started'
+
+            # First turn died and its error frame could not be sent; the loop
+            # continues — a second turn on the same connection still works.
+            ws.send_text(json.dumps({'text': 'again', 'user': 'shaun', 'conversation': 'cli-default'}))
+            types = []
+            while True:
+                msg = json.loads(ws.receive_text())
+                types.append(msg['type'])
+                if msg['type'] == 'done':
+                    break
+            assert 'error' not in types
+            assert 'token' in types
+
+    def test_non_json_payload_closes_connection(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        _mock_stream(monkeypatch, ['ok'])
+        with TestClient(app).websocket_connect('/ws/chat') as ws:
+            ws.send_text('this is not json')
+            with pytest.raises(WebSocketDisconnect):
+                ws.receive_text()

@@ -189,7 +189,10 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 90
+# Ratchet (FEAT-260706-8d6824): 90 → 95 with the terrarium scenario suites;
+# the gate only ever rises. Named per-module ratchet stories track the
+# remaining gap to 100.
+fail_under = 95
 
 [tool.pyright]
 pythonVersion = "3.12"

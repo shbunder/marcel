@@ -419,3 +419,235 @@ class TestLegacyMigration:
         jobs = list_all_jobs()
         owners = {tuple(j.users) for j in jobs}
         assert owners == {('alice',), ('bob',)}
+
+    def test_migration_skips_stray_files_and_unreadable_jobs(self, tmp_path):
+        """Stray files, dirs without job.json, corrupt JSON, and invalid schemas
+        are all skipped without aborting the rest of the migration."""
+        from marcel_core.jobs import list_all_jobs, migrate_legacy_jobs
+
+        users = tmp_path / 'users'
+        users.mkdir(parents=True, exist_ok=True)
+        (users / 'README.txt').write_text('not a user dir', encoding='utf-8')
+
+        jobs_dir = users / 'alice' / 'jobs'
+        jobs_dir.mkdir(parents=True)
+        (jobs_dir / 'notes.txt').write_text('not a job dir', encoding='utf-8')
+        (jobs_dir / 'empty-dir').mkdir()
+        bad_json = jobs_dir / 'bad-json'
+        bad_json.mkdir()
+        (bad_json / 'job.json').write_text('{nope', encoding='utf-8')
+        bad_schema = jobs_dir / 'bad-schema'
+        bad_schema.mkdir()
+        (bad_schema / 'job.json').write_text(json.dumps({'name': 'no trigger'}), encoding='utf-8')
+
+        self._write_legacy(tmp_path, 'alice', 'good1')
+
+        # Only the well-formed legacy job migrates; the rest are skipped.
+        assert migrate_legacy_jobs() == 1
+        jobs = list_all_jobs()
+        assert [j.id for j in jobs] == ['good1']
+        # The whole legacy tree is removed regardless of the skipped entries.
+        assert not (tmp_path / 'users' / 'alice' / 'jobs').exists()
+
+    def test_migration_drops_user_slug_when_users_already_present(self, tmp_path):
+        """A legacy record carrying both ``users`` and ``user_slug`` keeps the
+        explicit ``users`` list and silently drops the legacy key."""
+        from marcel_core.jobs import load_job, migrate_legacy_jobs
+
+        self._write_legacy(tmp_path, 'alice', 'dual', users=['alice', 'bob'])
+
+        assert migrate_legacy_jobs() == 1
+        job = load_job('dual')
+        assert job is not None
+        assert job.users == ['alice', 'bob']
+
+    def test_migration_tolerates_missing_target_dir_for_runs(self, tmp_path, monkeypatch):
+        """If the migrated job's directory cannot be located after save (e.g.
+        removed between save and lookup), the runs move is skipped instead of
+        crashing the migration."""
+        import marcel_core.jobs as jobs_module
+
+        legacy_dir = self._write_legacy(tmp_path, 'alice', 'runsy')
+        run = JobRun(job_id='runsy', status=RunStatus.COMPLETED, output='old-run')
+        (legacy_dir / 'runs.jsonl').write_text(run.model_dump_json() + '\n', encoding='utf-8')
+
+        monkeypatch.setattr(jobs_module, '_find_job_dir_by_id', lambda job_id: None)
+
+        assert jobs_module.migrate_legacy_jobs() == 1
+        # No runs file was created anywhere — the move was skipped.
+        assert not list((tmp_path / 'jobs').rglob('*.jsonl'))
+
+
+# ---------------------------------------------------------------------------
+# Parsing helpers and defensive paths
+# ---------------------------------------------------------------------------
+
+
+class TestParsingHelpers:
+    def test_read_frontmatter_only_unreadable_path(self, tmp_path):
+        from marcel_core.jobs import _read_frontmatter_only
+
+        assert _read_frontmatter_only(tmp_path / 'does-not-exist.md') is None
+
+    def test_parse_frontmatter_without_marker(self):
+        from marcel_core.jobs import _parse_frontmatter
+
+        fm, body = _parse_frontmatter('plain text, no frontmatter')
+        assert fm == {}
+        assert body == 'plain text, no frontmatter'
+
+    def test_parse_frontmatter_unterminated(self):
+        from marcel_core.jobs import _parse_frontmatter
+
+        text = '---\nid: x\nnever closed'
+        fm, body = _parse_frontmatter(text)
+        assert fm == {}
+        assert body == text
+
+    def test_parse_frontmatter_invalid_yaml(self):
+        from marcel_core.jobs import _parse_frontmatter
+
+        fm, body = _parse_frontmatter('---\n[unclosed\n---\nbody text')
+        assert fm == {}
+        assert body == 'body text'
+
+    def test_parse_body_task_before_system_prompt(self):
+        """Section order is not fixed — ## Task may come first in a hand-edited JOB.md."""
+        from marcel_core.jobs import _parse_body
+
+        body = '## Task\n\ndo the thing\n\n## System Prompt\n\nyou are a robot\n'
+        system_prompt, task = _parse_body(body)
+        assert system_prompt == 'you are a robot'
+        assert task == 'do the thing'
+
+
+class TestDefensivePaths:
+    def test_helpers_tolerate_missing_jobs_root(self, tmp_path, monkeypatch):
+        """If the jobs root vanishes between creation and scan, lookups degrade
+        to empty results instead of crashing."""
+        import marcel_core.jobs as jobs_module
+
+        monkeypatch.setattr(jobs_module, '_jobs_root', lambda: tmp_path / 'never-created')
+        assert jobs_module._find_job_dir_by_id('whatever') is None
+        assert jobs_module.list_all_jobs() == []
+
+    def test_stray_entries_in_jobs_root_are_skipped(self):
+        """Files, underscore-prefixed dirs, and dirs without a JOB.md never
+        surface as jobs — neither in list_all_jobs nor in id lookups."""
+        from marcel_core.jobs import _jobs_root, list_all_jobs, load_job, save_job
+
+        root = _jobs_root()
+        (root / 'no-job-md').mkdir()
+        (root / '_private').mkdir()
+        (root / 'stray.txt').write_text('x', encoding='utf-8')
+
+        job = _make_job()
+        save_job(job)
+
+        assert [j.id for j in list_all_jobs()] == [job.id]
+        assert load_job('no-such-id') is None
+
+
+# ---------------------------------------------------------------------------
+# state.json edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestStateJson:
+    def test_missing_state_json_loads_defaults(self):
+        from marcel_core.jobs import load_job, save_job
+
+        job = _make_job(consecutive_errors=4)
+        d = save_job(job)
+        (d / 'state.json').unlink()
+
+        loaded = load_job(job.id)
+        assert loaded is not None
+        assert loaded.consecutive_errors == 0  # state slice fell back to defaults
+
+    def test_non_dict_state_json_ignored(self):
+        from marcel_core.jobs import load_job, save_job
+
+        job = _make_job()
+        d = save_job(job)
+        (d / 'state.json').write_text('[1, 2, 3]', encoding='utf-8')
+
+        loaded = load_job(job.id)
+        assert loaded is not None
+        assert loaded.consecutive_errors == 0
+
+    def test_corrupt_state_json_warns_and_loads(self, caplog):
+        from marcel_core.jobs import load_job, save_job
+
+        job = _make_job()
+        d = save_job(job)
+        (d / 'state.json').write_text('not json at all', encoding='utf-8')
+
+        with caplog.at_level('WARNING', logger='marcel_core.jobs'):
+            loaded = load_job(job.id)
+        assert loaded is not None
+        assert 'Failed to read state.json' in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Run log / cleanup edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestRunLogEdgeCases:
+    def test_blank_lines_in_run_log_skipped(self):
+        from marcel_core.jobs import _find_job_dir_by_id, append_run, read_runs, save_job
+
+        job = _make_job()
+        save_job(job)
+        append_run(job.id, 'alice', JobRun(job_id=job.id, status=RunStatus.COMPLETED, output='real'))
+
+        d = _find_job_dir_by_id(job.id)
+        assert d is not None
+        with (d / 'runs' / 'alice.jsonl').open('a', encoding='utf-8') as f:
+            f.write('\n\n')
+
+        runs = read_runs(job.id, 'alice')
+        assert len(runs) == 1
+        assert runs[0].output == 'real'
+
+    def test_cleanup_nonexistent_job_returns_zero(self):
+        from marcel_core.jobs import cleanup_old_runs
+
+        assert cleanup_old_runs('ghost-job', 7) == 0
+
+    def test_cleanup_keeps_blank_and_malformed_lines_out_of_removed_count(self):
+        """Blank lines are dropped silently; malformed lines are kept (never
+        deleted as 'old') so no data is lost to a parse bug."""
+        from marcel_core.jobs import _find_job_dir_by_id, cleanup_old_runs, save_job
+
+        job = _make_job()
+        save_job(job)
+        d = _find_job_dir_by_id(job.id)
+        assert d is not None
+        (d / 'runs').mkdir(exist_ok=True)
+
+        old = JobRun(
+            job_id=job.id,
+            status=RunStatus.COMPLETED,
+            started_at=datetime.now(UTC) - timedelta(days=30),
+            finished_at=datetime.now(UTC) - timedelta(days=30),
+            output='ancient',
+        )
+        recent = JobRun(
+            job_id=job.id,
+            status=RunStatus.COMPLETED,
+            started_at=datetime.now(UTC),
+            finished_at=datetime.now(UTC),
+            output='fresh',
+        )
+        lines = [old.model_dump_json(), '', 'this is not json', recent.model_dump_json()]
+        (d / 'runs' / 'alice.jsonl').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+        removed = cleanup_old_runs(job.id, 7)
+        assert removed == 1
+
+        remaining = (d / 'runs' / 'alice.jsonl').read_text(encoding='utf-8')
+        assert 'this is not json' in remaining  # malformed kept, not lost
+        assert 'fresh' in remaining
+        assert 'ancient' not in remaining

@@ -160,3 +160,13 @@ async def chat(websocket: WebSocket) -> None:
         log.info('chat: websocket disconnected')
     except BaseException as exc:
         log.exception('chat: unexpected error (%s) — websocket will close', type(exc).__name__)
+        # Make the documented close real. Returning here lets Starlette's
+        # implicit close fire, but that frame never reaches a client already
+        # blocked on ``receive`` — it hangs instead of learning the turn died
+        # (e.g. a malformed, non-JSON payload raises ``JSONDecodeError`` above).
+        # An explicit close delivers the disconnect. Best-effort: the socket
+        # may already be closing, in which case a second close is a no-op.
+        try:
+            await websocket.close(code=1011, reason='Internal error')
+        except Exception:
+            log.debug('chat: websocket already closing during error teardown', exc_info=True)

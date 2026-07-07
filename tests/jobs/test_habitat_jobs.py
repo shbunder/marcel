@@ -367,6 +367,26 @@ class TestEnsureHabitatJobs:
         assert job.trigger.cron == '0 3 * * *'
         assert job.notify == NotifyPolicy.SILENT
 
+    def test_interval_spec_creates_interval_trigger(self, isolated_registry):
+        """A spec with ``interval_seconds`` (no cron) materializes as an
+        INTERVAL-triggered job."""
+        from marcel_core.jobs import list_all_jobs
+        from marcel_core.jobs.models import TriggerType
+        from marcel_core.jobs.scheduler import _ensure_habitat_jobs
+
+        _metadata['syncer'] = ToolkitMetadata(
+            name='syncer',
+            provides=['syncer.run'],
+            scheduled_jobs=[ScheduledJobSpec(name='often', handler='syncer.run', interval_seconds=600)],
+        )
+
+        _ensure_habitat_jobs()
+
+        job = list_all_jobs()[0]
+        assert job.trigger.type == TriggerType.INTERVAL
+        assert job.trigger.interval_seconds == 600
+        assert job.trigger.cron is None
+
     def test_default_task_includes_handler_and_params(self, isolated_registry):
         from marcel_core.jobs import list_all_jobs
         from marcel_core.jobs.scheduler import _ensure_habitat_jobs

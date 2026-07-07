@@ -54,9 +54,9 @@ test-core: ## Run core package tests
 	uv run pytest tests/core/ -x -v
 
 .PHONY: test-cov
-test-cov: ## Run tests with coverage report (fails below 90%; marcel_testing must be 100%)
+test-cov: ## Run tests with coverage report (fails below 95%; marcel_testing must be 100%)
 	echo -e "$(INFO) Running all tests with coverage..."
-	uv run pytest tests/ --cov=src/marcel_core --cov=src/marcel_sdk --cov=src/marcel_testing --cov-report=term-missing --cov-fail-under=90
+	uv run pytest tests/ --cov=src/marcel_core --cov=src/marcel_sdk --cov=src/marcel_testing --cov-report=term-missing --cov-fail-under=95
 	echo -e "$(INFO) Checking marcel_testing (the test harness itself) is fully covered..."
 	uv run coverage report --include='src/marcel_testing/*' --fail-under=100 > /dev/null || \
 		(echo -e "$(WARNING) marcel_testing must stay at 100% coverage — the harness cannot be the untested part" && \

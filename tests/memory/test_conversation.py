@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+from marcel_core.memory import conversation as conversation_module
 from marcel_core.memory.conversation import (
     ChannelMeta,
     SegmentSummary,
@@ -15,6 +16,8 @@ from marcel_core.memory.conversation import (
     has_active_content,
     is_idle,
     list_channels,
+    list_summaries,
+    load_channel_meta,
     load_latest_summary,
     load_summary,
     read_active_segment,
@@ -24,7 +27,20 @@ from marcel_core.memory.conversation import (
     search_conversations,
     strip_tool_results_from_segment,
 )
-from marcel_core.memory.history import HistoryMessage
+from marcel_core.memory.history import HistoryMessage, MessageRole
+
+
+def _msg(role: MessageRole = 'user', text: str = 'Hello', minute: int = 0) -> HistoryMessage:
+    return HistoryMessage(
+        role=role,
+        text=text,
+        timestamp=datetime(2026, 4, 10, 12, minute, tzinfo=timezone.utc),
+        conversation_id='conv-1',
+    )
+
+
+def _segment_file(root: Path, channel: str = 'telegram', segment: str = 'seg-0001') -> Path:
+    return root / 'users' / 'shaun' / 'conversation' / channel / 'segments' / f'{segment}.jsonl'
 
 
 @pytest.fixture
@@ -394,3 +410,270 @@ class TestListChannels:
         assert len(channels) == 2
         assert channels[0].channel == 'telegram'  # most recent
         assert channels[1].channel == 'cli'
+
+
+# ---------------------------------------------------------------------------
+# SegmentSummary parsing edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestSegmentSummaryParsingEdgeCases:
+    def test_missing_frontmatter_raises(self):
+        with pytest.raises(ValueError, match='frontmatter'):
+            SegmentSummary.from_markdown('Just a plain summary with no frontmatter.')
+
+    def test_frontmatter_line_without_colon_ignored(self):
+        md = (
+            '---\n'
+            'segment_id: seg-0001\n'
+            'created_at: 2026-04-10T13:00:00+00:00\n'
+            'trigger: idle\n'
+            'message_count: 5\n'
+            'time_span_from: 2026-04-10T10:00:00+00:00\n'
+            'time_span_to: 2026-04-10T12:00:00+00:00\n'
+            'a stray line with no separator\n'
+            '---\n'
+            '\n'
+            'Talked about groceries.\n'
+        )
+        parsed = SegmentSummary.from_markdown(md)
+        assert parsed.segment_id == 'seg-0001'
+        assert parsed.summary == 'Talked about groceries.'
+
+    def test_blank_line_inside_key_facts_section_skipped(self):
+        md = (
+            '---\n'
+            'segment_id: seg-0002\n'
+            'created_at: 2026-04-10T13:00:00+00:00\n'
+            'trigger: manual\n'
+            'message_count: 3\n'
+            'time_span_from: 2026-04-10T10:00:00+00:00\n'
+            'time_span_to: 2026-04-10T12:00:00+00:00\n'
+            '---\n'
+            '\n'
+            'Planned the week.\n'
+            '\n'
+            '## Key Facts\n'
+            '\n'
+            '- Dentist on Monday\n'
+        )
+        parsed = SegmentSummary.from_markdown(md)
+        assert parsed.key_facts == ['Dentist on Monday']
+        assert 'Dentist' not in parsed.summary
+
+
+# ---------------------------------------------------------------------------
+# Channel metadata edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestChannelMetaEdgeCases:
+    def test_corrupt_meta_file_returns_none(self, temp_data_root):
+        ensure_channel('shaun', 'telegram')
+        meta_path = temp_data_root / 'users' / 'shaun' / 'conversation' / 'telegram' / 'channel.meta.json'
+        meta_path.write_text('{this is not valid json', encoding='utf-8')
+        assert load_channel_meta('shaun', 'telegram') is None
+
+    def test_stray_file_in_conversation_root_ignored(self, temp_data_root):
+        ensure_channel('shaun', 'telegram')
+        (temp_data_root / 'users' / 'shaun' / 'conversation' / 'notes.txt').write_text('scratch', encoding='utf-8')
+        channels = list_channels('shaun')
+        assert [c.channel for c in channels] == ['telegram']
+
+    def test_channel_dir_without_meta_skipped(self, temp_data_root):
+        ensure_channel('shaun', 'telegram')
+        (temp_data_root / 'users' / 'shaun' / 'conversation' / 'ghost').mkdir()
+        channels = list_channels('shaun')
+        assert [c.channel for c in channels] == ['telegram']
+
+
+# ---------------------------------------------------------------------------
+# Segment read edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestReadSegmentEdgeCases:
+    def test_missing_segment_returns_empty(self, temp_data_root):
+        ensure_channel('shaun', 'telegram')
+        assert read_segment('shaun', 'telegram', 'seg-0099') == []
+
+    def test_blank_and_corrupt_lines_skipped(self, temp_data_root):
+        append_to_segment('shaun', 'telegram', _msg(text='Real message'))
+        seg = _segment_file(temp_data_root)
+        with open(seg, 'a', encoding='utf-8') as f:
+            f.write('\n')
+            f.write('{broken json line\n')
+        messages = read_segment('shaun', 'telegram', 'seg-0001')
+        assert len(messages) == 1
+        assert messages[0].text == 'Real message'
+
+
+# ---------------------------------------------------------------------------
+# Segment rotation
+# ---------------------------------------------------------------------------
+
+
+class TestSegmentRotation:
+    def test_rotates_when_message_count_exceeded(self, temp_data_root, monkeypatch):
+        monkeypatch.setattr(conversation_module, 'MAX_SEGMENT_MESSAGES', 2)
+        meta = None
+        for i in range(3):
+            meta = append_to_segment('shaun', 'telegram', _msg(text=f'Message number {i}', minute=i))
+        assert meta is not None
+        assert meta.active_segment == 'seg-0002'
+        assert meta.next_segment_num == 3
+        assert len(read_segment('shaun', 'telegram', 'seg-0001')) == 2
+        assert len(read_active_segment('shaun', 'telegram')) == 1
+
+    def test_rotates_when_byte_size_exceeded(self, temp_data_root, monkeypatch):
+        monkeypatch.setattr(conversation_module, 'MAX_SEGMENT_BYTES', 1)
+        append_to_segment('shaun', 'telegram', _msg(text='First message'))
+        meta = append_to_segment('shaun', 'telegram', _msg(text='Second message', minute=1))
+        assert meta.active_segment == 'seg-0002'
+        assert len(read_segment('shaun', 'telegram', 'seg-0001')) == 1
+        assert len(read_segment('shaun', 'telegram', 'seg-0002')) == 1
+
+    def test_append_recreates_deleted_segment_file(self, temp_data_root):
+        ensure_channel('shaun', 'telegram')
+        _segment_file(temp_data_root).unlink()
+        meta = append_to_segment('shaun', 'telegram', _msg(text='After deletion'))
+        assert meta.active_segment == 'seg-0001'  # no rotation
+        messages = read_active_segment('shaun', 'telegram')
+        assert [m.text for m in messages] == ['After deletion']
+
+
+# ---------------------------------------------------------------------------
+# strip_tool_results edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestStripToolResultsEdgeCases:
+    def test_missing_segment_returns_zero(self, temp_data_root):
+        assert strip_tool_results_from_segment('shaun', 'telegram', 'seg-0042') == 0
+
+    def test_segment_without_tool_messages_untouched(self, temp_data_root):
+        append_to_segment('shaun', 'telegram', _msg(role='user', text='Hi Marcel'))
+        append_to_segment('shaun', 'telegram', _msg(role='assistant', text='Hi Shaun', minute=1))
+        before = _segment_file(temp_data_root).read_text(encoding='utf-8')
+        assert strip_tool_results_from_segment('shaun', 'telegram', 'seg-0001') == 0
+        assert _segment_file(temp_data_root).read_text(encoding='utf-8') == before
+
+
+# ---------------------------------------------------------------------------
+# Summary loading edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestSummaryLoadingEdgeCases:
+    def _summaries_dir(self, root: Path) -> Path:
+        return root / 'users' / 'shaun' / 'conversation' / 'telegram' / 'summaries'
+
+    def _valid_summary(self, segment_id: str) -> SegmentSummary:
+        return SegmentSummary(
+            segment_id=segment_id,
+            created_at=datetime(2026, 4, 10, 13, 0, tzinfo=timezone.utc),
+            trigger='idle',
+            message_count=4,
+            time_span_from=datetime(2026, 4, 10, 10, 0, tzinfo=timezone.utc),
+            time_span_to=datetime(2026, 4, 10, 12, 0, tzinfo=timezone.utc),
+            summary=f'Summary for {segment_id}',
+        )
+
+    def test_load_summary_missing_returns_none(self, temp_data_root):
+        ensure_channel('shaun', 'telegram')
+        assert load_summary('shaun', 'telegram', 'seg-0001') is None
+
+    def test_load_summary_corrupt_returns_none(self, temp_data_root):
+        ensure_channel('shaun', 'telegram')
+        corrupt = self._summaries_dir(temp_data_root) / 'seg-0001.summary.md'
+        corrupt.write_text('no frontmatter at all', encoding='utf-8')
+        assert load_summary('shaun', 'telegram', 'seg-0001') is None
+
+    def test_load_latest_skips_corrupt_newest(self, temp_data_root):
+        ensure_channel('shaun', 'telegram')
+        save_summary('shaun', 'telegram', self._valid_summary('seg-0001'))
+        corrupt = self._summaries_dir(temp_data_root) / 'seg-0002.summary.md'
+        corrupt.write_text('garbage', encoding='utf-8')
+        latest = load_latest_summary('shaun', 'telegram')
+        assert latest is not None
+        assert latest.segment_id == 'seg-0001'
+
+    def test_load_latest_all_corrupt_returns_none(self, temp_data_root):
+        ensure_channel('shaun', 'telegram')
+        corrupt = self._summaries_dir(temp_data_root) / 'seg-0001.summary.md'
+        corrupt.write_text('garbage', encoding='utf-8')
+        assert load_latest_summary('shaun', 'telegram') is None
+
+
+class TestListSummaries:
+    def test_missing_dir_returns_empty(self, temp_data_root):
+        assert list_summaries('shaun', 'telegram') == []
+
+    def test_sorted_oldest_first(self, temp_data_root):
+        ensure_channel('shaun', 'telegram')
+        for seg in ('seg-0002', 'seg-0001'):
+            save_summary(
+                'shaun',
+                'telegram',
+                SegmentSummary(
+                    segment_id=seg,
+                    created_at=datetime(2026, 4, 10, 13, 0, tzinfo=timezone.utc),
+                    trigger='idle',
+                    message_count=1,
+                    time_span_from=datetime(2026, 4, 10, 10, 0, tzinfo=timezone.utc),
+                    time_span_to=datetime(2026, 4, 10, 12, 0, tzinfo=timezone.utc),
+                    summary=f'Summary {seg}',
+                ),
+            )
+        assert list_summaries('shaun', 'telegram') == ['seg-0001', 'seg-0002']
+
+
+# ---------------------------------------------------------------------------
+# Search edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestSearchEdgeCases:
+    def test_stopword_only_query_returns_empty(self, temp_data_root):
+        append_to_segment('shaun', 'telegram', _msg(text='Book a dentist appointment'))
+        assert search_conversations('shaun', 'telegram', 'the is a') == []
+
+    def test_blank_and_corrupt_index_lines_skipped(self, temp_data_root):
+        append_to_segment('shaun', 'telegram', _msg(text='Book a dentist appointment'))
+        index_path = temp_data_root / 'users' / 'shaun' / 'conversation' / 'telegram' / 'search_index.jsonl'
+        with open(index_path, 'a', encoding='utf-8') as f:
+            f.write('\n')
+            f.write('{broken index entry\n')
+        results = search_conversations('shaun', 'telegram', 'dentist')
+        assert len(results) == 1
+
+    def test_index_skips_message_with_empty_text(self, temp_data_root):
+        ensure_channel('shaun', 'telegram')
+        conversation_module._append_search_index('shaun', 'telegram', 'seg-0001', _msg(text=''))
+        index_path = temp_data_root / 'users' / 'shaun' / 'conversation' / 'telegram' / 'search_index.jsonl'
+        assert not index_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# has_active_content edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestHasActiveContentEdgeCases:
+    def test_missing_segment_file_returns_false(self, temp_data_root):
+        ensure_channel('shaun', 'telegram')
+        _segment_file(temp_data_root).unlink()
+        assert has_active_content('shaun', 'telegram') is False
+
+    def test_assistant_only_content_returns_false(self, temp_data_root):
+        append_to_segment('shaun', 'telegram', _msg(role='assistant', text='Proactive reminder'))
+        assert has_active_content('shaun', 'telegram') is False
+
+    def test_blank_and_corrupt_lines_skipped(self, temp_data_root):
+        ensure_channel('shaun', 'telegram')
+        seg = _segment_file(temp_data_root)
+        with open(seg, 'a', encoding='utf-8') as f:
+            f.write('\n')
+            f.write('{broken line\n')
+            f.write(_msg(role='user', text='Real question').to_jsonl() + '\n')
+        assert has_active_content('shaun', 'telegram') is True

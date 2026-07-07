@@ -379,3 +379,167 @@ class TestSettings:
     async def test_set_model_no_value(self):
         result = await marcel(_ctx(), action='set_model')
         assert 'Error' in result
+
+
+# ---------------------------------------------------------------------------
+# read_skill / read_skill_resource
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def skills_dir(tmp_path, monkeypatch):
+    """A hermetic skills directory with one documented skill.
+
+    ``recipes`` has a SKILL.md plus two resource files; ``plain`` ships only
+    its SKILL.md (no resources).
+    """
+    import marcel_core.skills.loader as loader
+    from marcel_core.config import settings
+
+    root = tmp_path / 'skills'
+    recipes = root / 'recipes'
+    recipes.mkdir(parents=True)
+    (recipes / 'SKILL.md').write_text('---\nname: recipes\ndescription: Family recipes\n---\n\nCook things.\n')
+    (recipes / 'SETUP.md').write_text('Set up the recipe book first.\n')
+    (recipes / 'feeds.yaml').write_text('feeds:\n  - https://example.test/rss\n')
+
+    plain = root / 'plain'
+    plain.mkdir()
+    (plain / 'SKILL.md').write_text('---\nname: plain\ndescription: No extras\n---\n\nJust the doc.\n')
+
+    monkeypatch.setattr(settings, 'marcel_zoo_dir', None)
+    monkeypatch.setattr(loader, '_skills_dir', lambda: root)
+    return root
+
+
+class TestReadSkill:
+    @pytest.mark.asyncio
+    async def test_skill_without_resources_has_no_resource_footer(self, skills_dir):
+        result = await marcel(_ctx(), action='read_skill', name='plain')
+        assert 'Just the doc.' in result
+        assert 'Available resources' not in result
+
+    @pytest.mark.asyncio
+    async def test_skill_with_resources_lists_them(self, skills_dir):
+        result = await marcel(_ctx(), action='read_skill', name='recipes')
+        assert 'Cook things.' in result
+        assert 'Available resources' in result
+        assert 'SETUP.md' in result
+        assert 'feeds.yaml' in result
+
+
+class TestReadSkillResource:
+    @pytest.mark.asyncio
+    async def test_missing_skill_name(self, skills_dir):
+        result = await marcel(_ctx(), action='read_skill_resource', resource='feeds')
+        assert 'Error' in result
+        assert 'name=' in result
+
+    @pytest.mark.asyncio
+    async def test_missing_resource_name(self, skills_dir):
+        result = await marcel(_ctx(), action='read_skill_resource', name='recipes')
+        assert 'Error' in result
+        assert 'resource=' in result
+
+    @pytest.mark.asyncio
+    async def test_loads_resource_by_stem(self, skills_dir):
+        result = await marcel(_ctx(), action='read_skill_resource', name='recipes', resource='feeds')
+        assert 'https://example.test/rss' in result
+
+    @pytest.mark.asyncio
+    async def test_loads_resource_by_filename(self, skills_dir):
+        result = await marcel(_ctx(), action='read_skill_resource', name='recipes', resource='SETUP.md')
+        assert 'Set up the recipe book' in result
+
+    @pytest.mark.asyncio
+    async def test_unknown_resource_lists_available(self, skills_dir):
+        result = await marcel(_ctx(), action='read_skill_resource', name='recipes', resource='bogus')
+        assert 'not found' in result
+        assert 'SETUP.md' in result
+        assert 'feeds.yaml' in result
+
+    @pytest.mark.asyncio
+    async def test_skill_without_resources(self, skills_dir):
+        result = await marcel(_ctx(), action='read_skill_resource', name='plain', resource='anything')
+        assert 'no resource files' in result
+
+    @pytest.mark.asyncio
+    async def test_unknown_skill(self, skills_dir):
+        result = await marcel(_ctx(), action='read_skill_resource', name='ghost-skill', resource='feeds')
+        assert 'no resource files' in result or 'not found' in result
+
+
+# ---------------------------------------------------------------------------
+# render
+# ---------------------------------------------------------------------------
+
+
+def _one_component_registry():
+    from marcel_core.skills.component_registry import ComponentRegistry
+    from marcel_core.skills.components import ComponentSchema
+
+    return ComponentRegistry(
+        [ComponentSchema(name='balance_card', description='Account balance', skill='banking', props={})]
+    )
+
+
+class TestRender:
+    @pytest.mark.asyncio
+    async def test_missing_component(self):
+        result = await marcel(_ctx(), action='render')
+        assert 'render failed' in result
+        assert 'component' in result
+
+    @pytest.mark.asyncio
+    async def test_registry_build_failure(self, monkeypatch):
+        def boom(user_slug):
+            raise RuntimeError('registry exploded')
+
+        monkeypatch.setattr('marcel_core.skills.component_registry.build_registry', boom)
+        result = await marcel(_ctx(), action='render', component='balance_card', props={})
+        assert 'render failed' in result
+        assert 'component registry' in result
+
+    @pytest.mark.asyncio
+    async def test_none_props_default_to_empty_dict(self, monkeypatch):
+        from marcel_core.storage.artifacts import load_artifact
+
+        monkeypatch.setattr(
+            'marcel_core.skills.component_registry.build_registry', lambda user_slug: _one_component_registry()
+        )
+        result = await marcel(_ctx(channel='cli'), action='render', component='balance_card')
+        assert 'rendered component' in result
+        artifact_id = result.rsplit('artifact ', 1)[1].split(';')[0].strip()
+        artifact = load_artifact(artifact_id)
+        assert artifact is not None
+        assert artifact.content == '{}'
+        assert artifact.component_name == 'balance_card'
+
+    @pytest.mark.asyncio
+    async def test_artifact_store_failure(self, monkeypatch):
+        monkeypatch.setattr(
+            'marcel_core.skills.component_registry.build_registry', lambda user_slug: _one_component_registry()
+        )
+
+        def boom(**kwargs):
+            raise OSError('disk full')
+
+        monkeypatch.setattr('marcel_core.storage.artifacts.create_artifact', boom)
+        result = await marcel(_ctx(channel='cli'), action='render', component='balance_card', props={})
+        assert 'render failed' in result
+        assert 'could not store artifact' in result
+
+    @pytest.mark.asyncio
+    async def test_telegram_delivery_failure_still_reports_artifact(self, monkeypatch):
+        monkeypatch.setattr(
+            'marcel_core.skills.component_registry.build_registry', lambda user_slug: _one_component_registry()
+        )
+
+        class _BrokenChannel:
+            async def send_artifact_link(self, user_slug, artifact_id, title):
+                raise RuntimeError('telegram down')
+
+        monkeypatch.setattr('marcel_core.plugin.get_channel', lambda name: _BrokenChannel())
+        result = await marcel(_ctx(channel='telegram'), action='render', component='balance_card', props={'x': 1})
+        assert 'rendered component' in result
+        assert 'failed to send Telegram button' in result

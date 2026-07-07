@@ -211,6 +211,8 @@ class Terrarium:
         import marcel_core.harness.approval as approval_mod
         import marcel_core.harness.core_handlers as core_handlers_mod
         import marcel_core.plugin.channels as channels_mod
+        import marcel_core.skills.registry as skills_registry_mod
+        import marcel_core.toolkit as toolkit_mod
         from marcel_core.config import settings
         from marcel_core.plugin.extension import extension_registry
         from marcel_core.storage import _root
@@ -236,6 +238,13 @@ class Terrarium:
         self._saved['approvals'] = approval_mod._REGISTRY
         approval_mod._REGISTRY = approval_mod.ApprovalRegistry()
         self._saved['approval_timeout'] = settings.marcel_approval_timeout_seconds
+        # Toolkit handlers a scenario registers via @marcel_tool must not
+        # outlive the world; the skills-registry cache derives from them and
+        # is dropped on both entry and exit so each world re-resolves.
+        self._saved['toolkit_registry'] = dict(toolkit_mod._registry)
+        self._saved['toolkit_metadata'] = dict(toolkit_mod._metadata)
+        skills_registry_mod._cache = None
+        skills_registry_mod._cache_mtime = None
 
         # Bus recorder — rides the extension registry onto every turn's bus.
         def _record(event: events_mod.Event, ctx: object) -> None:
@@ -256,11 +265,20 @@ class Terrarium:
         import marcel_core.harness.approval as approval_mod
         import marcel_core.harness.core_handlers as core_handlers_mod
         import marcel_core.plugin.channels as channels_mod
+        import marcel_core.skills.registry as skills_registry_mod
+        import marcel_core.toolkit as toolkit_mod
         from marcel_core.config import settings
         from marcel_core.plugin.extension import extension_registry
         from marcel_core.storage import _root
 
         self._world.stop()
+
+        toolkit_mod._registry.clear()
+        toolkit_mod._registry.update(self._saved['toolkit_registry'])  # type: ignore[arg-type]
+        toolkit_mod._metadata.clear()
+        toolkit_mod._metadata.update(self._saved['toolkit_metadata'])  # type: ignore[arg-type]
+        skills_registry_mod._cache = None
+        skills_registry_mod._cache_mtime = None
 
         channels_mod._registry.clear()
         channels_mod._registry.update(self._saved['channels'])  # type: ignore[arg-type]

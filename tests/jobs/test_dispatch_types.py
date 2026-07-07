@@ -323,6 +323,154 @@ class TestFireSubagentJob:
         assert run.error_category == 'config'
         assert 'nobody' in (run.error or '')
 
+    @pytest.mark.asyncio
+    async def test_unresolvable_tier_sentinel_model_fails_config(self, monkeypatch):
+        """If the subagent frontmatter pins an unconfigured ``tier:`` model,
+        resolution fails and the run is marked config-failed before any agent
+        is built."""
+        from marcel_core.harness.model_chain import TierNotConfigured
+
+        monkeypatch.setattr(
+            'marcel_core.agents.loader.load_agent',
+            lambda name: _make_agent_doc(name=name, model='tier:power'),
+        )
+        monkeypatch.setattr('marcel_core.harness.model_chain.is_tier_sentinel', lambda m: True)
+
+        def raise_not_configured(model):
+            raise TierNotConfigured('power')
+
+        monkeypatch.setattr('marcel_core.harness.model_chain.resolve_tier_sentinel', raise_not_configured)
+        monkeypatch.setattr(
+            'marcel_core.harness.agent.create_marcel_agent',
+            lambda **kw: pytest.fail('should not build an agent when model resolution fails'),
+        )
+
+        job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go')
+        run = await _fire_subagent_job(job, 'test', user_slug='shaun')
+
+        assert run.status is RunStatus.FAILED
+        assert run.error_category == 'config'
+        assert 'model resolution failed' in (run.error or '')
+
+    @pytest.mark.asyncio
+    async def test_explicit_tools_and_max_requests_wired(self, monkeypatch):
+        """An agent_doc that declares a ``tools`` allowlist and ``max_requests``
+        goes through _resolve_tool_filter and builds a UsageLimits object."""
+        monkeypatch.setattr(
+            'marcel_core.agents.loader.load_agent',
+            lambda name: _make_agent_doc(name=name, tools=['marcel', 'search'], max_requests=7),
+        )
+
+        captured: dict = {}
+
+        def fake_resolve_filter(tools, disallowed):
+            captured['tools_arg'] = tools
+            return {'marcel', 'search'}
+
+        monkeypatch.setattr('marcel_core.tools.delegate._resolve_tool_filter', fake_resolve_filter)
+
+        def fake_create(*, model, system_prompt, role, tool_filter):
+            captured['tool_filter'] = tool_filter
+            return _FakeAgent(output='done')
+
+        monkeypatch.setattr('marcel_core.harness.agent.create_marcel_agent', fake_create)
+
+        job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go')
+        run = await _fire_subagent_job(job, 'test', user_slug='shaun')
+
+        assert run.status is RunStatus.COMPLETED
+        assert captured['tools_arg'] == ['marcel', 'search']
+        assert captured['tool_filter'] == {'marcel', 'search'}
+
+    @pytest.mark.asyncio
+    async def test_agent_build_failure_fails_config(self, monkeypatch):
+        monkeypatch.setattr('marcel_core.agents.loader.load_agent', lambda name: _make_agent_doc(name=name))
+        monkeypatch.setattr(
+            'marcel_core.tools.delegate._default_pool_minus',
+            lambda role, disallowed, include_delegate: set(),
+        )
+
+        def boom_create(**kwargs):
+            raise RuntimeError('cannot construct agent')
+
+        monkeypatch.setattr('marcel_core.harness.agent.create_marcel_agent', boom_create)
+
+        job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go')
+        run = await _fire_subagent_job(job, 'test', user_slug='shaun')
+
+        assert run.status is RunStatus.FAILED
+        assert run.error_category == 'config'
+        assert 'subagent build failed' in (run.error or '')
+
+    @pytest.mark.asyncio
+    async def test_subagent_timeout_marks_timed_out(self, monkeypatch):
+        import asyncio
+
+        monkeypatch.setattr(
+            'marcel_core.agents.loader.load_agent',
+            lambda name: _make_agent_doc(name=name, timeout_seconds=0),
+        )
+        monkeypatch.setattr(
+            'marcel_core.tools.delegate._default_pool_minus',
+            lambda role, disallowed, include_delegate: set(),
+        )
+
+        class _SlowAgent:
+            async def run(self, prompt, *, deps, usage_limits=None):
+                await asyncio.sleep(10)
+
+        monkeypatch.setattr('marcel_core.harness.agent.create_marcel_agent', lambda **kw: _SlowAgent())
+
+        # effective_timeout = min(job.timeout_seconds, agent_doc.timeout_seconds=0) → 0
+        job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go')
+        run = await _fire_subagent_job(job, 'test', user_slug='shaun')
+
+        assert run.status is RunStatus.TIMED_OUT
+        assert run.error_category == 'timeout'
+        assert '0s' in (run.error or '')
+
+    @pytest.mark.asyncio
+    async def test_subagent_run_exception_classified(self, monkeypatch):
+        monkeypatch.setattr('marcel_core.agents.loader.load_agent', lambda name: _make_agent_doc(name=name))
+        monkeypatch.setattr(
+            'marcel_core.tools.delegate._default_pool_minus',
+            lambda role, disallowed, include_delegate: set(),
+        )
+        monkeypatch.setattr(
+            'marcel_core.harness.agent.create_marcel_agent',
+            lambda **kw: _FakeAgent(should_raise=RuntimeError('rate limit exceeded (429)')),
+        )
+
+        job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go')
+        run = await _fire_subagent_job(job, 'test', user_slug='shaun')
+
+        assert run.status is RunStatus.FAILED
+        assert run.error_category == 'rate_limit'
+        assert 'rate limit' in (run.error or '')
+
+    @pytest.mark.asyncio
+    async def test_subagent_agent_notified_recorded(self, monkeypatch):
+        """A subagent that notifies during its run marks agent_notified on the
+        JobRun so the executor's auto-notify is later suppressed."""
+        monkeypatch.setattr('marcel_core.agents.loader.load_agent', lambda name: _make_agent_doc(name=name))
+        monkeypatch.setattr(
+            'marcel_core.tools.delegate._default_pool_minus',
+            lambda role, disallowed, include_delegate: set(),
+        )
+
+        class _NotifyingAgent:
+            async def run(self, prompt, *, deps, usage_limits=None):
+                deps.turn.notified = True
+                return SimpleNamespace(output='notified the user')
+
+        monkeypatch.setattr('marcel_core.harness.agent.create_marcel_agent', lambda **kw: _NotifyingAgent())
+
+        job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go')
+        run = await _fire_subagent_job(job, 'test', user_slug='shaun')
+
+        assert run.status is RunStatus.COMPLETED
+        assert run.agent_notified is True
+
 
 # ---------------------------------------------------------------------------
 # Top-level dispatcher — ensure execute_job_with_retries routes correctly
@@ -398,6 +546,41 @@ class TestDispatcherRouting:
         job = _make_job()  # no dispatch_type → AGENT
         await execute_job_with_retries(job)
         assert routed == ['agent']
+
+    @pytest.mark.asyncio
+    async def test_subagent_dispatch_routes_to_subagent_path(self, monkeypatch):
+        routed: list[str] = []
+
+        async def fake_tool(job, trigger_reason, *, user_slug):
+            routed.append('tool')
+            return JobRun(job_id=job.id, status=RunStatus.COMPLETED)
+
+        async def fake_agent(job, trigger_reason, *, user_slug):
+            routed.append('agent')
+            return JobRun(job_id=job.id, status=RunStatus.COMPLETED)
+
+        async def fake_subagent(job, trigger_reason, *, user_slug):
+            routed.append('subagent')
+            return JobRun(job_id=job.id, status=RunStatus.COMPLETED, output='subagent-ok')
+
+        async def fake_notify(job, run, *, user_slug=None):
+            return 'skipped', None
+
+        monkeypatch.setattr(executor_module, '_fire_tool_job', fake_tool)
+        monkeypatch.setattr(executor_module, '_fire_agent_job', fake_agent)
+        monkeypatch.setattr(executor_module, '_fire_subagent_job', fake_subagent)
+        monkeypatch.setattr(executor_module, '_notify_if_needed', fake_notify)
+        monkeypatch.setattr('marcel_core.jobs.save_job', lambda job: None, raising=False)
+        monkeypatch.setattr(
+            'marcel_core.jobs.append_run',
+            lambda job_id, user_slug, run: None,
+            raising=False,
+        )
+
+        job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go')
+        run = await execute_job_with_retries(job)
+        assert routed == ['subagent']
+        assert run.output == 'subagent-ok'
 
 
 # ---------------------------------------------------------------------------
