@@ -214,3 +214,48 @@ async def test_bash_disabled_config_skips_sandbox(monkeypatch):
     rc, out, _err = await core._run_bash('echo direct', None, 10)
     assert rc == 0
     assert b'direct' in out
+
+
+# --- run_sandboxed orchestration (STORY-260707-f302b1) ----------------------
+#
+# Real bwrap needs unprivileged userns (unavailable in this env), but the
+# orchestration — argv assembly, spawn, output capture, returncode, timeout
+# kill — is bwrap-independent. A passthrough fake consumes the bwrap flags
+# and execs the trailing `bash -c <command>` for real.
+
+_PASSTHROUGH = '#!/bin/sh\nwhile [ $# -gt 0 ] && [ "$1" != bash ]; do shift; done\nexec "$@"\n'
+
+
+def _fake_bwrap(tmp_path, monkeypatch) -> None:
+    fake = tmp_path / 'fake-bwrap'
+    fake.write_text(_PASSTHROUGH)
+    fake.chmod(0o755)
+    monkeypatch.setattr(sandbox, 'bwrap_path', lambda: str(fake))
+
+
+async def test_run_sandboxed_captures_output_and_returncode(monkeypatch, tmp_path):
+    _fake_bwrap(tmp_path, monkeypatch)
+    code, out, err = await run_sandboxed(
+        'echo hello; echo oops >&2; exit 3',
+        workspace=tmp_path,
+        cwd=tmp_path,
+        data_dir=tmp_path / 'data',
+        timeout=10,
+    )
+    assert code == 3
+    assert out.strip() == b'hello'
+    assert err.strip() == b'oops'
+
+
+async def test_run_sandboxed_timeout_kills_and_reaps(monkeypatch, tmp_path):
+    import asyncio
+
+    _fake_bwrap(tmp_path, monkeypatch)
+    with pytest.raises(asyncio.TimeoutError):
+        await run_sandboxed(
+            'sleep 30',
+            workspace=tmp_path,
+            cwd=tmp_path,
+            data_dir=tmp_path / 'data',
+            timeout=0.2,
+        )

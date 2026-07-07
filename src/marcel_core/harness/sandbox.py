@@ -162,5 +162,8 @@ async def run_sandboxed(
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
+        # Reap before raising — an unwaited child lingers as a zombie and
+        # trips "event loop is closed" warnings at interpreter shutdown.
+        await proc.wait()
         raise
     return proc.returncode, stdout, stderr
