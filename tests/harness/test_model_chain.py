@@ -328,3 +328,30 @@ class TestModelLabel:
 
     def test_instance_uses_model_name(self):
         assert model_label(TestModel()) == 'test'
+
+
+class TestChainEdges:
+    def test_build_chain_rejects_unknown_tier(self):
+        with pytest.raises(ValueError, match='unknown tier'):
+            build_chain(tier='warp')  # type: ignore[arg-type]
+
+    def test_next_tier_entry_not_in_chain_is_none(self):
+        from marcel_core.harness.model_chain import TierEntry
+
+        stray = TierEntry(tier=Tier.STANDARD, model='anthropic:claude-sonnet-5', purpose='primary')
+        # A failed entry the chain doesn't contain cannot advance anywhere.
+        assert next_tier([], stray, 'timeout') is None
+
+
+class TestSentinelResolution:
+    def test_non_sentinel_raises(self):
+        from marcel_core.harness.model_chain import resolve_tier_sentinel
+
+        with pytest.raises(ValueError, match='not a tier sentinel'):
+            resolve_tier_sentinel('anthropic:claude-sonnet-5')
+
+    def test_unknown_tier_name_raises(self):
+        from marcel_core.harness.model_chain import TIER_SENTINEL_PREFIX, resolve_tier_sentinel
+
+        with pytest.raises(ValueError, match='unknown tier'):
+            resolve_tier_sentinel(f'{TIER_SENTINEL_PREFIX}warp')

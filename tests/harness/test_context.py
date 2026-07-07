@@ -292,3 +292,78 @@ class TestBuildInstructionsAsync:
         result = await build_instructions_async(deps)
 
         assert '## A2UI Components' not in result
+
+
+# ---------------------------------------------------------------------------
+# prompt block edges (STORY-260707-f302b1)
+# ---------------------------------------------------------------------------
+
+
+class TestPromptBlockEdges:
+    def test_docker_socket_absent_is_not_mentioned(self, monkeypatch):
+        from pathlib import Path
+
+        original_exists = Path.exists
+
+        def patched_exists(self):
+            if str(self) == '/var/run/docker.sock':
+                return False
+            return original_exists(self)
+
+        monkeypatch.setattr(Path, 'exists', patched_exists)
+        assert 'docker' not in build_server_context().lower()
+
+    @pytest.mark.asyncio
+    async def test_async_marcelmd_block_and_promptless_channel(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        (tmp_path / 'MARCEL.md').write_text('Be kind to the family.', encoding='utf-8')
+        deps = MarcelDeps(user_slug='alice', conversation_id='c1', channel='no-such-channel')
+        result = await build_instructions_async(deps)
+        # MARCEL.md content replaces the canned identity line...
+        assert 'Be kind to the family.' in result
+        assert 'warm and capable personal assistant' not in result
+        # ...and a channel without a prompt still gets its header, no body.
+        assert '# No-such-channel — how to respond' in result
+
+    def test_sync_marcelmd_memory_and_no_skills(self, tmp_path, monkeypatch):
+        import marcel_core.skills.loader as skills_loader
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        (tmp_path / 'MARCEL.md').write_text('Be kind to the family.', encoding='utf-8')
+        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'favourite-colour.md').write_text(
+            '---\ndescription: Alice loves teal.\n---\n\nAlice loves teal.\n',
+            encoding='utf-8',
+        )
+        monkeypatch.setattr(skills_loader, 'load_skills', lambda slug: [])
+        deps = MarcelDeps(user_slug='alice', conversation_id='c1', channel='no-such-channel')
+        result = build_instructions(deps)
+        assert 'Be kind to the family.' in result
+        assert '(no skills configured)' in result
+        assert 'favourite-colour' in result or 'Alice loves teal.' in result
+
+    @pytest.mark.asyncio
+    async def test_empty_channel_override_suppresses_guidance(self, tmp_path, monkeypatch):
+        from marcel_core.config import settings
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
+        (tmp_path / 'channels').mkdir()
+        (tmp_path / 'channels' / 'hush.md').write_text('', encoding='utf-8')
+        deps = MarcelDeps(user_slug='alice', conversation_id='c1', channel='hush')
+        # An operator can silence channel guidance with an empty override:
+        # the block keeps its header but gains no body, in both builders.
+        for result in (build_instructions(deps), await build_instructions_async(deps)):
+            assert '# Hush — how to respond' in result
+            assert 'Respond in a format appropriate' not in result
+
+    def test_unreadable_channel_override_falls_back(self, tmp_path, monkeypatch):
+        from marcel_core.config import settings
+        from marcel_core.harness.context import load_channel_prompt
+
+        monkeypatch.setattr(settings, 'marcel_data_dir', str(tmp_path))
+        # A directory named like the override: exists() is True, read fails.
+        (tmp_path / 'channels' / 'weird.md').mkdir(parents=True)
+        prompt = load_channel_prompt('weird')
+        assert 'appropriate for the weird channel' in prompt

@@ -246,3 +246,49 @@ async def test_policy_disabled_is_noop(_policy_env, monkeypatch):
 
 def test_command_policy_singleton(_policy_env):
     assert command_policy() is command_policy()
+
+
+# --- ratchet edges (STORY-260707-f302b1) ------------------------------------
+
+
+def test_self_mod_guard_survives_realpath_failure(monkeypatch):
+    def boom(path):
+        raise OSError('realpath exploded')
+
+    monkeypatch.setattr(core_handlers.os.path, 'realpath', boom)
+    # The raw-path candidate still matches — a realpath failure must not
+    # open the guard.
+    assert core_handlers._restricted_reason('CLAUDE.md') is not None
+
+
+def test_summarize_falls_back_to_reason_without_command():
+    from marcel_core.harness.command_policy import PolicyDecision, Verdict
+
+    event = ToolCallEvent(tool_name='marcel', args={})
+    decision = PolicyDecision(Verdict.ASK, 'operator rule matched', 'custom-rule')
+    summary = core_handlers._summarize(event, decision)
+    assert summary == 'marcel — operator rule matched'
+
+
+class _ExplodingChannel:
+    name = 'exploding'
+
+    async def send_approval_request(self, request: dict) -> bool:
+        raise RuntimeError('telegram is down')
+
+
+async def test_policy_ask_denies_when_delivery_raises(_policy_env):
+    register_channel(_ExplodingChannel())  # type: ignore[arg-type]
+    ctx = EventContext(user_slug='shaun', role='admin', channel='exploding')
+    event = ToolCallEvent(tool_name='bash', args={'command': 'sudo reboot'})
+    await _command_policy_handler(event, ctx)
+    assert event.blocked is True
+
+
+async def test_policy_ask_denies_when_delivery_reports_failure(_policy_env):
+    chan = _FakeApprovalChannel('undeliverable', None)  # send returns False
+    ctx = _ctx_for(chan)
+    event = ToolCallEvent(tool_name='bash', args={'command': 'sudo reboot'})
+    await _command_policy_handler(event, ctx)
+    assert event.blocked is True
+    assert chan.sent, 'delivery was attempted'
