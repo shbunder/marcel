@@ -195,7 +195,7 @@ def _messages_to_model(
                 )
             )
 
-        elif msg.role == 'system':
+        elif msg.role == 'system':  # pragma: no branch - MessageRole has exactly these four members
             _flush_tool_returns()
             if msg.text:
                 result.append(ModelRequest(parts=[UserPromptPart(content=msg.text, timestamp=msg.timestamp)]))
@@ -390,7 +390,7 @@ def _extract_tool_history(
                 )
             )
 
-        elif isinstance(msg, ModelRequest):
+        elif isinstance(msg, ModelRequest):  # pragma: no branch - ModelMessage is exactly Request | Response
             for part in msg.parts:
                 if isinstance(part, ToolReturnPart):
                     # Serialize content to string
@@ -805,8 +805,8 @@ async def stream_turn(
                         channel,
                         current.tier.value,
                         usage.total_tokens,
-                        usage.request_tokens,
-                        usage.response_tokens,
+                        usage.input_tokens,
+                        usage.output_tokens,
                         usage.requests,
                     )
             # Successful run — break out of the chain loop.
@@ -888,7 +888,9 @@ async def stream_turn(
             if entry.role == 'assistant' and entry.tool_calls:
                 for tc in entry.tool_calls:
                     yield ToolCallStarted(tool_call_id=tc.id, tool_name=tc.name)
-            elif entry.role == 'tool':
+            elif (
+                entry.role == 'tool'
+            ):  # pragma: no branch - _extract_tool_history emits only tool + assistant-with-tool-calls entries
                 yield ToolCallCompleted(
                     tool_call_id=entry.tool_call_id or '',
                     tool_name=entry.tool_name or '',

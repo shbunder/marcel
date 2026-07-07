@@ -33,6 +33,7 @@ async def _mock_run_stream(
     *,
     all_messages: list | None = None,
     cost: int | None = None,
+    usage_total: int = 100,
 ):
     """Return a mock agent.run_stream() context manager that yields text deltas."""
 
@@ -41,9 +42,9 @@ async def _mock_run_stream(
             yield part
 
     usage = MagicMock()
-    usage.total_tokens = 100
-    usage.request_tokens = 80
-    usage.response_tokens = 20
+    usage.total_tokens = usage_total
+    usage.input_tokens = 80
+    usage.output_tokens = 20
 
     result = MagicMock()
     result.stream_text = _stream_text
@@ -54,10 +55,12 @@ async def _mock_run_stream(
     yield result
 
 
-def _make_mock_agent(text_parts: list[str], all_messages: list | None = None):
+def _make_mock_agent(text_parts: list[str], all_messages: list | None = None, usage_total: int = 100):
     """Return a mock pydantic-ai agent."""
     agent = MagicMock()
-    agent.run_stream = lambda *args, **kwargs: _mock_run_stream(text_parts, all_messages=all_messages)
+    agent.run_stream = lambda *args, **kwargs: _mock_run_stream(
+        text_parts, all_messages=all_messages, usage_total=usage_total
+    )
     return agent
 
 
@@ -1313,3 +1316,282 @@ class TestModelInstanceTurn:
         roles = [(m.role, m.text) for m in messages]
         assert ('user', 'remember the milk') in roles
         assert ('assistant', 'noted!') in roles
+
+
+# ---------------------------------------------------------------------------
+# chain edges (STORY-260707-f302b1)
+# ---------------------------------------------------------------------------
+
+
+class TestStreamTurnChainBuildFailures:
+    """Agent *construction* failures — before any provider request exists."""
+
+    @pytest.mark.asyncio
+    async def test_build_failure_eligible_advances_chain(self, tmp_path, monkeypatch):
+        """create_marcel_agent raising an eligible error advances to tier 2."""
+        from marcel_core.config import settings as marcel_settings
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_fallback_model', None)
+
+        calls: list[str] = []
+
+        def _create(model, **kwargs):
+            calls.append(model)
+            if len(calls) == 1:
+                raise RuntimeError('connection reset while fetching model profile')
+            return _make_mock_agent(['Hello from backup'])
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', side_effect=_create):
+            events = [e async for e in stream_turn('shaun', 'cli', 'hi', 'conv-1')]
+
+        deltas = [e for e in events if isinstance(e, TextDelta)]
+        finished = [e for e in events if isinstance(e, RunFinished)]
+        assert [e.text for e in deltas] == ['Hello from backup']
+        assert finished[0].is_error is False
+        assert len(calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_build_failure_permanent_surfaces_error(self, tmp_path, monkeypatch):
+        """A permanent build error does not walk the chain — clean error out."""
+        from marcel_core.config import settings as marcel_settings
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
+
+        calls: list[str] = []
+
+        def _create(model, **kwargs):
+            calls.append(model)
+            raise RuntimeError('unknown model name')
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', side_effect=_create):
+            events = [e async for e in stream_turn('shaun', 'cli', 'hi', 'conv-1')]
+
+        finished = [e for e in events if isinstance(e, RunFinished)]
+        assert finished[0].is_error is True
+        assert len(calls) == 1, 'permanent build errors must not retry other tiers'
+
+    @pytest.mark.asyncio
+    async def test_explain_agent_build_failure_surfaces_error(self, tmp_path, monkeypatch):
+        """Tier 1+2 fail eligibly; the explain tier cannot even build → error."""
+        from marcel_core.config import settings as marcel_settings
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', 'openai:gpt-4o')
+        monkeypatch.setattr(marcel_settings, 'marcel_fallback_model', 'local:qwen3.5:4b')
+        monkeypatch.setattr(marcel_settings, 'marcel_local_llm_url', 'http://127.0.0.1:11434/v1')
+        monkeypatch.setattr(marcel_settings, 'marcel_local_llm_model', 'qwen3.5:4b')
+
+        calls: list[str] = []
+
+        def _create(model, **kwargs):
+            calls.append(model)
+            if len(calls) < 3:
+                return _raising_agent(lambda: RuntimeError('Overloaded'))
+            raise RuntimeError('local llm transport is down')
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', side_effect=_create):
+            events = [e async for e in stream_turn('shaun', 'cli', 'hi', 'conv-1')]
+
+        finished = [e for e in events if isinstance(e, RunFinished)]
+        assert finished[0].is_error is True
+        assert len(calls) == 3
+
+    @pytest.mark.asyncio
+    async def test_empty_chain_finishes_cleanly(self, tmp_path, monkeypatch):
+        """Defensive: an empty chain yields a bare RunFinished, no crash."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        with patch('marcel_core.harness.runner.build_chain', return_value=[]):
+            events = [e async for e in stream_turn('shaun', 'cli', 'hi', 'conv-1')]
+
+        assert [type(e).__name__ for e in events if isinstance(e, (TextDelta, RunFinished))] == ['RunFinished']
+
+    @pytest.mark.asyncio
+    async def test_empty_reply_and_zero_usage_skips_persistence(self, tmp_path, monkeypatch):
+        """An empty final reply persists nothing; zero usage logs nothing."""
+        from marcel_core.memory.conversation import read_active_segment
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+        agent = _make_mock_agent([''], usage_total=0)
+        with patch('marcel_core.harness.runner.create_marcel_agent', return_value=agent):
+            events = [e async for e in stream_turn('shaun', 'cli', 'hi', 'conv-1')]
+
+        deltas = [e for e in events if isinstance(e, TextDelta)]
+        finished = [e for e in events if isinstance(e, RunFinished)]
+        assert deltas == [], 'an empty delta must not be forwarded'
+        assert finished[0].is_error is False
+        # No assistant message was persisted for the empty reply.
+        roles = [m.role for m in read_active_segment('shaun', 'cli')]
+        assert 'assistant' not in roles
+
+
+class TestStreamTurnBuildFailureNoBackup:
+    @pytest.mark.asyncio
+    async def test_eligible_build_failure_with_no_backup_surfaces_error(self, tmp_path, monkeypatch):
+        """Eligible build failure but nowhere to advance → clean error."""
+        from marcel_core.config import settings as marcel_settings
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        monkeypatch.setattr(marcel_settings, 'marcel_standard_backup_model', None)
+        monkeypatch.setattr(marcel_settings, 'marcel_fallback_model', None)
+
+        calls: list[str] = []
+
+        def _create(model, **kwargs):
+            calls.append(model)
+            raise RuntimeError('connection reset while fetching model profile')
+
+        with patch('marcel_core.harness.runner.create_marcel_agent', side_effect=_create):
+            events = [e async for e in stream_turn('shaun', 'cli', 'hi', 'conv-1')]
+
+        finished = [e for e in events if isinstance(e, RunFinished)]
+        assert finished[0].is_error is True
+        assert len(calls) == 1
+
+
+class TestHistoryToMessagesEdges:
+    def _msg(self, role, text, **kwargs) -> HistoryMessage:
+        return HistoryMessage(
+            role=role,
+            text=text,
+            timestamp=datetime(2026, 4, 10, 12, 0, tzinfo=timezone.utc),
+            conversation_id='conv-1',
+            **kwargs,
+        )
+
+    def test_assistant_message_with_no_content_is_skipped(self):
+        history = [self._msg('user', 'hello'), self._msg('assistant', None)]
+        result = _messages_to_model(history)
+        assert len(result) == 1
+        assert isinstance(result[0], ModelRequest)
+
+    def test_empty_system_message_produces_nothing(self):
+        assert _messages_to_model([self._msg('system', None)]) == []
+
+
+class TestBuildContextSummary:
+    @pytest.mark.asyncio
+    async def test_summary_is_prepended(self, tmp_path, monkeypatch):
+        from marcel_core.harness.runner import build_context
+        from marcel_core.memory.conversation import SegmentSummary, save_summary
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        now = datetime(2026, 7, 7, 12, 0, tzinfo=timezone.utc)
+        save_summary(
+            'shaun',
+            'cli',
+            SegmentSummary(
+                segment_id='seg-1',
+                created_at=now,
+                trigger='idle',
+                message_count=4,
+                time_span_from=now,
+                time_span_to=now,
+                summary='We planned a birthday party.',
+            ),
+        )
+        messages = await build_context('shaun', 'cli')
+        first = messages[0]
+        assert isinstance(first, ModelRequest)
+        part = first.parts[0]
+        assert isinstance(part, UserPromptPart)
+        assert isinstance(part.content, str)
+        assert '[Previous conversation summary' in part.content
+        assert 'birthday party' in part.content
+
+    @pytest.mark.asyncio
+    async def test_oversized_summary_is_truncated(self, tmp_path, monkeypatch):
+        from marcel_core.harness.runner import MAX_SUMMARY_CHARS, build_context
+        from marcel_core.memory.conversation import SegmentSummary, save_summary
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        now = datetime(2026, 7, 7, 12, 0, tzinfo=timezone.utc)
+        save_summary(
+            'shaun',
+            'cli',
+            SegmentSummary(
+                segment_id='seg-1',
+                created_at=now,
+                trigger='idle',
+                message_count=4,
+                time_span_from=now,
+                time_span_to=now,
+                summary='x' * (MAX_SUMMARY_CHARS + 500),
+            ),
+        )
+        messages = await build_context('shaun', 'cli')
+        first = messages[0]
+        assert isinstance(first, ModelRequest)
+        part = first.parts[0]
+        assert isinstance(part, UserPromptPart)
+        assert isinstance(part.content, str)
+        assert '... (summary truncated)' in part.content
+        assert len(part.content) < MAX_SUMMARY_CHARS + 200
+
+
+class TestPrimeReadSkillsEdges:
+    def test_non_dict_args_are_ignored(self):
+        part = ToolCallPart(tool_name='marcel', args='["not", "a", "dict"]', tool_call_id='tc-1')
+        # Model providers can hand back args in exotic shapes; when no dict
+        # can be recovered the call is skipped, never crashed on.
+        object.__setattr__(part, 'args_as_dict', None)
+        messages = [ModelResponse(parts=[part])]
+        read_skills: set[str] = set()
+        _prime_read_skills_from_history(messages, read_skills)
+        assert read_skills == set()
+
+    def test_non_string_name_is_ignored(self):
+        messages = [
+            ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        tool_name='marcel',
+                        args={'action': 'read_skill', 'name': 42},
+                        tool_call_id='tc-1',
+                    ),
+                ]
+            ),
+        ]
+        read_skills: set[str] = set()
+        _prime_read_skills_from_history(messages, read_skills)
+        assert read_skills == set()
+
+
+class TestExtractToolHistoryEdges:
+    def test_user_only_request_produces_no_entries(self):
+        from pydantic_ai.messages import ModelMessage
+
+        messages: list[ModelMessage] = [ModelRequest(parts=[UserPromptPart(content='hi')])]
+        assert _extract_tool_history(messages, 'shaun', 'conv-1') == []
+
+    def test_retry_prompt_becomes_error_tool_entry(self):
+        from pydantic_ai.messages import ModelMessage, RetryPromptPart
+
+        messages: list[ModelMessage] = [
+            ModelRequest(
+                parts=[
+                    RetryPromptPart(
+                        content='validation failed: command is required',
+                        tool_name='bash',
+                        tool_call_id='tc-9',
+                    )
+                ]
+            ),
+        ]
+        entries = _extract_tool_history(messages, 'shaun', 'conv-1')
+        assert len(entries) == 1
+        assert entries[0].role == 'tool'
+        assert entries[0].is_error is True
+        assert 'validation failed' in (entries[0].text or '')
+        assert entries[0].tool_call_id == 'tc-9'
+
+    def test_serialize_tool_content_shapes(self):
+        from marcel_core.harness.runner import _serialize_tool_content
+
+        assert _serialize_tool_content('plain') == 'plain'
+        assert _serialize_tool_content({'a': 1}) == '{"a": 1}'
+        assert _serialize_tool_content([1, 2]) == '[1, 2]'
+        assert _serialize_tool_content(42) == '42'
