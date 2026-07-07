@@ -174,3 +174,35 @@ class TestDdgFallbackWarningOnce:
                 backends_mod.select_backend()
 
         assert mock_warn.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# ratchet edges (STORY-260707-c332a7)
+# ---------------------------------------------------------------------------
+
+
+class TestSearchEdges:
+    @pytest.mark.asyncio
+    async def test_backend_selection_failure_returns_error(self):
+        with (
+            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch(
+                'marcel_core.tools.web.search.select_backend',
+                side_effect=SearchBackendError('no search backend configured'),
+            ),
+        ):
+            result = await web(_ctx(), action='search', query='anything')
+        assert 'Search error: no search backend configured' in result
+
+    @pytest.mark.asyncio
+    async def test_unexpected_backend_exception_is_contained(self):
+        backend = MagicMock()
+        backend.name = 'brave'
+        backend.search = AsyncMock(side_effect=RuntimeError('socket melted'))
+        with (
+            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.tools.web.search.select_backend', return_value=backend),
+        ):
+            result = await web(_ctx(), action='search', query='anything')
+        assert 'unexpected failure' in result
+        assert 'socket melted' in result

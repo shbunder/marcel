@@ -313,3 +313,28 @@ class TestBrowserDispatch:
             await web(_ctx(), action='tab', tab_action='list')
         assert mock_tab.await_args is not None
         assert mock_tab.await_args.kwargs['action'] == 'list'
+
+
+# ---------------------------------------------------------------------------
+# ratchet edges (STORY-260707-c332a7)
+# ---------------------------------------------------------------------------
+
+
+class TestBrowserActionDispatch:
+    @pytest.mark.asyncio
+    async def test_press_key_dispatches(self):
+        with (
+            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.tools.web.dispatcher._browser_press_key', new=AsyncMock(return_value='pressed Enter')),
+        ):
+            result = await web(_ctx(), action='press_key', key='Enter')
+        assert result == 'pressed Enter'
+
+    @pytest.mark.asyncio
+    async def test_evaluate_dispatches(self):
+        with (
+            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.tools.web.dispatcher._browser_evaluate', new=AsyncMock(return_value='2')),
+        ):
+            result = await web(_ctx(), action='evaluate', script='1+1')
+        assert result == '2'

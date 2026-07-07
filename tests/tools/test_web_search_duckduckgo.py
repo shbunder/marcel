@@ -265,3 +265,34 @@ class TestDuckDuckGoBackendHttp:
                 await backend.search('example', max_results=5)
 
         assert 'network failure' in exc_info.value.reason
+
+
+# ---------------------------------------------------------------------------
+# ratchet edges (STORY-260707-c332a7)
+# ---------------------------------------------------------------------------
+
+
+class TestParserEdges:
+    def test_decode_url_tolerates_unparseable_href(self):
+        from marcel_core.tools.web.duckduckgo import decode_duckduckgo_url
+
+        bad = 'https://[not-a-valid-host/?uddg=x'
+        # urlparse raises ValueError on the malformed IPv6 bracket — the raw
+        # href comes back untouched rather than crashing the parse.
+        assert decode_duckduckgo_url(bad) == bad
+
+    def test_result_without_title_is_skipped(self):
+        from marcel_core.tools.web.duckduckgo import parse_duckduckgo_html
+
+        html = """
+        <div class="result">
+          <a class="result__a" href="https://example.com/untitled"></a>
+          <a class="result__snippet" href="#">Snippet without a title.</a>
+        </div>
+        <div class="result">
+          <a class="result__a" href="https://example.com/good">Good Result</a>
+          <a class="result__snippet" href="#">Fine.</a>
+        </div>
+        """
+        results = parse_duckduckgo_html(html)
+        assert [r.title for r in results] == ['Good Result']
