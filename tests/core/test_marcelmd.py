@@ -90,3 +90,42 @@ class TestFormatMarcelmdForPrompt:
         assert 'Global rules.' in result
         assert 'User override.' in result
         assert '---' in result
+
+
+class TestLoadEdges:
+    def _patch(self, monkeypatch, tmp_path):
+        import marcel_core.storage._root as root_mod
+
+        monkeypatch.setattr(root_mod, '_DATA_ROOT', tmp_path)
+
+    def test_user_symlink_to_global_loads_once(self, tmp_path, monkeypatch):
+        # A user MARCEL.md symlinked to the global file must not be loaded
+        # twice — dedup is by resolved path.
+        (tmp_path / 'MARCEL.md').write_text('Shared instructions.')
+        user_dir = tmp_path / 'users' / 'alice'
+        user_dir.mkdir(parents=True)
+        (user_dir / 'MARCEL.md').symlink_to(tmp_path / 'MARCEL.md')
+        self._patch(monkeypatch, tmp_path)
+        assert load_marcelmd_files('alice') == [('global', 'Shared instructions.')]
+
+    def test_resolve_failure_falls_back_to_raw_path(self, tmp_path, monkeypatch):
+        # If resolution fails (exotic fs), the raw path still loads.
+        (tmp_path / 'MARCEL.md').write_text('Still loads.')
+        self._patch(monkeypatch, tmp_path)
+
+        def raising_resolve(self, strict=False):
+            raise OSError('resolve failed')
+
+        monkeypatch.setattr(type(tmp_path), 'resolve', raising_resolve)
+        assert load_marcelmd_files('alice') == [('global', 'Still loads.')]
+
+
+class TestFormatEdges:
+    def test_self_ref_only_files_format_to_empty(self):
+        # A MARCEL.md that is nothing but dev-doc boilerplate strips down to
+        # nothing → no separator debris, just ''.
+        files = [
+            ('global', '> These are the per-user instructions for Marcel.'),
+            ('user', '> This file is read by Marcel at startup.'),
+        ]
+        assert format_marcelmd_for_prompt(files) == ''

@@ -205,3 +205,36 @@ class TestFrustration:
         new, reason = maybe_bump_tier(Tier.FAST, 'ok can you help', cfg)
         assert new == Tier.FAST
         assert reason is None
+
+
+class TestParseEdges:
+    def test_unchanged_file_returns_cached_config(self, _isolated_data_root: Path) -> None:
+        _write_routing_yaml(_isolated_data_root, 'default_tier: fast\n')
+        first = load_routing_config()
+        # Same path, same mtime → the cached object comes back untouched.
+        assert load_routing_config() is first
+
+    def test_flatten_accepts_flat_list_and_rejects_junk(self):
+        from marcel_core.harness.tier_classifier import _flatten
+
+        assert _flatten(['a', 1]) == ['a', '1']
+        # Dict values that aren't lists are ignored, not crashed on.
+        assert _flatten({'en': 'not-a-list', 'nl': ['ok']}) == ['ok']
+        assert _flatten('junk') == []
+
+    def test_non_mapping_document_raises(self):
+        from marcel_core.harness.tier_classifier import _parse
+
+        with pytest.raises(ValueError, match='top-level must be a mapping'):
+            _parse(['not', 'a', 'mapping'])
+
+    def test_unknown_default_tier_falls_back_to_standard(self):
+        from marcel_core.harness.tier_classifier import _parse
+
+        assert _parse({'default_tier': 'warp'}).default_tier is Tier.STANDARD
+
+    def test_power_default_tier_is_rejected_to_standard(self):
+        # 'power' is a valid Tier but not a legal routing default.
+        from marcel_core.harness.tier_classifier import _parse
+
+        assert _parse({'default_tier': 'power'}).default_tier is Tier.STANDARD
