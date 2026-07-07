@@ -543,3 +543,78 @@ class TestRender:
         result = await marcel(_ctx(channel='telegram'), action='render', component='balance_card', props={'x': 1})
         assert 'rendered component' in result
         assert 'failed to send Telegram button' in result
+
+
+# ---------------------------------------------------------------------------
+# ratchet edges (STORY-260707-c332a7)
+# ---------------------------------------------------------------------------
+
+
+class TestMemoryEdges:
+    @pytest.mark.asyncio
+    async def test_search_hit_in_description_renders_without_snippet(self, tmp_path):
+        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
+        mem_dir.mkdir(parents=True)
+        # Empty body: the description matches, no snippet can exist.
+        (mem_dir / 'coffee.md').write_text('---\nname: coffee\ndescription: Alice loves espresso.\ntype: fact\n---\n')
+        result = await marcel(_ctx(), action='search_memory', query='espresso')
+        assert 'coffee' in result
+
+    @pytest.mark.asyncio
+    async def test_read_memory_stale_note_for_old_file(self, tmp_path):
+        import os
+        import time
+
+        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
+        mem_dir.mkdir(parents=True)
+        f = mem_dir / 'family.md'
+        f.write_text('---\nname: family\ntype: fact\n---\n\nTwo kids.\n')
+        old = time.time() - 200 * 24 * 3600
+        os.utime(f, (old, old))
+
+        result = await marcel(_ctx(), action='read_memory', name='family')
+        assert 'Two kids.' in result
+        assert 'days old' in result
+
+    @pytest.mark.asyncio
+    async def test_read_memory_without_header_entry_skips_age(self, tmp_path):
+        # index.md is loadable by name but excluded from header scans — the
+        # age/staleness header is skipped rather than crashing.
+        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'index.md').write_text('# Memory Index\n\n- coffee\n')
+        result = await marcel(_ctx(), action='read_memory', name='index')
+        assert 'Memory Index' in result
+
+    @pytest.mark.asyncio
+    async def test_save_memory_keeps_existing_md_suffix(self, tmp_path):
+        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
+        mem_dir.mkdir(parents=True)
+        result = await marcel(_ctx(), action='save_memory', name='routine.md', message='Espresso at 7.')
+        assert 'Saved' in result
+        assert (mem_dir / 'routine.md').exists()
+        assert not (mem_dir / 'routine.md.md').exists()
+
+
+class TestNotifyEdges:
+    @pytest.mark.asyncio
+    async def test_send_notify_helper_delegates_to_notify(self):
+        from marcel_core.tools.marcel.notifications import send_notify
+
+        # cli channel → logged, reported ok.
+        assert await send_notify(_ctx(channel='cli'), 'heads up') == 'ok'
+
+    @pytest.mark.asyncio
+    async def test_notify_job_channel_without_telegram_channel_is_ok(self, monkeypatch):
+        import marcel_core.plugin as plugin_mod
+
+        monkeypatch.setattr(plugin_mod, 'get_channel', lambda name: None)
+        result = await marcel(_ctx(channel='job'), action='notify', message='job done')
+        assert result == 'ok'
+
+
+class TestSetModelEdges:
+    @pytest.mark.asyncio
+    async def test_set_model_rejects_empty_halves(self):
+        result = await marcel(_ctx(), action='set_model', name='telegram:anthropic:')
+        assert 'non-empty provider and model halves' in result
