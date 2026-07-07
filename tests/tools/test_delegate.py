@@ -394,3 +394,49 @@ class TestUsageLimits:
         _, fake_ref = fake_factory
         await delegate(_ctx(), subagent_type='unlimited', prompt='go')
         assert fake_ref['current'].run_calls[0]['usage_limits'] is None
+
+
+# ---------------------------------------------------------------------------
+# ratchet edges (STORY-260707-c332a7)
+# ---------------------------------------------------------------------------
+
+
+class TestHelperEdges:
+    def test_resolve_tool_filter_none_passthrough(self):
+        from marcel_core.tools.delegate import _resolve_tool_filter
+
+        # The contract the caller's assert leans on: only the None input
+        # returns None.
+        assert _resolve_tool_filter(None, ['bash']) is None
+        assert _resolve_tool_filter(['marcel'], []) == {'marcel'}
+
+    def test_default_pool_can_opt_delegate_in(self):
+        from marcel_core.tools.delegate import _default_pool_minus
+
+        with_delegate = _default_pool_minus('admin', [], include_delegate=True)
+        without = _default_pool_minus('admin', [], include_delegate=False)
+        assert 'delegate' in with_delegate
+        assert 'delegate' not in without
+
+
+class TestMoreErrorPaths:
+    @pytest.mark.asyncio
+    async def test_unknown_tier_sentinel_returns_clean_error(self, agents_root: Path, fake_factory):
+        _write_agent(agents_root, 'warped', 'description: test\nmodel: "tier:warp"')
+        result = await delegate(_ctx(), 'warped', 'do something')
+        assert result.startswith('delegate error: subagent')
+        assert 'references' in result
+
+    @pytest.mark.asyncio
+    async def test_subagent_build_failure_returns_clean_error(
+        self, agents_root: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        _write_agent(agents_root, 'broken', 'description: test')
+
+        def boom(**kwargs: Any):
+            raise RuntimeError('factory exploded')
+
+        monkeypatch.setattr('marcel_core.harness.agent.create_marcel_agent', boom)
+        result = await delegate(_ctx(), 'broken', 'do something')
+        assert result.startswith('delegate error: could not build subagent')
+        assert 'factory exploded' in result

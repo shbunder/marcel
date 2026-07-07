@@ -340,3 +340,14 @@ class TestOutputTruncation:
         f.write_text('x' * 60000, encoding='utf-8')
         result = await read_file(_ctx(str(tmp_path)), str(f))
         assert 'truncated' in result.lower() or len(result) < 70000
+
+
+@pytest.mark.asyncio
+async def test_bash_midsize_output_gets_head_tail_preview(tmp_path):
+    """Output between the paste threshold and the hard cap keeps head+tail."""
+    from marcel_core.tools.core import _BASH_PASTE_THRESHOLD
+
+    n = _BASH_PASTE_THRESHOLD + 2000
+    result = await bash(_ctx(str(tmp_path)), f'python3 -c "print(\'x\' * {n})"')
+    assert 'middle omitted for brevity' in result
+    assert result.startswith('x' * 100)

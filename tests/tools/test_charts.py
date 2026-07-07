@@ -68,3 +68,36 @@ class TestGenerateChart:
         ):
             result = await generate_chart(_ctx(channel='telegram'), code, title='Fail')
         assert 'failed to send' in result
+
+
+# ---------------------------------------------------------------------------
+# ratchet edges (STORY-260707-c332a7)
+# ---------------------------------------------------------------------------
+
+
+class TestStorageEdges:
+    @pytest.mark.asyncio
+    async def test_artifact_reload_miss_is_tolerated(self):
+        # The artifact vanished between save and reload — chart still reports.
+        code = 'plt.plot([1], [1])'
+        with patch('marcel_core.storage.artifacts.load_artifact', return_value=None):
+            result = await generate_chart(_ctx(), code, title='Ghost')
+        assert 'Artifact ID' in result
+
+    @pytest.mark.asyncio
+    async def test_artifact_store_failure_reported(self):
+        code = 'plt.plot([1], [1])'
+        with patch('marcel_core.storage.artifacts.load_artifact', side_effect=RuntimeError('disk full')):
+            result = await generate_chart(_ctx(), code, title='Doomed')
+        assert 'failed to store' in result
+        assert 'disk full' in result
+
+    @pytest.mark.asyncio
+    async def test_telegram_unlinked_user_falls_back_to_stored(self):
+        # No linked chat → channel.send_photo returns False → stored message.
+        # (bot-level delivery failure is masked by the zoo channel always
+        # returning True — tracked as STORY-260707-98ff8f-f.)
+        code = 'plt.plot([1, 2], [3, 4])'
+        with patch('marcel_core.channels.telegram.sessions.get_chat_id', return_value=None):
+            result = await generate_chart(_ctx(channel='telegram'), code, title='Quiet')
+        assert 'generated and stored' in result
