@@ -1,6 +1,6 @@
 # Execution sandbox
 
-Marcel runs agent shell commands (`bash`, and `code_exec` in F3) inside a
+Marcel runs agent shell commands (`bash` and [`code_exec`](co-work.md)) inside a
 **bubblewrap workspace-write sandbox** (ADR-260628-0fc1e2) — the OS-level
 containment that makes "Marcel writes and runs its own code over my data"
 safe. It is the second half of F2, layered under the
@@ -74,7 +74,7 @@ and `sandbox_available()` returns `True`. The skipped confinement tests in
 | Setting | Default | Meaning |
 |---|---|---|
 | `MARCEL_SANDBOX_ENABLED` | `true` | Route `bash`/`code_exec` through the sandbox when available. `false` runs unsandboxed everywhere. |
-| `MARCEL_SANDBOX_NETWORK` | `true` | Keep network in sandboxed `bash`. The `code_exec` path (F3) forces it off. |
+| `MARCEL_SANDBOX_NETWORK` | `true` | Keep network in sandboxed `bash`. The [`code_exec`](co-work.md) path forces it off. |
 
 ## Status
 

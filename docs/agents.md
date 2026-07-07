@@ -123,7 +123,7 @@ agent's tool registry.
 
 **Admin-only:** `bash`, `read_file`, `write_file`, `edit_file`,
 `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit`,
-`git_push`, `claude_code`, `delegate`
+`git_push`, `claude_code`, `delegate`, `code_exec`, `promote_extension`
 
 Admin-only tools are stripped from user-role subagents even if
 explicitly allowlisted — **role gating beats allowlist**. This is the

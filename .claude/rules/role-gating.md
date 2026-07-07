@@ -11,7 +11,7 @@ Marcel's tools are split into two tiers. The split is enforced at **harness star
 
 | Tier | Tools | Exposed to |
 |---|---|---|
-| **Admin** | `bash`, `read_file`, `write_file`, `edit_file`, `git_*`, `claude_code`, `delegate` | Users with `role: admin` in their `profile.md` frontmatter |
+| **Admin** | `bash`, `read_file`, `write_file`, `edit_file`, `git_*`, `claude_code`, `delegate`, `code_exec`, `promote_extension` | Users with `role: admin` in their `profile.md` frontmatter |
 | **User** | `integration`, `marcel` | Everyone (admins and non-admins) |
 
 Non-admins must **never** see an admin tool in their tool pool. The model cannot refuse a tool it cannot see — this is the **primary defense**, and it is enforced structurally (by not registering the tool) rather than procedurally (by having the tool check and refuse).
