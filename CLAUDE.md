@@ -18,6 +18,8 @@ make docker-logs    # tail the prod container logs
 
 Dev and prod both run as Docker containers on different ports: `make serve` brings up `marcel-dev` on `:7421` via `docker-compose.dev.yml`; `make docker-up` brings up `marcel` on `:7420` via `docker-compose.yml`. Both can run simultaneously and share one restart mechanism (env-aware flag files — see [docs/self-modification.md](docs/self-modification.md)).
 
+**Prefer `make` targets over bare commands** (`uv sync`, `pytest`, `docker …`) whenever a target exists — the targets encode the full environment contract. Concretely: a bare `uv sync` leaves zoo park dep-venvs stale or missing; `make env-install` / `make env-sync` provision them too (`make zoo-deps` on its own re-provisions). The same applies in marcel-zoo (`make test`, `make deps`) and odile (`make check`).
+
 ## Core principles
 
 These four are Marcel's constitution — the standard every change is held to and the name every review cites. Refer to one by its **handle** (e.g. "Core principle: Recoverable"); the [`plan-verifier`](.claude/agents/plan-verifier.md) and [`pre-close-verifier`](.claude/agents/pre-close-verifier.md) name the relevant handle in their findings, and the [rules](.claude/rules/) enforce them mechanically.
