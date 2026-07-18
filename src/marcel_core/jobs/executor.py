@@ -320,7 +320,7 @@ async def execute_job(
     # Build lean system prompt: task + skill docs + credentials + channel
     system_prompt = _build_job_context(job, slug)
 
-    agent = create_marcel_agent(job.model, system_prompt=system_prompt, role='user')
+    agent = create_marcel_agent(job.model, system_prompt=system_prompt, role='user', memory=False)
 
     # Apply usage limits if configured on the job
     usage_limits = None
@@ -659,6 +659,7 @@ async def _fire_subagent_job(
             system_prompt=system_prompt,
             role='user',
             tool_filter=tool_filter,
+            memory=False,
         )
     except Exception as exc:
         log.exception('%s-job: subagent build failed for %s', slug, job.id)

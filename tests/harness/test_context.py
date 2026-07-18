@@ -154,35 +154,27 @@ class TestBuildInstructionsAsync:
         assert 'Dan' in result
 
     @pytest.mark.asyncio
-    async def test_emits_five_h1_blocks(self, tmp_path, monkeypatch):
+    async def test_emits_four_h1_blocks(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         deps = MarcelDeps(user_slug='dan', conversation_id='conv-1', channel='cli')
         result = await build_instructions_async(deps)
-        # The five blocks, in order
-        for header in (
+        # The four blocks, in order (memory moved to the Memory capability's
+        # per-request injection — FEAT-260718-30d45a)
+        headers = (
             '# Marcel — who you are',
             '# Dan — who the user is',
             '# Skills — what you can do',
-            '# Memory — what you should know',
             '# Cli — how to respond',
-        ):
+        )
+        for header in headers:
             assert header in result
-        # And they appear in the expected order
-        positions = [
-            result.index(h)
-            for h in (
-                '# Marcel — who you are',
-                '# Dan — who the user is',
-                '# Skills — what you can do',
-                '# Memory — what you should know',
-                '# Cli — how to respond',
-            )
-        ]
+        positions = [result.index(h) for h in headers]
         assert positions == sorted(positions)
+        assert '# Memory — what you should know' not in result
 
     @pytest.mark.asyncio
-    async def test_memory_index_replaces_full_dump(self, tmp_path, monkeypatch):
-        """Memory section should be a compact index, not raw file bodies."""
+    async def test_memory_never_in_prompt(self, tmp_path, monkeypatch):
+        """Memory bodies and index both left the system prompt entirely."""
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         mem_dir = tmp_path / 'users' / 'dan' / 'memory'
         mem_dir.mkdir(parents=True)
@@ -193,14 +185,8 @@ class TestBuildInstructionsAsync:
         deps = MarcelDeps(user_slug='dan', conversation_id='conv-1', channel='cli')
         result = await build_instructions_async(deps, query='tell me about my family')
 
-        # Index shows name + description
-        assert '**family**' in result
-        assert 'Family members' in result
-        # Body content is NOT pre-dumped — must be loaded via read_memory
+        assert '**family**' not in result
         assert 'Cosette' not in result
-        # Hint directing the agent to use the tools
-        assert 'read_memory' in result
-        assert 'search_memory' in result
 
     @pytest.mark.asyncio
     async def test_admin_server_context_folded_under_user_block(self, tmp_path, monkeypatch):

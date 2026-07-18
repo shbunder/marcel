@@ -4,7 +4,6 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from marcel_core.memory.extract import _parse_operations, extract_and_save_memories
-from marcel_core.memory.selector import _parse_selection, select_relevant_memories
 from marcel_core.storage import _root
 
 # ---------------------------------------------------------------------------
@@ -100,69 +99,3 @@ class TestParseOperations:
 
     def test_filters_non_dicts(self):
         assert _parse_operations('[42, "string", null]') == []
-
-
-# ---------------------------------------------------------------------------
-# memory_select.py — relevance selection
-# ---------------------------------------------------------------------------
-
-
-class TestParseSelection:
-    def test_parses_json_array(self):
-        assert _parse_selection('["calendar.md", "family.md"]') == ['calendar.md', 'family.md']
-
-    def test_parses_empty_array(self):
-        assert _parse_selection('[]') == []
-
-    def test_handles_code_fences(self):
-        response = '```json\n["calendar.md"]\n```'
-        assert _parse_selection(response) == ['calendar.md']
-
-    def test_handles_non_json(self):
-        assert _parse_selection('I think calendar.md is relevant') == []
-
-    def test_filters_non_strings(self):
-        assert _parse_selection('[42, "valid.md", null]') == ['valid.md']
-
-
-class TestSelectRelevantMemories:
-    def test_returns_empty_for_no_memories(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        result = asyncio.run(select_relevant_memories('shaun', 'hello'))
-        assert result == []
-
-    def test_loads_all_for_small_set(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        from marcel_core.storage import save_memory_file
-
-        save_memory_file('shaun', 'calendar', '---\nname: cal\ntype: schedule\n---\nDentist Friday.')
-        save_memory_file('shaun', 'prefs', '---\nname: prefs\ntype: preference\n---\nLikes tea.')
-
-        result = asyncio.run(select_relevant_memories('shaun', 'what do I like?'))
-        assert len(result) == 2
-        contents = [c for _, c in result]
-        assert any('Dentist Friday.' in c for c in contents)
-        assert any('Likes tea.' in c for c in contents)
-
-    def test_includes_household_memories(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        from marcel_core.storage import save_memory_file
-
-        save_memory_file('shaun', 'personal', 'My stuff.')
-        save_memory_file('_household', 'wifi', '---\ntype: household\n---\nPassword: 12345.')
-
-        result = asyncio.run(select_relevant_memories('shaun', 'wifi password'))
-        assert len(result) == 2
-        contents = [c for _, c in result]
-        assert any('Password: 12345.' in c for c in contents)
-
-    def test_excludes_household_when_disabled(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        from marcel_core.storage import save_memory_file
-
-        save_memory_file('shaun', 'personal', 'My stuff.')
-        save_memory_file('_household', 'wifi', 'Password: 12345.')
-
-        result = asyncio.run(select_relevant_memories('shaun', 'wifi', include_household=False))
-        assert len(result) == 1
-        assert 'My stuff.' in result[0][1]

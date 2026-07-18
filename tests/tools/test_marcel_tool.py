@@ -1,6 +1,6 @@
 """Scenario-based tests for tools/marcel.py — the unified internal utilities tool.
 
-Covers: all actions (read_skill, search_memory, save_memory, search_conversations,
+Covers: all actions (read_skill, search_conversations,
 compact, notify, list_models, get_model, set_model) through realistic invocations.
 """
 
@@ -41,109 +41,17 @@ class TestUnknownAction:
 
 
 # ---------------------------------------------------------------------------
-# search_memory
+# retired memory actions redirect to the Memory capability tools
 # ---------------------------------------------------------------------------
 
 
-class TestSearchMemory:
+class TestRetiredMemoryActions:
     @pytest.mark.asyncio
-    async def test_missing_query(self):
-        result = await marcel(_ctx(), action='search_memory')
-        assert 'Error' in result
-
-    @pytest.mark.asyncio
-    async def test_invalid_type_filter(self):
-        result = await marcel(_ctx(), action='search_memory', query='test', type_filter='bogus')
-        assert 'Invalid type filter' in result
-
-    @pytest.mark.asyncio
-    async def test_no_results(self):
-        result = await marcel(_ctx(), action='search_memory', query='nonexistent')
-        assert 'No memories found' in result
-
-    @pytest.mark.asyncio
-    async def test_with_results(self, tmp_path):
-        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
-        mem_dir.mkdir(parents=True)
-        (mem_dir / 'index.md').write_text('# Memory Index\n- [coffee](coffee.md)\n')
-        (mem_dir / 'coffee.md').write_text(
-            '---\nname: coffee pref\ndescription: likes lattes\ntype: preference\n---\nAlice loves lattes.\n'
-        )
-
-        result = await marcel(_ctx(), action='search_memory', query='coffee')
-        assert 'coffee' in result
-
-
-# ---------------------------------------------------------------------------
-# read_memory
-# ---------------------------------------------------------------------------
-
-
-class TestReadMemory:
-    @pytest.mark.asyncio
-    async def test_missing_name(self):
-        result = await marcel(_ctx(), action='read_memory')
-        assert 'Error' in result
-
-    @pytest.mark.asyncio
-    async def test_unknown_name_lists_available(self, tmp_path):
-        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
-        mem_dir.mkdir(parents=True)
-        (mem_dir / 'family.md').write_text('---\nname: family\ndescription: Family members\n---\nBody.\n')
-
-        result = await marcel(_ctx(), action='read_memory', name='nonexistent')
-        assert 'Unknown memory' in result
-        assert 'family' in result
-
-    @pytest.mark.asyncio
-    async def test_loads_full_file(self, tmp_path):
-        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
-        mem_dir.mkdir(parents=True)
-        (mem_dir / 'family.md').write_text(
-            '---\nname: family\ndescription: Family members\ntype: household\n---\nCosette is the partner.\n'
-        )
-
-        result = await marcel(_ctx(), action='read_memory', name='family')
-        assert 'Cosette' in result
-        assert 'family' in result
-        assert '[household]' in result
-
-    @pytest.mark.asyncio
-    async def test_accepts_filename_with_md_suffix(self, tmp_path):
-        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
-        mem_dir.mkdir(parents=True)
-        (mem_dir / 'work.md').write_text('---\nname: work\ndescription: job\n---\nShifts.\n')
-
-        result = await marcel(_ctx(), action='read_memory', name='work.md')
-        assert 'Shifts' in result
-
-
-# ---------------------------------------------------------------------------
-# save_memory
-# ---------------------------------------------------------------------------
-
-
-class TestSaveMemory:
-    @pytest.mark.asyncio
-    async def test_missing_name(self):
-        result = await marcel(_ctx(), action='save_memory', message='content')
-        assert 'Error' in result
-
-    @pytest.mark.asyncio
-    async def test_missing_content(self):
-        result = await marcel(_ctx(), action='save_memory', name='test.md')
-        assert 'Error' in result
-
-    @pytest.mark.asyncio
-    async def test_saves_file(self, tmp_path):
-        mem_dir = tmp_path / 'users' / 'alice' / 'memory'
-        mem_dir.mkdir(parents=True)
-        (mem_dir / 'index.md').write_text('# Memory Index\n')
-
-        content = '---\nname: test\ndescription: test memory\ntype: fact\n---\nSome content.\n'
-        result = await marcel(_ctx(), action='save_memory', name='test', message=content)
-        assert 'Saved' in result
-        assert (mem_dir / 'test.md').exists()
+    async def test_retired_actions_point_at_the_new_tools(self):
+        for action in ('search_memory', 'read_memory', 'save_memory'):
+            result = await marcel(_ctx(), action=action)
+            assert 'moved to dedicated tools' in result
+            assert 'write_memory' in result
 
 
 # ---------------------------------------------------------------------------

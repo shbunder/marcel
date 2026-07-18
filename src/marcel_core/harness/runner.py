@@ -466,6 +466,7 @@ async def stream_turn(
                     system_prompt=tier_system_prompt,
                     role=role,
                     tool_filter=set(),
+                    memory=False,
                 )
             except Exception as exc:
                 log.warning(
