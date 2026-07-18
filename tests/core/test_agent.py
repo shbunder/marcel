@@ -52,6 +52,20 @@ class TestExtractAndSaveMemories:
 
         assert 'prefs.md' in captured_prompt['text']
 
+    def test_disabled_flag_skips_extraction_entirely(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        from marcel_core.config import settings
+
+        monkeypatch.setattr(settings, 'marcel_memory_extractor_enabled', False)
+
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(side_effect=AssertionError('extractor must not run'))
+
+        with patch('marcel_core.memory.extract.Agent', return_value=mock_agent):
+            asyncio.run(extract_and_save_memories('shaun', 'I like tea', 'Noted!', 'conv-1'))
+
+        assert not (tmp_path / 'users' / 'shaun' / 'memory').exists()
+
     def test_swallows_exceptions(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 

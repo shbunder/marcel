@@ -66,6 +66,7 @@ def build_capabilities(*, memory: bool = True) -> list[AbstractCapability[Marcel
                 # agent segment lands files at users/{slug}/memory/*.md —
                 # the pre-capability distilled-memory location, unchanged.
                 agent_name='memory',
+                max_tokens=settings.marcel_memory_inject_max_tokens,
                 guidance=MEMORY_GUIDANCE,
             )
         )

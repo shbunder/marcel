@@ -231,10 +231,11 @@ caller applies directly to disk. Rules enforced by the system prompt:
   `feedback`-type memories with a **Why** / **How to apply** structure
 
 Because the task runs in the background with `asyncio.create_task`, a
-failed extraction is logged but never surfaces to the user. A sync fall-
-back is available via the `marcel(action="save_memory")` tool action
-when the agent wants to write a memory directly during a turn instead
-of waiting for post-turn extraction.
+failed extraction is logged but never surfaces to the user. The agent
+writes memories directly during a turn with the `write_memory` tool
+(the harness Memory capability, FEAT-260718-30d45a) — the extractor is
+the supplement for facts it did not note itself, gated by
+`MARCEL_MEMORY_EXTRACTOR_ENABLED`.
 
 #### Memory consolidation
 

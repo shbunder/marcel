@@ -101,10 +101,10 @@ async def extract_and_save_memories(
         assistant_text: Marcel's response for this turn.
         conversation_id: Filename stem of the conversation (for logging only).
     """
-    from marcel_core.storage.memory import _memory_dir
+    from marcel_core.config import settings
 
-    mem_dir = _memory_dir(user_slug)
-    mem_dir.mkdir(parents=True, exist_ok=True)
+    if not settings.marcel_memory_extractor_enabled:
+        return
 
     # Build manifest of existing memories so the agent can avoid duplicates.
     headers = scan_memory_headers(user_slug)
@@ -131,6 +131,12 @@ async def extract_and_save_memories(
         response = result.output.strip()
         operations = _parse_operations(response)
 
+        # Write through the same store the Memory capability uses — one
+        # write path, one journal, format-identical files (the supplement
+        # catches facts the agent did not note itself).
+        from marcel_core.capabilities.memory import memory_store_for
+
+        store = memory_store_for(user_slug)
         for op in operations:
             filename = op.get('filename', '')
             content = op.get('content', '')
@@ -140,8 +146,7 @@ async def extract_and_save_memories(
             safe_name = Path(filename).name
             if not safe_name.endswith('.md'):
                 safe_name += '.md'
-            filepath = mem_dir / safe_name
-            filepath.write_text(content, encoding='utf-8')
+            await store.write(f'memory/{safe_name}', content, expected_version=None)
             log.debug(
                 'memory_extract: %s memory %s for user=%s',
                 op.get('action', 'wrote'),
