@@ -39,6 +39,15 @@ class TestValidUserSlug:
     def test_rejects_slash(self):
         assert valid_user_slug('a/b') is False
 
+    def test_rejects_reserved_pseudo_user_slugs(self):
+        """Regression (STORY-260718-bf2af2): a leading underscore is
+        reserved for pseudo-users — accepting '_household' at the auth
+        boundary let a shared-API-token client write the family's shared
+        memories as its own store."""
+        assert valid_user_slug('_household') is False
+        assert valid_user_slug('_anything') is False
+        assert valid_user_slug('household_') is True, 'trailing underscore stays legal'
+
 
 # ---------------------------------------------------------------------------
 # verify_api_token

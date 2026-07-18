@@ -54,6 +54,11 @@ class TestLayoutAndRoundTrip:
         with pytest.raises(ValueError):
             memory_store_for('../etc')
 
+    async def test_reserved_pseudo_user_slug_rejected(self):
+        """The household root is never an 'own' store (STORY-260718-bf2af2)."""
+        with pytest.raises(ValueError):
+            memory_store_for('_household')
+
     async def test_store_cached_per_user_and_reset(self, _rooted):
         a1 = memory_store_for('alice')
         assert memory_store_for('alice') is a1
