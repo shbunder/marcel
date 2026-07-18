@@ -35,9 +35,6 @@ from pydantic_ai.messages import (
 
 from marcel_core.memory.history import HistoryMessage, ToolCall
 
-# Tool result preview length kept alongside a paste ref for oversized results
-TOOL_RESULT_PREVIEW_LEN = 200
-
 
 def messages_to_model(
     messages: list[HistoryMessage],

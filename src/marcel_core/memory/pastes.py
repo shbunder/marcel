@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from pathlib import Path
 
 from marcel_core.storage._root import data_root
@@ -78,6 +79,14 @@ def retrieve_paste(user_slug: str, ref: str) -> str | None:
         return ref
 
     content_hash = ref.removeprefix('sha256:')
+    if not re.fullmatch(r'[0-9a-f]{64}', content_hash):
+        # A ref is a bare content hash, nothing else. Anything with path
+        # characters is a traversal attempt — refuse before touching disk
+        # (the model controls read_tool_result handles; see the
+        # PasteOverflowStore ownership check for the first line of defense).
+        log.warning('Rejecting malformed paste ref: %r', ref[:80])
+        return None
+
     paste_path = _pastes_dir(user_slug) / content_hash
 
     if not paste_path.exists():

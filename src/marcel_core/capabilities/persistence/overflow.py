@@ -19,6 +19,7 @@ those paths.
 
 from __future__ import annotations
 
+import re
 from contextvars import ContextVar
 
 from marcel_core.memory.pastes import retrieve_paste, store_paste
@@ -47,6 +48,11 @@ class PasteOverflowStore:
         owner, _, ref = handle.partition('/')
         if not owner or not ref or owner != user_slug:
             raise PermissionError('This result handle belongs to a different conversation.')
+        if not re.fullmatch(r'sha256:[0-9a-f]{64}', ref):
+            # The ref is model-controlled input: only a bare content hash is
+            # legal. Path characters here are a traversal attempt out of the
+            # owner's paste directory — refuse before touching disk.
+            raise PermissionError('Malformed result handle.')
         content = retrieve_paste(owner, ref)
         if content is None:
             raise KeyError(f'No stored result for handle {handle!r} — it may have been cleaned up.')
