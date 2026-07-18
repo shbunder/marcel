@@ -246,6 +246,12 @@ class Terrarium:
         skills_registry_mod._cache = None
         skills_registry_mod._cache_mtime = None
 
+        # Persistence store — per-turn served/pending maps must start empty
+        # in every sealed world (the singleton outlives worlds).
+        from marcel_core.capabilities.persistence import persistence_store
+
+        persistence_store().reset()
+
         # Bus recorder — rides the extension registry onto every turn's bus.
         def _record(event: events_mod.Event, ctx: object) -> None:
             self._bus_recording.append(event)
@@ -286,6 +292,10 @@ class Terrarium:
         core_handlers_mod._POLICY = self._saved['policy']
         approval_mod._REGISTRY = self._saved['approvals']
         settings.marcel_approval_timeout_seconds = cast(float, self._saved['approval_timeout'])
+
+        from marcel_core.capabilities.persistence import persistence_store
+
+        persistence_store().reset()
 
         settings.marcel_zoo_dir = cast('str | None', self._saved['marcel_zoo_dir'])
         settings.marcel_data_dir = cast('str | None', self._saved['marcel_data_dir'])

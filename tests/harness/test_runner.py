@@ -10,17 +10,19 @@ import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.test import TestModel
 
+from marcel_core.capabilities.persistence.extract import (
+    extract_tool_history as _extract_tool_history,
+    messages_to_model as _messages_to_model,
+    tool_result_for_context as _tool_result_for_context,
+)
 from marcel_core.harness.runner import (
     RunFinished,
     TextDelta,
     ToolCallCompleted,
     ToolCallStarted,
     _active_skill_tier,
-    _extract_tool_history,
-    _messages_to_model,
     _prime_read_skills_from_history,
     _resolve_turn_tier,
-    _tool_result_for_context,
     stream_turn,
 )
 from marcel_core.memory.history import HistoryMessage, MessageRole, ToolCall
@@ -710,7 +712,7 @@ class TestResolveTurnTier:
         async def _fake_summarize(*args, **kwargs):
             return True  # Pretend the session just rolled over.
 
-        with patch('marcel_core.harness.runner.summarize_if_idle', new=_fake_summarize):
+        with patch('marcel_core.capabilities.persistence.store.summarize_if_idle', new=_fake_summarize):
             await build_context('shaun', 'telegram')
 
         assert load_channel_tier('shaun', 'telegram') is None
@@ -1051,7 +1053,16 @@ class TestStreamTurnWithToolCalls:
     """Tests for stream_turn tool call extraction and event yielding."""
 
     @pytest.mark.asyncio
-    async def test_tool_calls_stored_in_history(self, tmp_path, monkeypatch):
+    async def test_tool_events_carry_call_details(self, tmp_path, monkeypatch):
+        """The runner narrates tool activity from the run's new messages.
+
+        Persisting tool entries to the segment is the StepPersistence
+        store's job (flushed on run_completed) — a mocked agent fires no
+        hooks, so segment contents are asserted by the Terrarium scenarios
+        (TestToolHistoryPersistsExactlyOnce, TestLargeToolResultsOffloadToPastes),
+        not here. This test pins the runner's remaining responsibility:
+        event emission with the call ids and results intact.
+        """
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
         all_msgs = [
@@ -1071,17 +1082,13 @@ class TestStreamTurnWithToolCalls:
 
         agent = _make_mock_agent(['Here are the files.'], new_messages=all_msgs)
         with patch('marcel_core.harness.runner.create_marcel_agent', return_value=agent):
-            async for _ in stream_turn('shaun', 'cli', 'list files', 'conv-1'):
-                pass
+            events = [e async for e in stream_turn('shaun', 'cli', 'list files', 'conv-1')]
 
-        from marcel_core.memory.conversation import read_active_segment
-
-        messages = read_active_segment('shaun', 'cli')
-        roles = [m.role for m in messages]
-        assert 'tool' in roles
-        tool_msgs = [m for m in messages if m.role == 'tool']
-        assert tool_msgs[0].tool_name == 'bash'
-        assert tool_msgs[0].tool_call_id == 'tc-1'
+        started = [e for e in events if isinstance(e, ToolCallStarted)]
+        completed = [e for e in events if isinstance(e, ToolCallCompleted)]
+        assert started and started[0].tool_call_id == 'tc-1'
+        assert completed and completed[0].tool_call_id == 'tc-1'
+        assert completed[0].result == 'file1\nfile2'
 
     @pytest.mark.asyncio
     async def test_tool_call_events_yielded(self, tmp_path, monkeypatch):
