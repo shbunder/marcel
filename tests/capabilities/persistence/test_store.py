@@ -41,7 +41,9 @@ class TestConversationRouting:
     async def test_non_conversation_records_are_ignored(self, store, tmp_path):
         await store.register_run(RunRecord(run_id='job-1', conversation_id=None))
         await store.append_event(StepEvent(run_id='job-1', kind='run_started', step_index=0))
-        await store.record_tool_effect(ToolEffectRecord(tool_call_id='t1', tool_name='x', run_id='job-1', status='started'))
+        await store.record_tool_effect(
+            ToolEffectRecord(tool_call_id='t1', tool_name='x', run_id='job-1', status='started')
+        )
         assert await store.get_run(run_id='job-1') is None
         assert await store.list_events(run_id='job-1') == []
         assert await store.latest_snapshot(run_id='job-1') is None
@@ -57,7 +59,9 @@ class TestProtocolReadSide:
     async def test_get_run_and_list_events_round_trip(self, store):
         await _register(store)
         await store.append_event(StepEvent(run_id='run-1', kind='run_started', step_index=0, conversation_id=CONV))
-        await store.append_event(StepEvent(run_id='run-1', kind='model_request_started', step_index=1, conversation_id=CONV))
+        await store.append_event(
+            StepEvent(run_id='run-1', kind='model_request_started', step_index=1, conversation_id=CONV)
+        )
 
         run = await store.get_run(run_id='run-1')
         assert run is not None and run.conversation_id == CONV
@@ -66,11 +70,15 @@ class TestProtocolReadSide:
 
     async def test_tool_effect_latest_wins_and_unresolved(self, store):
         await _register(store)
-        await store.record_tool_effect(ToolEffectRecord(tool_call_id='t1', tool_name='bash', run_id='run-1', status='started'))
+        await store.record_tool_effect(
+            ToolEffectRecord(tool_call_id='t1', tool_name='bash', run_id='run-1', status='started')
+        )
         await store.record_tool_effect(
             ToolEffectRecord(tool_call_id='t1', tool_name='bash', run_id='run-1', status='completed')
         )
-        await store.record_tool_effect(ToolEffectRecord(tool_call_id='t2', tool_name='web', run_id='run-1', status='started'))
+        await store.record_tool_effect(
+            ToolEffectRecord(tool_call_id='t2', tool_name='web', run_id='run-1', status='started')
+        )
 
         effect = await store.get_tool_effect(run_id='run-1', tool_call_id='t1')
         assert effect is not None and effect.status == 'completed'
@@ -96,9 +104,7 @@ class TestSnapshotDelta:
     async def test_shrunk_snapshot_is_refused(self, store, caplog):
         await _register(store)
         store._served[CONV] = 5
-        await store.save_snapshot(
-            ContinuableSnapshot(run_id='run-1', step_index=1, messages=[], conversation_id=CONV)
-        )
+        await store.save_snapshot(ContinuableSnapshot(run_id='run-1', step_index=1, messages=[], conversation_id=CONV))
         assert store._pending.get('run-1') is None
         assert any('skipping delta' in r.message for r in caplog.records)
 
