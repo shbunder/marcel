@@ -36,62 +36,21 @@ from pydantic_ai.messages import (
 from marcel_core.memory.history import HistoryMessage, ToolCall
 from marcel_core.memory.pastes import PASTE_THRESHOLD, store_paste
 
-# Tool result preview length for the previous turn
+# Tool result preview length kept alongside a paste ref for oversized results
 TOOL_RESULT_PREVIEW_LEN = 200
-
-# Tools whose results should always be kept in full (regardless of age)
-_ALWAYS_KEEP_TOOLS = frozenset({'marcel'})
-
-# Aggressive tool lifecycle: only current turn (0) and previous turn (1).
-_FULL_RESULT_TURNS = 1  # turn 0 = current
-_PREVIEW_RESULT_TURNS = 2  # turn 1 = previous
-
-
-def tool_result_for_context(
-    text: str | None,
-    tool_name: str | None,
-    turn_age: int,
-) -> str:
-    """Apply aggressive tool result lifecycle based on turn age.
-
-    - Current turn (age 0): full result
-    - Previous turn (age 1): 200-char preview
-    - Older (age 2+): inline name-only note
-    """
-    if not text:
-        return f'({tool_name or "tool"} completed with no output)'
-
-    # Always keep results for certain tools
-    if tool_name and tool_name in _ALWAYS_KEEP_TOOLS:
-        return text
-
-    # Current turn: full result
-    if turn_age < _FULL_RESULT_TURNS:
-        return text
-
-    # Previous turn: short preview
-    if turn_age < _PREVIEW_RESULT_TURNS:
-        if len(text) > TOOL_RESULT_PREVIEW_LEN:
-            return text[:TOOL_RESULT_PREVIEW_LEN] + f'\n... ({len(text)} chars total, truncated)'
-        return text
-
-    # Older turns: name-only note
-    return f'[Used {tool_name or "tool"}]'
 
 
 def messages_to_model(
     messages: list[HistoryMessage],
-    num_turns: int | None = None,
 ) -> list[ModelMessage]:
     """Convert internal HistoryMessage objects to pydantic-ai ModelMessage format.
 
     Handles user, assistant (with tool calls), and tool result messages.
-    Applies aggressive tool lifecycle trimming based on turn age.
+    Serves stored content as-is: in-run shaping (blanking old tool results,
+    clamping runaway parts) is the compaction capabilities' job now
+    (STORY-260718-406de0) — disk keeps full fidelity, each request pays
+    only for what the compaction stack lets through.
     """
-    # Count turns (user messages) to compute age for tiered trimming
-    turn_count = sum(1 for m in messages if m.role == 'user') if num_turns is None else num_turns
-    current_turn = 0
-
     result: list[ModelMessage] = []
     # Collect consecutive tool-result messages into a single ModelRequest
     pending_tool_returns: list[ToolReturnPart] = []
@@ -104,7 +63,6 @@ def messages_to_model(
     for msg in messages:
         if msg.role == 'user':
             _flush_tool_returns()
-            current_turn += 1
             if not msg.text:
                 continue
             result.append(ModelRequest(parts=[UserPromptPart(content=msg.text, timestamp=msg.timestamp)]))
@@ -127,8 +85,7 @@ def messages_to_model(
                 result.append(ModelResponse(parts=parts, timestamp=msg.timestamp))
 
         elif msg.role == 'tool':
-            turn_age = turn_count - current_turn
-            content = tool_result_for_context(msg.text, msg.tool_name, turn_age)
+            content = msg.text or f'({msg.tool_name or "tool"} completed with no output)'
             pending_tool_returns.append(
                 ToolReturnPart(
                     tool_name=msg.tool_name or 'unknown',

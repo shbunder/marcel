@@ -152,11 +152,11 @@ def _prime_read_skills_from_history(messages: Sequence[ModelMessage], read_skill
 
     Scans the message history for any assistant tool call invoking the
     ``marcel`` tool with ``action='read_skill'`` and adds the requested
-    skill name to ``read_skills``. Since ``marcel`` tool results are
-    always kept in full across turns (see :data:`_ALWAYS_KEEP_TOOLS`),
-    the docs for any skill loaded this way are guaranteed to still be in
-    the model's context — so the integration tool's auto-load does not
-    need to re-inject them on subsequent turns.
+    skill name to ``read_skills``. Since ``marcel`` tool results are never
+    blanked by compaction (``exclude_tools`` in the composition root's
+    ``ClearToolResults``), the docs for any skill loaded this way are
+    guaranteed to still be in the model's context — so the integration
+    tool's auto-load does not need to re-inject them on subsequent turns.
     """
     for msg in messages:
         if not isinstance(msg, ModelResponse):

@@ -13,7 +13,6 @@ from pydantic_ai.models.test import TestModel
 from marcel_core.capabilities.persistence.extract import (
     extract_tool_history as _extract_tool_history,
     messages_to_model as _messages_to_model,
-    tool_result_for_context as _tool_result_for_context,
 )
 from marcel_core.harness.runner import (
     RunFinished,
@@ -831,48 +830,6 @@ class TestHistoryToMessages:
         assert isinstance(tool_request, ModelRequest)
         assert len(tool_request.parts) == 2
         assert all(isinstance(p, ToolReturnPart) for p in tool_request.parts)
-
-
-class TestToolResultForContext:
-    """Tests for aggressive tool result lifecycle.
-
-    Lifecycle: current turn (0) = full, previous turn (1) = preview, older (2+) = name-only.
-    """
-
-    def test_empty_result(self):
-        assert _tool_result_for_context(None, 'bash', 0) == '(bash completed with no output)'
-        assert _tool_result_for_context('', 'bash', 0) == '(bash completed with no output)'
-
-    def test_current_turn_full_result(self):
-        content = 'x' * 5000
-        result = _tool_result_for_context(content, 'bash', 0)
-        assert result == content  # kept in full
-
-    def test_previous_turn_truncated(self):
-        content = 'x' * 5000
-        result = _tool_result_for_context(content, 'bash', 1)
-        assert len(result) < len(content)
-        assert 'truncated' in result
-
-    def test_previous_turn_small_kept(self):
-        content = 'short result'
-        result = _tool_result_for_context(content, 'bash', 1)
-        assert result == content
-
-    def test_old_turn_name_only(self):
-        content = 'x' * 5000
-        result = _tool_result_for_context(content, 'bash', 2)
-        assert result == '[Used bash]'
-
-    def test_always_keep_tools(self):
-        content = 'x' * 5000
-        result = _tool_result_for_context(content, 'marcel', 20)
-        assert result == content  # kept in full regardless of age
-
-    def test_marcel_tool_always_kept_long(self):
-        """Marcel tool results (search_memory, read_skill, etc.) are kept in full."""
-        result = _tool_result_for_context('search results here', 'marcel', 20)
-        assert result == 'search results here'
 
 
 class TestPrimeReadSkillsFromHistory:
