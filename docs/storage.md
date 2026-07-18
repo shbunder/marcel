@@ -26,6 +26,9 @@ synchronous Python API for reading and writing users, conversations, and memory.
             seg-0001.summary.md  # rolling summary of seg-0001
           channel.meta.json   # channel-level metadata
           search_index.jsonl  # keyword search index
+          runs.jsonl          # append-only run ledger: run lifecycle events +
+                              # tool effects per turn (crash visibility;
+                              # torn-write tolerant reader)
       cache/                  # SQLite caches for integrations (path shape,
                               # files populated on demand by whichever integrations
                               # are installed — e.g. banking.db, news.db)
@@ -71,6 +74,7 @@ conversation/
       seg-0001.summary.md     # rolling summary with frontmatter
     channel.meta.json         # channel metadata
     search_index.jsonl        # keyword search index
+    runs.jsonl                # append-only run ledger (lifecycle + tool effects)
 ```
 
 Each JSONL line in a segment has the same format:
@@ -84,7 +88,7 @@ Each JSONL line in a segment has the same format:
 | `tool_calls` | array? | For assistant: `[{id, name, arguments}]` |
 | `tool_call_id` | string? | For tool results: matches a tool call ID |
 | `tool_name` | string? | For tool results: which tool produced this |
-| `result_ref` | string? | `sha256:{hash}` pointer to paste store |
+| `result_ref` | string? | Legacy `sha256:{hash}` paste pointer (pre-FEAT-260718-ed6d63 rows; new oversized results are reduced at return time and store a preview + `read_tool_result` handle in `text`) |
 | `is_error` | bool | Whether this tool result was an error |
 
 #### Segment lifecycle

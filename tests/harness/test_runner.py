@@ -10,17 +10,18 @@ import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.test import TestModel
 
+from marcel_core.capabilities.persistence.extract import (
+    extract_tool_history as _extract_tool_history,
+    messages_to_model as _messages_to_model,
+)
 from marcel_core.harness.runner import (
     RunFinished,
     TextDelta,
     ToolCallCompleted,
     ToolCallStarted,
     _active_skill_tier,
-    _extract_tool_history,
-    _messages_to_model,
     _prime_read_skills_from_history,
     _resolve_turn_tier,
-    _tool_result_for_context,
     stream_turn,
 )
 from marcel_core.memory.history import HistoryMessage, MessageRole, ToolCall
@@ -31,7 +32,7 @@ from marcel_core.storage import _root
 async def _mock_run_stream(
     text_parts: list[str],
     *,
-    all_messages: list | None = None,
+    new_messages: list | None = None,
     cost: int | None = None,
 ):
     """Return a mock agent.run_stream() context manager that yields text deltas."""
@@ -50,15 +51,15 @@ async def _mock_run_stream(
     result.stream_text = _stream_text
     result.get_output = AsyncMock(return_value=None)
     result.usage = usage
-    result.all_messages = MagicMock(return_value=all_messages or [])
+    result.new_messages = MagicMock(return_value=new_messages or [])
 
     yield result
 
 
-def _make_mock_agent(text_parts: list[str], all_messages: list | None = None):
+def _make_mock_agent(text_parts: list[str], new_messages: list | None = None):
     """Return a mock pydantic-ai agent."""
     agent = MagicMock()
-    agent.run_stream = lambda *args, **kwargs: _mock_run_stream(text_parts, all_messages=all_messages)
+    agent.run_stream = lambda *args, **kwargs: _mock_run_stream(text_parts, new_messages=new_messages)
     return agent
 
 
@@ -160,7 +161,7 @@ class TestStreamTurn:
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
             result.usage = MagicMock(total_tokens=10)
-            result.all_messages = MagicMock(return_value=[])
+            result.new_messages = MagicMock(return_value=[])
             yield result
 
         agent = MagicMock()
@@ -213,7 +214,7 @@ class TestStreamTurn:
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
             result.usage = MagicMock(total_tokens=1)
-            result.all_messages = MagicMock(return_value=[])
+            result.new_messages = MagicMock(return_value=[])
             yield result
 
         agent = MagicMock()
@@ -257,7 +258,7 @@ class TestStreamTurn:
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
             result.usage = MagicMock(total_tokens=1)
-            result.all_messages = MagicMock(return_value=[])
+            result.new_messages = MagicMock(return_value=[])
             yield result
 
         agent = MagicMock()
@@ -310,7 +311,7 @@ def _mid_stream_failing_agent(text_parts: list[str], exc_factory):
         result.stream_text = _stream_text
         result.get_output = AsyncMock(return_value=None)
         result.usage = MagicMock(total_tokens=0)
-        result.all_messages = MagicMock(return_value=[])
+        result.new_messages = MagicMock(return_value=[])
         yield result
 
     agent = MagicMock()
@@ -710,7 +711,7 @@ class TestResolveTurnTier:
         async def _fake_summarize(*args, **kwargs):
             return True  # Pretend the session just rolled over.
 
-        with patch('marcel_core.harness.runner.summarize_if_idle', new=_fake_summarize):
+        with patch('marcel_core.capabilities.persistence.store.summarize_if_idle', new=_fake_summarize):
             await build_context('shaun', 'telegram')
 
         assert load_channel_tier('shaun', 'telegram') is None
@@ -829,48 +830,6 @@ class TestHistoryToMessages:
         assert isinstance(tool_request, ModelRequest)
         assert len(tool_request.parts) == 2
         assert all(isinstance(p, ToolReturnPart) for p in tool_request.parts)
-
-
-class TestToolResultForContext:
-    """Tests for aggressive tool result lifecycle.
-
-    Lifecycle: current turn (0) = full, previous turn (1) = preview, older (2+) = name-only.
-    """
-
-    def test_empty_result(self):
-        assert _tool_result_for_context(None, 'bash', 0) == '(bash completed with no output)'
-        assert _tool_result_for_context('', 'bash', 0) == '(bash completed with no output)'
-
-    def test_current_turn_full_result(self):
-        content = 'x' * 5000
-        result = _tool_result_for_context(content, 'bash', 0)
-        assert result == content  # kept in full
-
-    def test_previous_turn_truncated(self):
-        content = 'x' * 5000
-        result = _tool_result_for_context(content, 'bash', 1)
-        assert len(result) < len(content)
-        assert 'truncated' in result
-
-    def test_previous_turn_small_kept(self):
-        content = 'short result'
-        result = _tool_result_for_context(content, 'bash', 1)
-        assert result == content
-
-    def test_old_turn_name_only(self):
-        content = 'x' * 5000
-        result = _tool_result_for_context(content, 'bash', 2)
-        assert result == '[Used bash]'
-
-    def test_always_keep_tools(self):
-        content = 'x' * 5000
-        result = _tool_result_for_context(content, 'marcel', 20)
-        assert result == content  # kept in full regardless of age
-
-    def test_marcel_tool_always_kept_long(self):
-        """Marcel tool results (search_memory, read_skill, etc.) are kept in full."""
-        result = _tool_result_for_context('search results here', 'marcel', 20)
-        assert result == 'search results here'
 
 
 class TestPrimeReadSkillsFromHistory:
@@ -999,10 +958,17 @@ class TestExtractToolHistory:
         entries = _extract_tool_history(messages, 'shaun', 'conv-1')
         assert len(entries) == 0  # No tool calls
 
-    def test_large_result_offloaded(self, tmp_path, monkeypatch):
+    def test_result_persisted_as_seen(self, tmp_path, monkeypatch):
+        """Extraction persists the content exactly as it entered the run.
+
+        Oversized returns are reduced at return time by
+        OverflowingToolOutput (spill → preview + handle) before extraction
+        ever sees them, so there is no persistence-side offload anymore —
+        what the model saw is what the segment stores.
+        """
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
-        large_content = 'x' * 5000  # Above PASTE_THRESHOLD (1KB)
+        content = 'x' * 5000
         messages = [
             ModelResponse(
                 parts=[
@@ -1011,18 +977,15 @@ class TestExtractToolHistory:
             ),
             ModelRequest(
                 parts=[
-                    ToolReturnPart(tool_name='bash', content=large_content, tool_call_id='tc-1'),
+                    ToolReturnPart(tool_name='bash', content=content, tool_call_id='tc-1'),
                 ]
             ),
         ]
 
         entries = _extract_tool_history(messages, 'shaun', 'conv-1')
         tool_entry = [e for e in entries if e.role == 'tool'][0]
-        assert tool_entry.result_ref is not None
-        assert tool_entry.result_ref.startswith('sha256:')
-        # Text should be truncated preview
-        assert tool_entry.text is not None
-        assert len(tool_entry.text) <= 2000 + 50  # preview + suffix
+        assert tool_entry.text == content
+        assert tool_entry.result_ref is None
 
     def test_error_result_marked(self):
         messages = [
@@ -1051,7 +1014,16 @@ class TestStreamTurnWithToolCalls:
     """Tests for stream_turn tool call extraction and event yielding."""
 
     @pytest.mark.asyncio
-    async def test_tool_calls_stored_in_history(self, tmp_path, monkeypatch):
+    async def test_tool_events_carry_call_details(self, tmp_path, monkeypatch):
+        """The runner narrates tool activity from the run's new messages.
+
+        Persisting tool entries to the segment is the StepPersistence
+        store's job (flushed on run_completed) — a mocked agent fires no
+        hooks, so segment contents are asserted by the Terrarium scenarios
+        (TestToolHistoryPersistsExactlyOnce, TestLargeToolResultsOffloadToPastes),
+        not here. This test pins the runner's remaining responsibility:
+        event emission with the call ids and results intact.
+        """
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
         all_msgs = [
@@ -1069,19 +1041,15 @@ class TestStreamTurnWithToolCalls:
             ModelResponse(parts=[TextPart(content='Here are the files.')]),
         ]
 
-        agent = _make_mock_agent(['Here are the files.'], all_messages=all_msgs)
+        agent = _make_mock_agent(['Here are the files.'], new_messages=all_msgs)
         with patch('marcel_core.harness.runner.create_marcel_agent', return_value=agent):
-            async for _ in stream_turn('shaun', 'cli', 'list files', 'conv-1'):
-                pass
+            events = [e async for e in stream_turn('shaun', 'cli', 'list files', 'conv-1')]
 
-        from marcel_core.memory.conversation import read_active_segment
-
-        messages = read_active_segment('shaun', 'cli')
-        roles = [m.role for m in messages]
-        assert 'tool' in roles
-        tool_msgs = [m for m in messages if m.role == 'tool']
-        assert tool_msgs[0].tool_name == 'bash'
-        assert tool_msgs[0].tool_call_id == 'tc-1'
+        started = [e for e in events if isinstance(e, ToolCallStarted)]
+        completed = [e for e in events if isinstance(e, ToolCallCompleted)]
+        assert started and started[0].tool_call_id == 'tc-1'
+        assert completed and completed[0].tool_call_id == 'tc-1'
+        assert completed[0].result == 'file1\nfile2'
 
     @pytest.mark.asyncio
     async def test_tool_call_events_yielded(self, tmp_path, monkeypatch):
@@ -1102,7 +1070,7 @@ class TestStreamTurnWithToolCalls:
             ModelResponse(parts=[TextPart(content='Here is the news.')]),
         ]
 
-        agent = _make_mock_agent(['Here is the news.'], all_messages=all_msgs)
+        agent = _make_mock_agent(['Here is the news.'], new_messages=all_msgs)
         with patch('marcel_core.harness.runner.create_marcel_agent', return_value=agent):
             events = [e async for e in stream_turn('shaun', 'cli', 'news', 'conv-1')]
 
@@ -1157,7 +1125,7 @@ class TestStreamTurnWithHistory:
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
             result.usage = MagicMock(total_tokens=10)
-            result.all_messages = MagicMock(return_value=[])
+            result.new_messages = MagicMock(return_value=[])
             yield result
 
         agent = MagicMock()
@@ -1195,7 +1163,7 @@ class TestStreamTurnWithHistory:
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
             result.usage = MagicMock(total_tokens=10)
-            result.all_messages = MagicMock(return_value=[])
+            result.new_messages = MagicMock(return_value=[])
             yield result
 
         agent = MagicMock()

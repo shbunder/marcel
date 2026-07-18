@@ -16,6 +16,7 @@ src/marcel_core/
   tracing.py       # Optional OpenTelemetry tracing via Phoenix
   capabilities/    # One self-contained package per capability (ADR-260718-0cf8e8)
     policy/        # MarcelPolicy — tool interception via the turn's event bus
+    persistence/   # MarcelStepStore (runs ledger, snapshot deltas), converters, spill store
   api/
     health.py      # GET /health
     chat.py        # WebSocket /ws/chat — streaming conversation
@@ -32,7 +33,7 @@ src/marcel_core/
     selector.py      # Relevance-based memory selection via Haiku side-query
     extract.py       # Post-turn fire-and-forget memory extraction (Haiku)
     history.py       # Message types (HistoryMessage, ToolCall)
-    pastes.py        # Content-addressed paste store for large tool results
+    pastes.py        # Content-addressed paste store (backend for spilled tool results)
   channels/
     adapter.py     # ChannelAdapter protocol — generic event dispatch
     websocket.py   # WebSocket channel adapter
@@ -139,16 +140,29 @@ For each conversation turn:
    - `# Memory — what you should know` — compact memory index, full bodies on demand via `read_memory` / `search_memory`
    - `# <Channel> — how to respond` — channel guidance (preamble stripped)
 4. Summarize-if-idle: if last_active > 60 min ago, seal segment + generate summary
-5. Load context: latest rolling summary + active segment messages
-6. agent.run_stream(user_text, message_history=context)
+5. Load context via the persistence store: latest rolling summary + active
+   segment messages, served at full fidelity (in-run shaping is the
+   compaction capabilities' job)
+6. agent.run_stream(user_text, message_history=context, conversation_id="user:channel")
 7. For each stream event:
    - TextDelta -> yield token to client
    - ToolCallEvent -> yield tool_call event
    - ToolResultEvent -> yield tool_result event
-8. Append all messages (user + assistant + tool) to active segment
+8. Persistence during the run (StepPersistence -> MarcelStepStore): tool
+   entries flush to the segment on run_completed only (a failed tier
+   attempt persists nothing); a runs.jsonl ledger records run lifecycle +
+   tool effects per conversation. The runner appends the user message
+   before the run and the final assistant text (incl. error tails) after.
 9. Fire-and-forget: extract_and_save_memories() as asyncio background task
 10. Send {"type": "done", "cost_usd": ...}
 ```
+
+In-run context shaping is composed in `composition.py`: oversized tool
+returns spill to the user's paste store at return time (preview + a
+`read_tool_result` handle, owner-validated), runaway single parts are
+clamped, and old tool results blank past a token trigger with the most
+recent call/return pairs kept whole (`marcel` results exempt). Disk keeps
+full fidelity; each request pays only for what the stack lets through.
 
 ### Continuous conversation model
 

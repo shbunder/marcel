@@ -250,12 +250,23 @@ class TestInjectedModelPinsTheTier:
         assert provider_events[0].model == 'scripted'
 
 
-class TestLargeToolResultsOffloadToPastes:
-    """Scenario: a large tool result is offloaded to the paste store, and the
-    conversation keeps only a preview — the runner's paste path, unmocked."""
+class TestOversizedResultsSpillWithHandle:
+    """Scenario: an oversized tool result spills at return time, unmocked.
 
-    async def test_paste_offload(self, terrarium):
-        big = 'x' * 2048  # PASTE_THRESHOLD is 1KB
+    OverflowingToolOutput reduces the return before the model or the
+    segment ever sees it: the full payload lands in the user's paste store,
+    the model receives a preview plus a read_tool_result handle, and the
+    reduced form is what persists (FEAT-260718-ed6d63, feature AC 3).
+    """
+
+    async def test_spill_preview_and_readback(self, terrarium):
+        from marcel_core.capabilities.persistence.overflow import (
+            PasteOverflowStore,
+            current_overflow_user,
+        )
+        from marcel_core.composition import OVERFLOW_SPILL_CHARS
+
+        big = 'x' * (OVERFLOW_SPILL_CHARS + 1_000)
 
         @marcel_tool('blob.dump')
         async def dump(params: dict, user_slug: str) -> str:
@@ -270,11 +281,29 @@ class TestLargeToolResultsOffloadToPastes:
 
         assert result.reply == 'stored'
         pastes = list((terrarium.data_root / 'users' / 'alice' / '.pastes').glob('*'))
-        assert pastes, 'a >1KB tool result must be offloaded to the paste store'
+        assert pastes, 'the oversized payload must spill to the paste store'
+
+        completion = next(c for c in result.completions if c.tool_name == 'toolkit')
+        assert big not in completion.result, 'the full payload never reaches the model inline'
+        assert 'read_tool_result' in completion.result, 'the model gets a read-back handle'
+
         from marcel_core.memory.conversation import read_active_segment
 
         tool_msgs = [m for m in read_active_segment('alice', 'cli') if m.role == 'tool']
-        assert tool_msgs and len(tool_msgs[0].text or '') < len(big), 'segment keeps a preview, not the blob'
+        assert tool_msgs and len(tool_msgs[0].text or '') < len(big), 'segment stores the reduced form'
+
+        # The spill is losslessly retrievable through the store, and only
+        # by its owner.
+        import re
+
+        handle_match = re.search(r"handle[\"'=:\s]+([a-z0-9_-]+/sha256:[0-9a-f]+)", completion.result)
+        assert handle_match, f'no handle found in: {completion.result[:300]}'
+        token = current_overflow_user.set('alice')
+        try:
+            payload = await PasteOverflowStore().read(handle_match.group(1))
+            assert payload.decode() == big
+        finally:
+            current_overflow_user.reset(token)
 
 
 class TestMultiTurnContext:
