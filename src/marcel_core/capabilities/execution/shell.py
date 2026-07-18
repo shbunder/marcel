@@ -31,25 +31,47 @@ from marcel_core.config import settings
 
 
 class SandboxedShellToolset(ShellToolset):
-    """ShellToolset whose spawned commands run inside bubblewrap."""
+    """ShellToolset whose spawned commands run inside bubblewrap.
+
+    Both spawn paths are covered: ``run_command`` (via ``_build_cwd_capture``,
+    the only place the harness calls it) and ``start_command`` (the harness
+    spawns the raw command directly, so we override it to wrap too). A
+    background command missing the sandbox was a real bypass — see
+    STORY-260718-bcb643.
+    """
+
+    def _bwrap_wrap(self, command: str) -> str:
+        """Wrap ``command`` in the bwrap argv when the sandbox is startable.
+
+        Mirrors ``run_sandboxed()``: the bwrap argv + ``bash -c <cmd>``,
+        shell-joined because ShellToolset spawns a shell string. Returns the
+        command unchanged when the sandbox is disabled or unavailable (the
+        documented fallback — the command policy still gates in front).
+        """
+        if not settings.marcel_sandbox_enabled:
+            return command
+        from marcel_core.harness.sandbox import build_bwrap_argv, sandbox_available
+
+        if not sandbox_available():
+            return command
+        workspace = Path(self._cwd)
+        argv = build_bwrap_argv(
+            workspace=workspace,
+            cwd=workspace,
+            data_dir=settings.data_dir,
+            allow_network=settings.marcel_sandbox_network,
+        )
+        return shlex.join([*argv, 'bash', '-c', command])
 
     def _build_cwd_capture(self, command: str) -> tuple[str, Path | None]:
         actual, cwd_file = super()._build_cwd_capture(command)
-        if settings.marcel_sandbox_enabled:
-            from marcel_core.harness.sandbox import build_bwrap_argv, sandbox_available
+        return self._bwrap_wrap(actual), cwd_file
 
-            if sandbox_available():
-                workspace = Path(self._cwd)
-                # Mirrors run_sandboxed(): the bwrap argv + `bash -c <cmd>`,
-                # shell-joined because ShellToolset spawns a shell string.
-                argv = build_bwrap_argv(
-                    workspace=workspace,
-                    cwd=workspace,
-                    data_dir=settings.data_dir,
-                    allow_network=settings.marcel_sandbox_network,
-                )
-                actual = shlex.join([*argv, 'bash', '-c', actual])
-        return actual, cwd_file
+    async def start_command(self, command: str) -> str:
+        # The harness spawns the background command directly (no
+        # _build_cwd_capture), so wrap it here — otherwise background
+        # commands run with the marcel process's full ambient authority.
+        return await super().start_command(self._bwrap_wrap(command))
 
 
 @dataclass

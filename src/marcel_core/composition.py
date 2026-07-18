@@ -35,24 +35,48 @@ from marcel_core.tracing import get_instrumentation_settings
 _PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
 
 # Tools the model may orchestrate from run_code (CodeMode/Monty — the
-# code_exec successor, ADR-260718-d511f7). Conservative opt-in: read-only-ish,
+# code_exec successor, ADR-260718-d511f7). Conservative opt-in, and the bar
+# is that the tool's own body is safe to invoke from model-written code:
 # never approval-gated (an approval inside generated code surfaces as a raw
-# retry). `toolkit` stays a direct tool until the Zoo v2 skills rewrite.
-CODE_MODE_ELIGIBLE = frozenset({'web', 'generate_chart'})
+# retry), never a dispatcher (`toolkit`/`marcel`), and never a tool that
+# itself executes model-controlled code. `generate_chart` is deliberately
+# EXCLUDED — it runs `exec()` on model input outside every sandbox, so
+# exposing it here would defeat Monty's isolation (STORY-260718-a243ee
+# tracks the underlying exec hardening).
+CODE_MODE_ELIGIBLE = frozenset({'web'})
 
-# Restricted self-mod paths (mirrors the MarcelPolicy guard) plus the harness
-# defaults — FileSystem refuses writes to these even before the policy layer.
+# Restricted self-mod paths (mirrors the MarcelPolicy guard) — FileSystem
+# refuses WRITES to these even before the policy layer. Every pattern is
+# depth-agnostic (`**/` prefix): the admin FileSystem is rooted at the session
+# cwd, which for the primary Telegram admin path is $HOME, so the self-mod
+# files sit several directories deep (`$HOME/projects/marcel/…`). Root-anchored
+# patterns would silently no-op there (STORY-260718-38235c security review).
 FILESYSTEM_PROTECTED_PATTERNS = (
-    '.git/*',
-    '.env',
-    '.env.*',
-    '*.pem',
-    '*.key',
+    '**/.git/**',
+    '**/.git',
+    '**/.claude/**',
+    '**/.env',
+    '**/.env.*',
+    '**/*.pem',
+    '**/*.key',
     '**/secrets*',
-    'CLAUDE.md',
-    '.claude/**',
-    'src/marcel_core/auth/**',
-    'src/marcel_core/config.py',
+    '**/CLAUDE.md',
+    '**/src/marcel_core/auth/**',
+    '**/src/marcel_core/config.py',
+)
+
+# Paths FileSystem refuses to READ — protected_patterns only gate writes, so
+# without this a rooted-at-$HOME read_file could disclose SSH keys, .env
+# secrets, or another user's encrypted credential blob.
+FILESYSTEM_DENIED_READ_PATTERNS = (
+    '**/.env',
+    '**/.env.*',
+    '**/*.pem',
+    '**/*.key',
+    '**/.ssh/**',
+    '**/secrets*',
+    '**/.marcel/users/**/credentials*',
+    '**/credentials.enc',
 )
 
 # Tool names contributed by the admin-only capabilities — unioned into
@@ -78,6 +102,7 @@ def build_capabilities(
     cwd: str | None = None,
     tool_filter: set[str] | None = None,
     memory: bool = True,
+    code_mode: bool = True,
 ) -> list[AbstractCapability[MarcelDeps]]:
     """Assemble the capability list for a Marcel agent.
 
@@ -87,7 +112,9 @@ def build_capabilities(
     tool results past the token trigger — replaces the pre-harness
     age-tier trimming), the Memory notebook (``memory=False`` for the lean
     paths — jobs until FEAT-260718-49a01a declares scoping, and the
-    explain tier), CodeMode over the eligible tool set, admin execution
+    explain tier), CodeMode over the eligible tool set (``code_mode=False``
+    for the lean paths — headless jobs, which get their own CodeMode
+    scoping in FEAT-260718-49a01a, and the explain tier), admin execution
     capabilities (Shell through bubblewrap, FileSystem rooted at the
     session cwd — attached only when the role is admin AND the
     ``tool_filter`` either is absent or names them, so constrained
@@ -123,7 +150,8 @@ def build_capabilities(
             )
         )
 
-    capabilities.append(CodeMode(tools=sorted(CODE_MODE_ELIGIBLE)))
+    if code_mode:
+        capabilities.append(CodeMode(tools=sorted(CODE_MODE_ELIGIBLE)))
 
     if role == 'admin':
         workspace = cwd or _PROJECT_ROOT
@@ -159,6 +187,7 @@ def build_capabilities(
                 FilteredFileSystem(
                     root_dir=workspace,
                     protected_patterns=list(FILESYSTEM_PROTECTED_PATTERNS),
+                    denied_patterns=list(FILESYSTEM_DENIED_READ_PATTERNS),
                     allowed_tools=fs_allowed,
                 )
             )

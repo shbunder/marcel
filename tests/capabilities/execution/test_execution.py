@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from marcel_core.capabilities.execution import FilteredFileSystem, SandboxedShell
 from marcel_core.composition import (
     CODE_MODE_ELIGIBLE,
@@ -56,6 +58,31 @@ class TestSandboxRouting:
             actual, _ = toolset._build_cwd_capture('echo hi')
         assert actual == 'echo hi'
 
+    @pytest.mark.asyncio
+    async def test_start_command_is_also_sandboxed(self, tmp_path):
+        """Regression: the background spawn path (start_command) must be
+        wrapped too — the harness spawns it directly without touching
+        _build_cwd_capture, so it was a real bypass (security review)."""
+        toolset = _shell_toolset(tmp_path)
+        wrapped: list[str] = []
+
+        async def _fake_super_start(self, command: str) -> str:  # noqa: ANN001
+            wrapped.append(command)
+            return 'started'
+
+        with (
+            patch('marcel_core.harness.sandbox.sandbox_available', return_value=True),
+            patch('marcel_core.harness.sandbox.build_bwrap_argv', return_value=['/usr/bin/bwrap', '--unshare-net']),
+            patch(
+                'pydantic_ai_harness.shell._toolset.ShellToolset.start_command',
+                _fake_super_start,
+            ),
+        ):
+            await toolset.start_command('sleep 60')
+
+        assert wrapped and wrapped[0].startswith('/usr/bin/bwrap --unshare-net bash -c ')
+        assert 'sleep 60' in wrapped[0]
+
 
 class TestCompositionRoleAxes:
     def test_admin_gets_shell_and_filesystem(self, tmp_path, monkeypatch):
@@ -99,21 +126,104 @@ class TestCompositionRoleAxes:
 
 class TestFileSystemProtectedPatterns:
     def test_self_mod_paths_are_in_the_protected_set(self):
-        """AC1 wiring: the composition roots FileSystem with the restricted
-        self-mod paths, so the capability refuses those writes on its own —
-        a second layer under the MarcelPolicy guard. The end-to-end refusal
-        is exercised by the Terrarium scenario (both-layers assertion)."""
-        assert 'CLAUDE.md' in FILESYSTEM_PROTECTED_PATTERNS
-        assert 'src/marcel_core/config.py' in FILESYSTEM_PROTECTED_PATTERNS
-        assert any('auth' in p for p in FILESYSTEM_PROTECTED_PATTERNS)
-        assert '.env' in FILESYSTEM_PROTECTED_PATTERNS
+        """The composition roots FileSystem with the restricted self-mod
+        paths; every pattern is depth-agnostic (`**/`) because the admin
+        root is $HOME on the primary Telegram path."""
+        assert '**/CLAUDE.md' in FILESYSTEM_PROTECTED_PATTERNS
+        assert '**/src/marcel_core/config.py' in FILESYSTEM_PROTECTED_PATTERNS
+        assert '**/.git/**' in FILESYSTEM_PROTECTED_PATTERNS
+        assert '**/.claude/**' in FILESYSTEM_PROTECTED_PATTERNS
+        assert all(p.startswith('**/') for p in FILESYSTEM_PROTECTED_PATTERNS)
+
+    @pytest.mark.asyncio
+    async def test_capability_refuses_a_protected_write_at_depth(self, tmp_path):
+        """AC1 layer 2: FilteredFileSystem refuses a write to a self-mod
+        path on its own — independent of the policy guard — and the depth
+        of the file under the root does not matter ($HOME-rooted case).
+        Driven by a scripted model so the write_file arg is a real path.
+        """
+        from odile import call_tool, reply
+        from odile.script import ScriptedModel
+        from pydantic_ai import Agent
+
+        from marcel_core.capabilities.execution import FilteredFileSystem
+        from marcel_core.composition import FILESYSTEM_PROTECTED_PATTERNS
+
+        nested = tmp_path / 'projects' / 'marcel'
+        nested.mkdir(parents=True)
+        (nested / 'CLAUDE.md').write_text('# rules\n')
+
+        fs = FilteredFileSystem(
+            root_dir=str(tmp_path),
+            protected_patterns=list(FILESYSTEM_PROTECTED_PATTERNS),
+        )
+        agent = Agent(
+            ScriptedModel(
+                call_tool('write_file', path='projects/marcel/CLAUDE.md', content='evil'),
+                reply('refused'),
+            ),
+            deps_type=MarcelDeps,
+            capabilities=[fs],  # no MarcelPolicy — this is layer 2 in isolation
+        )
+        result = await agent.run('overwrite the rules', deps=_deps())
+
+        assert (nested / 'CLAUDE.md').read_text() == '# rules\n', 'protected file untouched'
+        rendered = str(result.all_messages()).lower()
+        assert 'protected' in rendered or 'not allowed' in rendered or 'denied' in rendered
 
 
 class TestCodeModeEligibility:
     def test_eligible_set_is_conservative(self):
-        """Approval-gated and dispatcher tools stay direct; only read-only-ish
-        orchestration candidates move behind run_code (ADR-260718-d511f7)."""
-        assert CODE_MODE_ELIGIBLE == {'web', 'generate_chart'}
+        """Only tools whose own body is safe to invoke from model-written
+        code are eligible: no shell/approval/dispatcher, and NOT
+        generate_chart (it execs model input outside every sandbox)."""
+        assert CODE_MODE_ELIGIBLE == {'web'}
         assert not CODE_MODE_ELIGIBLE & SHELL_TOOL_NAMES
+        assert 'generate_chart' not in CODE_MODE_ELIGIBLE
         assert 'toolkit' not in CODE_MODE_ELIGIBLE
         assert 'marcel' not in CODE_MODE_ELIGIBLE
+
+    @pytest.mark.asyncio
+    async def test_run_code_orchestrates_two_tools(self):
+        """AC3: one run_code script drives two distinct wrapped tools in a
+        single call. Purpose-built local tools (the prod eligible set is
+        network-bound `web`); Monty actually executes the async calls."""
+        from odile import call_tool, reply
+        from odile.script import ScriptedModel
+        from pydantic_ai import Agent
+        from pydantic_ai_harness.code_mode import CodeMode
+
+        calls: list[str] = []
+
+        agent = Agent(
+            ScriptedModel(
+                call_tool(
+                    'run_code',
+                    code=("a = await alpha(x=3)\nb = await beta(x=a)\nf'{a},{b}'"),
+                ),
+                reply('done'),
+            ),
+            deps_type=MarcelDeps,
+            capabilities=[CodeMode(tools=['alpha', 'beta'])],
+        )
+
+        @agent.tool_plain
+        async def alpha(x: int) -> int:
+            calls.append('alpha')
+            return x + 1
+
+        @agent.tool_plain
+        async def beta(x: int) -> int:
+            calls.append('beta')
+            return x * 10
+
+        result = await agent.run('compute', deps=_deps('user'))
+        assert result.output == 'done'
+        assert calls == ['alpha', 'beta'], 'both distinct tools ran inside one run_code'
+
+    def test_code_mode_off_for_lean_paths(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        from pydantic_ai_harness.code_mode import CodeMode
+
+        caps = build_capabilities(role='user', code_mode=False)
+        assert not any(isinstance(c, CodeMode) for c in caps)

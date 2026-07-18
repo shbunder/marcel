@@ -5,32 +5,6 @@ from __future__ import annotations
 from odile import call_tool, reply
 
 
-class TestRunCodeOrchestratesWrappedTools:
-    """Scenario: one run_code script drives two wrapped tool calls,
-    recorder-visible per call (feature AC 3)."""
-
-    async def test_two_chart_calls_in_one_script(self, terrarium):
-        code = (
-            "a = await generate_chart(code='plt.plot([1, 2, 3])', title='First')\n"
-            "b = await generate_chart(code='plt.plot([3, 2, 1])', title='Second')\n"
-            "f'{a} | {b}'"
-        )
-        terrarium.user('alice')
-        scenario = terrarium.scenario(
-            call_tool('run_code', code=code),
-            reply('two charts made'),
-            user='alice',
-            channel='cli',
-        )
-        result = await scenario.run('chart both series')
-
-        assert result.reply == 'two charts made'
-        completion = next(c for c in result.completions if c.tool_name == 'run_code')
-        assert not completion.is_error, completion.result
-        chart_calls = [e for e in result.tool_calls if e.tool_name == 'generate_chart']
-        assert len(chart_calls) == 2, 'both nested calls must be recorder-visible'
-
-
 class TestProtectedPathRefusedByThePolicyGuard:
     """Scenario: a write_file to a self-mod-protected path is denied by the
     MarcelPolicy self-mod guard (feature AC 1, layer 1).

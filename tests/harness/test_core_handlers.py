@@ -67,6 +67,11 @@ def test_role_gate_allows_unknown_tool():
         'src/marcel_core/config.py',
         '.env',
         '.env.local',
+        # host-code-execution / guard-disable vectors (STORY-260718-38235c review)
+        '.git/hooks/pre-commit',
+        'projects/marcel/.git/hooks/post-commit',
+        '.claude/hooks/guard-restricted.py',
+        'projects/marcel/.claude/settings.json',
     ],
 )
 def test_self_mod_guard_blocks_restricted_write(path):
