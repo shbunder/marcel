@@ -71,6 +71,36 @@ async def test_notebook_snapshot_injected_for_turns(_rooted):
 
 
 @pytest.mark.asyncio
+async def test_injection_respects_the_settings_budget(_rooted, monkeypatch):
+    """NFR2: the injected snapshot honors marcel_memory_inject_max_tokens."""
+    from marcel_core.config import settings
+
+    # Budget covers the guidance plus a small excerpt — not the 15KB notebook.
+    monkeypatch.setattr(settings, 'marcel_memory_inject_max_tokens', 400)
+
+    mem_dir = _rooted / 'users' / 'alice' / 'memory'
+    mem_dir.mkdir(parents=True)
+    (mem_dir / 'MEMORY.md').write_text('- fact line about the garden\n' * 500)
+
+    seen, hooks = _capture()
+    agent = Agent(
+        TestModel(call_tools=[]),
+        deps_type=MarcelDeps,
+        capabilities=[*build_capabilities(), hooks],
+    )
+    await agent.run('hi', deps=_deps())
+
+    request = seen[0]
+    start = request.index('<memory>')
+    end = request.index('</memory>') if '</memory>' in request else len(request)
+    injected = request[start:end]
+    # ~4 chars/token heuristic upstream; generous slack for delimiters and
+    # the read-more hint — the point is the 15KB notebook did not ship.
+    assert len(injected) < 400 * 4 * 3
+    assert request.count('fact line about the garden') < 100
+
+
+@pytest.mark.asyncio
 async def test_lean_paths_have_no_memory(_rooted):
     seen, hooks = _capture()
     agent = Agent(

@@ -104,3 +104,30 @@ class TestHouseholdUnion:
         await alice.write('memory/secret.md', 'alice only', expected_version=None)
         bob = memory_store_for('bob')
         assert await bob.read('memory/secret.md', max_chars=100) is None
+
+
+class TestLegacyMachineryCompatibility:
+    async def test_prune_expires_capability_written_files(self, _rooted):
+        """Feature AC 3: expiry pruning keeps working on files written
+        through the store (the scheduler's prune reads frontmatter from
+        disk regardless of the writer)."""
+        from datetime import date
+
+        from marcel_core.storage.memory import prune_expired_memories
+
+        store = memory_store_for('alice')
+        await store.write(
+            'memory/dentist.md',
+            '---\nname: dentist\ntype: schedule\nexpires: 2026-07-01\n---\nDentist on July 1st.\n',
+            expected_version=None,
+        )
+        await store.write(
+            'memory/keeper.md',
+            '---\nname: keeper\ntype: preference\n---\nLikes tea.\n',
+            expected_version=None,
+        )
+
+        removed = prune_expired_memories('alice', today=date(2026, 7, 18))
+        assert 'dentist.md' in removed
+        assert not (_rooted / 'users' / 'alice' / 'memory' / 'dentist.md').exists()
+        assert (_rooted / 'users' / 'alice' / 'memory' / 'keeper.md').exists()

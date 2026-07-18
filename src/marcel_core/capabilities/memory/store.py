@@ -104,7 +104,10 @@ class HouseholdAwareStore:
         return await self._user.get_operation(operation)
 
     async def list_paths(self, prefix='', *, limit):
-        own = await self._user.list_paths(prefix, limit=limit)
+        # A user's own 'household.'-prefixed file is shadowed by the union
+        # (reads map to the household store) — keep it out of listings so
+        # the model never sees a name it cannot read.
+        own = [p for p in await self._user.list_paths(prefix, limit=limit) if self._household_path(p) is None]
         shared = [
             self._as_household_path(p)
             for p in await self._household.list_paths(prefix, limit=limit)

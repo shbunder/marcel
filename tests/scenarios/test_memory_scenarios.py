@@ -14,9 +14,12 @@ class TestAgentWritesANote:
     """
 
     async def test_write_memory_persists_a_file(self, terrarium):
+        from marcel_core.storage.memory import parse_frontmatter
+
         terrarium.user('alice')
+        note = '---\nname: garden\ndescription: Garden plan\ntype: reference\n---\nTomatoes go in the garden in June.\n'
         scenario = terrarium.scenario(
-            call_tool('write_memory', content='Tomatoes go in the garden in June.', file='garden.md'),
+            call_tool('write_memory', content=note, file='garden.md'),
             reply('Noted!'),
             user='alice',
             channel='cli',
@@ -26,8 +29,52 @@ class TestAgentWritesANote:
         assert result.reply == 'Noted!'
         path = terrarium.data_root / 'users' / 'alice' / 'memory' / 'garden.md'
         assert path.exists()
-        assert 'Tomatoes go in the garden in June.' in path.read_text()
+        text = path.read_text()
+        assert 'Tomatoes go in the garden in June.' in text
+        metadata, body = parse_frontmatter(text)
+        assert metadata.get('type') == 'reference', 'the existing frontmatter format round-trips'
         assert [e.tool_name for e in result.tool_calls] == ['write_memory']
+
+    async def test_note_written_in_one_conversation_is_injected_in_the_next(self, terrarium):
+        """Feature AC 1, the full seam: the model writes its notebook in
+        conversation one; conversation two's model request carries it in the
+        injected <memory> snapshot."""
+        from pydantic_ai import Agent
+        from pydantic_ai.capabilities.hooks import Hooks
+        from pydantic_ai.models.test import TestModel
+
+        from marcel_core.composition import build_capabilities
+        from marcel_core.harness.context import MarcelDeps, TurnState
+
+        terrarium.user('alice')
+        s1 = terrarium.scenario(
+            call_tool('write_memory', content='- garden: tomatoes go in during June'),
+            reply('Noted in my notebook!'),
+            user='alice',
+            channel='cli',
+        )
+        await s1.run('remember: tomatoes in June')
+        notebook = terrarium.data_root / 'users' / 'alice' / 'memory' / 'MEMORY.md'
+        assert notebook.exists() and 'tomatoes' in notebook.read_text()
+
+        seen: list[str] = []
+        hooks = Hooks()
+
+        @hooks.on.before_model_request
+        async def capture(ctx, request_context):
+            seen.append(str(request_context.messages))
+            return request_context
+
+        agent = Agent(
+            TestModel(call_tools=[]),
+            deps_type=MarcelDeps,
+            capabilities=[*build_capabilities(), hooks],
+        )
+        deps = MarcelDeps(user_slug='alice', conversation_id='alice:cli', channel='cli', role='user', turn=TurnState())
+        await agent.run('what goes in the garden?', deps=deps)
+
+        assert '<memory>' in seen[0]
+        assert 'tomatoes go in during June' in seen[0], 'the note from conversation one is injected'
 
 
 class TestMemoryIsUserScoped:

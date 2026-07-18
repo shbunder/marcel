@@ -43,7 +43,6 @@ src/marcel_core/
     marcel/        # Unified Marcel utility tool — per-action sub-modules
       dispatcher.py    # The marcel() entry point advertised to the LLM
       skills.py        # read_skill, read_skill_resource actions
-      memory.py        # search_memory, save_memory actions
       conversations.py # search_conversations, compact actions
       notifications.py # notify action + send_notify helper
       settings.py      # list_models, get_model, set_model actions

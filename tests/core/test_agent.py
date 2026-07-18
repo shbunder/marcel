@@ -52,6 +52,40 @@ class TestExtractAndSaveMemories:
 
         assert 'prefs.md' in captured_prompt['text']
 
+    def test_update_overwrites_existing_and_batch_survives_failures(self, tmp_path, monkeypatch):
+        """Regression (pre-close-verifier, live-exploited): FileStore treats
+        expected_version=None as create-only, so an extractor *update* op
+        conflicted, was swallowed, and aborted every remaining op. Updates
+        must carry the current version and per-op failures must not kill
+        the batch (here: a household.* suggestion hits the read-only union,
+        the following create still lands)."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        from marcel_core.capabilities.memory import reset_memory_stores
+
+        reset_memory_stores()
+        mem_dir = tmp_path / 'users' / 'shaun' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'tea.md').write_text('---\nname: tea\ntype: preference\n---\nLikes tea.')
+
+        mock_result = MagicMock()
+        mock_result.output = (
+            '[{"action": "update", "filename": "tea.md", '
+            '"content": "---\\nname: tea\\ntype: preference\\n---\\nPrefers green tea now."},'
+            '{"action": "create", "filename": "household.wifi.md", "content": "nope"},'
+            '{"action": "create", "filename": "garden.md", '
+            '"content": "---\\nname: garden\\ntype: reference\\n---\\nTomatoes in June."}]'
+        )
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(return_value=mock_result)
+
+        with patch('marcel_core.memory.extract.Agent', return_value=mock_agent):
+            asyncio.run(extract_and_save_memories('shaun', 'green tea now', 'Noted!', 'conv-1'))
+
+        assert 'green tea now' in (mem_dir / 'tea.md').read_text(), 'update must overwrite'
+        assert (mem_dir / 'garden.md').exists(), 'ops after a failed one must still land'
+        assert not (tmp_path / 'users' / '_household' / 'memory' / 'wifi.md').exists()
+        reset_memory_stores()
+
     def test_disabled_flag_skips_extraction_entirely(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         from marcel_core.config import settings

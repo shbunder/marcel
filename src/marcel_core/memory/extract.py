@@ -146,7 +146,20 @@ async def extract_and_save_memories(
             safe_name = Path(filename).name
             if not safe_name.endswith('.md'):
                 safe_name += '.md'
-            await store.write(f'memory/{safe_name}', content, expected_version=None)
+            path = f'memory/{safe_name}'
+            try:
+                # FileStore treats expected_version=None as create-only: an
+                # update must carry the current version or it conflicts
+                # (found live by pre-close-verifier — a swallowed conflict
+                # silently dropped the whole batch).
+                current = await store.read(path, max_chars=1)
+                version = None if current is None else current.version
+                await store.write(path, content, expected_version=version)
+            except Exception:
+                # Per-op failures (CAS race, a household.* suggestion hitting
+                # the read-only union) must not abort the rest of the batch.
+                log.exception('memory_extract: write failed for %s user=%s', safe_name, user_slug)
+                continue
             log.debug(
                 'memory_extract: %s memory %s for user=%s',
                 op.get('action', 'wrote'),
