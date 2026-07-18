@@ -121,9 +121,14 @@ agent's tool registry.
 `delete_job`, `run_job_now`, `job_templates`, `job_cache_write`,
 `job_cache_read`
 
-**Admin-only:** `bash`, `read_file`, `write_file`, `edit_file`,
-`git_status`, `git_diff`, `git_log`, `git_add`, `git_commit`,
-`git_push`, `claude_code`, `delegate`
+**Admin-only:** `run_command`/`start_command`/`check_command`/`stop_command`
+(the Shell capability), `read_file`/`write_file`/`edit_file`/`list_directory`/
+`search_files`/`find_files`/`create_directory`/`file_info` (the FileSystem
+capability), `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit`,
+`git_push`, `claude_code`, `delegate`. Shell and file tools are provided by
+capabilities (FEAT-260718-38235c); listing any of them in a subagent's
+`tools:` frontmatter grants exactly that subset (a read-only explorer that
+lists only `read_file` never gains `write_file`).
 
 Admin-only tools are stripped from user-role subagents even if
 explicitly allowlisted — **role gating beats allowlist**. This is the

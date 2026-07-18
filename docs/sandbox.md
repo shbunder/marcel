@@ -1,7 +1,8 @@
 # Execution sandbox
 
-Marcel runs agent shell commands (`bash`, and `code_exec` in F3) inside a
-**bubblewrap workspace-write sandbox** (ADR-260628-0fc1e2) — the OS-level
+Marcel runs agent shell commands (the Shell capability's `run_command` /
+`start_command`) inside a **bubblewrap workspace-write sandbox**
+(ADR-260628-0fc1e2) — the OS-level
 containment that makes "Marcel writes and runs its own code over my data"
 safe. It is the second half of F2, layered under the
 [command policy](extensions.md#the-lifecycle-event-bus):
@@ -20,8 +21,9 @@ A sandboxed command gets:
   `restart_requested.{env}` flag), and the tracked self-mod files
   (`CLAUDE.md`, `src/marcel_core/auth`, `config.py`, `.env*`). Sandboxed code
   cannot rewrite the code that governs it or inject a restart;
-- **network** per `marcel_sandbox_network` (kept on for admin `bash`; the
-  untrusted `code_exec` path runs with it off).
+- **network** per `marcel_sandbox_network` (kept on for admin shell
+  commands). Model-written Python runs in a separate interpreter-level
+  sandbox — see *CodeMode / Monty* below, not bubblewrap.
 
 Implemented with [`sandbox.py`](https://github.com/shbunder/marcel/blob/main/src/marcel_core/harness/sandbox.py)
 via `bwrap` — no daemon, one process per run.
@@ -69,12 +71,32 @@ Confirm it took: the startup logs show no "sandbox could not start" warning,
 and `sandbox_available()` returns `True`. The skipped confinement tests in
 `tests/harness/test_sandbox.py` run once a working sandbox is present.
 
+## CodeMode / Monty — the second sandbox
+
+Model-*written* Python (the `run_code` tool from the CodeMode capability,
+FEAT-260718-38235c) does **not** go through bubblewrap. It runs inside
+**Monty**, an interpreter-level Python subset: no class definitions, no
+third-party imports, an allowlisted stdlib, and no filesystem, clock, or
+network unless explicitly granted (Marcel grants none). Generated code can
+only reach the host through the *wrapped tools* Marcel hands it — the
+code-mode-eligible set (`web`, `generate_chart`), which keep their own
+authority and input validation. This is the successor to the never-shipped
+`code_exec` path ([ADR-260718-d511f7](https://github.com/shbunder/marcel)):
+there is nothing to bind-mount because the generated code has no host access
+to confine. Approval-gated and destructive tools are deliberately kept
+*out* of the eligible set, so a `run_code` script cannot launch them.
+
+The two sandboxes solve different problems and coexist: **bubblewrap**
+contains real shell commands (arbitrary binaries over the workspace);
+**Monty** contains model-written orchestration code (Python over a fixed
+tool API).
+
 ## Configuration
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `MARCEL_SANDBOX_ENABLED` | `true` | Route `bash`/`code_exec` through the sandbox when available. `false` runs unsandboxed everywhere. |
-| `MARCEL_SANDBOX_NETWORK` | `true` | Keep network in sandboxed `bash`. The `code_exec` path (F3) forces it off. |
+| `MARCEL_SANDBOX_ENABLED` | `true` | Route the Shell capability's commands through the sandbox when available. `false` runs unsandboxed everywhere. |
+| `MARCEL_SANDBOX_NETWORK` | `true` | Keep network in sandboxed shell commands. |
 
 ## Status
 

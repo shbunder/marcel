@@ -228,7 +228,7 @@ telemetry and notify behaviour stay uniform.
     observability.
 
 Jobs get the same toolkit handlers as regular users (banking, iCloud,
-browser, etc.) but not admin tools (bash, file I/O).
+browser, etc.) but not admin tools (shell, file I/O).
 
 ### System-scope runs
 
