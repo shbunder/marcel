@@ -1,4 +1,5 @@
-"""Core tools for Marcel — bash, file operations, and git commands.
+"""Core tools for Marcel — git commands (shell/file surfaces are the
+execution capabilities; see marcel_core.capabilities.execution).
 
 These tools give Marcel direct system access for server management and
 simple code modifications. For complex multi-file refactoring, Marcel should
@@ -22,7 +23,7 @@ log = logging.getLogger(__name__)
 # Matches ClawCode's default (30K). Large outputs are stored in paste store.
 MAX_OUTPUT_LENGTH = 30000
 
-# Threshold for offloading large bash output to the paste store.
+# Threshold for offloading large git-shell output to the paste store.
 # Above this, only a head+tail preview is kept in history.
 _BASH_PASTE_THRESHOLD = 15000
 

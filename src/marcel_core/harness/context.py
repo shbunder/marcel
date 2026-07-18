@@ -165,7 +165,7 @@ def build_server_context(cwd: str | None = None) -> str:
 
     lines += [
         '',
-        'You have full CLI capabilities: `bash`, file I/O, `git_*`, and `claude_code` delegation.',
+        'You have full CLI capabilities: shell commands (`run_command`), file I/O (`read_file`/`write_file`/`edit_file`), `git_*`, and `claude_code` delegation.',
         f'When the user refers to "home folder", "server files", or "the NUC", '
         f'they mean this machine — start from `{home}`.',
     ]
