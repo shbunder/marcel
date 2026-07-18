@@ -9,6 +9,7 @@ in the zoo under ``connectors/<name>/``.
 
 from __future__ import annotations
 
+from marcel_core.connectors.auth import ConnectorAuth, ConnectorNotLinked, TokenRefresher
 from marcel_core.connectors.loader import (
     ConnectorDoc,
     get_connector,
@@ -22,13 +23,20 @@ from marcel_core.connectors.models import (
     Scope,
     Transport,
 )
+from marcel_core.connectors.tokens import StoredTokens, TokenStore, TokenStoreError
 
 __all__ = [
     'AuthMode',
+    'ConnectorAuth',
     'ConnectorConfig',
     'ConnectorDoc',
+    'ConnectorNotLinked',
     'Discovery',
     'Scope',
+    'StoredTokens',
+    'TokenRefresher',
+    'TokenStore',
+    'TokenStoreError',
     'Transport',
     'get_connector',
     'load_connectors',

@@ -7,17 +7,14 @@ If ``MARCEL_CREDENTIALS_KEY`` is not set, credentials fall back to plaintext
 ``credentials.env`` files (legacy behavior) with a warning logged on first access.
 """
 
-import base64
-import hashlib
 import logging
 import os
 import pathlib
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from marcel_core.config import settings
-
 from ._atomic import atomic_write
+from ._crypto import derive_fernet_key
 from ._root import data_root
 
 log = logging.getLogger(__name__)
@@ -26,13 +23,12 @@ _warned_plaintext = False
 
 
 def _derive_key() -> bytes | None:
-    """Derive a Fernet key from MARCEL_CREDENTIALS_KEY, or return None if unset."""
-    passphrase = settings.marcel_credentials_key
-    if not passphrase:
-        return None
-    # Derive a 32-byte key via SHA-256, then base64-encode for Fernet
-    raw = hashlib.sha256(passphrase.encode()).digest()
-    return base64.urlsafe_b64encode(raw)
+    """Derive a Fernet key from MARCEL_CREDENTIALS_KEY, or return None if unset.
+
+    Thin alias over the shared :func:`marcel_core.storage._crypto.derive_fernet_key`
+    so the vault and the connector token store never key off different secrets.
+    """
+    return derive_fernet_key()
 
 
 def _enc_path(slug: str) -> pathlib.Path:
