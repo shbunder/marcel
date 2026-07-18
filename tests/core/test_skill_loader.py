@@ -1,28 +1,41 @@
-"""Tests for the .marcel/skills/ loader with multi-directory discovery and fallback logic."""
+"""Tests for the agentskills.io-conformant skill loader (FEAT-260718-85b545).
+
+Covers frontmatter parsing + validation, the ``metadata`` marcel-* extension
+map, legacy-frontmatter migration, the SETUP.md requirement fallback, the
+three-root scoping chain (data-user → zoo-user → zoo-global), role gating, and
+skill-root-scoped resource access.
+"""
 
 from __future__ import annotations
+
+import logging
 
 import pytest
 
 from marcel_core.skills.loader import (
-    SkillDoc,
-    _check_depends_on,
-    _check_requirements,
+    _coerce_metadata,
+    _connector_requirements_met,
+    _credentials_present,
+    _csv,
+    _env_present,
+    _find_skill_dir,
     _load_skill_dir,
-    _normalize_depends_on,
+    _migrate_legacy_frontmatter,
     _parse_frontmatter,
-    _strip_argument_template,
-    format_skills_for_prompt,
+    _requirements_met,
+    _skill_dirs,
+    get_skill_content,
     get_skill_resource,
     list_skill_resources,
     load_skills,
+    validate_skill_frontmatter,
 )
 from marcel_core.toolkit import ToolkitMetadata
 
 
 @pytest.fixture
 def isolated_metadata(monkeypatch):
-    """Provide a clean integration metadata registry for the test."""
+    """Provide a clean toolkit metadata registry for the test."""
     from marcel_core.toolkit import _metadata
 
     saved = dict(_metadata)
@@ -32,769 +45,591 @@ def isolated_metadata(monkeypatch):
     _metadata.update(saved)
 
 
+@pytest.fixture
+def roots(tmp_path, monkeypatch):
+    """Set up zoo + data roots and return a helper that writes a skill into a scope.
+
+    ``make(scope, name, skill_md=..., setup_md=..., files=..., user=...)`` writes a
+    skill directory under one of the three scopes ('zoo-global', 'zoo-user',
+    'data-user') and returns its path.
+    """
+    from marcel_core.config import settings
+
+    zoo = tmp_path / 'zoo'
+    data = tmp_path / 'data'
+    (zoo / 'skills').mkdir(parents=True)
+    (data / 'skills').mkdir(parents=True)
+    monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo))
+    monkeypatch.setattr(settings, 'marcel_data_dir', str(data))
+
+    def make(scope, name, *, skill_md=None, setup_md=None, files=None, user='shaun'):
+        if scope == 'zoo-global':
+            base = zoo / 'skills' / name
+        elif scope == 'zoo-user':
+            base = zoo / 'users' / user / 'skills' / name
+        elif scope == 'data-user':
+            base = data / 'users' / user / 'skills' / name
+        else:
+            raise ValueError(f'unknown scope {scope!r}')
+        base.mkdir(parents=True, exist_ok=True)
+        if skill_md is not None:
+            (base / 'SKILL.md').write_text(skill_md)
+        if setup_md is not None:
+            (base / 'SETUP.md').write_text(setup_md)
+        for fname, content in (files or {}).items():
+            (base / fname).write_text(content)
+        return base
+
+    return make
+
+
+def _md(name, description='A test skill', body='Body content.', *, metadata=None, extra_fm=None):
+    """Assemble a conformant SKILL.md string."""
+    lines = ['---', f'name: {name}', f'description: {description}']
+    for key, value in (extra_fm or {}).items():
+        lines.append(f'{key}: {value}')
+    if metadata:
+        lines.append('metadata:')
+        for key, value in metadata.items():
+            lines.append(f'  {key}: {value}')
+    lines.append('---')
+    return '\n'.join(lines) + f'\n\n{body}'
+
+
+# ---------------------------------------------------------------------------
+# frontmatter parsing
+# ---------------------------------------------------------------------------
+
+
 class TestParseFrontmatter:
     def test_valid_frontmatter(self):
-        text = '---\nname: test\ndescription: A test skill\n---\n\nBody content here.'
-        fm, body = _parse_frontmatter(text)
+        fm, body = _parse_frontmatter('---\nname: test\ndescription: A test skill\n---\n\nBody content here.')
         assert fm['name'] == 'test'
         assert fm['description'] == 'A test skill'
         assert body == 'Body content here.'
 
     def test_no_frontmatter(self):
-        text = 'Just some body text.'
-        fm, body = _parse_frontmatter(text)
+        fm, body = _parse_frontmatter('Just some body text.')
         assert fm == {}
         assert body == 'Just some body text.'
 
-    def test_requires_field(self):
-        text = '---\nname: banking\nrequires:\n  credentials:\n    - API_KEY\n  env:\n    - SOME_VAR\n---\n\nBody.'
-        fm, body = _parse_frontmatter(text)
-        assert fm['requires']['credentials'] == ['API_KEY']
-        assert fm['requires']['env'] == ['SOME_VAR']
-
     def test_empty_frontmatter(self):
-        text = '---\n---\n\nBody.'
-        fm, body = _parse_frontmatter(text)
+        fm, body = _parse_frontmatter('---\n---\n\nBody.')
         assert fm == {}
         assert body == 'Body.'
 
-    def test_strips_arguments_template_line(self):
-        text = '---\nname: icloud\n---\n\nHelp the user with: $ARGUMENTS\n\nReal body.'
-        _, body = _parse_frontmatter(text)
-        assert '$ARGUMENTS' not in body
-        assert body.startswith('Real body.')
-
-    def test_strips_arguments_template_without_frontmatter(self):
-        text = 'Help the user with: $ARGUMENTS\n\nReal body.'
-        _, body = _parse_frontmatter(text)
-        assert body == 'Real body.'
-
-
-class TestStripArgumentTemplate:
-    def test_removes_exact_line(self):
-        assert _strip_argument_template('Help the user with: $ARGUMENTS\nkeep') == 'keep'
-
-    def test_no_change_when_absent(self):
-        body = 'Line one.\nLine two.'
-        assert _strip_argument_template(body) == body
-
-    def test_preserves_other_dollar_arguments_mentions(self):
-        body = 'See $ARGUMENTS in the docs.'
-        assert _strip_argument_template(body) == body
-
-
-class TestCheckRequirements:
-    def test_no_requirements_always_passes(self):
-        assert _check_requirements({}, 'test-user') is True
-
-    def test_empty_requires_passes(self):
-        assert _check_requirements({'credentials': []}, 'test-user') is True
-
-    def test_env_requirement_met(self, monkeypatch):
-        monkeypatch.setenv('TEST_SKILL_VAR', 'value')
-        assert _check_requirements({'env': ['TEST_SKILL_VAR']}, 'test-user') is True
-
-    def test_env_requirement_not_met(self, monkeypatch):
-        monkeypatch.delenv('TEST_SKILL_VAR', raising=False)
-        assert _check_requirements({'env': ['TEST_SKILL_VAR']}, 'test-user') is False
-
-    def test_credential_requirement_met(self, tmp_path, monkeypatch):
-        # Set up a fake credential store
-        monkeypatch.setattr('marcel_core.storage._root._DATA_ROOT', tmp_path)
-        user_dir = tmp_path / 'users' / 'test-user'
-        user_dir.mkdir(parents=True)
-        (user_dir / 'credentials.env').write_text('MY_KEY=secret\n')
-        assert _check_requirements({'credentials': ['MY_KEY']}, 'test-user') is True
-
-    def test_credential_requirement_not_met(self, tmp_path, monkeypatch):
-        monkeypatch.setattr('marcel_core.storage._root._DATA_ROOT', tmp_path)
-        user_dir = tmp_path / 'users' / 'test-user'
-        user_dir.mkdir(parents=True)
-        (user_dir / 'credentials.env').write_text('OTHER_KEY=value\n')
-        assert _check_requirements({'credentials': ['MY_KEY']}, 'test-user') is False
-
-    def test_file_requirement_met(self, tmp_path, monkeypatch):
-        monkeypatch.setattr('marcel_core.storage._root._DATA_ROOT', tmp_path)
-        user_dir = tmp_path / 'users' / 'test-user'
-        user_dir.mkdir(parents=True)
-        (user_dir / 'keyfile.pem').write_text('key content')
-        assert _check_requirements({'files': ['keyfile.pem']}, 'test-user') is True
-
-    def test_file_requirement_not_met(self, tmp_path, monkeypatch):
-        monkeypatch.setattr('marcel_core.storage._root._DATA_ROOT', tmp_path)
-        user_dir = tmp_path / 'users' / 'test-user'
-        user_dir.mkdir(parents=True)
-        assert _check_requirements({'files': ['keyfile.pem']}, 'test-user') is False
-
-
-class TestLoadSkillDir:
-    def test_load_skill_no_requirements(self, tmp_path):
-        skill_dir = tmp_path / 'test-skill'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: test\ndescription: A test\n---\n\nSkill body.')
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
-        assert doc is not None
-        assert doc.name == 'test'
-        assert doc.content == 'Skill body.'
-        assert doc.is_setup is False
-        assert doc.source == 'project'
-
-    def test_fallback_to_setup_md(self, tmp_path, monkeypatch):
-        monkeypatch.delenv('MISSING_VAR', raising=False)
-        skill_dir = tmp_path / 'test-skill'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: test\nrequires:\n  env:\n    - MISSING_VAR\n---\n\nFull skill.')
-        (skill_dir / 'SETUP.md').write_text('---\nname: test\ndescription: Setup guide\n---\n\nHow to set up.')
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
-        assert doc is not None
-        assert doc.is_setup is True
-        assert doc.content == 'How to set up.'
-
-    def test_skill_returned_when_requirements_met(self, tmp_path, monkeypatch):
-        monkeypatch.setenv('PRESENT_VAR', 'yes')
-        skill_dir = tmp_path / 'test-skill'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: test\nrequires:\n  env:\n    - PRESENT_VAR\n---\n\nFull skill.')
-        (skill_dir / 'SETUP.md').write_text('---\nname: test\n---\n\nSetup guide.')
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
-        assert doc is not None
-        assert doc.is_setup is False
-        assert doc.content == 'Full skill.'
-
-    def test_empty_dir_returns_none(self, tmp_path):
-        skill_dir = tmp_path / 'empty-skill'
-        skill_dir.mkdir()
-        assert _load_skill_dir(skill_dir, 'user', 'project') is None
-
-    def test_skill_without_requires_no_setup(self, tmp_path):
-        """SKILL.md without requires field always loads, even without SETUP.md."""
-        skill_dir = tmp_path / 'simple'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: simple\n---\n\nJust works.')
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
-        assert doc is not None
-        assert doc.is_setup is False
-
-    def test_requirements_fail_no_setup_returns_skill(self, tmp_path, monkeypatch):
-        """When requirements fail and no SETUP.md exists, SKILL.md is returned as-is."""
-        monkeypatch.delenv('MISSING_VAR', raising=False)
-        skill_dir = tmp_path / 'req-fail'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text(
-            '---\nname: req-fail\nrequires:\n  env:\n    - MISSING_VAR\n---\n\nSkill content.'
-        )
-        # No SETUP.md — function must return the SKILL.md even though requirements fail
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
-        assert doc is not None
-        assert doc.is_setup is False
-        assert doc.content == 'Skill content.'
-
-    def test_name_defaults_to_dirname(self, tmp_path):
-        skill_dir = tmp_path / 'my-skill'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\ndescription: no name field\n---\n\nBody.')
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
-        assert doc is not None
-        assert doc.name == 'my-skill'
-
-
-class TestPreferredTier:
-    """ISSUE-e0db47 — skills can declare a preferred tier."""
-
-    def test_preferred_tier_defaults_to_none(self, tmp_path):
-        skill_dir = tmp_path / 's'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: s\n---\n\nBody.')
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
-        assert doc is not None
-        assert doc.preferred_tier is None
-
-    def test_preferred_tier_fast_parses(self, tmp_path):
-        skill_dir = tmp_path / 's'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: s\npreferred_tier: fast\n---\n\nBody.')
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
-        assert doc is not None
-        assert doc.preferred_tier == 'fast'
-
-    def test_preferred_tier_standard_parses(self, tmp_path):
-        skill_dir = tmp_path / 's'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: s\npreferred_tier: standard\n---\n\nBody.')
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
-        assert doc is not None
-        assert doc.preferred_tier == 'standard'
-
-    def test_preferred_tier_power_parses(self, tmp_path):
-        skill_dir = tmp_path / 's'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: s\npreferred_tier: power\n---\n\nBody.')
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
-        assert doc is not None
-        assert doc.preferred_tier == 'power'
-
-    def test_invalid_preferred_tier_is_dropped_with_warning(self, tmp_path, caplog):
-        skill_dir = tmp_path / 's'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: s\npreferred_tier: backup\n---\n\nBody.')
-        with caplog.at_level('WARNING', logger='marcel_core.skills.loader'):
-            doc = _load_skill_dir(skill_dir, 'user', 'project')
-        assert doc is not None
-        # Skill still loads; the invalid preference is quietly dropped.
-        assert doc.preferred_tier is None
-        assert any('invalid preferred_tier' in r.getMessage() for r in caplog.records)
-
-    def test_setup_fallback_drops_preferred_tier(self, tmp_path, monkeypatch):
-        """SETUP.md flows must not burn a more-expensive tier."""
-        monkeypatch.delenv('MISSING_VAR', raising=False)
-        skill_dir = tmp_path / 's'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text(
-            '---\nname: s\npreferred_tier: power\nrequires:\n  env:\n    - MISSING_VAR\n---\n\nBody.'
-        )
-        (skill_dir / 'SETUP.md').write_text('---\nname: s\n---\n\nSetup.')
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
-        assert doc is not None
-        assert doc.is_setup is True
-        assert doc.preferred_tier is None
-
-
-class TestLoadSkills:
-    def test_skills_loaded(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-
-        skills_dir = tmp_path / 'skills'
-        skills_dir.mkdir(parents=True)
-        skill_a = skills_dir / 'alpha'
-        skill_a.mkdir()
-        (skill_a / 'SKILL.md').write_text('---\nname: alpha\ndescription: First\n---\n\nAlpha body.')
-
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
-
-        docs = load_skills('user')
-        assert len(docs) == 1
-        assert docs[0].name == 'alpha'
-
-    def test_multiple_skills_loaded(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-
-        skills_dir = tmp_path / 'skills'
-        skills_dir.mkdir(parents=True)
-
-        d1 = skills_dir / 'alpha'
-        d1.mkdir()
-        (d1 / 'SKILL.md').write_text('---\nname: alpha\n---\n\nAlpha.')
-
-        d2 = skills_dir / 'beta'
-        d2.mkdir()
-        (d2 / 'SKILL.md').write_text('---\nname: beta\n---\n\nBeta.')
-
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
-
-        docs = load_skills('user')
-        assert len(docs) == 2
-        names = [d.name for d in docs]
-        assert 'alpha' in names
-        assert 'beta' in names
-
-    def test_hidden_dirs_skipped(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-
-        skills_dir = tmp_path / 'skills'
-        skills_dir.mkdir(parents=True)
-        hidden = skills_dir / '.hidden'
-        hidden.mkdir()
-        (hidden / 'SKILL.md').write_text('---\nname: hidden\n---\n\nShould not load.')
-
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
-
-        docs = load_skills('user')
-        assert len(docs) == 0
-
-
-class TestFormatSkillsForPrompt:
-    def test_empty_skills(self):
-        assert format_skills_for_prompt([]) == ''
-
-    def test_configured_skill(self):
-        doc = SkillDoc(name='test', description='Test', content='Body', is_setup=False, source='project')
-        result = format_skills_for_prompt([doc])
-        assert '### test' in result
-        assert 'Body' in result
-        assert '(not configured)' not in result
-
-    def test_setup_skill_marked(self):
-        doc = SkillDoc(name='test', description='Test', content='Setup body', is_setup=True, source='project')
-        result = format_skills_for_prompt([doc])
-        assert '### test (not configured)' in result
-        assert 'Setup body' in result
-
-    def test_multiple_skills_separated(self):
-        docs = [
-            SkillDoc(name='a', description='', content='A body', is_setup=False, source='project'),
-            SkillDoc(name='b', description='', content='B body', is_setup=True, source='project'),
-        ]
-        result = format_skills_for_prompt(docs)
-        assert '---' in result
-        assert '### a' in result
-        assert '### b (not configured)' in result
-
-
-class TestParseFrontmatterEdgeCases:
     def test_no_closing_delimiter(self):
-        """Frontmatter with opening --- but no closing --- treats whole text as body."""
-        text = '---\nname: test\n\nBody without closing.'
-        fm, body = _parse_frontmatter(text)
+        fm, body = _parse_frontmatter('---\nname: test\n\nBody without closing.')
         assert fm == {}
-        assert 'Body' in body or 'name' in body
 
     def test_invalid_yaml_returns_empty_fm(self):
-        """Invalid YAML in frontmatter returns empty dict."""
-        text = '---\n{invalid: yaml: ::\n---\n\nBody.'
-        fm, body = _parse_frontmatter(text)
+        fm, body = _parse_frontmatter('---\n{invalid: yaml: ::\n---\n\nBody.')
         assert fm == {}
         assert 'Body.' in body
 
+    def test_non_dict_frontmatter_returns_empty(self):
+        fm, body = _parse_frontmatter('---\n- just\n- a\n- list\n---\n\nBody.')
+        assert fm == {}
 
-class TestLoadSkillDirEdgeCases:
-    def test_only_setup_md_is_loaded(self, tmp_path):
-        """Skill dir with only SETUP.md (no SKILL.md) should be loaded as setup."""
-        skill_dir = tmp_path / 'setup-only'
-        skill_dir.mkdir()
-        (skill_dir / 'SETUP.md').write_text(
-            '---\nname: setup-only\ndescription: Setup only\n---\n\nSetup instructions.'
+
+# ---------------------------------------------------------------------------
+# validation
+# ---------------------------------------------------------------------------
+
+
+class TestValidateFrontmatter:
+    def test_conformant_returns_none(self):
+        assert validate_skill_frontmatter({'name': 'news', 'description': 'x'}, 'news') is None
+
+    def test_missing_name(self):
+        err = validate_skill_frontmatter({'description': 'x'}, 'news')
+        assert err is not None and 'name' in err
+
+    def test_name_not_string(self):
+        err = validate_skill_frontmatter({'name': 5, 'description': 'x'}, 'news')
+        assert err is not None and 'name' in err
+
+    @pytest.mark.parametrize('bad', ['News', 'has_underscore', '-lead', 'trail-', 'double--hyphen', 'sp ace'])
+    def test_invalid_name_regex(self, bad):
+        err = validate_skill_frontmatter({'name': bad, 'description': 'x'}, bad)
+        assert err is not None and 'name' in err
+
+    def test_name_too_long(self):
+        long = 'a' * 65
+        err = validate_skill_frontmatter({'name': long, 'description': 'x'}, long)
+        assert err is not None and 'name' in err
+
+    def test_name_must_equal_dir(self):
+        err = validate_skill_frontmatter({'name': 'news', 'description': 'x'}, 'weather')
+        assert err is not None and 'directory name' in err
+
+    def test_missing_description(self):
+        err = validate_skill_frontmatter({'name': 'news'}, 'news')
+        assert err is not None and 'description' in err
+
+    def test_description_too_long(self):
+        err = validate_skill_frontmatter({'name': 'news', 'description': 'x' * 1025}, 'news')
+        assert err is not None and 'description' in err
+
+
+# ---------------------------------------------------------------------------
+# metadata coercion + legacy migration
+# ---------------------------------------------------------------------------
+
+
+class TestCoerceMetadata:
+    def test_none_returns_empty(self):
+        assert _coerce_metadata({}, 'news') == {}
+
+    def test_non_dict_ignored_with_warning(self, caplog):
+        with caplog.at_level(logging.WARNING, logger='marcel_core.skills.loader'):
+            assert _coerce_metadata({'metadata': ['not', 'a', 'map']}, 'news') == {}
+        assert any('metadata must be a map' in r.getMessage() for r in caplog.records)
+
+    def test_coerces_values_to_str(self):
+        out = _coerce_metadata({'metadata': {'marcel-tier': 'fast', 'count': 3}}, 'news')
+        assert out == {'marcel-tier': 'fast', 'count': '3'}
+
+
+class TestMigrateLegacy:
+    def test_depends_on_list(self, caplog):
+        with caplog.at_level(logging.WARNING, logger='marcel_core.skills.loader'):
+            out = _migrate_legacy_frontmatter({'depends_on': ['docker', 'icloud']}, 'x')
+        assert out['marcel-connectors'] == 'docker,icloud'
+        assert any('depends_on' in r.getMessage() for r in caplog.records)
+
+    def test_depends_on_string(self):
+        assert _migrate_legacy_frontmatter({'depends_on': 'docker'}, 'x')['marcel-connectors'] == 'docker'
+
+    def test_preferred_tier(self):
+        assert _migrate_legacy_frontmatter({'preferred_tier': 'power'}, 'x')['marcel-tier'] == 'power'
+
+    def test_requires_role(self):
+        assert _migrate_legacy_frontmatter({'requires': {'role': 'admin'}}, 'x')['marcel-role'] == 'admin'
+
+    def test_requires_credentials_and_env(self):
+        out = _migrate_legacy_frontmatter({'requires': {'credentials': ['K'], 'env': ['E']}}, 'x')
+        assert out['marcel-requires-credentials'] == 'K'
+        assert out['marcel-requires-env'] == 'E'
+
+    def test_native_metadata_wins_over_legacy(self, tmp_path, roots):
+        # Both native metadata and legacy preferred_tier present — native wins.
+        roots(
+            'zoo-global',
+            'dual',
+            skill_md=_md('dual', metadata={'marcel-tier': 'fast'}, extra_fm={'preferred_tier': 'power'}),
         )
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
-        assert doc is not None
-        assert doc.is_setup is True
-        assert doc.content == 'Setup instructions.'
+        doc = load_skills('shaun')[0]
+        assert doc.preferred_tier == 'fast'
 
-    def test_credential_check_exception_returns_false(self, tmp_path, monkeypatch):
-        """If loading credentials raises, requirement check returns False."""
+
+class TestCsv:
+    def test_splits_and_strips(self):
+        assert _csv(' a, b ,c ') == ['a', 'b', 'c']
+
+    def test_none_and_empty(self):
+        assert _csv(None) == []
+        assert _csv('') == []
+
+
+# ---------------------------------------------------------------------------
+# requirement checks (SETUP.md fallback drivers)
+# ---------------------------------------------------------------------------
+
+
+class TestRequirementChecks:
+    def test_env_present(self, monkeypatch):
+        monkeypatch.setenv('SKILL_VAR', 'v')
+        assert _env_present(['SKILL_VAR']) is True
+
+    def test_env_absent(self, monkeypatch):
+        monkeypatch.delenv('SKILL_VAR', raising=False)
+        assert _env_present(['SKILL_VAR']) is False
+
+    def test_no_env_keys_passes(self):
+        assert _env_present([]) is True
+
+    def test_credentials_present(self, monkeypatch):
+        monkeypatch.setattr('marcel_core.storage.credentials.load_credentials', lambda slug: {'MY_KEY': 'secret'})
+        assert _credentials_present(['MY_KEY'], 'shaun') is True
+
+    def test_credentials_absent(self, monkeypatch):
+        monkeypatch.setattr('marcel_core.storage.credentials.load_credentials', lambda slug: {})
+        assert _credentials_present(['MY_KEY'], 'shaun') is False
+
+    def test_no_credential_keys_passes(self):
+        assert _credentials_present([], 'shaun') is True
+
+    def test_credential_load_exception_returns_false(self, monkeypatch):
         monkeypatch.setattr(
             'marcel_core.storage.credentials.load_credentials',
             lambda slug: (_ for _ in ()).throw(RuntimeError('disk error')),
         )
-        result = _check_requirements({'credentials': ['API_KEY']}, 'user')
-        assert result is False
+        assert _credentials_present(['K'], 'shaun') is False
 
-    def test_file_check_data_root_exception_returns_false(self, monkeypatch):
-        """If data_root() raises during file check, requirement check returns False."""
-        monkeypatch.setattr(
-            'marcel_core.storage._root.data_root', lambda: (_ for _ in ()).throw(RuntimeError('no data dir'))
-        )
-        result = _check_requirements({'files': ['some.pem']}, 'user')
-        assert result is False
+    def test_requirements_met_all_green(self, monkeypatch):
+        monkeypatch.setenv('E', 'v')
+        monkeypatch.setattr('marcel_core.storage.credentials.load_credentials', lambda slug: {'K': 'secret'})
+        meta = {'marcel-requires-env': 'E', 'marcel-requires-credentials': 'K'}
+        assert _requirements_met(meta, [], 'shaun') is True
 
-    def test_file_check_exception_returns_false(self, monkeypatch):
-        """If data_root raises, file requirement check returns False."""
+    def test_requirements_unmet_on_missing_env(self, monkeypatch):
+        monkeypatch.delenv('E', raising=False)
+        assert _requirements_met({'marcel-requires-env': 'E'}, [], 'shaun') is False
 
-        def bad_root():
-            raise RuntimeError('no data dir')
 
-        import marcel_core.skills.loader as loader_mod
+class TestConnectorRequirements:
+    def test_no_connectors_passes(self, isolated_metadata):
+        assert _connector_requirements_met([], 'shaun') is True
 
-        monkeypatch.setattr(
-            loader_mod, '_check_requirements', lambda requires, user_slug: False if requires.get('files') else True
-        )
-        # Just verify _check_requirements handles the error gracefully
-        assert _check_requirements({'files': ['missing.pem']}, 'user') is False or True  # covered by the patch
+    def test_unregistered_connector_unmet(self, isolated_metadata):
+        assert _connector_requirements_met(['docker'], 'shaun') is False
 
-
-class TestGetSkillResource:
-    def test_returns_resource_by_exact_filename(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-
-        skills_dir = tmp_path / 'skills'
-        skills_dir.mkdir(parents=True)
-        skill_dir = skills_dir / 'news'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: news\n---\n\nNews skill.')
-        (skill_dir / 'feeds.yaml').write_text('feeds:\n  - url: https://example.com/feed.xml\n')
-
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
-
-        content = get_skill_resource('news', 'feeds.yaml')
-        assert content is not None
-        assert 'feeds' in content
-
-    def test_returns_resource_by_stem(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-
-        skills_dir = tmp_path / 'skills'
-        skills_dir.mkdir(parents=True)
-        skill_dir = skills_dir / 'news'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: news\n---\n\nNews skill.')
-        (skill_dir / 'feeds.yaml').write_text('feeds: []')
-
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
-
-        # stem-only match: "feeds" → "feeds.yaml"
-        content = get_skill_resource('news', 'feeds')
-        assert content is not None
-        assert 'feeds' in content
-
-    def test_returns_none_for_unknown_skill(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-
-        skills_dir = tmp_path / 'skills'
-        skills_dir.mkdir(parents=True)
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
-
-        assert get_skill_resource('nonexistent', 'feeds') is None
-
-    def test_returns_none_for_missing_resource(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-
-        skills_dir = tmp_path / 'skills'
-        skills_dir.mkdir(parents=True)
-        skill_dir = skills_dir / 'news'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: news\n---\n\nNews skill.')
-
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
-
-        assert get_skill_resource('news', 'feeds') is None
-
-    def test_skill_md_not_exposed_as_resource(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-
-        skills_dir = tmp_path / 'skills'
-        skills_dir.mkdir(parents=True)
-        skill_dir = skills_dir / 'news'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: news\n---\n\nNews skill.')
-
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
-
-        # SKILL.md must not be returned as a resource
-        assert get_skill_resource('news', 'SKILL.md') is None
-        assert get_skill_resource('news', 'SKILL') is None
-
-    def test_case_insensitive_match(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-
-        skills_dir = tmp_path / 'skills'
-        skills_dir.mkdir(parents=True)
-        skill_dir = skills_dir / 'banking'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: banking\n---\n\nBanking.')
-        (skill_dir / 'SETUP.md').write_text('## Setup\n\nSetup guide.')
-
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
-
-        # "setup" (lowercase) should match "SETUP.md"
-        content = get_skill_resource('banking', 'setup')
-        assert content is not None
-        assert 'Setup' in content
-
-
-class TestListSkillResources:
-    def test_lists_resource_files(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-
-        skills_dir = tmp_path / 'skills'
-        skills_dir.mkdir(parents=True)
-        skill_dir = skills_dir / 'news'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: news\n---\n\nNews skill.')
-        (skill_dir / 'SETUP.md').write_text('Setup guide.')
-        (skill_dir / 'feeds.yaml').write_text('feeds: []')
-
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
-
-        resources = list_skill_resources('news')
-        assert 'SETUP.md' in resources
-        assert 'feeds.yaml' in resources
-        # SKILL.md must not appear
-        assert 'SKILL.md' not in resources
-
-    def test_empty_for_unknown_skill(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-
-        skills_dir = tmp_path / 'skills'
-        skills_dir.mkdir(parents=True)
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
-
-        assert list_skill_resources('ghost') == []
-
-    def test_empty_for_skill_with_no_extra_files(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-
-        skills_dir = tmp_path / 'skills'
-        skills_dir.mkdir(parents=True)
-        skill_dir = skills_dir / 'simple'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: simple\n---\n\nSimple.')
-
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
-
-        assert list_skill_resources('simple') == []
-
-
-class TestLoadSkillsEdgeCases:
-    def test_empty_skill_dir_skipped(self, tmp_path, monkeypatch):
-        """A visible skill dir with no SKILL.md or SETUP.md is skipped (doc is None)."""
-        import marcel_core.skills.loader as loader
-
-        skills_dir = tmp_path / 'skills'
-        skills_dir.mkdir(parents=True)
-        (skills_dir / 'empty-skill').mkdir()
-        valid = skills_dir / 'valid'
-        valid.mkdir()
-        (valid / 'SKILL.md').write_text('---\nname: valid\n---\n\nContent.')
-
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
-
-        docs = load_skills('user')
-        assert len(docs) == 1
-        assert docs[0].name == 'valid'
-
-    def test_nonexistent_skills_dir_skipped(self, tmp_path, monkeypatch):
-        """If skills dir doesn't exist, no error."""
-        import marcel_core.skills.loader as loader
-
-        monkeypatch.setattr(loader, '_skills_dir', lambda: tmp_path / 'nonexistent')
-
-        docs = load_skills('user')
-        assert docs == []
-
-    def test_underscore_prefix_dirs_skipped(self, tmp_path, monkeypatch):
-        """Dirs starting with _ should be skipped."""
-        import marcel_core.skills.loader as loader
-
-        skills_dir = tmp_path / 'skills'
-        skills_dir.mkdir(parents=True)
-        hidden = skills_dir / '_internal'
-        hidden.mkdir()
-        (hidden / 'SKILL.md').write_text('---\nname: internal\n---\n\nInternal.')
-
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
-
-        docs = load_skills('user')
-        assert docs == []
-
-
-class TestNormalizeDependsOn:
-    def test_none_returns_empty(self):
-        assert _normalize_depends_on(None) == []
-
-    def test_empty_string_returns_empty(self):
-        assert _normalize_depends_on('') == []
-
-    def test_single_string_wrapped_in_list(self):
-        assert _normalize_depends_on('docker') == ['docker']
-
-    def test_list_of_strings_returned_as_list(self):
-        assert _normalize_depends_on(['docker', 'icloud']) == ['docker', 'icloud']
-
-    def test_list_with_non_string_warns_and_returns_empty(self, caplog):
-        import logging
-
-        with caplog.at_level(logging.WARNING, logger='marcel_core.skills.loader'):
-            assert _normalize_depends_on(['docker', 42]) == []
-        assert any('depends_on' in r.message for r in caplog.records)
-
-    def test_dict_warns_and_returns_empty(self, caplog):
-        import logging
-
-        with caplog.at_level(logging.WARNING, logger='marcel_core.skills.loader'):
-            assert _normalize_depends_on({'docker': True}) == []
-        assert any('depends_on' in r.message for r in caplog.records)
-
-
-class TestCheckDependsOn:
-    def test_empty_list_passes(self, isolated_metadata):
-        assert _check_depends_on([], 'user') is True
-
-    def test_unregistered_integration_returns_false(self, isolated_metadata):
-        # No metadata registered → treat as unmet so SETUP.md is shown.
-        assert _check_depends_on(['docker'], 'user') is False
-
-    def test_registered_integration_with_no_requires_passes(self, isolated_metadata):
+    def test_registered_no_requires_passes(self, isolated_metadata):
         isolated_metadata['docker'] = ToolkitMetadata(name='docker', requires={})
-        assert _check_depends_on(['docker'], 'user') is True
+        assert _connector_requirements_met(['docker'], 'shaun') is True
 
     def test_env_requirement_propagates(self, isolated_metadata, monkeypatch):
-        isolated_metadata['docker'] = ToolkitMetadata(
-            name='docker',
-            requires={'env': ['DOCKER_HOST']},
-        )
+        isolated_metadata['docker'] = ToolkitMetadata(name='docker', requires={'env': ['DOCKER_HOST']})
         monkeypatch.delenv('DOCKER_HOST', raising=False)
-        assert _check_depends_on(['docker'], 'user') is False
+        assert _connector_requirements_met(['docker'], 'shaun') is False
+        monkeypatch.setenv('DOCKER_HOST', 'unix:///x')
+        assert _connector_requirements_met(['docker'], 'shaun') is True
 
-        monkeypatch.setenv('DOCKER_HOST', 'unix:///var/run/docker.sock')
-        assert _check_depends_on(['docker'], 'user') is True
+    def test_installed_package_passes(self, isolated_metadata):
+        isolated_metadata['pkgs'] = ToolkitMetadata(name='pkgs', requires={'packages': ['pytest']})
+        assert _connector_requirements_met(['pkgs'], 'shaun') is True
 
-    def test_any_unmet_dep_fails_the_whole_check(self, isolated_metadata, monkeypatch):
-        isolated_metadata['docker'] = ToolkitMetadata(name='docker', requires={})
-        isolated_metadata['icloud'] = ToolkitMetadata(
-            name='icloud',
-            requires={'env': ['ICLOUD_PW']},
-        )
-        monkeypatch.delenv('ICLOUD_PW', raising=False)
-        assert _check_depends_on(['docker', 'icloud'], 'user') is False
+    def test_missing_package_fails(self, isolated_metadata):
+        isolated_metadata['pkgs'] = ToolkitMetadata(name='pkgs', requires={'packages': ['nonexistent_xyz_123']})
+        assert _connector_requirements_met(['pkgs'], 'shaun') is False
+
+    def test_file_requirement(self, isolated_metadata, tmp_path, monkeypatch):
+        monkeypatch.setattr('marcel_core.storage._root._DATA_ROOT', tmp_path)
+        isolated_metadata['keyed'] = ToolkitMetadata(name='keyed', requires={'files': ['key.pem']})
+        assert _connector_requirements_met(['keyed'], 'shaun') is False
+        user_dir = tmp_path / 'users' / 'shaun'
+        user_dir.mkdir(parents=True)
+        (user_dir / 'key.pem').write_text('k')
+        assert _connector_requirements_met(['keyed'], 'shaun') is True
 
 
-class TestLoadSkillDirDependsOn:
-    def test_depends_on_met_returns_skill_md(self, tmp_path, isolated_metadata, monkeypatch):
-        isolated_metadata['docker'] = ToolkitMetadata(
-            name='docker',
-            requires={'env': ['DOCKER_HOST']},
-        )
-        monkeypatch.setenv('DOCKER_HOST', 'unix:///var/run/docker.sock')
+# ---------------------------------------------------------------------------
+# _load_skill_dir
+# ---------------------------------------------------------------------------
 
-        skill_dir = tmp_path / 'docker'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text(
-            '---\nname: docker\ndescription: Manage Docker\ndepends_on:\n  - docker\n---\n\nSkill body.'
-        )
-        (skill_dir / 'SETUP.md').write_text('---\nname: docker\n---\n\nSetup body.')
 
-        doc = _load_skill_dir(skill_dir, 'user', 'zoo')
+class TestLoadSkillDir:
+    def test_conformant_loads(self, tmp_path):
+        d = tmp_path / 'news'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('news', 'News digest', 'How to read news.'))
+        doc = _load_skill_dir(d, 'zoo-global', 'shaun')
         assert doc is not None
+        assert doc.name == 'news'
+        assert doc.description == 'News digest'
+        assert doc.content == 'How to read news.'
         assert doc.is_setup is False
-        assert 'Skill body.' in doc.content
+        assert doc.source == 'zoo-global'
 
-    def test_depends_on_unmet_returns_setup_md(self, tmp_path, isolated_metadata, monkeypatch):
-        isolated_metadata['docker'] = ToolkitMetadata(
-            name='docker',
-            requires={'env': ['DOCKER_HOST']},
-        )
-        monkeypatch.delenv('DOCKER_HOST', raising=False)
+    def test_no_skill_md_returns_none(self, tmp_path):
+        d = tmp_path / 'setup-only'
+        d.mkdir()
+        (d / 'SETUP.md').write_text(_md('setup-only'))
+        assert _load_skill_dir(d, 'zoo-global', 'shaun') is None
 
-        skill_dir = tmp_path / 'docker'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text(
-            '---\nname: docker\ndescription: Manage Docker\ndepends_on:\n  - docker\n---\n\nSkill body.'
-        )
-        (skill_dir / 'SETUP.md').write_text('---\nname: docker\n---\n\nSetup body.')
+    def test_nonconformant_name_returns_none(self, tmp_path):
+        # name missing → no more dirname default; validation rejects it.
+        d = tmp_path / 'my-skill'
+        d.mkdir()
+        (d / 'SKILL.md').write_text('---\ndescription: no name\n---\n\nBody.')
+        assert _load_skill_dir(d, 'zoo-global', 'shaun') is None
 
-        doc = _load_skill_dir(skill_dir, 'user', 'zoo')
+    def test_name_mismatch_returns_none(self, tmp_path):
+        d = tmp_path / 'weather'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('news'))
+        assert _load_skill_dir(d, 'zoo-global', 'shaun') is None
+
+    def test_setup_fallback_when_requirements_unmet(self, tmp_path, monkeypatch):
+        monkeypatch.delenv('MISSING', raising=False)
+        d = tmp_path / 'gated'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('gated', metadata={'marcel-requires-env': 'MISSING'}, body='Full skill.'))
+        (d / 'SETUP.md').write_text(_md('gated', 'Setup guide', 'How to set up.'))
+        doc = _load_skill_dir(d, 'zoo-global', 'shaun')
         assert doc is not None
         assert doc.is_setup is True
-        assert 'Setup body.' in doc.content
+        assert doc.content == 'How to set up.'
 
-    def test_depends_on_aggregates_credentials_into_skill_doc(self, tmp_path, isolated_metadata):
-        isolated_metadata['banking'] = ToolkitMetadata(
-            name='banking',
-            requires={'credentials': ['BANK_API_KEY']},
+    def test_requirements_met_serves_skill(self, tmp_path, monkeypatch):
+        monkeypatch.setenv('PRESENT', 'yes')
+        d = tmp_path / 'gated'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('gated', metadata={'marcel-requires-env': 'PRESENT'}, body='Full skill.'))
+        (d / 'SETUP.md').write_text(_md('gated', 'Setup', 'Setup guide.'))
+        doc = _load_skill_dir(d, 'zoo-global', 'shaun')
+        assert doc is not None
+        assert doc.is_setup is False
+        assert doc.content == 'Full skill.'
+
+    def test_requirements_unmet_no_setup_serves_skill(self, tmp_path, monkeypatch):
+        monkeypatch.delenv('MISSING', raising=False)
+        d = tmp_path / 'gated'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('gated', metadata={'marcel-requires-env': 'MISSING'}, body='Content.'))
+        doc = _load_skill_dir(d, 'zoo-global', 'shaun')
+        assert doc is not None
+        assert doc.is_setup is False
+        assert doc.content == 'Content.'
+
+    def test_marcel_tier_parsed(self, tmp_path):
+        d = tmp_path / 's'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('s', metadata={'marcel-tier': 'fast'}))
+        doc = _load_skill_dir(d, 'zoo-global', 'shaun')
+        assert doc is not None and doc.preferred_tier == 'fast'
+
+    def test_invalid_tier_dropped_with_warning(self, tmp_path, caplog):
+        d = tmp_path / 's'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('s', metadata={'marcel-tier': 'backup'}))
+        with caplog.at_level(logging.WARNING, logger='marcel_core.skills.loader'):
+            doc = _load_skill_dir(d, 'zoo-global', 'shaun')
+        assert doc is not None and doc.preferred_tier is None
+        assert any('marcel-tier' in r.getMessage() for r in caplog.records)
+
+    def test_default_enabled_absent_defaults_to_all(self, tmp_path):
+        d = tmp_path / 's'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('s'))
+        doc = _load_skill_dir(d, 'zoo-global', 'shaun')
+        assert doc is not None and doc.default_enabled == 'all'
+
+    @pytest.mark.parametrize('value', ['all', 'admin', 'none'])
+    def test_default_enabled_valid_values_parsed(self, tmp_path, value):
+        d = tmp_path / 's'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('s', metadata={'marcel-default-enabled': value}))
+        doc = _load_skill_dir(d, 'zoo-global', 'shaun')
+        assert doc is not None and doc.default_enabled == value
+
+    def test_invalid_default_enabled_falls_back_with_warning(self, tmp_path, caplog):
+        d = tmp_path / 's'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('s', metadata={'marcel-default-enabled': 'everyone'}))
+        with caplog.at_level(logging.WARNING, logger='marcel_core.skills.loader'):
+            doc = _load_skill_dir(d, 'zoo-global', 'shaun')
+        assert doc is not None and doc.default_enabled == 'all'
+        assert any('marcel-default-enabled' in r.getMessage() for r in caplog.records)
+
+    def test_local_tier_is_legal(self, tmp_path):
+        d = tmp_path / 's'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('s', metadata={'marcel-tier': 'local'}))
+        doc = _load_skill_dir(d, 'zoo-global', 'shaun')
+        assert doc is not None and doc.preferred_tier == 'local'
+
+    def test_marcel_role_parsed(self, tmp_path):
+        d = tmp_path / 's'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('s', metadata={'marcel-role': 'admin'}))
+        doc = _load_skill_dir(d, 'zoo-global', 'shaun')
+        assert doc is not None and doc.role == 'admin'
+
+    def test_invalid_role_dropped_with_warning(self, tmp_path, caplog):
+        d = tmp_path / 's'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('s', metadata={'marcel-role': 'wizard'}))
+        with caplog.at_level(logging.WARNING, logger='marcel_core.skills.loader'):
+            doc = _load_skill_dir(d, 'zoo-global', 'shaun')
+        assert doc is not None and doc.role is None
+        assert any('marcel-role' in r.getMessage() for r in caplog.records)
+
+    def test_setup_fallback_drops_tier(self, tmp_path, monkeypatch):
+        monkeypatch.delenv('MISSING', raising=False)
+        d = tmp_path / 's'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(
+            _md('s', metadata={'marcel-tier': 'power', 'marcel-requires-env': 'MISSING'}, body='Full.')
         )
+        (d / 'SETUP.md').write_text(_md('s', 'Setup', 'Setup.'))
+        doc = _load_skill_dir(d, 'zoo-global', 'shaun')
+        assert doc is not None and doc.is_setup is True
+        assert doc.preferred_tier is None
 
-        skill_dir = tmp_path / 'banking'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: banking\ndepends_on:\n  - banking\n---\n\nBody.')
+    def test_components_loaded(self, tmp_path):
+        d = tmp_path / 'ui'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('ui'))
+        (d / 'components.yaml').write_text(
+            'components:\n  - name: card\n    description: A card\n    props:\n      type: object\n'
+        )
+        doc = _load_skill_dir(d, 'zoo-global', 'shaun')
+        assert doc is not None
+        assert [c.name for c in doc.components] == ['card']
 
-        # Requirement check will fail (no credentials in test store) — but the
-        # SETUP.md path also receives the aggregated credential keys, so we can
-        # assert against either return value.
-        doc = _load_skill_dir(skill_dir, 'user', 'zoo')
+    def test_long_description_warns(self, tmp_path, caplog):
+        d = tmp_path / 's'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('s', description='x' * 600))
+        with caplog.at_level(logging.WARNING, logger='marcel_core.skills.loader'):
+            doc = _load_skill_dir(d, 'zoo-global', 'shaun')
+        assert doc is not None
+        assert any('catalog entries should stay compact' in r.getMessage() for r in caplog.records)
+
+    def test_connector_credentials_aggregated(self, tmp_path, isolated_metadata):
+        isolated_metadata['banking'] = ToolkitMetadata(name='banking', requires={'credentials': ['BANK_API_KEY']})
+        d = tmp_path / 'banking'
+        d.mkdir()
+        (d / 'SKILL.md').write_text(_md('banking', metadata={'marcel-connectors': 'banking'}))
+        doc = _load_skill_dir(d, 'zoo-global', 'shaun')
         assert doc is not None
         assert 'BANK_API_KEY' in doc.credential_keys
 
-    def test_string_form_depends_on_normalized(self, tmp_path, isolated_metadata):
-        isolated_metadata['docker'] = ToolkitMetadata(name='docker', requires={})
 
-        skill_dir = tmp_path / 'docker'
-        skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: docker\ndepends_on: docker\n---\n\nBody.')
-
-        doc = _load_skill_dir(skill_dir, 'user', 'zoo')
-        assert doc is not None
-        assert doc.is_setup is False
+# ---------------------------------------------------------------------------
+# scoping chain
+# ---------------------------------------------------------------------------
 
 
-class TestSkillDirsAndZooDiscovery:
-    def test_skill_dirs_zoo_then_data(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
+class TestScopingChain:
+    def test_no_user_only_global(self, roots):
+        dirs = _skill_dirs(None)
+        assert [src for _p, src in dirs] == ['zoo-global']
 
-        zoo = tmp_path / 'zoo'
-        (zoo / 'skills').mkdir(parents=True)
-        data = tmp_path / 'data'
-        (data / 'skills').mkdir(parents=True)
+    def test_all_three_roots_present(self, roots):
+        roots('zoo-user', 'a', skill_md=_md('a'))
+        roots('data-user', 'b', skill_md=_md('b'))
+        sources = [src for _p, src in _skill_dirs('shaun')]
+        assert sources == ['zoo-global', 'zoo-user', 'data-user']
 
-        # Patch zoo via settings.zoo_dir; data via _skills_dir() override.
-        from marcel_core.config import settings
+    def test_missing_roots_absent(self, roots):
+        # Only zoo-global exists (roots fixture makes it); no per-user dirs.
+        sources = [src for _p, src in _skill_dirs('shaun')]
+        assert sources == ['zoo-global']
 
-        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo))
-        monkeypatch.setattr(loader, '_skills_dir', lambda: data / 'skills')
+    def test_most_specific_wins_with_shadow_log(self, roots, caplog):
+        roots('zoo-global', 'news', skill_md=_md('news', body='Global.'))
+        roots('data-user', 'news', skill_md=_md('news', body='User override.'))
+        with caplog.at_level(logging.INFO, logger='marcel_core.skills.loader'):
+            docs = load_skills('shaun')
+        news = next(d for d in docs if d.name == 'news')
+        assert news.source == 'data-user'
+        assert news.content == 'User override.'
+        assert any('shadows' in r.getMessage() for r in caplog.records)
 
-        dirs = loader._skill_dirs()
-        assert dirs == [zoo / 'skills', data / 'skills']
 
-    def test_skill_dirs_omits_zoo_when_unset(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-        from marcel_core.config import settings
+# ---------------------------------------------------------------------------
+# role gating
+# ---------------------------------------------------------------------------
 
-        data = tmp_path / 'data'
-        (data / 'skills').mkdir(parents=True)
-        monkeypatch.setattr(settings, 'marcel_zoo_dir', None)
-        monkeypatch.setattr(loader, '_skills_dir', lambda: data / 'skills')
 
-        dirs = loader._skill_dirs()
-        assert dirs == [data / 'skills']
+class TestRoleGating:
+    def test_admin_skill_hidden_from_user(self, roots):
+        roots('zoo-global', 'devtool', skill_md=_md('devtool', metadata={'marcel-role': 'admin'}))
+        roots('zoo-global', 'news', skill_md=_md('news'))
+        names = [d.name for d in load_skills('shaun', role='user')]
+        assert 'devtool' not in names
+        assert 'news' in names
 
-    def test_skill_dirs_omits_zoo_when_skills_subdir_missing(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-        from marcel_core.config import settings
+    def test_admin_skill_visible_to_admin(self, roots):
+        roots('zoo-global', 'devtool', skill_md=_md('devtool', metadata={'marcel-role': 'admin'}))
+        names = [d.name for d in load_skills('shaun', role='admin')]
+        assert 'devtool' in names
 
-        zoo = tmp_path / 'zoo'
-        zoo.mkdir()  # no `skills/` subdir
+    def test_default_role_is_user(self, roots):
+        roots('zoo-global', 'devtool', skill_md=_md('devtool', metadata={'marcel-role': 'admin'}))
+        assert [d.name for d in load_skills('shaun')] == []
 
-        data = tmp_path / 'data'
-        (data / 'skills').mkdir(parents=True)
-        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo))
-        monkeypatch.setattr(loader, '_skills_dir', lambda: data / 'skills')
 
-        dirs = loader._skill_dirs()
-        assert dirs == [data / 'skills']
+# ---------------------------------------------------------------------------
+# load_skills discovery
+# ---------------------------------------------------------------------------
 
-    def test_load_skills_discovers_zoo_skills(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-        from marcel_core.config import settings
 
-        zoo = tmp_path / 'zoo'
-        zoo_skills = zoo / 'skills'
-        zoo_skills.mkdir(parents=True)
-        d = zoo_skills / 'docker'
-        d.mkdir()
-        (d / 'SKILL.md').write_text('---\nname: docker\ndescription: From zoo\n---\n\nZoo body.')
+class TestLoadSkills:
+    def test_sorted_by_name(self, roots):
+        roots('zoo-global', 'zebra', skill_md=_md('zebra'))
+        roots('zoo-global', 'alpha', skill_md=_md('alpha'))
+        assert [d.name for d in load_skills('shaun')] == ['alpha', 'zebra']
 
-        # Empty data dir
-        data = tmp_path / 'data'
-        (data / 'skills').mkdir(parents=True)
+    def test_hidden_and_underscore_dirs_skipped(self, roots):
+        roots('zoo-global', '.hidden', skill_md=_md('hidden'))
+        roots('zoo-global', '_internal', skill_md=_md('internal'))
+        roots('zoo-global', 'valid', skill_md=_md('valid'))
+        assert [d.name for d in load_skills('shaun')] == ['valid']
 
-        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo))
-        monkeypatch.setattr(loader, '_skills_dir', lambda: data / 'skills')
+    def test_empty_dir_skipped(self, roots):
+        (roots('zoo-global', 'valid', skill_md=_md('valid')).parent / 'empty').mkdir()
+        assert [d.name for d in load_skills('shaun')] == ['valid']
 
-        docs = load_skills('user')
-        names = [d.name for d in docs]
-        assert 'docker' in names
-        docker = next(d for d in docs if d.name == 'docker')
-        assert docker.source == 'zoo'
-        assert 'Zoo body.' in docker.content
 
-    def test_data_dir_overrides_zoo_on_collision(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
-        from marcel_core.config import settings
+# ---------------------------------------------------------------------------
+# get_skill_content
+# ---------------------------------------------------------------------------
 
-        # Same skill name in both — data_dir should win.
-        zoo = tmp_path / 'zoo'
-        zoo_skill = zoo / 'skills' / 'docker'
-        zoo_skill.mkdir(parents=True)
-        (zoo_skill / 'SKILL.md').write_text('---\nname: docker\ndescription: zoo\n---\n\nZoo version.')
 
-        data = tmp_path / 'data'
-        data_skill = data / 'skills' / 'docker'
-        data_skill.mkdir(parents=True)
-        (data_skill / 'SKILL.md').write_text('---\nname: docker\ndescription: user\n---\n\nUser override.')
+class TestGetSkillContent:
+    def test_returns_body(self, roots):
+        roots('zoo-global', 'news', skill_md=_md('news', body='News body.'))
+        assert get_skill_content('news', 'shaun') == 'News body.'
 
-        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo))
-        monkeypatch.setattr(loader, '_skills_dir', lambda: data / 'skills')
+    def test_unknown_returns_none(self, roots):
+        assert get_skill_content('ghost', 'shaun') is None
 
-        docs = load_skills('user')
-        docker = next(d for d in docs if d.name == 'docker')
-        assert docker.source == 'data'
-        assert 'User override.' in docker.content
-        assert 'Zoo version.' not in docker.content
+    def test_role_gated_content(self, roots):
+        roots('zoo-global', 'devtool', skill_md=_md('devtool', metadata={'marcel-role': 'admin'}, body='D.'))
+        assert get_skill_content('devtool', 'shaun', role='user') is None
+        assert get_skill_content('devtool', 'shaun', role='admin') == 'D.'
+
+
+# ---------------------------------------------------------------------------
+# resources (skill-root-scoped)
+# ---------------------------------------------------------------------------
+
+
+class TestResources:
+    def test_resource_by_exact_filename(self, roots):
+        roots('zoo-global', 'news', skill_md=_md('news'), files={'feeds.yaml': 'feeds: []'})
+        assert get_skill_resource('news', 'feeds.yaml', 'shaun') == 'feeds: []'
+
+    def test_resource_by_stem(self, roots):
+        roots('zoo-global', 'news', skill_md=_md('news'), files={'feeds.yaml': 'feeds: []'})
+        assert get_skill_resource('news', 'feeds', 'shaun') == 'feeds: []'
+
+    def test_resource_case_insensitive(self, roots):
+        roots('zoo-global', 'banking', skill_md=_md('banking'), files={'SETUP.md': '## Setup'})
+        assert get_skill_resource('banking', 'setup', 'shaun') == '## Setup'
+
+    def test_skill_md_not_exposed(self, roots):
+        roots('zoo-global', 'news', skill_md=_md('news'))
+        assert get_skill_resource('news', 'SKILL.md', 'shaun') is None
+        assert get_skill_resource('news', 'SKILL', 'shaun') is None
+
+    def test_unknown_skill_returns_none(self, roots):
+        assert get_skill_resource('ghost', 'feeds', 'shaun') is None
+
+    def test_missing_resource_returns_none(self, roots):
+        roots('zoo-global', 'news', skill_md=_md('news'))
+        assert get_skill_resource('news', 'feeds', 'shaun') is None
+
+    def test_traversal_name_does_not_escape(self, roots):
+        roots('zoo-global', 'news', skill_md=_md('news'), files={'feeds.yaml': 'x'})
+        # A traversal-flavoured name has no matching child → None (never escapes root).
+        assert get_skill_resource('news', '../../etc/passwd', 'shaun') is None
+
+    def test_list_resources(self, roots):
+        roots('zoo-global', 'news', skill_md=_md('news'), files={'SETUP.md': 's', 'feeds.yaml': 'f'})
+        resources = list_skill_resources('news', 'shaun')
+        assert 'SETUP.md' in resources
+        assert 'feeds.yaml' in resources
+        assert 'SKILL.md' not in resources
+
+    def test_list_resources_unknown_skill(self, roots):
+        assert list_skill_resources('ghost', 'shaun') == []
+
+    def test_find_skill_dir_most_specific(self, roots):
+        roots('zoo-global', 'news', skill_md=_md('news'))
+        data_dir = roots('data-user', 'news', skill_md=_md('news'))
+        assert _find_skill_dir('news', 'shaun') == data_dir
