@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 
 from pydantic_ai import Agent
+from pydantic_ai.capabilities import Instrumentation
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -242,13 +243,14 @@ def create_marcel_agent(
         toolset.add_function(fn)  # type: ignore[arg-type]
         registered.append(name)
 
+    instrumentation = get_instrumentation_settings()
     agent: Agent[MarcelDeps, str] = Agent(
         model_arg,
         deps_type=MarcelDeps,
         instructions=system_prompt,
         retries=2,
         end_strategy='exhaustive',
-        instrument=get_instrumentation_settings(),
+        capabilities=[Instrumentation(instrumentation)] if instrumentation else [],
         toolsets=[MarcelBusToolset(toolset)],
     )
 
