@@ -16,7 +16,11 @@ classifiers = [
 ]
 
 dependencies = [
-    "pydantic-ai-slim[anthropic,openai]>=2.1,<3",
+    # `mcp` extra powers the connector habitat's MCPToolset (FEAT-260718-230bf8)
+    # and pulls `fastmcp-slim[client]` for the client transport. The server-side
+    # `fastmcp` (for bundled in-process connectors) is added, version-matched to
+    # the slim line, when story (e) lands the in-process lifecycle.
+    "pydantic-ai-slim[anthropic,openai,mcp]>=2.1,<3",
     # Harness capabilities (StepPersistence, compaction, OverflowingToolOutput, …).
     # 0.x — pin the minor per ADR-260718-f54373; bumping it is a deliberate act.
     "pydantic-ai-harness[code-mode]>=0.7,<0.8",
