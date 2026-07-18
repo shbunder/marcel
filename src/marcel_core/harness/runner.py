@@ -161,10 +161,10 @@ def _loaded_skill_names(messages: Sequence[ModelMessage], extra: set[str] | None
         if not isinstance(msg, ModelResponse):
             continue
         for part in msg.parts:
-            if isinstance(part, LoadCapabilityCallPart):
-                cap_id = getattr(part, 'capability_id', None) or getattr(part, 'id', None)
-                if isinstance(cap_id, str) and cap_id:
-                    names.add(cap_id)
+            # ``capability_id`` is the typed part's property (parsed from the
+            # load-capability args); a skill's capability id is its name.
+            if isinstance(part, LoadCapabilityCallPart) and isinstance(part.capability_id, str) and part.capability_id:
+                names.add(part.capability_id)
     return names
 
 
