@@ -42,7 +42,7 @@ So the sandbox is **active only where userns is available**. Marcel probes at
 runtime (`sandbox_available()`): if the sandbox cannot start, the command
 runs **unsandboxed** and a warning is logged — the command policy still
 applies, but there is no OS containment. **Until the sandbox is active, treat
-`bash` as unconfined.**
+shell commands as unconfined.**
 
 ### Enabling it in the deployment
 
@@ -79,8 +79,12 @@ FEAT-260718-38235c) does **not** go through bubblewrap. It runs inside
 third-party imports, an allowlisted stdlib, and no filesystem, clock, or
 network unless explicitly granted (Marcel grants none). Generated code can
 only reach the host through the *wrapped tools* Marcel hands it — the
-code-mode-eligible set (`web`, `generate_chart`), which keep their own
-authority and input validation. This is the successor to the never-shipped
+code-mode-eligible set, kept deliberately small (`web` today). A tool is
+eligible only if its own body is safe to invoke from model-written code:
+approval-gated, destructive, dispatcher, and code-executing tools (e.g.
+`generate_chart`, which `exec()`s model input) are excluded, since exposing
+one would let a `run_code` script reach the host through it. This is the
+successor to the never-shipped
 `code_exec` path ([ADR-260718-d511f7](https://github.com/shbunder/marcel)):
 there is nothing to bind-mount because the generated code has no host access
 to confine. Approval-gated and destructive tools are deliberately kept
@@ -96,7 +100,7 @@ tool API).
 | Setting | Default | Meaning |
 |---|---|---|
 | `MARCEL_SANDBOX_ENABLED` | `true` | Route the Shell capability's commands through the sandbox when available. `false` runs unsandboxed everywhere. |
-| `MARCEL_SANDBOX_NETWORK` | `true` | Keep network in sandboxed shell commands. |
+| `MARCEL_SANDBOX_NETWORK` | `true` | Keep network in sandboxed shell commands. A deliberate trade-off (admin shell keeps working) — note that with it on, the sandbox confines the *filesystem* but not data egress. Set `false` for network isolation. |
 
 ## Status
 
