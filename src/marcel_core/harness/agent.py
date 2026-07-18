@@ -8,16 +8,15 @@ from __future__ import annotations
 import logging
 
 from pydantic_ai import Agent
-from pydantic_ai.capabilities import Instrumentation
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.toolsets import FunctionToolset
 
+from marcel_core.composition import build_capabilities
 from marcel_core.config import settings
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.harness.model_chain import model_label
-from marcel_core.harness.tool_bus import MarcelBusToolset
 from marcel_core.jobs import tool as job_tools
 from marcel_core.tools import (
     charts as chart_tools,
@@ -28,7 +27,6 @@ from marcel_core.tools import (
     toolkit as toolkit_tools,
 )
 from marcel_core.tools.web import web as web_tool
-from marcel_core.tracing import get_instrumentation_settings
 
 log = logging.getLogger(__name__)
 
@@ -229,7 +227,8 @@ def create_marcel_agent(
     # routes through the turn's event bus (tool_call / tool_result). The
     # structural role gate below stays the *primary* defense — an admin tool
     # is simply never added for a non-admin, so the model cannot see it. The
-    # bus (MarcelBusToolset) is a second, harness-level enforcement layer.
+    # bus (via the MarcelPolicy capability) is a second, harness-level
+    # enforcement layer.
     toolset: FunctionToolset[MarcelDeps] = FunctionToolset()
     registered: list[str] = []
     for name, fn, required_role in _TOOL_REGISTRY:
@@ -243,15 +242,14 @@ def create_marcel_agent(
         toolset.add_function(fn)  # type: ignore[arg-type]
         registered.append(name)
 
-    instrumentation = get_instrumentation_settings()
     agent: Agent[MarcelDeps, str] = Agent(
         model_arg,
         deps_type=MarcelDeps,
         instructions=system_prompt,
         retries=2,
         end_strategy='exhaustive',
-        capabilities=[Instrumentation(instrumentation)] if instrumentation else [],
-        toolsets=[MarcelBusToolset(toolset)],
+        capabilities=build_capabilities(),
+        toolsets=[toolset],
     )
 
     log.info(

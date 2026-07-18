@@ -1,8 +1,9 @@
-"""Tests for the event-bus tool interception layer (MarcelBusToolset).
+"""Tests for the policy capability (MarcelPolicy).
 
 Drives a real pydantic-ai Agent with ``TestModel`` (which calls each tool
 once) so the interception path is exercised end-to-end: block, mutate
-args, rewrite result, and pass-through when no bus is wired.
+args, rewrite result, pass-through when no bus is wired, and the
+first-blocker-wins ordering the three core gates rely on.
 """
 
 from __future__ import annotations
@@ -11,15 +12,15 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.toolsets import FunctionToolset
 
+from marcel_core.capabilities.policy import MarcelPolicy
 from marcel_core.harness.context import MarcelDeps, TurnState
-from marcel_core.harness.tool_bus import MarcelBusToolset
 from marcel_sdk.events import EventBus, ToolCallEvent, ToolResultEvent
 
 
 def _agent(fn) -> Agent[MarcelDeps, str]:
     fts: FunctionToolset[MarcelDeps] = FunctionToolset()
     fts.add_function(fn)
-    return Agent(TestModel(), deps_type=MarcelDeps, toolsets=[MarcelBusToolset(fts)])
+    return Agent(TestModel(), deps_type=MarcelDeps, toolsets=[fts], capabilities=[MarcelPolicy()])
 
 
 def _deps(bus: EventBus | None, role: str = 'admin') -> MarcelDeps:
@@ -107,3 +108,35 @@ def test_no_handlers_is_transparent():
     result = _agent(echo).run_sync('go', deps=_deps(bus))
     assert seen, 'tool should run'
     assert 'echo:' in result.output
+
+
+def test_first_blocker_wins_in_registration_order():
+    """Handlers fire in registration order; the first deny short-circuits.
+
+    This is the ordering property the three core gates depend on
+    (self-mod guard → role gate → command policy): a later handler must
+    never see, override, or append to an already-denied call.
+    """
+    bus = EventBus()
+    fired: list[str] = []
+
+    def first(event: ToolCallEvent, ctx):
+        fired.append('first')
+        event.deny('first says no')
+
+    def second(event: ToolCallEvent, ctx):  # pragma: no cover - must not run
+        fired.append('second')
+        event.deny('second says no')
+
+    bus.on('tool_call', first)
+    bus.on('tool_call', second)
+    calls: list[int] = []
+
+    def guarded(ctx: RunContext[MarcelDeps]) -> str:
+        calls.append(1)
+        return 'ran'
+
+    result = _agent(guarded).run_sync('go', deps=_deps(bus))
+    assert fired == ['first'], 'later handlers must not run after a deny'
+    assert calls == [], 'denied tool must never execute'
+    assert 'first says no' in result.output

@@ -589,7 +589,7 @@ async def stream_turn(
     # role-gating) subscribe as ``tool_call`` handlers via
     # ``register_core_handlers``; extensions may subscribe too. The bus is
     # attached to ``deps.turn`` below so the tool interception layer
-    # (:class:`~marcel_core.harness.tool_bus.MarcelBusToolset`) can reach it.
+    # (:class:`~marcel_core.capabilities.policy.MarcelPolicy`) can reach it.
     event_bus = EventBus()
     register_core_handlers(event_bus)
     # Replay extension-registered on() subscriptions onto this turn's bus.
