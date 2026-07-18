@@ -79,13 +79,12 @@ async def _run_bash(command: str, cwd: str | None, timeout: int) -> tuple[int | 
     return proc.returncode, stdout, stderr
 
 
-async def bash(ctx: RunContext[MarcelDeps], command: str, timeout: int = 120) -> str:
-    """Execute a bash command on the server.
+async def _git_shell(ctx: RunContext[MarcelDeps], command: str, timeout: int = 120) -> str:
+    """Run a shell command for the git tools (private — not a registered tool).
 
-    Use this for system commands, package management, service control, etc.
-    For complex code tasks, use the claude_code tool instead.
-
-    Runs inside the bubblewrap workspace-write sandbox when available
+    The old ``bash`` tool body, kept for the git_* tools which shell out.
+    The model-facing shell surface is the SandboxedShell capability
+    (FEAT-260718-38235c). Runs inside the bubblewrap workspace-write sandbox when available
     (writes confined to the cwd, self-mod boundary read-only); falls back to
     a direct run where unprivileged user namespaces are unavailable. Either
     way the command policy classifies the command before it reaches here.
@@ -128,135 +127,13 @@ async def bash(ctx: RunContext[MarcelDeps], command: str, timeout: int = 120) ->
     return output or '(no output)'
 
 
-async def read_file(ctx: RunContext[MarcelDeps], path: str, offset: int = 0, limit: int | None = None) -> str:
-    """Read file contents from the server.
-
-    Args:
-        ctx: Agent context.
-        path: Absolute or relative path to the file.
-        offset: Line number to start reading from (0-indexed).
-        limit: Maximum number of lines to read (None = all).
-
-    Returns:
-        File contents with line numbers, or error message.
-    """
-    log.info('[read_file] user=%s path=%s', ctx.deps.user_slug, path)
-
-    try:
-        file_path = Path(path)
-        if not file_path.is_absolute():
-            file_path = Path(_effective_cwd(ctx)) / path
-
-        if not file_path.exists():
-            return f'Error: File not found: {path}'
-
-        if file_path.is_dir():
-            return f'Error: {path} is a directory. Use bash with ls to list contents.'
-
-        with open(file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-
-        # Apply offset and limit
-        if offset > 0:
-            lines = lines[offset:]
-        if limit is not None:
-            lines = lines[:limit]
-
-        # Add line numbers (starting from offset)
-        numbered = [f'{i + offset + 1:5d}\t{line}' for i, line in enumerate(lines)]
-        content = ''.join(numbered)
-
-        if len(content) > MAX_OUTPUT_LENGTH:
-            content = content[:MAX_OUTPUT_LENGTH] + '\n\n[Output truncated: use offset/limit parameters]'
-
-        return content
-
-    except Exception as exc:
-        log.exception('[read_file] failed')
-        return f'Error reading file: {exc}'
-
-
-async def write_file(ctx: RunContext[MarcelDeps], path: str, content: str) -> str:
-    """Write content to a file (create or overwrite).
-
-    Args:
-        ctx: Agent context.
-        path: Absolute or relative path to the file.
-        content: Content to write.
-
-    Returns:
-        Success message or error.
-    """
-    log.info('[write_file] user=%s path=%s len=%d', ctx.deps.user_slug, path, len(content))
-
-    try:
-        file_path = Path(path)
-        if not file_path.is_absolute():
-            file_path = Path(_effective_cwd(ctx)) / path
-
-        # Create parent directories if needed
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-
-        file_path.write_text(content, encoding='utf-8')
-        return f'✓ Wrote {len(content)} characters to {path}'
-
-    except Exception as exc:
-        log.exception('[write_file] failed')
-        return f'Error writing file: {exc}'
-
-
-async def edit_file(ctx: RunContext[MarcelDeps], path: str, old_string: str, new_string: str) -> str:
-    """Edit a file by replacing exact string match.
-
-    Args:
-        ctx: Agent context.
-        path: Absolute or relative path to the file.
-        old_string: The exact text to replace (must match exactly).
-        new_string: The replacement text.
-
-    Returns:
-        Success message or error.
-    """
-    log.info('[edit_file] user=%s path=%s', ctx.deps.user_slug, path)
-
-    try:
-        file_path = Path(path)
-        if not file_path.is_absolute():
-            file_path = Path(_effective_cwd(ctx)) / path
-
-        if not file_path.exists():
-            return f'Error: File not found: {path}'
-
-        content = file_path.read_text(encoding='utf-8')
-
-        if old_string not in content:
-            return f'Error: old_string not found in {path}. Make sure the string matches exactly.'
-
-        # Check if replacement is unique
-        occurrences = content.count(old_string)
-        if occurrences > 1:
-            return (
-                f'Error: old_string appears {occurrences} times in {path}. '
-                f'Provide a larger unique string or use write_file to rewrite the entire file.'
-            )
-
-        new_content = content.replace(old_string, new_string, 1)
-        file_path.write_text(new_content, encoding='utf-8')
-
-        return f'✓ Replaced {len(old_string)} chars with {len(new_string)} chars in {path}'
-
-    except Exception as exc:
-        log.exception('[edit_file] failed')
-        return f'Error editing file: {exc}'
-
-
 async def git_status(ctx: RunContext[MarcelDeps]) -> str:
     """Show git working tree status.
 
     Returns:
         Git status output.
     """
-    return await bash(ctx, 'git status')
+    return await _git_shell(ctx, 'git status')
 
 
 async def git_diff(ctx: RunContext[MarcelDeps], paths: str = '') -> str:
@@ -270,7 +147,7 @@ async def git_diff(ctx: RunContext[MarcelDeps], paths: str = '') -> str:
         Git diff output.
     """
     cmd = f'git diff HEAD {paths}'.strip()
-    return await bash(ctx, cmd)
+    return await _git_shell(ctx, cmd)
 
 
 async def git_log(ctx: RunContext[MarcelDeps], limit: int = 10) -> str:
@@ -283,7 +160,7 @@ async def git_log(ctx: RunContext[MarcelDeps], limit: int = 10) -> str:
     Returns:
         Git log output.
     """
-    return await bash(ctx, f'git log --oneline -{limit}')
+    return await _git_shell(ctx, f'git log --oneline -{limit}')
 
 
 async def git_add(ctx: RunContext[MarcelDeps], paths: str) -> str:
@@ -296,7 +173,7 @@ async def git_add(ctx: RunContext[MarcelDeps], paths: str) -> str:
     Returns:
         Command output or error.
     """
-    return await bash(ctx, f'git add {paths}')
+    return await _git_shell(ctx, f'git add {paths}')
 
 
 async def git_commit(ctx: RunContext[MarcelDeps], message: str) -> str:
@@ -311,7 +188,7 @@ async def git_commit(ctx: RunContext[MarcelDeps], message: str) -> str:
     """
     # Use heredoc for proper quoting
     cmd = f'git commit -m "$(cat <<\'EOF\'\n{message}\nEOF\n)"'
-    return await bash(ctx, cmd)
+    return await _git_shell(ctx, cmd)
 
 
 async def git_push(ctx: RunContext[MarcelDeps], remote: str = 'origin', branch: str = 'HEAD') -> str:
@@ -325,4 +202,4 @@ async def git_push(ctx: RunContext[MarcelDeps], remote: str = 'origin', branch: 
     Returns:
         Command output or error.
     """
-    return await bash(ctx, f'git push {remote} {branch}')
+    return await _git_shell(ctx, f'git push {remote} {branch}')

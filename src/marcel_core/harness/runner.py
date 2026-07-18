@@ -488,6 +488,7 @@ async def stream_turn(
                     current.model,
                     system_prompt=system_prompt,
                     role=role,
+                    cwd=effective_cwd,
                 )
             except Exception as exc:
                 log.warning(

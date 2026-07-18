@@ -119,11 +119,9 @@ _TOOL_REGISTRY: list[tuple[str, object, str | None]] = [
     # available — the dispatcher returns a clean error for browser actions
     # when playwright isn't installed, so ``search`` still works bare.
     ('web', web_tool, None),
-    # Admin power tools
-    ('bash', core_tools.bash, 'admin'),
-    ('read_file', core_tools.read_file, 'admin'),
-    ('write_file', core_tools.write_file, 'admin'),
-    ('edit_file', core_tools.edit_file, 'admin'),
+    # Admin power tools. Shell (run_command …) and FileSystem (read_file …)
+    # are capabilities now — attached in composition.build_capabilities for
+    # admin roles, gated as layer 2 via admin_tool_names() below.
     ('git_status', core_tools.git_status, 'admin'),
     ('git_diff', core_tools.git_diff, 'admin'),
     ('git_log', core_tools.git_log, 'admin'),
@@ -156,7 +154,15 @@ def available_tool_names(role: str) -> set[str]:
     for a subagent when its frontmatter omits ``tools:``, so the recursion
     guard and any ``disallowed_tools`` can be applied on top.
     """
-    return {name for name, _fn, required in _TOOL_REGISTRY if required is None or required == role}
+    names = {name for name, _fn, required in _TOOL_REGISTRY if required is None or required == role}
+    if role == 'admin':
+        # Shell and FileSystem are admin capabilities; their tool names join
+        # the default pool so delegate's frontmatter-omitted children keep
+        # shell/file powers (build_capabilities grants by filter match).
+        from marcel_core.composition import FILESYSTEM_TOOL_NAMES, SHELL_TOOL_NAMES
+
+        names |= SHELL_TOOL_NAMES | FILESYSTEM_TOOL_NAMES
+    return names
 
 
 def admin_tool_names() -> frozenset[str]:
@@ -168,7 +174,12 @@ def admin_tool_names() -> frozenset[str]:
     layer behind the structural gate in :func:`create_marcel_agent` (which
     never registers these tools for a non-admin in the first place).
     """
-    return frozenset(name for name, _fn, required in _TOOL_REGISTRY if required == 'admin')
+    from marcel_core.composition import FILESYSTEM_TOOL_NAMES, SHELL_TOOL_NAMES
+
+    registry_admin = frozenset(name for name, _fn, required in _TOOL_REGISTRY if required == 'admin')
+    # Shell and FileSystem are admin-only capabilities (FEAT-260718-38235c);
+    # their tool names join the gate so layer 2 covers them too.
+    return registry_admin | SHELL_TOOL_NAMES | FILESYSTEM_TOOL_NAMES
 
 
 def create_marcel_agent(
@@ -177,6 +188,7 @@ def create_marcel_agent(
     role: str = 'user',
     tool_filter: set[str] | None = None,
     memory: bool = True,
+    cwd: str | None = None,
 ) -> Agent[MarcelDeps, str]:
     """Create a configured Marcel agent with a role-appropriate tool set.
 
@@ -210,6 +222,8 @@ def create_marcel_agent(
             injection). ``False`` for the lean paths — headless jobs
             (until FEAT-260718-49a01a declares scoping) and the explain
             tier.
+        cwd: The session working directory — roots the admin Shell and
+            FileSystem capabilities (falls back to the project root).
 
     Returns:
         Configured pydantic-ai Agent instance.
@@ -253,7 +267,7 @@ def create_marcel_agent(
         instructions=system_prompt,
         retries=2,
         end_strategy='exhaustive',
-        capabilities=build_capabilities(memory=memory),
+        capabilities=build_capabilities(role=role, cwd=cwd, tool_filter=tool_filter, memory=memory),
         toolsets=[toolset],
     )
 
