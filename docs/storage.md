@@ -84,7 +84,7 @@ Each JSONL line in a segment has the same format:
 | `tool_calls` | array? | For assistant: `[{id, name, arguments}]` |
 | `tool_call_id` | string? | For tool results: matches a tool call ID |
 | `tool_name` | string? | For tool results: which tool produced this |
-| `result_ref` | string? | `sha256:{hash}` pointer to paste store |
+| `result_ref` | string? | Legacy `sha256:{hash}` paste pointer (pre-FEAT-260718-ed6d63 rows; new oversized results are reduced at return time and store a preview + `read_tool_result` handle in `text`) |
 | `is_error` | bool | Whether this tool result was an error |
 
 #### Segment lifecycle

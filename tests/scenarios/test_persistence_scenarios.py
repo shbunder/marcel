@@ -58,6 +58,66 @@ class TestStepStoreLedgerAndResume:
         assert not await store.list_unresolved_tool_effects(run_id=runs[0].run_id)
 
 
+class TestSealingCoexistsWithTheStore:
+    """Scenario: idle sealing and the step store share one layout safely.
+
+    The idle summarizer (outer loop) seals segments and writes rolling
+    summaries against the same files MarcelStepStore reads and appends —
+    one layout, two readers. Sealing mid-conversation must not corrupt
+    either: the next turn's context is the summary prefix plus the fresh
+    segment, and the store keeps appending to the fresh segment.
+    """
+
+    async def test_seal_then_resume_and_append(self, terrarium):
+        from datetime import datetime, timezone
+
+        from marcel_core.capabilities.persistence import persistence_store
+        from marcel_core.memory.conversation import (
+            SegmentSummary,
+            read_active_segment,
+            save_summary,
+            seal_active_segment,
+        )
+
+        terrarium.user('alice')
+        s1 = terrarium.scenario(reply('About the garden: noted!'), user='alice', channel='cli')
+        await s1.run('remember the garden plan')
+
+        # Outer loop seals the segment and records a rolling summary —
+        # storage-level, exactly what summarize_active_segment persists
+        # (the LLM half is out of scope in a sealed world).
+        sealed_id, _meta = seal_active_segment('alice', 'cli')
+        now = datetime.now(tz=timezone.utc)
+        save_summary(
+            'alice',
+            'cli',
+            SegmentSummary(
+                segment_id=sealed_id,
+                created_at=now,
+                trigger='idle',
+                message_count=2,
+                time_span_from=now,
+                time_span_to=now,
+                summary='Alice shared a garden plan.',
+            ),
+        )
+
+        context = await persistence_store().load_context('alice', 'cli')
+        rendered = str(context)
+        assert 'Previous conversation summary' in rendered
+        assert 'garden plan' in rendered.lower()
+        assert 'About the garden: noted!' not in rendered, 'sealed content is summarized, not replayed'
+
+        s2 = terrarium.scenario(reply('Fresh segment reply'), user='alice', channel='cli')
+        result = await s2.run('and now?')
+        assert result.reply == 'Fresh segment reply'
+        fresh = read_active_segment('alice', 'cli')
+        assert [(m.role, m.text) for m in fresh] == [
+            ('user', 'and now?'),
+            ('assistant', 'Fresh segment reply'),
+        ]
+
+
 class TestToolHistoryPersistsExactlyOnce:
     """Regression: a turn-1 tool entry must not be re-appended by turn 2.
 
