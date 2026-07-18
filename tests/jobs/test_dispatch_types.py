@@ -227,7 +227,7 @@ class TestFireSubagentJob:
         )
         captured: dict = {}
 
-        def fake_create(*, model, system_prompt, role, tool_filter):
+        def fake_create(*, model, system_prompt, role, tool_filter, memory=True):
             captured.update(
                 model=model,
                 system_prompt=system_prompt,
@@ -277,7 +277,7 @@ class TestFireSubagentJob:
         monkeypatch.setattr('marcel_core.agents.loader.load_agent', lambda name: _make_agent_doc(name=name))
         observed: dict = {}
 
-        def fake_create(*, model, system_prompt, role, tool_filter):
+        def fake_create(*, model, system_prompt, role, tool_filter, memory=True):
             agent = _FakeAgent()
 
             async def run(prompt, *, deps, usage_limits=None):
@@ -369,7 +369,7 @@ class TestFireSubagentJob:
 
         monkeypatch.setattr('marcel_core.tools.delegate._resolve_tool_filter', fake_resolve_filter)
 
-        def fake_create(*, model, system_prompt, role, tool_filter):
+        def fake_create(*, model, system_prompt, role, tool_filter, memory=True):
             captured['tool_filter'] = tool_filter
             return _FakeAgent(output='done')
 

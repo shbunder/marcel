@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from pydantic_ai.capabilities import AbstractCapability, Instrumentation
 from pydantic_ai_harness.compaction import ClampOversizedMessages, ClearToolResults
+from pydantic_ai_harness.memory import Memory
 from pydantic_ai_harness.overflowing_tool_output import (
     Band,
     OverflowingToolOutput,
@@ -19,6 +20,7 @@ from pydantic_ai_harness.overflowing_tool_output import (
 )
 from pydantic_ai_harness.step_persistence import StepPersistence
 
+from marcel_core.capabilities.memory import MEMORY_GUIDANCE, memory_store_for
 from marcel_core.capabilities.persistence import persistence_store
 from marcel_core.capabilities.persistence.overflow import PasteOverflowStore
 from marcel_core.capabilities.policy import MarcelPolicy
@@ -27,16 +29,18 @@ from marcel_core.harness.context import MarcelDeps
 from marcel_core.tracing import get_instrumentation_settings
 
 
-def build_capabilities() -> list[AbstractCapability[MarcelDeps]]:
+def build_capabilities(*, memory: bool = True) -> list[AbstractCapability[MarcelDeps]]:
     """Assemble the capability list for a Marcel agent.
 
     Today: the policy gate (always), step persistence (the store ignores
     runs without a Marcel conversation id — jobs, subagents, the explain
     tier), the compaction stack (clamp runaway parts first, then blank old
     tool results past the token trigger — replaces the pre-harness
-    age-tier trimming), and instrumentation (when tracing is enabled).
-    Later roadmap features append theirs here, keyed on role, channel, and
-    tier as those axes become capability-relevant.
+    age-tier trimming), the Memory notebook (``memory=False`` for the lean
+    paths — jobs until FEAT-260718-49a01a declares scoping, and the
+    explain tier), and instrumentation (when tracing is enabled). Later
+    roadmap features append theirs here, keyed on role, channel, and tier
+    as those axes become capability-relevant.
     """
     capabilities: list[AbstractCapability[MarcelDeps]] = [
         MarcelPolicy(),
@@ -54,6 +58,18 @@ def build_capabilities() -> list[AbstractCapability[MarcelDeps]]:
             exclude_tools=frozenset({'marcel'}),
         ),
     ]
+    if memory:
+        capabilities.append(
+            Memory(
+                store_resolver=lambda ctx: memory_store_for(ctx.deps.user_slug),
+                # Per-user store roots make the namespace; 'memory' as the
+                # agent segment lands files at users/{slug}/memory/*.md —
+                # the pre-capability distilled-memory location, unchanged.
+                agent_name='memory',
+                max_tokens=settings.marcel_memory_inject_max_tokens,
+                guidance=MEMORY_GUIDANCE,
+            )
+        )
     instrumentation = get_instrumentation_settings()
     if instrumentation is not None:
         capabilities.append(Instrumentation(instrumentation))

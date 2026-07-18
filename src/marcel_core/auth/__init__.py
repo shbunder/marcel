@@ -10,7 +10,11 @@ from urllib.parse import parse_qsl
 
 from marcel_core.config import settings
 
-_SLUG_RE = re.compile(r'^[a-z0-9_-]+$')
+# A leading underscore is reserved for pseudo-users (e.g. ``_household``,
+# the shared family memory root): accepting one at the auth boundary would
+# let any shared-API-token client open a turn AS the pseudo-user and write
+# its files as an "own" store (STORY-260718-bf2af2).
+_SLUG_RE = re.compile(r'^[a-z0-9][a-z0-9_-]*$')
 
 # Maximum age (seconds) for Telegram initData before it's considered stale.
 _INIT_DATA_MAX_AGE = 300

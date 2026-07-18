@@ -17,6 +17,7 @@ src/marcel_core/
   capabilities/    # One self-contained package per capability (ADR-260718-0cf8e8)
     policy/        # MarcelPolicy — tool interception via the turn's event bus
     persistence/   # MarcelStepStore (runs ledger, snapshot deltas), converters, spill store
+    memory/        # per-user notebook stores for the harness Memory capability
   api/
     health.py      # GET /health
     chat.py        # WebSocket /ws/chat — streaming conversation
@@ -30,7 +31,6 @@ src/marcel_core/
   memory/
     conversation.py  # Segment-based continuous conversation storage
     summarizer.py    # Idle summarization — seals segments, generates rolling summaries
-    selector.py      # Relevance-based memory selection via Haiku side-query
     extract.py       # Post-turn fire-and-forget memory extraction (Haiku)
     history.py       # Message types (HistoryMessage, ToolCall)
     pastes.py        # Content-addressed paste store (backend for spilled tool results)
@@ -43,7 +43,6 @@ src/marcel_core/
     marcel/        # Unified Marcel utility tool — per-action sub-modules
       dispatcher.py    # The marcel() entry point advertised to the LLM
       skills.py        # read_skill, read_skill_resource actions
-      memory.py        # search_memory, save_memory actions
       conversations.py # search_conversations, compact actions
       notifications.py # notify action + send_notify helper
       settings.py      # list_models, get_model, set_model actions
@@ -133,11 +132,10 @@ For each conversation turn:
 ```
 1. Client sends {"text": "...", "user": "alice", "token": "...", "conversation": null | "id"}
 2. If conversation is null -> create or resume via conversation channel
-3. build_instructions_async() — assembles five H1 blocks:
+3. build_instructions_async() — assembles four H1 blocks:
    - `# Marcel — who you are` — global MARCEL.md (H1 + self-ref blockquote stripped)
    - `# <User> — who the user is` — profile body (+ server context H2 for admin)
    - `# Skills — what you can do` — compact skill index, full docs on demand via `read_skill`
-   - `# Memory — what you should know` — compact memory index, full bodies on demand via `read_memory` / `search_memory`
    - `# <Channel> — how to respond` — channel guidance (preamble stripped)
 4. Summarize-if-idle: if last_active > 60 min ago, seal segment + generate summary
 5. Load context via the persistence store: latest rolling summary + active
@@ -175,11 +173,11 @@ Marcel uses a single continuous conversation per (user, channel) pair. There are
 
 ### Memory system
 
-Memory files use YAML frontmatter with typed metadata (`schedule`, `preference`, `person`, `reference`, `household`, `feedback`). The system prompt contains a **compact memory index** — one line per file (name + description) — not the full bodies. The agent loads specific entries on demand via `marcel(action="read_memory", name="...")` or searches across them with `marcel(action="search_memory", query="...")`. This keeps the prompt small regardless of how many memories the user has accumulated and teaches the model to reach for memory lookups intentionally instead of relying on pre-loaded content. Schedule memories auto-expire past their date. The `_household` pseudo-user holds shared family memories included in all users' context. See [storage.md](storage.md#memory-file-memorytopicmd) for the full file format and API.
+Memory is the harness `Memory` capability (FEAT-260718-30d45a): Marcel takes its own notes during the turn via `write_memory` / `read_memory` / `search_memory` / `delete_memory`, backed by one per-user store rooted at `users/{slug}/` — files land in the same `memory/*.md` location and keep the frontmatter convention (`name`, `description`, `type` ∈ schedule | preference | person | reference | household | feedback, optional `expires`, `confidence`). Each request receives a bounded `<memory>` snapshot (MEMORY.md excerpt + file listing, budget `MARCEL_MEMORY_INJECT_MAX_TOKENS`); fragment bodies stay on demand. Schedule memories auto-expire past their date. The `_household` pseudo-user's shared memories surface read-only under the reserved `household.` filename prefix — readable and searchable by everyone, changed only by the zoo keeper. See [storage.md](storage.md#memory-file-memorytopicmd) for the file format.
 
-### Memory extraction
+### Memory extraction (supplement)
 
-Runs after every turn as a fire-and-forget `asyncio.create_task` that never blocks the response. A Haiku-powered pydantic-ai Agent is given a system prompt that asks it to return a JSON array of memory operations (`create` / `update`); the caller applies them directly to disk. Existing memory headers are included in the prompt so the agent can update instead of duplicating. User corrections (`"don't do X"`) and non-obvious confirmations (`"yes exactly"`) are captured as `feedback`-type memories with a **Why** / **How to apply** structure for later reuse. See [storage.md](storage.md#memory-extraction-background) for the full lifecycle.
+Runs after every turn as a fire-and-forget `asyncio.create_task` that never blocks the response (disable with `MARCEL_MEMORY_EXTRACTOR_ENABLED=false`). A Haiku-powered pydantic-ai Agent returns a JSON array of memory operations, written through the same store as the capability's tools — it catches durable facts the agent did not note itself. Existing memory headers are included in the prompt so the agent can update instead of duplicating. User corrections (`"don't do X"`) and non-obvious confirmations (`"yes exactly"`) are captured as `feedback`-type memories with a **Why** / **How to apply** structure for later reuse.
 
 ### Artifacts
 

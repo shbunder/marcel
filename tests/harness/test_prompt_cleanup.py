@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import time
-
 from marcel_core.harness.marcelmd import (
     _strip_channel_preamble,
     _strip_leading_h1,
     _strip_self_ref_blockquote,
     format_marcelmd_for_prompt,
 )
-from marcel_core.storage.memory import MemoryHeader, MemoryType, format_memory_index
 
 
 class TestStripLeadingH1:
@@ -107,60 +104,3 @@ class TestFormatMarcelmdForPrompt:
         assert 'Rule 1.' in result
         assert 'Rule 2.' in result
         assert '---' in result
-
-
-class TestFormatMemoryIndex:
-    def _make_header(
-        self, name: str, description: str, age_days: int = 0, mem_type: MemoryType | None = None
-    ) -> MemoryHeader:
-        from pathlib import Path
-
-        mtime = time.time() - age_days * 86400
-        return MemoryHeader(
-            filename=f'{name}.md',
-            filepath=Path(f'/tmp/{name}.md'),
-            mtime=mtime,
-            name=name,
-            description=description,
-            type=mem_type,
-        )
-
-    def test_empty_headers_returns_empty_string(self):
-        assert format_memory_index([]) == ''
-
-    def test_basic_format(self):
-        headers = [self._make_header('family', 'Family members')]
-        result = format_memory_index(headers)
-        assert result == '- **family** — Family members'
-
-    def test_multiple_entries(self):
-        headers = [
-            self._make_header('family', 'Family members'),
-            self._make_header('work', 'Work schedule'),
-        ]
-        result = format_memory_index(headers)
-        assert '- **family** — Family members' in result
-        assert '- **work** — Work schedule' in result
-
-    def test_stale_marker_for_old_memories(self):
-        headers = [self._make_header('old_stuff', 'Outdated info', age_days=8)]
-        result = format_memory_index(headers)
-        assert '_(stale: 8d)_' in result
-
-    def test_no_stale_marker_for_fresh_memories(self):
-        headers = [self._make_header('recent', 'Fresh info', age_days=1)]
-        result = format_memory_index(headers)
-        assert 'stale' not in result
-
-    def test_falls_back_to_filename_when_no_name(self):
-        from pathlib import Path
-
-        h = MemoryHeader(
-            filename='fallback.md',
-            filepath=Path('/tmp/fallback.md'),
-            mtime=time.time(),
-            name=None,
-            description=None,
-        )
-        result = format_memory_index([h])
-        assert 'fallback' in result

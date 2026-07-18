@@ -28,6 +28,8 @@ from enum import Enum
 from ._atomic import atomic_write
 from ._root import data_root
 
+log = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Memory types
 # ---------------------------------------------------------------------------
@@ -161,31 +163,6 @@ def scan_memory_headers(slug: str) -> list[MemoryHeader]:
     return headers
 
 
-def format_memory_index(headers: list[MemoryHeader]) -> str:
-    """Format memory headers as a compact one-line-per-file index.
-
-    Mirrors :func:`marcel_core.skills.loader.format_skill_index` — each line
-    is ``- **name** — description`` with an optional ``_(stale: Nd)_`` marker
-    for memories older than a few days.
-
-    Used by the system prompt builder to give the model a catalogue of
-    available memories without pasting their full content. The agent loads
-    specific entries on demand via ``marcel(action="read_memory", name="…")``
-    or searches them with ``search_memory``.
-    """
-    if not headers:
-        return ''
-
-    lines: list[str] = []
-    for h in headers:
-        name = (h.name or h.filename.removesuffix('.md')).strip()
-        description = h.description or name.replace('_', ' ')
-        days = memory_age_days(h.mtime)
-        stale = f' _(stale: {days}d)_' if days > 2 else ''
-        lines.append(f'- **{name}**{stale} — {description}')
-    return '\n'.join(lines)
-
-
 def format_memory_manifest(headers: list[MemoryHeader]) -> str:
     """Format memory headers as a text manifest for prompt injection.
 
@@ -225,23 +202,6 @@ def _memory_path(slug: str, topic: str) -> pathlib.Path:
     """
     filename = topic if topic.endswith('.md') else f'{topic}.md'
     return _memory_dir(slug) / filename
-
-
-def _index_path(slug: str) -> pathlib.Path:
-    return _memory_dir(slug) / 'index.md'
-
-
-# ---------------------------------------------------------------------------
-# CRUD operations (unchanged from original API)
-# ---------------------------------------------------------------------------
-
-
-def load_memory_index(slug: str) -> str:
-    """Return the raw markdown content of the memory index."""
-    path = _index_path(slug)
-    if not path.exists():
-        return ''
-    return path.read_text(encoding='utf-8')
 
 
 def load_memory_file(slug: str, topic: str) -> str:
@@ -379,27 +339,6 @@ def _extract_snippet(body: str, query_lower: str, context_chars: int = 120) -> s
     return snippet
 
 
-def update_memory_index(slug: str, topic: str, description: str) -> None:
-    """Add a topic entry to the memory index if not already present."""
-    path = _index_path(slug)
-    existing = path.read_text(encoding='utf-8') if path.exists() else ''
-    filename = topic if topic.endswith('.md') else f'{topic}.md'
-    if f'[{filename}]' in existing:
-        return
-    entry = f'- [{filename}]({filename}) — {description}\n'
-    updated = existing + entry
-    atomic_write(path, updated)
-
-
-# ---------------------------------------------------------------------------
-# Memory lifecycle
-# ---------------------------------------------------------------------------
-
-log = logging.getLogger(__name__)
-
-_INDEX_CAP = 200  # Maximum lines in the memory index file.
-
-
 def prune_expired_memories(slug: str, today: datetime.date | None = None) -> list[str]:
     """Delete schedule-type memories whose ``expires`` date has passed.
 
@@ -432,50 +371,3 @@ def prune_expired_memories(slug: str, today: datetime.date | None = None) -> lis
                 log.warning('Failed to prune %s for user=%s', header.filename, slug)
 
     return pruned
-
-
-def rebuild_memory_index(slug: str) -> None:
-    """Rebuild the memory index from actual files on disk.
-
-    Scans all memory files, reads their frontmatter, and writes a fresh
-    index. Removes entries for deleted files and adds entries for new ones.
-    """
-    headers = scan_memory_headers(slug)
-    if not headers:
-        # No memory files — remove stale index if present
-        path = _index_path(slug)
-        if path.exists():
-            atomic_write(path, '')
-        return
-
-    lines: list[str] = []
-    for h in headers:
-        desc = h.description or h.name or h.filename.removesuffix('.md').replace('_', ' ')
-        tag = f'[{h.type.value}] ' if h.type else ''
-        lines.append(f'- {tag}[{h.filename}]({h.filename}) — {desc}')
-
-    atomic_write(_index_path(slug), '\n'.join(lines) + '\n')
-    log.info('Rebuilt memory index for user=%s (%d entries)', slug, len(lines))
-
-
-def enforce_index_cap(slug: str, max_lines: int = _INDEX_CAP) -> bool:
-    """Truncate the memory index to ``max_lines``, appending a warning if needed.
-
-    Returns:
-        True if the index was truncated, False otherwise.
-    """
-    path = _index_path(slug)
-    if not path.exists():
-        return False
-
-    content = path.read_text(encoding='utf-8')
-    lines = content.splitlines(keepends=True)
-
-    if len(lines) <= max_lines:
-        return False
-
-    truncated = lines[:max_lines]
-    warning = f'\n<!-- Index truncated at {max_lines} lines. Older entries removed. -->\n'
-    atomic_write(path, ''.join(truncated) + warning)
-    log.info('Truncated memory index for user=%s from %d to %d lines', slug, len(lines), max_lines)
-    return True

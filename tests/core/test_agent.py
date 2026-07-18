@@ -4,7 +4,6 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from marcel_core.memory.extract import _parse_operations, extract_and_save_memories
-from marcel_core.memory.selector import _parse_selection, select_relevant_memories
 from marcel_core.storage import _root
 
 # ---------------------------------------------------------------------------
@@ -53,6 +52,54 @@ class TestExtractAndSaveMemories:
 
         assert 'prefs.md' in captured_prompt['text']
 
+    def test_update_overwrites_existing_and_batch_survives_failures(self, tmp_path, monkeypatch):
+        """Regression (pre-close-verifier, live-exploited): FileStore treats
+        expected_version=None as create-only, so an extractor *update* op
+        conflicted, was swallowed, and aborted every remaining op. Updates
+        must carry the current version and per-op failures must not kill
+        the batch (here: a household.* suggestion hits the read-only union,
+        the following create still lands)."""
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        from marcel_core.capabilities.memory import reset_memory_stores
+
+        reset_memory_stores()
+        mem_dir = tmp_path / 'users' / 'shaun' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'tea.md').write_text('---\nname: tea\ntype: preference\n---\nLikes tea.')
+
+        mock_result = MagicMock()
+        mock_result.output = (
+            '[{"action": "update", "filename": "tea.md", '
+            '"content": "---\\nname: tea\\ntype: preference\\n---\\nPrefers green tea now."},'
+            '{"action": "create", "filename": "household.wifi.md", "content": "nope"},'
+            '{"action": "create", "filename": "garden.md", '
+            '"content": "---\\nname: garden\\ntype: reference\\n---\\nTomatoes in June."}]'
+        )
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(return_value=mock_result)
+
+        with patch('marcel_core.memory.extract.Agent', return_value=mock_agent):
+            asyncio.run(extract_and_save_memories('shaun', 'green tea now', 'Noted!', 'conv-1'))
+
+        assert 'green tea now' in (mem_dir / 'tea.md').read_text(), 'update must overwrite'
+        assert (mem_dir / 'garden.md').exists(), 'ops after a failed one must still land'
+        assert not (tmp_path / 'users' / '_household' / 'memory' / 'wifi.md').exists()
+        reset_memory_stores()
+
+    def test_disabled_flag_skips_extraction_entirely(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        from marcel_core.config import settings
+
+        monkeypatch.setattr(settings, 'marcel_memory_extractor_enabled', False)
+
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(side_effect=AssertionError('extractor must not run'))
+
+        with patch('marcel_core.memory.extract.Agent', return_value=mock_agent):
+            asyncio.run(extract_and_save_memories('shaun', 'I like tea', 'Noted!', 'conv-1'))
+
+        assert not (tmp_path / 'users' / 'shaun' / 'memory').exists()
+
     def test_swallows_exceptions(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
@@ -100,69 +147,3 @@ class TestParseOperations:
 
     def test_filters_non_dicts(self):
         assert _parse_operations('[42, "string", null]') == []
-
-
-# ---------------------------------------------------------------------------
-# memory_select.py — relevance selection
-# ---------------------------------------------------------------------------
-
-
-class TestParseSelection:
-    def test_parses_json_array(self):
-        assert _parse_selection('["calendar.md", "family.md"]') == ['calendar.md', 'family.md']
-
-    def test_parses_empty_array(self):
-        assert _parse_selection('[]') == []
-
-    def test_handles_code_fences(self):
-        response = '```json\n["calendar.md"]\n```'
-        assert _parse_selection(response) == ['calendar.md']
-
-    def test_handles_non_json(self):
-        assert _parse_selection('I think calendar.md is relevant') == []
-
-    def test_filters_non_strings(self):
-        assert _parse_selection('[42, "valid.md", null]') == ['valid.md']
-
-
-class TestSelectRelevantMemories:
-    def test_returns_empty_for_no_memories(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        result = asyncio.run(select_relevant_memories('shaun', 'hello'))
-        assert result == []
-
-    def test_loads_all_for_small_set(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        from marcel_core.storage import save_memory_file
-
-        save_memory_file('shaun', 'calendar', '---\nname: cal\ntype: schedule\n---\nDentist Friday.')
-        save_memory_file('shaun', 'prefs', '---\nname: prefs\ntype: preference\n---\nLikes tea.')
-
-        result = asyncio.run(select_relevant_memories('shaun', 'what do I like?'))
-        assert len(result) == 2
-        contents = [c for _, c in result]
-        assert any('Dentist Friday.' in c for c in contents)
-        assert any('Likes tea.' in c for c in contents)
-
-    def test_includes_household_memories(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        from marcel_core.storage import save_memory_file
-
-        save_memory_file('shaun', 'personal', 'My stuff.')
-        save_memory_file('_household', 'wifi', '---\ntype: household\n---\nPassword: 12345.')
-
-        result = asyncio.run(select_relevant_memories('shaun', 'wifi password'))
-        assert len(result) == 2
-        contents = [c for _, c in result]
-        assert any('Password: 12345.' in c for c in contents)
-
-    def test_excludes_household_when_disabled(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        from marcel_core.storage import save_memory_file
-
-        save_memory_file('shaun', 'personal', 'My stuff.')
-        save_memory_file('_household', 'wifi', 'Password: 12345.')
-
-        result = asyncio.run(select_relevant_memories('shaun', 'wifi', include_household=False))
-        assert len(result) == 1
-        assert 'My stuff.' in result[0][1]

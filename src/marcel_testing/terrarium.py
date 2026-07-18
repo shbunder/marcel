@@ -252,6 +252,12 @@ class Terrarium:
 
         persistence_store().reset()
 
+        # Memory stores cache by resolved data root; a new sealed root must
+        # not reuse a store (and its journal) from a previous world.
+        from marcel_core.capabilities.memory import reset_memory_stores
+
+        reset_memory_stores()
+
         # Bus recorder — rides the extension registry onto every turn's bus.
         def _record(event: events_mod.Event, ctx: object) -> None:
             self._bus_recording.append(event)
@@ -296,6 +302,10 @@ class Terrarium:
         from marcel_core.capabilities.persistence import persistence_store
 
         persistence_store().reset()
+
+        from marcel_core.capabilities.memory import reset_memory_stores
+
+        reset_memory_stores()
 
         settings.marcel_zoo_dir = cast('str | None', self._saved['marcel_zoo_dir'])
         settings.marcel_data_dir = cast('str | None', self._saved['marcel_data_dir'])

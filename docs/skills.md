@@ -10,7 +10,9 @@ Marcel exposes two primary tools to the agent:
    commands). The `integration` name is still accepted as a back-compat
    alias during Phases 1–4 of `ISSUE-3c1534` (marcel-admin board archive).
 2. **`marcel`** — internal utilities: `read_skill`, `read_skill_resource`,
-   `search_memory`, `search_conversations`, `compact`, `notify`.
+   `search_conversations`, `compact`, `notify`. (Memory has its own tools —
+   `write_memory` / `read_memory` / `search_memory` / `delete_memory` from the
+   Memory capability, FEAT-260718-30d45a.)
 
 Toolkit handlers can be defined as:
 
@@ -276,12 +278,11 @@ The `marcel` tool provides internal utilities via action-based dispatch.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `action` | string | yes | One of: `read_skill`, `read_skill_resource`, `search_memory`, `search_conversations`, `compact`, `notify` |
+| `action` | string | yes | One of: `read_skill`, `read_skill_resource`, `search_conversations`, `compact`, `notify` |
 | `name` | string | for `read_skill`, `read_skill_resource` | Skill name |
 | `resource` | string | for `read_skill_resource` | Resource filename or stem to load (e.g. `"feeds"`, `"SETUP.md"`) |
 | `query` | string | for `search_*` | Search query — matches filenames, frontmatter fields, and body content |
 | `message` | string | for `notify` | Short plain-text progress update |
-| `type_filter` | string | no | Filter by memory type (for `search_memory`) |
 | `max_results` | int | no | Maximum results (default: 10 for memory, 5 for conversations) |
 
 ### read_skill
@@ -301,10 +302,6 @@ marcel(action="read_skill_resource", name="news", resource="feeds")
 ```
 
 Use `read_skill` first to discover what resources a skill exposes.
-
-### search_memory
-
-Searches the user's memory files by keyword. Results are ranked: metadata matches first, then body content, sorted by recency.
 
 ### search_conversations
 

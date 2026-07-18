@@ -211,24 +211,26 @@ def load_channel_prompt(channel: str) -> str:
 
 
 async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
-    """Build the system prompt as five clean H1 blocks.
+    """Build the system prompt as four clean H1 blocks.
 
     Structure:
         # Marcel — who you are       (global MARCEL.md, H1 + self-ref blockquote stripped)
         # <user> — who the user is   (profile body, with server-context H2 folded in for admin)
         # Skills — what you can do   (compact index + on-demand read hint)
-        # Memory — what you know     (compact index + search/read hint)
         # <channel> — how to respond (channel guidance, preamble stripped)
 
+    Memory is no longer a prompt block: the harness Memory capability
+    injects a bounded notebook snapshot per request and owns the
+    read/write/search tools (FEAT-260718-30d45a).
+
     The ``query`` argument is kept for API compatibility but is no longer
-    used — memory is now loaded on demand via ``search_memory`` / ``read_memory``
-    instead of being pre-selected each turn. See ISSUE-068.
+    used (pre-selection retired with ISSUE-068; the index block with this
+    feature).
     """
     from marcel_core.channels.adapter import channel_supports_rich_ui
     from marcel_core.harness.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
     from marcel_core.skills.loader import format_components_catalog, format_skill_index, load_skills
     from marcel_core.storage import load_user_profile
-    from marcel_core.storage.memory import format_memory_index, scan_memory_headers
 
     # -- Load everything up front (cheap file reads) ------------------------
     marcelmd = format_marcelmd_for_prompt(load_marcelmd_files(deps.user_slug))
@@ -237,9 +239,6 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
     loaded_skills = load_skills(deps.user_slug)
     skill_index = format_skill_index(loaded_skills)
     components_catalog = format_components_catalog(loaded_skills) if channel_supports_rich_ui(deps.channel) else ''
-
-    memory_headers = scan_memory_headers(deps.user_slug)
-    memory_index = format_memory_index(memory_headers)
 
     channel_prompt = load_channel_prompt(deps.channel)
     channel_label = deps.channel.capitalize()
@@ -291,21 +290,7 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
         ]
     blocks.append('\n'.join(skill_block).rstrip())
 
-    # Block 4: what you should know (compact memory index — no dumps)
-    memory_block = ['# Memory — what you should know']
-    if memory_index:
-        memory_block += [
-            '',
-            memory_index,
-            '',
-            '*Search with `marcel(action="search_memory", query="...")` or load a specific '
-            'file with `marcel(action="read_memory", name="...")`.*',
-        ]
-    else:
-        memory_block += ['', '(no memories saved yet)']
-    blocks.append('\n'.join(memory_block).rstrip())
-
-    # Block 5: how to respond (channel guidance)
+    # Block 4: how to respond (channel guidance)
     channel_block = [f'# {channel_label} — how to respond']
     if channel_prompt:
         channel_block += ['', channel_prompt]
@@ -315,7 +300,7 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
 
 
 def build_instructions(deps: MarcelDeps) -> str:
-    """Sync fallback for the five-block system prompt.
+    """Sync fallback for the four-block system prompt.
 
     Used during Agent initialization when the async builder is not
     available. Produces the same H1 structure as
@@ -324,12 +309,10 @@ def build_instructions(deps: MarcelDeps) -> str:
     from marcel_core.harness.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
     from marcel_core.skills.loader import format_skill_index, load_skills
     from marcel_core.storage import load_user_profile
-    from marcel_core.storage.memory import format_memory_index, scan_memory_headers
 
     marcelmd = format_marcelmd_for_prompt(load_marcelmd_files(deps.user_slug))
     profile = load_user_profile(deps.user_slug).strip()
     skill_index = format_skill_index(load_skills(deps.user_slug))
-    memory_index = format_memory_index(scan_memory_headers(deps.user_slug))
     channel_prompt = load_channel_prompt(deps.channel)
     channel_label = deps.channel.capitalize()
 
@@ -363,19 +346,6 @@ def build_instructions(deps: MarcelDeps) -> str:
     else:
         skill_block += ['', '(no skills configured)']
     blocks.append('\n'.join(skill_block).rstrip())
-
-    memory_block = ['# Memory — what you should know']
-    if memory_index:
-        memory_block += [
-            '',
-            memory_index,
-            '',
-            '*Search with `marcel(action="search_memory", query="...")` or load a specific '
-            'file with `marcel(action="read_memory", name="...")`.*',
-        ]
-    else:
-        memory_block += ['', '(no memories saved yet)']
-    blocks.append('\n'.join(memory_block).rstrip())
 
     channel_block = [f'# {channel_label} — how to respond']
     if channel_prompt:

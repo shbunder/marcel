@@ -113,49 +113,6 @@ class TestToolkitTool:
 
 
 # ---------------------------------------------------------------------------
-# marcel tool — search_memory action
-# ---------------------------------------------------------------------------
-
-
-class TestMarcelSearchMemory:
-    @pytest.mark.asyncio
-    async def test_returns_no_results_message(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        result = await marcel(_ctx(), 'search_memory', query='find something')
-        assert 'No memories found' in result
-
-    @pytest.mark.asyncio
-    async def test_finds_matching_memories(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        from marcel_core.storage import save_memory_file
-
-        save_memory_file(
-            'shaun',
-            'dentist',
-            '---\nname: dentist\ntype: schedule\ndescription: Dentist appointment\n---\nDentist on April 10.',
-        )
-        result = await marcel(_ctx(), 'search_memory', query='dentist')
-        assert 'dentist' in result.lower()
-
-    @pytest.mark.asyncio
-    async def test_invalid_type_filter_returns_error(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        result = await marcel(_ctx(), 'search_memory', query='anything', type_filter='invalid_type')
-        assert 'error' in result.lower() or 'invalid' in result.lower()
-
-    @pytest.mark.asyncio
-    async def test_valid_type_filter_works(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        result = await marcel(_ctx(), 'search_memory', query='anything', type_filter='schedule')
-        assert 'error' not in result.lower() or 'No memories' in result
-
-    @pytest.mark.asyncio
-    async def test_missing_query_returns_error(self):
-        result = await marcel(_ctx(), 'search_memory')
-        assert 'error' in result.lower()
-
-
-# ---------------------------------------------------------------------------
 # marcel tool — notify action
 # ---------------------------------------------------------------------------
 

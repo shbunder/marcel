@@ -541,11 +541,7 @@ def _consolidate_memories() -> None:
     their expiry date and enforces the index line cap.
     """
     from marcel_core.storage._root import data_root
-    from marcel_core.storage.memory import (
-        enforce_index_cap,
-        prune_expired_memories,
-        rebuild_memory_index,
-    )
+    from marcel_core.storage.memory import prune_expired_memories
     from marcel_core.storage.users import is_backup_slug
 
     users_dir = data_root() / 'users'
@@ -562,8 +558,6 @@ def _consolidate_memories() -> None:
             pruned = prune_expired_memories(slug)
             if pruned:
                 log.info('Memory consolidation: pruned %d expired memories for user=%s', len(pruned), slug)
-            rebuild_memory_index(slug)
-            enforce_index_cap(slug)
         except Exception:
             log.exception('Memory consolidation failed for user=%s', slug)
 

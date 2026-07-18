@@ -167,6 +167,12 @@ class Settings(BaseSettings):
     marcel_clamp_max_part_tokens: int = 50_000
     marcel_overflow_spill_chars: int = 32_000
 
+    # Memory notebook (FEAT-260718-30d45a): bounded per-request injection
+    # budget, and the post-turn Haiku extractor supplement (catches facts
+    # the agent did not note itself; writes through the same store).
+    marcel_memory_inject_max_tokens: int = 2_000
+    marcel_memory_extractor_enabled: bool = True
+
     # ---------------------------------------------------------------------------
     # Command policy + human approval (FEAT-260628-2cd78e F2, ADR-ca8f39)
     # ---------------------------------------------------------------------------

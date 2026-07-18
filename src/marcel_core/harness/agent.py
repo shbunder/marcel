@@ -176,6 +176,7 @@ def create_marcel_agent(
     system_prompt: str = '',
     role: str = 'user',
     tool_filter: set[str] | None = None,
+    memory: bool = True,
 ) -> Agent[MarcelDeps, str]:
     """Create a configured Marcel agent with a role-appropriate tool set.
 
@@ -205,6 +206,10 @@ def create_marcel_agent(
             respect the role check — an explicit request for ``bash`` in a
             ``user`` role subagent is silently dropped. When ``None``, the
             default role-based pool is used.
+        memory: Attach the Memory notebook capability (tools + bounded
+            injection). ``False`` for the lean paths — headless jobs
+            (until FEAT-260718-49a01a declares scoping) and the explain
+            tier.
 
     Returns:
         Configured pydantic-ai Agent instance.
@@ -248,7 +253,7 @@ def create_marcel_agent(
         instructions=system_prompt,
         retries=2,
         end_strategy='exhaustive',
-        capabilities=build_capabilities(),
+        capabilities=build_capabilities(memory=memory),
         toolsets=[toolset],
     )
 
