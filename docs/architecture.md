@@ -12,7 +12,10 @@ The primary client is a native Rust TUI in `src/marcel_cli/`, built on **ratatui
 src/marcel_core/
   main.py          # FastAPI app, lifespan, router registration
   config.py        # Centralized pydantic-settings configuration
+  composition.py   # The composition root — assembles the agent's capability list
   tracing.py       # Optional OpenTelemetry tracing via Phoenix
+  capabilities/    # One self-contained package per capability (ADR-260718-0cf8e8)
+    policy/        # MarcelPolicy — tool interception via the turn's event bus
   api/
     health.py      # GET /health
     chat.py        # WebSocket /ws/chat — streaming conversation

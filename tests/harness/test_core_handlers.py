@@ -120,6 +120,28 @@ def test_register_core_handlers_registers_all():
     assert bus.handler_count('tool_call') == 3
 
 
+def test_register_core_handlers_order_is_the_gate_order():
+    """The exact registration order IS the gate order (FR2, FEAT-260718-01da2e).
+
+    First-blocker-wins means reordering these silently changes which deny
+    message a doubly-blocked call surfaces — pin the identities in order so
+    a reorder fails loud instead of passing the counting test above.
+    """
+    from marcel_core.harness.core_handlers import (
+        _command_policy_handler,
+        _role_gate_handler,
+        _self_mod_guard_handler,
+    )
+
+    bus = EventBus()
+    register_core_handlers(bus)
+    assert bus._handlers['tool_call'] == [
+        _self_mod_guard_handler,
+        _role_gate_handler,
+        _command_policy_handler,
+    ]
+
+
 async def test_registered_guard_blocks_via_bus():
     """End-to-end through the bus: a restricted write is denied, and the
     self-mod guard (registered first) short-circuits before the role gate."""

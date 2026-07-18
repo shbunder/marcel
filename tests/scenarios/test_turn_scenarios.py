@@ -85,6 +85,82 @@ class TestToolCallThroughBus:
         assert 'pong: ping' in completion.result
 
 
+class TestExtensionDenyThroughSDK:
+    """Scenario: an extension tool_call handler denies via the SDK, unchanged.
+
+    The FEAT-260718-01da2e headline promise — extensions must not notice
+    the WrapperToolset → MarcelPolicy migration. The handler rides the real
+    extension replay (``extension_registry().apply_to_bus`` per turn), runs
+    after the three core gates, and its deny reason becomes the tool result.
+    """
+
+    async def test_extension_deny_blocks_bash(self, terrarium):
+        from marcel_core.plugin.extension import extension_registry
+
+        def deny_bash(event, ctx):
+            if event.tool_name == 'bash':
+                event.deny('extension says no')
+
+        extension_registry().handlers.append(('tool_call', deny_bash))
+
+        terrarium.user('root', role='admin')
+        scenario = terrarium.scenario(
+            call_tool('bash', command='echo hi'),
+            reply('okay'),
+            user='root',
+        )
+        result = await scenario.run('run echo')
+
+        denial = next(c for c in result.completions if c.tool_name == 'bash')
+        assert 'extension says no' in denial.result
+        assert 'hi' not in denial.result, 'denied command must never execute'
+        # The recorder (an earlier extension handler) recorded the live event;
+        # the later extension handler's deny is visible on it, and the blocked
+        # path emits no tool_result at all — the tool never ran.
+        [recorded] = result.tool_calls
+        assert recorded.blocked and recorded.block_reason == 'extension says no'
+        assert result.tool_results == []
+
+
+class TestExtensionRewriteReachesHistory:
+    """Scenario: an extension tool_result handler's rewrite is what persists.
+
+    Proves feature AC 3: the rewritten form is what the model sees in the
+    completion AND what lands in the conversation segment on disk.
+    """
+
+    async def test_rewrite_persists_to_segment(self, terrarium):
+        from marcel_core.plugin.extension import extension_registry
+
+        def redact(event, ctx):
+            event.result = event.result.replace('SECRET', '[redacted]')
+
+        extension_registry().handlers.append(('tool_result', redact))
+
+        @marcel_tool('vault.leak')
+        async def leak(params: dict, user_slug: str) -> str:
+            return 'value is SECRET'
+
+        terrarium.user('alice')
+        scenario = terrarium.scenario(
+            call_tool('toolkit', id='vault.leak', params={}),
+            reply('done'),
+            user='alice',
+            channel='cli',
+        )
+        result = await scenario.run('leak it')
+
+        completion = next(c for c in result.completions if c.tool_name == 'toolkit')
+        assert '[redacted]' in completion.result
+        assert 'SECRET' not in completion.result
+
+        from marcel_core.memory.conversation import read_active_segment
+
+        texts = [m.text for m in read_active_segment('alice', 'cli') if m.text]
+        assert any('[redacted]' in t for t in texts), 'rewritten form must persist'
+        assert not any('SECRET' in t for t in texts), 'original must not persist anywhere'
+
+
 class TestPolicyDenies:
     """Scenario: command policy denies through the real handler chain."""
 

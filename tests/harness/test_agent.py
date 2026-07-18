@@ -188,11 +188,12 @@ class TestAvailableToolNames:
 def _registered_tool_names(agent) -> set[str]:
     """Introspect the tool names registered on a pydantic-ai Agent.
 
-    Marcel builds a ``FunctionToolset``, wraps it in ``MarcelBusToolset``
-    (the event-bus interception layer), and passes it via ``toolsets=``.
-    Unwrap each toolset to its underlying ``FunctionToolset`` and read
-    ``.tools``. Not part of pydantic-ai's public API but stable enough for
-    test assertions; kept in one helper so a pydantic-ai bump touches one
+    Marcel builds a ``FunctionToolset`` and passes it via ``toolsets=``
+    (interception happens in the ``MarcelPolicy`` capability, not a
+    wrapper toolset). Unwrap any wrapped toolset to its underlying
+    ``FunctionToolset`` and read ``.tools``. Not part of pydantic-ai's
+    public API but stable enough for test assertions; kept in one helper
+    so a pydantic-ai bump touches one
     place.
     """
     from pydantic_ai.toolsets import FunctionToolset, WrapperToolset

@@ -40,10 +40,10 @@ class TurnState:
     """The turn's lifecycle event bus (:mod:`marcel_sdk.events`).
 
     Set by :func:`~marcel_core.harness.runner.stream_turn` so the tool
-    interception layer (:class:`~marcel_core.harness.tool_bus.MarcelBusToolset`)
+    interception layer (:class:`~marcel_core.capabilities.policy.MarcelPolicy`)
     can reach it via ``ctx.deps.turn.event_bus``. ``None`` on turns that
     do not wire a bus (e.g. the job executor / subagent paths pre-F5) —
-    the toolset passes tool calls straight through when it is ``None``.
+    the capability passes tool calls straight through when it is ``None``.
     """
 
     read_skills: set[str] = dataclasses.field(default_factory=set)
