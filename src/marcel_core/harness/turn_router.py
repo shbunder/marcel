@@ -248,7 +248,8 @@ def resolve_turn_for_user(user_slug: str, user_text: str) -> TurnPlan:
 
     Session tier and active-skill tier are *not* resolved here — the channel
     has no need for them. The runner applies them in :func:`stream_turn`
-    after loading history and priming ``read_skills``.
+    after loading history and deriving the loaded-skill set from the
+    ``load_capability`` calls in that history.
     """
     from marcel_core.skills.loader import load_skills
 

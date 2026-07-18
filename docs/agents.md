@@ -83,7 +83,7 @@ Clawcode-compatible aliases are also accepted: `disallowedTools` for
 `disallowed_tools`, and `maxTurns` for `max_requests`.
 
 The body after the second `---` becomes the subagent's system prompt
-**verbatim** — no MARCEL.md, memory, channel guidance, or skill index
+**verbatim** — no MARCEL.md, memory, channel guidance, or skill catalog
 is layered on top. This is deliberate: the subagent runs in a clean
 context so the parent's state cannot bleed in, and the subagent's token
 budget goes entirely to its own specialized instructions.

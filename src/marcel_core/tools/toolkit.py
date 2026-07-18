@@ -12,9 +12,9 @@ hung handler is contained here by a **call-boundary timeout**
 a misbehaving handler cannot stall the turn — the process-isolation the
 old UDS mesh provided is replaced by this timeout plus try/except.
 
-When the model calls a toolkit handler without having previously loaded
-the skill's documentation via ``marcel(action="read_skill")``, this tool
-auto-injects the skill docs as a prefix to the response (safety net).
+Skills are deferred capabilities (FEAT-260718-85b545): the model loads a
+skill's documentation via ``load_capability`` before calling its toolkit,
+so there is no auto-inject-on-first-call safety net here anymore.
 """
 
 from __future__ import annotations
@@ -46,8 +46,8 @@ async def toolkit(
     calendar, banking, smart home, etc. Each habitat is documented in
     ``~/.marcel/skills/{name}/SKILL.md``.
 
-    Use ``marcel(action="read_skill", name="...")`` first to load full skill
-    documentation before calling a handler you haven't used before.
+    Load the skill via ``load_capability`` first to bring its documentation
+    into context before calling a handler you haven't used before.
 
     Args:
         ctx: Agent context with user information.
@@ -68,29 +68,17 @@ async def toolkit(
         available = list_skills()
         return f'Error: {exc}\n\nAvailable skills: {", ".join(available)}'
 
-    # Auto-inject skill docs if the model hasn't read them yet this turn.
-    # This is a safety net — the model should ideally call
-    # marcel(action="read_skill") first, but if it doesn't, we prepend the
-    # docs so the model has full context for interpreting the result.
-    prefix = ''
-    skill_family = id.split('.')[0]
-    if skill_family not in ctx.deps.turn.read_skills:
-        from marcel_core.skills.loader import get_skill_content
-
-        content = get_skill_content(skill_family, ctx.deps.user_slug)
-        if content:
-            prefix = f'[Auto-loaded {skill_family} skill docs]\n{content}\n\n---\n\n'
-        ctx.deps.turn.read_skills.add(skill_family)
-
+    # Skills are deferred capabilities (FEAT-260718-85b545): the model loads
+    # a skill's docs via load_capability before using its toolkit, so the
+    # old auto-inject-on-first-call crutch is gone.
     try:
-        result = await asyncio.wait_for(
+        return await asyncio.wait_for(
             run(config, params, ctx.deps.user_slug),
             timeout=_HANDLER_TIMEOUT,
         )
-        return prefix + result
     except asyncio.TimeoutError:
         log.error('[toolkit] handler %s timed out after %.0fs', id, _HANDLER_TIMEOUT)
-        return f'{prefix}Error executing {id}: handler timed out after {_HANDLER_TIMEOUT:.0f}s'
+        return f'Error executing {id}: handler timed out after {_HANDLER_TIMEOUT:.0f}s'
     except Exception as exc:
         log.exception('[toolkit] handler execution failed')
-        return f'{prefix}Error executing {id}: {exc}'
+        return f'Error executing {id}: {exc}'

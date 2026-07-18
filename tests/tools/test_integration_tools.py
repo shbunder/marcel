@@ -67,31 +67,20 @@ class TestToolkitTool:
         assert 'oops' in result or 'error' in result.lower()
 
     @pytest.mark.asyncio
-    async def test_auto_injects_skill_docs_on_first_call(self):
-        """When skill docs haven't been read yet, integration prepends them."""
-        ctx = _ctx()
-        with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
-            with patch('marcel_core.tools.toolkit.run', AsyncMock(return_value='result-data')):
-                with patch('marcel_core.skills.loader.get_skill_content', return_value='Full banking docs here'):
-                    result = await toolkit(ctx, 'banking.balance', {})
+    async def test_no_skill_docs_auto_injected(self):
+        """Skills are deferred capabilities now — the toolkit never prepends docs.
 
-        assert 'Auto-loaded banking skill docs' in result
-        assert 'Full banking docs here' in result
-        assert 'result-data' in result
-        # Second call should NOT auto-inject
-        assert 'banking' in ctx.deps.turn.read_skills
-
-    @pytest.mark.asyncio
-    async def test_no_duplicate_inject_after_read_skill(self):
-        """If skill was read via marcel tool first, integration doesn't re-inject."""
+        The old auto-inject-on-first-call crutch (and the ``turn.read_skills``
+        bookkeeping it drove) is gone; the model loads a skill via
+        ``load_capability`` before calling its toolkit.
+        """
         ctx = _ctx()
-        ctx.deps.turn.read_skills.add('banking')
         with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
             with patch('marcel_core.tools.toolkit.run', AsyncMock(return_value='result-data')):
                 result = await toolkit(ctx, 'banking.balance', {})
 
-        assert 'Auto-loaded' not in result
         assert result == 'result-data'
+        assert 'Auto-loaded' not in result
 
     @pytest.mark.asyncio
     async def test_slow_handler_is_contained_by_timeout(self, monkeypatch):
@@ -165,33 +154,6 @@ class TestMarcelNotify:
             result = await marcel(_ctx(channel='telegram'), 'notify', message='Working...')
 
         assert 'notify failed' in result or result == 'ok'
-
-
-# ---------------------------------------------------------------------------
-# marcel tool — read_skill action
-# ---------------------------------------------------------------------------
-
-
-class TestMarcelReadSkill:
-    @pytest.mark.asyncio
-    async def test_returns_skill_content(self):
-        ctx = _ctx()
-        with patch('marcel_core.skills.loader.get_skill_content', return_value='Full skill documentation here'):
-            result = await marcel(ctx, 'read_skill', name='banking')
-        assert 'Full skill documentation here' in result
-        assert 'banking' in ctx.deps.turn.read_skills
-
-    @pytest.mark.asyncio
-    async def test_unknown_skill_returns_error(self):
-        with patch('marcel_core.skills.loader.get_skill_content', return_value=None):
-            with patch('marcel_core.skills.loader.load_skills', return_value=[]):
-                result = await marcel(_ctx(), 'read_skill', name='nonexistent')
-        assert 'Unknown skill' in result
-
-    @pytest.mark.asyncio
-    async def test_missing_name_returns_error(self):
-        result = await marcel(_ctx(), 'read_skill')
-        assert 'error' in result.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -393,5 +355,5 @@ class TestMarcelUnknownAction:
     async def test_returns_error_for_unknown_action(self):
         result = await marcel(_ctx(), 'does_not_exist')
         assert 'Unknown action' in result
-        assert 'read_skill' in result  # lists available actions
+        assert 'search_conversations' in result  # lists available actions
         assert 'render' in result  # render is advertised too

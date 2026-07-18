@@ -1,20 +1,29 @@
-"""Skill document loader — discovers SKILL.md files from the data root.
+"""Skill document loader — agentskills.io-conformant SKILL.md discovery.
 
-Skills live at ``<data_root>/skills/`` (``~/.marcel/skills/`` or
-``$MARCEL_DATA_DIR/skills/`` in Docker).
+A skill is a folder with a ``SKILL.md`` per the Agent Skills open standard
+(agentskills.io): frontmatter with required ``name`` (1–64 chars,
+``[a-z0-9]`` + single hyphens, equal to the directory name) and
+``description`` (1–1024 chars); any other frontmatter key is tolerated.
+Marcel's own extensions travel only in the spec-legal ``metadata`` map
+(string→string) under ``marcel-*`` keys — never top-level (ADR-260718-7c68f4).
 
-Each integration skill can have a ``SETUP.md`` fallback that activates when
-the integration's requirements are not met (missing credentials, env vars,
-or files).  This guides new users through first-time setup.
+Skills resolve through a three-root scoping chain, most-specific wins:
+``~/.marcel/users/<slug>/skills/`` → ``<zoo>/users/<slug>/skills/`` →
+``<zoo>/skills/``. Each visible skill becomes a deferred capability
+(FEAT-260718-85b545); this module owns discovery/validation/scoping, the
+capability factory lives in :mod:`marcel_core.skills.capability`.
+
+A skill can still fall back to serving ``SETUP.md`` when its declared
+requirements are unmet, conversationally onboarding a family member.
 """
 
 from __future__ import annotations
 
-import dataclasses
 import importlib.util
 import logging
 import os
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -23,563 +32,463 @@ from marcel_core.skills.components import ComponentSchema, parse_components_yaml
 
 log = logging.getLogger(__name__)
 
+# agentskills.io name rule: 1–64 chars, lowercase alphanumerics + single
+# hyphens, no leading/trailing/double hyphen.
+_NAME_RE = re.compile(r'^[a-z0-9]+(?:-[a-z0-9]+)*$')
+_MAX_NAME_LEN = 64
+_MAX_DESCRIPTION_LEN = 1024
+# Soft budget: the spec recommends ~100 tokens (~400 chars) per catalog
+# entry; the validator warns above this but does not reject.
+_CATALOG_WARN_CHARS = 500
+
+_VALID_TIERS = frozenset({'local', 'fast', 'standard', 'power'})
+_VALID_ROLES = frozenset({'admin'})
+# marcel-default-enabled: which users a freshly-installed skill is enabled for
+# by default. Reserved + validated here (FEAT-260718-85b545); the three-state
+# lifecycle (ADR-260718-7addc8 / FEAT-260718-210a5f seeding, FEAT-260707-acb2b6
+# enforcement) consumes it. Absent ⇒ 'all'.
+_VALID_DEFAULT_ENABLED = frozenset({'all', 'admin', 'none'})
+_DEFAULT_ENABLED_FALLBACK = 'all'
+
+_SKILL_MD_NAME = 'SKILL.md'
+_SETUP_MD_NAME = 'SETUP.md'
+# File extensions exposed as named skill resources.
+_RESOURCE_EXTENSIONS = frozenset({'.md', '.yaml', '.yml', '.json', '.txt', '.csv'})
+
 
 def _skills_dir() -> Path:
-    """Return the skills directory under the data root.
-
-    Backwards-compatible single-path accessor — prefer :func:`_skill_dirs`
-    for new callsites that need the full search order (zoo + data root).
-    """
+    """The data-root skills directory (single-path back-compat accessor)."""
     from marcel_core.config import settings
 
     return settings.data_dir / 'skills'
 
 
-def _skill_dirs() -> list[Path]:
-    """Return all skill directories in load order.
+def _skill_dirs(user_slug: str | None = None) -> list[tuple[Path, str]]:
+    """Return ``(path, source)`` roots in least→most-specific order.
 
-    Skills are discovered from two sources:
+    Sources, least specific first so a later entry overrides an earlier one
+    when :func:`load_skills` dedups by name:
 
-    1. ``<MARCEL_ZOO_DIR>/skills/`` — habitats from the marcel-zoo checkout
-       (skipped when ``MARCEL_ZOO_DIR`` is unset).
-    2. ``<MARCEL_DATA_DIR>/skills/`` — user-installed/customized skills.
+    1. ``<zoo>/skills/`` — global habitats (``source='zoo-global'``)
+    2. ``<zoo>/users/<slug>/skills/`` — git-managed per-user (``'zoo-user'``)
+    3. ``<data>/users/<slug>/skills/`` — runtime-installed per-user
+       (``'data-user'``)
 
-    The data-root entry comes last so a user customization with the same
-    skill name overrides the zoo habitat.
-
-    Note: the data-root entry is sourced from :func:`_skills_dir` so test
-    monkeypatches against that accessor continue to work.
+    A missing root is simply absent from the list (never an error). When
+    ``user_slug`` is ``None`` only the global root is returned.
     """
     from marcel_core.config import settings
 
-    dirs: list[Path] = []
+    dirs: list[tuple[Path, str]] = []
     zoo = settings.zoo_dir
-    if zoo is not None:
-        zoo_skills = zoo / 'skills'
-        if zoo_skills.is_dir():
-            dirs.append(zoo_skills)
-    data_skills = _skills_dir()
-    if data_skills.is_dir():
-        dirs.append(data_skills)
+    if zoo is not None and (zoo / 'skills').is_dir():
+        dirs.append((zoo / 'skills', 'zoo-global'))
+    if user_slug:
+        if zoo is not None and (zoo / 'users' / user_slug / 'skills').is_dir():
+            dirs.append((zoo / 'users' / user_slug / 'skills', 'zoo-user'))
+        data_user = _skills_dir().parent / 'users' / user_slug / 'skills'
+        if data_user.is_dir():
+            dirs.append((data_user, 'data-user'))
     return dirs
-
-
-_VALID_PREFERRED_TIERS = {'local', 'fast', 'standard', 'power'}
 
 
 @dataclass
 class SkillDoc:
-    """A loaded skill document ready for injection into the system prompt."""
+    """A discovered, validated skill.
+
+    ``content`` is the SKILL.md body (frontmatter stripped) — the
+    instructions a deferred capability serves on ``load_capability``.
+    """
 
     name: str
     description: str
     content: str
-    is_setup: bool  # True if this is the SETUP.md fallback
-    source: str  # 'project' or 'home'
-    credential_keys: list[str] = dataclasses.field(default_factory=list)
-    """Credential keys declared in requires.credentials (for auto-injection)."""
-    components: list[ComponentSchema] = dataclasses.field(default_factory=list)
-    """A2UI component schemas declared in this skill's components.yaml."""
-    preferred_tier: str | None = None
-    """Optional ``fast`` / ``standard`` / ``power`` — per-turn tier override while this skill is active.
+    source: str  # 'zoo-global' | 'zoo-user' | 'data-user'
+    skill_dir: Path
+    is_setup: bool = False  # serving SETUP.md because a requirement is unmet
+    metadata: dict[str, str] = field(default_factory=dict)
+    # Marcel extensions, parsed from metadata marcel-* keys:
+    preferred_tier: str | None = None  # marcel-tier ('local'|'fast'|'standard'|'power')
+    role: str | None = None  # marcel-role ('admin' or None)
+    default_enabled: str = _DEFAULT_ENABLED_FALLBACK  # marcel-default-enabled ('all'|'admin'|'none')
+    connectors: list[str] = field(default_factory=list)  # marcel-connectors
+    credential_keys: list[str] = field(default_factory=list)
+    components: list[ComponentSchema] = field(default_factory=list)
 
-    Does NOT mutate the session tier; the override applies only to turns
-    where this skill is the active one. See ISSUE-e0db47.
-    """
 
-
-def _parse_preferred_tier(value: object, skill_name: str) -> str | None:
-    """Validate and return the ``preferred_tier`` frontmatter value.
-
-    Unknown values are dropped with a warning rather than raising — a broken
-    frontmatter edit must never hide the skill from the agent.
-    """
-    if value is None:
-        return None
-    if not isinstance(value, str) or value not in _VALID_PREFERRED_TIERS:
-        log.warning(
-            'skills: %s declares invalid preferred_tier=%r — must be one of %s; ignoring',
-            skill_name,
-            value,
-            sorted(_VALID_PREFERRED_TIERS),
-        )
-        return None
-    return value
+# ---------------------------------------------------------------------------
+# frontmatter parsing + validation
+# ---------------------------------------------------------------------------
 
 
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
-    """Parse YAML frontmatter from a markdown file.
-
-    Returns (frontmatter_dict, body_text).  If no frontmatter is found,
-    returns an empty dict and the full text.
-    """
+    """Split a ``---`` YAML frontmatter block from the markdown body."""
     if not text.startswith('---'):
-        return {}, _strip_argument_template(text)
-    end = text.find('---', 3)
-    if end == -1:
-        return {}, _strip_argument_template(text)
-    fm_text = text[3:end].strip()
-    body = text[end + 3 :].strip()
+        return {}, text
+    parts = text.split('---', 2)
+    if len(parts) < 3:
+        return {}, text
     try:
-        fm = yaml.safe_load(fm_text) or {}
+        fm = yaml.safe_load(parts[1]) or {}
     except yaml.YAMLError:
-        fm = {}
-    return fm, _strip_argument_template(body)
+        return {}, text
+    if not isinstance(fm, dict):
+        return {}, text
+    return fm, parts[2].lstrip('\n')
 
 
-def _strip_argument_template(body: str) -> str:
-    """Drop the Claude Code ``Help the user with: $ARGUMENTS`` boilerplate.
+def validate_skill_frontmatter(fm: dict, dir_name: str) -> str | None:
+    """Return an actionable error string if *fm* is nonconformant, else None.
 
-    Older SKILL.md files (copied from the Claude Code skill format) lead
-    with ``Help the user with: $ARGUMENTS``. The ``$ARGUMENTS`` placeholder
-    is never substituted in Marcel, so the line is pure noise that tends
-    to confuse the model into ending a turn after a bare acknowledgment.
-    Removed defensively at load time so stale data-root copies stay clean.
+    Mirrors the agentskills.io ``skills-ref`` rules Marcel enforces: a valid
+    ``name`` (regex + length) that equals the directory name, and a
+    ``description`` within bounds. Unknown frontmatter keys are tolerated.
     """
-    lines = body.split('\n')
-    cleaned: list[str] = []
-    for line in lines:
-        if line.strip() == 'Help the user with: $ARGUMENTS':
-            continue
-        cleaned.append(line)
-    return '\n'.join(cleaned).lstrip('\n')
+    name = fm.get('name')
+    if not isinstance(name, str) or not name:
+        return f'{dir_name!r}: missing required frontmatter `name`'
+    if len(name) > _MAX_NAME_LEN or not _NAME_RE.fullmatch(name):
+        return (
+            f'{dir_name!r}: invalid `name` {name!r} — must be 1–{_MAX_NAME_LEN} chars, '
+            'lowercase alphanumerics and single hyphens (no leading/trailing/double hyphen)'
+        )
+    if name != dir_name:
+        return f'{dir_name!r}: frontmatter `name` {name!r} must equal the directory name {dir_name!r}'
+    description = fm.get('description')
+    if not isinstance(description, str) or not description:
+        return f'{dir_name!r}: missing required frontmatter `description`'
+    if len(description) > _MAX_DESCRIPTION_LEN:
+        return f'{dir_name!r}: `description` exceeds {_MAX_DESCRIPTION_LEN} chars'
+    return None
 
 
-def _check_requirements(requires: dict, user_slug: str) -> bool:
-    """Check whether a skill's requirements are met for the given user.
+def _coerce_metadata(fm: dict, dir_name: str) -> dict[str, str]:
+    """Extract the spec-legal ``metadata`` map (string→string), tolerant."""
+    raw = fm.get('metadata')
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        log.warning('skills: %s metadata must be a map; got %r — ignoring', dir_name, type(raw).__name__)
+        return {}
+    return {str(k): str(v) for k, v in raw.items()}
 
-    Requirement types (all fields in the ``requires`` dict are optional):
-    - ``credentials``: list of key names that must exist in the user's
-      credential store.
-    - ``env``: list of environment variable names that must be set.
-    - ``files``: list of filenames that must exist in the user's data
-      directory.
-    - ``packages``: list of importable Python module names.
 
-    Returns True if all requirements are satisfied (or if ``requires`` is
-    empty).
+def _migrate_legacy_frontmatter(fm: dict, dir_name: str) -> dict[str, str]:
+    """Map retired top-level keys into ``metadata`` marcel-* keys.
+
+    Reads ``depends_on`` / ``preferred_tier`` / ``requires`` (the pre-v2
+    Marcel frontmatter) with a deprecation log and returns the metadata they
+    map to. The zoo skills are migrated to native ``metadata`` in the same
+    feature; this keeps third-party or not-yet-migrated skills working.
     """
-    if not requires:
+    extra: dict[str, str] = {}
+    depends_on = fm.get('depends_on')
+    if depends_on:
+        names = [depends_on] if isinstance(depends_on, str) else [str(n) for n in depends_on]
+        extra['marcel-connectors'] = ','.join(names)
+        log.warning('skills: %s uses legacy `depends_on` — migrate to metadata.marcel-connectors', dir_name)
+    tier = fm.get('preferred_tier')
+    if tier:
+        extra['marcel-tier'] = str(tier)
+        log.warning('skills: %s uses legacy `preferred_tier` — migrate to metadata.marcel-tier', dir_name)
+    requires = fm.get('requires')
+    if isinstance(requires, dict) and requires:
+        if requires.get('role') == 'admin':
+            extra['marcel-role'] = 'admin'
+        if requires.get('credentials'):
+            extra['marcel-requires-credentials'] = ','.join(str(c) for c in requires['credentials'])
+        if requires.get('env'):
+            extra['marcel-requires-env'] = ','.join(str(e) for e in requires['env'])
+        log.warning('skills: %s uses legacy `requires` — migrate to metadata.marcel-* keys', dir_name)
+    return extra
+
+
+def _csv(value: str | None) -> list[str]:
+    return [p.strip() for p in value.split(',') if p.strip()] if value else []
+
+
+# ---------------------------------------------------------------------------
+# requirement checks (SETUP.md fallback)
+# ---------------------------------------------------------------------------
+
+
+def _credentials_present(cred_keys: list[str], user_slug: str) -> bool:
+    if not cred_keys:
         return True
+    try:
+        from marcel_core.storage.credentials import load_credentials
 
-    # Check credentials
-    cred_keys = requires.get('credentials', [])
-    if cred_keys:
-        try:
-            from marcel_core.storage.credentials import load_credentials
-
-            creds = load_credentials(user_slug)
-            for key in cred_keys:
-                if not creds.get(key):
-                    log.debug('Skill requirement not met: credential %s missing for user %s', key, user_slug)
-                    return False
-        except Exception:
-            log.debug('Could not load credentials for user %s', user_slug, exc_info=True)
-            return False
-
-    # Check environment variables
-    env_keys = requires.get('env', [])
-    for key in env_keys:
-        if not os.environ.get(key):
-            log.debug('Skill requirement not met: env var %s not set', key)
-            return False
-
-    # Check Python packages
-    packages = requires.get('packages', [])
-    for pkg in packages:
-        if importlib.util.find_spec(pkg) is None:
-            log.debug('Skill requirement not met: package %s not installed', pkg)
-            return False
-
-    # Check files in user data directory
-    file_names = requires.get('files', [])
-    if file_names:
-        try:
-            from marcel_core.storage._root import data_root
-
-            user_dir = data_root() / 'users' / user_slug
-            for fname in file_names:
-                if not (user_dir / fname).exists():
-                    log.debug('Skill requirement not met: file %s missing for user %s', fname, user_slug)
-                    return False
-        except Exception:
-            log.debug('Could not check files for user %s', user_slug, exc_info=True)
-            return False
-
-    return True
+        creds = load_credentials(user_slug)
+    except Exception:
+        log.debug('Could not load credentials for user %s', user_slug, exc_info=True)
+        return False
+    return all(creds.get(key) for key in cred_keys)
 
 
-def _check_depends_on(depends_on: list[str], user_slug: str) -> bool:
-    """Check that every listed integration's requires are met.
+def _env_present(env_keys: list[str]) -> bool:
+    return all(os.environ.get(key) for key in env_keys)
 
-    Each entry in ``depends_on`` names an integration (e.g. ``"docker"``).
-    The integration's ``integration.yaml`` is consulted via
-    :func:`get_toolkit_metadata`; its ``requires:`` block is then
-    checked using :func:`_check_requirements`.
 
-    Returns False (not met) when:
-    - an integration name is not registered in the metadata registry
-      (zoo not loaded, integration.yaml missing, or load failure), OR
-    - any integration's own requires are not satisfied for *user_slug*.
-
-    A missing integration is treated as unmet so the user is shown the
-    skill's SETUP.md fallback rather than a SKILL.md they cannot exercise.
+def _connector_requirements_met(connectors: list[str], user_slug: str) -> bool:
+    """Until connectors ship (FEAT-260718-230bf8), a ``marcel-connectors``
+    name may resolve to a still-present toolkit — check its toolkit.yaml
+    ``requires`` (the same SETUP.md trigger as the retired ``depends_on``).
+    An unregistered name is treated as unmet so the user sees SETUP.md.
     """
-    if not depends_on:
+    if not connectors:
         return True
-
     from marcel_core.toolkit import get_toolkit_metadata
 
-    for name in depends_on:
+    for name in connectors:
         meta = get_toolkit_metadata(name)
         if meta is None:
-            log.debug(
-                'Skill depends_on %r but integration metadata is not registered (zoo not '
-                'loaded or integration.yaml missing); treating as unmet',
-                name,
-            )
+            log.debug('skill connector %r has no toolkit metadata yet — treating as unmet', name)
             return False
-        if not _check_requirements(meta.requires, user_slug):
+        req = meta.requires or {}
+        if not _credentials_present(list(req.get('credentials', [])), user_slug):
             return False
+        if not _env_present(list(req.get('env', []))):
+            return False
+        for pkg in req.get('packages', []):
+            if importlib.util.find_spec(pkg) is None:
+                return False
+        for fname in req.get('files', []):
+            from marcel_core.storage._root import data_root
+
+            if not (data_root() / 'users' / user_slug / fname).exists():
+                return False
     return True
 
 
-def _normalize_depends_on(value: object) -> list[str]:
-    """Normalize the ``depends_on`` frontmatter field to a list of names.
+def _requirements_met(doc_meta: dict[str, str], connectors: list[str], user_slug: str) -> bool:
+    """Whether a skill's own requirements (from metadata) are satisfied."""
+    if not _credentials_present(_csv(doc_meta.get('marcel-requires-credentials')), user_slug):
+        return False
+    if not _env_present(_csv(doc_meta.get('marcel-requires-env'))):
+        return False
+    return _connector_requirements_met(connectors, user_slug)
 
-    Accepts a list, a single string, or absent/empty. Anything else is
-    treated as absent with a warning.
+
+# ---------------------------------------------------------------------------
+# loading + scoping
+# ---------------------------------------------------------------------------
+
+
+def _load_skill_dir(skill_dir: Path, source: str, user_slug: str) -> SkillDoc | None:
+    """Load and validate one skill directory, or None if nonconformant.
+
+    Serves SETUP.md instead of SKILL.md when the skill's requirements are
+    unmet; the returned ``SkillDoc.is_setup`` marks that.
     """
-    if value is None or value == '':
-        return []
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, list) and all(isinstance(v, str) for v in value):
-        return list(value)
-    log.warning('skills: depends_on must be a list of strings or a single string; got %r — ignoring', value)
-    return []
+    skill_md = skill_dir / _SKILL_MD_NAME
+    setup_md = skill_dir / _SETUP_MD_NAME
 
-
-def _load_skill_dir(skill_path: Path, user_slug: str, source: str) -> SkillDoc | None:
-    """Load a single skill from its directory, applying fallback logic.
-
-    If SKILL.md exists and its ``requires`` are met, return the skill doc.
-    If requirements are NOT met and SETUP.md exists, return the setup doc.
-    If only SKILL.md exists without ``requires``, always return it.
-    """
-    skill_md = skill_path / 'SKILL.md'
-    setup_md = skill_path / 'SETUP.md'
-    components_yaml = skill_path / 'components.yaml'
-
-    if not skill_md.exists() and not setup_md.exists():
+    if not skill_md.exists():
+        # A skill folder must have a SKILL.md; a lone SETUP.md is malformed.
+        log.warning('skills: %s has no SKILL.md — skipping', skill_dir.name)
         return None
 
-    # Parse A2UI component schemas if present (attached to whichever doc is returned)
-    components: list[ComponentSchema] = []
-    if components_yaml.exists():
-        skill_name = skill_path.name  # tentative — overridden below if frontmatter has name
-        components = parse_components_yaml(components_yaml, skill_name)
+    fm, body = _parse_frontmatter(skill_md.read_text(encoding='utf-8'))
+    error = validate_skill_frontmatter(fm, skill_dir.name)
+    if error is not None:
+        log.warning('skills: skipping nonconformant skill — %s', error)
+        return None
 
-    # Try SKILL.md first
-    if skill_md.exists():
-        text = skill_md.read_text(encoding='utf-8')
-        fm, body = _parse_frontmatter(text)
-        name = fm.get('name', skill_path.name)
-        description = fm.get('description', '')
-        requires = fm.get('requires', {})
-        depends_on = _normalize_depends_on(fm.get('depends_on'))
-        # Credentials may be declared inline (legacy frontmatter) OR via
-        # depends_on (the integration's integration.yaml). Aggregate both
-        # for the system-prompt auto-injection list — the agent benefits
-        # from seeing every credential the skill might touch.
-        cred_keys = list(requires.get('credentials', []) if requires else [])
-        if depends_on:
-            from marcel_core.toolkit import get_toolkit_metadata
+    metadata = _coerce_metadata(fm, skill_dir.name)
+    # Legacy keys fill in only where native metadata did not.
+    for key, value in _migrate_legacy_frontmatter(fm, skill_dir.name).items():
+        metadata.setdefault(key, value)
 
-            for dep_name in depends_on:
-                dep_meta = get_toolkit_metadata(dep_name)
-                if dep_meta is not None:
-                    cred_keys.extend(dep_meta.requires.get('credentials', []) or [])
-        preferred_tier = _parse_preferred_tier(fm.get('preferred_tier'), name)
+    if len(fm['description']) > _CATALOG_WARN_CHARS:
+        log.warning(
+            'skills: %s description is %d chars (>~%d) — catalog entries should stay compact',
+            skill_dir.name,
+            len(fm['description']),
+            _CATALOG_WARN_CHARS,
+        )
 
-        # Update component skill names to match the resolved skill name
-        for c in components:
-            c.skill = name
+    connectors = _csv(metadata.get('marcel-connectors'))
+    tier = metadata.get('marcel-tier')
+    if tier is not None and tier not in _VALID_TIERS:
+        log.warning('skills: %s marcel-tier %r invalid — ignoring', skill_dir.name, tier)
+        tier = None
+    role = metadata.get('marcel-role')
+    if role is not None and role not in _VALID_ROLES:
+        log.warning('skills: %s marcel-role %r invalid — ignoring', skill_dir.name, role)
+        role = None
+    default_enabled = metadata.get('marcel-default-enabled')
+    if default_enabled is not None and default_enabled not in _VALID_DEFAULT_ENABLED:
+        log.warning(
+            'skills: %s marcel-default-enabled %r invalid — defaulting to %r',
+            skill_dir.name,
+            default_enabled,
+            _DEFAULT_ENABLED_FALLBACK,
+        )
+        default_enabled = None
+    default_enabled = default_enabled or _DEFAULT_ENABLED_FALLBACK
 
-        if _check_requirements(requires, user_slug) and _check_depends_on(depends_on, user_slug):
-            return SkillDoc(
-                name=name,
-                description=description,
-                content=body,
-                is_setup=False,
-                source=source,
-                credential_keys=cred_keys,
-                components=components,
-                preferred_tier=preferred_tier,
-            )
+    cred_keys = list(_csv(metadata.get('marcel-requires-credentials')))
+    from marcel_core.toolkit import get_toolkit_metadata
 
-        # Requirements not met — fall back to SETUP.md. SETUP flows must not
-        # burn a more-expensive tier, so the preferred_tier is deliberately
-        # dropped for the setup variant.
-        if setup_md.exists():
-            setup_text = setup_md.read_text(encoding='utf-8')
-            setup_fm, setup_body = _parse_frontmatter(setup_text)
-            return SkillDoc(
-                name=setup_fm.get('name', name),
-                description=setup_fm.get('description', f'Setup guide for {name}'),
-                content=setup_body,
-                is_setup=True,
-                source=source,
-                credential_keys=cred_keys,
-                components=components,
-            )
+    for cname in connectors:
+        cmeta = get_toolkit_metadata(cname)
+        if cmeta is not None:
+            cred_keys.extend(cmeta.requires.get('credentials', []))
 
-        # No SETUP.md — still return SKILL.md (agent can handle the error at runtime)
+    components = (
+        parse_components_yaml(skill_dir / 'components.yaml', fm['name'])
+        if (skill_dir / 'components.yaml').exists()
+        else []
+    )
+
+    met = _requirements_met(metadata, connectors, user_slug)
+    if met or not setup_md.exists():
         return SkillDoc(
-            name=name,
-            description=description,
+            name=fm['name'],
+            description=fm['description'],
             content=body,
-            is_setup=False,
             source=source,
+            skill_dir=skill_dir,
+            is_setup=False,
+            metadata=metadata,
+            preferred_tier=tier,
+            role=role,
+            default_enabled=default_enabled,
+            connectors=connectors,
             credential_keys=cred_keys,
             components=components,
-            preferred_tier=preferred_tier,
         )
 
-    # Only SETUP.md exists (no SKILL.md) — unusual but supported
-    if setup_md.exists():
-        text = setup_md.read_text(encoding='utf-8')
-        fm, body = _parse_frontmatter(text)
-        return SkillDoc(
-            name=fm.get('name', skill_path.name),
-            description=fm.get('description', ''),
-            content=body,
-            is_setup=True,
-            source=source,
-            components=components,
-        )
+    # Requirements unmet and a SETUP.md exists → serve it (no preferred_tier:
+    # a setup flow must not burn a costlier tier).
+    setup_fm, setup_body = _parse_frontmatter(setup_md.read_text(encoding='utf-8'))
+    return SkillDoc(
+        name=fm['name'],
+        description=setup_fm.get('description', fm['description']),
+        content=setup_body,
+        source=source,
+        skill_dir=skill_dir,
+        is_setup=True,
+        metadata=metadata,
+        preferred_tier=None,
+        role=role,
+        default_enabled=default_enabled,
+        connectors=connectors,
+        credential_keys=cred_keys,
+        components=components,
+    )
 
-    return None
 
+def load_skills(user_slug: str, role: str = 'user') -> list[SkillDoc]:
+    """Discover the skills visible to *user_slug* at *role*, sorted by name.
 
-def load_skills(user_slug: str) -> list[SkillDoc]:
-    """Discover and load all skills from every configured skills directory.
-
-    Walks the directories returned by :func:`_skill_dirs` in load order:
-
-    1. ``<MARCEL_ZOO_DIR>/skills/`` (when set) — habitats from marcel-zoo.
-    2. ``<MARCEL_DATA_DIR>/skills/`` — user-installed/customized skills.
-
-    When the same skill name is found in both, the later entry wins, so a
-    user customization in the data root overrides the zoo habitat. The
-    ``source`` field on the returned doc reflects where it came from.
-
-    Args:
-        user_slug: The user slug, used for per-user requirement checks.
-
-    Returns:
-        List of SkillDoc instances sorted by name.
+    Resolves the scoping chain (global → zoo-user → data-user; most-specific
+    wins on name collision, with a logged shadow warning) and drops skills
+    gated to a role the user does not have (``metadata.marcel-role: admin``).
     """
-    from marcel_core.config import settings
-
-    zoo = settings.zoo_dir
-    zoo_skills = (zoo / 'skills').resolve() if zoo is not None else None
-
-    skills: dict[str, SkillDoc] = {}
-
-    for skills_path in _skill_dirs():
-        source = 'zoo' if zoo_skills is not None and skills_path.resolve() == zoo_skills else 'data'
+    by_name: dict[str, SkillDoc] = {}
+    for skills_path, source in _skill_dirs(user_slug):
         for entry in sorted(skills_path.iterdir()):
-            if entry.is_dir() and not entry.name.startswith(('_', '.')):
-                doc = _load_skill_dir(entry, user_slug, source=source)
-                if doc:
-                    skills[doc.name] = doc
-
-    return sorted(skills.values(), key=lambda s: s.name)
-
-
-def format_skills_for_prompt(skills: list[SkillDoc]) -> str:
-    """Format loaded skills into a string suitable for the system prompt.
-
-    Each skill becomes a section with its name and content.  Setup docs
-    are clearly marked so the agent knows to guide setup rather than
-    attempt to use the integration.
-
-    .. deprecated::
-        Use :func:`format_skill_index` for the system prompt and
-        :func:`get_skill_content` for on-demand loading.
-    """
-    if not skills:
-        return ''
-
-    sections: list[str] = []
-    for skill in skills:
-        if skill.is_setup:
-            sections.append(f'### {skill.name} (not configured)\n\n{skill.content}')
-        else:
-            sections.append(f'### {skill.name}\n\n{skill.content}')
-
-    return '\n\n---\n\n'.join(sections)
-
-
-def format_skill_index(skills: list[SkillDoc]) -> str:
-    """Format a compact one-line-per-skill index for the system prompt.
-
-    Only names and descriptions are included — full docs are loaded
-    on-demand via ``marcel(action="read_skill", name="...")``.
-    """
-    if not skills:
-        return ''
-
-    lines: list[str] = []
-    for skill in skills:
-        status = ' (not configured)' if skill.is_setup else ''
-        lines.append(f'- **{skill.name}**{status} — {skill.description}')
-    return '\n'.join(lines)
-
-
-def get_skill_content(skill_name: str, user_slug: str) -> str | None:
-    """Load the full content of a single skill by name.
-
-    Used by the ``marcel`` tool's ``read_skill`` action to serve skill
-    docs on demand.
-
-    Returns:
-        The skill's full markdown body, or None if not found.
-    """
-    skills = load_skills(user_slug)
-    for s in skills:
-        if s.name == skill_name:
-            return s.content
-    return None
-
-
-# File extensions that are exposed as named skill resources.
-_RESOURCE_EXTENSIONS = frozenset({'.md', '.yaml', '.yml', '.json', '.txt', '.csv'})
-# SKILL.md is the primary doc — not surfaced as a resource (use read_skill instead).
-_SKILL_MD_NAME = 'SKILL.md'
-
-
-def _find_skill_dir(skill_name: str) -> Path | None:
-    """Locate the directory for *skill_name* across every skills source.
-
-    Walks the directories returned by :func:`_skill_dirs` in reverse order
-    so the data root wins over the zoo habitat — same precedence as
-    :func:`load_skills`. Checks each skill dir's ``SKILL.md`` frontmatter
-    ``name`` field, falling back to the directory name. Returns ``None``
-    if not found.
-    """
-    for skills_path in reversed(_skill_dirs()):
-        for entry in skills_path.iterdir():
             if not entry.is_dir() or entry.name.startswith(('_', '.')):
                 continue
-            skill_md = entry / _SKILL_MD_NAME
-            if skill_md.exists():
-                try:
-                    text = skill_md.read_text(encoding='utf-8')
-                    fm, _ = _parse_frontmatter(text)
-                    resolved_name = fm.get('name', entry.name)
-                except Exception:
-                    resolved_name = entry.name
-            else:
-                resolved_name = entry.name
+            doc = _load_skill_dir(entry, source, user_slug)
+            if doc is None:
+                continue
+            if doc.name in by_name and by_name[doc.name].source != source:
+                log.info(
+                    'skills: %s from %s shadows the %s variant for user %s',
+                    doc.name,
+                    source,
+                    by_name[doc.name].source,
+                    user_slug,
+                )
+            by_name[doc.name] = doc
 
-            if resolved_name == skill_name:
-                return entry
+    visible = [d for d in by_name.values() if d.role is None or d.role == role]
+    return sorted(visible, key=lambda d: d.name)
 
+
+def get_skill_content(skill_name: str, user_slug: str, role: str = 'user') -> str | None:
+    """Return a visible skill's body (the ``load_capability`` payload)."""
+    for doc in load_skills(user_slug, role):
+        if doc.name == skill_name:
+            return doc.content
     return None
 
 
-def list_skill_resources(skill_name: str) -> list[str]:
-    """Return the names of resource files available in *skill_name*'s directory.
+# ---------------------------------------------------------------------------
+# resources (skill-root-scoped, traversal-safe)
+# ---------------------------------------------------------------------------
 
-    Resources are every file in the skill directory other than ``SKILL.md``
-    whose extension is in :data:`_RESOURCE_EXTENSIONS`.  Names are returned
-    as bare filenames (e.g. ``"SETUP.md"``, ``"feeds.yaml"``).
 
-    Returns an empty list if the skill is not found or has no resources.
+def _find_skill_dir(skill_name: str, user_slug: str) -> Path | None:
+    """Locate *skill_name*'s directory across the user's scoping chain.
+
+    Most-specific root wins (matches :func:`load_skills`). Matches on the
+    validated frontmatter ``name`` (== dir name for conformant skills).
     """
-    skill_dir = _find_skill_dir(skill_name)
+    for skills_path, _source in reversed(_skill_dirs(user_slug)):
+        candidate = skills_path / skill_name
+        if (candidate / _SKILL_MD_NAME).is_file():
+            return candidate
+    return None
+
+
+def list_skill_resources(skill_name: str, user_slug: str) -> list[str]:
+    """Resource filenames in *skill_name*'s dir (everything but SKILL.md)."""
+    skill_dir = _find_skill_dir(skill_name, user_slug)
     if skill_dir is None:
         return []
+    return [
+        f.name
+        for f in sorted(skill_dir.iterdir())
+        if f.is_file() and f.name != _SKILL_MD_NAME and f.suffix.lower() in _RESOURCE_EXTENSIONS
+    ]
 
-    resources: list[str] = []
-    for f in sorted(skill_dir.iterdir()):
-        if f.is_file() and f.name != _SKILL_MD_NAME and f.suffix.lower() in _RESOURCE_EXTENSIONS:
-            resources.append(f.name)
-    return resources
 
+def get_skill_resource(skill_name: str, resource_name: str, user_slug: str) -> str | None:
+    """Return a named resource's content, scoped to the skill root.
 
-def get_skill_resource(skill_name: str, resource_name: str) -> str | None:
-    """Return the content of a named resource file within *skill_name*'s directory.
-
-    Resources are any files in the skill directory other than ``SKILL.md``
-    with a recognised extension (Markdown, YAML, JSON, CSV, plain text).
-
-    Matching is case-insensitive and tries both:
-    - exact filename (e.g. ``"SETUP.md"``, ``"feeds.yaml"``)
-    - stem only (e.g. ``"setup"`` → ``"SETUP.md"``, ``"feeds"`` → ``"feeds.yaml"``)
-
-    Args:
-        skill_name:   Skill name as declared in SKILL.md frontmatter.
-        resource_name: Filename or stem to load.
-
-    Returns:
-        File content as a string, or ``None`` if not found.
+    Matches case-insensitively on exact filename then stem. The candidate is
+    always a direct child of the skill dir, so ``../`` / absolute names never
+    resolve outside it.
     """
-    skill_dir = _find_skill_dir(skill_name)
+    skill_dir = _find_skill_dir(skill_name, user_slug)
     if skill_dir is None:
         return None
-
     needle = resource_name.lower()
-    candidates: list[Path] = [
+    candidates = [
         f
         for f in skill_dir.iterdir()
         if f.is_file() and f.name != _SKILL_MD_NAME and f.suffix.lower() in _RESOURCE_EXTENSIONS
     ]
-
-    # 1. Exact filename match (case-insensitive)
     for candidate in candidates:
         if candidate.name.lower() == needle:
             return candidate.read_text(encoding='utf-8')
-
-    # 2. Stem-only match (e.g. "feeds" matches "feeds.yaml")
     for candidate in candidates:
         if candidate.stem.lower() == needle:
             return candidate.read_text(encoding='utf-8')
-
     return None
 
 
+# ---------------------------------------------------------------------------
+# A2UI components (loaded eagerly at discovery — they feed the channel catalog)
+# ---------------------------------------------------------------------------
+
+
 def format_components_catalog(skills: list[SkillDoc]) -> str:
-    """Format the A2UI component catalog for injection into the system prompt.
-
-    Produces a compact bullet list of every component declared by the loaded
-    skills together with its top-level prop keys, so the agent knows what
-    components exist and what props they accept without consuming a large
-    token budget on full JSON Schemas.
-
-    Returns an empty string if no components are declared.
-    """
+    """Compact bullet catalog of every component the loaded skills declare."""
     sections: list[str] = []
     for skill in sorted(skills, key=lambda s: s.name):
-        if not skill.components:
-            continue
         for component in skill.components:
             top_keys = _top_level_prop_keys(component.props)
             keys_str = ', '.join(top_keys) if top_keys else '(no props)'
             desc = component.description or '(no description)'
             sections.append(f'- **{component.name}** ({skill.name}) — {desc} · props: {keys_str}')
-
     return '\n'.join(sections)
 
 
 def _top_level_prop_keys(props_schema: dict) -> list[str]:
-    """Return the top-level property keys from a JSON Schema dict.
-
-    Handles the common shape ``{type: object, properties: {a: ..., b: ...}}``.
-    Returns an empty list for schemas that don't declare object properties.
-    """
     if not isinstance(props_schema, dict):
         return []
     properties = props_schema.get('properties')

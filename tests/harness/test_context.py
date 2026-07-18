@@ -154,22 +154,23 @@ class TestBuildInstructionsAsync:
         assert 'Dan' in result
 
     @pytest.mark.asyncio
-    async def test_emits_four_h1_blocks(self, tmp_path, monkeypatch):
+    async def test_emits_h1_blocks(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         deps = MarcelDeps(user_slug='dan', conversation_id='conv-1', channel='cli')
         result = await build_instructions_async(deps)
-        # The four blocks, in order (memory moved to the Memory capability's
-        # per-request injection — FEAT-260718-30d45a)
+        # On a non-rich channel the blocks are, in order: Marcel / user / channel.
+        # Skills left the prompt entirely — they are deferred capabilities now
+        # (FEAT-260718-85b545); memory left it too (FEAT-260718-30d45a).
         headers = (
             '# Marcel — who you are',
             '# Dan — who the user is',
-            '# Skills — what you can do',
             '# Cli — how to respond',
         )
         for header in headers:
             assert header in result
         positions = [result.index(h) for h in headers]
         assert positions == sorted(positions)
+        assert '# Skills — what you can do' not in result
         assert '# Memory — what you should know' not in result
 
     @pytest.mark.asyncio
@@ -197,11 +198,12 @@ class TestBuildInstructionsAsync:
         # Server context is present as an H2 (not H1)
         assert '## Server context' in result
 
-        # And it appears AFTER the user H1 and BEFORE the next H1
+        # And it appears AFTER the user H1 and BEFORE the next H1 (the channel
+        # block — there is no Skills block anymore).
         user_h1 = result.index('# Admin — who the user is')
         server_h2 = result.index('## Server context')
-        skill_h1 = result.index('# Skills — what you can do')
-        assert user_h1 < server_h2 < skill_h1
+        channel_h1 = result.index('# Cli — how to respond')
+        assert user_h1 < server_h2 < channel_h1
 
     @pytest.mark.asyncio
     async def test_non_admin_omits_server_context(self, tmp_path, monkeypatch):
@@ -223,7 +225,7 @@ class TestBuildInstructionsAsync:
 
         # The wrapper H1 should be present exactly once under the Shaun block
         shaun_block_start = result.index('# Shaun — who the user is')
-        next_block_start = result.index('# Skills')
+        next_block_start = result.index('# Cli')
         shaun_block = result[shaun_block_start:next_block_start]
 
         # Only the wrapper H1 — not the profile's own '# Shaun'
@@ -232,11 +234,11 @@ class TestBuildInstructionsAsync:
 
     @pytest.mark.asyncio
     async def test_rich_ui_channel_includes_a2ui_catalog(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
+        from marcel_core.config import settings
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
-        skills_root = tmp_path / 'skills'
+        skills_root = tmp_path / 'zoo' / 'skills'
         banking_dir = skills_root / 'banking'
         banking_dir.mkdir(parents=True)
         (banking_dir / 'SKILL.md').write_text('---\nname: banking\ndescription: Banking\n---\n\nBody.')
@@ -250,31 +252,33 @@ class TestBuildInstructionsAsync:
             '        transactions:\n'
             '          type: array\n'
         )
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_root)
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path / 'zoo'))
 
         deps = MarcelDeps(user_slug='shaun', conversation_id='conv-1', channel='telegram')
         result = await build_instructions_async(deps)
 
-        assert '## A2UI Components' in result
+        # A2UI components are their own H1 block now (promoted out of the old
+        # Skills block — FEAT-260718-85b545).
+        assert '# A2UI Components' in result
         assert 'transaction_list' in result
         assert 'marcel(action="render"' in result
 
     @pytest.mark.asyncio
     async def test_cli_channel_omits_a2ui_catalog(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
+        from marcel_core.config import settings
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
-        skills_root = tmp_path / 'skills'
+        skills_root = tmp_path / 'zoo' / 'skills'
         banking_dir = skills_root / 'banking'
         banking_dir.mkdir(parents=True)
         (banking_dir / 'SKILL.md').write_text('---\nname: banking\ndescription: Banking\n---\n\nBody.')
         (banking_dir / 'components.yaml').write_text(
             'components:\n  - name: transaction_list\n    description: x\n    props: {}\n'
         )
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_root)
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path / 'zoo'))
 
         deps = MarcelDeps(user_slug='shaun', conversation_id='conv-1', channel='cli')
         result = await build_instructions_async(deps)
 
-        assert '## A2UI Components' not in result
+        assert 'A2UI Components' not in result

@@ -86,8 +86,8 @@ no restart beyond whatever the user's normal reload path is.
 ## Metadata
 
 Each toolkit habitat ships a `toolkit.yaml` next to its `__init__.py`.
-The kernel uses it to resolve a skill habitat's `depends_on:` (see
-[Skills](skills.md)) back to the toolkit's requirements.
+The kernel uses it to resolve a skill habitat's `metadata.marcel-connectors`
+(see [Skills](skills.md)) back to the toolkit's requirements.
 
 | Key | Required | Description |
 |---|---|---|
@@ -99,7 +99,7 @@ The kernel uses it to resolve a skill habitat's `depends_on:` (see
 
 Validation rules — any failure logs an error and skips metadata
 registration; the handlers continue to dispatch normally, but
-`depends_on:` resolution against this toolkit will return `None`
+`marcel-connectors` resolution against this toolkit will return `None`
 (treated as "requirements not met"):
 
 - `name` must equal the directory name.
@@ -108,7 +108,7 @@ registration; the handlers continue to dispatch normally, but
 
 A habitat without `toolkit.yaml` logs a warning and registers no
 metadata — perfectly valid for toolkits that no skill depends on, but
-means future skills cannot link to it via `depends_on:`.
+means future skills cannot link to it via `metadata.marcel-connectors`.
 
 ### Directory-name ↔ handler-namespace rule
 
@@ -127,7 +127,7 @@ toolkits continues normally.
 
 This rule exists so a toolkit's dotted handler prefix is a stable
 reverse-lookup to its source directory — useful for skills that
-declare `depends_on:` (see [Skills](skills.md), ISSUE-6ad5c7).
+declare `metadata.marcel-connectors` (see [Skills](skills.md), ISSUE-6ad5c7).
 
 ### Error isolation
 

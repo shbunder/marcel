@@ -54,7 +54,7 @@ default rather than just a fallback.
 ## Interactive turns: warm-up ack + wider timeout
 
 When a Telegram turn resolves to the LOCAL tier (user typed `/local`, a
-skill has `preferred_tier: local`, or the session/default tier is
+skill has `metadata.marcel-tier: local`, or the session/default tier is
 LOCAL), two things change versus the cloud tiers:
 
 - **Timeout.** The per-turn wall-clock budget is

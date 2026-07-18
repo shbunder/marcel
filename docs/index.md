@@ -28,7 +28,7 @@ These docs are written for **developers** extending Marcel, integrating new skil
 
 The two never mix — personal assistant context doesn't leak into coder mode, and vice versa.
 
-**Flat-file storage.** Everything Marcel remembers lives on disk as plain text or markdown — no database. User data is under `~/.marcel/users/{slug}/`, skills are under `~/.marcel/skills/`, conversations are append-only JSONL segments. See [Storage](storage.md) for the full layout.
+**Flat-file storage.** Everything Marcel remembers lives on disk as plain text or markdown — no database. User data is under `~/.marcel/users/{slug}/`, skills come from the zoo (with runtime per-user installs under `~/.marcel/users/{slug}/skills/`), conversations are append-only JSONL segments. See [Storage](storage.md) for the full layout.
 
 **Habitats are pluggable.** Marcel's kernel ships no behaviour. Every capability (banking, calendar, news, Telegram, scheduled jobs, subagents) is a self-contained habitat in [marcel-zoo](https://github.com/shbunder/marcel-zoo) — one of five kinds (toolkit, skill, subagent, channel, job). Habitats can be added or removed without touching core code. See [Habitats](habitats.md) for the full taxonomy.
 

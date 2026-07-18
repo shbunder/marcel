@@ -15,7 +15,6 @@ from marcel_core.harness.context import MarcelDeps
 from .conversations import compact as _compact, search_conversations as _search_conversations
 from .notifications import notify as _notify
 from .settings import get_model as _get_model, list_models as _list_models, set_model as _set_model
-from .skills import read_skill as _read_skill, read_skill_resource as _read_skill_resource
 from .ui import render as _render
 
 log = logging.getLogger(__name__)
@@ -39,8 +38,6 @@ async def marcel(
     ``search_memory`` / ``delete_memory`` from the Memory capability.)
 
     Actions:
-      read_skill           Load full documentation for a skill (name= required).
-      read_skill_resource  Load a named resource file from a skill directory (name= skill, resource= filename or stem).
       search_conversations Search past conversation history (query= required).
       compact              Compress current conversation segment into a summary.
       notify               Send a progress update to the user (message= required).
@@ -52,23 +49,25 @@ async def marcel(
     Args:
         ctx: Agent context with user and conversation info.
         action: The action to perform (see above).
-        name: Skill name for read_skill / read_skill_resource; channel name for get_model; "channel:provider:model" for set_model; optional title for render.
+        name: Channel name for get_model; "channel:provider:model" for set_model; optional title for render.
         query: Search query for search_conversations.
         message: Progress message for notify.
         type_filter: Unused (kept for API compatibility).
         max_results: Max results for search_conversations (default 5).
         component: Component name for render (e.g. "transaction_list", "balance_card").
         props: Component props for render — a dict matching the component's JSON Schema.
-        resource: Resource filename or stem for read_skill_resource (e.g. "feeds", "feeds.yaml", "SETUP.md").
+        resource: Unused (kept for API compatibility).
 
     Returns:
         Action result string.
     """
     match action:
-        case 'read_skill':
-            return await _read_skill(ctx, name)
-        case 'read_skill_resource':
-            return await _read_skill_resource(ctx, name, resource)
+        case 'read_skill' | 'read_skill_resource':
+            return (
+                f'The {action!r} action was retired — skills are now deferred capabilities. '
+                'Load a skill with the load_capability tool (its docs arrive as instructions); '
+                "read a skill resource with that skill's read_skill_resource tool once loaded."
+            )
         case 'search_memory' | 'read_memory' | 'save_memory':
             return (
                 f'The {action!r} action moved to dedicated tools — use write_memory / '
@@ -91,6 +90,5 @@ async def marcel(
         case _:
             return (
                 f'Unknown action: {action!r}. '
-                f'Available: read_skill, read_skill_resource, '
-                f'search_conversations, compact, notify, list_models, get_model, set_model, render'
+                f'Available: search_conversations, compact, notify, list_models, get_model, set_model, render'
             )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,7 +21,7 @@ from marcel_core.harness.runner import (
     ToolCallCompleted,
     ToolCallStarted,
     _active_skill_tier,
-    _prime_read_skills_from_history,
+    _loaded_skill_names,
     _resolve_turn_tier,
     stream_turn,
 )
@@ -237,20 +238,19 @@ class TestStreamTurn:
         assert '/fast hello' not in segment_texts
 
     @pytest.mark.asyncio
-    async def test_turn_plan_skill_override_seeds_read_skills(self, tmp_path, monkeypatch):
-        """A ``/<skillname>`` dispatch pre-adds the skill to the turn's read_skills
-        so its SKILL.md ends up in the system prompt."""
+    async def test_turn_plan_skill_override_forces_eager_skill(self, tmp_path, monkeypatch):
+        """A ``/<skillname>`` dispatch force-loads that skill's capability eager
+        (``eager_skill=`` on ``create_marcel_agent``) so its SKILL.md body is in
+        the system prompt from the first request."""
         from marcel_core.harness.model_chain import Tier
         from marcel_core.harness.turn_router import TierSource, TurnPlan
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
-        captured_deps: list = []
+        captured_kwargs: list = []
 
         @asynccontextmanager
         async def _capture_stream(user_text, *, deps, **kwargs):
-            captured_deps.append(deps)
-
             async def _stream_text(*, delta, debounce_by):
                 yield 'ok'
 
@@ -264,6 +264,10 @@ class TestStreamTurn:
         agent = MagicMock()
         agent.run_stream = lambda user_text, **kwargs: _capture_stream(user_text, **kwargs)
 
+        def _capture_create(*args, **kwargs):
+            captured_kwargs.append(kwargs)
+            return agent
+
         plan = TurnPlan(
             tier=Tier.FAST,
             cleaned_text='balance',
@@ -271,12 +275,12 @@ class TestStreamTurn:
             skill_override='banking',
         )
 
-        with patch('marcel_core.harness.runner.create_marcel_agent', return_value=agent):
+        with patch('marcel_core.harness.runner.create_marcel_agent', side_effect=_capture_create):
             async for _ in stream_turn('shaun', 'cli', '/banking balance', 'conv-skill', turn_plan=plan):
                 pass
 
-        assert len(captured_deps) == 1
-        assert 'banking' in captured_deps[0].turn.read_skills
+        # The main-tier agent is built with the override as the eager skill.
+        assert any(kw.get('eager_skill') == 'banking' for kw in captured_kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -595,6 +599,7 @@ class TestResolveTurnTier:
             content='',
             is_setup=False,
             source='data',
+            skill_dir=Path('/x'),
             preferred_tier='power',
         )
         with patch('marcel_core.skills.loader.load_skills', return_value=[dev_doc]):
@@ -617,6 +622,7 @@ class TestResolveTurnTier:
             content='',
             is_setup=False,
             source='data',
+            skill_dir=Path('/x'),
             preferred_tier='power',
         )
         with patch('marcel_core.skills.loader.load_skills', return_value=[doc]):
@@ -633,9 +639,33 @@ class TestResolveTurnTier:
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
         docs = [
-            SkillDoc(name='a', description='', content='', is_setup=False, source='data', preferred_tier='fast'),
-            SkillDoc(name='b', description='', content='', is_setup=False, source='data', preferred_tier='power'),
-            SkillDoc(name='c', description='', content='', is_setup=False, source='data', preferred_tier='standard'),
+            SkillDoc(
+                name='a',
+                description='',
+                content='',
+                is_setup=False,
+                source='data',
+                skill_dir=Path('/x'),
+                preferred_tier='fast',
+            ),
+            SkillDoc(
+                name='b',
+                description='',
+                content='',
+                is_setup=False,
+                source='data',
+                skill_dir=Path('/x'),
+                preferred_tier='power',
+            ),
+            SkillDoc(
+                name='c',
+                description='',
+                content='',
+                is_setup=False,
+                source='data',
+                skill_dir=Path('/x'),
+                preferred_tier='standard',
+            ),
         ]
         with patch('marcel_core.skills.loader.load_skills', return_value=docs):
             tier, reason = _resolve_turn_tier('shaun', 'cli', 'hi', {'a', 'b', 'c'})
@@ -658,6 +688,7 @@ class TestResolveTurnTier:
             content='',
             is_setup=False,
             source='data',
+            skill_dir=Path('/x'),
             preferred_tier=None,
         )
         with patch('marcel_core.skills.loader.load_skills', return_value=[doc]):
@@ -692,6 +723,7 @@ class TestResolveTurnTier:
             content='',
             is_setup=False,
             source='data',
+            skill_dir=Path('/x'),
             preferred_tier='power',
         )
         with patch('marcel_core.skills.loader.load_skills', return_value=[doc]):
@@ -832,88 +864,57 @@ class TestHistoryToMessages:
         assert all(isinstance(p, ToolReturnPart) for p in tool_request.parts)
 
 
-class TestPrimeReadSkillsFromHistory:
-    """Tests for _prime_read_skills_from_history — priming per-turn read_skills."""
+class TestLoadedSkillNames:
+    """Tests for _loaded_skill_names — deriving loaded skills from load_capability history.
 
-    def test_adds_skill_from_past_read_skill_call(self):
+    A skill's capability id is its name; ``load_capability`` call parts survive
+    compaction, so scanning history for them (plus a same-turn ``/<skill>``
+    override folded in via ``extra``) is the tier-influence input that replaced
+    the retired per-turn ``read_skills`` scan of ``marcel(read_skill)`` calls.
+    """
+
+    @staticmethod
+    def _load_call(cap_id: str, tool_call_id: str):
+        from pydantic_ai.messages import LoadCapabilityCallPart
+
+        return LoadCapabilityCallPart(args={'id': cap_id}, tool_call_id=tool_call_id)
+
+    def test_adds_skill_from_load_capability_call(self):
         messages = [
             ModelRequest(parts=[UserPromptPart(content='check calendar')]),
-            ModelResponse(
-                parts=[
-                    ToolCallPart(
-                        tool_name='marcel',
-                        args={'action': 'read_skill', 'name': 'icloud'},
-                        tool_call_id='tc-1',
-                    ),
-                ]
-            ),
-            ModelRequest(parts=[ToolReturnPart(tool_name='marcel', content='...', tool_call_id='tc-1')]),
+            ModelResponse(parts=[self._load_call('icloud', 'tc-1')]),
+            ModelRequest(parts=[ToolReturnPart(tool_name='load_capability', content='...', tool_call_id='tc-1')]),
         ]
-        read_skills: set[str] = set()
-        _prime_read_skills_from_history(messages, read_skills)
-        assert read_skills == {'icloud'}
+        assert _loaded_skill_names(messages) == {'icloud'}
 
-    def test_ignores_non_read_skill_marcel_calls(self):
+    def test_ignores_ordinary_tool_calls(self):
         messages = [
             ModelResponse(
-                parts=[
-                    ToolCallPart(
-                        tool_name='marcel',
-                        args={'action': 'search_memory', 'query': 'anything'},
-                        tool_call_id='tc-1',
-                    ),
-                ]
+                parts=[ToolCallPart(tool_name='marcel', args={'action': 'search_memory'}, tool_call_id='tc-1')]
             ),
-        ]
-        read_skills: set[str] = set()
-        _prime_read_skills_from_history(messages, read_skills)
-        assert read_skills == set()
-
-    def test_ignores_other_tools(self):
-        messages = [
             ModelResponse(
-                parts=[
-                    ToolCallPart(
-                        tool_name='integration',
-                        args={'id': 'icloud.calendar'},
-                        tool_call_id='tc-1',
-                    ),
-                ]
+                parts=[ToolCallPart(tool_name='toolkit', args={'id': 'icloud.calendar'}, tool_call_id='tc-2')]
             ),
         ]
-        read_skills: set[str] = set()
-        _prime_read_skills_from_history(messages, read_skills)
-        assert read_skills == set()
+        assert _loaded_skill_names(messages) == set()
 
     def test_collects_multiple_skills(self):
         messages = [
-            ModelResponse(
-                parts=[
-                    ToolCallPart(
-                        tool_name='marcel',
-                        args={'action': 'read_skill', 'name': 'icloud'},
-                        tool_call_id='tc-1',
-                    ),
-                ]
-            ),
-            ModelResponse(
-                parts=[
-                    ToolCallPart(
-                        tool_name='marcel',
-                        args={'action': 'read_skill', 'name': 'banking'},
-                        tool_call_id='tc-2',
-                    ),
-                ]
-            ),
+            ModelResponse(parts=[self._load_call('icloud', 'tc-1')]),
+            ModelResponse(parts=[self._load_call('banking', 'tc-2')]),
         ]
-        read_skills: set[str] = set()
-        _prime_read_skills_from_history(messages, read_skills)
-        assert read_skills == {'icloud', 'banking'}
+        assert _loaded_skill_names(messages) == {'icloud', 'banking'}
 
-    def test_preserves_existing_entries(self):
-        read_skills: set[str] = {'news'}
-        _prime_read_skills_from_history([], read_skills)
-        assert read_skills == {'news'}
+    def test_extra_override_folded_in(self):
+        # A same-turn /<skill> override contributes even with no history.
+        assert _loaded_skill_names([], extra={'banking'}) == {'banking'}
+
+    def test_extra_unions_with_history(self):
+        messages = [ModelResponse(parts=[self._load_call('icloud', 'tc-1')])]
+        assert _loaded_skill_names(messages, extra={'banking'}) == {'icloud', 'banking'}
+
+    def test_empty_history_no_extra(self):
+        assert _loaded_skill_names([]) == set()
 
 
 class TestExtractToolHistory:

@@ -1,7 +1,9 @@
 """Scenario-based tests for tools/marcel.py — the unified internal utilities tool.
 
-Covers: all actions (read_skill, search_conversations,
-compact, notify, list_models, get_model, set_model) through realistic invocations.
+Covers: all actions (search_conversations, compact, notify, list_models,
+get_model, set_model, render) through realistic invocations, plus the retired
+``read_skill`` / ``read_skill_resource`` actions that now redirect to
+``load_capability``.
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ class TestUnknownAction:
     async def test_unknown_action(self):
         result = await marcel(_ctx(), action='bogus')
         assert 'Unknown action' in result
-        assert 'read_skill' in result
+        assert 'search_conversations' in result
 
 
 # ---------------------------------------------------------------------------
@@ -290,91 +292,24 @@ class TestSettings:
 
 
 # ---------------------------------------------------------------------------
-# read_skill / read_skill_resource
+# retired read_skill / read_skill_resource actions
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def skills_dir(tmp_path, monkeypatch):
-    """A hermetic skills directory with one documented skill.
-
-    ``recipes`` has a SKILL.md plus two resource files; ``plain`` ships only
-    its SKILL.md (no resources).
-    """
-    import marcel_core.skills.loader as loader
-    from marcel_core.config import settings
-
-    root = tmp_path / 'skills'
-    recipes = root / 'recipes'
-    recipes.mkdir(parents=True)
-    (recipes / 'SKILL.md').write_text('---\nname: recipes\ndescription: Family recipes\n---\n\nCook things.\n')
-    (recipes / 'SETUP.md').write_text('Set up the recipe book first.\n')
-    (recipes / 'feeds.yaml').write_text('feeds:\n  - https://example.test/rss\n')
-
-    plain = root / 'plain'
-    plain.mkdir()
-    (plain / 'SKILL.md').write_text('---\nname: plain\ndescription: No extras\n---\n\nJust the doc.\n')
-
-    monkeypatch.setattr(settings, 'marcel_zoo_dir', None)
-    monkeypatch.setattr(loader, '_skills_dir', lambda: root)
-    return root
-
-
-class TestReadSkill:
-    @pytest.mark.asyncio
-    async def test_skill_without_resources_has_no_resource_footer(self, skills_dir):
-        result = await marcel(_ctx(), action='read_skill', name='plain')
-        assert 'Just the doc.' in result
-        assert 'Available resources' not in result
+class TestRetiredSkillActions:
+    """Skills are deferred capabilities now — these actions redirect (FEAT-260718-85b545)."""
 
     @pytest.mark.asyncio
-    async def test_skill_with_resources_lists_them(self, skills_dir):
+    async def test_read_skill_redirects_to_load_capability(self):
         result = await marcel(_ctx(), action='read_skill', name='recipes')
-        assert 'Cook things.' in result
-        assert 'Available resources' in result
-        assert 'SETUP.md' in result
-        assert 'feeds.yaml' in result
-
-
-class TestReadSkillResource:
-    @pytest.mark.asyncio
-    async def test_missing_skill_name(self, skills_dir):
-        result = await marcel(_ctx(), action='read_skill_resource', resource='feeds')
-        assert 'Error' in result
-        assert 'name=' in result
+        assert 'retired' in result
+        assert 'load_capability' in result
 
     @pytest.mark.asyncio
-    async def test_missing_resource_name(self, skills_dir):
-        result = await marcel(_ctx(), action='read_skill_resource', name='recipes')
-        assert 'Error' in result
-        assert 'resource=' in result
-
-    @pytest.mark.asyncio
-    async def test_loads_resource_by_stem(self, skills_dir):
+    async def test_read_skill_resource_redirects(self):
         result = await marcel(_ctx(), action='read_skill_resource', name='recipes', resource='feeds')
-        assert 'https://example.test/rss' in result
-
-    @pytest.mark.asyncio
-    async def test_loads_resource_by_filename(self, skills_dir):
-        result = await marcel(_ctx(), action='read_skill_resource', name='recipes', resource='SETUP.md')
-        assert 'Set up the recipe book' in result
-
-    @pytest.mark.asyncio
-    async def test_unknown_resource_lists_available(self, skills_dir):
-        result = await marcel(_ctx(), action='read_skill_resource', name='recipes', resource='bogus')
-        assert 'not found' in result
-        assert 'SETUP.md' in result
-        assert 'feeds.yaml' in result
-
-    @pytest.mark.asyncio
-    async def test_skill_without_resources(self, skills_dir):
-        result = await marcel(_ctx(), action='read_skill_resource', name='plain', resource='anything')
-        assert 'no resource files' in result
-
-    @pytest.mark.asyncio
-    async def test_unknown_skill(self, skills_dir):
-        result = await marcel(_ctx(), action='read_skill_resource', name='ghost-skill', resource='feeds')
-        assert 'no resource files' in result or 'not found' in result
+        assert 'retired' in result
+        assert 'load_capability' in result
 
 
 # ---------------------------------------------------------------------------

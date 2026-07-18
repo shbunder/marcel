@@ -471,4 +471,4 @@ the legacy directories are gone.
 - [Agents](agents.md) — the subagent kind referenced by
   `dispatch_type: subagent`.
 - [Skills](skills.md) — how skill requirements flow into job runs via
-  `depends_on:`.
+  `metadata.marcel-connectors`.

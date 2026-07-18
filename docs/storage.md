@@ -12,11 +12,12 @@ synchronous Python API for reading and writing users, conversations, and memory.
 ~/.marcel/
   config.toml               # CLI configuration
   MARCEL.md                 # Global personal assistant instructions
-  skills/                   # Skill docs loaded into agent context
   users/
     {user_slug}/
       profile.md              # identity, preferences, role, channel links (frontmatter + markdown)
       credentials.enc         # encrypted credentials blob
+      skills/                 # runtime-installed per-user skills (source `data-user`;
+                              #   global skills come from the zoo, not here)
       conversation/           # continuous conversation storage
         {channel}/
           segments/

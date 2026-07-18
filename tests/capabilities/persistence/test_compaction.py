@@ -96,7 +96,7 @@ async def test_old_results_blanked_pairs_and_marcel_survive(tmp_path, monkeypatc
         if isinstance(p, ToolCallPart)
     }
     assert call_ids == {p.tool_call_id for p in returns}
-    # `marcel` results are exempt — read_skill docs survive clearing.
+    # `marcel` results are exempt from clearing (survive past the token trigger).
     marcel_returns = [p for p in returns if p.tool_name == 'marcel']
     assert marcel_returns and all(
         isinstance(p.content, str) and p.content.startswith('skill docs') for p in marcel_returns
@@ -134,3 +134,63 @@ async def test_under_threshold_history_untouched(tmp_path, monkeypatch):
         if isinstance(part, ToolReturnPart)
     ]
     assert [p.content for p in returns] == ['small result'], 'below the trigger nothing is blanked'
+
+
+@pytest.mark.asyncio
+async def test_loaded_skill_survives_compaction(tmp_path, monkeypatch):
+    """NFR2 (FEAT-260718-85b545): a loaded skill's body survives a compacted
+    long conversation.
+
+    A skill is a deferred capability; ``load_capability`` marks it loaded via a
+    call/return pair in history. Compaction may blank the return *content* (like
+    any aged tool result), but the pair persists — so pydantic-ai's
+    ``parse_loaded_capabilities`` still reports the skill loaded, and the
+    framework re-injects its instructions from the ``Capability`` on the next
+    request. This asserts the loaded state survives the over-threshold trim.
+    """
+    from pydantic_ai._deferred_capabilities import parse_loaded_capabilities
+    from pydantic_ai.messages import LoadCapabilityCallPart, LoadCapabilityReturnPart
+
+    monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+
+    history: list[ModelMessage] = [ModelRequest(parts=[UserPromptPart(content='start')])]
+    # The skill was loaded early in the conversation…
+    history += [
+        ModelResponse(parts=[LoadCapabilityCallPart(args={'id': 'news'}, tool_call_id='lc-1')]),
+        ModelRequest(
+            parts=[LoadCapabilityReturnPart(content={'instructions': 'NEWS BODY ' + BIG}, tool_call_id='lc-1')]
+        ),
+    ]
+    # …then many big tool results push the run well past the clearing trigger.
+    for i in range(1, 7):
+        history += _pair(i)
+    history.append(ModelResponse(parts=[TextPart(content='earlier reply')]))
+
+    seen: list[list[ModelMessage]] = []
+    hooks = Hooks()
+
+    @hooks.on.before_model_request
+    async def capture(ctx, request_context):
+        seen.append(list(request_context.messages))
+        return request_context
+
+    agent = Agent(
+        TestModel(call_tools=[]),
+        deps_type=MarcelDeps,
+        capabilities=[*build_capabilities(), hooks],
+    )
+    await agent.run('and now?', deps=_deps(), message_history=history)
+
+    assert seen, 'hook must observe the model request'
+    request = seen[0]
+    # The skill is still reported loaded after compaction — its body re-injects.
+    assert 'news' in parse_loaded_capabilities(request)
+    # The load_capability pair persists (its return may be blanked, but the part stays).
+    lc_returns = [
+        p
+        for msg in request
+        if isinstance(msg, ModelRequest)
+        for p in msg.parts
+        if isinstance(p, LoadCapabilityReturnPart)
+    ]
+    assert len(lc_returns) == 1

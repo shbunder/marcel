@@ -31,9 +31,9 @@ class TurnState:
 
     Kept separate from ``MarcelDeps`` so the dependency container stays
     immutable identity/config and all per-turn state lives in one place.
-    Tools mutate fields on ``ctx.deps.turn`` (e.g. ``turn.read_skills``,
-    ``turn.notified``); post-run code (like the job executor) reads them
-    to decide what to do next.
+    Tools mutate fields on ``ctx.deps.turn`` (e.g. ``turn.notified``);
+    post-run code (like the job executor) reads them to decide what to do
+    next.
     """
 
     event_bus: EventBus | None = None
@@ -45,9 +45,6 @@ class TurnState:
     do not wire a bus (e.g. the job executor / subagent paths pre-F5) —
     the capability passes tool calls straight through when it is ``None``.
     """
-
-    read_skills: set[str] = dataclasses.field(default_factory=set)
-    """Skills whose full docs have been loaded this turn (for auto-inject dedup)."""
 
     web_search_count: int = 0
     """Count of ``web(action="search")`` calls made so far this turn.
@@ -211,39 +208,47 @@ def load_channel_prompt(channel: str) -> str:
 
 
 async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
-    """Build the system prompt as four clean H1 blocks.
+    """Build the system prompt as clean H1 blocks.
 
     Structure:
-        # Marcel — who you are       (global MARCEL.md, H1 + self-ref blockquote stripped)
-        # <user> — who the user is   (profile body, with server-context H2 folded in for admin)
-        # Skills — what you can do   (compact index + on-demand read hint)
-        # <channel> — how to respond (channel guidance, preamble stripped)
+        # Marcel — who you are           (global MARCEL.md, H1 + self-ref blockquote stripped)
+        # <user> — who the user is       (profile body, with server-context H2 folded in for admin)
+        # A2UI Components — …            (rich-UI channels only — the component render catalog)
+        # <channel> — how to respond     (channel guidance, preamble stripped)
 
-    Memory is no longer a prompt block: the harness Memory capability
-    injects a bounded notebook snapshot per request and owns the
-    read/write/search tools (FEAT-260718-30d45a).
+    Skills are no longer a prompt block: they are deferred capabilities
+    (FEAT-260718-85b545), so the framework injects the capability catalog and
+    owns ``load_capability``. Memory is likewise not a prompt block — the
+    harness Memory capability injects a bounded notebook snapshot per request
+    and owns the read/write/search tools (FEAT-260718-30d45a).
 
     The ``query`` argument is kept for API compatibility but is no longer
-    used (pre-selection retired with ISSUE-068; the index block with this
-    feature).
+    used (pre-selection retired with ISSUE-068; the skill index block with
+    FEAT-260718-85b545).
     """
     from marcel_core.channels.adapter import channel_supports_rich_ui
     from marcel_core.harness.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
-    from marcel_core.skills.loader import format_components_catalog, format_skill_index, load_skills
+    from marcel_core.skills.loader import format_components_catalog, load_skills
     from marcel_core.storage import load_user_profile
 
     # -- Load everything up front (cheap file reads) ------------------------
     marcelmd = format_marcelmd_for_prompt(load_marcelmd_files(deps.user_slug))
     profile = load_user_profile(deps.user_slug).strip()
 
-    loaded_skills = load_skills(deps.user_slug)
-    skill_index = format_skill_index(loaded_skills)
-    components_catalog = format_components_catalog(loaded_skills) if channel_supports_rich_ui(deps.channel) else ''
+    # Skills are deferred capabilities now (FEAT-260718-85b545): the
+    # framework injects the catalog and owns load_capability, so the prompt
+    # carries no skill index. Only the A2UI component catalog stays eager —
+    # it feeds the channel's rich-UI rendering, not skill disclosure.
+    components_catalog = (
+        format_components_catalog(load_skills(deps.user_slug, deps.role))
+        if channel_supports_rich_ui(deps.channel)
+        else ''
+    )
 
     channel_prompt = load_channel_prompt(deps.channel)
     channel_label = deps.channel.capitalize()
 
-    # -- Assemble five H1 blocks --------------------------------------------
+    # -- Assemble the H1 blocks ---------------------------------------------
     blocks: list[str] = []
 
     # Block 1: who Marcel is
@@ -264,31 +269,22 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
         user_block += ['', build_server_context(deps.cwd)]
     blocks.append('\n'.join(user_block).rstrip())
 
-    # Block 3: what you can do
-    skill_block = ['# Skills — what you can do']
-    if skill_index:
-        skill_block += [
-            '',
-            skill_index,
-            '',
-            '*Full docs are loaded on demand — call `marcel(action="read_skill", name="...")` '
-            'before using an integration for the first time.*',
-        ]
-    else:
-        skill_block += ['', '(no skills configured)']
+    # Block 3: A2UI components (rich-UI channels only)
     if components_catalog:
-        skill_block += [
-            '',
-            '## A2UI Components',
-            '',
-            'Prefer these structured components over plain-text summaries when the data '
-            'fits one of them. Emit via `marcel(action="render", component="...", props={...})` — '
-            'do NOT write the component JSON directly in your reply. On Telegram the user gets a '
-            '"View in app" button that opens the Mini App and renders the component natively.',
-            '',
-            components_catalog,
-        ]
-    blocks.append('\n'.join(skill_block).rstrip())
+        blocks.append(
+            '\n'.join(
+                [
+                    '# A2UI Components — how to show rich content',
+                    '',
+                    'Prefer these structured components over plain-text summaries when the data '
+                    'fits one of them. Emit via `marcel(action="render", component="...", props={...})` — '
+                    'do NOT write the component JSON directly in your reply. On Telegram the user gets a '
+                    '"View in app" button that opens the Mini App and renders the component natively.',
+                    '',
+                    components_catalog,
+                ]
+            ).rstrip()
+        )
 
     # Block 4: how to respond (channel guidance)
     channel_block = [f'# {channel_label} — how to respond']
@@ -307,12 +303,10 @@ def build_instructions(deps: MarcelDeps) -> str:
     :func:`build_instructions_async` — the two must not diverge.
     """
     from marcel_core.harness.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
-    from marcel_core.skills.loader import format_skill_index, load_skills
     from marcel_core.storage import load_user_profile
 
     marcelmd = format_marcelmd_for_prompt(load_marcelmd_files(deps.user_slug))
     profile = load_user_profile(deps.user_slug).strip()
-    skill_index = format_skill_index(load_skills(deps.user_slug))
     channel_prompt = load_channel_prompt(deps.channel)
     channel_label = deps.channel.capitalize()
 
@@ -334,18 +328,7 @@ def build_instructions(deps: MarcelDeps) -> str:
         user_block += ['', build_server_context(deps.cwd)]
     blocks.append('\n'.join(user_block).rstrip())
 
-    skill_block = ['# Skills — what you can do']
-    if skill_index:
-        skill_block += [
-            '',
-            skill_index,
-            '',
-            '*Full docs are loaded on demand — call `marcel(action="read_skill", name="...")` '
-            'before using an integration for the first time.*',
-        ]
-    else:
-        skill_block += ['', '(no skills configured)']
-    blocks.append('\n'.join(skill_block).rstrip())
+    # Skills are deferred capabilities (FEAT-260718-85b545) — no prompt block.
 
     channel_block = [f'# {channel_label} — how to respond']
     if channel_prompt:
