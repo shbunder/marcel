@@ -122,7 +122,7 @@ async def test_injection_respects_the_settings_budget(_rooted, monkeypatch):
 async def test_lean_paths_have_no_memory(_rooted):
     seen, hooks = _capture()
     agent = Agent(
-        TestModel(),
+        TestModel(call_tools=[]),
         deps_type=MarcelDeps,
         capabilities=[*build_capabilities(memory=False), hooks],
     )

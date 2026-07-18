@@ -78,7 +78,11 @@ class Rule:
         return bool(self.pattern.search(value))
 
 
-_COMMAND_TOOLS = frozenset({'bash', 'code_exec'})
+# The shell-command surface (FEAT-260718-38235c): the harness Shell
+# capability's foreground and background spawn tools. `run_code` (CodeMode)
+# is deliberately absent — it carries Python, not shell, and its authority
+# is limited to the code-mode-eligible tools (ADR-260718-d511f7).
+_COMMAND_TOOLS = frozenset({'run_command', 'start_command'})
 
 # The self-modification boundary — checked against each token *and* the raw
 # command, so quote-splitting cannot hide it (``restart_requested".prod"`` →
