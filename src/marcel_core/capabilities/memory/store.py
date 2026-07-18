@@ -142,6 +142,25 @@ def _file_store(slug: str) -> FileStore:
     return FileStore(str(root))
 
 
+def _seed_notebook(user_slug: str) -> None:
+    """One-shot seed of MEMORY.md from the legacy scheduler-maintained index.
+
+    Existing users have ``memory/index.md`` and no notebook — without a
+    seed, their injected excerpt starts empty and the legacy index appears
+    as an opaque listed fragment. Idempotent: never touches an existing
+    MEMORY.md (STORY-260718-fd77a2).
+    """
+    mem_dir = data_root() / 'users' / user_slug / 'memory'
+    notebook = mem_dir / 'MEMORY.md'
+    legacy = mem_dir / 'index.md'
+    if notebook.exists() or not legacy.exists():
+        return
+    notebook.write_text(
+        '# Memory index (seeded from the legacy index)\n\n' + legacy.read_text(encoding='utf-8'),
+        encoding='utf-8',
+    )
+
+
 def memory_store_for(user_slug: str) -> HouseholdAwareStore:
     """The (cached) memory store for one user: own notebook + shared household."""
     if not valid_user_slug(user_slug):
@@ -149,6 +168,7 @@ def memory_store_for(user_slug: str) -> HouseholdAwareStore:
     key = f'{data_root()}/{user_slug}'
     store = _stores.get(key)
     if store is None:
+        _seed_notebook(user_slug)
         store = HouseholdAwareStore(_file_store(user_slug), _file_store(_HOUSEHOLD_SLUG))
         _stores[key] = store
     return store

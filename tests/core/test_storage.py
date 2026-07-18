@@ -14,10 +14,8 @@ import marcel_core.storage._root as _root_mod
 from marcel_core.storage import (
     MemoryHeader,
     MemoryType,
-    enforce_index_cap,
     format_memory_manifest,
     load_memory_file,
-    load_memory_index,
     load_user_profile,
     memory_age_days,
     memory_freshness_note,
@@ -27,7 +25,6 @@ from marcel_core.storage import (
     save_user_profile,
     scan_memory_headers,
     search_memory_files,
-    update_memory_index,
     user_exists,
 )
 from marcel_core.storage.users import get_user_role, set_user_role
@@ -157,17 +154,6 @@ class TestSetUserRole:
 # ---------------------------------------------------------------------------
 
 
-class TestLoadMemoryIndex:
-    def test_returns_empty_string_when_missing(self) -> None:
-        assert load_memory_index('nobody') == ''
-
-    def test_returns_index_content(self, tmp_path: pathlib.Path) -> None:
-        idx = tmp_path / 'users' / 'shaun' / 'memory' / 'index.md'
-        idx.parent.mkdir(parents=True)
-        idx.write_text('# Memory\n', encoding='utf-8')
-        assert load_memory_index('shaun') == '# Memory\n'
-
-
 class TestSaveAndLoadMemoryFile:
     def test_round_trip(self) -> None:
         content = '# Calendar\nShaun prefers afternoon dentist appointments.\n'
@@ -185,39 +171,6 @@ class TestSaveAndLoadMemoryFile:
         save_memory_file('shaun', 'family', '# Family v1\n')
         save_memory_file('shaun', 'family', '# Family v2\n')
         assert load_memory_file('shaun', 'family') == '# Family v2\n'
-
-
-class TestUpdateMemoryIndex:
-    def test_creates_index_if_missing(self, tmp_path: pathlib.Path) -> None:
-        update_memory_index('shaun', 'calendar', 'appointment preferences')
-        idx = tmp_path / 'users' / 'shaun' / 'memory' / 'index.md'
-        assert idx.exists()
-
-    def test_adds_entry(self) -> None:
-        update_memory_index('shaun', 'calendar', 'appointment preferences')
-        content = load_memory_index('shaun')
-        assert 'calendar.md' in content
-        assert 'appointment preferences' in content
-
-    def test_does_not_duplicate_existing_entry(self) -> None:
-        update_memory_index('shaun', 'calendar', 'first description')
-        update_memory_index('shaun', 'calendar', 'second description')
-        content = load_memory_index('shaun')
-        # Each entry is one line; only one line should be present for 'calendar'.
-        calendar_lines = [ln for ln in content.splitlines() if 'calendar.md' in ln]
-        assert len(calendar_lines) == 1
-
-    def test_adds_multiple_different_topics(self) -> None:
-        update_memory_index('shaun', 'calendar', 'calendar facts')
-        update_memory_index('shaun', 'family', 'family members')
-        content = load_memory_index('shaun')
-        assert 'calendar.md' in content
-        assert 'family.md' in content
-
-
-# ---------------------------------------------------------------------------
-# frontmatter parsing
-# ---------------------------------------------------------------------------
 
 
 class TestParseFrontmatter:
@@ -636,43 +589,6 @@ class TestPruneExpiredMemories:
         assert 'a.md' in pruned
         assert 'b.md' in pruned
         assert load_memory_file('shaun', 'c') != ''
-
-
-class TestEnforceIndexCap:
-    def test_no_truncation_under_cap(self, tmp_path: pathlib.Path) -> None:
-        update_memory_index('shaun', 'topic1', 'description 1')
-        update_memory_index('shaun', 'topic2', 'description 2')
-        assert enforce_index_cap('shaun', max_lines=10) is False
-
-    def test_truncates_at_cap(self, tmp_path: pathlib.Path) -> None:
-        # Write 20 lines to the index.
-        mem_dir = tmp_path / 'users' / 'shaun' / 'memory'
-        mem_dir.mkdir(parents=True, exist_ok=True)
-        lines = [f'- [topic{i}.md](topic{i}.md) — description {i}\n' for i in range(20)]
-        (mem_dir / 'index.md').write_text(''.join(lines), encoding='utf-8')
-
-        assert enforce_index_cap('shaun', max_lines=10) is True
-        content = load_memory_index('shaun')
-        # Should have 10 original lines + truncation warning.
-        assert 'topic0.md' in content
-        assert 'topic9.md' in content
-        assert 'topic10.md' not in content
-        assert 'truncated' in content.lower()
-
-    def test_returns_false_when_no_index(self) -> None:
-        assert enforce_index_cap('nobody') is False
-
-    def test_exactly_at_cap_no_truncation(self, tmp_path: pathlib.Path) -> None:
-        mem_dir = tmp_path / 'users' / 'shaun' / 'memory'
-        mem_dir.mkdir(parents=True, exist_ok=True)
-        lines = [f'- [topic{i}.md](topic{i}.md) — desc {i}\n' for i in range(5)]
-        (mem_dir / 'index.md').write_text(''.join(lines), encoding='utf-8')
-        assert enforce_index_cap('shaun', max_lines=5) is False
-
-
-# ---------------------------------------------------------------------------
-# credentials.py
-# ---------------------------------------------------------------------------
 
 
 class TestCredentials:

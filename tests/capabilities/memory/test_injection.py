@@ -71,6 +71,24 @@ async def test_notebook_snapshot_injected_for_turns(_rooted):
 
 
 @pytest.mark.asyncio
+async def test_seeded_user_gets_the_legacy_map_injected(_rooted):
+    """A pre-capability user (index.md, no MEMORY.md) sees their seeded map."""
+    mem_dir = _rooted / 'users' / 'alice' / 'memory'
+    mem_dir.mkdir(parents=True)
+    (mem_dir / 'index.md').write_text('- **news** — Reads VRT NWS and De Tijd\n')
+
+    seen, hooks = _capture()
+    agent = Agent(
+        TestModel(call_tools=[]),
+        deps_type=MarcelDeps,
+        capabilities=[*build_capabilities(), hooks],
+    )
+    await agent.run('hi', deps=_deps())
+
+    assert 'Reads VRT NWS and De Tijd' in seen[0], 'the seeded notebook is injected'
+
+
+@pytest.mark.asyncio
 async def test_injection_respects_the_settings_budget(_rooted, monkeypatch):
     """NFR2: the injected snapshot honors marcel_memory_inject_max_tokens."""
     from marcel_core.config import settings

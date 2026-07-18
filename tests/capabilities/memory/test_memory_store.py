@@ -111,6 +111,30 @@ class TestHouseholdUnion:
         assert await bob.read('memory/secret.md', max_chars=100) is None
 
 
+class TestNotebookSeed:
+    """One-shot MEMORY.md seed from the legacy index (STORY-260718-fd77a2)."""
+
+    async def test_seeds_once_and_only_when_missing(self, _rooted):
+        mem_dir = _rooted / 'users' / 'alice' / 'memory'
+        mem_dir.mkdir(parents=True)
+        (mem_dir / 'index.md').write_text('- **news** — News preferences\n')
+
+        memory_store_for('alice')
+        notebook = mem_dir / 'MEMORY.md'
+        assert notebook.exists()
+        assert 'News preferences' in notebook.read_text()
+
+        # Re-runs are no-ops even after the notebook diverges.
+        notebook.write_text('- curated by the agent now\n')
+        reset_memory_stores()
+        memory_store_for('alice')
+        assert notebook.read_text() == '- curated by the agent now\n'
+
+    async def test_no_legacy_index_means_no_seed(self, _rooted):
+        memory_store_for('alice')
+        assert not (_rooted / 'users' / 'alice' / 'memory' / 'MEMORY.md').exists()
+
+
 class TestLegacyMachineryCompatibility:
     async def test_prune_expires_capability_written_files(self, _rooted):
         """Feature AC 3: expiry pruning keeps working on files written

@@ -723,15 +723,11 @@ class TestConsolidateMemoriesWalk:
 
         def fake_prune(slug: str) -> list[str]:
             pruned_for.append(slug)
+            if slug == 'carol':
+                raise RuntimeError('prune failed')
             return ['expired.md'] if slug == 'alice' else []
 
-        def fake_rebuild(slug: str) -> None:
-            if slug == 'carol':
-                raise RuntimeError('index rebuild failed')
-
         monkeypatch.setattr(memory_module, 'prune_expired_memories', fake_prune)
-        monkeypatch.setattr(memory_module, 'rebuild_memory_index', fake_rebuild)
-        monkeypatch.setattr(memory_module, 'enforce_index_cap', lambda slug: False)
 
         with caplog.at_level(logging.INFO, logger='marcel_core.jobs.scheduler'):
             _consolidate_memories()
