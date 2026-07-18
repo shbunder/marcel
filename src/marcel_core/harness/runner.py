@@ -794,8 +794,12 @@ async def stream_turn(
                 await result.get_output()
                 log.debug('%s-%s: stream finished tier=%s', user_slug, channel, current.tier.value)
 
-                # Capture all messages for tool call extraction
-                all_messages = result.all_messages()
+                # Capture only THIS run's messages for tool-call extraction.
+                # all_messages() would include the converted history prefix,
+                # and _extract_tool_history walks every message — historical
+                # tool entries would be re-appended to the segment each turn,
+                # compounding (STORY-260718-bfb1ac).
+                all_messages = result.new_messages()
 
                 usage = result.usage
                 if usage and usage.total_tokens:

@@ -31,7 +31,7 @@ from marcel_core.storage import _root
 async def _mock_run_stream(
     text_parts: list[str],
     *,
-    all_messages: list | None = None,
+    new_messages: list | None = None,
     cost: int | None = None,
 ):
     """Return a mock agent.run_stream() context manager that yields text deltas."""
@@ -50,15 +50,15 @@ async def _mock_run_stream(
     result.stream_text = _stream_text
     result.get_output = AsyncMock(return_value=None)
     result.usage = usage
-    result.all_messages = MagicMock(return_value=all_messages or [])
+    result.new_messages = MagicMock(return_value=new_messages or [])
 
     yield result
 
 
-def _make_mock_agent(text_parts: list[str], all_messages: list | None = None):
+def _make_mock_agent(text_parts: list[str], new_messages: list | None = None):
     """Return a mock pydantic-ai agent."""
     agent = MagicMock()
-    agent.run_stream = lambda *args, **kwargs: _mock_run_stream(text_parts, all_messages=all_messages)
+    agent.run_stream = lambda *args, **kwargs: _mock_run_stream(text_parts, new_messages=new_messages)
     return agent
 
 
@@ -160,7 +160,7 @@ class TestStreamTurn:
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
             result.usage = MagicMock(total_tokens=10)
-            result.all_messages = MagicMock(return_value=[])
+            result.new_messages = MagicMock(return_value=[])
             yield result
 
         agent = MagicMock()
@@ -213,7 +213,7 @@ class TestStreamTurn:
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
             result.usage = MagicMock(total_tokens=1)
-            result.all_messages = MagicMock(return_value=[])
+            result.new_messages = MagicMock(return_value=[])
             yield result
 
         agent = MagicMock()
@@ -257,7 +257,7 @@ class TestStreamTurn:
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
             result.usage = MagicMock(total_tokens=1)
-            result.all_messages = MagicMock(return_value=[])
+            result.new_messages = MagicMock(return_value=[])
             yield result
 
         agent = MagicMock()
@@ -310,7 +310,7 @@ def _mid_stream_failing_agent(text_parts: list[str], exc_factory):
         result.stream_text = _stream_text
         result.get_output = AsyncMock(return_value=None)
         result.usage = MagicMock(total_tokens=0)
-        result.all_messages = MagicMock(return_value=[])
+        result.new_messages = MagicMock(return_value=[])
         yield result
 
     agent = MagicMock()
@@ -1069,7 +1069,7 @@ class TestStreamTurnWithToolCalls:
             ModelResponse(parts=[TextPart(content='Here are the files.')]),
         ]
 
-        agent = _make_mock_agent(['Here are the files.'], all_messages=all_msgs)
+        agent = _make_mock_agent(['Here are the files.'], new_messages=all_msgs)
         with patch('marcel_core.harness.runner.create_marcel_agent', return_value=agent):
             async for _ in stream_turn('shaun', 'cli', 'list files', 'conv-1'):
                 pass
@@ -1102,7 +1102,7 @@ class TestStreamTurnWithToolCalls:
             ModelResponse(parts=[TextPart(content='Here is the news.')]),
         ]
 
-        agent = _make_mock_agent(['Here is the news.'], all_messages=all_msgs)
+        agent = _make_mock_agent(['Here is the news.'], new_messages=all_msgs)
         with patch('marcel_core.harness.runner.create_marcel_agent', return_value=agent):
             events = [e async for e in stream_turn('shaun', 'cli', 'news', 'conv-1')]
 
@@ -1157,7 +1157,7 @@ class TestStreamTurnWithHistory:
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
             result.usage = MagicMock(total_tokens=10)
-            result.all_messages = MagicMock(return_value=[])
+            result.new_messages = MagicMock(return_value=[])
             yield result
 
         agent = MagicMock()
@@ -1195,7 +1195,7 @@ class TestStreamTurnWithHistory:
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
             result.usage = MagicMock(total_tokens=10)
-            result.all_messages = MagicMock(return_value=[])
+            result.new_messages = MagicMock(return_value=[])
             yield result
 
         agent = MagicMock()
