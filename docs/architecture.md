@@ -43,7 +43,6 @@ src/marcel_core/
     core.py        # git_* tools (shell/file surfaces are capabilities — see capabilities/execution)
     marcel/        # Unified Marcel utility tool — per-action sub-modules
       dispatcher.py    # The marcel() entry point advertised to the LLM
-      skills.py        # read_skill, read_skill_resource actions
       conversations.py # search_conversations, compact actions
       notifications.py # notify action + send_notify helper
       settings.py      # list_models, get_model, set_model actions
@@ -61,7 +60,9 @@ src/marcel_core/
   skills/
     registry.py    # Merges skills.json with auto-discovered python integrations
     executor.py    # Routes to shell/http/python handlers
-    loader.py      # Skill document loader (SKILL.md, SETUP.md)
+    loader.py      # Skill discovery + three-root per-user chain (SKILL.md, SETUP.md)
+    capability.py  # Factory: each skill → a deferred pydantic-ai Capability
+                   #   (defer_loading=True) + scoped read_skill_resource tool
                    # All toolkit habitats (banking, icloud, docker, news, …)
                    # live under <MARCEL_ZOO_DIR>/toolkit/ — see Toolkit docs.
                    # Kernel ships zero first-party toolkits.
@@ -74,10 +75,10 @@ src/marcel_core/
 ~/.marcel/        # Data root (configurable via MARCEL_DATA_DIR)
   config.toml      # CLI configuration
   MARCEL.md        # Global personal assistant instructions
-  skills/          # Skill docs loaded into agent context
   users/
     {slug}/
       profile.md   # User identity and preferences
+      skills/      # Runtime-installed per-user skills (source `data-user`)
       memory/      # Typed memory files with frontmatter
       conversation/{channel}/  # Continuous conversation storage (segments + summaries)
       .pastes/     # Large tool result content
@@ -133,11 +134,16 @@ For each conversation turn:
 ```
 1. Client sends {"text": "...", "user": "alice", "token": "...", "conversation": null | "id"}
 2. If conversation is null -> create or resume via conversation channel
-3. build_instructions_async() — assembles four H1 blocks:
+3. build_instructions_async() — assembles the H1 blocks:
    - `# Marcel — who you are` — global MARCEL.md (H1 + self-ref blockquote stripped)
    - `# <User> — who the user is` — profile body (+ server context H2 for admin)
-   - `# Skills — what you can do` — compact skill index, full docs on demand via `read_skill`
    - `# <Channel> — how to respond` — channel guidance (preamble stripped)
+   - `# A2UI Components` — component catalog, **rich-UI channels only**
+     (see [A2UI Components](a2ui-components.md))
+
+   Skills are no longer a prompt block. Each visible skill is a deferred
+   pydantic-ai Capability, disclosed as a compact catalog plus a
+   framework-managed `load_capability` tool (see [Skills](skills.md)).
 4. Summarize-if-idle: if last_active > 60 min ago, seal segment + generate summary
 5. Load context via the persistence store: latest rolling summary + active
    segment messages, served at full fidelity (in-run shaping is the

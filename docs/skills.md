@@ -4,15 +4,17 @@ This page covers the **skill habitat** (agent prompting) and its pairing
 with the **toolkit habitat** (Python handlers). See
 [Habitats](habitats.md) for the full five-kind taxonomy.
 
-Marcel exposes two primary tools to the agent:
+Marcel exposes two primary tools to the agent, plus a framework-managed
+`load_capability` tool (see
+[Deferred-capability disclosure](#deferred-capability-disclosure)):
 
 1. **`toolkit`** — call registered handlers (iCloud, HTTP APIs, shell
    commands). The `integration` name is still accepted as a back-compat
    alias during Phases 1–4 of `ISSUE-3c1534` (marcel-admin board archive).
-2. **`marcel`** — internal utilities: `read_skill`, `read_skill_resource`,
-   `search_conversations`, `compact`, `notify`. (Memory has its own tools —
-   `write_memory` / `read_memory` / `search_memory` / `delete_memory` from the
-   Memory capability, FEAT-260718-30d45a.)
+2. **`marcel`** — internal utilities: `search_conversations`, `compact`,
+   `notify`, `list_models`, `get_model`, `set_model`, `render`. (Memory has
+   its own tools — `write_memory` / `read_memory` / `search_memory` /
+   `delete_memory` from the Memory capability, FEAT-260718-30d45a.)
 
 Toolkit handlers can be defined as:
 
@@ -21,28 +23,132 @@ Toolkit handlers can be defined as:
 - **JSON entries** in `skills.json` — for simple HTTP calls or shell
   commands.
 
-Skill documentation lives in `<dir>/skills/<name>/SKILL.md`. These teach the agent how to use each integration. Skills are loaded from two directories and injected into the system prompt:
+Skill documentation lives in `<root>/skills/<name>/SKILL.md`. A skill is a
+folder with a `SKILL.md` following the [agentskills.io](https://agentskills.io)
+open standard. Each visible skill becomes a **deferred pydantic-ai
+Capability** rather than being pasted wholesale into the system prompt — see
+[Deferred-capability disclosure](#deferred-capability-disclosure).
 
-1. **`<MARCEL_ZOO_DIR>/skills/`** — habitats from the marcel-zoo checkout (skipped when `MARCEL_ZOO_DIR` is unset). See [Toolkit habitats](plugins.md).
-2. **`<MARCEL_DATA_DIR>/skills/`** (typically `~/.marcel/skills/`) — user-level overrides and custom skills.
+### Where skills are discovered — the three-root chain
 
-Data-root skills override zoo skills with the same name. The override is silent — drop a `~/.marcel/skills/<name>/SKILL.md` to replace any zoo-shipped version.
+Skills are collected **per user** from three roots, in order of increasing
+specificity. A skill named the same in a more-specific root **shadows** the
+same-named skill in a less-specific one (the shadowing is logged):
+
+1. **`<MARCEL_ZOO_DIR>/skills/`** — global habitats shared by every user
+   (source `zoo-global`; skipped when `MARCEL_ZOO_DIR` is unset). See
+   [Toolkit habitats](plugins.md).
+2. **`<MARCEL_ZOO_DIR>/users/<slug>/skills/`** — git-managed per-user
+   habitats (source `zoo-user`).
+3. **`<MARCEL_DATA_DIR>/users/<slug>/skills/`** — runtime-installed
+   per-user skills (source `data-user`).
+
+There is no global `<MARCEL_DATA_DIR>/skills/` root — global skills come from
+the zoo. To override a zoo-shipped skill for one user, drop a same-named
+skill into that user's `zoo-user` or `data-user` root; being more specific,
+it wins.
 
 ## How it works
 
 1. The agent receives a user request (e.g. "what's on my calendar?").
-2. Its system prompt includes the relevant SKILL.md content (loaded by the skill loader).
-3. It calls `toolkit(id="icloud.calendar", params={"days_ahead": "7"})`.
-4. The executor dispatches to the right handler (python function, HTTP call, or shell command).
-5. The result is returned as plain text to the agent.
+2. Its prompt carries a compact **catalog** of the available skills (each
+   skill's name + description, ~100 tokens each) — not the full bodies.
+3. It calls `load_capability("icloud")` to pull the `icloud` skill's
+   `SKILL.md` body into context as that capability's instructions.
+4. It calls `toolkit(id="icloud.calendar", params={"days_ahead": "7"})`.
+5. The executor dispatches to the right handler (python function, HTTP call, or shell command).
+6. The result is returned as plain text to the agent.
 
-## The three skill shapes
+## Deferred-capability disclosure
 
-A skill's frontmatter determines how the loader treats it and whether a `SETUP.md` fallback is meaningful. There are three distinct shapes:
+Skills are exposed to the model as **deferred pydantic-ai Capabilities**
+(`defer_loading=True`). The framework does not paste every skill body into
+the prompt. Instead:
+
+- The prompt carries a compact **catalog** — one entry per visible skill,
+  each being the skill's id (its `name`) plus its `description` (~100 tokens
+  each).
+- The framework adds a managed **`load_capability`** tool. When the model
+  calls `load_capability("<skill-name>")`, that skill's `SKILL.md` body is
+  returned as the capability's instructions and stays in the message history
+  (surviving compaction).
+- Each loaded skill owns a **`read_skill_resource(resource)`** tool scoped to
+  its own directory. This tool only appears in the tool list *after* the
+  skill is loaded, and only reads files inside that skill's folder (e.g.
+  `feeds.yaml`, `components.yaml`, `SETUP.md`).
+
+There is no `# Skills — what you can do` block in the system prompt and no
+auto-injection of a skill's docs on the first toolkit call — the model loads
+a skill via `load_capability` before calling its toolkit. A `/<skillname>`
+slash command force-loads that skill's capability eagerly, so its body is in
+the prompt from the first request.
+
+### Role gating
+
+A skill whose frontmatter sets `metadata.marcel-role: admin` is dropped from
+the catalog for non-admin users — never shown, never loadable. Skills
+without a `marcel-role` are visible to everyone.
+
+## Frontmatter — the agentskills.io standard
+
+A skill's `SKILL.md` opens with YAML frontmatter conforming to the
+[agentskills.io](https://agentskills.io) open standard. Exactly two keys are
+required:
+
+| Key | Rules |
+|---|---|
+| `name` | 1–64 chars, lowercase alphanumerics and single hyphens. **Must equal the skill's directory name.** |
+| `description` | 1–1024 chars. Shown in the skill catalog; this is what the model reads to decide whether to load the skill. |
+
+Any other **top-level** frontmatter key is tolerated but ignored. Marcel's
+own extensions never sit at the top level — they live in the spec-legal
+`metadata:` map (a flat string→string map) under `marcel-*` keys:
+
+| `metadata` key | Value (string) | Purpose |
+|---|---|---|
+| `marcel-connectors` | comma-separated toolkit names, e.g. `banking,news` | Toolkit habitats this skill fronts; their `requires:` blocks become the skill's requirements. |
+| `marcel-tier` | `fast` \| `standard` \| `power` \| `local` | Preferred model tier while this skill is loaded (see [Model tiers](model-tiers.md)). |
+| `marcel-role` | `admin` | Role-gates the skill — dropped from the catalog for non-admin users. |
+| `marcel-requires-credentials` | comma-separated keys, e.g. `MY_API_KEY` | Credentials that must exist in the user's store. |
+| `marcel-requires-env` | comma-separated vars, e.g. `SOME_ENV_VAR` | Environment variables that must be set. |
+
+Example — a skill that fronts the `banking` toolkit:
+
+```yaml
+---
+name: banking
+description: Access the user's linked bank accounts — balances, transactions, spending insights
+metadata:
+  marcel-connectors: banking
+---
+```
+
+!!! note "Legacy keys — deprecated but tolerated"
+    Older skills declared `depends_on:` (a YAML list), `preferred_tier:`, and
+    a `requires:` block (`{role, credentials, env}`) as **top-level** keys.
+    The loader still migrates these — emitting a deprecation warning — but new
+    and migrated skills use `metadata.marcel-*`. The mapping:
+
+    | Legacy top-level key | New `metadata` key |
+    |---|---|
+    | `depends_on: [banking]` | `marcel-connectors: banking` |
+    | `preferred_tier: power` | `marcel-tier: power` |
+    | `requires: {role: admin}` | `marcel-role: admin` |
+    | `requires: {credentials: [...]}` | `marcel-requires-credentials: ...` |
+    | `requires: {env: [...]}` | `marcel-requires-env: ...` |
+
+## The skill shapes
+
+A skill's frontmatter determines how the loader treats it and whether a
+`SETUP.md` fallback is meaningful. There are three distinct shapes:
 
 ### 1. Standalone — pure teaching material, no requirements
 
-The simplest shape: no `depends_on:`, no `requires:`. The `SKILL.md` is always loaded because it documents built-in kernel tools (e.g. the `web`, `memory`, or `jobs` utility action families) or pure domain knowledge. No `SETUP.md` is needed because there is nothing to set up.
+The simplest shape: no `marcel-connectors`, no `marcel-requires-*`. The
+`SKILL.md` body is served whenever the skill is loaded because it documents
+built-in kernel tools (e.g. the `web`, `memory`, or `jobs` utility action
+families) or pure domain knowledge. No `SETUP.md` is needed because there is
+nothing to set up.
 
 ```yaml
 ---
@@ -53,56 +159,53 @@ description: Manage conversation memory — search past conversations, recall fa
 
 Standalone skills live in `<MARCEL_ZOO_DIR>/skills/<name>/` alongside every other skill habitat. The kernel ships none of them by default.
 
-### 2. Self-contained — inline `requires:`
+### 2. Self-contained — `marcel-requires-*`
 
-A skill that needs credentials, environment variables, files, or Python packages but has no paired integration handler — for instance, a skill that teaches the agent how to use a tool whose credentials are read directly at call time. Declare the dependencies inline; they drive SKILL.md → SETUP.md switching.
-
-### 3. Toolkit-backed — `depends_on:`
-
-The typical case for any skill that calls `toolkit(id="...")`. See below.
-
-## Skill fallback (SETUP.md)
-
-A skill's `SETUP.md` (shapes 2 and 3) activates when the skill's requirements are not met. This guides new users through first-time setup rather than failing silently. Standalone skills (shape 1) do not need a `SETUP.md`.
-
-There are two ways to declare requirements in `SKILL.md` frontmatter:
-
-### Inline `requires:` — for self-contained skills
+A skill that needs credentials or environment variables but has no paired
+toolkit handler — for instance, a skill that teaches the agent how to use a
+tool whose credentials are read directly at call time. Declare the
+dependencies in `metadata`; they drive SKILL.md → SETUP.md switching.
 
 ```yaml
 ---
 name: myservice
 description: What myservice does
-requires:
-  credentials:
-    - MY_API_KEY          # must exist in user's credential store
-  env:
-    - SOME_ENV_VAR        # must be set in the environment
-  files:
-    - signing_key.pem     # must exist in user's data directory
-  packages:
-    - some_python_pkg     # must be importable
+metadata:
+  marcel-requires-credentials: MY_API_KEY
+  marcel-requires-env: SOME_ENV_VAR
 ---
 ```
 
-### `depends_on:` — for skills that call a toolkit habitat
+### 3. Toolkit-backed — `marcel-connectors`
 
-When a skill is just the documentation that fronts a toolkit habitat (the typical case), declare the link instead of duplicating the requirements:
+The typical case for any skill that calls `toolkit(id="...")`. Rather than
+duplicating the toolkit's requirements, name the toolkit(s) it fronts:
 
 ```yaml
 ---
 name: docker
 description: Manage Docker containers
-depends_on:
-  - docker
+metadata:
+  marcel-connectors: docker
 ---
 ```
 
 The loader looks up `<MARCEL_ZOO_DIR>/toolkit/docker/toolkit.yaml`, reads its `requires:` block, and treats those as the skill's requirements. This keeps the credential / env list in one place — the toolkit's `toolkit.yaml` — and avoids drift between the handler and its skill doc. See [Toolkit habitats → Metadata](plugins.md#metadata).
 
-Both forms can be combined; the skill's effective requirements are the union of inline `requires:` and every `depends_on:` toolkit's `requires:`.
+Forms combine: a skill's effective requirements are the union of its
+`marcel-requires-*` keys and every `marcel-connectors` toolkit's `requires:`.
 
-When all requirements are met, the agent sees `SKILL.md`. When any are missing — including a `depends_on:` toolkit whose metadata is not registered (zoo not loaded or `toolkit.yaml` missing) — it sees `SETUP.md` (marked as "not configured" in the prompt).
+## Skill fallback (SETUP.md)
+
+A skill's `SETUP.md` (shapes 2 and 3) activates when the skill's requirements
+are not met. This guides new users through first-time setup rather than
+failing silently. Standalone skills (shape 1) do not need a `SETUP.md`.
+
+When all requirements are met — or there are none — loading the skill serves
+`SKILL.md`. When any are missing — a missing credential or env var, or a
+`marcel-connectors` toolkit that isn't configured (zoo not loaded or
+`toolkit.yaml` missing) — loading it serves `SETUP.md` instead, and the
+skill's catalog description is suffixed "— needs setup".
 
 ## Adding a Python toolkit habitat
 
@@ -128,8 +231,8 @@ Then create the paired skill habitat at `<MARCEL_ZOO_DIR>/skills/myservice/SKILL
 ---
 name: myservice
 description: Short description of what myservice does
-depends_on:
-  - myservice
+metadata:
+  marcel-connectors: myservice
 ---
 
 You have access to the `integration` tool to interact with myservice.
@@ -166,7 +269,7 @@ The user is asking about myservice, but it is **not yet configured**.
 [Step-by-step instructions for the user...]
 ```
 
-No changes to kernel code are needed — the toolkit module is auto-discovered at startup, the skill habitat is loaded from `<MARCEL_ZOO_DIR>/skills/` automatically, and `depends_on:` resolves the credentials/env block from the toolkit's `toolkit.yaml`.
+No changes to kernel code are needed — the toolkit module is auto-discovered at startup, the skill habitat is loaded from `<MARCEL_ZOO_DIR>/skills/` automatically, and `marcel-connectors` resolves the credentials/env block from the toolkit's `toolkit.yaml`.
 
 ## Adding a JSON skill (HTTP or shell)
 
@@ -207,7 +310,7 @@ For simple integrations that don't need custom Python logic, add an entry to `sr
 }
 ```
 
-JSON skills should also have a SKILL.md (and SETUP.md) in `.marcel/skills/` to teach the agent how to use them.
+JSON skills should also have a SKILL.md (and SETUP.md) under `<MARCEL_ZOO_DIR>/skills/<name>/` to teach the agent how to use them.
 
 ## skills.json reference
 
@@ -268,9 +371,14 @@ Only `jq:` expressions are supported (requires the `jq` Python package). If jq i
 **On success**: returns the response as plain text.
 **On error**: returns an error message with `is_error: true`.
 
-### Auto-loaded skill docs
+### Skill docs are loaded on demand
 
-As a safety net, the first `toolkit(id="<family>.<method>")` call per conversation prepends the full `SKILL.md` to the tool result so the model always has enough context to interpret what came back. The toolkit tool tracks which skill families have been loaded in `deps.turn.read_skills`, primed at turn start from past `marcel(action="read_skill", name=...)` calls in the conversation history — so once a skill's docs are in the context window, they are not re-injected on subsequent turns. The model can short-circuit the auto-load on its own by calling `marcel(action="read_skill", name=...)` before the first toolkit call.
+There is no auto-injection of `SKILL.md` on the first `toolkit(...)` call and
+no `deps.turn.read_skills` bookkeeping. The model pulls a skill's docs into
+context by calling `load_capability("<skill-name>")` before calling its
+toolkit — see [Deferred-capability disclosure](#deferred-capability-disclosure).
+The loaded skill's own resource files are then reachable via that capability's
+scoped `read_skill_resource(resource)` tool.
 
 ## The marcel tool contract
 
@@ -278,30 +386,22 @@ The `marcel` tool provides internal utilities via action-based dispatch.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `action` | string | yes | One of: `read_skill`, `read_skill_resource`, `search_conversations`, `compact`, `notify` |
-| `name` | string | for `read_skill`, `read_skill_resource` | Skill name |
-| `resource` | string | for `read_skill_resource` | Resource filename or stem to load (e.g. `"feeds"`, `"SETUP.md"`) |
+| `action` | string | yes | One of: `search_conversations`, `compact`, `notify`, `list_models`, `get_model`, `set_model`, `render` |
 | `query` | string | for `search_*` | Search query — matches filenames, frontmatter fields, and body content |
 | `message` | string | for `notify` | Short plain-text progress update |
 | `max_results` | int | no | Maximum results (default: 10 for memory, 5 for conversations) |
 
-### read_skill
+!!! warning "Retired actions"
+    `read_skill` and `read_skill_resource` were removed with Skills v2.
+    Calling either now returns a short message redirecting to
+    `load_capability` (see
+    [Deferred-capability disclosure](#deferred-capability-disclosure)).
+    A loaded skill's resources are read via that capability's own scoped
+    `read_skill_resource(resource)` tool — not via the `marcel` tool.
 
-Loads the full SKILL.md documentation for a skill. The system prompt only contains a compact index (name + description per skill); use this action to get full docs before calling an unfamiliar integration.
-
-The response includes an **Available resources** footer listing any extra files in the skill directory (e.g. `SETUP.md`, `feeds.yaml`, `components.yaml`).
-
-### read_skill_resource
-
-Loads a named resource file from a skill's directory. Resources are any files other than `SKILL.md` — typically `SETUP.md`, `feeds.yaml`, `components.yaml`, or other configuration files.
-
-Matching is case-insensitive and accepts both a bare stem (`"feeds"`) and a full filename (`"feeds.yaml"`).
-
-```
-marcel(action="read_skill_resource", name="news", resource="feeds")
-```
-
-Use `read_skill` first to discover what resources a skill exposes.
+The `list_models` / `get_model` / `set_model` actions are documented in
+[Model tiers](model-tiers.md); `render` in
+[A2UI Components](a2ui-components.md).
 
 ### search_conversations
 

@@ -34,7 +34,7 @@ the two-habitat pattern that most real features use.
   (the directory name); handlers outside that namespace cause the whole
   habitat to be rolled back.
 - **`toolkit.yaml`** — declarative metadata used by skill habitats that
-  `depends_on:` this toolkit. Schema:
+  name this toolkit in `metadata.marcel-connectors`. Schema:
 
   ```yaml
   name: docker                  # must equal directory name
@@ -50,21 +50,25 @@ the two-habitat pattern that most real features use.
   ```
 
   Without `toolkit.yaml`, the registered handlers still work, but **no
-  skill habitat can `depends_on:` it** — `get_integration_metadata()`
-  returns `None`, which the skill loader treats as "requirements not
-  met" → the user is shown `SETUP.md`.
+  skill habitat can name it in `marcel-connectors`** —
+  `get_toolkit_metadata()` returns `None`, which the skill loader treats
+  as "requirements not met" → the user is shown `SETUP.md`.
 
 ### 2. Skill habitat — `<MARCEL_ZOO_DIR>/skills/<name>/`
 
 - **`SKILL.md`** — teaches the agent how to call the toolkit. Frontmatter
-  must declare `depends_on: [<toolkit>]` linking it to the toolkit
-  habitat. Inline `requires:` is still supported for skills with no
-  toolkit handler, but for any skill that calls `toolkit(id="...")`,
-  prefer `depends_on:` so the credential/env list lives in one place
-  (the toolkit's `toolkit.yaml`).
-- **`SETUP.md`** — shown instead of `SKILL.md` when **either** the
-  inline `requires:` OR any `depends_on:` toolkit's `requires:` is
-  unsatisfied. This is how Marcel conversationally onboards family
+  is agentskills.io-conformant (`name` == dir name + `description`); the
+  link to a toolkit lives in the spec-legal `metadata:` map as
+  `metadata.marcel-connectors: <toolkit>` (comma-separated for several).
+  Skill-local requirements go in `metadata.marcel-requires-credentials`
+  / `metadata.marcel-requires-env`, but for any skill that calls
+  `toolkit(id="...")`, prefer `marcel-connectors` so the credential/env
+  list lives in one place (the toolkit's `toolkit.yaml`). The pre-v2
+  top-level `depends_on:` / `requires:` keys are still accepted (migrated
+  with a deprecation warning) but new skills use `metadata.marcel-*`.
+- **`SETUP.md`** — shown instead of `SKILL.md` when **either** the skill's
+  own `marcel-requires-*` OR any `marcel-connectors` toolkit's `requires:`
+  is unsatisfied. This is how Marcel conversationally onboards family
   members.
 
 ## Back-compat
@@ -88,7 +92,7 @@ loads the `icloud` skill's docs:
 
 A skill without `SETUP.md` means the agent silently fails when the
 toolkit isn't configured. A handler without `SKILL.md` means the agent
-doesn't know the toolkit exists. A `SKILL.md` whose `depends_on:`
+doesn't know the toolkit exists. A `SKILL.md` whose `marcel-connectors`
 toolkit has no `toolkit.yaml` falls into setup mode forever — easy to
 miss in dev where the env var is exported in the shell.
 

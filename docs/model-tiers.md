@@ -76,9 +76,10 @@ function, highest precedence wins:
    session tier. Users can only downshift: a skill that asked for POWER
    is never reachable this way (there is no `/power`), so the "skill
    beats user" guarantee still holds in the one direction that matters.
-2. **Active skill `preferred_tier`** — a per-turn override. When the turn's
-   context includes one or more skills whose SKILL.md declares
-   `preferred_tier: fast|standard|power`, the highest one wins
+2. **Loaded skill `marcel-tier`** — a per-turn override. When one or more
+   skills are loaded this turn (via `load_capability`, or force-loaded by a
+   `/<skillname>` slash override) and their SKILL.md frontmatter declares
+   `metadata.marcel-tier: fast|standard|power`, the highest one wins
    (POWER > STANDARD > FAST). Does **not** mutate the session tier.
 3. **Session tier** — persisted in the user's
    `~/.marcel/users/{slug}/settings.json` under `channel_tiers`. Set by the
@@ -87,7 +88,7 @@ function, highest precedence wins:
    keyword lists in `~/.marcel/routing.yaml` to pick between
    `MARCEL_DEFAULT_TIER` and `MARCEL_DEFAULT_TIER + 1`
    (typically FAST ↔ STANDARD). **POWER is never auto-selected** — it's
-   reached only via an explicit skill (`preferred_tier: power`) or
+   reached only via an explicit skill (`metadata.marcel-tier: power`) or
    subagent (`model: power`).
 
 Frustration detection runs alongside step 3. If the user's message matches
@@ -146,7 +147,7 @@ Anything else is `permanent` and short-circuits the chain.
 
 **Jobs always run at the STANDARD tier.** They never consult
 `channel_tiers`, never invoke the classifier, and ignore skill
-`preferred_tier` fields. A job's own `model` pin (often `local:`) wins as
+`marcel-tier` fields. A job's own `model` pin (often `local:`) wins as
 the primary slot; `MARCEL_STANDARD_BACKUP_MODEL` covers cross-cloud
 failover.
 
@@ -238,30 +239,40 @@ backup was selected for that session (and then to the local explain tier).
 
 ## Skill-declared preferred tier
 
-A skill can declare `preferred_tier` in its SKILL.md frontmatter:
+A skill can declare its preferred tier as `metadata.marcel-tier` in its
+SKILL.md frontmatter:
 
 ```markdown
 ---
 name: developer
 description: Write, edit, review code — and modify Marcel itself.
-preferred_tier: power
+metadata:
+  marcel-tier: power
 ---
 ```
 
-Valid values: `fast`, `standard`, `power`.
+Valid values: `fast`, `standard`, `power` (plus `local` — see
+[Local LLM](local-llm.md)).
 
-- The preference applies **only while the skill is active in the turn's
-  context** (i.e. the skill's docs are loaded).
+- The preference applies **only while the skill is loaded this turn** —
+  pulled in via `load_capability`, or force-loaded by a `/<skillname>` slash
+  override. The set of loaded skills is derived from `load_capability` calls
+  in the conversation history.
 - It does **not** mutate `channel_tiers`. The session tier resumes on the
-  next turn where no preferred-tier skill is active.
-- When multiple active skills declare a tier, the highest one wins.
+  next turn where no loaded skill declares a tier.
+- When multiple loaded skills declare a tier, the highest one wins.
 - Unknown values log a warning and are ignored — a broken edit never hides
   the skill from the agent.
 
 Two default skills ship with declarations:
 
-- `developer` → `preferred_tier: power`
-- `settings` → `preferred_tier: fast`
+- `developer` → `metadata.marcel-tier: power`
+- `settings` → `metadata.marcel-tier: fast`
+
+!!! note "Legacy `preferred_tier:`"
+    The top-level `preferred_tier:` key is deprecated but still migrated by
+    the loader (with a warning) to `metadata.marcel-tier`. See
+    [Skills → Frontmatter](skills.md#frontmatter-the-agentskillsio-standard).
 
 ## The `power` subagent
 

@@ -309,18 +309,15 @@ async def execute_job(
     # agent-initiated notify calls are dropped at the tool layer.
     deps.turn.suppress_notify = job.notify in (NotifyPolicy.SILENT, NotifyPolicy.ON_FAILURE)
 
-    # Prime ``turn.read_skills`` with the skills we're about to inject into
-    # the system prompt, so the integration tool's auto-loader doesn't
-    # prepend the full SkillDoc to every tool result (the ISSUE-071 fix
-    # applied to the job path — the runner primes from history, but jobs
-    # have no history, so we seed from the job definition directly).
-    for skill in _resolve_job_skills(job, slug):
-        deps.turn.read_skills.add(skill.name)
-
-    # Build lean system prompt: task + skill docs + credentials + channel
+    # Build lean system prompt: task + skill docs + credentials + channel.
+    # Jobs inject their declared skills' docs eagerly here (skills=False on
+    # the agent — no deferred catalog for headless runs; job-scoped CodeMode
+    # and skill scoping arrive with FEAT-260718-49a01a).
     system_prompt = _build_job_context(job, slug)
 
-    agent = create_marcel_agent(job.model, system_prompt=system_prompt, role='user', memory=False, code_mode=False)
+    agent = create_marcel_agent(
+        job.model, system_prompt=system_prompt, role='user', memory=False, code_mode=False, skills=False
+    )
 
     # Apply usage limits if configured on the job
     usage_limits = None
@@ -661,6 +658,7 @@ async def _fire_subagent_job(
             tool_filter=tool_filter,
             memory=False,
             code_mode=False,
+            skills=False,
         )
     except Exception as exc:
         log.exception('%s-job: subagent build failed for %s', slug, job.id)

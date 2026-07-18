@@ -131,7 +131,7 @@ standard_triggers:
 ### When to *not* edit
 
 - **Don't add POWER patterns.** POWER is never auto-selected; add the
-  capability as a skill (`preferred_tier: power`) or subagent
+  capability as a skill (`metadata.marcel-tier: power`) or subagent
   (`model: power`) instead. See [model-tiers.md](model-tiers.md).
 - **Don't turn off frustration detection** to silence a chatty user.
   Frustration is the cheapest feedback loop you have; if it fires too

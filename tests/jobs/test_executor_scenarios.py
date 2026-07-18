@@ -433,57 +433,37 @@ class TestExecuteJob:
         assert deps.turn.suppress_notify is expected
 
     @pytest.mark.asyncio
-    async def test_read_skills_primed_from_job_skills(self, tmp_path, monkeypatch):
-        """ISSUE-077: the job path must prime ``turn.read_skills`` with the
-        skills it's about to inject into the system prompt, so the integration
-        tool's auto-loader doesn't duplicate the SkillDoc on every tool call.
-
-        The runner primes from conversation history; jobs have no history, so
-        they seed from the job definition instead.
+    async def test_job_agent_built_without_deferred_skills(self, tmp_path, monkeypatch):
+        """Jobs inject the resolved skills' docs straight into the system prompt
+        (via ``_build_job_context``), so the job agent is built with
+        ``skills=False`` — no deferred skill catalog, no ``load_capability``
+        round-trip. This is the FEAT-260718-85b545 replacement for the retired
+        per-turn ``read_skills`` priming.
         """
         from marcel_core.jobs import save_job
         from marcel_core.jobs.executor import execute_job
-        from marcel_core.skills.loader import SkillDoc
 
         job = _make_job(skills=['icloud.calendar', 'banking.balance'])
         save_job(job)
 
-        fake_skills = [
-            SkillDoc(
-                name='icloud',
-                description='iCloud integration',
-                content='# icloud',
-                source='default',
-                credential_keys=[],
-                is_setup=False,
-            ),
-            SkillDoc(
-                name='banking',
-                description='Banking integration',
-                content='# banking',
-                source='default',
-                credential_keys=[],
-                is_setup=False,
-            ),
-        ]
+        captured_kwargs: list = []
 
-        mock_result = MagicMock()
-        mock_result.output = 'done'
-        mock_agent = MagicMock()
-        mock_agent.run = AsyncMock(return_value=mock_result)
+        def _capture_create(*args, **kwargs):
+            captured_kwargs.append(kwargs)
+            mock_agent = MagicMock()
+            mock_result = MagicMock()
+            mock_result.output = 'done'
+            mock_agent.run = AsyncMock(return_value=mock_result)
+            return mock_agent
 
         with (
-            patch('marcel_core.harness.agent.create_marcel_agent', return_value=mock_agent),
-            patch('marcel_core.jobs.executor._resolve_job_skills', return_value=fake_skills),
+            patch('marcel_core.harness.agent.create_marcel_agent', side_effect=_capture_create),
             patch('marcel_core.jobs.executor._build_job_context', return_value='ctx'),
         ):
             await execute_job(job, 'scheduled')
 
-        deps = mock_agent.run.call_args.kwargs['deps']
-        # Both skill families should be marked as already-loaded so the
-        # integration tool's auto-loader treats them as already-visible.
-        assert 'icloud' in deps.turn.read_skills
-        assert 'banking' in deps.turn.read_skills
+        assert captured_kwargs, 'create_marcel_agent was not called'
+        assert all(kw.get('skills') is False for kw in captured_kwargs)
 
 
 # ---------------------------------------------------------------------------

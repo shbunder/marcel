@@ -86,7 +86,8 @@ requires: {}
 ---
 name: demo
 description: Teach the agent about the demo toolkit
-depends_on: [demo]
+metadata:
+  marcel-connectors: demo
 ---
 
 # Demo
@@ -164,11 +165,11 @@ system_prompt: unused — dispatch_type is tool
 ## Composition — how habitats reference each other
 
 Habitats reference each other **by name**, uniformly. A skill's
-`depends_on: [banking]` resolves to the `banking` toolkit habitat. A
-job's `dispatch_type: tool`, `tool: banking.sync` resolves to the
+`metadata.marcel-connectors: banking` resolves to the `banking` toolkit
+habitat. A job's `dispatch_type: tool`, `tool: banking.sync` resolves to the
 `banking` toolkit's `banking.sync` handler. A subagent's
 `tools: [toolkit]` allows it to call the toolkit dispatcher — access to
-individual handlers is controlled by the skill layer's `depends_on`.
+individual handlers is controlled by the skill layer's `marcel-connectors`.
 
 Cross-reference diagram (who-calls-what):
 
