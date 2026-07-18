@@ -42,13 +42,14 @@ async def _mock_run_stream(
 
     usage = MagicMock()
     usage.total_tokens = 100
-    usage.request_tokens = 80
-    usage.response_tokens = 20
+    usage.input_tokens = 80
+    usage.output_tokens = 20
+    usage.requests = 1
 
     result = MagicMock()
     result.stream_text = _stream_text
     result.get_output = AsyncMock(return_value=None)
-    result.usage = MagicMock(return_value=usage)
+    result.usage = usage
     result.all_messages = MagicMock(return_value=all_messages or [])
 
     yield result
@@ -158,7 +159,7 @@ class TestStreamTurn:
             result = MagicMock()
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
-            result.usage = MagicMock(return_value=MagicMock(total_tokens=10))
+            result.usage = MagicMock(total_tokens=10)
             result.all_messages = MagicMock(return_value=[])
             yield result
 
@@ -211,7 +212,7 @@ class TestStreamTurn:
             result = MagicMock()
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
-            result.usage = MagicMock(return_value=MagicMock(total_tokens=1))
+            result.usage = MagicMock(total_tokens=1)
             result.all_messages = MagicMock(return_value=[])
             yield result
 
@@ -255,7 +256,7 @@ class TestStreamTurn:
             result = MagicMock()
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
-            result.usage = MagicMock(return_value=MagicMock(total_tokens=1))
+            result.usage = MagicMock(total_tokens=1)
             result.all_messages = MagicMock(return_value=[])
             yield result
 
@@ -308,7 +309,7 @@ def _mid_stream_failing_agent(text_parts: list[str], exc_factory):
         result = MagicMock()
         result.stream_text = _stream_text
         result.get_output = AsyncMock(return_value=None)
-        result.usage = MagicMock(return_value=MagicMock(total_tokens=0))
+        result.usage = MagicMock(total_tokens=0)
         result.all_messages = MagicMock(return_value=[])
         yield result
 
@@ -1155,7 +1156,7 @@ class TestStreamTurnWithHistory:
             result = MagicMock()
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
-            result.usage = MagicMock(return_value=MagicMock(total_tokens=10))
+            result.usage = MagicMock(total_tokens=10)
             result.all_messages = MagicMock(return_value=[])
             yield result
 
@@ -1193,7 +1194,7 @@ class TestStreamTurnWithHistory:
             result = MagicMock()
             result.stream_text = _stream_text
             result.get_output = AsyncMock()
-            result.usage = MagicMock(return_value=MagicMock(total_tokens=10))
+            result.usage = MagicMock(total_tokens=10)
             result.all_messages = MagicMock(return_value=[])
             yield result
 

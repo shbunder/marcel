@@ -32,6 +32,33 @@ class TestPlainReplyPersists:
         assert ('assistant', 'Hello Alice!') in roles
 
 
+class TestStreamingDeltasArriveIncrementally:
+    """Scenario: the reply reaches the channel through the streaming path.
+
+    odile's ScriptedModel splits replies into two stream chunks, but the
+    production ``stream_text(delta=True, debounce_by=0.01)`` window merges
+    chunks that arrive instantly, so a scripted double cannot prove a
+    minimum delta *count* without pacing support in odile (follow-up noted
+    on STORY-260718-9a48fc). What is provable and non-vacuous: the full
+    reply text reconstructs solely from TextDelta events (so text flows
+    through the streaming path, not around it), and the first delta
+    precedes RunFinished (feature AC 4).
+    """
+
+    async def test_deltas_before_run_finished(self, terrarium):
+        from marcel_core.harness.runner import RunFinished, TextDelta
+
+        terrarium.user('alice')
+        scenario = terrarium.scenario(reply('Streaming works!'), user='alice', channel='cli')
+        result = await scenario.run('hi marcel')
+
+        deltas = [e for e in result.events if isinstance(e, TextDelta)]
+        assert deltas, 'streaming path must yield TextDelta events'
+        assert ''.join(d.text for d in deltas) == 'Streaming works!'
+        types = [type(e) for e in result.events]
+        assert types.index(TextDelta) < types.index(RunFinished)
+
+
 class TestToolCallThroughBus:
     """Scenario: scripted tool call flows through the real event bus."""
 

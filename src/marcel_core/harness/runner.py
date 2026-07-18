@@ -797,7 +797,7 @@ async def stream_turn(
                 # Capture all messages for tool call extraction
                 all_messages = result.all_messages()
 
-                usage = result.usage()
+                usage = result.usage
                 if usage and usage.total_tokens:
                     log.info(
                         '%s-%s: turn complete tier=%s — %d tokens (in: %d, out: %d, requests: %d)',
@@ -805,8 +805,8 @@ async def stream_turn(
                         channel,
                         current.tier.value,
                         usage.total_tokens,
-                        usage.request_tokens,
-                        usage.response_tokens,
+                        usage.input_tokens,
+                        usage.output_tokens,
                         usage.requests,
                     )
             # Successful run — break out of the chain loop.
