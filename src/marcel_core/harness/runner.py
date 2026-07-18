@@ -374,6 +374,12 @@ async def stream_turn(
     # the stored field was never read back, so the stamp change is safe.)
     stored_conversation_id = conversation_key(user_slug, channel)
 
+    # Spills from OverflowingToolOutput land in THIS user's paste store;
+    # task-scoped, so concurrent turns for different users cannot cross.
+    from marcel_core.capabilities.persistence.overflow import current_overflow_user
+
+    current_overflow_user.set(user_slug)
+
     # Append user message to segment (after loading context, so it's not duplicated)
     user_msg = HistoryMessage(
         role='user',
@@ -627,8 +633,7 @@ async def stream_turn(
     # run_completed, so a failed tier attempt persists nothing) — this loop
     # only narrates progress to the channel. The extraction is repeated here
     # rather than shared with the store because the store flushes mid-run,
-    # before this code observes the result; the paste store is
-    # content-addressed, so the double store_paste is idempotent.
+    # before this code observes the result.
     if all_messages:
         tool_entries = extract_tool_history(all_messages, user_slug, stored_conversation_id)
         for entry in tool_entries:

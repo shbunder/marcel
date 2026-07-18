@@ -11,9 +11,16 @@ from __future__ import annotations
 
 from pydantic_ai.capabilities import AbstractCapability, Instrumentation
 from pydantic_ai_harness.compaction import ClampOversizedMessages, ClearToolResults
+from pydantic_ai_harness.overflowing_tool_output import (
+    Band,
+    OverflowingToolOutput,
+    Spill,
+    Truncate,
+)
 from pydantic_ai_harness.step_persistence import StepPersistence
 
 from marcel_core.capabilities.persistence import persistence_store
+from marcel_core.capabilities.persistence.overflow import PasteOverflowStore
 from marcel_core.capabilities.policy import MarcelPolicy
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.tracing import get_instrumentation_settings
@@ -28,6 +35,10 @@ COMPACTION_KEEP_PAIRS = 3
 """Most-recent tool call/return pairs left untouched by clearing."""
 CLAMP_MAX_PART_TOKENS = 50_000
 """Single-part ceiling guarding against runaway generations."""
+OVERFLOW_SPILL_CHARS = 32_000
+"""Tool returns above this spill to the paste store with a preview +
+read_tool_result handle (falling back to truncation when no turn user is
+stamped — jobs/subagents keep their pre-harness bounded behavior)."""
 
 
 def build_capabilities() -> list[AbstractCapability[MarcelDeps]]:
@@ -44,6 +55,10 @@ def build_capabilities() -> list[AbstractCapability[MarcelDeps]]:
     capabilities: list[AbstractCapability[MarcelDeps]] = [
         MarcelPolicy(),
         StepPersistence(store=persistence_store(), agent_name='marcel'),
+        OverflowingToolOutput(
+            bands=[Band(over=OVERFLOW_SPILL_CHARS, action=Spill(then=Truncate()))],
+            store=PasteOverflowStore(),
+        ),
         ClampOversizedMessages(max_part_tokens=CLAMP_MAX_PART_TOKENS),
         ClearToolResults(
             max_tokens=COMPACTION_MAX_TOKENS,

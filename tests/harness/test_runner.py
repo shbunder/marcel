@@ -958,10 +958,17 @@ class TestExtractToolHistory:
         entries = _extract_tool_history(messages, 'shaun', 'conv-1')
         assert len(entries) == 0  # No tool calls
 
-    def test_large_result_offloaded(self, tmp_path, monkeypatch):
+    def test_result_persisted_as_seen(self, tmp_path, monkeypatch):
+        """Extraction persists the content exactly as it entered the run.
+
+        Oversized returns are reduced at return time by
+        OverflowingToolOutput (spill → preview + handle) before extraction
+        ever sees them, so there is no persistence-side offload anymore —
+        what the model saw is what the segment stores.
+        """
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
-        large_content = 'x' * 5000  # Above PASTE_THRESHOLD (1KB)
+        content = 'x' * 5000
         messages = [
             ModelResponse(
                 parts=[
@@ -970,18 +977,15 @@ class TestExtractToolHistory:
             ),
             ModelRequest(
                 parts=[
-                    ToolReturnPart(tool_name='bash', content=large_content, tool_call_id='tc-1'),
+                    ToolReturnPart(tool_name='bash', content=content, tool_call_id='tc-1'),
                 ]
             ),
         ]
 
         entries = _extract_tool_history(messages, 'shaun', 'conv-1')
         tool_entry = [e for e in entries if e.role == 'tool'][0]
-        assert tool_entry.result_ref is not None
-        assert tool_entry.result_ref.startswith('sha256:')
-        # Text should be truncated preview
-        assert tool_entry.text is not None
-        assert len(tool_entry.text) <= 2000 + 50  # preview + suffix
+        assert tool_entry.text == content
+        assert tool_entry.result_ref is None
 
     def test_error_result_marked(self):
         messages = [

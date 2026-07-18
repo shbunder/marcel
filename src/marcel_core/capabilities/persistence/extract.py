@@ -1,16 +1,16 @@
 """Converters between Marcel's HistoryMessage JSONL and pydantic-ai messages.
 
 Read side: :func:`messages_to_model` turns stored ``HistoryMessage`` lines
-into provider-shaped ``ModelMessage`` lists (with the age-based tool-result
-lifecycle applied until the compaction stack replaces it —
-STORY-260718-406de0).
+into provider-shaped ``ModelMessage`` lists, served as-is — in-run shaping
+belongs to the compaction stack.
 
 Write side: :func:`extract_tool_history` walks a run's **new** messages and
 produces the tool-related ``HistoryMessage`` entries to persist (assistant
-tool calls, tool returns, retry prompts), offloading oversized results to
-the paste store. User prompts and final text responses are deliberately
-excluded — the runner owns those (error tails and explain-tier text never
-exist in agent messages).
+tool calls, tool returns, retry prompts) exactly as the model saw them —
+oversized returns were already reduced at return time by
+OverflowingToolOutput. User prompts and final text responses are
+deliberately excluded — the runner owns those (error tails and
+explain-tier text never exist in agent messages).
 
 Moved verbatim from ``harness/runner.py`` (FEAT-260718-ed6d63) so the
 persistence capability and the runner's channel-event emission share one
@@ -34,7 +34,6 @@ from pydantic_ai.messages import (
 )
 
 from marcel_core.memory.history import HistoryMessage, ToolCall
-from marcel_core.memory.pastes import PASTE_THRESHOLD, store_paste
 
 # Tool result preview length kept alongside a paste ref for oversized results
 TOOL_RESULT_PREVIEW_LEN = 200
@@ -113,8 +112,7 @@ def extract_tool_history(
     """Extract tool call and result history from a run's new messages.
 
     Walks the message list and converts tool-related parts into
-    HistoryMessage entries for JSONL storage. Large tool results are
-    offloaded to the (content-addressed, idempotent) paste store.
+    HistoryMessage entries for JSONL storage.
 
     Returns assistant messages with tool_calls and tool-role result
     messages. Skips user prompts and text-only responses (the runner owns
@@ -156,15 +154,12 @@ def extract_tool_history(
         elif isinstance(msg, ModelRequest):
             for part in msg.parts:
                 if isinstance(part, ToolReturnPart):
-                    # Serialize content to string
+                    # Persist the content as the model saw it. Oversized
+                    # returns were already reduced at return time by
+                    # OverflowingToolOutput (spill → preview + handle), so
+                    # the persistence-side paste offload is gone; segments
+                    # keep exactly what entered the run's history.
                     content = serialize_tool_content(part.content)
-                    # Offload large results to paste store
-                    result_ref = None
-                    if len(content) >= PASTE_THRESHOLD:
-                        result_ref = store_paste(user_slug, content)
-                        # Keep a preview in text for scanning
-                        content = content[:TOOL_RESULT_PREVIEW_LEN]
-
                     entries.append(
                         HistoryMessage(
                             role='tool',
@@ -173,7 +168,6 @@ def extract_tool_history(
                             conversation_id=conversation_id,
                             tool_call_id=part.tool_call_id,
                             tool_name=part.tool_name,
-                            result_ref=result_ref,
                             is_error=part.outcome == 'failed',
                         )
                     )
