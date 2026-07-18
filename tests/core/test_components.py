@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -173,10 +175,11 @@ class TestComponentRegistry:
 
 class TestBuildRegistry:
     def test_build_with_components(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
+        from marcel_core.config import settings
 
-        skills_dir = tmp_path / 'skills'
+        skills_dir = tmp_path / 'zoo' / 'skills'
         skills_dir.mkdir(parents=True)
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path / 'zoo'))
 
         # Create a skill with components
         skill_a = skills_dir / 'alpha'
@@ -189,9 +192,7 @@ class TestBuildRegistry:
         # Create a skill without components
         skill_b = skills_dir / 'beta'
         skill_b.mkdir()
-        (skill_b / 'SKILL.md').write_text('---\nname: beta\n---\n\nBody.')
-
-        monkeypatch.setattr(loader, '_skills_dir', lambda: skills_dir)
+        (skill_b / 'SKILL.md').write_text('---\nname: beta\ndescription: Beta\n---\n\nBody.')
 
         registry = build_registry('user')
         assert len(registry) == 1
@@ -199,9 +200,9 @@ class TestBuildRegistry:
         assert registry.get('alpha_widget').skill == 'alpha'  # type: ignore[union-attr]
 
     def test_build_empty(self, tmp_path, monkeypatch):
-        import marcel_core.skills.loader as loader
+        from marcel_core.config import settings
 
-        monkeypatch.setattr(loader, '_skills_dir', lambda: tmp_path / 'nonexistent')
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path / 'nonexistent'))
 
         registry = build_registry('user')
         assert len(registry) == 0
@@ -271,7 +272,7 @@ class TestFormatComponentsCatalog:
     def test_skill_without_components_omitted(self, tmp_path):
         from marcel_core.skills.loader import SkillDoc, format_components_catalog
 
-        skill = SkillDoc(name='a', description='', content='', is_setup=False, source='data')
+        skill = SkillDoc(name='a', description='', content='', is_setup=False, source='data', skill_dir=Path('/x'))
         assert format_components_catalog([skill]) == ''
 
     def test_single_component_formatted(self):
@@ -289,6 +290,7 @@ class TestFormatComponentsCatalog:
             content='',
             is_setup=False,
             source='data',
+            skill_dir=Path('/x'),
             components=[component],
         )
         result = format_components_catalog([skill])
@@ -305,10 +307,22 @@ class TestFormatComponentsCatalog:
         comp_b = ComponentSchema(name='widget_b', description='B', skill='alpha', props={})
 
         skill_zeta = SkillDoc(
-            name='zeta', description='', content='', is_setup=False, source='data', components=[comp_a]
+            name='zeta',
+            description='',
+            content='',
+            is_setup=False,
+            source='data',
+            skill_dir=Path('/x'),
+            components=[comp_a],
         )
         skill_alpha = SkillDoc(
-            name='alpha', description='', content='', is_setup=False, source='data', components=[comp_b]
+            name='alpha',
+            description='',
+            content='',
+            is_setup=False,
+            source='data',
+            skill_dir=Path('/x'),
+            components=[comp_b],
         )
 
         # Deliberately wrong order — format_components_catalog should sort.
@@ -321,7 +335,15 @@ class TestFormatComponentsCatalog:
         from marcel_core.skills.loader import SkillDoc, format_components_catalog
 
         component = ComponentSchema(name='plain', description='x', skill='s', props={})
-        skill = SkillDoc(name='s', description='', content='', is_setup=False, source='data', components=[component])
+        skill = SkillDoc(
+            name='s',
+            description='',
+            content='',
+            is_setup=False,
+            source='data',
+            skill_dir=Path('/x'),
+            components=[component],
+        )
         result = format_components_catalog([skill])
         assert '(no props)' in result
 
@@ -359,23 +381,23 @@ class TestSkillLoaderComponents:
 
         skill_dir = tmp_path / 'test-skill'
         skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: test\ndescription: Test\n---\n\nBody.')
+        (skill_dir / 'SKILL.md').write_text('---\nname: test-skill\ndescription: Test\n---\n\nBody.')
         (skill_dir / 'components.yaml').write_text(
             'components:\n  - name: my_widget\n    description: A widget\n    props:\n      type: object\n'
         )
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
+        doc = _load_skill_dir(skill_dir, 'zoo-global', 'shaun')
         assert doc is not None
         assert len(doc.components) == 1
         assert doc.components[0].name == 'my_widget'
-        assert doc.components[0].skill == 'test'  # Uses resolved name from frontmatter
+        assert doc.components[0].skill == 'test-skill'  # Uses resolved name from frontmatter
 
     def test_no_components_yaml(self, tmp_path):
         from marcel_core.skills.loader import _load_skill_dir
 
         skill_dir = tmp_path / 'test-skill'
         skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: test\n---\n\nBody.')
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
+        (skill_dir / 'SKILL.md').write_text('---\nname: test-skill\ndescription: Test\n---\n\nBody.')
+        doc = _load_skill_dir(skill_dir, 'zoo-global', 'shaun')
         assert doc is not None
         assert doc.components == []
 
@@ -386,10 +408,12 @@ class TestSkillLoaderComponents:
         monkeypatch.delenv('MISSING_VAR', raising=False)
         skill_dir = tmp_path / 'test-skill'
         skill_dir.mkdir()
-        (skill_dir / 'SKILL.md').write_text('---\nname: test\nrequires:\n  env:\n    - MISSING_VAR\n---\n\nFull skill.')
-        (skill_dir / 'SETUP.md').write_text('---\nname: test\n---\n\nSetup guide.')
+        (skill_dir / 'SKILL.md').write_text(
+            '---\nname: test-skill\ndescription: Test\nmetadata:\n  marcel-requires-env: MISSING_VAR\n---\n\nFull skill.'
+        )
+        (skill_dir / 'SETUP.md').write_text('---\nname: test-skill\ndescription: Setup\n---\n\nSetup guide.')
         (skill_dir / 'components.yaml').write_text('components:\n  - name: test_widget\n    props: {}\n')
-        doc = _load_skill_dir(skill_dir, 'user', 'project')
+        doc = _load_skill_dir(skill_dir, 'zoo-global', 'shaun')
         assert doc is not None
         assert doc.is_setup is True
         assert len(doc.components) == 1

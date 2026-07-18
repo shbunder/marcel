@@ -16,7 +16,6 @@ from typing import Literal
 from pydantic_ai.messages import (
     ModelMessage,
     ModelResponse,
-    ToolCallPart,
 )
 from pydantic_ai.models import Model
 from pydantic_ai.usage import UsageLimits
@@ -147,39 +146,34 @@ class RunFinished(MarcelEvent):
     is_error: bool = False
 
 
-def _prime_read_skills_from_history(messages: Sequence[ModelMessage], read_skills: set[str]) -> None:
-    """Populate ``read_skills`` from past ``marcel(read_skill, name=X)`` calls.
+def _loaded_skill_names(messages: Sequence[ModelMessage], extra: set[str] | None = None) -> set[str]:
+    """Skill names loaded this conversation — the tier-influence input.
 
-    Scans the message history for any assistant tool call invoking the
-    ``marcel`` tool with ``action='read_skill'`` and adds the requested
-    skill name to ``read_skills``. Since ``marcel`` tool results are never
-    blanked by compaction (``exclude_tools`` in the composition root's
-    ``ClearToolResults``), the docs for any skill loaded this way are
-    guaranteed to still be in the model's context — so the integration
-    tool's auto-load does not need to re-inject them on subsequent turns.
+    Scans history for ``load_capability`` calls (a skill's capability id is
+    its name); their pairs survive compaction (the framework preserves
+    load-capability state). ``extra`` folds in a same-turn ``/<skill>``
+    override, which force-loads a skill before the model runs.
     """
+    from pydantic_ai.messages import LoadCapabilityCallPart
+
+    names: set[str] = set(extra) if extra else set()
     for msg in messages:
         if not isinstance(msg, ModelResponse):
             continue
         for part in msg.parts:
-            if not isinstance(part, ToolCallPart) or part.tool_name != 'marcel':
-                continue
-            args = part.args_as_dict() if callable(getattr(part, 'args_as_dict', None)) else part.args
-            if not isinstance(args, dict):
-                continue
-            if args.get('action') != 'read_skill':
-                continue
-            name = args.get('name')
-            if isinstance(name, str) and name:
-                read_skills.add(name)
+            if isinstance(part, LoadCapabilityCallPart):
+                cap_id = getattr(part, 'capability_id', None) or getattr(part, 'id', None)
+                if isinstance(cap_id, str) and cap_id:
+                    names.add(cap_id)
+    return names
 
 
 _TIER_RANK = {'fast': 1, 'standard': 2, 'power': 3}
 _TIER_FROM_STR = {'fast': Tier.FAST, 'standard': Tier.STANDARD, 'power': Tier.POWER}
 
 
-def _active_skill_tier(user_slug: str, active_names: set[str]) -> tuple[Tier, str] | None:
-    """Highest ``preferred_tier`` among skills whose docs are in this turn's context.
+def _active_skill_tier(user_slug: str, active_names: set[str], role: str = 'user') -> tuple[Tier, str] | None:
+    """Highest ``marcel-tier`` among skills active this conversation.
 
     POWER beats STANDARD beats FAST — a demanding skill wins. Returns
     ``(tier, skill_name)`` or ``None`` when no active skill declares a tier.
@@ -190,7 +184,7 @@ def _active_skill_tier(user_slug: str, active_names: set[str]) -> tuple[Tier, st
 
     best: tuple[Tier, str] | None = None
     best_rank = 0
-    for doc in load_skills(user_slug):
+    for doc in load_skills(user_slug, role):
         if doc.name not in active_names or not doc.preferred_tier:
             continue
         rank = _TIER_RANK.get(doc.preferred_tier, 0)
@@ -247,6 +241,7 @@ def _resolve_turn_tier(
     channel: str,
     user_text: str,
     active_skill_names: set[str],
+    role: str = 'user',
 ) -> tuple[Tier, str]:
     """Decide which tier this interactive turn runs on.
 
@@ -261,7 +256,7 @@ def _resolve_turn_tier(
     before: ``classified:...``, ``session:...``, ``frustration_bump:...``,
     ``skill:<name>:<tier>``.
     """
-    skill_override = _active_skill_tier(user_slug, active_skill_names)
+    skill_override = _active_skill_tier(user_slug, active_skill_names, role)
     active_skill_tier_val = skill_override[0] if skill_override else None
 
     session_tier, session_reason = _resolve_session_tier(user_slug, channel, user_text)
@@ -308,8 +303,9 @@ async def stream_turn(
         turn_plan: Optional pre-resolved plan from the channel adapter. When
             supplied, its ``tier`` wins over the classifier/session path iff
             ``source`` is ``USER_PREFIX`` (one-shot user override); its
-            ``skill_override`` pre-seeds the turn's ``read_skills`` so the
-            skill's SKILL.md is loaded into the system prompt.
+            ``skill_override`` builds that skill's capability **eager**
+            (``defer_loading=False``) so its SKILL.md body is in the system
+            prompt from the first request.
 
     Yields:
         MarcelEvent instances: RunStarted, TextDelta, ToolCallStarted,
@@ -357,16 +353,15 @@ async def stream_turn(
     # Build context from continuous conversation (handles idle summarization)
     message_history = await build_context(user_slug, channel)
 
-    # Prime per-turn read_skills from history so the integration tool's
-    # auto-load doesn't re-inject docs that are already visible to the model.
-    _prime_read_skills_from_history(message_history, deps.turn.read_skills)
+    # ``/<skillname>`` dispatch — force-load the skill's capability
+    # (non-deferred, body in the prompt) so the model sees its instructions
+    # from the first request, with the user's remaining text as the turn
+    # input. Mirrors Claude Code's skills-as-prompt-templates pattern.
+    eager_skill = turn_plan.skill_override if turn_plan is not None else None
 
-    # ``/<skillname>`` dispatch — force-load the skill's SKILL.md so the
-    # model sees its instructions as part of the system prompt, with the
-    # user's remaining text as the turn input. Mirrors Claude Code's pattern
-    # (skills as prompt templates with user args).
-    if turn_plan is not None and turn_plan.skill_override is not None:
-        deps.turn.read_skills.add(turn_plan.skill_override)
+    # Skills active this conversation (loaded via load_capability + the slash
+    # override) drive the tier — a demanding skill (marcel-tier: power) bumps.
+    active_skill_names = _loaded_skill_names(message_history, extra={eager_skill} if eager_skill else None)
 
     # The id stamped on stored messages and passed to the agent run — the
     # persistence store routes on this exact '{user_slug}:{channel}' shape.
@@ -410,7 +405,7 @@ async def stream_turn(
         tier = turn_plan.tier
         tier_reason = f'user_prefix:{tier.value}'
     else:
-        tier, tier_reason = _resolve_turn_tier(user_slug, channel, effective_text, deps.turn.read_skills)
+        tier, tier_reason = _resolve_turn_tier(user_slug, channel, effective_text, active_skill_names, role)
     log.info(
         'tier_resolved user=%s channel=%s tier=%s reason=%s',
         user_slug,
@@ -468,6 +463,7 @@ async def stream_turn(
                     tool_filter=set(),
                     memory=False,
                     code_mode=False,
+                    skills=False,
                 )
             except Exception as exc:
                 log.warning(
@@ -490,6 +486,8 @@ async def stream_turn(
                     system_prompt=system_prompt,
                     role=role,
                     cwd=effective_cwd,
+                    user_slug=user_slug,
+                    eager_skill=eager_skill,
                 )
             except Exception as exc:
                 log.warning(

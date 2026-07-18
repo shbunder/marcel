@@ -103,6 +103,9 @@ def build_capabilities(
     tool_filter: set[str] | None = None,
     memory: bool = True,
     code_mode: bool = True,
+    user_slug: str | None = None,
+    skills: bool = True,
+    eager_skill: str | None = None,
 ) -> list[AbstractCapability[MarcelDeps]]:
     """Assemble the capability list for a Marcel agent.
 
@@ -112,9 +115,10 @@ def build_capabilities(
     tool results past the token trigger — replaces the pre-harness
     age-tier trimming), the Memory notebook (``memory=False`` for the lean
     paths — jobs until FEAT-260718-49a01a declares scoping, and the
-    explain tier), CodeMode over the eligible tool set (``code_mode=False``
-    for the lean paths — headless jobs, which get their own CodeMode
-    scoping in FEAT-260718-49a01a, and the explain tier), admin execution
+    explain tier), the user's skills as deferred capabilities
+    (``skills=False``/no ``user_slug`` for the lean paths; ``eager_skill``
+    force-loads a ``/<skill>`` override), CodeMode over the eligible tool
+    set (``code_mode=False`` for the lean paths), admin execution
     capabilities (Shell through bubblewrap, FileSystem rooted at the
     session cwd — attached only when the role is admin AND the
     ``tool_filter`` either is absent or names them, so constrained
@@ -132,11 +136,15 @@ def build_capabilities(
         ClearToolResults(
             max_tokens=settings.marcel_compaction_max_tokens,
             keep_pairs=settings.marcel_compaction_keep_pairs,
-            # `marcel` results carry read_skill docs that must stay visible
-            # across turns (the read_skills priming depends on it).
+            # `marcel` results carry conversation/skill utility output;
+            # keep them out of clearing so the model retains context.
             exclude_tools=frozenset({'marcel'}),
         ),
     ]
+    if skills and user_slug is not None:
+        from marcel_core.skills.capability import build_skill_capabilities
+
+        capabilities.extend(build_skill_capabilities(user_slug, role, eager_skill=eager_skill))
     if memory:
         capabilities.append(
             Memory(

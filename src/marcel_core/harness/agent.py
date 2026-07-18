@@ -190,6 +190,9 @@ def create_marcel_agent(
     memory: bool = True,
     cwd: str | None = None,
     code_mode: bool = True,
+    user_slug: str | None = None,
+    skills: bool = True,
+    eager_skill: str | None = None,
 ) -> Agent[MarcelDeps, str]:
     """Create a configured Marcel agent with a role-appropriate tool set.
 
@@ -269,7 +272,14 @@ def create_marcel_agent(
         retries=2,
         end_strategy='exhaustive',
         capabilities=build_capabilities(
-            role=role, cwd=cwd, tool_filter=tool_filter, memory=memory, code_mode=code_mode
+            role=role,
+            cwd=cwd,
+            tool_filter=tool_filter,
+            memory=memory,
+            code_mode=code_mode,
+            user_slug=user_slug,
+            skills=skills,
+            eager_skill=eager_skill,
         ),
         toolsets=[toolset],
     )
