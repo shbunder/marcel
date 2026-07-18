@@ -76,9 +76,11 @@ class TestCreateMarcelAgent:
         agent = create_marcel_agent(system_prompt='You are a test assistant.', role='admin')
         assert agent._instructions == ['You are a test assistant.']
         names = _registered_tool_names(agent)
-        assert 'bash' in names
+        # bash/read_file & co. are capabilities now (FEAT-260718-38235c);
+        # the registry keeps the remaining admin power tools.
         assert 'delegate' in names
         assert 'claude_code' in names
+        assert 'git_status' in names
 
     def test_accepts_explicit_qualified_model(self):
         """An explicit model string overrides the default and reaches pydantic-ai."""
@@ -179,7 +181,9 @@ class TestAvailableToolNames:
 
     def test_admin_pool_includes_power_tools(self):
         names = available_tool_names('admin')
-        assert 'bash' in names
+        # Shell/FileSystem successors are capability tools but stay in the
+        # role pool so delegate frontmatter can grant them by name.
+        assert 'run_command' in names
         assert 'read_file' in names
         assert 'delegate' in names
         assert 'claude_code' in names
@@ -214,10 +218,10 @@ class TestToolFilter:
     def test_filter_none_registers_full_role_pool(self):
         agent = create_marcel_agent(system_prompt='t', role='admin')
         names = _registered_tool_names(agent)
-        # Admin should get the full pool including the power tools
-        assert 'bash' in names
-        assert 'read_file' in names
+        # Admin should get the full registry pool (shell/file tools are
+        # capability-provided and asserted at the composition level)
         assert 'delegate' in names
+        assert 'git_status' in names
         assert 'web' in names
 
     def test_empty_filter_registers_no_tools(self):
@@ -228,9 +232,9 @@ class TestToolFilter:
         agent = create_marcel_agent(
             system_prompt='t',
             role='admin',
-            tool_filter={'web', 'read_file'},
+            tool_filter={'web', 'git_status'},
         )
-        assert _registered_tool_names(agent) == {'web', 'read_file'}
+        assert _registered_tool_names(agent) == {'web', 'git_status'}
 
     def test_role_gate_beats_allowlist(self):
         """A user-role agent can never get admin tools, even if allowlisted.

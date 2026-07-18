@@ -16,6 +16,7 @@ src/marcel_core/
   tracing.py       # Optional OpenTelemetry tracing via Phoenix
   capabilities/    # One self-contained package per capability (ADR-260718-0cf8e8)
     policy/        # MarcelPolicy — tool interception via the turn's event bus
+    execution/     # SandboxedShell (bwrap), FilteredFileSystem, CodeMode wiring
     persistence/   # MarcelStepStore (runs ledger, snapshot deltas), converters, spill store
     memory/        # per-user notebook stores for the harness Memory capability
   api/
@@ -39,7 +40,7 @@ src/marcel_core/
     websocket.py   # WebSocket channel adapter
     telegram/      # Telegram webhook, bot client, formatting, session state
   tools/
-    core.py        # bash, read_file, write_file, edit_file, git_*
+    core.py        # git_* tools (shell/file surfaces are capabilities — see capabilities/execution)
     marcel/        # Unified Marcel utility tool — per-action sub-modules
       dispatcher.py    # The marcel() entry point advertised to the LLM
       skills.py        # read_skill, read_skill_resource actions

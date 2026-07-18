@@ -467,6 +467,7 @@ async def stream_turn(
                     role=role,
                     tool_filter=set(),
                     memory=False,
+                    code_mode=False,
                 )
             except Exception as exc:
                 log.warning(
@@ -488,6 +489,7 @@ async def stream_turn(
                     current.model,
                     system_prompt=system_prompt,
                     role=role,
+                    cwd=effective_cwd,
                 )
             except Exception as exc:
                 log.warning(

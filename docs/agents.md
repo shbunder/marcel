@@ -17,7 +17,8 @@ context, or the child's intermediate tool calls cluttering the parent's.
 
 !!! note "Admin-role only"
     `delegate` is a power tool — it is registered only on admin-role
-    agents, alongside `bash`, `read_file`, `git_*`, and `claude_code`.
+    agents, alongside the shell/file capabilities (`run_command`,
+    `read_file`, …), `git_*`, and `claude_code`.
     Regular users never see it in their tool pool, and a subagent
     spawned from an admin parent cannot escalate: the recursion guard
     drops `delegate` from every child's pool unless the child's
@@ -121,9 +122,14 @@ agent's tool registry.
 `delete_job`, `run_job_now`, `job_templates`, `job_cache_write`,
 `job_cache_read`
 
-**Admin-only:** `bash`, `read_file`, `write_file`, `edit_file`,
-`git_status`, `git_diff`, `git_log`, `git_add`, `git_commit`,
-`git_push`, `claude_code`, `delegate`
+**Admin-only:** `run_command`/`start_command`/`check_command`/`stop_command`
+(the Shell capability), `read_file`/`write_file`/`edit_file`/`list_directory`/
+`search_files`/`find_files`/`create_directory`/`file_info` (the FileSystem
+capability), `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit`,
+`git_push`, `claude_code`, `delegate`. Shell and file tools are provided by
+capabilities (FEAT-260718-38235c); listing any of them in a subagent's
+`tools:` frontmatter grants exactly that subset (a read-only explorer that
+lists only `read_file` never gains `write_file`).
 
 Admin-only tools are stripped from user-role subagents even if
 explicitly allowlisted — **role gating beats allowlist**. This is the
@@ -221,7 +227,7 @@ Three subagents ship as habitats in
   is likely to fumble — multi-file refactors, debugging sessions
   requiring broad context, plans where a wrong step is expensive.
   Inherits the parent's role-default tool pool (admin users get
-  bash/file IO/git; regular users get the safer subset). See
+  shell/file IO/git; regular users get the safer subset). See
   [Model tiers](./model-tiers.md).
 
 Override any of these by dropping `<name>.md` into `<data_root>/agents/`

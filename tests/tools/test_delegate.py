@@ -170,7 +170,7 @@ class TestToolFilterResolution:
         calls, _ = fake_factory
         await delegate(_ctx(role='admin'), subagent_type='defaults', prompt='go')
         tool_filter = calls[0]['tool_filter']
-        assert 'bash' in tool_filter
+        assert 'run_command' in tool_filter
         assert 'read_file' in tool_filter
         assert 'marcel' in tool_filter
         # Recursion guard still applies to the default pool path

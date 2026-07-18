@@ -110,10 +110,10 @@ event's fields in place, and **blocks** (where supported) via
 def register(marcel):
     def guard(event, ctx):
         # mutate args in place …
-        if event.tool_name == "bash":
+        if event.tool_name == "run_command":
             event.args["command"] = sanitise(event.args["command"])
         # … or block outright
-        if event.tool_name == "bash" and "rm -rf /" in event.args.get("command", ""):
+        if event.tool_name == "run_command" and "rm -rf /" in event.args.get("command", ""):
             event.deny("refusing a destructive command")
 
     marcel.on("tool_call", guard)
@@ -132,7 +132,7 @@ handlers, so you can rely on them and pattern-match them:
 - **Self-modification path guard** — writes to `CLAUDE.md`, the auth module,
   core config, or `.env*` are blocked unless `.claude/.unlock-safety` exists.
 - **Command policy + human approval** — a declarative allow/ask/deny policy
-  over the command surface (`bash`, `code_exec`). It **denies** shell
+  over the shell-command surface (`run_command`, `start_command`). It **denies** shell
   commands that touch the self-mod boundary and **asks** before genuinely
   destructive ones. An `ask` pauses the turn and forwards a plain-language
   prompt with *Allow once / Always / Deny* buttons to the user's Telegram;

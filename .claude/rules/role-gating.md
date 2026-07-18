@@ -11,7 +11,7 @@ Marcel's tools are split into two tiers. The split is enforced at **harness star
 
 | Tier | Tools | Exposed to |
 |---|---|---|
-| **Admin** | `bash`, `read_file`, `write_file`, `edit_file`, `git_*`, `claude_code`, `delegate` | Users with `role: admin` in their `profile.md` frontmatter |
+| **Admin** | shell (`run_command`/`start_command`) + file tools (`read_file`/`write_file`/`edit_file`/…) via the execution capabilities, `git_*`, `claude_code`, `delegate` | Users with `role: admin` in their `profile.md` frontmatter |
 | **User** | `integration`, `marcel` | Everyone (admins and non-admins) |
 
 Non-admins must **never** see an admin tool in their tool pool. The model cannot refuse a tool it cannot see — this is the **primary defense**, and it is enforced structurally (by not registering the tool) rather than procedurally (by having the tool check and refuse).
@@ -36,7 +36,7 @@ The admin-tier set has one source of truth: `admin_tool_names()` in `harness/age
 
 - Adding a new admin-tier tool without also adding the tier declaration to the harness registration code
 - Gating a tool at runtime via an `if user.role == "admin": ...` check inside the tool body — this shifts enforcement to the model's discretion, which is a trust boundary Marcel explicitly does not give the model
-- Exposing `bash`, `claude_code`, `delegate`, or `git_*` to a non-admin session, even "temporarily for debugging"
+- Exposing `run_command`/`start_command`, the file tools, `claude_code`, `delegate`, or `git_*` to a non-admin session, even "temporarily for debugging"
 
 ## Why
 

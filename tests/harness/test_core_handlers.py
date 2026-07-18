@@ -30,14 +30,14 @@ def _no_unlock_flag(monkeypatch):
 
 
 def test_role_gate_blocks_admin_tool_for_user():
-    event = ToolCallEvent(tool_name='bash', args={'command': 'ls'})
+    event = ToolCallEvent(tool_name='run_command', args={'command': 'ls'})
     _role_gate_handler(event, USER)
     assert event.blocked is True
     assert 'admin' in (event.block_reason or '')
 
 
 def test_role_gate_allows_admin_tool_for_admin():
-    event = ToolCallEvent(tool_name='bash', args={'command': 'ls'})
+    event = ToolCallEvent(tool_name='run_command', args={'command': 'ls'})
     _role_gate_handler(event, ADMIN)
     assert event.blocked is False
 
@@ -67,6 +67,11 @@ def test_role_gate_allows_unknown_tool():
         'src/marcel_core/config.py',
         '.env',
         '.env.local',
+        # host-code-execution / guard-disable vectors (STORY-260718-38235c review)
+        '.git/hooks/pre-commit',
+        'projects/marcel/.git/hooks/post-commit',
+        '.claude/hooks/guard-restricted.py',
+        'projects/marcel/.claude/settings.json',
     ],
 )
 def test_self_mod_guard_blocks_restricted_write(path):
@@ -90,7 +95,7 @@ def test_self_mod_guard_allows_normal_path():
 
 
 def test_self_mod_guard_ignores_non_writing_tools():
-    event = ToolCallEvent(tool_name='bash', args={'command': 'rm CLAUDE.md'})
+    event = ToolCallEvent(tool_name='run_command', args={'command': 'rm CLAUDE.md'})
     _self_mod_guard_handler(event, ADMIN)
     assert event.blocked is False
 
@@ -204,13 +209,13 @@ def _ctx_for(chan: _FakeApprovalChannel) -> EventContext:
 
 
 async def test_policy_allows_benign_command(_policy_env):
-    event = ToolCallEvent(tool_name='bash', args={'command': 'ls -la'})
+    event = ToolCallEvent(tool_name='run_command', args={'command': 'ls -la'})
     await _command_policy_handler(event, CLI)
     assert event.blocked is False
 
 
 async def test_policy_denies_self_mod_shell(_policy_env):
-    event = ToolCallEvent(tool_name='bash', args={'command': 'rm src/marcel_core/auth/x'})
+    event = ToolCallEvent(tool_name='run_command', args={'command': 'rm src/marcel_core/auth/x'})
     await _command_policy_handler(event, CLI)
     assert event.blocked is True
     assert 'command policy' in (event.block_reason or '').lower()
@@ -219,7 +224,7 @@ async def test_policy_denies_self_mod_shell(_policy_env):
 async def test_policy_ask_allow_once_proceeds(_policy_env):
     chan = _FakeApprovalChannel('approve_once', ApprovalOutcome.ALLOW_ONCE)
     ctx = _ctx_for(chan)
-    event = ToolCallEvent(tool_name='bash', args={'command': 'docker rm -f marcel'})
+    event = ToolCallEvent(tool_name='run_command', args={'command': 'docker rm -f marcel'})
     await _command_policy_handler(event, ctx)
     assert event.blocked is False
     assert chan.sent, 'approval should have been forwarded'
@@ -228,7 +233,7 @@ async def test_policy_ask_allow_once_proceeds(_policy_env):
 async def test_policy_ask_deny_blocks(_policy_env):
     chan = _FakeApprovalChannel('approve_deny', ApprovalOutcome.DENY)
     ctx = _ctx_for(chan)
-    event = ToolCallEvent(tool_name='bash', args={'command': 'sudo reboot'})
+    event = ToolCallEvent(tool_name='run_command', args={'command': 'sudo reboot'})
     await _command_policy_handler(event, ctx)
     assert event.blocked is True
     assert 'declined' in (event.block_reason or '').lower()
@@ -239,14 +244,14 @@ async def test_policy_ask_allow_always_amends_policy(_policy_env):
     ctx = _ctx_for(chan)
     cmd = 'docker rm -f marcel'
 
-    event1 = ToolCallEvent(tool_name='bash', args={'command': cmd})
+    event1 = ToolCallEvent(tool_name='run_command', args={'command': cmd})
     await _command_policy_handler(event1, ctx)
     assert event1.blocked is False
-    assert command_policy().classify('bash', {'command': cmd}).verdict is Verdict.ALLOW
+    assert command_policy().classify('run_command', {'command': cmd}).verdict is Verdict.ALLOW
 
     # A second identical command auto-allows without re-forwarding.
     chan.sent.clear()
-    event2 = ToolCallEvent(tool_name='bash', args={'command': cmd})
+    event2 = ToolCallEvent(tool_name='run_command', args={'command': cmd})
     await _command_policy_handler(event2, ctx)
     assert event2.blocked is False
     assert chan.sent == []
@@ -254,14 +259,14 @@ async def test_policy_ask_allow_always_amends_policy(_policy_env):
 
 async def test_policy_ask_undeliverable_channel_denies(_policy_env):
     # 'cli' has no registered plugin → no send_approval_request → safe deny.
-    event = ToolCallEvent(tool_name='bash', args={'command': 'sudo reboot'})
+    event = ToolCallEvent(tool_name='run_command', args={'command': 'sudo reboot'})
     await _command_policy_handler(event, CLI)
     assert event.blocked is True
 
 
 async def test_policy_disabled_is_noop(_policy_env, monkeypatch):
     monkeypatch.setattr(settings, 'marcel_command_policy_enabled', False)
-    event = ToolCallEvent(tool_name='bash', args={'command': 'rm src/marcel_core/auth/x'})
+    event = ToolCallEvent(tool_name='run_command', args={'command': 'rm src/marcel_core/auth/x'})
     await _command_policy_handler(event, CLI)
     assert event.blocked is False
 

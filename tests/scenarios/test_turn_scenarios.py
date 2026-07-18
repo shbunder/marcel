@@ -98,20 +98,20 @@ class TestExtensionDenyThroughSDK:
         from marcel_core.plugin.extension import extension_registry
 
         def deny_bash(event, ctx):
-            if event.tool_name == 'bash':
+            if event.tool_name == 'run_command':
                 event.deny('extension says no')
 
         extension_registry().handlers.append(('tool_call', deny_bash))
 
         terrarium.user('root', role='admin')
         scenario = terrarium.scenario(
-            call_tool('bash', command='echo hi'),
+            call_tool('run_command', command='echo hi'),
             reply('okay'),
             user='root',
         )
         result = await scenario.run('run echo')
 
-        denial = next(c for c in result.completions if c.tool_name == 'bash')
+        denial = next(c for c in result.completions if c.tool_name == 'run_command')
         assert 'extension says no' in denial.result
         assert 'hi' not in denial.result, 'denied command must never execute'
         # The recorder (an earlier extension handler) recorded the live event;
@@ -167,13 +167,13 @@ class TestPolicyDenies:
     async def test_self_mod_shell_never_executes(self, terrarium):
         terrarium.user('root', role='admin')
         scenario = terrarium.scenario(
-            call_tool('bash', command='cat .env.local'),
+            call_tool('run_command', command='cat .env.local'),
             reply('cannot do that'),
             user='root',
         )
         result = await scenario.run('show me the secrets')
 
-        denial = next(c for c in result.completions if c.tool_name == 'bash')
+        denial = next(c for c in result.completions if c.tool_name == 'run_command')
         assert 'Blocked by command policy' in denial.result
         assert result.tool_results == []
 
@@ -188,7 +188,7 @@ class TestApprovalResolvesWithoutHuman:
         requests = terrarium.resolve_approvals('allow_once', channel='cli')
 
         scenario = terrarium.scenario(
-            call_tool('bash', command=f'rm -rf {scratch}'),
+            call_tool('run_command', command=f'rm -rf {scratch}'),
             reply('cleaned'),
             user='root',
         )

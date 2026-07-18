@@ -69,8 +69,8 @@ async def claude_code(
     - Tasks that benefit from Claude Code's specialised coding abilities
     - Code review or analysis of existing implementations
 
-    For simple tasks (reading files, editing a single file, running bash commands),
-    use the direct tools instead (read_file, edit_file, bash).
+    For simple tasks (reading files, editing a single file, running shell commands),
+    use the direct tools instead (read_file, edit_file, run_command).
 
     Resuming a paused session
     -------------------------

@@ -56,6 +56,12 @@ _RESTRICTED: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r'(^|/)src/marcel_core/auth/'), 'auth module'),
     (re.compile(r'(^|/)src/marcel_core/config\.py$'), 'core config'),
     (re.compile(r'(^|/)\.env(\.|$)'), 'environment file'),
+    # A .git/hooks/* write executes on the host outside the sandbox on the
+    # next git op (e.g. the redeploy rollback's `git revert`); .claude holds
+    # the dev restricted-path guard. Neither has a legitimate write_file
+    # path — git goes through the git_* tools (STORY-260718-38235c review).
+    (re.compile(r'(^|/)\.git(/|$)'), 'git internals'),
+    (re.compile(r'(^|/)\.claude(/|$)'), 'developer config (.claude/)'),
 )
 
 

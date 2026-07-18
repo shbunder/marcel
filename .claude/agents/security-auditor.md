@@ -30,8 +30,8 @@ Marcel runs on a home server. The threat model is a mix of "kids mess around" (a
 
 ### 4. Role-gated tools
 
-- Admins get `bash`, `read_file`, `write_file`, `edit_file`, `git_*`, `claude_code`. Regular users get only `integration` + `marcel`.
-- Any diff that exposes a raw-shell-adjacent tool (`bash`, `claude_code`, etc.) to a non-admin user is a Critical.
+- Admins get the shell/file capabilities (`run_command`, `read_file`, `write_file`, `edit_file`, …), `git_*`, `claude_code`. Regular users get only `integration` + `marcel`.
+- Any diff that exposes a raw-shell-adjacent tool (`run_command`, `claude_code`, etc.) to a non-admin user is a Critical.
 - The tool registration happens in the agent harness. Check that new tools explicitly declare their role requirement.
 
 ### 5. User input reaching shell / filesystem

@@ -23,7 +23,7 @@ def policy() -> CommandPolicy:
 
 
 def test_benign_command_is_allowed(policy):
-    d = policy.classify('bash', {'command': 'ls -la /home/shbunder'})
+    d = policy.classify('run_command', {'command': 'ls -la /home/shbunder'})
     assert d.verdict is Verdict.ALLOW
     assert d.rule == 'default'
 
@@ -45,7 +45,7 @@ def test_benign_command_is_allowed(policy):
     ],
 )
 def test_risky_commands_ask(policy, command):
-    d = policy.classify('bash', {'command': command})
+    d = policy.classify('run_command', {'command': command})
     assert d.verdict is Verdict.ASK, f'{command!r} should ask'
     assert d.rule == 'risky-shell-command'
 
@@ -61,7 +61,7 @@ def test_risky_commands_ask(policy, command):
     ],
 )
 def test_self_mod_boundary_in_shell_is_denied(policy, command):
-    d = policy.classify('bash', {'command': command})
+    d = policy.classify('run_command', {'command': command})
     assert d.verdict is Verdict.DENY, f'{command!r} should deny'
     assert d.rule == 'self-mod-boundary-in-shell'
 
@@ -69,13 +69,21 @@ def test_self_mod_boundary_in_shell_is_denied(policy, command):
 def test_deny_beats_ask_when_both_could_match(policy):
     # `rm` of a restricted path is both risky AND a self-mod touch — deny wins
     # because the deny rule is ordered first.
-    d = policy.classify('bash', {'command': 'rm -rf src/marcel_core/auth/'})
+    d = policy.classify('run_command', {'command': 'rm -rf src/marcel_core/auth/'})
     assert d.verdict is Verdict.DENY
 
 
-def test_code_exec_is_covered(policy):
-    d = policy.classify('code_exec', {'command': 'sudo rm -rf /'})
+def test_background_commands_are_covered(policy):
+    d = policy.classify('start_command', {'command': 'sudo rm -rf /'})
     assert d.verdict in (Verdict.ASK, Verdict.DENY)
+
+
+def test_run_code_is_not_a_command_tool(policy):
+    # run_code carries Python, not shell; its authority is the code-mode
+    # eligible tool set only (ADR-260718-d511f7), so the shell classifier
+    # deliberately does not parse it.
+    d = policy.classify('run_code', {'code': 'sudo = 1'})
+    assert d.verdict is Verdict.ALLOW
 
 
 def test_non_command_tool_falls_through(policy):
@@ -86,7 +94,7 @@ def test_non_command_tool_falls_through(policy):
 
 
 def test_missing_command_arg_is_allowed(policy):
-    d = policy.classify('bash', {})
+    d = policy.classify('run_command', {})
     assert d.verdict is Verdict.ALLOW
 
 
@@ -95,19 +103,19 @@ def test_missing_command_arg_is_allowed(policy):
 
 def test_allow_always_amends_policy(policy):
     cmd = 'docker rm -f marcel'
-    assert policy.classify('bash', {'command': cmd}).verdict is Verdict.ASK
+    assert policy.classify('run_command', {'command': cmd}).verdict is Verdict.ASK
 
-    rule = policy.allow_always('bash', {'command': cmd})
+    rule = policy.allow_always('run_command', {'command': cmd})
     assert rule.verdict is Verdict.ALLOW
     # The exact command now auto-allows...
-    assert policy.classify('bash', {'command': cmd}).verdict is Verdict.ALLOW
+    assert policy.classify('run_command', {'command': cmd}).verdict is Verdict.ALLOW
     # ...but a *different* risky command still asks (exact-match only).
-    assert policy.classify('bash', {'command': 'docker rm -f other'}).verdict is Verdict.ASK
+    assert policy.classify('run_command', {'command': 'docker rm -f other'}).verdict is Verdict.ASK
 
 
 def test_allow_always_rule_is_inspectable(policy):
     before = len(policy.rules)
-    policy.allow_always('bash', {'command': 'sudo apt update'})
+    policy.allow_always('run_command', {'command': 'sudo apt update'})
     assert len(policy.rules) == before + 1
     assert policy.rules[0].verdict is Verdict.ALLOW
 
@@ -122,19 +130,19 @@ def test_custom_deny_rule():
                 name='no-telnet',
                 verdict=Verdict.DENY,
                 reason='telnet is insecure',
-                tools=frozenset({'bash'}),
+                tools=frozenset({'run_command'}),
                 arg='command',
                 pattern=re.compile(r'\btelnet\b'),
             ),
         ],
     )
-    assert p.classify('bash', {'command': 'telnet example.com'}).verdict is Verdict.DENY
-    assert p.classify('bash', {'command': 'ssh example.com'}).verdict is Verdict.ALLOW
+    assert p.classify('run_command', {'command': 'telnet example.com'}).verdict is Verdict.DENY
+    assert p.classify('run_command', {'command': 'ssh example.com'}).verdict is Verdict.ALLOW
 
 
 def test_default_verdict_configurable():
     p = CommandPolicy(rules=[], default=Verdict.ASK)
-    assert p.classify('bash', {'command': 'anything'}).verdict is Verdict.ASK
+    assert p.classify('run_command', {'command': 'anything'}).verdict is Verdict.ASK
 
 
 def test_rule_with_empty_tools_never_matches():
@@ -146,7 +154,7 @@ def test_rule_with_empty_tools_never_matches():
         arg='command',
         pattern=re.compile(r'.*'),
     )
-    assert not r.matches('bash', {'command': 'anything'})
+    assert not r.matches('run_command', {'command': 'anything'})
 
 
 def test_add_rule_front_takes_precedence(policy):
@@ -154,12 +162,12 @@ def test_add_rule_front_takes_precedence(policy):
         name='allow-rm-tmp',
         verdict=Verdict.ALLOW,
         reason='tmp is fine',
-        tools=frozenset({'bash'}),
+        tools=frozenset({'run_command'}),
         arg='command',
         pattern=re.compile(r'^rm -rf /tmp/'),
     )
     policy.add_rule(allow_rm, front=True)
-    assert policy.classify('bash', {'command': 'rm -rf /tmp/x'}).verdict is Verdict.ALLOW
+    assert policy.classify('run_command', {'command': 'rm -rf /tmp/x'}).verdict is Verdict.ALLOW
 
 
 # --- evasion resistance (regression for the F2 security review) ------------
@@ -177,7 +185,7 @@ def test_add_rule_front_takes_precedence(policy):
     ],
 )
 def test_self_mod_evasions_are_denied(policy, command):
-    assert policy.classify('bash', {'command': command}).verdict is Verdict.DENY
+    assert policy.classify('run_command', {'command': command}).verdict is Verdict.DENY
 
 
 @pytest.mark.parametrize(
@@ -195,19 +203,19 @@ def test_self_mod_evasions_are_denied(policy, command):
     ],
 )
 def test_risky_evasions_and_false_negatives_ask(policy, command):
-    assert policy.classify('bash', {'command': command}).verdict is Verdict.ASK
+    assert policy.classify('run_command', {'command': command}).verdict is Verdict.ASK
 
 
 def test_malformed_quotes_ask_not_allow(policy):
     # Unbalanced quotes cannot be tokenized safely → ask rather than allow.
-    d = policy.classify('bash', {'command': 'echo "unterminated'})
+    d = policy.classify('run_command', {'command': 'echo "unterminated'})
     assert d.verdict is Verdict.ASK
     assert d.rule == 'malformed-command'
 
 
 def test_echo_of_risky_word_is_not_command_position(policy):
     # `sudo` as an argument to echo is not a command — should not ask.
-    assert policy.classify('bash', {'command': 'echo sudo is dangerous'}).verdict is Verdict.ALLOW
+    assert policy.classify('run_command', {'command': 'echo sudo is dangerous'}).verdict is Verdict.ALLOW
 
 
 def test_documented_limitations_are_not_caught(policy):
@@ -218,6 +226,6 @@ def test_documented_limitations_are_not_caught(policy):
     surprise — if a future change closes one, flip the assertion.
     """
     # cd + relative path (no cwd tracking here):
-    assert policy.classify('bash', {'command': 'cd src/marcel_core && rm config.py'}).verdict is Verdict.ALLOW
+    assert policy.classify('run_command', {'command': 'cd src/marcel_core && rm config.py'}).verdict is Verdict.ALLOW
     # environment-variable indirection:
-    assert policy.classify('bash', {'command': 'X=CLAUDE.md; cat $X'}).verdict is Verdict.ALLOW
+    assert policy.classify('run_command', {'command': 'X=CLAUDE.md; cat $X'}).verdict is Verdict.ALLOW

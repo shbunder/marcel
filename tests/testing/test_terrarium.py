@@ -152,14 +152,14 @@ class TestPolicyDeny:
     async def test_self_mod_shell_command_is_denied_end_to_end(self, terrarium):
         terrarium.user('alice', role='admin')
         scenario = terrarium.scenario(
-            call_tool('bash', command='cat .env.local'),
+            call_tool('run_command', command='cat .env.local'),
             reply('understood'),
             user='alice',
         )
         result = await scenario.run('read the env file')
 
         assert result.reply == 'understood'
-        denial = next(c for c in result.completions if c.tool_name == 'bash')
+        denial = next(c for c in result.completions if c.tool_name == 'run_command')
         assert 'Blocked by command policy' in denial.result
         assert result.tool_results == [], 'a denied tool must never produce a tool_result event'
 
@@ -170,7 +170,7 @@ class TestApprovals:
         scratch.mkdir()
         terrarium.user('alice', role='admin')
         scenario = terrarium.scenario(
-            call_tool('bash', command=f'rm -rf {scratch}'),
+            call_tool('run_command', command=f'rm -rf {scratch}'),
             reply('cleaned up'),
             user='alice',
         )
@@ -192,7 +192,7 @@ class TestApprovals:
         result = await scenario.run('clean the scratch dir')
 
         assert scratch.exists(), 'denied command must never run'
-        denial = next(c for c in result.completions if c.tool_name == 'bash')
+        denial = next(c for c in result.completions if c.tool_name == 'run_command')
         assert 'declined' in denial.result
 
     async def test_expire_denies_and_queues_for_later(self, terrarium):
@@ -201,7 +201,7 @@ class TestApprovals:
         result = await scenario.run('clean the scratch dir')
 
         assert scratch.exists()
-        denial = next(c for c in result.completions if c.tool_name == 'bash')
+        denial = next(c for c in result.completions if c.tool_name == 'run_command')
         assert 'queued for later' in denial.result
         queue_dir = terrarium.data_root / 'approvals' / 'queue'
         assert queue_dir.is_dir() and list(queue_dir.glob('*.json')), 'expired ask must be queued on disk'
@@ -214,7 +214,7 @@ class TestApprovals:
 
         scratch.mkdir()
         rerun = terrarium.scenario(
-            call_tool('bash', command=f'rm -rf {scratch}'),
+            call_tool('run_command', command=f'rm -rf {scratch}'),
             reply('cleaned again'),
             user='alice',
         )

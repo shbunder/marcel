@@ -196,6 +196,7 @@ async def delegate(
             system_prompt=system_prompt,
             role=sub_deps.role,
             tool_filter=tool_filter,
+            cwd=ctx.deps.cwd,
         )
     except Exception as exc:
         log.exception('delegate: failed to build subagent %s', subagent_type)
