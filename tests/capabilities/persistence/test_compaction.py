@@ -22,7 +22,8 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.test import TestModel
 
-from marcel_core.composition import COMPACTION_KEEP_PAIRS, build_capabilities
+from marcel_core.composition import build_capabilities
+from marcel_core.config import settings
 from marcel_core.harness.context import MarcelDeps, TurnState
 from marcel_core.storage import _root
 
@@ -85,7 +86,7 @@ async def test_old_results_blanked_pairs_and_marcel_survive(tmp_path, monkeypatc
     blanked = [p for p in bash_returns if p.content == '[tool result cleared]']
     intact = [p for p in bash_returns if p.content == BIG]
     assert blanked, 'aged results past the token trigger must be blanked'
-    assert len(intact) == COMPACTION_KEEP_PAIRS, 'the most recent pairs stay intact'
+    assert len(intact) == settings.marcel_compaction_keep_pairs, 'the most recent pairs stay intact'
     # Every tool call still has its (possibly blanked) paired return.
     call_ids = {
         p.tool_call_id

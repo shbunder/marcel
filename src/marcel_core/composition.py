@@ -22,23 +22,9 @@ from pydantic_ai_harness.step_persistence import StepPersistence
 from marcel_core.capabilities.persistence import persistence_store
 from marcel_core.capabilities.persistence.overflow import PasteOverflowStore
 from marcel_core.capabilities.policy import MarcelPolicy
+from marcel_core.config import settings
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.tracing import get_instrumentation_settings
-
-# Compaction thresholds (FEAT-260718-ed6d63). Deliberately module constants,
-# not settings fields: config.py sits behind the self-mod guard and these
-# have no tuning consumer yet — promote them to env-configurable settings
-# via the unlock flow when one appears.
-COMPACTION_MAX_TOKENS = 30_000
-"""ClearToolResults trigger — estimated tokens before old results blank."""
-COMPACTION_KEEP_PAIRS = 3
-"""Most-recent tool call/return pairs left untouched by clearing."""
-CLAMP_MAX_PART_TOKENS = 50_000
-"""Single-part ceiling guarding against runaway generations."""
-OVERFLOW_SPILL_CHARS = 32_000
-"""Tool returns above this spill to the paste store with a preview +
-read_tool_result handle (falling back to truncation when no turn user is
-stamped — jobs/subagents keep their pre-harness bounded behavior)."""
 
 
 def build_capabilities() -> list[AbstractCapability[MarcelDeps]]:
@@ -56,13 +42,13 @@ def build_capabilities() -> list[AbstractCapability[MarcelDeps]]:
         MarcelPolicy(),
         StepPersistence(store=persistence_store(), agent_name='marcel'),
         OverflowingToolOutput(
-            bands=[Band(over=OVERFLOW_SPILL_CHARS, action=Spill(then=Truncate()))],
+            bands=[Band(over=settings.marcel_overflow_spill_chars, action=Spill(then=Truncate()))],
             store=PasteOverflowStore(),
         ),
-        ClampOversizedMessages(max_part_tokens=CLAMP_MAX_PART_TOKENS),
+        ClampOversizedMessages(max_part_tokens=settings.marcel_clamp_max_part_tokens),
         ClearToolResults(
-            max_tokens=COMPACTION_MAX_TOKENS,
-            keep_pairs=COMPACTION_KEEP_PAIRS,
+            max_tokens=settings.marcel_compaction_max_tokens,
+            keep_pairs=settings.marcel_compaction_keep_pairs,
             # `marcel` results carry read_skill docs that must stay visible
             # across turns (the read_skills priming depends on it).
             exclude_tools=frozenset({'marcel'}),

@@ -264,9 +264,9 @@ class TestOversizedResultsSpillWithHandle:
             PasteOverflowStore,
             current_overflow_user,
         )
-        from marcel_core.composition import OVERFLOW_SPILL_CHARS
+        from marcel_core.config import settings
 
-        big = 'x' * (OVERFLOW_SPILL_CHARS + 1_000)
+        big = 'x' * (settings.marcel_overflow_spill_chars + 1_000)
 
         @marcel_tool('blob.dump')
         async def dump(params: dict, user_slug: str) -> str:

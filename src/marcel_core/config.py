@@ -155,6 +155,18 @@ class Settings(BaseSettings):
     marcel_idle_summarize_minutes: int = 60
     marcel_bash_max_output: int = 30000
 
+    # In-run context shaping (FEAT-260718-ed6d63), composed in composition.py:
+    # ClearToolResults blanks old tool results past the token trigger
+    # (call/return pairs preserved, `marcel` results exempt so read_skill
+    # docs survive across turns); ClampOversizedMessages guards against
+    # runaway single-part generations; OverflowingToolOutput spills tool
+    # returns above the char threshold to the user's paste store with a
+    # read_tool_result handle.
+    marcel_compaction_max_tokens: int = 30_000
+    marcel_compaction_keep_pairs: int = 3
+    marcel_clamp_max_part_tokens: int = 50_000
+    marcel_overflow_spill_chars: int = 32_000
+
     # ---------------------------------------------------------------------------
     # Command policy + human approval (FEAT-260628-2cd78e F2, ADR-ca8f39)
     # ---------------------------------------------------------------------------
