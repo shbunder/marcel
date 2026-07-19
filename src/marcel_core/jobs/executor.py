@@ -316,7 +316,13 @@ async def execute_job(
     system_prompt = _build_job_context(job, slug)
 
     agent = create_marcel_agent(
-        job.model, system_prompt=system_prompt, role='user', memory=False, code_mode=False, skills=False
+        job.model,
+        system_prompt=system_prompt,
+        role='user',
+        memory=False,
+        code_mode=False,
+        skills=False,
+        connectors=False,
     )
 
     # Apply usage limits if configured on the job
@@ -659,6 +665,7 @@ async def _fire_subagent_job(
             memory=False,
             code_mode=False,
             skills=False,
+            connectors=False,
         )
     except Exception as exc:
         log.exception('%s-job: subagent build failed for %s', slug, job.id)

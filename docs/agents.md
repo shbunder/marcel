@@ -288,7 +288,7 @@ See ISSUE-074 for the full design and the list of deferred features.
 
 ## See also
 
-- [Habitats](habitats.md) — the five-kind taxonomy.
+- [Habitats](habitats.md) — the six-kind taxonomy.
 - [Model tiers](model-tiers.md) — how `fast` / `standard` / `power` /
   `fallback` resolve at delegate time.
 - [Self-modification](self-modification.md) — the broader permission

@@ -1,6 +1,6 @@
 """Unified habitat-discovery orchestrator.
 
-Single entry point that invokes all five kind-specific discoverers in a
+Single entry point that invokes all five eagerly-loaded kind-specific discoverers in a
 fixed order, isolates their failures so a broken kind cannot poison the
 others, and returns the discovered habitats grouped by kind.
 
@@ -43,7 +43,8 @@ _KINDS: tuple[tuple[str, type], ...] = (
 
 
 def discover_all_habitats(zoo_dir: Path | None) -> dict[str, list[Habitat]]:
-    """Discover every habitat kind, grouped by kind name.
+    """Discover every eagerly-loaded habitat kind (connectors resolve
+    per-user at capability-build time, not here), grouped by kind name.
 
     For each kind in the fixed dispatch order:
 
@@ -72,7 +73,7 @@ def discover_all_habitats(zoo_dir: Path | None) -> dict[str, list[Habitat]]:
     # with the five per-kind loaders through the F0 → F1 migration; failures
     # are isolated inside load_extensions. Not added to the returned dict —
     # extensions register via side effects into the tool/channel registries
-    # and the extension registry, keeping the five-kind return contract.
+    # and the extension registry, keeping the five-kind return contract (connectors are per-user, so not in it).
     try:
         from marcel_core.plugin.extension import load_extensions
 

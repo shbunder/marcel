@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     # See the "Why not settings.marcel_env?" comment above _env() for why.
     marcel_port: int = 8000
     marcel_cors_origins: str = 'http://localhost:5173'
+    # Public base URL Marcel is reachable at from the outside (scheme + host,
+    # no trailing slash) — e.g. https://marcel.example.org in prod, an ngrok/
+    # tunnel URL in dev. Connector OAuth linking builds its redirect URI from
+    # this (`<base>/connectors/callback`, FEAT-260718-230bf8); unset or
+    # non-https degrades to a readable "not configured" message, never a
+    # stack trace. See SETUP.md for the dev/prod values.
     marcel_public_url: str | None = None
     marcel_default_user: str = ''
 

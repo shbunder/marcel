@@ -58,6 +58,7 @@ class ExtensionRegistry:
 
     handlers: list[tuple[str, EventHandler]] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
+    connectors: list[str] = field(default_factory=list)
     jobs: list[str] = field(default_factory=list)
     agents: list[str] = field(default_factory=list)
     commands: dict[str, Callable[..., Awaitable[None]]] = field(default_factory=dict)
@@ -76,6 +77,7 @@ class ExtensionRegistry:
         """Drop all collected registrations (used when reloading / in tests)."""
         self.handlers.clear()
         self.skills.clear()
+        self.connectors.clear()
         self.jobs.clear()
         self.agents.clear()
         self.commands.clear()
@@ -130,6 +132,10 @@ class MarcelExtensionAPI:
     def skill(self, source: str) -> None:
         """Register a skill habitat by its ``SKILL.md`` directory path."""
         self._registry.skills.append(source)
+
+    def connector(self, source: str) -> None:
+        """Register a connector habitat by its ``connector.yaml`` directory path."""
+        self._registry.connectors.append(source)
 
     def job(self, source: str) -> None:
         """Register a job template by its ``template.yaml`` directory path."""

@@ -32,6 +32,7 @@ def register(marcel):
 
     marcel.on("tool_call", audit)
     marcel.skill("/zoo/skills/extloader")
+    marcel.connector("/zoo/connectors/extloader")
     marcel.job("/zoo/jobs/extloader")
     marcel.agent("/zoo/agents/extloader.md")
 
@@ -77,8 +78,10 @@ def test_loads_and_registers_all_kinds(tmp_path):
     # on() handler → collected for bus replay
     assert [name for name, _ in reg.handlers] == ['tool_call']
 
-    # skill/job/agent/command → recorded
+    # skill/connector/job/agent/command → recorded
     assert reg.skills == ['/zoo/skills/extloader']
+    # Connectors are a registerable habitat kind too (FR5, FEAT-260718-230bf8).
+    assert reg.connectors == ['/zoo/connectors/extloader']
     assert reg.jobs == ['/zoo/jobs/extloader']
     assert reg.agents == ['/zoo/agents/extloader.md']
     assert 'extloader' in reg.commands

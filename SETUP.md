@@ -15,7 +15,7 @@ This guide is written for the **admin** — the technically inclined person who 
 Marcel is split across **two repos**:
 
 - [`marcel`](https://github.com/shbunder/marcel) — the kernel. The FastAPI server, agent harness, storage, channels framework. Ships zero skills on its own.
-- [`marcel-zoo`](https://github.com/shbunder/marcel-zoo) — the habitats. All five kinds — **toolkit**, **skills**, **subagents**, **channels**, **jobs** ([docs/habitats.md](docs/habitats.md)) — plus `MARCEL.md` and `routing.yaml` live here. Without the zoo, the kernel boots with no abilities.
+- [`marcel-zoo`](https://github.com/shbunder/marcel-zoo) — the habitats. All six kinds — **toolkit**, **skills**, **connectors**, **subagents**, **channels**, **jobs** ([docs/habitats.md](docs/habitats.md)) — plus `MARCEL.md` and `routing.yaml` live here. Without the zoo, the kernel boots with no abilities.
 
 Both must be cloned. The kernel goes under `~/projects/marcel` (where you edit), the zoo under `~/.marcel/zoo` (where Marcel reads at runtime). Step 1 clones the kernel; **Step 2** clones the zoo.
 
@@ -47,7 +47,7 @@ echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" >> .env.local
 
 ## Step 2: Install the zoo
 
-The kernel doesn't ship any habitats — all five kinds (**toolkit**, **skills**, **subagents**, **channels**, **jobs** — see [docs/habitats.md](docs/habitats.md)) plus `MARCEL.md` and `routing.yaml` live in a separate repo called `marcel-zoo`. Clone it and install its deps with one make target:
+The kernel doesn't ship any habitats — all six kinds (**toolkit**, **skills**, **connectors**, **subagents**, **channels**, **jobs** — see [docs/habitats.md](docs/habitats.md)) plus `MARCEL.md` and `routing.yaml` live in a separate repo called `marcel-zoo`. Clone it and install its deps with one make target:
 
 ```bash
 make zoo-setup
@@ -248,7 +248,7 @@ systemctl --user stop marcel
 | `TELEGRAM_BOT_TOKEN` | For Telegram | Bot token from @BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | For Telegram | Secret for validating webhook requests |
 | `MARCEL_PORT` | No | Server port (default: `8000`) |
-| `MARCEL_PUBLIC_URL` | For Mini App | Public HTTPS URL for Telegram Mini App buttons |
+| `MARCEL_PUBLIC_URL` | For Mini App + connector linking | Public URL Marcel is reachable at from outside. Used for Telegram Mini App buttons **and** as the OAuth redirect base for connectors — Marcel registers `<MARCEL_PUBLIC_URL>/connectors/callback` with the provider. Production must be `https://…`; in development an `http://localhost:<port>` tunnel is accepted. Unset or non-https ⇒ account linking degrades to a readable message instead of failing obscurely. |
 | `MARCEL_DATA_DIR` | No | Data directory (default: `~/.marcel/`) |
 | `MARCEL_IDLE_SUMMARIZE_MINUTES` | No | Idle threshold before auto-summarization (default: `60`) |
 | `MARCEL_TRACING_ENABLED` | No | Enable OpenTelemetry LLM tracing (default: `false`) |

@@ -40,6 +40,7 @@ logging.getLogger('httpcore').setLevel(logging.WARNING)
 from marcel_core.api.artifacts import router as artifacts_router
 from marcel_core.api.chat import router as chat_router
 from marcel_core.api.components import router as components_router
+from marcel_core.api.connectors import router as connectors_router
 from marcel_core.api.conversations import router as conversations_router
 from marcel_core.api.health import router as health_router
 from marcel_core.jobs.scheduler import scheduler
@@ -47,6 +48,30 @@ from marcel_core.plugin import get_channel, list_channels
 from marcel_core.plugin.channels import discover as discover_channels
 
 log = logging.getLogger(__name__)
+
+
+async def _connector_reaper_loop() -> None:
+    """Stop spawned connector servers that have gone idle.
+
+    stdio/inprocess connectors are real processes kept alive between turns so a
+    conversation does not pay a spawn per message. Without something calling
+    reap_idle they would live until restart — a connector used once at
+    breakfast still running at dinner. Runs on the same cadence as the
+    summarization loop; a Marcel with no connectors never builds a registry, so
+    this is a cheap no-op there.
+    """
+    from marcel_core.connectors.toolset import active_registry
+
+    while True:
+        await asyncio.sleep(15 * 60)
+        try:
+            registry = active_registry()
+            if registry is not None:
+                closed = await registry.reap_idle()
+                if closed:
+                    log.info('main: stopped %d idle connector server(s)', closed)
+        except Exception:
+            log.exception('connector reaper loop error')
 
 
 async def _background_summarization_loop() -> None:
@@ -113,7 +138,7 @@ def _log_zoo_summary() -> None:
         return
 
     counts: dict[str, int] = {}
-    for kind in ('channels', 'toolkit', 'skills', 'jobs', 'agents'):
+    for kind in ('channels', 'toolkit', 'skills', 'connectors', 'jobs', 'agents'):
         subdir = zoo_dir / kind
         if not subdir.is_dir():
             counts[kind] = 0
@@ -153,11 +178,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _log_zoo_summary()
 
     summarize_task = asyncio.create_task(_background_summarization_loop())
+    reaper_task = asyncio.create_task(_connector_reaper_loop())
     scheduler.start()
     log.info('main: all background tasks started')
     yield
     scheduler.stop()
     summarize_task.cancel()
+    reaper_task.cancel()
+    # Spawned connector servers are child processes; leaving them behind on
+    # redeploy would orphan them.
+    from marcel_core.connectors.toolset import active_registry
+
+    registry = active_registry()
+    if registry is not None:
+        await registry.shutdown()
     log.info('main: shutdown complete')
 
 
@@ -176,6 +210,7 @@ app.include_router(health_router)
 app.include_router(artifacts_router)
 app.include_router(chat_router)
 app.include_router(components_router)
+app.include_router(connectors_router)
 app.include_router(conversations_router)
 
 # Discover external channel habitats from <MARCEL_ZOO_DIR>/channels/

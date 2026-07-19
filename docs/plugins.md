@@ -376,7 +376,7 @@ not a `toolkit(id="settings.*")` handler.
 
 ## See also
 
-- [Habitats](habitats.md) — the five-kind taxonomy.
+- [Habitats](habitats.md) — the six-kind taxonomy.
 - [Skills](skills.md) — the paired markdown layer that teaches the
   agent *when* to reach for a toolkit handler.
 - [Jobs](jobs.md) — how `scheduled_jobs:` entries and standalone

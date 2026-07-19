@@ -31,12 +31,13 @@ These four are Marcel's constitution — the standard every change is held to an
 
 ## Habitat taxonomy (summary)
 
-The kernel ships no behaviour. Everything Marcel can *do* lives in one of five kinds of habitat under `$MARCEL_ZOO_DIR`:
+The kernel ships no behaviour. Everything Marcel can *do* lives in one of six kinds of habitat under `$MARCEL_ZOO_DIR`:
 
 | Kind | Directory | Shape | Teaches / runs |
 |---|---|---|---|
 | **Toolkit** | `toolkit/<name>/` | `@marcel_tool` handlers + `toolkit.yaml` | Python code the agent can call |
 | **Skill** | `skills/<name>/` | `SKILL.md` (+ `SETUP.md`) | *When* to reach for a toolkit |
+| **Connector** | `connectors/<name>/` | `connector.yaml` (+ `SETUP.md`) | An MCP server + per-user auth; connector code is **trusted code** — see [docs/connectors.md](docs/connectors.md) |
 | **Subagent** | `agents/<name>.md` | single Markdown | Scoped sub-pass the main agent can `delegate()` to |
 | **Channel** | `channels/<name>/` | router + `channel.yaml` | Inbound webhooks + outbound push (Telegram, …) |
 | **Job** | `jobs/<name>/template.yaml` | YAML template | Scheduled work; `dispatch_type` picks tool / subagent / agent shape |

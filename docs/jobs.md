@@ -465,7 +465,7 @@ the legacy directories are gone.
 
 ## See also
 
-- [Habitats](habitats.md) — the five-kind taxonomy.
+- [Habitats](habitats.md) — the six-kind taxonomy.
 - [Plugins (toolkit)](plugins.md) — how `scheduled_jobs:` ties into a
   toolkit's `toolkit.yaml`.
 - [Agents](agents.md) — the subagent kind referenced by

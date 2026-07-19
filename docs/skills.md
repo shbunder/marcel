@@ -106,7 +106,7 @@ own extensions never sit at the top level — they live in the spec-legal
 
 | `metadata` key | Value (string) | Purpose |
 |---|---|---|
-| `marcel-connectors` | comma-separated toolkit names, e.g. `banking,news` | Toolkit habitats this skill fronts; their `requires:` blocks become the skill's requirements. |
+| `marcel-connectors` | comma-separated habitat names, e.g. `banking,news` | The [connector](connectors.md) or toolkit habitats this skill fronts. A **connector** is resolved first and activates *with* the skill (its tools ride along in the same `load_capability` step); an unlinked one degrades on its own, so it does not push the skill into setup mode. A **toolkit** name resolves second, and its `toolkit.yaml` `requires:` block becomes the skill's requirements. A name that is neither means the skill serves `SETUP.md`. |
 | `marcel-tier` | `fast` \| `standard` \| `power` \| `local` | Preferred model tier while this skill is loaded (see [Model tiers](model-tiers.md)). |
 | `marcel-role` | `admin` | Role-gates the skill — dropped from the catalog for non-admin users. |
 | `marcel-requires-credentials` | comma-separated keys, e.g. `MY_API_KEY` | Credentials that must exist in the user's store. |

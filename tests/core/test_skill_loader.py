@@ -633,3 +633,59 @@ class TestResources:
         roots('zoo-global', 'news', skill_md=_md('news'))
         data_dir = roots('data-user', 'news', skill_md=_md('news'))
         assert _find_skill_dir('news', 'shaun') == data_dir
+
+
+class TestConnectorPairedSkill:
+    """A skill naming a connector habitat must serve SKILL.md, not SETUP.md.
+
+    Regression for the pre-close finding: `marcel-connectors` was resolved only
+    against toolkit metadata, so a connector name returned None and the skill
+    was treated as unconfigured — a linked user got the setup page instead of
+    the skill body, forever. The SETUP.md in these fixtures is the point: the
+    original test missed this because without one, `_load_skill_dir` short-
+    circuits on `not setup_md.exists()` and never consults requirements.
+    """
+
+    def _connector(self, roots, name='weather'):
+        base = roots('zoo-global', name, skill_md=None)  # reuse the root helper's zoo dir
+        return base
+
+    def test_connector_backed_skill_serves_the_skill_body(self, tmp_path, monkeypatch):
+        from marcel_core.config import settings
+
+        zoo = tmp_path / 'zoo'
+        (zoo / 'connectors' / 'weather').mkdir(parents=True)
+        (zoo / 'connectors' / 'weather' / 'connector.yaml').write_text(
+            'name: weather\ndescription: Weather\n'
+            'server: {transport: http, url: https://mcp.test}\n'
+            'auth: {mode: none, per_user: false}\n'
+        )
+        sdir = zoo / 'skills' / 'forecast'
+        sdir.mkdir(parents=True)
+        (sdir / 'SKILL.md').write_text(
+            '---\nname: forecast\ndescription: Weather talk\n'
+            'metadata:\n  marcel-connectors: weather\n---\n\nSKILL BODY.'
+        )
+        (sdir / 'SETUP.md').write_text('---\nname: forecast\ndescription: Setup\n---\n\nSETUP BODY.')
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo))
+
+        doc = next(d for d in load_skills('shaun') if d.name == 'forecast')
+        assert doc.is_setup is False
+        assert doc.content == 'SKILL BODY.'
+
+    def test_unknown_connector_name_still_falls_back_to_setup(self, tmp_path, monkeypatch):
+        """A name that is neither a connector nor a toolkit remains unmet."""
+        from marcel_core.config import settings
+
+        zoo = tmp_path / 'zoo'
+        sdir = zoo / 'skills' / 'forecast'
+        sdir.mkdir(parents=True)
+        (sdir / 'SKILL.md').write_text(
+            '---\nname: forecast\ndescription: Weather talk\nmetadata:\n  marcel-connectors: ghost\n---\n\nSKILL BODY.'
+        )
+        (sdir / 'SETUP.md').write_text('---\nname: forecast\ndescription: Setup\n---\n\nSETUP BODY.')
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo))
+
+        doc = next(d for d in load_skills('shaun') if d.name == 'forecast')
+        assert doc.is_setup is True
+        assert doc.content == 'SETUP BODY.'
