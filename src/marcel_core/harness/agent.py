@@ -18,7 +18,7 @@ from pydantic_ai.toolsets import FunctionToolset
 from marcel_core.composition import build_capabilities
 from marcel_core.config import settings
 from marcel_core.harness.context import MarcelDeps
-from marcel_core.harness.model_chain import model_label
+from marcel_core.harness.model_chain import Tier, model_label
 from marcel_core.jobs import tool as job_tools
 from marcel_core.tools import (
     charts as chart_tools,
@@ -202,6 +202,7 @@ def create_marcel_agent(
     eager_skill: str | None = None,
     connectors: bool = True,
     subagents: bool = True,
+    tier: 'Tier | None' = None,
     extra_capabilities: Sequence[AbstractCapability[MarcelDeps]] | None = None,
 ) -> Agent[MarcelDeps, str]:
     """Create a configured Marcel agent with a role-appropriate tool set.
@@ -237,6 +238,10 @@ def create_marcel_agent(
             the explain tier.
         cwd: The session working directory — roots the admin Shell and
             FileSystem capabilities (falls back to the project root).
+        tier: The turn's resolved model tier — enables the turn-quality
+            capabilities (Planning on STANDARD/POWER, LimitWarner sized to
+            the tier's context budget). ``None`` (the lean paths: jobs,
+            subagent children, explain) skips both (FEAT-260718-637764).
         extra_capabilities: Caller-assembled capabilities appended after
             the composition root's list. The generic seam for callers that
             compose their own surface — scoped job runs pass their eager
@@ -293,6 +298,7 @@ def create_marcel_agent(
         eager_skill=eager_skill,
         connectors=connectors,
         subagents=subagents,
+        tier=tier,
     )
     if extra_capabilities:
         capabilities.extend(extra_capabilities)

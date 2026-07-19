@@ -19,6 +19,7 @@ src/marcel_core/
     execution/     # SandboxedShell (bwrap), FilteredFileSystem, CodeMode wiring
     persistence/   # MarcelStepStore (runs ledger, snapshot deltas), converters, spill store
     memory/        # per-user notebook stores for the harness Memory capability
+    subagents/     # SubagentDoc parsing + SubAgents delegation wiring
   api/
     health.py      # GET /health
     chat.py        # WebSocket /ws/chat — streaming conversation
@@ -152,7 +153,14 @@ For each conversation turn:
 4. Summarize-if-idle: if last_active > 60 min ago, seal segment + generate summary
 5. Load context via the persistence store: latest rolling summary + active
    segment messages, served at full fidelity (in-run shaping is the
-   compaction capabilities' job)
+   compaction capabilities' job). On STANDARD/POWER tiers the build also
+   attaches Planning (a `write_plan` tool with a cache-safe plan reminder),
+   and every interactive tier carries LimitWarner — an `[LimitWarner]`
+   warning is injected as context pressure approaches the tier's budget
+   (`MARCEL_LIMIT_WARN_CONTEXT_TOKENS`,
+   `MARCEL_LIMIT_WARN_CONTEXT_TOKENS_LOCAL` for the local tier,
+   `MARCEL_LIMIT_WARN_THRESHOLD` — FEAT-260718-637764). Lean paths (jobs, subagent
+   children, explain) skip both.
 6. agent.run_stream(user_text, message_history=context, conversation_id="user:channel")
 7. For each stream event:
    - TextDelta -> yield token to client
