@@ -28,6 +28,9 @@ from marcel_core.connectors.tokens import StoredTokens, TokenStore
 
 log = logging.getLogger(__name__)
 
+# Env var an oauth connector's spawned server reads its access token from.
+OAUTH_TOKEN_ENV = 'MCP_ACCESS_TOKEN'
+
 
 class ConnectorNotLinked(Exception):
     """A connector needs per-user setup that this user has not completed."""
@@ -137,6 +140,29 @@ class ConnectorAuth:
         self._store.store(slug, config.name, refreshed)
         log.info('connectors: refreshed access token for %s/%s', slug, config.name)
         return refreshed
+
+    async def outbound_env(self, config: ConnectorConfig, slug: str) -> dict[str, str]:
+        """Credential environment for a spawned (stdio) connector server.
+
+        stdio/in-process servers cannot carry a per-request header, so their
+        credential is delivered once at spawn — which is exactly why each
+        (connector, user) pair gets its own instance rather than sharing one.
+        The naming convention habitats are written against:
+
+        * ``api_key`` → the env var the habitat itself named in
+          ``auth.credential_keys`` (e.g. ``WEATHER_API_KEY``).
+        * ``oauth`` → :data:`OAUTH_TOKEN_ENV` (``MCP_ACCESS_TOKEN``).
+        * ``none`` → no variables.
+
+        Same decision point, same prohibition: the value comes only from
+        :meth:`resolve_secret`.
+        """
+        secret = await self.resolve_secret(config, slug)
+        if secret is None:
+            return {}
+        if config.auth.mode is AuthMode.API_KEY:
+            return {config.auth.credential_keys[0]: secret}
+        return {OAUTH_TOKEN_ENV: secret}
 
     async def outbound_headers(self, config: ConnectorConfig, slug: str) -> dict[str, str]:
         """The auth header(s) to attach to an outbound request, or ``{}`` for ``auth none``.

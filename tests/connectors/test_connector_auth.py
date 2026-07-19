@@ -182,6 +182,35 @@ class TestLinkageError:
         assert ConnectorAuth().linkage_error(_cfg('oauth', name='gh'), 'shaun') is None
 
 
+class TestOutboundEnv:
+    """Credential delivery for spawned (stdio/inprocess) servers."""
+
+    @pytest.mark.asyncio
+    async def test_api_key_uses_the_habitats_own_var_name(self, data_dir):
+        from marcel_core.storage.credentials import save_credentials
+
+        save_credentials('shaun', {'WEATHER_API_KEY': 'user-key'})
+        env = await ConnectorAuth().outbound_env(_cfg('api_key'), 'shaun')
+        assert env == {'WEATHER_API_KEY': 'user-key'}
+
+    @pytest.mark.asyncio
+    async def test_oauth_uses_the_documented_token_var(self, data_dir):
+        from marcel_core.connectors.auth import OAUTH_TOKEN_ENV
+
+        TokenStore().store('shaun', 'gh', StoredTokens(access_token='tok'))
+        env = await ConnectorAuth().outbound_env(_cfg('oauth', name='gh'), 'shaun')
+        assert env == {OAUTH_TOKEN_ENV: 'tok'}
+
+    @pytest.mark.asyncio
+    async def test_none_delivers_nothing(self, data_dir):
+        assert await ConnectorAuth().outbound_env(_cfg('none'), 'shaun') == {}
+
+    @pytest.mark.asyncio
+    async def test_unlinked_still_refuses(self, data_dir):
+        with pytest.raises(ConnectorNotLinked):
+            await ConnectorAuth().outbound_env(_cfg('api_key'), 'shaun')
+
+
 class TestNoneAndPassthrough:
     @pytest.mark.asyncio
     async def test_none_has_no_headers(self, data_dir):
