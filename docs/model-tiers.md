@@ -280,14 +280,14 @@ When Marcel decides a task exceeds its session tier, it can delegate to
 the bundled `power` subagent:
 
 ```python
-delegate(subagent_type='power', prompt='Refactor the X module to decouple Y from Z, think hard.')
+delegate(agent_name='power', task='Refactor the X module to decouple Y from Z, think hard.')
 ```
 
 The `power` agent ships as a habitat in [marcel-zoo](https://github.com/shbunder/marcel-zoo)
 at `<MARCEL_ZOO_DIR>/agents/power.md` and can be overridden by
 `~/.marcel/agents/power.md`. Its frontmatter uses the `model: power`
-sentinel, which the delegate tool resolves to `MARCEL_POWER_MODEL` at
-call time.
+sentinel, which resolves to `MARCEL_POWER_MODEL` when the parent agent
+is built.
 
 ### Tier sentinels in agent frontmatter
 
@@ -301,13 +301,17 @@ model: fast
 ---
 ```
 
-Valid sentinels: `fast`, `standard`, `power`, `fallback`. They're resolved
-against `settings.marcel_<tier>_model` at delegate time. If the env var is
-unset when the agent is invoked, `delegate()` returns a clean error message
-rather than raising.
+Valid sentinels: `local`, `fast`, `standard`, `power` — the tier names
+from the ladder above (`local` reads `MARCEL_FALLBACK_MODEL`). They're
+resolved every time the parent agent is built, so env-var changes apply
+on the next turn without a restart. If the referenced env var is unset,
+the agent is skipped with a logged warning and simply absent from the
+parent's subagent catalog — delegation to it is never offered. See
+[Agents → Model tier sentinels](agents.md#model-tier-sentinels).
 
-> **Removed:** `model: backup` is no longer valid. Agent loading rejects
-> it at startup with a warning pointing at the new tier names.
+> **Removed:** `model: backup` is no longer valid — agent loading skips
+> such a doc with a warning pointing at the new tier names. The old
+> `fallback` sentinel spelling is gone too; that tier is named `local`.
 
 ## Example configurations
 

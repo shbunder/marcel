@@ -121,7 +121,7 @@ When the user says "ping", call the `ping` tool and quote the result back.
 name: explore
 description: Read-only codebase exploration
 model: anthropic:claude-haiku-4-5-20251001
-tools: [read_file, list_dir, grep]
+tools: [read_file, list_directory, search_files]
 max_requests: 10
 timeout_seconds: 300
 ---
@@ -203,7 +203,7 @@ Harness turn ── reads ──► Skill habitats (SKILL.md via load_capability
                           │
                           │ activates tools of ──► Connector habitat (MCP server)
                           │
-                          │ "delegate(subagent=Y)" ──► Subagent habitat
+                          │ "delegate(agent_name=Y)" ──► Subagent habitat
                           │
                           └── schedule ──► Job habitat
                                            │

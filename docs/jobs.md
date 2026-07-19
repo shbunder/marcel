@@ -196,9 +196,12 @@ fire functions based on `dispatch_type`:
 
 - `_fire_tool_job` — deterministic connector-tool dispatch; no retries,
   no chain machinery. The tool owns its own idempotency.
-- `_fire_subagent_job` — loads the subagent via the agents loader,
-  builds a fresh pydantic-ai agent with the subagent's tool filter +
-  timeout, runs it against the templated task.
+- `_fire_subagent_job` — resolves and builds the subagent through the
+  same seam as the `delegate` tool (`marcel_core.capabilities.subagents`,
+  FEAT-260718-b6d1da), always at role `user`, then runs it against the
+  templated task under the tighter of the job's and the doc's timeout.
+  A `model: inherit` doc runs on the job's `model:` (or the configured
+  default).
 - `_fire_agent_job` (default) — the **headless agent turn** described
   below. This is the only path that uses the full model-fallback chain
   (`ISSUE-076`)
