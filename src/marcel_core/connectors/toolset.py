@@ -39,7 +39,7 @@ from pydantic_ai.mcp import MCPToolset
 from marcel_core.connectors.auth import ConnectorAuth
 from marcel_core.connectors.lifecycle import ConnectorRegistry, ConnectorStartError
 from marcel_core.connectors.loader import ConnectorDoc, load_connectors
-from marcel_core.connectors.models import ConnectorConfig, Discovery, Transport
+from marcel_core.connectors.models import ConnectorConfig, Discovery, Scope, Transport
 
 log = logging.getLogger(__name__)
 
@@ -136,36 +136,91 @@ def _spawned_toolset(config: ConnectorConfig, slug: str, auth: ConnectorAuth) ->
 
     if config.server.transport is Transport.INPROCESS:
         # No credential is resolved here on purpose: the schema pins inprocess to
-        # `auth: none` + `scope: admin`, because the imported server object is a
-        # module singleton shared by every user and so cannot hold a per-user
-        # secret. Computing a credential here would look like it was delivered.
+        # `auth: none`, because an in-process server cannot receive a per-user
+        # secret. Identity is different from a credential though — a park that
+        # stores per-user *data* (news articles, say) may expose a factory, and
+        # the registry's per-(connector, user) keying hands each user their own
+        # instance closed over their slug.
         module = config.server.module
         if module is None:  # pragma: no cover - schema guarantees it
             raise ValueError(f'connector {config.name!r} is inprocess without a module')
-        return MCPToolset(_load_inprocess_server(module), id=config.name)
+        return MCPToolset(_load_inprocess_server(module, slug, getattr(config, '_connector_dir', None)), id=config.name)
 
     env = auth.spawn_env(config, slug)
     command = config.server.command
     if not command:  # pragma: no cover - schema guarantees it
         raise ValueError(f'connector {config.name!r} is stdio without a command')
-    transport = StdioTransport(command=command[0], args=list(command[1:]), env=env)
+    argv = _resolve_park_argv(command, getattr(config, '_connector_dir', None))
+    transport = StdioTransport(command=argv[0], args=argv[1:], env=env)
     return MCPToolset(Client(transport), id=config.name)
 
 
-def _load_inprocess_server(module_path: str) -> Any:
-    """Import a bundled in-process FastMCP server by dotted path.
+def _resolve_park_argv(command: list[str], connector_dir: Any) -> list[str]:
+    """Resolve park-relative argv entries against the habitat directory.
 
-    The habitat points ``server.module`` at a module exposing ``mcp`` (the
-    FastMCP instance) — the FastMCP convention. In-process servers share
-    Marcel's own process, so this import is trusted code by construction (see
-    :mod:`marcel_core.connectors.lifecycle` on the trust model).
+    A committed connector.yaml cannot carry machine-specific absolute paths, so
+    `command: [.venv/bin/python, server.py]` names files relative to the park —
+    the dep-venv interpreter *is* the spawnable entry point (the dep-venv
+    decision from the news story). Entries that resolve to an existing file
+    under the park become absolute; anything else (e.g. a $PATH binary like
+    `npx`) passes through untouched.
+    """
+    if connector_dir is None:
+        return list(command)
+    from pathlib import Path
+
+    base = Path(str(connector_dir))
+    resolved: list[str] = []
+    for entry in command:
+        candidate = base / entry
+        resolved.append(str(candidate) if not Path(entry).is_absolute() and candidate.exists() else entry)
+    return resolved
+
+
+def _load_inprocess_server(module_path: str, slug: str | None = None, connector_dir: Any = None) -> Any:
+    """Import a bundled in-process FastMCP server by dotted path or park file.
+
+    The habitat's ``server.module`` exposes one of two shapes:
+
+    * ``build(user_slug) -> FastMCP`` — a **factory**, for parks whose data is
+      per-user. The registry keys instances per (connector, user), so each user
+      gets their own server closed over their slug. The slug is identity, not a
+      credential — ``auth: none`` still holds.
+    * ``mcp`` — a module-level FastMCP **singleton**, for genuinely
+      user-agnostic servers. Preferred only when there is no per-user state.
+
+    In-process servers share Marcel's own process, so this import is trusted
+    code by construction (see :mod:`marcel_core.connectors.lifecycle` on the
+    trust model).
     """
     import importlib
 
-    module = importlib.import_module(module_path)
+    if module_path.endswith('.py'):
+        # A park-relative file (D3, FEAT-260718-c232d9): zoo connectors are not
+        # importable packages, so `server.module: server.py` loads from the
+        # habitat directory — the same spec_from_file_location shape the
+        # extension loader uses.
+        import importlib.util
+        from pathlib import Path
+
+        if connector_dir is None:
+            raise ValueError(f'{module_path!r} is park-relative but the connector directory is unknown')
+        target = Path(str(connector_dir)) / module_path
+        if not target.is_file():
+            raise ValueError(f'connector server file {target} does not exist')
+        spec = importlib.util.spec_from_file_location(f'marcel_connector_servers.{target.parent.name}', target)
+        if spec is None or spec.loader is None:  # pragma: no cover - importlib contract
+            raise ValueError(f'cannot load connector server from {target}')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    else:
+        module = importlib.import_module(module_path)
+    build = getattr(module, 'build', None)
+    if callable(build) and slug is not None:
+        return build(slug)
     server = getattr(module, 'mcp', None)
     if server is None:
-        raise ValueError(f'{module_path!r} exposes no `mcp` FastMCP server instance')
+        raise ValueError(f'{module_path!r} exposes neither a `build(user_slug)` factory nor an `mcp` server')
     return server
 
 
@@ -269,3 +324,54 @@ def connector_toolsets_for_skill(
             continue
         toolsets.append(toolset)
     return toolsets
+
+
+async def call_connector_tool(ref: str, params: dict, slug: str, *, role: str = 'admin', timeout: float = 300.0) -> str:
+    """Call ``<connector>.<tool>`` directly — the job-dispatch path (D2).
+
+    ``dispatch_type: tool`` job refs like ``news.sync`` historically named a
+    toolkit handler. During and after the toolkit→connector migration
+    (FEAT-260718-c232d9) the same ref resolves here when no toolkit claims it:
+    connector ``news``, MCP tool ``sync``, invoked over the real protocol via a
+    fastmcp Client. Job templates stay unchanged across the migration.
+
+    System-scope jobs pass their run slug through (``_system`` fans out inside
+    the park's own tool, exactly as the toolkit handler did).
+    """
+    import asyncio
+
+    from fastmcp.client import Client
+    from fastmcp.client.transports import StdioTransport
+
+    from marcel_core.connectors.loader import get_connector
+
+    family, _, tool = ref.partition('.')
+    if not tool:
+        raise KeyError(f'{ref!r} is not a <connector>.<tool> reference')
+    doc = get_connector(family, None, role='admin')
+    if doc is None:
+        raise KeyError(f'no connector named {family!r}')
+    config = doc.config
+    # Defense in depth (security re-check, FEAT-260719-c232d9 Medium): today
+    # every TOOL job is admin-authored — create_job deliberately exposes
+    # neither dispatch_type nor tool — so this refusal is unreachable. It
+    # exists so that IF a future feature lets a non-admin author a tool job,
+    # naming an admin-scoped connector fails loudly here instead of silently
+    # becoming a privilege escalation.
+    if config.scope is Scope.ADMIN and role != 'admin':
+        raise PermissionError(f'{family!r} is admin-scoped; a non-admin run may not dispatch its tools')
+
+    if config.server.transport is Transport.INPROCESS:
+        server = _load_inprocess_server(config.server.module or '', slug, doc.connector_dir)
+        client = Client(server)
+    elif config.server.transport is Transport.STDIO:
+        env = ConnectorAuth().spawn_env(config, slug)
+        command = config.server.command or []
+        client = Client(StdioTransport(command=command[0], args=list(command[1:]), env=env))
+    else:
+        raise KeyError(f'connector {family!r} is http — schedule against its own service instead')
+
+    async with client:
+        result = await asyncio.wait_for(client.call_tool(tool, params or {}), timeout=timeout)
+    parts = getattr(result, 'content', None) or []
+    return '\n'.join(str(getattr(part, 'text', part)) for part in parts)

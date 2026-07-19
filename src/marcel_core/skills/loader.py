@@ -19,7 +19,6 @@ requirements are unmet, conversationally onboarding a family member.
 
 from __future__ import annotations
 
-import importlib.util
 import logging
 import os
 import re
@@ -232,42 +231,19 @@ def _env_present(env_keys: list[str]) -> bool:
 def _connector_requirements_met(connectors: list[str], user_slug: str, role: str = 'user') -> bool:
     """Whether a skill's ``marcel-connectors`` are satisfied for this user.
 
-    A name resolves in two worlds. **Connector habitats** (FEAT-260718-230bf8)
-    come first: a discoverable connector counts as met, because an unlinked one
-    already degrades on its own — the connector capability becomes a readable
-    "needs setup" stand-in, and gating the *skill* on it too would hide the
-    skill body behind SETUP.md even for a fully-linked user. Only if the name is
-    not a connector do we fall back to the pre-connector meaning, a **toolkit**
-    whose ``toolkit.yaml`` ``requires`` is the SETUP.md trigger (the same one
-    the retired ``depends_on`` had). A name that is neither is unmet, so the
-    user sees SETUP.md rather than a skill that cannot work.
+    A discoverable connector counts as met: an unlinked one already degrades on
+    its own — the connector capability becomes a readable "needs setup"
+    stand-in — and gating the *skill* on it too would hide the skill body
+    behind SETUP.md even for a fully-linked user. A name that resolves to no
+    connector is unmet, so the user sees SETUP.md rather than a skill that
+    cannot work. (The pre-connector toolkit fallback retired with the toolkit
+    habitat, FEAT-260718-c232d9.)
     """
     if not connectors:
         return True
     from marcel_core.connectors.loader import get_connector
-    from marcel_core.toolkit import get_toolkit_metadata
 
-    for name in connectors:
-        if get_connector(name, user_slug, role) is not None:
-            continue  # a connector habitat: linkage is the connector's own concern
-        meta = get_toolkit_metadata(name)
-        if meta is None:
-            log.debug('skill connector %r resolves to neither a connector nor a toolkit — unmet', name)
-            return False
-        req = meta.requires or {}
-        if not _credentials_present(list(req.get('credentials', [])), user_slug):
-            return False
-        if not _env_present(list(req.get('env', []))):
-            return False
-        for pkg in req.get('packages', []):
-            if importlib.util.find_spec(pkg) is None:
-                return False
-        for fname in req.get('files', []):
-            from marcel_core.storage._root import data_root
-
-            if not (data_root() / 'users' / user_slug / fname).exists():
-                return False
-    return True
+    return all(get_connector(name, user_slug, role) is not None for name in connectors)
 
 
 def _requirements_met(doc_meta: dict[str, str], connectors: list[str], user_slug: str, role: str = 'user') -> bool:
@@ -341,12 +317,12 @@ def _load_skill_dir(skill_dir: Path, source: str, user_slug: str, role: str = 'u
     default_enabled = default_enabled or _DEFAULT_ENABLED_FALLBACK
 
     cred_keys = list(_csv(metadata.get('marcel-requires-credentials')))
-    from marcel_core.toolkit import get_toolkit_metadata
+    from marcel_core.connectors.loader import get_connector
 
     for cname in connectors:
-        cmeta = get_toolkit_metadata(cname)
-        if cmeta is not None:
-            cred_keys.extend(cmeta.requires.get('credentials', []))
+        cdoc = get_connector(cname, user_slug, role)
+        if cdoc is not None:
+            cred_keys.extend(cdoc.config.auth.credential_keys)
 
     components = (
         parse_components_yaml(skill_dir / 'components.yaml', fm['name'])

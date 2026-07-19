@@ -1,4 +1,4 @@
-"""Tests for tools/toolkit.py and tools/marcel.py — toolkit dispatcher, memory, notify."""
+"""Tests for tools/marcel.py — the marcel utility tool (memory, notify, settings)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import pytest
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.storage import _root
 from marcel_core.tools.marcel import marcel
-from marcel_core.tools.toolkit import toolkit
 
 
 def _ctx(channel: str = 'cli', user_slug: str = 'shaun') -> MagicMock:
@@ -18,87 +17,6 @@ def _ctx(channel: str = 'cli', user_slug: str = 'shaun') -> MagicMock:
     ctx = MagicMock()
     ctx.deps = deps
     return ctx
-
-
-# ---------------------------------------------------------------------------
-# toolkit tool
-# ---------------------------------------------------------------------------
-
-
-class TestToolkitTool:
-    @pytest.mark.asyncio
-    async def test_dispatches_to_skill(self, monkeypatch):
-        from marcel_core.toolkit import _registry
-
-        saved = dict(_registry)
-        monkeypatch.setattr('marcel_core.toolkit._registry', {})
-
-        from marcel_core.toolkit import marcel_tool
-
-        @marcel_tool('test.ping')
-        async def ping(params, user_slug):
-            return 'pong'
-
-        with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'test.ping'}):
-            with patch('marcel_core.tools.toolkit.run', AsyncMock(return_value='pong')):
-                result = await toolkit(_ctx(), 'test.ping', {})
-
-        assert 'pong' in result
-        _registry.clear()
-        _registry.update(saved)
-
-    @pytest.mark.asyncio
-    async def test_unknown_skill_returns_error(self):
-        result = await toolkit(_ctx(), 'nonexistent.skill', {})
-        assert 'error' in result.lower() or 'available' in result.lower()
-
-    @pytest.mark.asyncio
-    async def test_none_params_defaults_to_empty(self):
-        with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
-            with patch('marcel_core.tools.toolkit.run', AsyncMock(side_effect=RuntimeError('boom'))):
-                result = await toolkit(_ctx(), 'x', None)
-        assert 'error' in result.lower()
-
-    @pytest.mark.asyncio
-    async def test_skill_execution_error_returns_message(self):
-        with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
-            with patch('marcel_core.tools.toolkit.run', AsyncMock(side_effect=Exception('oops'))):
-                result = await toolkit(_ctx(), 'x', {})
-        assert 'oops' in result or 'error' in result.lower()
-
-    @pytest.mark.asyncio
-    async def test_no_skill_docs_auto_injected(self):
-        """Skills are deferred capabilities now — the toolkit never prepends docs.
-
-        The old auto-inject-on-first-call crutch (and the ``turn.read_skills``
-        bookkeeping it drove) is gone; the model loads a skill via
-        ``load_capability`` before calling its toolkit.
-        """
-        ctx = _ctx()
-        with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
-            with patch('marcel_core.tools.toolkit.run', AsyncMock(return_value='result-data')):
-                result = await toolkit(ctx, 'banking.balance', {})
-
-        assert result == 'result-data'
-        assert 'Auto-loaded' not in result
-
-    @pytest.mark.asyncio
-    async def test_slow_handler_is_contained_by_timeout(self, monkeypatch):
-        """A hung in-process handler is bounded by the call-boundary timeout —
-        the containment that replaces the old UDS process isolation."""
-        import asyncio as _asyncio
-
-        monkeypatch.setattr('marcel_core.tools.toolkit._HANDLER_TIMEOUT', 0.05)
-
-        async def _hang(*_a, **_kw):
-            await _asyncio.sleep(5)
-            return 'never'
-
-        with patch('marcel_core.tools.toolkit.get_skill', return_value={'type': 'python', 'handler': 'x'}):
-            with patch('marcel_core.tools.toolkit.run', _hang):
-                result = await toolkit(_ctx(), 'slow.op', {})
-
-        assert 'timed out' in result.lower()
 
 
 # ---------------------------------------------------------------------------

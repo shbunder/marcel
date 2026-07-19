@@ -44,8 +44,9 @@ the agent calls it.
 from marcel_testing import call_tool, reply
 
 scenario = terrarium.scenario(
-    call_tool('toolkit', id='news.sync', params={}),  # 1st model turn: call a tool
-    reply('Your news is synced.'),                    # 2nd: final text
+    call_tool('load_capability', id='news'),  # 1st model turn: load the skill (connector tools ride along)
+    call_tool('sync'),                        # 2nd: call the connector's MCP tool
+    reply('Your news is synced.'),            # 3rd: final text
 )
 ```
 
@@ -68,8 +69,31 @@ terrarium.seed_history('bob', 'cli', [('user', 'earlier'), ('assistant', 'contex
 
 State lives in a per-test temp dir (`terrarium.data_root`); assert on files
 there after a run. The terrarium also snapshots and restores every process
-global a turn touches (channel/extension/toolkit registries, the approval
+global a turn touches (the channel and extension registries, the approval
 registry, the command-policy singleton), so two tests never share a world.
+
+### Installing connector parks
+
+The Terrarium seals with no zoo, so scenarios see no habitats by accident.
+`install_connector(park_dir)` is the explicit opt-in — mirroring
+`fake_api`'s declare-what-exists shape — symlinking one
+[connector](connectors.md) park into a synthetic zoo under the sealed data
+root:
+
+```python
+terrarium.install_connector(pathlib.Path(__file__).parent / 'probe')
+scenario = terrarium.scenario(
+    call_tool('load_capability', id='probe'),  # disclose the deferred connector
+    call_tool('ping', text='ping'),            # its MCP tool is now callable
+    reply('pong'),
+)
+```
+
+Per-turn connector discovery then finds exactly the parks a scenario
+declares; a deferred connector's tools become callable after the scripted
+`load_capability` step — the production disclosure flow. The kernel's own
+scenario suite drives a minimal probe park this way
+(`tests/scenarios/probe/`).
 
 ## Faking the outside world
 
@@ -127,10 +151,10 @@ approval queue.
 
 Every park ships tests in `<habitat>/<park>/tests/`; `make check` in
 marcel-zoo runs them all in the kernel venv. Use unit tests for park
-internals and terrarium scenarios for the park as production runs it — load
-the habitat through the kernel loader, fake its external APIs, and drive a
-full scripted turn. `toolkit/news/tests/test_news_scenarios.py` in marcel-zoo
-is the template.
+internals and terrarium scenarios for the park as production runs it —
+install the park with `install_connector`, fake its external APIs, and
+drive a full scripted turn. `connectors/news/tests/test_news_scenarios.py`
+in marcel-zoo is the template.
 
 ## Coverage discipline
 

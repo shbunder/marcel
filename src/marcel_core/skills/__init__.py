@@ -1,6 +1,5 @@
-"""Skills registry and integration tool for the Marcel agent."""
+"""Skill habitats — agentskills.io discovery + deferred-capability factory."""
 
 from .loader import load_skills
-from .registry import get_skill, list_skills
 
-__all__ = ['get_skill', 'list_skills', 'load_skills']
+__all__ = ['load_skills']

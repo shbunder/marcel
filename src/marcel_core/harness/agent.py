@@ -24,7 +24,6 @@ from marcel_core.tools import (
     core as core_tools,
     delegate as delegate_tool,
     marcel as marcel_tools,
-    toolkit as toolkit_tools,
 )
 from marcel_core.tools.web import web as web_tool
 
@@ -132,7 +131,6 @@ _TOOL_REGISTRY: list[tuple[str, object, str | None]] = [
     ('delegate', delegate_tool.delegate, 'admin'),
     # All-user tools
     ('generate_chart', chart_tools.generate_chart, None),
-    ('toolkit', toolkit_tools.toolkit, None),
     ('marcel', marcel_tools.marcel, None),
     # Job management
     ('create_job', job_tools.create_job, None),

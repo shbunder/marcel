@@ -238,3 +238,58 @@ class TestApprovals:
         for _ in range(105):  # let the bounded resolver task exhaust its spins
             await asyncio.sleep(0)
         assert channel.requests[0]['id'] == 'never-registered'
+
+
+class TestInstallConnector:
+    """The connector seam — scenarios declare which parks exist (FEAT-260718-c232d9)."""
+
+    def _park(self, tmp_path):
+        park = tmp_path / 'clockpark'
+        park.mkdir()
+        (park / 'connector.yaml').write_text(
+            'name: clockpark\ndescription: Clock\n'
+            'server: {transport: inprocess, module: server.py}\n'
+            'auth: {mode: none, per_user: false}\n'
+        )
+        (park / 'server.py').write_text(
+            'from fastmcp import FastMCP\n'
+            'def build(user_slug):\n'
+            "    mcp = FastMCP('clockpark')\n"
+            '    @mcp.tool\n'
+            '    def now() -> str:\n'
+            '        """The time."""\n'
+            "        return 'noon for ' + user_slug\n"
+            '    return mcp\n'
+        )
+        return park
+
+    def test_installed_park_is_discovered(self, tmp_path):
+        from marcel_core.connectors.loader import load_connectors
+
+        with Terrarium(tmp_path / 'data') as t:
+            assert load_connectors('alice') == []  # sealed world: no habitats by default
+            t.install_connector(self._park(tmp_path))
+            assert [d.name for d in load_connectors('alice')] == ['clockpark']
+
+    def test_install_is_idempotent(self, tmp_path):
+        from marcel_core.connectors.loader import load_connectors
+
+        park = self._park(tmp_path)
+        with Terrarium(tmp_path / 'data') as t:
+            t.install_connector(park)
+            t.install_connector(park)
+            assert len(load_connectors('alice')) == 1
+
+    def test_zoo_dir_restored_on_exit(self, tmp_path):
+        from marcel_core.config import settings
+
+        before = settings.marcel_zoo_dir
+        with Terrarium(tmp_path / 'data') as t:
+            t.install_connector(self._park(tmp_path))
+            assert settings.marcel_zoo_dir != before
+        assert settings.marcel_zoo_dir == before
+
+    def test_requires_entered(self, tmp_path):
+        t = Terrarium(tmp_path / 'data')
+        with pytest.raises(RuntimeError):
+            t.install_connector(self._park(tmp_path))

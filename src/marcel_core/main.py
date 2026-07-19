@@ -138,7 +138,7 @@ def _log_zoo_summary() -> None:
         return
 
     counts: dict[str, int] = {}
-    for kind in ('channels', 'toolkit', 'skills', 'connectors', 'jobs', 'agents'):
+    for kind in ('channels', 'skills', 'connectors', 'jobs', 'agents'):
         subdir = zoo_dir / kind
         if not subdir.is_dir():
             counts[kind] = 0

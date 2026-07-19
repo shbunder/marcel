@@ -510,7 +510,7 @@ async def _fire_tool_job(
     *,
     user_slug: str | None = None,
 ) -> JobRun:
-    """Dispatch a ``dispatch_type=tool`` job by calling a toolkit handler directly.
+    """Dispatch a ``dispatch_type=tool`` job by calling a connector tool directly.
 
     No LLM, no retry chain — tool handlers are expected to be
     deterministic, and any retry policy belongs inside the handler
@@ -519,8 +519,6 @@ async def _fire_tool_job(
     exceptions with :func:`classify_error` so telemetry buckets match
     the agent path.
     """
-    from marcel_core.toolkit import get_handler
-
     slug = _resolve_run_user(job, user_slug)
     run = JobRun(
         job_id=job.id,
@@ -530,30 +528,30 @@ async def _fire_tool_job(
     )
     assert job.tool is not None  # validator guarantees this for dispatch_type=tool
 
-    try:
-        handler = get_handler(job.tool)
-    except KeyError:
-        log.warning('%s-job: no toolkit handler registered for %r (job %s)', slug, job.tool, job.id)
-        run.error = f'No toolkit handler registered for {job.tool!r}'
-        run.error_category = 'config'
-        run.status = RunStatus.FAILED
-        run.finished_at = datetime.now(UTC)
-        return run
+    # D2 (FEAT-260718-c232d9): `family.tool` resolves against connector
+    # habitats — with the toolkit habitat retired this is the only path, and
+    # job templates written for toolkits keep working unchanged.
+    from marcel_core.connectors.toolset import call_connector_tool
 
     try:
         result = await asyncio.wait_for(
-            handler(job.tool_params, slug),
+            call_connector_tool(job.tool, job.tool_params, slug, timeout=job.timeout_seconds),
             timeout=job.timeout_seconds,
         )
-        run.output = '' if result is None else str(result)
+        run.output = result
         run.status = RunStatus.COMPLETED
+    except KeyError:
+        log.warning('%s-job: %r matches no connector tool (job %s)', slug, job.tool, job.id)
+        run.error = f'No connector tool for {job.tool!r}'
+        run.error_category = 'config'
+        run.status = RunStatus.FAILED
     except asyncio.TimeoutError:
         log.warning('%s-job: tool job %s (%s) timed out after %ds', slug, job.id, job.name, job.timeout_seconds)
         run.error = f'Job timed out after {job.timeout_seconds}s'
         run.error_category = 'timeout'
         run.status = RunStatus.TIMED_OUT
     except Exception as exc:
-        log.exception('%s-job: tool job %s (%s) failed', slug, job.id, job.name)
+        log.exception('%s-job: connector tool job %s (%s) failed', slug, job.id, job.name)
         run.error = str(exc)
         _, category = classify_error(str(exc))
         run.error_category = category

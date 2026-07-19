@@ -305,7 +305,6 @@ def _spawn_cfg(name='clock', transport='stdio', mode='none'):
     server = {'transport': 'stdio', 'command': ['clock-mcp', '--stdio']}
     if transport == 'inprocess':
         server = {'transport': 'inprocess', 'module': 'tests.connectors.fake_inprocess_server'}
-        scope = 'admin'  # inprocess is admin-scope-only (security audit)
     auth: dict = {'mode': 'none', 'per_user': False}
     if mode == 'api_key':
         auth = {'mode': 'api_key', 'per_user': True, 'credential_keys': ['CLOCK_API_KEY']}
@@ -386,7 +385,7 @@ class TestSpawnedTransports:
     def test_inprocess_module_without_server_is_rejected(self):
         from marcel_core.connectors.toolset import _load_inprocess_server
 
-        with pytest.raises(ValueError, match='exposes no `mcp`'):
+        with pytest.raises(ValueError, match='neither'):
             _load_inprocess_server('tests.connectors.fake_inprocess_broken')
 
     def test_spawn_env_carries_the_credential(self):
@@ -524,3 +523,59 @@ class TestSpawnedTransports:
         seen = str(SERVER.calls('now'))
         assert 'master-key-must-not-travel' not in seen
         assert 'marcel-token-must-not-travel' not in seen
+
+    @pytest.mark.asyncio
+    async def test_inprocess_factory_builds_a_per_user_server(self):
+        """A `build(user_slug)` factory gives each user their own instance.
+
+        This is how a park with per-user *data* (news) is inprocess under
+        auth:none: the slug is identity delivered by the kernel at build time,
+        not a credential — and the registry's per-(connector, user) keying is
+        what makes the pairing hold.
+        """
+        from fastmcp.client import Client
+
+        from marcel_core.connectors.toolset import _load_inprocess_server
+        from tests.connectors import fake_inprocess_factory
+
+        fake_inprocess_factory.BUILT.clear()
+        server_a = _load_inprocess_server('tests.connectors.fake_inprocess_factory', 'alice')
+        server_b = _load_inprocess_server('tests.connectors.fake_inprocess_factory', 'bob')
+        assert fake_inprocess_factory.BUILT == ['alice', 'bob']
+        assert server_a is not server_b
+
+        async with Client(server_a) as client:
+            result = await client.call_tool('whoami', {})
+        assert 'alice' in str(result.content[0])
+
+    def test_inprocess_singleton_still_supported(self):
+        from marcel_core.connectors.toolset import _load_inprocess_server
+
+        a = _load_inprocess_server('tests.connectors.fake_inprocess_server', 'alice')
+        b = _load_inprocess_server('tests.connectors.fake_inprocess_server', 'bob')
+        assert a is b  # user-agnostic singleton — same object is fine here
+
+    def test_module_with_neither_shape_is_rejected(self):
+        from marcel_core.connectors.toolset import _load_inprocess_server
+
+        with pytest.raises(ValueError, match='neither'):
+            _load_inprocess_server('tests.connectors.fake_inprocess_broken', 'alice')
+
+    def test_park_relative_command_resolves_against_the_park(self, tmp_path):
+        """`command: [.venv/bin/python, server.py]` cannot be machine-absolute in a
+        committed connector.yaml — entries that exist under the park become
+        absolute; $PATH binaries pass through (the dep-venv decision)."""
+        from marcel_core.connectors.toolset import _resolve_park_argv
+
+        (tmp_path / '.venv' / 'bin').mkdir(parents=True)
+        (tmp_path / '.venv' / 'bin' / 'python').write_text('')
+        (tmp_path / 'server.py').write_text('')
+        argv = _resolve_park_argv(['.venv/bin/python', 'server.py', '--flag', 'npx'], tmp_path)
+        assert argv[0] == str(tmp_path / '.venv' / 'bin' / 'python')
+        assert argv[1] == str(tmp_path / 'server.py')
+        assert argv[2:] == ['--flag', 'npx']  # non-files untouched
+
+    def test_park_relative_command_without_dir_passes_through(self):
+        from marcel_core.connectors.toolset import _resolve_park_argv
+
+        assert _resolve_park_argv(['npx', '-y', 'x'], None) == ['npx', '-y', 'x']

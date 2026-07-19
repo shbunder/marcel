@@ -2,9 +2,9 @@
 
 Marcel's `web` tool is the single dispatcher for everything web-related:
 searching, browsing, reading, and interactive flows. It mirrors the
-pattern used by [marcel](skills.md) (internal utilities),
-[integration](skills.md) (external APIs), and the shell capability (server
-environment) — one tool per axis of capability, many actions per tool.
+pattern used by [marcel](skills.md) (internal utilities) and the shell
+capability (server environment) — one tool per axis of capability, many
+actions per tool.
 
 ## Why one tool instead of many
 
@@ -15,7 +15,7 @@ dispatcher:
 - makes the tool schema one entry instead of twelve (cheaper in tokens),
 - puts the cost/capability hierarchy in one always-visible docstring
   instead of fragmenting it across eleven tool descriptions,
-- mirrors the `integration` / `marcel` / `run_command` pattern so the model sees
+- mirrors the `marcel` / `run_command` pattern so the model sees
   a consistent shape for all god-tools,
 - lets us extend the web surface (new search backends, new browser
   operations) without adding new tool names.

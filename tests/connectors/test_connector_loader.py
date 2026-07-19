@@ -484,18 +484,24 @@ class TestReservedEnvVars:
 
 
 class TestInprocessConstraints:
-    """HIGH-2: the imported server object is a module singleton shared by all users."""
+    """HIGH-2: the imported server object is a module singleton shared by all users.
 
-    def test_inprocess_requires_admin_scope(self):
-        with pytest.raises(ValidationError, match='requires scope: admin'):
-            ConnectorConfig.model_validate(
-                {
-                    'name': 'clock',
-                    'description': 'x',
-                    'server': {'transport': 'inprocess', 'module': 'm'},
-                    'auth': {'mode': 'none', 'per_user': False},
-                }
-            )
+    auth: none is the load-bearing half and stays. The original scope: admin
+    pairing was deliberately relaxed (ADR-260718-231cad Amendment 2026-07-19b):
+    scope gates who may *use* a connector, but the memory-sharing risk is about
+    who may *install* one — and habitats are admin-installed either way.
+    """
+
+    def test_inprocess_family_visible_is_legal(self):
+        cfg = ConnectorConfig.model_validate(
+            {
+                'name': 'clock',
+                'description': 'x',
+                'server': {'transport': 'inprocess', 'module': 'm'},
+                'auth': {'mode': 'none', 'per_user': False},
+            }
+        )
+        assert cfg.scope is Scope.ALL  # a credential-free bundled server may serve everyone
 
     def test_inprocess_cannot_carry_a_per_user_credential(self):
         with pytest.raises(ValidationError, match='cannot carry a per-user credential'):
@@ -505,7 +511,6 @@ class TestInprocessConstraints:
                     'description': 'x',
                     'server': {'transport': 'inprocess', 'module': 'm'},
                     'auth': {'mode': 'api_key', 'per_user': True, 'credential_keys': ['K']},
-                    'scope': 'admin',
                 }
             )
 

@@ -38,9 +38,10 @@ class ToolResult:
     is_error: bool = False
 
 
-# A toolkit handler: ``(params, user_slug) -> str | ToolResult``, async.
-# The bare-``str`` return is the historical contract; ``ToolResult`` is the
-# richer opt-in. ``@marcel_tool`` is sugar over :meth:`ExtensionAPI.tool`.
+# The historical toolkit-handler shape: ``(params, user_slug) -> str |
+# ToolResult``, async. Kept only so :meth:`ExtensionAPI.tool` — the retired
+# registration path — stays typeable during its one-release deprecation
+# window (FEAT-260718-c232d9).
 ToolHandler = Callable[[dict, str], Awaitable['str | ToolResult']]
 
 
@@ -49,9 +50,9 @@ class ExtensionAPI(Protocol):
     """The ``marcel`` object handed to ``register(marcel)``.
 
     Every capability an extension can add is a method here. The five
-    historical habitat "kinds" (toolkit / skill / channel / job / subagent)
-    become *things you register* through one object, plus ``on`` to
-    subscribe to the lifecycle event bus.
+    habitat kinds (skill / connector / channel / job / subagent) become
+    *things you register* through one object, plus ``on`` to subscribe to
+    the lifecycle event bus.
 
     This is a :class:`typing.Protocol`: the kernel provides the concrete
     implementation, extensions type against the protocol. It is the
@@ -60,12 +61,11 @@ class ExtensionAPI(Protocol):
     """
 
     def tool(self, name: str) -> Callable[[ToolHandler], ToolHandler]:
-        """Register a toolkit handler under ``name`` (``"family.action"``).
+        """Deprecated no-op — the toolkit habitat retired (FEAT-260718-c232d9).
 
-        Used as a decorator: ``@marcel.tool("docker.list")``. The wrapped
-        function is the same ``(params, user_slug)`` async handler the
-        ``@marcel_tool`` decorator takes — that decorator is now sugar
-        over this method.
+        The decorator emits a :class:`DeprecationWarning` and registers
+        nothing. Port the extension to :meth:`connector` — an MCP server
+        carries the tools now (see docs/connectors.md). Removed next release.
         """
         ...
 

@@ -66,7 +66,7 @@ class TestCreateMarcelAgent:
         agent = create_marcel_agent(system_prompt='You are a test assistant.', role='user')
         assert agent._instructions == ['You are a test assistant.']
         names = _registered_tool_names(agent)
-        assert 'toolkit' in names
+        assert 'toolkit' not in names  # dispatcher retired (FEAT-260718-c232d9)
         assert 'marcel' in names
         assert 'bash' not in names
         assert 'delegate' not in names
@@ -258,7 +258,7 @@ class TestToolFilter:
         assert 'delegate' not in names
         assert 'claude_code' not in names
         assert 'marcel' in names
-        assert 'toolkit' in names
+        assert 'toolkit' not in names  # dispatcher retired (FEAT-260718-c232d9)
 
 
 class TestAllModelsLocalEntry:

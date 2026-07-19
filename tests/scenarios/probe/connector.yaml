@@ -1,0 +1,10 @@
+name: probe
+description: Scenario probe tools (test infrastructure)
+server:
+  transport: inprocess
+  module: server.py
+auth:
+  mode: none
+  per_user: false
+scope: all
+discovery: deferred

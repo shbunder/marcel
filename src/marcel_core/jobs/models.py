@@ -30,7 +30,7 @@ class TriggerType(str, enum.Enum):
 class JobDispatchType(str, enum.Enum):
     """How a job's work is dispatched when the trigger fires.
 
-    - ``TOOL``: call a toolkit handler directly, no LLM.
+    - ``TOOL``: call a connector tool directly, no LLM.
     - ``SUBAGENT``: invoke a named subagent with a scoped task.
     - ``AGENT``: the historical path — run a full main-agent turn. Default.
 
@@ -131,8 +131,8 @@ class JobDefinition(BaseModel):
     # persisted job file: no ``dispatch_type:`` on disk → full agent turn.
     dispatch_type: JobDispatchType = JobDispatchType.AGENT
 
-    # For dispatch_type=TOOL: which toolkit handler to call + its params.
-    # Handlers are resolved via ``marcel_core.toolkit.get_handler``.
+    # For dispatch_type=TOOL: which connector tool to call + its params.
+    # Refs resolve via ``marcel_core.connectors.toolset.call_connector_tool``.
     tool: str | None = None
     tool_params: dict = Field(default_factory=dict)
 
@@ -226,7 +226,7 @@ class JobDefinition(BaseModel):
 
         if dt is JobDispatchType.TOOL:
             if not has_tool:
-                raise ValueError("dispatch_type='tool' requires the `tool` field (toolkit handler name)")
+                raise ValueError("dispatch_type='tool' requires the `tool` field (connector tool ref)")
             if has_subagent or has_subagent_task:
                 raise ValueError("dispatch_type='tool' cannot carry `subagent` or `subagent_task`")
         elif dt is JobDispatchType.SUBAGENT:

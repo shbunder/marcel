@@ -24,19 +24,18 @@ Dev and prod both run as Docker containers on different ports: `make serve` brin
 
 These four are Marcel's constitution — the standard every change is held to and the name every review cites. Refer to one by its **handle** (e.g. "Core principle: Recoverable"); the [`plan-verifier`](.claude/agents/plan-verifier.md) and [`pre-close-verifier`](.claude/agents/pre-close-verifier.md) name the relevant handle in their findings, and the [rules](.claude/rules/) enforce them mechanically.
 
-- **Lightweight** *(over bloated).* Marcel has no unnecessary dependencies. Every skill and integration must be self-contained and removable — the [toolkit-skill-pairs](.claude/rules/toolkit-skill-pairs.md) rule keeps each habitat shipping complete, never half.
+- **Lightweight** *(over bloated).* Marcel has no unnecessary dependencies. Every skill and integration must be self-contained and removable — the [connector-skill-pairs](.claude/rules/connector-skill-pairs.md) rule keeps each habitat shipping complete, never half.
 - **Generic** *(over specific).* A general extension point beats a hardcoded one-off. Prefer strong primitives.
 - **Human-readable** *(over clever).* Error messages, logs, and responses are read by non-technical family members as often as by developers.
 - **Recoverable** *(over fast).* Before any self-modification, commit current state to git. No change is worth an unrecoverable break — enforced by [self-modification](.claude/rules/self-modification.md) (the one legal restart path) and [debugging](.claude/rules/debugging.md) (a regression test ships with every fix).
 
 ## Habitat taxonomy (summary)
 
-The kernel ships no behaviour. Everything Marcel can *do* lives in one of six kinds of habitat under `$MARCEL_ZOO_DIR`:
+The kernel ships no behaviour. Everything Marcel can *do* lives in one of five kinds of habitat under `$MARCEL_ZOO_DIR`:
 
 | Kind | Directory | Shape | Teaches / runs |
 |---|---|---|---|
-| **Toolkit** | `toolkit/<name>/` | `@marcel_tool` handlers + `toolkit.yaml` | Python code the agent can call |
-| **Skill** | `skills/<name>/` | `SKILL.md` (+ `SETUP.md`) | *When* to reach for a toolkit |
+| **Skill** | `skills/<name>/` | `SKILL.md` (+ `SETUP.md`) | *When* to reach for a connector's tools |
 | **Connector** | `connectors/<name>/` | `connector.yaml` (+ `SETUP.md`) | An MCP server + per-user auth; connector code is **trusted code** — see [docs/connectors.md](docs/connectors.md) |
 | **Subagent** | `agents/<name>.md` | single Markdown | Scoped sub-pass the main agent can `delegate()` to |
 | **Channel** | `channels/<name>/` | router + `channel.yaml` | Inbound webhooks + outbound push (Telegram, …) |
