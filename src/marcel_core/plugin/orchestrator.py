@@ -22,7 +22,6 @@ from marcel_core.plugin.habitat import (
     JobHabitat,
     SkillHabitat,
     SubagentHabitat,
-    ToolkitHabitat,
 )
 
 log = logging.getLogger(__name__)
@@ -34,7 +33,6 @@ log = logging.getLogger(__name__)
 # mountable early. Jobs, agents, and skills are markdown/YAML-only and
 # order-insensitive among themselves.
 _KINDS: tuple[tuple[str, type], ...] = (
-    ('toolkit', ToolkitHabitat),
     ('channel', ChannelHabitat),
     ('job', JobHabitat),
     ('subagent', SubagentHabitat),
@@ -55,7 +53,7 @@ def discover_all_habitats(zoo_dir: Path | None) -> dict[str, list[Habitat]]:
     3. Log one info line per kind with the count.
 
     Returns a dict whose keys are the five kind names
-    (``'toolkit'``, ``'channel'``, ``'job'``, ``'subagent'``, ``'skill'``)
+    (``'channel'``, ``'job'``, ``'subagent'``, ``'skill'``; connectors resolve per-user at capability-build time)
     and values are the discovered Habitat instances. Keys are always
     present even when a kind yielded zero results.
     """

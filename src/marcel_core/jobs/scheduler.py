@@ -25,7 +25,6 @@ from marcel_core.jobs.models import JobDefinition, JobStatus, TriggerType
 
 if TYPE_CHECKING:
     from marcel_core.jobs.models import JobRun
-    from marcel_core.toolkit import ScheduledJobSpec
 
 log = logging.getLogger(__name__)
 
@@ -124,7 +123,7 @@ def _habitat_job_id(habitat: str, entry_name: str) -> str:
 def _ensure_habitat_jobs() -> None:
     """Materialize ``scheduled_jobs:`` entries from every loaded habitat.
 
-    For each ``ScheduledJobSpec`` in ``_metadata[name].scheduled_jobs``:
+    For each ``ConnectorScheduledJob`` in a connector habitat's ``scheduled_jobs:``:
     - Synthesize a system-scope :class:`JobDefinition` with stable ID and
       ``template='habitat:<name>'``.
     - ``save_job()`` writes it on first run; on subsequent runs the same
@@ -137,21 +136,13 @@ def _ensure_habitat_jobs() -> None:
     name no longer appears in that habitat's specs) is deleted. This keeps
     "uninstall a habitat = remove its directory" working for jobs too.
     """
-    from marcel_core.jobs import delete_job, list_all_jobs, save_job
-    from marcel_core.jobs.models import JobDefinition, JobDispatchType, NotifyPolicy, TriggerSpec
-    from marcel_core.toolkit import _metadata
-
-    desired: dict[str, tuple[str, 'ScheduledJobSpec']] = {}  # job_id -> (habitat_name, spec)
-    for habitat_name, meta in _metadata.items():
-        for spec in meta.scheduled_jobs:
-            job_id = _habitat_job_id(habitat_name, spec.name)
-            desired[job_id] = (habitat_name, spec)
-
     # Connector habitats declare scheduled_jobs too (D1, FEAT-260718-c232d9) —
     # same stable job id, so a park migrating from toolkit to connector keeps
     # its cadence and history. A name collision (both habitats live during the
     # migration) resolves to the connector, the migration target.
     from marcel_core.connectors.models import ConnectorScheduledJob
+    from marcel_core.jobs import delete_job, list_all_jobs, save_job
+    from marcel_core.jobs.models import JobDefinition, JobDispatchType, NotifyPolicy, TriggerSpec
 
     connector_specs: dict[str, tuple[str, ConnectorScheduledJob]] = {}
     try:
@@ -160,7 +151,6 @@ def _ensure_habitat_jobs() -> None:
         for doc in load_connectors(None, role='admin'):
             for cspec in doc.config.scheduled_jobs:
                 job_id = _habitat_job_id(doc.name, cspec.name)
-                desired.pop(job_id, None)
                 connector_specs[job_id] = (doc.name, cspec)
     except Exception:  # pragma: no cover - discovery must never break scheduling
         log.exception('connector scheduled-jobs discovery failed')
@@ -168,7 +158,7 @@ def _ensure_habitat_jobs() -> None:
     for job in list_all_jobs():
         if not (job.template or '').startswith(_HABITAT_TEMPLATE_PREFIX):
             continue
-        if job.id not in desired:
+        if job.id not in connector_specs:
             log.info(
                 'Removing orphan habitat job %s (%s) — habitat %s no longer declares it',
                 job.id,
@@ -176,47 +166,6 @@ def _ensure_habitat_jobs() -> None:
                 job.template,
             )
             delete_job(job.id)
-
-    for job_id, (habitat_name, spec) in desired.items():
-        existing = next(
-            (j for j in list_all_jobs() if j.id == job_id),
-            None,
-        )
-        if existing is not None:
-            continue  # already on disk; user-edited fields stay intact
-
-        if spec.cron is not None:
-            trigger = TriggerSpec(type=TriggerType.CRON, cron=spec.cron, timezone=spec.timezone)
-        else:
-            trigger = TriggerSpec(type=TriggerType.INTERVAL, interval_seconds=spec.interval_seconds)
-
-        default_task = (
-            f'Call the {spec.handler} integration and report the result. Pass these params: {spec.params}.'
-            if spec.params
-            else f'Call the {spec.handler} integration and report the result.'
-        )
-        default_prompt = (
-            f"You are a background worker for the '{habitat_name}' habitat. "
-            f"Call the integration handler '{spec.handler}' with the configured params and "
-            'report a brief summary. Surface any warnings the handler returns.'
-        )
-
-        job = JobDefinition(
-            id=job_id,
-            name=spec.name,
-            description=spec.description or f'Scheduled job from habitat {habitat_name}',
-            users=[],
-            trigger=trigger,
-            system_prompt=spec.system_prompt or default_prompt,
-            task=spec.task or default_task,
-            model=spec.model or 'anthropic:claude-haiku-4-5-20251001',
-            skills=[spec.handler],
-            notify=NotifyPolicy(spec.notify),
-            channel=spec.channel,
-            template=f'{_HABITAT_TEMPLATE_PREFIX}{habitat_name}',
-        )
-        save_job(job)
-        log.info("Created habitat job '%s' (%s) from habitat '%s'", spec.name, job.id, habitat_name)
 
     for job_id, (habitat_name, cspec) in connector_specs.items():
         if any(j.id == job_id for j in list_all_jobs()):

@@ -19,7 +19,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_lifespan_runs_discover_before_scheduler_start(tmp_path, monkeypatch):
-    """`discover()` must populate `_metadata` before `scheduler.start()` fires."""
+    """Habitat discovery must run before `scheduler.start()` fires."""
     # Keep startup side effects contained to a tmp dir.
     monkeypatch.setenv('MARCEL_DATA_DIR', str(tmp_path / 'data'))
     (tmp_path / 'data').mkdir()
@@ -27,11 +27,13 @@ async def test_lifespan_runs_discover_before_scheduler_start(tmp_path, monkeypat
     call_order: list[str] = []
 
     with (
-        patch('marcel_core.toolkit.discover') as discover,
         patch('marcel_core.main.scheduler') as scheduler,
         patch('marcel_core.main._background_summarization_loop'),
+        patch(
+            'marcel_core.plugin.orchestrator.discover_all_habitats',
+            side_effect=lambda _zoo: (call_order.append('discover'), {})[1],
+        ),
     ):
-        discover.side_effect = lambda *_a, **_kw: call_order.append('discover')
         scheduler.start.side_effect = lambda *_a, **_kw: call_order.append('scheduler.start')
         scheduler.stop.side_effect = lambda *_a, **_kw: None
 
@@ -41,8 +43,8 @@ async def test_lifespan_runs_discover_before_scheduler_start(tmp_path, monkeypat
             pass
 
     assert call_order.index('discover') < call_order.index('scheduler.start'), (
-        f'discover() must run before scheduler.start() so _metadata is populated '
-        f'when rebuild_schedule() → _ensure_habitat_jobs() runs. Actual order: {call_order}'
+        f'discovery must run before scheduler.start() so habitat state is populated '
+        f'when rebuild_schedule() runs. Actual order: {call_order}'
     )
 
 
@@ -111,7 +113,7 @@ def test_log_zoo_summary_populated_zoo(monkeypatch, caplog, tmp_path):
     """Populated zoo logs one INFO line with per-kind counts, no WARNING."""
     zoo = _seed_zoo(
         tmp_path / 'zoo',
-        {'channels': 1, 'toolkit': 3, 'skills': 7, 'jobs': 4, 'agents': 2},
+        {'channels': 1, 'skills': 7, 'connectors': 2, 'jobs': 4, 'agents': 2},
     )
     # Also drop a hidden + underscore entry to confirm they're excluded.
     (zoo / 'skills' / '.hidden').mkdir()
@@ -124,7 +126,7 @@ def test_log_zoo_summary_populated_zoo(monkeypatch, caplog, tmp_path):
         main_module._log_zoo_summary()
 
     infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
-    assert any(f'zoo at {zoo}' in m and 'channels=1' in m and 'toolkit=3' in m and 'skills=7' in m for m in infos), (
+    assert any(f'zoo at {zoo}' in m and 'channels=1' in m and 'connectors=2' in m and 'skills=7' in m for m in infos), (
         infos
     )
     # Hidden + underscore subdirs must not be counted.

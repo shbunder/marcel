@@ -24,7 +24,6 @@ from marcel_core.plugin.habitat import (
     JobHabitat,
     SkillHabitat,
     SubagentHabitat,
-    ToolkitHabitat,
 )
 from marcel_core.plugin.orchestrator import discover_all_habitats
 
@@ -35,8 +34,7 @@ from marcel_core.plugin.orchestrator import discover_all_habitats
 
 class TestProtocolCompliance:
     def test_all_wrappers_structurally_satisfy_protocol(self):
-        samples: list[ToolkitHabitat | ChannelHabitat | SkillHabitat | SubagentHabitat | JobHabitat] = [
-            ToolkitHabitat(name='n', source='/p', provides=()),
+        samples: list[ChannelHabitat | SkillHabitat | SubagentHabitat | JobHabitat] = [
             ChannelHabitat(name='n', source='/p', has_router=False),
             SkillHabitat(name='n', source='/p'),
             SubagentHabitat(name='n', source='/p'),
@@ -47,7 +45,7 @@ class TestProtocolCompliance:
             assert sample.name == 'n'
             assert sample.source == '/p'
             # Every wrapper exposes its kind as a class-level constant.
-            assert sample.kind in {'toolkit', 'channel', 'skill', 'subagent', 'job'}
+            assert sample.kind in {'channel', 'skill', 'subagent', 'job'}
 
     def test_wrappers_are_frozen(self):
         """Habitats are value objects — no accidental mutation after discovery."""
@@ -111,36 +109,13 @@ class TestJobHabitatDiscovery:
 
 
 # ---------------------------------------------------------------------------
-# Side-effecting wrappers — ToolkitHabitat, ChannelHabitat
+# Side-effecting wrappers — ChannelHabitat
 # ---------------------------------------------------------------------------
 
 
 class _FakeMeta:
     def __init__(self, provides):
         self.provides = provides
-
-
-class TestToolkitHabitatDiscovery:
-    def test_returns_empty_when_zoo_dir_is_none(self, monkeypatch):
-        # Stub discover so we don't touch any real zoo.
-        monkeypatch.setattr('marcel_core.toolkit.discover', lambda: None)
-        monkeypatch.setattr('marcel_core.toolkit._metadata', {})
-        assert ToolkitHabitat.discover_all(None) == []
-
-    def test_wraps_metadata_entries_under_toolkit_path(self, tmp_path, monkeypatch):
-        zoo = tmp_path / 'zoo'
-        (zoo / 'toolkit' / 'demo').mkdir(parents=True)
-
-        fake_metadata = {'demo': _FakeMeta(['demo.ping', 'demo.pong'])}
-        monkeypatch.setattr('marcel_core.toolkit.discover', lambda: None)
-        monkeypatch.setattr('marcel_core.toolkit._metadata', fake_metadata)
-
-        result = ToolkitHabitat.discover_all(zoo)
-        assert len(result) == 1
-        assert result[0].name == 'demo'
-        assert result[0].source == str(zoo / 'toolkit' / 'demo')
-        assert result[0].provides == ('demo.ping', 'demo.pong')
-        assert result[0].kind == 'toolkit'
 
 
 class _FakePlugin:
@@ -197,9 +172,9 @@ class TestSubagentHabitatDiscovery:
 class TestOrchestrator:
     def test_returns_five_kind_keys_even_when_empty(self):
         result = discover_all_habitats(None)
-        # None zoo → skill/job/toolkit empty; subagents may have data-root
+        # None zoo → skill/job/channel empty; subagents may have data-root
         # defaults, channels empty (nothing imported).
-        assert set(result.keys()) == {'toolkit', 'channel', 'skill', 'subagent', 'job'}
+        assert set(result.keys()) == {'channel', 'skill', 'subagent', 'job'}
 
     def test_broken_kind_isolated_from_others(self, tmp_path, monkeypatch, caplog):
         """A wrapper that raises must not prevent other kinds from discovering."""
@@ -207,9 +182,8 @@ class TestOrchestrator:
         def boom(_zoo_dir):
             raise RuntimeError('simulated bad habitat loader')
 
-        # Make the toolkit wrapper blow up mid-discovery.
         monkeypatch.setattr(
-            'marcel_core.plugin.orchestrator.ToolkitHabitat.discover_all',
+            'marcel_core.plugin.orchestrator.ChannelHabitat.discover_all',
             classmethod(lambda cls, zoo_dir: boom(zoo_dir)),
         )
         # Plus seed a skill dir so we can observe a non-empty neighbour.
@@ -218,12 +192,12 @@ class TestOrchestrator:
         with caplog.at_level('ERROR', logger='marcel_core.plugin.orchestrator'):
             result = discover_all_habitats(zoo)
 
-        assert result['toolkit'] == []  # isolated failure
+        assert result['channel'] == []  # isolated failure
         assert [h.name for h in result['skill']] == ['alpha']  # still populated
-        assert any('toolkit discovery failed' in r.message for r in caplog.records)
+        assert any('channel discovery failed' in r.message for r in caplog.records)
 
     def test_dispatch_order_is_fixed(self, monkeypatch):
-        """Orchestrator calls toolkit before channel before skill/subagent/job."""
+        """Orchestrator calls channel before skill/subagent/job."""
         call_order: list[str] = []
 
         def record(kind):
@@ -233,10 +207,6 @@ class TestOrchestrator:
 
             return _stub
 
-        monkeypatch.setattr(
-            'marcel_core.plugin.orchestrator.ToolkitHabitat.discover_all',
-            classmethod(lambda cls, zoo_dir: record('toolkit')(zoo_dir)),
-        )
         monkeypatch.setattr(
             'marcel_core.plugin.orchestrator.ChannelHabitat.discover_all',
             classmethod(lambda cls, zoo_dir: record('channel')(zoo_dir)),
@@ -256,8 +226,7 @@ class TestOrchestrator:
 
         discover_all_habitats(None)
 
-        # Toolkit MUST come first (metadata populated before scheduler);
-        # channel second (router mount ordering).
-        assert call_order[:2] == ['toolkit', 'channel']
-        # All five kinds called exactly once.
-        assert sorted(call_order) == sorted(['toolkit', 'channel', 'job', 'subagent', 'skill'])
+        # Channel MUST come first (router mount ordering).
+        assert call_order[0] == 'channel'
+        # All four eagerly-discovered kinds called exactly once.
+        assert sorted(call_order) == sorted(['channel', 'job', 'subagent', 'skill'])

@@ -7,9 +7,9 @@ matching migration note. Anything **not** re-exported here is internal and
 may change at any time — zoo code that reaches past this surface owns its
 own breakage.
 
-Surface today (toolkit habitat focus):
+Surface today:
 
-- :func:`marcel_tool`, :data:`ToolkitHandler`, :func:`get_logger` — declare
+- :func:`get_logger` — declare
   and log from a handler.
 - :mod:`marcel_core.plugin.credentials` — encrypted per-user credential
   load/save (used by zoo banking + icloud habitats).

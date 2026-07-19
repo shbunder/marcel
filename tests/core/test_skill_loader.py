@@ -30,19 +30,6 @@ from marcel_core.skills.loader import (
     load_skills,
     validate_skill_frontmatter,
 )
-from marcel_core.toolkit import ToolkitMetadata
-
-
-@pytest.fixture
-def isolated_metadata(monkeypatch):
-    """Provide a clean toolkit metadata registry for the test."""
-    from marcel_core.toolkit import _metadata
-
-    saved = dict(_metadata)
-    _metadata.clear()
-    yield _metadata
-    _metadata.clear()
-    _metadata.update(saved)
 
 
 @pytest.fixture
@@ -279,39 +266,26 @@ class TestRequirementChecks:
 
 
 class TestConnectorRequirements:
-    def test_no_connectors_passes(self, isolated_metadata):
+    """marcel-connectors resolve against connector habitats only (toolkit retired)."""
+
+    def _park(self, roots_zoo, name='weather'):
+        park = roots_zoo / 'connectors' / name
+        park.mkdir(parents=True, exist_ok=True)
+        (park / 'connector.yaml').write_text(
+            f'name: {name}\ndescription: x\n'
+            'server: {transport: http, url: https://x.test}\n'
+            'auth: {mode: none, per_user: false}\n'
+        )
+
+    def test_no_connectors_passes(self):
         assert _connector_requirements_met([], 'shaun') is True
 
-    def test_unregistered_connector_unmet(self, isolated_metadata):
-        assert _connector_requirements_met(['docker'], 'shaun') is False
+    def test_unknown_name_unmet(self, roots, tmp_path):
+        assert _connector_requirements_met(['ghost'], 'shaun') is False
 
-    def test_registered_no_requires_passes(self, isolated_metadata):
-        isolated_metadata['docker'] = ToolkitMetadata(name='docker', requires={})
-        assert _connector_requirements_met(['docker'], 'shaun') is True
-
-    def test_env_requirement_propagates(self, isolated_metadata, monkeypatch):
-        isolated_metadata['docker'] = ToolkitMetadata(name='docker', requires={'env': ['DOCKER_HOST']})
-        monkeypatch.delenv('DOCKER_HOST', raising=False)
-        assert _connector_requirements_met(['docker'], 'shaun') is False
-        monkeypatch.setenv('DOCKER_HOST', 'unix:///x')
-        assert _connector_requirements_met(['docker'], 'shaun') is True
-
-    def test_installed_package_passes(self, isolated_metadata):
-        isolated_metadata['pkgs'] = ToolkitMetadata(name='pkgs', requires={'packages': ['pytest']})
-        assert _connector_requirements_met(['pkgs'], 'shaun') is True
-
-    def test_missing_package_fails(self, isolated_metadata):
-        isolated_metadata['pkgs'] = ToolkitMetadata(name='pkgs', requires={'packages': ['nonexistent_xyz_123']})
-        assert _connector_requirements_met(['pkgs'], 'shaun') is False
-
-    def test_file_requirement(self, isolated_metadata, tmp_path, monkeypatch):
-        monkeypatch.setattr('marcel_core.storage._root._DATA_ROOT', tmp_path)
-        isolated_metadata['keyed'] = ToolkitMetadata(name='keyed', requires={'files': ['key.pem']})
-        assert _connector_requirements_met(['keyed'], 'shaun') is False
-        user_dir = tmp_path / 'users' / 'shaun'
-        user_dir.mkdir(parents=True)
-        (user_dir / 'key.pem').write_text('k')
-        assert _connector_requirements_met(['keyed'], 'shaun') is True
+    def test_discoverable_connector_met(self, roots, tmp_path):
+        self._park(tmp_path / 'zoo')
+        assert _connector_requirements_met(['weather'], 'shaun') is True
 
 
 # ---------------------------------------------------------------------------
@@ -478,13 +452,16 @@ class TestLoadSkillDir:
         assert doc is not None
         assert any('catalog entries should stay compact' in r.getMessage() for r in caplog.records)
 
-    def test_connector_credentials_aggregated(self, tmp_path, isolated_metadata):
-        isolated_metadata['banking'] = ToolkitMetadata(name='banking', requires={'credentials': ['BANK_API_KEY']})
-        d = tmp_path / 'banking'
-        d.mkdir()
-        (d / 'SKILL.md').write_text(_md('banking', metadata={'marcel-connectors': 'banking'}))
-        doc = _load_skill_dir(d, 'zoo-global', 'shaun')
-        assert doc is not None
+    def test_connector_credentials_aggregated(self, roots, tmp_path):
+        park = tmp_path / 'zoo' / 'connectors' / 'bankco'
+        park.mkdir(parents=True)
+        (park / 'connector.yaml').write_text(
+            'name: bankco\ndescription: x\n'
+            'server: {transport: http, url: https://x.test}\n'
+            'auth: {mode: api_key, per_user: true, credential_keys: [BANK_API_KEY]}\n'
+        )
+        roots('zoo-global', 'bankco', skill_md=_md('bankco', metadata={'marcel-connectors': 'bankco'}))
+        doc = next(d for d in load_skills('shaun') if d.name == 'bankco')
         assert 'BANK_API_KEY' in doc.credential_keys
 
 

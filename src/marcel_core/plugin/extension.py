@@ -7,8 +7,8 @@ manifest (ADR-260628-9f4c41).
 
 Registrations route to where the kernel already looks:
 
-- ``marcel.tool(name)`` → the toolkit registry (same as ``@marcel_tool``),
-  so extension tools are dispatchable immediately via the ``toolkit`` tool.
+- ``marcel.tool(name)`` → deprecated no-op (the toolkit habitat retired,
+  FEAT-260718-c232d9); extensions register connectors instead.
 - ``marcel.channel(plugin)`` → the channel registry (``register_channel``).
 - ``marcel.on(event, handler)`` → the :class:`ExtensionRegistry`, replayed
   onto **each turn's** event bus by
@@ -30,7 +30,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
-from typing import cast
 
 from marcel_sdk.events import (
     EventBus,
@@ -104,20 +103,26 @@ class MarcelExtensionAPI:
         self._registry = registry
 
     def tool(self, name: str) -> Callable[[ToolHandler], ToolHandler]:
-        """Register a toolkit handler under ``name`` (``"family.action"``).
+        """Deprecated: the toolkit registry retired with the toolkit habitat.
 
-        Delegates to the same registry the ``@marcel_tool`` decorator uses,
-        so ``@marcel.tool("x.y")`` and ``@marcel_tool("x.y")`` are equivalent
-        entrypoints — ``@marcel_tool`` is the back-compat sugar.
-
-        ``marcel_tool`` is typed for ``str``-returning handlers; the SDK
-        ``ToolHandler`` also permits a ``ToolResult`` return. F0 handlers
-        return ``str`` (ToolResult dispatch handling is future work), so the
-        decorator is bridged to the SDK signature with a cast.
+        Extension tools were dispatched via the ``toolkit`` tool, which no
+        longer exists (FEAT-260718-c232d9). The handler is NOT registered —
+        port the extension to register a connector instead
+        (``api.connector(...)``, see docs/connectors.md).
         """
-        from marcel_core.toolkit import marcel_tool
 
-        return cast('Callable[[ToolHandler], ToolHandler]', marcel_tool(name))
+        def decorator(fn: ToolHandler) -> ToolHandler:
+            import warnings
+
+            warnings.warn(
+                f'marcel.tool({name!r}) is retired — the toolkit habitat became the connector '
+                'habitat. Register a connector instead (docs/connectors.md).',
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return fn
+
+        return decorator
 
     def on(self, event: str, handler: EventHandler) -> None:
         """Subscribe ``handler`` to a lifecycle event on every turn's bus."""

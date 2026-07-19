@@ -5,7 +5,7 @@ Each path is covered in isolation:
 
 - The pydantic ``model_validator`` on :class:`JobDefinition` enforces
   shape consistency per ``dispatch_type``.
-- ``_fire_tool_job`` calls into the toolkit registry directly and never
+- ``_fire_tool_job`` calls the connector tool directly and never
   touches the LLM chain.
 - ``_fire_subagent_job`` loads a subagent markdown and spawns a scoped
   pydantic-ai agent, mirroring the flow in
@@ -119,14 +119,12 @@ class TestFireToolJob:
     async def test_success_returns_handler_output(self, monkeypatch):
         calls: list[tuple[dict, str]] = []
 
-        async def fake_handler(params: dict, user_slug: str) -> str:
-            calls.append((params, user_slug))
+        async def fake_call(ref: str, params: dict, slug: str, *, timeout: float = 300.0) -> str:
+            assert ref == 'demo.ping'
+            calls.append((params, slug))
             return 'handler output'
 
-        monkeypatch.setattr(
-            'marcel_core.toolkit.get_handler',
-            lambda name: fake_handler if name == 'demo.ping' else (_ for _ in ()).throw(KeyError(name)),
-        )
+        monkeypatch.setattr('marcel_core.connectors.toolset.call_connector_tool', fake_call)
 
         job = _make_job(dispatch_type='tool', tool='demo.ping', tool_params={'x': 1})
         run = await _fire_tool_job(job, 'test')
@@ -138,10 +136,10 @@ class TestFireToolJob:
 
     @pytest.mark.asyncio
     async def test_missing_handler_fails_with_config_category(self, monkeypatch):
-        def raise_key_error(name: str):
-            raise KeyError(name)
+        async def raise_key_error(ref: str, params: dict, slug: str, *, timeout: float = 300.0) -> str:
+            raise KeyError(ref)
 
-        monkeypatch.setattr('marcel_core.toolkit.get_handler', raise_key_error)
+        monkeypatch.setattr('marcel_core.connectors.toolset.call_connector_tool', raise_key_error)
 
         job = _make_job(dispatch_type='tool', tool='unknown.thing')
         run = await _fire_tool_job(job, 'test')
@@ -154,11 +152,11 @@ class TestFireToolJob:
     async def test_timeout_marks_run_timed_out(self, monkeypatch):
         import asyncio
 
-        async def slow_handler(params: dict, user_slug: str) -> str:
+        async def slow_call(ref: str, params: dict, slug: str, *, timeout: float = 300.0) -> str:
             await asyncio.sleep(10)
             return 'never'
 
-        monkeypatch.setattr('marcel_core.toolkit.get_handler', lambda _name: slow_handler)
+        monkeypatch.setattr('marcel_core.connectors.toolset.call_connector_tool', slow_call)
 
         # timeout_seconds=0 triggers TimeoutError deterministically
         job = _make_job(dispatch_type='tool', tool='slow.op', timeout_seconds=0)
@@ -170,10 +168,10 @@ class TestFireToolJob:
 
     @pytest.mark.asyncio
     async def test_handler_exception_classifies_error(self, monkeypatch):
-        async def boom(params: dict, user_slug: str) -> str:
+        async def boom(ref: str, params: dict, slug: str, *, timeout: float = 300.0) -> str:
             raise RuntimeError('rate limit exceeded (429)')
 
-        monkeypatch.setattr('marcel_core.toolkit.get_handler', lambda _name: boom)
+        monkeypatch.setattr('marcel_core.connectors.toolset.call_connector_tool', boom)
 
         job = _make_job(dispatch_type='tool', tool='boom.op')
         run = await _fire_tool_job(job, 'test')

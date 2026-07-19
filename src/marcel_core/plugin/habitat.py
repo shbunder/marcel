@@ -1,7 +1,7 @@
 """Habitat Protocol — uniform discovery surface across the five habitat kinds.
 
 Marcel discovers five kinds of habitats at startup
-(:class:`ToolkitHabitat`, :class:`ChannelHabitat`, :class:`SkillHabitat`,
+(:class:`ChannelHabitat`, :class:`SkillHabitat`,
 :class:`SubagentHabitat`, :class:`JobHabitat`). Each has its own native
 loader with different signatures (side-effecting ``discover()`` vs
 list-returning ``load_agents()`` vs per-user ``load_skills(user_slug)``).
@@ -31,7 +31,7 @@ class Habitat(Protocol):
     frontmatter) as extra attributes; the Protocol itself only guarantees
     the three fields the orchestrator and logging need.
 
-    - ``kind``: one of ``'toolkit'``, ``'channel'``, ``'skill'``,
+    - ``kind``: one of ``'channel'``, ``'skill'``,
       ``'subagent'``, ``'job'``. Used for per-kind grouping in the
       orchestrator's return dict and in logs.
     - ``name``: the habitat's local identifier (directory name for
@@ -44,50 +44,6 @@ class Habitat(Protocol):
     kind: str
     name: str
     source: str
-
-
-@dataclass(frozen=True, slots=True)
-class ToolkitHabitat:
-    """Wraps a discovered toolkit habitat (``<zoo>/toolkit/<name>/``).
-
-    Carries the ``provides`` handler-id list from the habitat's
-    ``toolkit.yaml`` so callers don't have to re-read ``_metadata``.
-    """
-
-    name: str
-    source: str
-    provides: tuple[str, ...]
-    kind: str = 'toolkit'
-
-    @classmethod
-    def discover_all(cls, zoo_dir: Path | None) -> list[ToolkitHabitat]:
-        """Trigger toolkit discovery and wrap every resulting habitat.
-
-        Calls :func:`marcel_core.toolkit.discover` — the standard
-        side-effecting loader that imports each habitat's ``__init__.py``
-        and registers handlers via ``@marcel_tool``. Post-call state is
-        read from ``_metadata``. Safe to call repeatedly; discovery is
-        idempotent via ``sys.modules``.
-        """
-        from marcel_core.toolkit import _metadata, discover
-
-        discover()
-
-        if zoo_dir is None:
-            return []
-
-        result: list[ToolkitHabitat] = []
-        for habitat_name, meta in sorted(_metadata.items()):
-            path = zoo_dir / 'toolkit' / habitat_name
-            if path.is_dir():
-                result.append(
-                    cls(
-                        name=habitat_name,
-                        source=str(path),
-                        provides=tuple(meta.provides),
-                    )
-                )
-        return result
 
 
 @dataclass(frozen=True, slots=True)

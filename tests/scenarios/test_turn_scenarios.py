@@ -8,12 +8,12 @@ the outside world replaced by terrarium fakes.
 
 from __future__ import annotations
 
+import pathlib
+
 import httpx
 import pytest
 from odile import call_tool, reply
 from pydantic_ai import models as pai_models
-
-from marcel_core.toolkit import marcel_tool
 
 
 class TestPlainReplyPersists:
@@ -59,29 +59,34 @@ class TestStreamingDeltasArriveIncrementally:
         assert types.index(TextDelta) < types.index(RunFinished)
 
 
+from tests.scenarios import probe_hooks  # noqa: E402
+
+_PROBE_PARK = pathlib.Path(__file__).resolve().parent / 'probe'
+
+
 class TestToolCallThroughBus:
     """Scenario: scripted tool call flows through the real event bus."""
 
     async def test_registered_test_tool_echoes(self, terrarium):
-        seen: list[dict] = []
+        seen: list[str] = []
 
-        @marcel_tool('echo.ping')
-        async def ping(params: dict, user_slug: str) -> str:
-            seen.append(params)
-            return f'pong: {params.get("text", "")}'
+        probe_hooks.reset()
+        probe_hooks.HANDLERS['ping'] = lambda text, user_slug: (seen.append(text), f'pong: {text}')[1]
+        terrarium.install_connector(_PROBE_PARK)
 
         scenario = terrarium.scenario(
-            call_tool('toolkit', id='echo.ping', params={'text': 'ping'}),
+            call_tool('load_capability', id='probe'),
+            call_tool('ping', text='ping'),
             reply('done'),
         )
         result = await scenario.run('ping the echo tool')
 
         assert result.reply == 'done'
-        assert seen == [{'text': 'ping'}]
-        assert [e.tool_name for e in result.tool_calls] == ['toolkit']
+        assert seen == ['ping']
+        assert 'ping' in [e.tool_name for e in result.tool_calls]
         names = [e.NAME for e in result.bus_events]
         assert names.index('tool_call') < names.index('tool_result')
-        completion = result.completions[0]
+        completion = next(c for c in result.completions if c.tool_name == 'ping')
         assert 'pong: ping' in completion.result
 
 
@@ -137,20 +142,21 @@ class TestExtensionRewriteReachesHistory:
 
         extension_registry().handlers.append(('tool_result', redact))
 
-        @marcel_tool('vault.leak')
-        async def leak(params: dict, user_slug: str) -> str:
-            return 'value is SECRET'
+        probe_hooks.reset()
+        probe_hooks.HANDLERS['leak'] = lambda user_slug: 'value is SECRET'
+        terrarium.install_connector(_PROBE_PARK)
 
         terrarium.user('alice')
         scenario = terrarium.scenario(
-            call_tool('toolkit', id='vault.leak', params={}),
+            call_tool('load_capability', id='probe'),
+            call_tool('leak'),
             reply('done'),
             user='alice',
             channel='cli',
         )
         result = await scenario.run('leak it')
 
-        completion = next(c for c in result.completions if c.tool_name == 'toolkit')
+        completion = next(c for c in result.completions if c.tool_name == 'leak')
         assert '[redacted]' in completion.result
         assert 'SECRET' not in completion.result
 
@@ -207,20 +213,25 @@ class TestFakeAPINeverNetwork:
     async def test_toolkit_handler_reaches_fake(self, terrarium):
         terrarium.fake_api('https://api.weather.test').returns('/today', json={'sky': 'sunny'})
 
-        @marcel_tool('weather.today')
-        async def today(params: dict, user_slug: str) -> str:
+        async def _fetch(url, user_slug):
             async with httpx.AsyncClient() as client:
                 response = await client.get('https://api.weather.test/today')
             return response.json()['sky']
 
+        probe_hooks.reset()
+        probe_hooks.HANDLERS['fetch'] = _fetch
+        terrarium.install_connector(_PROBE_PARK)
+
         scenario = terrarium.scenario(
-            call_tool('toolkit', id='weather.today', params={}),
+            call_tool('load_capability', id='probe'),
+            call_tool('fetch', url='https://api.weather.test/today'),
             reply('it is sunny'),
         )
         result = await scenario.run('weather?')
 
         assert result.reply == 'it is sunny'
-        assert 'sunny' in result.completions[0].result
+        completion = next(c for c in result.completions if c.tool_name == 'fetch')
+        assert 'sunny' in completion.result
 
     async def test_unmocked_host_raises(self, terrarium):
         terrarium.fake_api('https://api.weather.test').returns('/today', json={})
@@ -268,12 +279,13 @@ class TestOversizedResultsSpillWithHandle:
 
         big = 'x' * (settings.marcel_overflow_spill_chars + 1_000)
 
-        @marcel_tool('blob.dump')
-        async def dump(params: dict, user_slug: str) -> str:
-            return big
+        probe_hooks.reset()
+        probe_hooks.HANDLERS['big'] = lambda n, user_slug: big
+        terrarium.install_connector(_PROBE_PARK)
 
         scenario = terrarium.scenario(
-            call_tool('toolkit', id='blob.dump', params={}),
+            call_tool('load_capability', id='probe'),
+            call_tool('big'),
             reply('stored'),
             user='alice',
         )
@@ -283,7 +295,7 @@ class TestOversizedResultsSpillWithHandle:
         pastes = list((terrarium.data_root / 'users' / 'alice' / '.pastes').glob('*'))
         assert pastes, 'the oversized payload must spill to the paste store'
 
-        completion = next(c for c in result.completions if c.tool_name == 'toolkit')
+        completion = next(c for c in result.completions if c.tool_name == 'big')
         assert big not in completion.result, 'the full payload never reaches the model inline'
         assert 'read_tool_result' in completion.result, 'the model gets a read-back handle'
 

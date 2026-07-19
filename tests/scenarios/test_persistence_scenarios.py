@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
+import pathlib
 
 from odile import call_tool, reply
-
-from marcel_core.toolkit import marcel_tool
 
 
 class TestStepStoreLedgerAndResume:
@@ -24,14 +23,16 @@ class TestStepStoreLedgerAndResume:
 
         from marcel_core.capabilities.persistence import persistence_store
         from marcel_core.capabilities.persistence.store import _ledger_path
+        from tests.scenarios import probe_hooks
 
-        @marcel_tool('probe.note')
-        async def note(params: dict, user_slug: str) -> str:
-            return 'noted'
+        probe_hooks.reset()
+        probe_hooks.HANDLERS['note'] = lambda text, user_slug: 'noted'
+        terrarium.install_connector(pathlib.Path(__file__).resolve().parent / 'probe')
 
         terrarium.user('alice')
         s1 = terrarium.scenario(
-            call_tool('toolkit', id='probe.note', params={}),
+            call_tool('load_capability', id='probe'),
+            call_tool('note'),
             reply('First reply'),
             user='alice',
             channel='cli',
@@ -129,26 +130,37 @@ class TestToolHistoryPersistsExactlyOnce:
     """
 
     async def test_no_reappend_on_later_turns(self, terrarium):
-        @marcel_tool('probe.echo')
-        async def echo(params: dict, user_slug: str) -> str:
-            return 'probe-result'
+        from tests.scenarios import probe_hooks
+
+        probe_hooks.reset()
+        probe_hooks.HANDLERS['ping'] = lambda text, user_slug: 'probe-result'
+        terrarium.install_connector(pathlib.Path(__file__).resolve().parent / 'probe')
 
         terrarium.user('alice')
         s1 = terrarium.scenario(
-            call_tool('toolkit', id='probe.echo', params={}),
+            call_tool('load_capability', id='probe'),
+            call_tool('ping'),
             reply('turn one done'),
             user='alice',
             channel='cli',
         )
         await s1.run('use the probe')
 
+        from marcel_core.memory.conversation import read_active_segment
+
+        after_one = read_active_segment('alice', 'cli')
+        tools_after_one = len([m for m in after_one if m.role == 'tool'])
+        calls_after_one = len([m for m in after_one if m.role == 'assistant' and m.tool_calls])
+        assert tools_after_one >= 1  # the probe (plus load_capability bookkeeping)
+
         s2 = terrarium.scenario(reply('turn two done'), user='alice', channel='cli')
         await s2.run('just chat')
-
-        from marcel_core.memory.conversation import read_active_segment
 
         msgs = read_active_segment('alice', 'cli')
         tool_entries = [m for m in msgs if m.role == 'tool']
         assistant_tool_calls = [m for m in msgs if m.role == 'assistant' and m.tool_calls]
-        assert len(tool_entries) == 1, f'expected 1 tool entry after 2 turns, found {len(tool_entries)}'
-        assert len(assistant_tool_calls) == 1
+        # The invariant: turn two must not re-append turn one's tool history.
+        assert len(tool_entries) == tools_after_one, (
+            f'expected {tools_after_one} tool entries after 2 turns, found {len(tool_entries)}'
+        )
+        assert len(assistant_tool_calls) == calls_after_one

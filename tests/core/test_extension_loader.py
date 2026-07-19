@@ -6,7 +6,6 @@ from pathlib import Path
 
 from marcel_core.plugin.extension import (
     ExtensionRegistry,
-    MarcelExtensionAPI,
     emit_resources_discover,
     load_extensions,
 )
@@ -65,10 +64,8 @@ def test_loads_and_registers_all_kinds(tmp_path):
     loaded = load_extensions(zoo, reg)
     assert loaded == ['extloader_demo']
 
-    # tool → toolkit registry (dispatchable)
-    from marcel_core.toolkit import get_handler
-
-    assert get_handler('extloader.ping') is not None
+    # tool → deprecated no-op (the toolkit habitat retired, FEAT-260718-c232d9);
+    # the extension still loads, its other registrations still land.
 
     # channel → channel registry
     from marcel_core.plugin.channels import get_channel
@@ -129,9 +126,6 @@ def test_loads_single_file_extension(tmp_path):
         '        return "ok"\n',
     )
     assert load_extensions(tmp_path, reg) == ['extloader_file']
-    from marcel_core.toolkit import get_handler
-
-    assert get_handler('extloaderfile.ok') is not None
 
 
 def test_non_python_files_ignored(tmp_path):
@@ -202,18 +196,16 @@ async def test_emit_resources_discover_no_handlers_is_empty():
 
 
 def test_marcel_tool_and_api_tool_share_registry():
-    """marcel.tool(...) registers into the same toolkit registry as @marcel_tool."""
-    from marcel_core.toolkit import get_handler, marcel_tool
+    """Both spellings are deprecation no-ops now — they warn and do not register."""
+    import warnings
 
-    api = MarcelExtensionAPI(ExtensionRegistry())
+    from marcel_core.toolkit import marcel_tool
 
-    @api.tool('extapi.viaobj')
-    async def _via_obj(params, user_slug):
-        return 'a'
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
 
-    @marcel_tool('extapi.viadecorator')
-    async def _via_decorator(params, user_slug):
-        return 'b'
+        @marcel_tool('legacy.ping')
+        async def ping(params, user_slug):
+            return 'ok'
 
-    assert get_handler('extapi.viaobj') is not None
-    assert get_handler('extapi.viadecorator') is not None
+    assert any('connector' in str(w.message) for w in caught)
