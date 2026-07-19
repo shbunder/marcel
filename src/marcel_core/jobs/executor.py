@@ -571,31 +571,30 @@ async def _fire_subagent_job(
     *,
     user_slug: str | None = None,
 ) -> JobRun:
-    """Dispatch a ``dispatch_type=subagent`` job via the subagent loader.
+    """Dispatch a ``dispatch_type=subagent`` job via the capability path.
 
-    Mirrors the core flow of :func:`marcel_core.tools.delegate.delegate`
-    — load the agent markdown, resolve model and tool filter, spawn a
-    fresh pydantic-ai Agent with its own conversation id and TurnState,
-    run it against ``job.subagent_task`` (with ``{user_slug}`` as the
-    only supported placeholder).
+    Uses the same doc discovery + child assembly as the SubAgents
+    delegation capability (:mod:`marcel_core.capabilities.subagents`,
+    FEAT-260718-b6d1da) — one seam, two entry points. The child runs
+    against ``job.subagent_task`` (with ``{user_slug}`` as the only
+    supported placeholder) under its own conversation id and TurnState.
 
     Runs under role ``user``: the executor always builds user-tier jobs
-    regardless of who authored them, matching :func:`execute_job`. The
-    recursion guard is inherited (``delegate`` stripped unless the
-    subagent frontmatter opts in explicitly).
+    regardless of who authored them, matching :func:`execute_job` — so a
+    job-dispatched child never carries admin tools, and the recursion
+    rule holds (no delegation from children unless the doc opts in).
 
     Does not use the retry/model-chain machinery; see the ISSUE-ea6d47
     Implementation Approach for rationale.
     """
-    from marcel_core.agents.loader import AgentNotFoundError, load_agent
-    from marcel_core.harness.agent import create_marcel_agent, default_model
-    from marcel_core.harness.context import MarcelDeps
-    from marcel_core.harness.model_chain import (
-        TierNotConfigured,
-        is_tier_sentinel,
-        resolve_tier_sentinel,
+    from marcel_core.capabilities.subagents import (
+        SubagentNotFoundError,
+        build_child_agent,
+        load_agent_doc,
     )
-    from marcel_core.tools.delegate import _default_pool_minus, _resolve_tool_filter
+    from marcel_core.harness.agent import default_model
+    from marcel_core.harness.context import MarcelDeps
+    from marcel_core.harness.model_chain import TierNotConfigured
 
     slug = _resolve_run_user(job, user_slug)
     run = JobRun(
@@ -614,8 +613,8 @@ async def _fire_subagent_job(
         return run
 
     try:
-        agent_doc = load_agent(job.subagent)
-    except AgentNotFoundError as exc:
+        agent_doc = load_agent_doc(job.subagent)
+    except SubagentNotFoundError as exc:
         log.warning('%s-job: subagent %r not found (job %s)', slug, job.subagent, job.id)
         return _fail(f'subagent {job.subagent!r} not found: {exc}', 'config')
 
@@ -625,29 +624,23 @@ async def _fire_subagent_job(
     except KeyError as exc:
         return _fail(f'subagent_task references unsupported placeholder {exc!s}', 'config')
 
-    model = agent_doc.model or job.model or default_model()
-    if is_tier_sentinel(model):
-        try:
-            model = resolve_tier_sentinel(model)
-        except (TierNotConfigured, ValueError) as exc:
-            return _fail(f'subagent model resolution failed: {exc}', 'config')
+    try:
+        sub_agent = build_child_agent(agent_doc, role='user')
+    except (TierNotConfigured, ValueError) as exc:
+        return _fail(f'subagent model resolution failed: {exc}', 'config')
+    except Exception as exc:
+        log.exception('%s-job: subagent build failed for %s', slug, job.id)
+        return _fail(f'subagent build failed: {exc}', 'config')
 
-    if agent_doc.tools is None:
-        tool_filter: set[str] | None = _default_pool_minus(
-            role='user',
-            disallowed=agent_doc.disallowed_tools,
-            include_delegate=False,
-        )
-    else:
-        tool_filter = _resolve_tool_filter(agent_doc.tools, agent_doc.disallowed_tools)
-
-    system_prompt = agent_doc.system_prompt or 'You are a Marcel subagent.'
+    # An inherit-model doc builds model-less; the job's own model (or the
+    # configured default) fills it at run time — same precedence as before.
+    run_model = (job.model or default_model()) if sub_agent.model is None else None
 
     deps = MarcelDeps(
         user_slug=slug,
         conversation_id=f'job:{job.id}:{run.run_id}:subagent:{job.subagent}',
         channel='job',
-        model=model,
+        model=run_model or str(sub_agent.model),
         role='user',
     )
     deps.turn.suppress_notify = job.notify in (NotifyPolicy.SILENT, NotifyPolicy.ON_FAILURE)
@@ -658,25 +651,10 @@ async def _fire_subagent_job(
 
         usage_limits = UsageLimits(request_limit=agent_doc.max_requests)
 
-    try:
-        sub_agent = create_marcel_agent(
-            model=model,
-            system_prompt=system_prompt,
-            role='user',
-            tool_filter=tool_filter,
-            memory=False,
-            code_mode=False,
-            skills=False,
-            connectors=False,
-        )
-    except Exception as exc:
-        log.exception('%s-job: subagent build failed for %s', slug, job.id)
-        return _fail(f'subagent build failed: {exc}', 'config')
-
     effective_timeout = min(job.timeout_seconds, agent_doc.timeout_seconds)
     try:
         result = await asyncio.wait_for(
-            sub_agent.run(task, deps=deps, usage_limits=usage_limits),
+            sub_agent.run(task, deps=deps, usage_limits=usage_limits, model=run_model),
             timeout=effective_timeout,
         )
         run.output = result.output

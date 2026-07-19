@@ -146,7 +146,7 @@ class TestChannelHabitatDiscovery:
 
 
 # ---------------------------------------------------------------------------
-# SubagentHabitat — passes through load_agents
+# SubagentHabitat — passes through load_agent_docs
 # ---------------------------------------------------------------------------
 
 
@@ -155,7 +155,7 @@ class TestSubagentHabitatDiscovery:
         from types import SimpleNamespace
 
         fake = [SimpleNamespace(name='plan', source='data'), SimpleNamespace(name='explore', source='zoo')]
-        monkeypatch.setattr('marcel_core.agents.loader.load_agents', lambda: fake)
+        monkeypatch.setattr('marcel_core.capabilities.subagents.load_agent_docs', lambda user_slug=None: fake)
 
         result = SubagentHabitat.discover_all(None)
         assert [(h.name, h.source, h.kind) for h in result] == [

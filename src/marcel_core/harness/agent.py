@@ -24,7 +24,6 @@ from marcel_core.tools import (
     charts as chart_tools,
     claude_code as claude_code_tool,
     core as core_tools,
-    delegate as delegate_tool,
     marcel as marcel_tools,
 )
 from marcel_core.tools.web import web as web_tool
@@ -35,6 +34,12 @@ log = logging.getLogger(__name__)
 # shape ``local:<ollama_tag>`` are intercepted in :func:`create_marcel_agent`
 # and routed to ``settings.marcel_local_llm_url`` via ``OpenAIChatModel``.
 _LOCAL_PREFIX = 'local:'
+
+# Sentinel: build the agent model-less. A ``model: inherit`` subagent is
+# constructed this way so the harness SubAgents capability runs it on the
+# parent's model at delegation time (FEAT-260718-b6d1da). Distinct from
+# ``None``, which resolves to the configured default.
+INHERIT_MODEL = 'inherit'
 
 # Suggested models shown by list_models. Keys are pydantic-ai qualified strings
 # (``provider:model``); values are human-readable display names. This is a
@@ -130,7 +135,6 @@ _TOOL_REGISTRY: list[tuple[str, object, str | None]] = [
     ('git_commit', core_tools.git_commit, 'admin'),
     ('git_push', core_tools.git_push, 'admin'),
     ('claude_code', claude_code_tool.claude_code, 'admin'),
-    ('delegate', delegate_tool.delegate, 'admin'),
     # All-user tools
     ('generate_chart', chart_tools.generate_chart, None),
     ('marcel', marcel_tools.marcel, None),
@@ -178,8 +182,11 @@ def admin_tool_names() -> frozenset[str]:
 
     registry_admin = frozenset(name for name, _fn, required in _TOOL_REGISTRY if required == 'admin')
     # Shell and FileSystem are admin-only capabilities (FEAT-260718-38235c);
-    # their tool names join the gate so layer 2 covers them too.
-    return registry_admin | SHELL_TOOL_NAMES | FILESYSTEM_TOOL_NAMES
+    # their tool names join the gate so layer 2 covers them too. ``delegate``
+    # is the SubAgents capability's tool (FEAT-260718-b6d1da) — admin-tier,
+    # attached in composition only for admin builds; named here so the bus
+    # gate covers it as the second layer.
+    return registry_admin | SHELL_TOOL_NAMES | FILESYSTEM_TOOL_NAMES | {'delegate'}
 
 
 def create_marcel_agent(
@@ -194,6 +201,7 @@ def create_marcel_agent(
     skills: bool = True,
     eager_skill: str | None = None,
     connectors: bool = True,
+    subagents: bool = True,
     extra_capabilities: Sequence[AbstractCapability[MarcelDeps]] | None = None,
 ) -> Agent[MarcelDeps, str]:
     """Create a configured Marcel agent with a role-appropriate tool set.
@@ -243,9 +251,13 @@ def create_marcel_agent(
     if model is None:
         model = default_model()
 
-    model_arg: str | Model
+    model_arg: str | Model | None
     if isinstance(model, Model):
         model_arg = model
+    elif model == INHERIT_MODEL:
+        # Model-less build — the SubAgents capability supplies the parent's
+        # model at delegation time.
+        model_arg = None
     elif model.startswith(_LOCAL_PREFIX):
         model_arg = _build_local_model(model)
     else:
@@ -280,6 +292,7 @@ def create_marcel_agent(
         skills=skills,
         eager_skill=eager_skill,
         connectors=connectors,
+        subagents=subagents,
     )
     if extra_capabilities:
         capabilities.extend(extra_capabilities)

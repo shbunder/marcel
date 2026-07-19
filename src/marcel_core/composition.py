@@ -111,6 +111,7 @@ def build_capabilities(
     skills: bool = True,
     eager_skill: str | None = None,
     connectors: bool = True,
+    subagents: bool = True,
 ) -> list[AbstractCapability[MarcelDeps]]:
     """Assemble the capability list for a Marcel agent.
 
@@ -218,6 +219,17 @@ def build_capabilities(
 
     if code_mode:
         capabilities.append(CodeMode(tools=sorted(CODE_MODE_ELIGIBLE)))
+
+    # Delegation (FEAT-260718-b6d1da): the SubAgents capability contributes
+    # the admin-tier `delegate` tool. Children are full create_marcel_agent
+    # builds and set subagents=False unless their doc opts in — that flag,
+    # not tool filtering, is the recursion guard.
+    if subagents and role == 'admin' and (tool_filter is None or 'delegate' in tool_filter):
+        from marcel_core.capabilities.subagents import build_subagents_capability
+
+        subagents_cap = build_subagents_capability(user_slug=user_slug, role=role, cwd=cwd)
+        if subagents_cap is not None:
+            capabilities.append(subagents_cap)
 
     if role == 'admin':
         workspace = cwd or _PROJECT_ROOT

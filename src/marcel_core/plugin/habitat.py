@@ -116,9 +116,10 @@ class SkillHabitat:
 class SubagentHabitat:
     """Wraps a loaded subagent definition (markdown under ``<zoo>/agents/``).
 
-    Backed by :func:`marcel_core.agents.loader.load_agents` which already
-    returns `AgentDoc` instances; the wrapper just maps them onto the
-    uniform surface.
+    Backed by :func:`marcel_core.capabilities.subagents.load_agent_docs`
+    (FEAT-260718-b6d1da); the wrapper just maps the docs onto the uniform
+    surface. Discovery here is the global view (no user chain) — it feeds
+    the boot summary, not an agent build.
     """
 
     name: str
@@ -127,9 +128,9 @@ class SubagentHabitat:
 
     @classmethod
     def discover_all(cls, zoo_dir: Path | None) -> list[SubagentHabitat]:
-        from marcel_core.agents.loader import load_agents
+        from marcel_core.capabilities.subagents import load_agent_docs
 
-        return [cls(name=doc.name, source=doc.source) for doc in load_agents()]
+        return [cls(name=doc.name, source=doc.source) for doc in load_agent_docs()]
 
 
 @dataclass(frozen=True, slots=True)

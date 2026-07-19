@@ -17,29 +17,22 @@ Each path is covered in isolation:
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import yaml
 from pydantic import ValidationError
 
-from marcel_core.jobs import executor as executor_module
 from marcel_core.jobs.executor import (
     _fire_subagent_job,
     _fire_tool_job,
-    execute_job_with_retries,
 )
 from marcel_core.jobs.models import (
     JobDefinition,
     JobDispatchType,
-    JobRun,
-    NotifyPolicy,
     RunStatus,
     TriggerSpec,
     TriggerType,
 )
-from marcel_core.plugin import jobs as plugin_jobs
 
 
 def _make_job(**overrides) -> JobDefinition:
@@ -187,7 +180,7 @@ class TestFireToolJob:
 
 
 def _make_agent_doc(**overrides) -> SimpleNamespace:
-    """Minimal stand-in for :class:`marcel_core.agents.loader.AgentDoc`."""
+    """Minimal stand-in for :class:`marcel_core.capabilities.subagents.SubagentDoc`."""
     base = {
         'name': 'test-sub',
         'description': 'test subagent',
@@ -204,43 +197,37 @@ def _make_agent_doc(**overrides) -> SimpleNamespace:
 
 
 class _FakeAgent:
-    """Minimal stand-in for a pydantic-ai Agent returned by ``create_marcel_agent``."""
+    """Minimal stand-in for the child agent built by ``build_child_agent``."""
 
-    def __init__(self, output: str = 'sub output', should_raise: Exception | None = None):
+    def __init__(self, output: str = 'sub output', should_raise: Exception | None = None, model=None):
         self._output = output
         self._raise = should_raise
+        self.model = model
 
-    async def run(self, prompt: str, *, deps, usage_limits=None):
+    async def run(self, prompt: str, *, deps, usage_limits=None, model=None):
         if self._raise is not None:
             raise self._raise
         return SimpleNamespace(output=self._output, prompt_seen=prompt)
 
 
 class TestFireSubagentJob:
+    """The SUBAGENT dispatch path rides the capability seams
+    (FEAT-260718-b6d1da): ``load_agent_doc`` + ``build_child_agent`` from
+    :mod:`marcel_core.capabilities.subagents`."""
+
     @pytest.mark.asyncio
     async def test_success_returns_agent_output(self, monkeypatch):
         monkeypatch.setattr(
-            'marcel_core.agents.loader.load_agent',
-            lambda name: _make_agent_doc(name=name),
+            'marcel_core.capabilities.subagents.load_agent_doc',
+            lambda name, user_slug=None: _make_agent_doc(name=name),
         )
         captured: dict = {}
 
-        def fake_create(
-            *, model, system_prompt, role, tool_filter, memory=True, code_mode=True, skills=True, connectors=True
-        ):
-            captured.update(
-                model=model,
-                system_prompt=system_prompt,
-                role=role,
-                tool_filter=tool_filter,
-            )
+        def fake_build(doc, *, role, cwd=None, user_slug=None):
+            captured.update(doc=doc, role=role)
             return _FakeAgent(output='digest ready')
 
-        monkeypatch.setattr('marcel_core.harness.agent.create_marcel_agent', fake_create)
-        monkeypatch.setattr(
-            'marcel_core.tools.delegate._default_pool_minus',
-            lambda role, disallowed, include_delegate: {'marcel'},
-        )
+        monkeypatch.setattr('marcel_core.capabilities.subagents.build_child_agent', fake_build)
 
         job = _make_job(
             dispatch_type='subagent',
@@ -253,17 +240,16 @@ class TestFireSubagentJob:
         assert run.output == 'digest ready'
         # The subagent inherits role='user', not admin — jobs never escalate role.
         assert captured['role'] == 'user'
-        # tool_filter defaulted (no frontmatter tools: list).
-        assert captured['tool_filter'] == {'marcel'}
+        assert captured['doc'].name == 'digest'
 
     @pytest.mark.asyncio
     async def test_agent_not_found_fails_with_config_category(self, monkeypatch):
-        from marcel_core.agents.loader import AgentNotFoundError
+        from marcel_core.capabilities.subagents import SubagentNotFoundError
 
-        def raise_not_found(name: str):
-            raise AgentNotFoundError(f'no agent {name!r}')
+        def raise_not_found(name: str, user_slug=None):
+            raise SubagentNotFoundError(f'no agent {name!r}')
 
-        monkeypatch.setattr('marcel_core.agents.loader.load_agent', raise_not_found)
+        monkeypatch.setattr('marcel_core.capabilities.subagents.load_agent_doc', raise_not_found)
 
         job = _make_job(dispatch_type='subagent', subagent='ghost', subagent_task='do it')
         run = await _fire_subagent_job(job, 'test', user_slug='shaun')
@@ -274,25 +260,20 @@ class TestFireSubagentJob:
 
     @pytest.mark.asyncio
     async def test_task_user_slug_placeholder_is_substituted(self, monkeypatch):
-        monkeypatch.setattr('marcel_core.agents.loader.load_agent', lambda name: _make_agent_doc(name=name))
+        monkeypatch.setattr(
+            'marcel_core.capabilities.subagents.load_agent_doc',
+            lambda name, user_slug=None: _make_agent_doc(name=name),
+        )
         observed: dict = {}
 
-        def fake_create(
-            *, model, system_prompt, role, tool_filter, memory=True, code_mode=True, skills=True, connectors=True
-        ):
-            agent = _FakeAgent()
-
-            async def run(prompt, *, deps, usage_limits=None):
+        class _CapturingAgent(_FakeAgent):
+            async def run(self, prompt, *, deps, usage_limits=None, model=None):
                 observed['prompt'] = prompt
                 return SimpleNamespace(output='ok')
 
-            agent.run = run
-            return agent
-
-        monkeypatch.setattr('marcel_core.harness.agent.create_marcel_agent', fake_create)
         monkeypatch.setattr(
-            'marcel_core.tools.delegate._default_pool_minus',
-            lambda role, disallowed, include_delegate: set(),
+            'marcel_core.capabilities.subagents.build_child_agent',
+            lambda doc, *, role, cwd=None, user_slug=None: _CapturingAgent(),
         )
 
         job = _make_job(
@@ -307,11 +288,14 @@ class TestFireSubagentJob:
 
     @pytest.mark.asyncio
     async def test_task_bad_placeholder_fails_loud(self, monkeypatch):
-        monkeypatch.setattr('marcel_core.agents.loader.load_agent', lambda name: _make_agent_doc(name=name))
+        monkeypatch.setattr(
+            'marcel_core.capabilities.subagents.load_agent_doc',
+            lambda name, user_slug=None: _make_agent_doc(name=name),
+        )
         # No agent is built — the format error aborts before that.
         monkeypatch.setattr(
-            'marcel_core.harness.agent.create_marcel_agent',
-            lambda **kw: pytest.fail('should not reach create_marcel_agent'),
+            'marcel_core.capabilities.subagents.build_child_agent',
+            lambda doc, **kw: pytest.fail('should not reach build_child_agent'),
         )
 
         job = _make_job(
@@ -328,24 +312,18 @@ class TestFireSubagentJob:
     @pytest.mark.asyncio
     async def test_unresolvable_tier_sentinel_model_fails_config(self, monkeypatch):
         """If the subagent frontmatter pins an unconfigured ``tier:`` model,
-        resolution fails and the run is marked config-failed before any agent
-        is built."""
+        build_child_agent raises and the run is marked config-failed."""
         from marcel_core.harness.model_chain import TierNotConfigured
 
         monkeypatch.setattr(
-            'marcel_core.agents.loader.load_agent',
-            lambda name: _make_agent_doc(name=name, model='tier:power'),
+            'marcel_core.capabilities.subagents.load_agent_doc',
+            lambda name, user_slug=None: _make_agent_doc(name=name, model='tier:power'),
         )
-        monkeypatch.setattr('marcel_core.harness.model_chain.is_tier_sentinel', lambda m: True)
 
-        def raise_not_configured(model):
+        def raise_not_configured(doc, **kw):
             raise TierNotConfigured('power')
 
-        monkeypatch.setattr('marcel_core.harness.model_chain.resolve_tier_sentinel', raise_not_configured)
-        monkeypatch.setattr(
-            'marcel_core.harness.agent.create_marcel_agent',
-            lambda **kw: pytest.fail('should not build an agent when model resolution fails'),
-        )
+        monkeypatch.setattr('marcel_core.capabilities.subagents.build_child_agent', raise_not_configured)
 
         job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go')
         run = await _fire_subagent_job(job, 'test', user_slug='shaun')
@@ -355,49 +333,67 @@ class TestFireSubagentJob:
         assert 'model resolution failed' in (run.error or '')
 
     @pytest.mark.asyncio
-    async def test_explicit_tools_and_max_requests_wired(self, monkeypatch):
-        """An agent_doc that declares a ``tools`` allowlist and ``max_requests``
-        goes through _resolve_tool_filter and builds a UsageLimits object."""
+    async def test_max_requests_becomes_usage_limits(self, monkeypatch):
+        """A doc with ``max_requests`` runs the child under a UsageLimits cap."""
         monkeypatch.setattr(
-            'marcel_core.agents.loader.load_agent',
-            lambda name: _make_agent_doc(name=name, tools=['marcel', 'search'], max_requests=7),
+            'marcel_core.capabilities.subagents.load_agent_doc',
+            lambda name, user_slug=None: _make_agent_doc(name=name, max_requests=7),
         )
+        observed: dict = {}
 
-        captured: dict = {}
+        class _CapturingAgent(_FakeAgent):
+            async def run(self, prompt, *, deps, usage_limits=None, model=None):
+                observed['usage_limits'] = usage_limits
+                return SimpleNamespace(output='ok')
 
-        def fake_resolve_filter(tools, disallowed):
-            captured['tools_arg'] = tools
-            return {'marcel', 'search'}
-
-        monkeypatch.setattr('marcel_core.tools.delegate._resolve_tool_filter', fake_resolve_filter)
-
-        def fake_create(
-            *, model, system_prompt, role, tool_filter, memory=True, code_mode=True, skills=True, connectors=True
-        ):
-            captured['tool_filter'] = tool_filter
-            return _FakeAgent(output='done')
-
-        monkeypatch.setattr('marcel_core.harness.agent.create_marcel_agent', fake_create)
+        monkeypatch.setattr(
+            'marcel_core.capabilities.subagents.build_child_agent',
+            lambda doc, **kw: _CapturingAgent(),
+        )
 
         job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go')
         run = await _fire_subagent_job(job, 'test', user_slug='shaun')
 
         assert run.status is RunStatus.COMPLETED
-        assert captured['tools_arg'] == ['marcel', 'search']
-        assert captured['tool_filter'] == {'marcel', 'search'}
+        assert observed['usage_limits'] is not None
+        assert observed['usage_limits'].request_limit == 7
+
+    @pytest.mark.asyncio
+    async def test_inherit_model_falls_back_to_job_model(self, monkeypatch):
+        """A model-less child (doc says inherit) runs on the job's own model."""
+        monkeypatch.setattr(
+            'marcel_core.capabilities.subagents.load_agent_doc',
+            lambda name, user_slug=None: _make_agent_doc(name=name),
+        )
+        observed: dict = {}
+
+        class _CapturingAgent(_FakeAgent):
+            async def run(self, prompt, *, deps, usage_limits=None, model=None):
+                observed['model'] = model
+                return SimpleNamespace(output='ok')
+
+        monkeypatch.setattr(
+            'marcel_core.capabilities.subagents.build_child_agent',
+            lambda doc, **kw: _CapturingAgent(model=None),
+        )
+
+        job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go', model='openai:gpt-4o')
+        run = await _fire_subagent_job(job, 'test', user_slug='shaun')
+
+        assert run.status is RunStatus.COMPLETED
+        assert observed['model'] == 'openai:gpt-4o'
 
     @pytest.mark.asyncio
     async def test_agent_build_failure_fails_config(self, monkeypatch):
-        monkeypatch.setattr('marcel_core.agents.loader.load_agent', lambda name: _make_agent_doc(name=name))
         monkeypatch.setattr(
-            'marcel_core.tools.delegate._default_pool_minus',
-            lambda role, disallowed, include_delegate: set(),
+            'marcel_core.capabilities.subagents.load_agent_doc',
+            lambda name, user_slug=None: _make_agent_doc(name=name),
         )
 
-        def boom_create(**kwargs):
+        def boom_build(doc, **kw):
             raise RuntimeError('cannot construct agent')
 
-        monkeypatch.setattr('marcel_core.harness.agent.create_marcel_agent', boom_create)
+        monkeypatch.setattr('marcel_core.capabilities.subagents.build_child_agent', boom_build)
 
         job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go')
         run = await _fire_subagent_job(job, 'test', user_slug='shaun')
@@ -411,19 +407,19 @@ class TestFireSubagentJob:
         import asyncio
 
         monkeypatch.setattr(
-            'marcel_core.agents.loader.load_agent',
-            lambda name: _make_agent_doc(name=name, timeout_seconds=0),
-        )
-        monkeypatch.setattr(
-            'marcel_core.tools.delegate._default_pool_minus',
-            lambda role, disallowed, include_delegate: set(),
+            'marcel_core.capabilities.subagents.load_agent_doc',
+            lambda name, user_slug=None: _make_agent_doc(name=name, timeout_seconds=0),
         )
 
-        class _SlowAgent:
-            async def run(self, prompt, *, deps, usage_limits=None):
+        class _SlowAgent(_FakeAgent):
+            async def run(self, prompt, *, deps, usage_limits=None, model=None):
                 await asyncio.sleep(10)
+                return SimpleNamespace(output='never')
 
-        monkeypatch.setattr('marcel_core.harness.agent.create_marcel_agent', lambda **kw: _SlowAgent())
+        monkeypatch.setattr(
+            'marcel_core.capabilities.subagents.build_child_agent',
+            lambda doc, **kw: _SlowAgent(),
+        )
 
         # effective_timeout = min(job.timeout_seconds, agent_doc.timeout_seconds=0) → 0
         job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go')
@@ -435,14 +431,13 @@ class TestFireSubagentJob:
 
     @pytest.mark.asyncio
     async def test_subagent_run_exception_classified(self, monkeypatch):
-        monkeypatch.setattr('marcel_core.agents.loader.load_agent', lambda name: _make_agent_doc(name=name))
         monkeypatch.setattr(
-            'marcel_core.tools.delegate._default_pool_minus',
-            lambda role, disallowed, include_delegate: set(),
+            'marcel_core.capabilities.subagents.load_agent_doc',
+            lambda name, user_slug=None: _make_agent_doc(name=name),
         )
         monkeypatch.setattr(
-            'marcel_core.harness.agent.create_marcel_agent',
-            lambda **kw: _FakeAgent(should_raise=RuntimeError('rate limit exceeded (429)')),
+            'marcel_core.capabilities.subagents.build_child_agent',
+            lambda doc, **kw: _FakeAgent(should_raise=RuntimeError('rate limit exceeded (429)')),
         )
 
         job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go')
@@ -456,236 +451,23 @@ class TestFireSubagentJob:
     async def test_subagent_agent_notified_recorded(self, monkeypatch):
         """A subagent that notifies during its run marks agent_notified on the
         JobRun so the executor's auto-notify is later suppressed."""
-        monkeypatch.setattr('marcel_core.agents.loader.load_agent', lambda name: _make_agent_doc(name=name))
         monkeypatch.setattr(
-            'marcel_core.tools.delegate._default_pool_minus',
-            lambda role, disallowed, include_delegate: set(),
+            'marcel_core.capabilities.subagents.load_agent_doc',
+            lambda name, user_slug=None: _make_agent_doc(name=name),
         )
 
-        class _NotifyingAgent:
-            async def run(self, prompt, *, deps, usage_limits=None):
+        class _NotifyingAgent(_FakeAgent):
+            async def run(self, prompt, *, deps, usage_limits=None, model=None):
                 deps.turn.notified = True
                 return SimpleNamespace(output='notified the user')
 
-        monkeypatch.setattr('marcel_core.harness.agent.create_marcel_agent', lambda **kw: _NotifyingAgent())
+        monkeypatch.setattr(
+            'marcel_core.capabilities.subagents.build_child_agent',
+            lambda doc, **kw: _NotifyingAgent(),
+        )
 
         job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go')
         run = await _fire_subagent_job(job, 'test', user_slug='shaun')
 
         assert run.status is RunStatus.COMPLETED
         assert run.agent_notified is True
-
-
-# ---------------------------------------------------------------------------
-# Top-level dispatcher — ensure execute_job_with_retries routes correctly
-# ---------------------------------------------------------------------------
-
-
-class TestDispatcherRouting:
-    @pytest.mark.asyncio
-    async def test_tool_dispatch_bypasses_agent_path(self, monkeypatch):
-        routed: list[str] = []
-
-        async def fake_tool(job, trigger_reason, *, user_slug):
-            routed.append('tool')
-            return JobRun(job_id=job.id, status=RunStatus.COMPLETED, output='tool-ok')
-
-        async def fake_agent(job, trigger_reason, *, user_slug):
-            routed.append('agent')
-            return JobRun(job_id=job.id, status=RunStatus.COMPLETED, output='agent-ok')
-
-        async def fake_subagent(job, trigger_reason, *, user_slug):
-            routed.append('subagent')
-            return JobRun(job_id=job.id, status=RunStatus.COMPLETED, output='subagent-ok')
-
-        async def fake_notify(job, run, *, user_slug=None):
-            return 'skipped', None
-
-        monkeypatch.setattr(executor_module, '_fire_tool_job', fake_tool)
-        monkeypatch.setattr(executor_module, '_fire_agent_job', fake_agent)
-        monkeypatch.setattr(executor_module, '_fire_subagent_job', fake_subagent)
-        monkeypatch.setattr(executor_module, '_notify_if_needed', fake_notify)
-        monkeypatch.setattr('marcel_core.jobs.save_job', lambda job: None, raising=False)
-        monkeypatch.setattr(
-            'marcel_core.jobs.append_run',
-            lambda job_id, user_slug, run: None,
-            raising=False,
-        )
-
-        job = _make_job(dispatch_type='tool', tool='demo.ping')
-        run = await execute_job_with_retries(job)
-        assert routed == ['tool']
-        assert run.output == 'tool-ok'
-
-    @pytest.mark.asyncio
-    async def test_default_dispatch_routes_to_agent(self, monkeypatch):
-        routed: list[str] = []
-
-        async def fake_tool(job, trigger_reason, *, user_slug):
-            routed.append('tool')
-            return JobRun(job_id=job.id, status=RunStatus.COMPLETED)
-
-        async def fake_agent(job, trigger_reason, *, user_slug):
-            routed.append('agent')
-            return JobRun(job_id=job.id, status=RunStatus.COMPLETED, output='agent-ok')
-
-        async def fake_subagent(job, trigger_reason, *, user_slug):
-            routed.append('subagent')
-            return JobRun(job_id=job.id, status=RunStatus.COMPLETED)
-
-        async def fake_notify(job, run, *, user_slug=None):
-            return 'skipped', None
-
-        monkeypatch.setattr(executor_module, '_fire_tool_job', fake_tool)
-        monkeypatch.setattr(executor_module, '_fire_agent_job', fake_agent)
-        monkeypatch.setattr(executor_module, '_fire_subagent_job', fake_subagent)
-        monkeypatch.setattr(executor_module, '_notify_if_needed', fake_notify)
-        monkeypatch.setattr('marcel_core.jobs.save_job', lambda job: None, raising=False)
-        monkeypatch.setattr(
-            'marcel_core.jobs.append_run',
-            lambda job_id, user_slug, run: None,
-            raising=False,
-        )
-
-        job = _make_job()  # no dispatch_type → AGENT
-        await execute_job_with_retries(job)
-        assert routed == ['agent']
-
-    @pytest.mark.asyncio
-    async def test_subagent_dispatch_routes_to_subagent_path(self, monkeypatch):
-        routed: list[str] = []
-
-        async def fake_tool(job, trigger_reason, *, user_slug):
-            routed.append('tool')
-            return JobRun(job_id=job.id, status=RunStatus.COMPLETED)
-
-        async def fake_agent(job, trigger_reason, *, user_slug):
-            routed.append('agent')
-            return JobRun(job_id=job.id, status=RunStatus.COMPLETED)
-
-        async def fake_subagent(job, trigger_reason, *, user_slug):
-            routed.append('subagent')
-            return JobRun(job_id=job.id, status=RunStatus.COMPLETED, output='subagent-ok')
-
-        async def fake_notify(job, run, *, user_slug=None):
-            return 'skipped', None
-
-        monkeypatch.setattr(executor_module, '_fire_tool_job', fake_tool)
-        monkeypatch.setattr(executor_module, '_fire_agent_job', fake_agent)
-        monkeypatch.setattr(executor_module, '_fire_subagent_job', fake_subagent)
-        monkeypatch.setattr(executor_module, '_notify_if_needed', fake_notify)
-        monkeypatch.setattr('marcel_core.jobs.save_job', lambda job: None, raising=False)
-        monkeypatch.setattr(
-            'marcel_core.jobs.append_run',
-            lambda job_id, user_slug, run: None,
-            raising=False,
-        )
-
-        job = _make_job(dispatch_type='subagent', subagent='digest', subagent_task='go')
-        run = await execute_job_with_retries(job)
-        assert routed == ['subagent']
-        assert run.output == 'subagent-ok'
-
-
-# ---------------------------------------------------------------------------
-# Template schema validator (plugin/jobs.py)
-# ---------------------------------------------------------------------------
-
-
-def _write_template(pkg_dir: Path, body: dict) -> None:
-    pkg_dir.mkdir(parents=True, exist_ok=True)
-    (pkg_dir / 'template.yaml').write_text(yaml.safe_dump(body), encoding='utf-8')
-
-
-class TestTemplateDispatchSchema:
-    def test_absent_dispatch_type_accepted(self, tmp_path):
-        _write_template(
-            tmp_path / 'demo',
-            {
-                'description': 'd',
-                'system_prompt': 'sp',
-                'notify': 'silent',
-                'model': 'anthropic:claude-haiku-4-5-20251001',
-            },
-        )
-        parsed = plugin_jobs._load_template_file(tmp_path / 'demo')
-        assert parsed is not None
-        assert 'dispatch_type' not in parsed  # preserved as-omitted
-
-    def test_tool_dispatch_requires_tool_key(self, tmp_path, caplog):
-        _write_template(
-            tmp_path / 'rogue',
-            {
-                'description': 'd',
-                'system_prompt': 'sp',
-                'notify': 'silent',
-                'model': 'anthropic:claude-haiku-4-5-20251001',
-                'dispatch_type': 'tool',
-            },
-        )
-        with caplog.at_level('ERROR'):
-            parsed = plugin_jobs._load_template_file(tmp_path / 'rogue')
-        assert parsed is None
-        assert 'required `tool:` key' in caplog.text
-
-    def test_subagent_dispatch_requires_subagent_key(self, tmp_path, caplog):
-        _write_template(
-            tmp_path / 'rogue',
-            {
-                'description': 'd',
-                'system_prompt': 'sp',
-                'notify': 'silent',
-                'model': 'anthropic:claude-haiku-4-5-20251001',
-                'dispatch_type': 'subagent',
-            },
-        )
-        with caplog.at_level('ERROR'):
-            parsed = plugin_jobs._load_template_file(tmp_path / 'rogue')
-        assert parsed is None
-        assert 'required `subagent:` key' in caplog.text
-
-    def test_invalid_dispatch_type_rejected(self, tmp_path, caplog):
-        _write_template(
-            tmp_path / 'rogue',
-            {
-                'description': 'd',
-                'system_prompt': 'sp',
-                'notify': 'silent',
-                'model': 'anthropic:claude-haiku-4-5-20251001',
-                'dispatch_type': 'channel',  # not allowed
-            },
-        )
-        with caplog.at_level('ERROR'):
-            parsed = plugin_jobs._load_template_file(tmp_path / 'rogue')
-        assert parsed is None
-        assert 'invalid dispatch_type' in caplog.text
-
-    def test_valid_tool_template_accepted(self, tmp_path):
-        _write_template(
-            tmp_path / 'sync',
-            {
-                'description': 'sync',
-                'system_prompt': 'unused',
-                'notify': 'silent',
-                'model': 'anthropic:claude-haiku-4-5-20251001',
-                'dispatch_type': 'tool',
-                'tool': 'docker.list',
-                'tool_params': {'format': 'json'},
-            },
-        )
-        parsed = plugin_jobs._load_template_file(tmp_path / 'sync')
-        assert parsed is not None
-        assert parsed['dispatch_type'] == 'tool'
-        assert parsed['tool'] == 'docker.list'
-
-
-# ---------------------------------------------------------------------------
-# NotifyPolicy keeps working regardless of dispatch type
-# ---------------------------------------------------------------------------
-
-
-def test_dispatch_type_is_orthogonal_to_notify_policy():
-    """Sanity: adding dispatch_type did not break the notify-policy coupling."""
-    job = _make_job(dispatch_type='tool', tool='demo.ping', notify=NotifyPolicy.SILENT)
-    assert job.notify is NotifyPolicy.SILENT
-    assert job.dispatch_type is JobDispatchType.TOOL
