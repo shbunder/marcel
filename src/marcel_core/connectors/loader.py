@@ -53,6 +53,15 @@ def _connector_dirs(user_slug: str | None = None) -> list[tuple[Path, str]]:
     """
     from marcel_core.config import settings
 
+    if user_slug:
+        from marcel_core.auth import valid_user_slug
+
+        if not valid_user_slug(user_slug):
+            # Defense in depth: callers validate at the API boundary, but a slug
+            # is about to be joined into a filesystem path either way.
+            log.warning('connectors: refusing discovery for invalid slug')
+            return []
+
     dirs: list[tuple[Path, str]] = []
     zoo = settings.zoo_dir
     if zoo is not None and (zoo / 'connectors').is_dir():

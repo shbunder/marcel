@@ -23,7 +23,7 @@ dependencies = [
     # for bundled in-process connector servers. Must stay `fastmcp-slim` (the
     # full `fastmcp` package is a different major and clashes in the shared
     # `fastmcp` namespace).
-    "fastmcp-slim[server]>=3.3",
+    "fastmcp-slim[server]>=3.3,<4",
     # Harness capabilities (StepPersistence, compaction, OverflowingToolOutput, …).
     # 0.x — pin the minor per ADR-260718-f54373; bumping it is a deliberate act.
     "pydantic-ai-harness[code-mode]>=0.7,<0.8",

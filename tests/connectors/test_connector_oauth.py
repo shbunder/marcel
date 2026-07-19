@@ -510,3 +510,42 @@ class TestCallbackRoute:
 
         assert api._lookup('gh', 'shaun') is not None
         assert api._lookup('nope', 'shaun') is None
+
+
+class TestSecurityAuditRegressions:
+    """Fixes from the story-f security audit."""
+
+    @pytest.mark.asyncio
+    async def test_start_link_enforces_admin_scope_itself(self):
+        """MEDIUM-5: the scope check cannot be left to an unwritten call site."""
+        cfg = _cfg()
+        cfg.scope = cfg.scope.__class__.ADMIN
+        flow = ConnectorOAuth(http_client=_provider())
+        with pytest.raises(OAuthError, match='not available for your account'):
+            await flow.start_link(cfg, 'shaun', role='user')
+        # An admin may still link it.
+        url = await flow.start_link(cfg, 'shaun', role='admin')
+        assert url.startswith(AUTH_EP)
+
+    @pytest.mark.asyncio
+    async def test_hostile_token_type_is_not_interpolated(self):
+        """LOW-2: token_type comes from provider JSON straight into a header."""
+        from marcel_core.connectors.auth import ConnectorAuth
+
+        cfg = _cfg()
+        flow = ConnectorOAuth(
+            http_client=_provider(token_response={'access_token': 'a', 'token_type': 'Bearer\r\nX-Evil: 1'})
+        )
+        url = await flow.start_link(cfg, 'shaun')
+        state = parse_qs(urlparse(url).query)['state'][0]
+        await flow.complete_link(_lookup_for(cfg), 'code', state)
+        headers = await ConnectorAuth().outbound_headers(cfg, 'shaun')
+        assert headers == {'Authorization': 'Bearer a'}  # fell back, no injection
+
+    def test_callback_page_escapes_interpolated_values(self):
+        from marcel_core.api.connectors import _page
+
+        resp = _page('Could not connect', "<script>alert('x')</script>", ok=False)
+        rendered = bytes(resp.body).decode()
+        assert '<script>' not in rendered
+        assert '&lt;script&gt;' in rendered

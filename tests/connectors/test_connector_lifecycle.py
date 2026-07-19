@@ -19,9 +19,11 @@ from marcel_core.connectors.models import ConnectorConfig
 
 
 def _cfg(name='clock', transport='stdio'):
+    scope = 'all'
     server = {'transport': 'stdio', 'command': ['clock-mcp']}
     if transport == 'inprocess':
         server = {'transport': 'inprocess', 'module': 'connectors.clock.server'}
+        scope = 'admin'  # inprocess is admin-scope-only (security audit)
     if transport == 'http':
         server = {'transport': 'http', 'url': 'https://x.test'}
     return ConnectorConfig.model_validate(
@@ -30,6 +32,7 @@ def _cfg(name='clock', transport='stdio'):
             'description': 'x',
             'server': server,
             'auth': {'mode': 'none', 'per_user': False},
+            'scope': scope,
         }
     )
 

@@ -125,14 +125,17 @@ def _spawned_toolset(config: ConnectorConfig, slug: str, auth: ConnectorAuth) ->
     from fastmcp.client import Client
     from fastmcp.client.transports import StdioTransport
 
-    env = auth.spawn_env(config, slug)
     if config.server.transport is Transport.INPROCESS:
+        # No credential is resolved here on purpose: the schema pins inprocess to
+        # `auth: none` + `scope: admin`, because the imported server object is a
+        # module singleton shared by every user and so cannot hold a per-user
+        # secret. Computing a credential here would look like it was delivered.
         module = config.server.module
         if module is None:  # pragma: no cover - schema guarantees it
             raise ValueError(f'connector {config.name!r} is inprocess without a module')
-        server = _load_inprocess_server(module)
-        return MCPToolset(server, id=config.name)
+        return MCPToolset(_load_inprocess_server(module), id=config.name)
 
+    env = auth.spawn_env(config, slug)
     command = config.server.command
     if not command:  # pragma: no cover - schema guarantees it
         raise ValueError(f'connector {config.name!r} is stdio without a command')
@@ -179,11 +182,11 @@ def build_connector_capabilities(
     for doc in catalog:
         config = doc.config
         spawned = ConnectorRegistry.handles(config)
-        problem = resolver.linkage_error(config, user_slug, for_spawn=spawned)
-        if problem is not None:
-            capabilities.append(_needs_setup_capability(config, problem))
-            continue
         try:
+            problem = resolver.linkage_error(config, user_slug, for_spawn=spawned)
+            if problem is not None:
+                capabilities.append(_needs_setup_capability(config, problem))
+                continue
             toolset = (
                 cast(MCPToolset, reg.acquire(config, user_slug))
                 if spawned
@@ -193,6 +196,13 @@ def build_connector_capabilities(
             # Backoff or a failed build — surface it readably rather than
             # advertising tools that cannot run.
             capabilities.append(_needs_setup_capability(config, str(exc)))
+            continue
+        except (ValueError, OSError) as exc:
+            # One malformed habitat must never break the agent build for every
+            # family member (FR1's isolation contract). Degrade this connector,
+            # keep the rest of the catalog.
+            log.warning('connectors: skipping malformed %s — %s', config.name, type(exc).__name__)
+            capabilities.append(_needs_setup_capability(config, 'This connector is misconfigured.'))
             continue
         capabilities.append(
             MCP(
@@ -236,17 +246,17 @@ def connector_toolsets_for_skill(
             continue
         config = doc.config
         spawned = ConnectorRegistry.handles(config)
-        if resolver.linkage_error(config, user_slug, for_spawn=spawned) is not None:
-            log.debug('connectors: %s not linked for %s — omitted from skill bundle', name, user_slug)
-            continue
         try:
+            if resolver.linkage_error(config, user_slug, for_spawn=spawned) is not None:
+                log.debug('connectors: %s not linked for %s — omitted from skill bundle', name, user_slug)
+                continue
             toolset = (
                 cast(MCPToolset, reg.acquire(config, user_slug))
                 if spawned
                 else _connector_toolset(config, user_slug, resolver)
             )
-        except ConnectorStartError:
-            log.debug('connectors: %s could not start for %s — omitted from skill bundle', name, user_slug)
+        except (ConnectorStartError, ValueError, OSError):
+            log.debug('connectors: %s unusable for %s — omitted from skill bundle', name, user_slug)
             continue
         toolsets.append(toolset)
     return toolsets

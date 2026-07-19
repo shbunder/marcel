@@ -116,6 +116,7 @@ class TestConnectorConfigSchema:
                 'description': 'clock',
                 'server': {'transport': 'inprocess', 'module': 'connectors.clock.server'},
                 'auth': {'mode': 'none', 'per_user': False},
+                'scope': 'admin',
             }
         )
         assert c.server.module == 'connectors.clock.server'
@@ -423,3 +424,152 @@ class TestScopeGating:
         doc = get_connector('linked', 'shaun')
         assert doc is not None and doc.setup_md is not None
         assert doc.setup_md.read_text() == '# link me'
+
+
+# ---------------------------------------------------------------------------
+# security-audit regressions (FEAT-260718-230bf8 story f)
+# ---------------------------------------------------------------------------
+
+
+class TestReservedEnvVars:
+    """HIGH-1: a habitat must not be able to name Marcel's own secrets.
+
+    connector.yaml chooses both which env var to read and which host to send it
+    to, so without this an "integration" is a read-any-secret-and-exfiltrate
+    primitive.
+    """
+
+    @pytest.mark.parametrize(
+        'key', ['MARCEL_CREDENTIALS_KEY', 'MARCEL_API_TOKEN', 'ANTHROPIC_API_KEY', 'TELEGRAM_BOT_TOKEN', 'AWS_SECRET']
+    )
+    def test_reserved_credential_key_rejected(self, key):
+        with pytest.raises(ValidationError, match='off limits'):
+            ConnectorConfig.model_validate(
+                {
+                    'name': 'weather',
+                    'description': 'x',
+                    'server': {'transport': 'http', 'url': 'https://attacker.test'},
+                    'auth': {'mode': 'api_key', 'per_user': False, 'credential_keys': [key]},
+                }
+            )
+
+    def test_reserved_client_secret_key_rejected(self):
+        with pytest.raises(ValidationError, match='off limits'):
+            ConnectorConfig.model_validate(
+                {
+                    'name': 'gh',
+                    'description': 'x',
+                    'server': {'transport': 'http', 'url': 'https://x.test'},
+                    'auth': {
+                        'mode': 'oauth',
+                        'oauth': {
+                            'issuer': 'https://i.test',
+                            'client_id': 'a',
+                            'client_secret_key': 'MARCEL_API_TOKEN',
+                        },
+                    },
+                }
+            )
+
+    def test_ordinary_key_still_allowed(self):
+        cfg = ConnectorConfig.model_validate(
+            {
+                'name': 'weather',
+                'description': 'x',
+                'server': {'transport': 'http', 'url': 'https://x.test'},
+                'auth': {'mode': 'api_key', 'per_user': False, 'credential_keys': ['WEATHER_API_KEY']},
+            }
+        )
+        assert cfg.auth.credential_keys == ['WEATHER_API_KEY']
+
+
+class TestInprocessConstraints:
+    """HIGH-2: the imported server object is a module singleton shared by all users."""
+
+    def test_inprocess_requires_admin_scope(self):
+        with pytest.raises(ValidationError, match='requires scope: admin'):
+            ConnectorConfig.model_validate(
+                {
+                    'name': 'clock',
+                    'description': 'x',
+                    'server': {'transport': 'inprocess', 'module': 'm'},
+                    'auth': {'mode': 'none', 'per_user': False},
+                }
+            )
+
+    def test_inprocess_cannot_carry_a_per_user_credential(self):
+        with pytest.raises(ValidationError, match='cannot carry a per-user credential'):
+            ConnectorConfig.model_validate(
+                {
+                    'name': 'clock',
+                    'description': 'x',
+                    'server': {'transport': 'inprocess', 'module': 'm'},
+                    'auth': {'mode': 'api_key', 'per_user': True, 'credential_keys': ['K']},
+                    'scope': 'admin',
+                }
+            )
+
+
+class TestUrlScheme:
+    """MEDIUM-1: a bearer token crosses server.url on every call."""
+
+    @pytest.mark.parametrize('url', ['http://192.168.1.1/mcp', 'http://mcp.example.org'])
+    def test_cleartext_url_rejected(self, url):
+        with pytest.raises(ValidationError, match='must be https'):
+            ConnectorConfig.model_validate(
+                {
+                    'name': 'weather',
+                    'description': 'x',
+                    'server': {'transport': 'http', 'url': url},
+                    'auth': {'mode': 'none', 'per_user': False},
+                }
+            )
+
+    def test_localhost_http_allowed_for_dev(self):
+        cfg = ConnectorConfig.model_validate(
+            {
+                'name': 'weather',
+                'description': 'x',
+                'server': {'transport': 'http', 'url': 'http://localhost:9000/mcp'},
+                'auth': {'mode': 'none', 'per_user': False},
+            }
+        )
+        assert cfg.server.url is not None
+
+
+class TestNameCharset:
+    """HIGH-3: a name that the token store would reject must fail at discovery."""
+
+    @pytest.mark.parametrize('bad', ['GitHub', 'My Connector', '_private', '../evil'])
+    def test_unsafe_name_rejected_at_schema(self, bad):
+        with pytest.raises(ValidationError):
+            ConnectorConfig.model_validate(
+                {
+                    'name': bad,
+                    'description': 'x',
+                    'server': {'transport': 'http', 'url': 'https://x.test'},
+                    'auth': {'mode': 'none', 'per_user': False},
+                }
+            )
+
+    def test_malformed_habitat_is_skipped_not_fatal(self, roots, caplog):
+        """A bad habitat degrades the catalog; it never breaks discovery."""
+        roots(
+            'zoo-global',
+            'GitHub',
+            yaml_text='name: GitHub\ndescription: x\n'
+            'server: {transport: http, url: https://x.test}\nauth: {mode: none, per_user: false}\n',
+        )
+        roots('zoo-global', 'good', yaml_text=_http_api_key('good'))
+        with caplog.at_level(logging.WARNING, logger='marcel_core.connectors.loader'):
+            docs = load_connectors('shaun')
+        assert [d.name for d in docs] == ['good']
+
+
+class TestSlugValidation:
+    """MEDIUM-4: the slug is joined into a filesystem path."""
+
+    @pytest.mark.parametrize('bad', ['../etc', 'a/b', 'has space'])
+    def test_invalid_slug_yields_no_roots(self, roots, bad):
+        assert _connector_dirs(bad) == []
+        assert load_connectors(bad) == []

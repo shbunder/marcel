@@ -327,3 +327,19 @@ class TestSpawnEnvBranches:
 
     def test_none_is_empty(self, data_dir):
         assert ConnectorAuth().spawn_env(_cfg('none'), 'shaun') == {}
+
+
+class TestSlugValidatorAgreement:
+    """MEDIUM-3: two disagreeing slug validators is how a real user starts raising."""
+
+    @pytest.mark.parametrize('slug', ['_household', 'shaun.backup-059', 'shaun'])
+    def test_token_store_accepts_what_the_kernel_calls_a_valid_slug(self, data_dir, slug):
+        from marcel_core.auth import valid_user_slug
+
+        store = TokenStore()
+        if valid_user_slug(slug):
+            store.store(slug, 'gh', StoredTokens(access_token='a'))
+            assert store.load(slug, 'gh') is not None
+        else:
+            with pytest.raises(ValueError, match='unsafe slug'):
+                store.store(slug, 'gh', StoredTokens(access_token='a'))

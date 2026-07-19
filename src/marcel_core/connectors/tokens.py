@@ -41,6 +41,19 @@ class TokenStoreError(Exception):
 
 
 def _safe(value: str, kind: str) -> str:
+    """Reject any path component that could escape the user's directory.
+
+    The *slug* is checked against the kernel's single canonical user-slug rule
+    rather than a second regex of our own — two validators that disagree is how
+    a legitimate user like ``_household`` ends up raising deep inside a store
+    (security audit, FEAT-260718-230bf8).
+    """
+    if kind == 'slug':
+        from marcel_core.auth import valid_user_slug
+
+        if not valid_user_slug(value):
+            raise ValueError(f'unsafe slug {value!r}')
+        return value
     if not _SAFE_COMPONENT.match(value):
         raise ValueError(f'unsafe {kind} {value!r} — must match {_SAFE_COMPONENT.pattern}')
     return value

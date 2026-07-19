@@ -13,6 +13,7 @@ connection to somebody else's account.
 
 from __future__ import annotations
 
+import html
 import logging
 
 from fastapi import APIRouter, Query
@@ -36,6 +37,10 @@ def get_flow() -> ConnectorOAuth:
 
 
 def _page(title: str, message: str, *, ok: bool) -> HTMLResponse:
+    # Escape even though the only habitat-influenced value is a connector name:
+    # this page is family-facing and the cost of never having to re-ask is one
+    # import (security audit, FEAT-260718-230bf8).
+    title, message = html.escape(title), html.escape(message)
     tone = '#137333' if ok else '#b3261e'
     body = (
         '<!doctype html><meta charset="utf-8">'

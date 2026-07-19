@@ -59,6 +59,23 @@ class DefaultEnabled(str, Enum):
     NONE = 'none'
 
 
+# Env-var namespaces a habitat may never name. A connector.yaml chooses which
+# environment variable to read for a shared credential and which URL to send it
+# to, so without this an "integration" is a read-any-secret-and-exfiltrate
+# primitive: `credential_keys: [MARCEL_CREDENTIALS_KEY]` would ship the Fernet
+# master key — which decrypts every family member's vault and OAuth tokens — to
+# whatever host `server.url` names. (Security audit, FEAT-260718-230bf8.)
+RESERVED_ENV_PREFIXES = ('MARCEL_', 'ANTHROPIC_', 'OPENAI_', 'TELEGRAM_', 'AWS_')
+
+
+def _reject_reserved_env(name: str, field: str) -> None:
+    if name.upper().startswith(RESERVED_ENV_PREFIXES):
+        raise ValueError(
+            f"{field} may not reference {name!r} — Marcel's own secrets are off limits to habitats "
+            f'(reserved prefixes: {", ".join(RESERVED_ENV_PREFIXES)})'
+        )
+
+
 class ServerSpec(BaseModel):
     """The ``server:`` block — transport plus its one required locator."""
 
@@ -86,6 +103,13 @@ class ServerSpec(BaseModel):
                     f'server.transport {self.transport.value!r} uses server.{field!r}; '
                     f'remove the stray server.{other_field!r}'
                 )
+        # A bearer token crosses this URL on every call, and an http:// target
+        # would put it in cleartext on the LAN (or point Marcel at the home
+        # network as an SSRF primitive). Same localhost carve-out the public
+        # base URL uses for development.
+        if self.transport is Transport.HTTP and self.url is not None:
+            if not self.url.startswith('https://') and not self.url.startswith('http://localhost'):
+                raise ValueError('server.url must be https (http is only allowed for localhost during development)')
         return self
 
 
@@ -137,6 +161,10 @@ class AuthSpec(BaseModel):
                 raise ValueError("auth.mode 'none' takes no credential_keys or oauth block")
             if self.per_user:
                 raise ValueError("auth.mode 'none' cannot be per_user — there is no per-user credential")
+        for key in self.credential_keys:
+            _reject_reserved_env(key, 'auth.credential_keys')
+        if self.oauth is not None and self.oauth.client_secret_key:
+            _reject_reserved_env(self.oauth.client_secret_key, 'auth.oauth.client_secret_key')
         return self
 
 
@@ -149,7 +177,10 @@ class ConnectorConfig(BaseModel):
 
     model_config = ConfigDict(extra='forbid')
 
-    name: str = Field(min_length=1, max_length=64)
+    # Same charset the token store accepts as a path component — validating it
+    # here means a bad name fails at discovery (where it is isolated) instead of
+    # raising later and taking down every user's agent build.
+    name: str = Field(min_length=1, max_length=64, pattern=r'^[a-z0-9][a-z0-9._-]*$')
     description: str = Field(min_length=1, max_length=1024)
     server: ServerSpec
     auth: AuthSpec
@@ -157,3 +188,26 @@ class ConnectorConfig(BaseModel):
     scope: Scope = Scope.ALL
     discovery: Discovery = Discovery.DEFERRED
     default_enabled: DefaultEnabled = DefaultEnabled.ALL
+
+    @model_validator(mode='after')
+    def _inprocess_is_admin_only(self) -> ConnectorConfig:
+        """An in-process server shares Marcel's own process, so it cannot be per-user.
+
+        Python caches modules, so every user would get the *same* server object:
+        the per-(connector, user) keying that keeps credential attribution honest
+        simply does not apply, and the server has no way to know whose turn it is
+        serving. Constrain it structurally to the shape it is actually safe in —
+        a bundled, first-party, admin-scoped server with no credential — rather
+        than leaving the footgun to convention.
+        """
+        if self.server.transport is Transport.INPROCESS:
+            if self.scope is not Scope.ADMIN:
+                raise ValueError(
+                    "server.transport 'inprocess' requires scope: admin — it runs inside Marcel's own process"
+                )
+            if self.auth.mode is not AuthMode.NONE:
+                raise ValueError(
+                    "server.transport 'inprocess' cannot carry a per-user credential "
+                    '(the server object is shared across users); use stdio or http'
+                )
+        return self

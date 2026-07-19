@@ -301,16 +301,18 @@ class TestCompositionWiring:
 
 
 def _spawn_cfg(name='clock', transport='stdio', mode='none'):
+    scope = 'all'
     server = {'transport': 'stdio', 'command': ['clock-mcp', '--stdio']}
     if transport == 'inprocess':
         server = {'transport': 'inprocess', 'module': 'tests.connectors.fake_inprocess_server'}
+        scope = 'admin'  # inprocess is admin-scope-only (security audit)
     auth: dict = {'mode': 'none', 'per_user': False}
     if mode == 'api_key':
         auth = {'mode': 'api_key', 'per_user': True, 'credential_keys': ['CLOCK_API_KEY']}
     if mode == 'oauth':
         auth = {'mode': 'oauth', 'oauth': {'issuer': 'https://i.test', 'client_id': 'app'}}
     return ConnectorConfig.model_validate(
-        {'name': name, 'description': f'{name} connector', 'server': server, 'auth': auth}
+        {'name': name, 'description': f'{name} connector', 'server': server, 'auth': auth, 'scope': scope}
     )
 
 
@@ -437,3 +439,32 @@ class TestSpawnedTransports:
         await _close_toolset(_WithAclose())
         await _close_toolset(_Bare())  # no closer → no-op, no raise
         assert closed == ['aclose']
+
+    def test_stdio_subprocess_never_inherits_marcel_secrets(self, monkeypatch):
+        """MEDIUM-2: pin the no-inherit invariant.
+
+        The MCP SDK merges the spawn env as {**get_default_environment(), **env},
+        where the default is a strict allowlist (HOME/LOGNAME/PATH/SHELL/TERM/
+        USER). So a third-party stdio server does NOT receive
+        MARCEL_CREDENTIALS_KEY. That is load-bearing and invisible: the obvious
+        "fix" when a connector fails with 'node: not found' is
+        env={**os.environ, **cred}, which would hand the Fernet master key —
+        and with it every family member's vault — to every MCP server we spawn.
+        If this test ever fails, that is what happened.
+        """
+        from fastmcp.client.transports import StdioTransport
+
+        from marcel_core.connectors.toolset import _spawned_toolset
+        from marcel_core.storage.credentials import save_credentials
+
+        for var in ('MARCEL_CREDENTIALS_KEY', 'MARCEL_API_TOKEN', 'ANTHROPIC_API_KEY'):
+            monkeypatch.setenv(var, 'super-secret')
+        save_credentials('shaun', {'CLOCK_API_KEY': 'k1'})
+
+        toolset = _spawned_toolset(_spawn_cfg(mode='api_key'), 'shaun', ConnectorAuth())
+        transport = toolset.client.transport
+        assert isinstance(transport, StdioTransport)
+        declared = transport.env or {}
+        assert declared == {'CLOCK_API_KEY': 'k1'}  # only the connector's own credential
+        for var in ('MARCEL_CREDENTIALS_KEY', 'MARCEL_API_TOKEN', 'ANTHROPIC_API_KEY'):
+            assert var not in declared

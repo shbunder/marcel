@@ -26,6 +26,7 @@ import base64
 import hashlib
 import logging
 import os
+import re
 import secrets
 import time
 from collections.abc import Callable
@@ -35,7 +36,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from marcel_core.connectors.models import AuthMode, ConnectorConfig, OAuthSpec
+from marcel_core.connectors.models import AuthMode, ConnectorConfig, OAuthSpec, Scope
 from marcel_core.connectors.tokens import StoredTokens, TokenStore
 
 log = logging.getLogger(__name__)
@@ -129,6 +130,16 @@ def redirect_uri() -> str:
     return f'{public_base_url()}{_CALLBACK_PATH}'
 
 
+_TOKEN_TYPE_RE = re.compile(r'^[A-Za-z]+$')
+
+
+def _safe_token_type(raw: object) -> str:
+    """Constrain the provider-supplied token type before it enters a header."""
+    if isinstance(raw, str) and _TOKEN_TYPE_RE.match(raw):
+        return raw
+    return 'Bearer'
+
+
 @dataclass
 class _Endpoints:
     authorization_endpoint: str
@@ -176,8 +187,17 @@ class ConnectorOAuth:
 
     # -- link -----------------------------------------------------------------
 
-    async def start_link(self, config: ConnectorConfig, slug: str) -> str:
-        """Begin linking *slug* to *config*; returns the URL for them to open."""
+    async def start_link(self, config: ConnectorConfig, slug: str, *, role: str = 'user') -> str:
+        """Begin linking *slug* to *config*; returns the URL for them to open.
+
+        The ``scope: admin`` check lives here, not in the caller: linking is the
+        one place a user could reach an admin-scoped connector that the catalog
+        never showed them, and the channel-facing call site that drives this is
+        still unwritten. Enforcing it at the source means that call site cannot
+        forget (security audit, FEAT-260718-230bf8).
+        """
+        if config.scope is Scope.ADMIN and role != 'admin':
+            raise OAuthError(f'{config.name!r} is not available for your account.')
         oauth = self._require_oauth(config)
         target = redirect_uri()
         endpoints = await self._discover(oauth.issuer)
@@ -276,7 +296,7 @@ class ConnectorOAuth:
             access_token=access,
             refresh_token=payload.get('refresh_token'),
             expires_at=(time.time() + float(expires_in)) if expires_in else None,
-            token_type=payload.get('token_type') or 'Bearer',
+            token_type=_safe_token_type(payload.get('token_type')),
             scope=payload.get('scope'),
         )
 
