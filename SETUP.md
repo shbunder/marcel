@@ -248,7 +248,7 @@ systemctl --user stop marcel
 | `TELEGRAM_BOT_TOKEN` | For Telegram | Bot token from @BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | For Telegram | Secret for validating webhook requests |
 | `MARCEL_PORT` | No | Server port (default: `8000`) |
-| `MARCEL_PUBLIC_URL` | For Mini App | Public HTTPS URL for Telegram Mini App buttons |
+| `MARCEL_PUBLIC_URL` | For Mini App + connector linking | Public URL Marcel is reachable at from outside. Used for Telegram Mini App buttons **and** as the OAuth redirect base for connectors — Marcel registers `<MARCEL_PUBLIC_URL>/connectors/callback` with the provider. Production must be `https://…`; in development an `http://localhost:<port>` tunnel is accepted. Unset or non-https ⇒ account linking degrades to a readable message instead of failing obscurely. |
 | `MARCEL_DATA_DIR` | No | Data directory (default: `~/.marcel/`) |
 | `MARCEL_IDLE_SUMMARIZE_MINUTES` | No | Idle threshold before auto-summarization (default: `60`) |
 | `MARCEL_TRACING_ENABLED` | No | Enable OpenTelemetry LLM tracing (default: `false`) |

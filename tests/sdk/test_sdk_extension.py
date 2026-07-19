@@ -33,6 +33,9 @@ def test_extension_api_is_runtime_checkable():
         def skill(self, source):
             pass
 
+        def connector(self, source):
+            pass
+
         def job(self, source):
             pass
 

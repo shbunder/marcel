@@ -81,6 +81,15 @@ class ExtensionAPI(Protocol):
         """Register a skill habitat by its ``SKILL.md`` directory path."""
         ...
 
+    def connector(self, source: str) -> None:
+        """Register a connector habitat by its ``connector.yaml`` directory path.
+
+        A connector is an MCP server plus its per-user authentication
+        (FEAT-260718-230bf8). Note that connector code runs as trusted code —
+        see the Trust model in the connectors documentation.
+        """
+        ...
+
     def job(self, source: str) -> None:
         """Register a job template by its ``template.yaml`` directory path."""
         ...
