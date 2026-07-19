@@ -32,11 +32,23 @@ from marcel_core.capabilities.policy import MarcelPolicy
 from marcel_core.config import settings
 from marcel_core.connectors.models import Discovery as ConnectorDiscovery
 from marcel_core.harness.context import MarcelDeps
+from marcel_core.harness.model_chain import Tier
 from marcel_core.tracing import get_instrumentation_settings
 
 log = logging.getLogger(__name__)
 
 _PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
+
+# Hard cap on model requests per interactive turn. Lives here (not inline in
+# the runner) so LimitWarner's iteration warnings and the runner's UsageLimits
+# are always the same number — a warning about a limit the run doesn't
+# enforce, or vice versa, would be worse than none (FEAT-260718-637764).
+TURN_REQUEST_LIMIT = 15
+
+# Tiers whose turns get the Planning capability. LOCAL/FAST are excluded
+# deliberately: small models plan poorly, and the plan reminder's cache
+# breakpoint only pays for itself on the larger Anthropic models.
+PLANNING_TIERS = frozenset({Tier.STANDARD, Tier.POWER})
 
 # Tools the model may orchestrate from run_code (CodeMode/Monty — the
 # code_exec successor, ADR-260718-d511f7). Conservative opt-in, and the bar
@@ -112,6 +124,7 @@ def build_capabilities(
     eager_skill: str | None = None,
     connectors: bool = True,
     subagents: bool = True,
+    tier: Tier | None = None,
 ) -> list[AbstractCapability[MarcelDeps]]:
     """Assemble the capability list for a Marcel agent.
 
@@ -219,6 +232,32 @@ def build_capabilities(
 
     if code_mode:
         capabilities.append(CodeMode(tools=sorted(CODE_MODE_ELIGIBLE)))
+
+    # Turn-quality capabilities (FEAT-260718-637764) — interactive turns only:
+    # `tier` is passed by the runner and stays None on the lean paths (jobs,
+    # subagent children, explain), which skip both. NFR1: LOCAL/FAST turns
+    # get no Planning; LimitWarner is a per-request character-count heuristic
+    # on every tier — cheap enough that being warned before the wall matters
+    # more than the arithmetic.
+    if tier is not None:
+        from pydantic_ai_harness.compaction import LimitWarner
+
+        if tier in PLANNING_TIERS:
+            from pydantic_ai_harness.planning import Planning
+
+            capabilities.append(Planning())
+        context_budget = (
+            settings.marcel_limit_warn_context_tokens_local
+            if tier is Tier.LOCAL
+            else settings.marcel_limit_warn_context_tokens
+        )
+        capabilities.append(
+            LimitWarner(
+                max_iterations=TURN_REQUEST_LIMIT,
+                max_context_tokens=context_budget,
+                warning_threshold=settings.marcel_limit_warn_threshold,
+            )
+        )
 
     # Delegation (FEAT-260718-b6d1da): the SubAgents capability contributes
     # the admin-tier `delegate` tool. Children are full create_marcel_agent

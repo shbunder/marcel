@@ -176,6 +176,15 @@ class Settings(BaseSettings):
     marcel_clamp_max_part_tokens: int = 50_000
     marcel_overflow_spill_chars: int = 32_000
 
+    # LimitWarner (FEAT-260718-637764): warn the model as context pressure
+    # mounts, before hard truncation. Context budgets are per model class —
+    # cloud tiers (fast/standard/power) run ~200k-context models, the local
+    # tier runs small self-hosted ones. The threshold is the fraction of the
+    # budget at which warnings begin (harness default 0.7).
+    marcel_limit_warn_context_tokens: int = 160_000
+    marcel_limit_warn_context_tokens_local: int = 24_000
+    marcel_limit_warn_threshold: float = 0.7
+
     # Memory notebook (FEAT-260718-30d45a): bounded per-request injection
     # budget, and the post-turn Haiku extractor supplement (catches facts
     # the agent did not note itself; writes through the same store).

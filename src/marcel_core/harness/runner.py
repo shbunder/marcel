@@ -22,6 +22,7 @@ from pydantic_ai.usage import UsageLimits
 
 from marcel_core.capabilities.persistence import conversation_key, persistence_store
 from marcel_core.capabilities.persistence.extract import extract_tool_history
+from marcel_core.composition import TURN_REQUEST_LIMIT
 from marcel_core.harness.agent import create_marcel_agent
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.harness.core_handlers import register_core_handlers
@@ -480,7 +481,7 @@ async def stream_turn(
         else:
             tier_user_prompt = effective_text
             tier_history = message_history
-            tier_usage_limits = UsageLimits(request_limit=15)
+            tier_usage_limits = UsageLimits(request_limit=TURN_REQUEST_LIMIT)
             try:
                 tier_agent = create_marcel_agent(
                     current.model,
@@ -489,6 +490,7 @@ async def stream_turn(
                     cwd=effective_cwd,
                     user_slug=user_slug,
                     eager_skill=eager_skill,
+                    tier=current.tier,
                 )
             except Exception as exc:
                 log.warning(
