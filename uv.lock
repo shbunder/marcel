@@ -1295,7 +1295,7 @@ requires-dist = [
     { name = "croniter", specifier = ">=6.0.0" },
     { name = "cryptography", specifier = ">=46.0.0" },
     { name = "fastapi", specifier = ">=0.135.0" },
-    { name = "fastmcp-slim", extras = ["server"], specifier = ">=3.3" },
+    { name = "fastmcp-slim", extras = ["server"], specifier = ">=3.3,<4" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "matplotlib", specifier = ">=3.10.0" },
     { name = "openinference-instrumentation-pydantic-ai", specifier = ">=0.1.12" },

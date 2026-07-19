@@ -1,4 +1,4 @@
-# Habitats — the five kinds
+# Habitats — the six kinds
 
 Marcel's kernel ships **no behaviour**. Everything Marcel can *do* — call a
 calendar API, read RSS feeds, schedule a morning digest, delegate a plan
@@ -6,9 +6,9 @@ to a subagent, receive a Telegram webhook — lives in a **habitat**: a
 directory under [`$MARCEL_ZOO_DIR`](https://github.com/shbunder/marcel/blob/main/SETUP.md)
 that the kernel discovers at startup.
 
-There are exactly five kinds of habitat. Everything else in these docs
-(the toolkit, skills, channels, jobs, subagents) is a specialisation of
-one kind. Read this page first; the per-kind deep-dives make much more
+There are exactly six kinds of habitat. Everything else in these docs
+(the toolkit, skills, connectors, channels, jobs, subagents) is a
+specialisation of one kind. Read this page first; the per-kind deep-dives make much more
 sense once you know where they sit in the taxonomy.
 
 > **Extensions.** A newer, unifying entrypoint — a module exposing
@@ -23,6 +23,7 @@ sense once you know where they sit in the taxonomy.
 |---|---|---|---|---|
 | **Toolkit** | `toolkit/<name>/` | `__init__.py` + `toolkit.yaml` | [Toolkit habitats](plugins.md) | Python handlers registered with `@marcel_tool("<name>.<action>")`. The *executable* layer. |
 | **Skill** | `skills/<name>/` | `SKILL.md` + optional `SETUP.md` | [Skills](skills.md) | Markdown that teaches the agent *when* to reach for a tool. The *prompting* layer. |
+| **Connector** | `connectors/<name>/` | `connector.yaml` + optional `SETUP.md` | [Connectors](connectors.md) | An MCP server plus its per-user auth. The *integration* layer for capabilities that already exist as MCP servers — each family member calls with their own credentials. |
 | **Subagent** | `agents/<name>.md` | single Markdown file | [Agents](agents.md) | Named, scoped agents (with their own tool filter + model) the main agent can `delegate()` to. |
 | **Channel** | `channels/<name>/` | `__init__.py` + `channel.yaml` | [Channels](channels.md) | Bidirectional transports: FastAPI router for inbound webhooks + `send_message` / `send_photo` / friends for outbound push. |
 | **Job** | `jobs/<name>/template.yaml` | YAML + optional scripts | [Jobs](jobs.md) | Scheduled background work: cron / interval / event / oneshot triggers, run by the executor under one of three *dispatch types*. |
@@ -198,7 +199,7 @@ The kernel wrappers in
 [`src/marcel_core/plugin/habitat.py`](https://github.com/shbunder/marcel/blob/main/src/marcel_core/plugin/habitat.py)
 (`ISSUE-5f4d34`, marcel-admin board archive)
 provide the uniform `Habitat` Protocol — `kind`, `name`, `source` — over
-all five kinds so discovery, logging, and admin tooling treat them
+all six kinds so discovery, logging, and admin tooling treat them
 uniformly.
 
 ## Cross-links to per-kind deep dives
@@ -208,6 +209,7 @@ Richer material lives in the kind-specific pages.
 | Kind | Deep dive |
 |---|---|
 | Toolkit | [Toolkit habitats](plugins.md) |
+| Connector | [Connectors](connectors.md) |
 | Skill | [Skills](skills.md) |
 | Subagent | [Agents](agents.md) |
 | Channel | [Channels](channels.md) (kind-level) • [Telegram](channels/telegram.md) (one concrete example) |
