@@ -134,6 +134,7 @@ def _load_connector_dir(connector_dir: Path, source: str) -> ConnectorDoc | None
         log.warning('connectors: skipping nonconformant connector — %s', error)
         return None
     assert config is not None  # narrowed by error is None
+    config._connector_dir = connector_dir  # D3: lets server.module resolve park-relative files
     return ConnectorDoc(config=config, source=source, connector_dir=connector_dir)
 
 

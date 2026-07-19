@@ -138,7 +138,7 @@ def _ensure_habitat_jobs() -> None:
     "uninstall a habitat = remove its directory" working for jobs too.
     """
     from marcel_core.jobs import delete_job, list_all_jobs, save_job
-    from marcel_core.jobs.models import JobDefinition, NotifyPolicy, TriggerSpec
+    from marcel_core.jobs.models import JobDefinition, JobDispatchType, NotifyPolicy, TriggerSpec
     from marcel_core.toolkit import _metadata
 
     desired: dict[str, tuple[str, 'ScheduledJobSpec']] = {}  # job_id -> (habitat_name, spec)
@@ -146,6 +146,24 @@ def _ensure_habitat_jobs() -> None:
         for spec in meta.scheduled_jobs:
             job_id = _habitat_job_id(habitat_name, spec.name)
             desired[job_id] = (habitat_name, spec)
+
+    # Connector habitats declare scheduled_jobs too (D1, FEAT-260718-c232d9) —
+    # same stable job id, so a park migrating from toolkit to connector keeps
+    # its cadence and history. A name collision (both habitats live during the
+    # migration) resolves to the connector, the migration target.
+    from marcel_core.connectors.models import ConnectorScheduledJob
+
+    connector_specs: dict[str, tuple[str, ConnectorScheduledJob]] = {}
+    try:
+        from marcel_core.connectors.loader import load_connectors
+
+        for doc in load_connectors(None, role='admin'):
+            for cspec in doc.config.scheduled_jobs:
+                job_id = _habitat_job_id(doc.name, cspec.name)
+                desired.pop(job_id, None)
+                connector_specs[job_id] = (doc.name, cspec)
+    except Exception:  # pragma: no cover - discovery must never break scheduling
+        log.exception('connector scheduled-jobs discovery failed')
 
     for job in list_all_jobs():
         if not (job.template or '').startswith(_HABITAT_TEMPLATE_PREFIX):
@@ -199,6 +217,36 @@ def _ensure_habitat_jobs() -> None:
         )
         save_job(job)
         log.info("Created habitat job '%s' (%s) from habitat '%s'", spec.name, job.id, habitat_name)
+
+    for job_id, (habitat_name, cspec) in connector_specs.items():
+        if any(j.id == job_id for j in list_all_jobs()):
+            continue  # already on disk; user-edited fields stay intact
+        if cspec.cron is not None:
+            trigger = TriggerSpec(type=TriggerType.CRON, cron=cspec.cron, timezone=cspec.timezone)
+        else:
+            trigger = TriggerSpec(type=TriggerType.INTERVAL, interval_seconds=cspec.interval_seconds)
+        wants_agent = bool(cspec.task or cspec.system_prompt)
+        job = JobDefinition(
+            id=job_id,
+            name=cspec.name,
+            description=cspec.description or f'Scheduled job from connector {habitat_name}',
+            users=[],
+            trigger=trigger,
+            # Connector jobs default to deterministic tool dispatch — a feed
+            # sync needs no LLM at 06:00. A park that sets task/system_prompt
+            # opts into the agent shape, same as toolkit habitats.
+            dispatch_type=JobDispatchType.AGENT if wants_agent else JobDispatchType.TOOL,
+            tool=None if wants_agent else cspec.handler,
+            system_prompt=cspec.system_prompt or '',
+            task=cspec.task or f'Call {cspec.handler} and report the result.',
+            model=cspec.model or 'anthropic:claude-haiku-4-5-20251001',
+            skills=[cspec.handler] if wants_agent else [],
+            notify=NotifyPolicy(cspec.notify) if cspec.notify else NotifyPolicy.ON_FAILURE,
+            channel=cspec.channel or 'telegram',
+            template=f'{_HABITAT_TEMPLATE_PREFIX}{habitat_name}',
+        )
+        save_job(job)
+        log.info("Created connector job '%s' (%s) from connector '%s'", cspec.name, job.id, habitat_name)
 
 
 class JobScheduler:

@@ -47,6 +47,15 @@ _FRONTMATTER_FIELDS: tuple[str, ...] = (
     'status',
     'created_at',
     'trigger',
+    # Dispatch shape (FEAT-260718-c232d9 regression): these were absent, so
+    # save_job silently dropped dispatch_type/tool and every read-back came
+    # out AGENT — a tool-dispatch job created programmatically (connector
+    # scheduled jobs are the first) reverted to a full agent turn on reload.
+    'dispatch_type',
+    'tool',
+    'tool_params',
+    'subagent',
+    'subagent_task',
     'model',
     'skills',
     'request_limit',

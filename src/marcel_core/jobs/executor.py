@@ -530,15 +530,45 @@ async def _fire_tool_job(
     )
     assert job.tool is not None  # validator guarantees this for dispatch_type=tool
 
+    handler = None
     try:
         handler = get_handler(job.tool)
     except KeyError:
-        log.warning('%s-job: no toolkit handler registered for %r (job %s)', slug, job.tool, job.id)
-        run.error = f'No toolkit handler registered for {job.tool!r}'
-        run.error_category = 'config'
-        run.status = RunStatus.FAILED
-        run.finished_at = datetime.now(UTC)
-        return run
+        # D2 (FEAT-260718-c232d9): the same `family.tool` ref resolves against
+        # connector habitats when no toolkit claims it, so job templates stay
+        # unchanged across the toolkit→connector migration.
+        from marcel_core.connectors.toolset import call_connector_tool
+
+        try:
+            result = await asyncio.wait_for(
+                call_connector_tool(job.tool, job.tool_params, slug, timeout=job.timeout_seconds),
+                timeout=job.timeout_seconds,
+            )
+            run.output = result
+            run.status = RunStatus.COMPLETED
+            run.finished_at = datetime.now(UTC)
+            return run
+        except KeyError:
+            log.warning('%s-job: %r matches no toolkit handler or connector tool (job %s)', slug, job.tool, job.id)
+            run.error = f'No toolkit handler or connector tool for {job.tool!r}'
+            run.error_category = 'config'
+            run.status = RunStatus.FAILED
+            run.finished_at = datetime.now(UTC)
+            return run
+        except asyncio.TimeoutError:
+            run.error = f'Job timed out after {job.timeout_seconds}s'
+            run.error_category = 'timeout'
+            run.status = RunStatus.TIMED_OUT
+            run.finished_at = datetime.now(UTC)
+            return run
+        except Exception as exc:
+            log.exception('%s-job: connector tool job %s (%s) failed', slug, job.id, job.name)
+            run.error = str(exc)
+            _, category = classify_error(str(exc))
+            run.error_category = category
+            run.status = RunStatus.FAILED
+            run.finished_at = datetime.now(UTC)
+            return run
 
     try:
         result = await asyncio.wait_for(

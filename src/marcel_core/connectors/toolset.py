@@ -144,7 +144,7 @@ def _spawned_toolset(config: ConnectorConfig, slug: str, auth: ConnectorAuth) ->
         module = config.server.module
         if module is None:  # pragma: no cover - schema guarantees it
             raise ValueError(f'connector {config.name!r} is inprocess without a module')
-        return MCPToolset(_load_inprocess_server(module, slug), id=config.name)
+        return MCPToolset(_load_inprocess_server(module, slug, getattr(config, '_connector_dir', None)), id=config.name)
 
     env = auth.spawn_env(config, slug)
     command = config.server.command
@@ -154,8 +154,8 @@ def _spawned_toolset(config: ConnectorConfig, slug: str, auth: ConnectorAuth) ->
     return MCPToolset(Client(transport), id=config.name)
 
 
-def _load_inprocess_server(module_path: str, slug: str | None = None) -> Any:
-    """Import a bundled in-process FastMCP server by dotted path.
+def _load_inprocess_server(module_path: str, slug: str | None = None, connector_dir: Any = None) -> Any:
+    """Import a bundled in-process FastMCP server by dotted path or park file.
 
     The habitat's ``server.module`` exposes one of two shapes:
 
@@ -172,7 +172,26 @@ def _load_inprocess_server(module_path: str, slug: str | None = None) -> Any:
     """
     import importlib
 
-    module = importlib.import_module(module_path)
+    if module_path.endswith('.py'):
+        # A park-relative file (D3, FEAT-260718-c232d9): zoo connectors are not
+        # importable packages, so `server.module: server.py` loads from the
+        # habitat directory — the same spec_from_file_location shape the
+        # extension loader uses.
+        import importlib.util
+        from pathlib import Path
+
+        if connector_dir is None:
+            raise ValueError(f'{module_path!r} is park-relative but the connector directory is unknown')
+        target = Path(str(connector_dir)) / module_path
+        if not target.is_file():
+            raise ValueError(f'connector server file {target} does not exist')
+        spec = importlib.util.spec_from_file_location(f'marcel_connector_servers.{target.parent.name}', target)
+        if spec is None or spec.loader is None:  # pragma: no cover - importlib contract
+            raise ValueError(f'cannot load connector server from {target}')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    else:
+        module = importlib.import_module(module_path)
     build = getattr(module, 'build', None)
     if callable(build) and slug is not None:
         return build(slug)
@@ -282,3 +301,46 @@ def connector_toolsets_for_skill(
             continue
         toolsets.append(toolset)
     return toolsets
+
+
+async def call_connector_tool(ref: str, params: dict, slug: str, *, timeout: float = 300.0) -> str:
+    """Call ``<connector>.<tool>`` directly — the job-dispatch path (D2).
+
+    ``dispatch_type: tool`` job refs like ``news.sync`` historically named a
+    toolkit handler. During and after the toolkit→connector migration
+    (FEAT-260718-c232d9) the same ref resolves here when no toolkit claims it:
+    connector ``news``, MCP tool ``sync``, invoked over the real protocol via a
+    fastmcp Client. Job templates stay unchanged across the migration.
+
+    System-scope jobs pass their run slug through (``_system`` fans out inside
+    the park's own tool, exactly as the toolkit handler did).
+    """
+    import asyncio
+
+    from fastmcp.client import Client
+    from fastmcp.client.transports import StdioTransport
+
+    from marcel_core.connectors.loader import get_connector
+
+    family, _, tool = ref.partition('.')
+    if not tool:
+        raise KeyError(f'{ref!r} is not a <connector>.<tool> reference')
+    doc = get_connector(family, None, role='admin')
+    if doc is None:
+        raise KeyError(f'no connector named {family!r}')
+    config = doc.config
+
+    if config.server.transport is Transport.INPROCESS:
+        server = _load_inprocess_server(config.server.module or '', slug, doc.connector_dir)
+        client = Client(server)
+    elif config.server.transport is Transport.STDIO:
+        env = ConnectorAuth().spawn_env(config, slug)
+        command = config.server.command or []
+        client = Client(StdioTransport(command=command[0], args=list(command[1:]), env=env))
+    else:
+        raise KeyError(f'connector {family!r} is http — schedule against its own service instead')
+
+    async with client:
+        result = await asyncio.wait_for(client.call_tool(tool, params or {}), timeout=timeout)
+    parts = getattr(result, 'content', None) or []
+    return '\n'.join(str(getattr(part, 'text', part)) for part in parts)
