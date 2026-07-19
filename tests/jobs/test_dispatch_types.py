@@ -223,8 +223,8 @@ class TestFireSubagentJob:
         )
         captured: dict = {}
 
-        def fake_build(doc, *, role, cwd=None, user_slug=None):
-            captured.update(doc=doc, role=role)
+        def fake_build(doc, *, role, cwd=None, user_slug=None, memory=True, code_mode=True):
+            captured.update(doc=doc, role=role, memory=memory, code_mode=code_mode)
             return _FakeAgent(output='digest ready')
 
         monkeypatch.setattr('marcel_core.capabilities.subagents.build_child_agent', fake_build)
@@ -241,6 +241,8 @@ class TestFireSubagentJob:
         # The subagent inherits role='user', not admin — jobs never escalate role.
         assert captured['role'] == 'user'
         assert captured['doc'].name == 'digest'
+        # Historical parity: job subagents build lean (pre-close finding).
+        assert captured['memory'] is False and captured['code_mode'] is False
 
     @pytest.mark.asyncio
     async def test_agent_not_found_fails_with_config_category(self, monkeypatch):
@@ -273,7 +275,7 @@ class TestFireSubagentJob:
 
         monkeypatch.setattr(
             'marcel_core.capabilities.subagents.build_child_agent',
-            lambda doc, *, role, cwd=None, user_slug=None: _CapturingAgent(),
+            lambda doc, **kw: _CapturingAgent(),
         )
 
         job = _make_job(

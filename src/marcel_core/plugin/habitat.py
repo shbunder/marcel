@@ -4,7 +4,7 @@ Marcel discovers five kinds of habitats at startup
 (:class:`ChannelHabitat`, :class:`SkillHabitat`,
 :class:`SubagentHabitat`, :class:`JobHabitat`). Each has its own native
 loader with different signatures (side-effecting ``discover()`` vs
-list-returning ``load_agents()`` vs per-user ``load_skills(user_slug)``).
+list-returning ``load_agent_docs(user_slug)`` vs per-user ``load_skills(user_slug)``).
 
 This module adds a uniform wrapper so the orchestrator, logging, and
 test assertions can treat all five the same way. Wrappers are

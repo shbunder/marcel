@@ -203,6 +203,45 @@ class TestChildAssembly:
         cap_names = {type(c).__name__ for c in child.root_capability.capabilities}
         assert 'MarcelPolicy' in cap_names
 
+    def test_opted_in_child_gets_nested_delegation(self, roots):
+        """Regression (pre-close finding): `tools: [.., delegate]` must actually
+        grant the child its own SubAgents capability — the filter keeps the
+        name so the composition gate can fire."""
+        zoo, _ = roots
+        _write(zoo / 'agents', 'boss', 'tools: [marcel, delegate]\n')
+        _write(zoo / 'agents', 'worker', 'tools: [marcel]\n')
+        cap = build_subagents_capability(user_slug='shaun', role='admin')
+        assert cap is not None
+        boss = next(w for w in cap.agents if w.name == 'boss').agent.wrapped  # type: ignore[attr-defined]
+        worker = next(w for w in cap.agents if w.name == 'worker').agent.wrapped  # type: ignore[attr-defined]
+        boss_caps = {type(c).__name__ for c in boss.root_capability.capabilities}
+        worker_caps = {type(c).__name__ for c in worker.root_capability.capabilities}
+        assert 'SubAgents' in boss_caps  # opted in
+        assert 'SubAgents' not in worker_caps  # default recursion block
+
+    def test_delegation_depth_is_bounded(self, roots):
+        """A self-reaching opted-in doc terminates at MAX_DELEGATION_DEPTH
+        instead of recursing at build time."""
+        zoo, _ = roots
+        _write(zoo / 'agents', 'loop', 'tools: [marcel, delegate]\n')
+        cap = build_subagents_capability(user_slug='shaun', role='admin')
+        assert cap is not None  # construction terminated
+        child = cap.agents[0].agent.wrapped  # type: ignore[attr-defined]
+        nested = [c for c in child.root_capability.capabilities if type(c).__name__ == 'SubAgents']
+        assert nested  # depth 1 still delegates
+        grandchild = nested[0].agents[0].agent.wrapped
+        grand_caps = {type(c).__name__ for c in grandchild.root_capability.capabilities}
+        assert 'SubAgents' not in grand_caps  # depth bound reached
+
+    def test_lean_build_flags_respected(self, roots):
+        """Jobs pass memory=False/code_mode=False — the child must not carry
+        Memory or CodeMode then (historical job-subagent parity)."""
+        zoo, _ = roots
+        _write(zoo / 'agents', 'a', 'tools: [marcel]\n')
+        child = build_child_agent(load_agent_doc('a'), role='user', memory=False, code_mode=False)
+        cap_names = {type(c).__name__ for c in child.root_capability.capabilities}
+        assert 'Memory' not in cap_names and 'CodeMode' not in cap_names
+
     def test_no_docs_means_no_capability(self, roots):
         assert build_subagents_capability(user_slug='shaun', role='admin') is None
 

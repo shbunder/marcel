@@ -625,7 +625,9 @@ async def _fire_subagent_job(
         return _fail(f'subagent_task references unsupported placeholder {exc!s}', 'config')
 
     try:
-        sub_agent = build_child_agent(agent_doc, role='user')
+        # memory/code_mode off: parity with the historical job-subagent
+        # build — headless runs stay lean (see composition.py's job note).
+        sub_agent = build_child_agent(agent_doc, role='user', memory=False, code_mode=False)
     except (TierNotConfigured, ValueError) as exc:
         return _fail(f'subagent model resolution failed: {exc}', 'config')
     except Exception as exc:

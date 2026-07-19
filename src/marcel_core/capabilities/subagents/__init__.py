@@ -69,6 +69,9 @@ DELEGATE_TOOL_NAME = 'delegate'
 MAX_DELEGATION_DEPTH = 2
 _build_depth = 0
 
+# Wall-clock default for a delegated run when the doc omits timeout_seconds.
+DEFAULT_TIMEOUT_SECONDS = 300
+
 
 @dataclass
 class SubagentDoc:
@@ -82,7 +85,7 @@ class SubagentDoc:
     tools: list[str] | None = None  # allowlist; None = role default pool
     disallowed_tools: list[str] = field(default_factory=list)
     max_requests: int | None = None
-    timeout_seconds: int = 300
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
 
     @property
     def wants_delegate(self) -> bool:
@@ -127,7 +130,7 @@ def _parse_agent_file(path: Path, source: str) -> SubagentDoc | None:
 
     - ``name`` (defaults to the file stem), ``description``
     - ``model`` — ``inherit``/absent → parent's model; a bare tier name
-      (``fast``/``standard``/``power``) → tier sentinel; anything else a
+      (``local``/``fast``/``standard``/``power``) → tier sentinel; anything else a
       qualified pydantic-ai string. The removed ``backup`` tier is rejected.
     - ``tools`` / ``disallowed_tools`` (camelCase aliases accepted)
     - ``max_requests`` (aliases ``maxRequests``/``maxTurns``) → per-child
@@ -199,7 +202,7 @@ def _parse_agent_file(path: Path, source: str) -> SubagentDoc | None:
         tools=tools,
         disallowed_tools=disallowed,
         max_requests=int(str(max_requests_raw)) if max_requests_raw is not None else None,
-        timeout_seconds=int(str(timeout_raw)) if timeout_raw is not None else 300,
+        timeout_seconds=int(str(timeout_raw)) if timeout_raw is not None else DEFAULT_TIMEOUT_SECONDS,
     )
 
 
@@ -233,16 +236,20 @@ def _tool_filter(doc: SubagentDoc, role: str) -> set[str]:
     """The child's tool pool, with the recursion guard applied.
 
     An explicit ``tools`` allowlist is honored minus ``disallowed_tools``;
-    an absent one expands to the role-default pool. ``delegate`` names the
-    capability tool, not a registry tool, so it is discarded here either way
-    — recursion is granted via the child's ``subagents`` build flag instead
-    (see :func:`build_child_agent`).
+    an absent one expands to the role-default pool. ``delegate`` is discarded
+    unless the doc opted in: it names the capability tool, not a registry
+    tool, so keeping it is harmless for tool registration — but the
+    composition gate requires it in the filter before attaching the nested
+    SubAgents capability, so discarding it for an opted-in doc would render
+    ``subagents=doc.wants_delegate`` inert (pre-close finding,
+    FEAT-260718-b6d1da).
     """
     from marcel_core.harness.agent import available_tool_names
 
     pool = set(doc.tools) if doc.tools is not None else available_tool_names(role)
     pool -= set(doc.disallowed_tools)
-    pool.discard(DELEGATE_TOOL_NAME)
+    if not doc.wants_delegate:
+        pool.discard(DELEGATE_TOOL_NAME)
     return pool
 
 
@@ -252,9 +259,15 @@ def build_child_agent(
     role: str,
     cwd: str | None = None,
     user_slug: str | None = None,
+    memory: bool = True,
+    code_mode: bool = True,
 ) -> Agent[MarcelDeps, str]:
     """Build the child agent for one doc — the shared seam for the capability
     and for jobs' SUBAGENT dispatch (FR4).
+
+    ``memory``/``code_mode`` default on to match delegation-path parity
+    (interactive children always carried both); the jobs path passes
+    ``False`` for each, preserving its historical lean build.
 
     Raises:
         marcel_core.harness.model_chain.TierNotConfigured: The doc pins a
@@ -275,6 +288,8 @@ def build_child_agent(
         tool_filter=_tool_filter(doc, role),
         cwd=cwd,
         user_slug=user_slug,
+        memory=memory,
+        code_mode=code_mode,
         skills=False,
         connectors=False,
         subagents=doc.wants_delegate,
