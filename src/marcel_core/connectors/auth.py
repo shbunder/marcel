@@ -145,8 +145,12 @@ class ConnectorAuth:
         """Credential environment for a spawned (stdio) connector server.
 
         stdio/in-process servers cannot carry a per-request header, so their
-        credential is delivered once at spawn — which is exactly why each
-        (connector, user) pair gets its own instance rather than sharing one.
+        credential is delivered once at spawn — which is why each
+        (connector, user) pair gets its own instance (see
+        :mod:`marcel_core.connectors.lifecycle`: that pairing keeps the
+        *attribution* right; it is not an isolation boundary). It also means a
+        spawned server cannot pick up a refreshed credential mid-life — that
+        happens when the instance is recycled and respawns.
         The naming convention habitats are written against:
 
         * ``api_key`` → the env var the habitat itself named in

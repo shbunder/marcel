@@ -2,9 +2,25 @@
 
 ``http`` connectors are a shared upstream with a per-request header, so they
 need no lifecycle. ``stdio`` and ``inprocess`` connectors are different: the
-credential is delivered **once at spawn**, which is precisely why each
-``(connector, user)`` pair gets its **own** instance — sharing one would mean
-sharing a credential between family members.
+credential is delivered **once at spawn**, so each ``(connector, user)`` pair
+gets its **own** instance.
+
+What that pairing buys is **correct credential attribution**, not isolation.
+Reusing Alice's instance for Bob's turn would send Bob's tool calls upstream
+carrying *Alice's* token — Marcel silently acting as the wrong family member
+against a real account. Keying by pair is what prevents that confused-deputy
+bug, and it holds regardless of how Marcel is deployed.
+
+It is **not** a security boundary, and should never be described as one.
+Marcel runs as a single container under one uid: every stdio instance is a
+child of that process, and ``inprocess`` instances share Marcel's own memory.
+A connector spawned for one user can read every user's ``tokens.enc`` (0600
+guards against *other OS users*, not against sibling connectors) and, for
+``inprocess``, the credential vault itself. Connector code is therefore
+**trusted code**, on the same footing as in-process toolkit habitats
+(ADR-260628-6101c5, "lean isolation"). Running a connector you would not run
+as yourself needs real containment — bubblewrap for stdio, or the ``http``
+transport, where the server never touches the host — not this registry.
 
 :class:`ConnectorRegistry` owns those instances:
 
