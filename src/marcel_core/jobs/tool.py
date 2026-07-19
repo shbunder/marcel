@@ -23,6 +23,27 @@ from marcel_core.jobs.models import (
 log = logging.getLogger(__name__)
 
 
+def _validate_scoping(job_users: list[str], skills: list[str], connectors: list[str]) -> str | None:
+    """Save-time scoping validation (FEAT-260718-49a01a).
+
+    Resolves the declared names for every targeted user (each user's own
+    role and habitat chain applies), so a typo or an out-of-scope connector
+    fails here — in conversation, fixable — instead of at 07:00 tomorrow.
+    Returns a user-facing error string, or ``None`` when everything resolves.
+    """
+    if not (skills or connectors):
+        return None
+    from marcel_core.jobs import SYSTEM_USER
+    from marcel_core.jobs.scoping import JobScopingError, resolve_job_scoping
+
+    try:
+        for slug in job_users or [SYSTEM_USER]:
+            resolve_job_scoping(slug, skills, connectors)
+    except JobScopingError as exc:
+        return f'Cannot save job: {exc}'
+    return None
+
+
 async def create_job(
     ctx: RunContext[MarcelDeps],
     name: str,
@@ -39,6 +60,7 @@ async def create_job(
     model: str | None = None,
     channel: str | None = None,
     skills: list[str] | None = None,
+    connectors: list[str] | None = None,
     timeout_minutes: float | None = None,
     users: list[str] | None = None,
 ) -> str:
@@ -64,7 +86,13 @@ async def create_job(
         model: Fully-qualified pydantic-ai model string
             (default: ``anthropic:claude-haiku-4-5-20251001``).
         channel: Notification channel (default: telegram).
-        skills: List of skill names the job uses (documentation only).
+        skills: Skill names the job's runs load eagerly (their full guidance is
+            in the prompt from the first request). Prefer declaring these —
+            a scoped job runs leaner and more reliably on small models.
+        connectors: Connector names whose tools the job's runs get. A listed
+            skill's paired connectors join automatically, so this is only
+            needed for connectors no listed skill names. Unknown names are
+            rejected with the available candidates listed.
         timeout_minutes: Max minutes the job can run before being killed (default: 10).
         users: Users this job runs for. Defaults to ``[current_user]``. Pass an
             empty list ``[]`` to create a system-scope job that runs without
@@ -92,6 +120,10 @@ async def create_job(
 
     job_users = [ctx.deps.user_slug] if users is None else list(users)
 
+    error = _validate_scoping(job_users, skills or [], connectors or [])
+    if error is not None:
+        return error
+
     job = JobDefinition(
         name=name,
         description=task,
@@ -101,6 +133,7 @@ async def create_job(
         task=task,
         model=model or 'anthropic:claude-haiku-4-5-20251001',
         skills=skills or [],
+        connectors=connectors or [],
         notify=notify_policy,
         channel=channel or 'telegram',
         template=template,
@@ -233,6 +266,8 @@ async def update_job(
     model: str | None = None,
     timezone: str | None = None,
     timeout_minutes: float | None = None,
+    skills: list[str] | None = None,
+    connectors: list[str] | None = None,
 ) -> str:
     """Update a job's configuration.
 
@@ -251,6 +286,10 @@ async def update_job(
         model: New model name.
         timezone: IANA timezone for cron expressions (e.g. "Europe/Brussels").
         timeout_minutes: Max minutes the job can run before being killed.
+        skills: Replace the job's declared skills (pass ``[]`` to clear).
+            Unknown names are rejected with candidates listed.
+        connectors: Replace the job's declared connectors (pass ``[]`` to
+            clear). Unknown names are rejected with candidates listed.
 
     Returns:
         Confirmation of the update.
@@ -261,6 +300,15 @@ async def update_job(
     job = load_job(job_id)
     if not job or (job.users and ctx.deps.user_slug not in job.users):
         return f'Job `{job_id}` not found.'
+
+    if skills is not None or connectors is not None:
+        new_skills = job.skills if skills is None else skills
+        new_connectors = job.connectors if connectors is None else connectors
+        error = _validate_scoping(job.users, new_skills, new_connectors)
+        if error is not None:
+            return error
+        job.skills = new_skills
+        job.connectors = new_connectors
 
     if name is not None:
         job.name = name

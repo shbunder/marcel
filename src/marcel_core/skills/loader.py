@@ -211,9 +211,12 @@ def _csv(value: str | None) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _credentials_present(cred_keys: list[str], user_slug: str) -> bool:
+def _credentials_present(cred_keys: list[str], user_slug: str | None) -> bool:
     if not cred_keys:
         return True
+    if user_slug is None:
+        # The anonymous (global-catalog) view has no vault to check against.
+        return False
     try:
         from marcel_core.storage.credentials import load_credentials
 
@@ -228,7 +231,7 @@ def _env_present(env_keys: list[str]) -> bool:
     return all(os.environ.get(key) for key in env_keys)
 
 
-def _connector_requirements_met(connectors: list[str], user_slug: str, role: str = 'user') -> bool:
+def _connector_requirements_met(connectors: list[str], user_slug: str | None, role: str = 'user') -> bool:
     """Whether a skill's ``marcel-connectors`` are satisfied for this user.
 
     A discoverable connector counts as met: an unlinked one already degrades on
@@ -246,7 +249,9 @@ def _connector_requirements_met(connectors: list[str], user_slug: str, role: str
     return all(get_connector(name, user_slug, role) is not None for name in connectors)
 
 
-def _requirements_met(doc_meta: dict[str, str], connectors: list[str], user_slug: str, role: str = 'user') -> bool:
+def _requirements_met(
+    doc_meta: dict[str, str], connectors: list[str], user_slug: str | None, role: str = 'user'
+) -> bool:
     """Whether a skill's own requirements (from metadata) are satisfied."""
     if not _credentials_present(_csv(doc_meta.get('marcel-requires-credentials')), user_slug):
         return False
@@ -260,7 +265,7 @@ def _requirements_met(doc_meta: dict[str, str], connectors: list[str], user_slug
 # ---------------------------------------------------------------------------
 
 
-def _load_skill_dir(skill_dir: Path, source: str, user_slug: str, role: str = 'user') -> SkillDoc | None:
+def _load_skill_dir(skill_dir: Path, source: str, user_slug: str | None, role: str = 'user') -> SkillDoc | None:
     """Load and validate one skill directory, or None if nonconformant.
 
     Serves SETUP.md instead of SKILL.md when the skill's requirements are
@@ -368,7 +373,7 @@ def _load_skill_dir(skill_dir: Path, source: str, user_slug: str, role: str = 'u
     )
 
 
-def load_skills(user_slug: str, role: str = 'user') -> list[SkillDoc]:
+def load_skills(user_slug: str | None, role: str = 'user') -> list[SkillDoc]:
     """Discover the skills visible to *user_slug* at *role*, sorted by name.
 
     Resolves the scoping chain (global → zoo-user → data-user; most-specific

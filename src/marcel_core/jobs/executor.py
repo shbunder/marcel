@@ -155,36 +155,28 @@ def _load_job_memories(user_slug: str) -> str:
     return '## User preferences & feedback\n\n' + '\n\n'.join(blocks)
 
 
-def _resolve_job_skills(job: JobDefinition, user_slug: str | None = None) -> list:
-    """Load full SkillDoc objects for skills referenced by a job.
-
-    Job skills may use integration IDs like ``"icloud.calendar"`` — the skill
-    name is the part before the dot (or the whole string if no dot).
-
-    ``user_slug`` controls which user's requirement checks apply; when
-    omitted, falls back to :func:`_resolve_run_user` which picks the sole
-    user (or :data:`SYSTEM_USER` for system-scope jobs).
-    """
-    from marcel_core.skills.loader import load_skills
-
-    slug = _resolve_run_user(job, user_slug)
-    all_skills = load_skills(slug)
-    skill_map = {s.name: s for s in all_skills}
-
-    # Extract unique skill names from job.skills (e.g. "icloud.calendar" -> "icloud")
-    wanted: set[str] = set()
-    for ref in job.skills:
-        wanted.add(ref.split('.')[0])
-
-    return [skill_map[name] for name in sorted(wanted) if name in skill_map]
+# The tool pool for a scoped job run: notify/render (`marcel`) plus the
+# cross-job cache pair. Everything else the run needs arrives as declared
+# capabilities — skills eager, connectors non-deferred. Deliberately no web,
+# charts, or job-management tools: a scoped job declared its surface, and an
+# undeclared tool is a tool it cannot misuse (FEAT-260718-49a01a).
+SCOPED_JOB_TOOL_NAMES = frozenset({'marcel', 'job_cache_read', 'job_cache_write'})
 
 
-def _build_job_context(job: JobDefinition, user_slug: str | None = None) -> str:
+def _build_job_context(job: JobDefinition, user_slug: str | None = None, *, scoped: bool = False) -> str:
     """Build the system prompt context for a job agent.
 
-    Assembles: job system prompt + skill docs + credentials + channel prompt.
-    Deliberately lean — no MARCEL.md, skill index, or memory selection.
-    System-scope runs skip per-user memory and credential injection.
+    Deliberately lean — no MARCEL.md, no skill index, no memory selection.
+
+    The **scoped** path (``skills:``/``connectors:`` declared) is leaner
+    still: skill bodies ride as eager capability instructions and connector
+    auth lives at the transport layer, so the prompt carries only the job's
+    own system prompt plus the channel and delivery-policy blocks — no
+    credential injection, no memory injection (FEAT-260718-49a01a).
+
+    The legacy path keeps prose-matched credential injection and
+    preference/feedback memories so pre-scoping jobs behave exactly as
+    before. System-scope runs skip per-user injection either way.
     """
     from marcel_core.harness.context import load_channel_prompt
     from marcel_core.storage.credentials import load_credentials
@@ -192,39 +184,22 @@ def _build_job_context(job: JobDefinition, user_slug: str | None = None) -> str:
     slug = _resolve_run_user(job, user_slug)
     parts = [job.system_prompt]
 
-    # Auto-inject full docs for referenced skills
-    skills = _resolve_job_skills(job, slug)
-    if skills:
-        skill_sections = []
-        for skill in skills:
-            if not skill.is_setup:
-                skill_sections.append(f'### {skill.name}\n\n{skill.content}')
-        if skill_sections:
-            parts.append('## Skill reference\n\n' + '\n\n---\n\n'.join(skill_sections))
+    if not scoped:
+        # Inject credentials referenced in the job's own prose. System-scope
+        # runs (SYSTEM_USER) get no vault and naturally load nothing.
+        all_creds = load_credentials(slug) if slug != SYSTEM_USER else {}
+        job_text = job.system_prompt + ' ' + job.task
+        relevant = {k: v for k, v in sorted(all_creds.items()) if k in job_text}
+        if relevant:
+            lines = ['## Credentials (injected from vault)']
+            for key, value in relevant.items():
+                lines.append(f'- **{key}**: `{value}`')
+            parts.append('\n'.join(lines))
 
-    # Inject credentials: from skill requirements + any referenced in system_prompt.
-    # System-scope runs (SYSTEM_USER) get no vault and naturally load nothing.
-    cred_keys: set[str] = set()
-    for skill in skills:
-        cred_keys.update(skill.credential_keys)
-
-    all_creds = load_credentials(slug) if slug != SYSTEM_USER else {}
-    job_text = job.system_prompt + ' ' + job.task
-    for key in all_creds:
-        if key in job_text:
-            cred_keys.add(key)
-
-    relevant = {k: all_creds[k] for k in sorted(cred_keys) if k in all_creds}
-    if relevant:
-        lines = ['## Credentials (injected from vault)']
-        for key, value in sorted(relevant.items()):
-            lines.append(f'- **{key}**: `{value}`')
-        parts.append('\n'.join(lines))
-
-    # Inject preference + feedback memories so jobs adapt to user behavior
-    memory_section = _load_job_memories(slug)
-    if memory_section:
-        parts.append(memory_section)
+        # Inject preference + feedback memories so jobs adapt to user behavior
+        memory_section = _load_job_memories(slug)
+        if memory_section:
+            parts.append(memory_section)
 
     # Channel delivery guidance
     channel_prompt = load_channel_prompt('job')
@@ -309,20 +284,49 @@ async def execute_job(
     # agent-initiated notify calls are dropped at the tool layer.
     deps.turn.suppress_notify = job.notify in (NotifyPolicy.SILENT, NotifyPolicy.ON_FAILURE)
 
-    # Build lean system prompt: task + skill docs + credentials + channel.
-    # Jobs inject their declared skills' docs eagerly here (skills=False on
-    # the agent — no deferred catalog for headless runs; job-scoped CodeMode
-    # and skill scoping arrive with FEAT-260718-49a01a).
-    system_prompt = _build_job_context(job, slug)
+    # Scoped assembly (FEAT-260718-49a01a): a job declaring skills:/connectors:
+    # gets exactly that surface — listed skills eager, listed connectors
+    # non-deferred under the job user's identity, the scoped tool pool, and
+    # nothing else. Resolution failures (name removed since save, connector
+    # unlinked) fail the run loud as config errors rather than running with a
+    # silently-reduced surface.
+    scoped = bool(job.skills or job.connectors)
+    extra_capabilities = None
+    if scoped:
+        from marcel_core.jobs.scoping import JobScopingError, build_scoped_capabilities, resolve_job_scoping
+
+        try:
+            job_scope = resolve_job_scoping(slug, job.skills, job.connectors)
+            extra_capabilities = build_scoped_capabilities(job_scope, slug)
+        except JobScopingError as exc:
+            log.warning('%s-job: scoping failed for %s (%s): %s', slug, job.id, job.name, exc)
+            run.error = str(exc)
+            run.error_category = 'config'
+            run.status = RunStatus.FAILED
+            run.finished_at = datetime.now(UTC)
+            append_run(job.id, slug, run)
+            return run
+    else:
+        log.info(
+            '%s-job: job %s (%s) runs unscoped — declare skills:/connectors: on the job '
+            'to run lean (FEAT-260718-49a01a)',
+            slug,
+            job.id,
+            job.name,
+        )
+
+    system_prompt = _build_job_context(job, slug, scoped=scoped)
 
     agent = create_marcel_agent(
         job.model,
         system_prompt=system_prompt,
         role='user',
+        tool_filter=set(SCOPED_JOB_TOOL_NAMES) if scoped else None,
         memory=False,
         code_mode=False,
         skills=False,
         connectors=False,
+        extra_capabilities=extra_capabilities,
     )
 
     # Apply usage limits if configured on the job

@@ -140,7 +140,7 @@ The field defaults to `agent`, so every pre-existing `JOB.md` /
 
 | Value | What runs | When to use it | Extra fields on `JobDefinition` / `template.yaml` |
 |---|---|---|---|
-| `agent` (default) | Full main-agent turn: system prompt, skills, memories, the whole model-fallback chain | Anything conversational, anything that needs the agent to reason about its output | `system_prompt`, `task`, `model`, `skills` (existing fields) |
+| `agent` (default) | Headless agent turn on the model-fallback chain; declare `skills:`/`connectors:` to run scoped and lean | Anything conversational, anything that needs the agent to reason about its output | `system_prompt`, `task`, `model`, `skills`, `connectors` |
 | `tool` | One [connector](connectors.md) tool called directly — **no LLM, no retries** | Deterministic periodic work (RSS fetch, health poll, bank sync) where the tool already owns its own idempotency | `tool: <connector>.<tool>`, `tool_params: {...}` |
 | `subagent` | Scoped subagent run (fresh `MarcelDeps`, tool filter + model from the subagent's frontmatter) — no chain retries | Bounded focused work: morning digest, weekly review — cheap context, no full skill set | `subagent: <name>`, `subagent_task: "..."` (supports `{user_slug}` placeholder) |
 
@@ -214,9 +214,9 @@ telemetry and notify behaviour stay uniform.
    explicitly-passed `user_slug` (for multi-user jobs), or the
    reserved `_system` slug for system-scope jobs.
 2. Creates `MarcelDeps` with `channel="job"` and `role="user"`.
-3. Builds a system prompt combining the job's own prompt with user
-   profile context (skills, credentials, preference/feedback
-   memories).
+3. Resolves the job's `skills:`/`connectors:` declaration (scoped
+   jobs) or assembles the legacy prompt (unscoped jobs) — see
+   *Scoping* below.
 4. Creates a Marcel agent via `create_marcel_agent()`.
 5. Runs with timeout enforcement:
    `asyncio.wait_for(agent.run(...), timeout=job.timeout_seconds)`.
@@ -231,11 +231,44 @@ telemetry and notify behaviour stay uniform.
 10. Records `delivery_status` and `delivery_error` on each run for
     observability.
 
-Job turns run lean: the job's declared skills have their docs injected
-eagerly into the system prompt (no deferred catalog for headless runs),
-and admin tools (shell, file I/O) are never available. Deterministic
-connector work belongs in `dispatch_type: tool`, which calls the
-connector tool directly without an LLM.
+### Scoping (`skills:` / `connectors:`)
+
+A job that declares `skills:` and/or `connectors:` (FEAT-260718-49a01a)
+runs with **exactly that surface** and nothing else:
+
+- **Listed skills attach eagerly** — the SKILL.md body rides as
+  instructions from the first request (plus the skill's
+  `read_skill_resource` tool). No catalog, no `load_capability`
+  round-trip.
+- **Listed connectors attach non-deferred** under the job user's
+  identity — tool schemas are visible immediately, per-user auth is
+  delivered exactly as in conversation (shared registry, spawn-env or
+  per-request header). A listed skill's `metadata.marcel-connectors`
+  join the connector set implicitly, so a paired skill needs no
+  repetition.
+- **The tool pool narrows** to `marcel` (notify/render) plus
+  `job_cache_read`/`job_cache_write` — no web, no charts, no
+  job-management tools.
+- **No prompt-injected credentials or memories** — connector auth
+  lives at the transport layer.
+
+Names resolve through the real skills/connectors loaders **at the job
+user's profile role**: a non-admin user's job can no more name an
+admin-scoped connector than that user could see it in conversation.
+Unknown names fail at save time (via `create_job`/`update_job`, with
+the installed candidates listed) and again loud at run time — a
+habitat removed since save fails the run as a `config` error instead
+of silently running without its tools.
+
+Legacy jobs (no `skills:`/`connectors:` keys) build the exact
+pre-scoping agent — full role toolset, prose-matched credential
+injection, preference/feedback memories — and log a scoping advisory
+each run. Declare scoping on existing jobs to run leaner; a scoped
+request is materially smaller (guarded by a regression scenario).
+
+Admin tools (shell, file I/O) are never available on either path.
+Deterministic connector work belongs in `dispatch_type: tool`, which
+calls the connector tool directly without an LLM.
 
 ### System-scope runs
 
@@ -244,7 +277,8 @@ When a job has `users: []`, the executor runs with `user_slug=_system`:
 - **No memories** are injected — `_system` has no user profile.
 - **No per-user credentials** — only env-var or package-level skill
   requirements are satisfied; skills with credential requirements
-  fall back to their SETUP.md.
+  fall back to their SETUP.md. Scoped system jobs resolve
+  `skills:`/`connectors:` against the **global** habitat roots only.
 - **No auto-notify** — system jobs never deliver to a user channel.
   The output is logged for inspection only.
 - **Run log** is filed at `runs/_system.jsonl`.
@@ -410,7 +444,7 @@ Entry schema (unknown keys are rejected):
 | `description` | no | One-line human description. |
 | `notify` | no | `always \| on_failure \| on_output \| silent`. |
 | `channel` | no | Delivery channel (default `telegram`). |
-| `task`, `system_prompt`, `model` | no | Per-entry overrides; the defaults synthesise a "call this tool and report" prompt. |
+| `task`, `system_prompt`, `model` | no | Per-entry overrides; the defaults synthesise a "call this tool and report" prompt. Setting `task`/`system_prompt` opts the entry into `dispatch_type: agent`, scoped to the declaring connector (`connectors: [<name>]`). |
 
 A malformed entry fails the connector's manifest validation, and a
 malformed connector is logged and skipped — its siblings keep loading.

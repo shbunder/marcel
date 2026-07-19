@@ -6,8 +6,10 @@ Provides a configured Agent instance with tools and instructions.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 from pydantic_ai import Agent
+from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -192,6 +194,7 @@ def create_marcel_agent(
     skills: bool = True,
     eager_skill: str | None = None,
     connectors: bool = True,
+    extra_capabilities: Sequence[AbstractCapability[MarcelDeps]] | None = None,
 ) -> Agent[MarcelDeps, str]:
     """Create a configured Marcel agent with a role-appropriate tool set.
 
@@ -222,11 +225,14 @@ def create_marcel_agent(
             ``user`` role subagent is silently dropped. When ``None``, the
             default role-based pool is used.
         memory: Attach the Memory notebook capability (tools + bounded
-            injection). ``False`` for the lean paths — headless jobs
-            (until FEAT-260718-49a01a declares scoping) and the explain
-            tier.
+            injection). ``False`` for the lean paths — headless jobs and
+            the explain tier.
         cwd: The session working directory — roots the admin Shell and
             FileSystem capabilities (falls back to the project root).
+        extra_capabilities: Caller-assembled capabilities appended after
+            the composition root's list. The generic seam for callers that
+            compose their own surface — scoped job runs pass their eager
+            skills and non-deferred connectors here (FEAT-260718-49a01a).
 
     Returns:
         Configured pydantic-ai Agent instance.
@@ -264,23 +270,27 @@ def create_marcel_agent(
         toolset.add_function(fn)  # type: ignore[arg-type]
         registered.append(name)
 
+    capabilities = build_capabilities(
+        role=role,
+        cwd=cwd,
+        tool_filter=tool_filter,
+        memory=memory,
+        code_mode=code_mode,
+        user_slug=user_slug,
+        skills=skills,
+        eager_skill=eager_skill,
+        connectors=connectors,
+    )
+    if extra_capabilities:
+        capabilities.extend(extra_capabilities)
+
     agent: Agent[MarcelDeps, str] = Agent(
         model_arg,
         deps_type=MarcelDeps,
         instructions=system_prompt,
         retries=2,
         end_strategy='exhaustive',
-        capabilities=build_capabilities(
-            role=role,
-            cwd=cwd,
-            tool_filter=tool_filter,
-            memory=memory,
-            code_mode=code_mode,
-            user_slug=user_slug,
-            skills=skills,
-            eager_skill=eager_skill,
-            connectors=connectors,
-        ),
+        capabilities=capabilities,
         toolsets=[toolset],
     )
 
