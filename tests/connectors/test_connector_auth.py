@@ -159,6 +159,29 @@ class TestApiKeyAuth:
 # ---------------------------------------------------------------------------
 
 
+class TestLinkageError:
+    """The sync linkage probe the composition root uses at agent-build time."""
+
+    def test_none_mode_is_always_usable(self, data_dir):
+        assert ConnectorAuth().linkage_error(_cfg('none'), 'shaun') is None
+
+    def test_shared_key_present_and_missing(self, data_dir, monkeypatch):
+        cfg = _cfg('api_key', per_user=False, credential_keys=('SHARED_KEY',))
+        monkeypatch.setenv('SHARED_KEY', 'v')
+        assert ConnectorAuth().linkage_error(cfg, 'shaun') is None
+        monkeypatch.delenv('SHARED_KEY')
+        assert 'not configured' in (ConnectorAuth().linkage_error(cfg, 'shaun') or '')
+
+    def test_expired_without_refresh_token_needs_relink(self, data_dir):
+        TokenStore().store('shaun', 'gh', StoredTokens(access_token='a', expires_at=1.0))
+        assert 'reconnected' in (ConnectorAuth().linkage_error(_cfg('oauth', name='gh'), 'shaun') or '')
+
+    def test_expired_with_refresh_token_counts_as_linked(self, data_dir):
+        # The per-request flow will refresh it; the catalog should still expose tools.
+        TokenStore().store('shaun', 'gh', StoredTokens(access_token='a', refresh_token='r', expires_at=1.0))
+        assert ConnectorAuth().linkage_error(_cfg('oauth', name='gh'), 'shaun') is None
+
+
 class TestNoneAndPassthrough:
     @pytest.mark.asyncio
     async def test_none_has_no_headers(self, data_dir):

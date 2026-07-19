@@ -51,6 +51,49 @@ class ConnectorAuth:
         self._store = store or TokenStore()
         self._refresher = refresher
 
+    def linkage_error(self, config: ConnectorConfig, slug: str) -> str | None:
+        """Readable reason *slug* cannot use *config* yet, or ``None`` if usable.
+
+        Synchronous on purpose: it only reads the vault, the environment and the
+        token store, so the composition root can decide at agent-build time
+        whether to expose a connector's tools or its "needs setup" stand-in.
+        A token that is merely *expired but refreshable* counts as linked — the
+        per-request auth flow refreshes it at call time.
+        """
+        auth = config.auth
+        if auth.mode is AuthMode.NONE:
+            return None
+        if auth.mode is AuthMode.API_KEY:
+            key_name = auth.credential_keys[0]
+            if auth.per_user:
+                from marcel_core.storage.credentials import load_credentials
+
+                return None if load_credentials(slug).get(key_name) else self._msg_no_user_key(config, key_name)
+            return None if os.environ.get(key_name) else self._msg_no_shared_key(config, key_name)
+
+        tokens = self._store.load(slug, config.name)
+        if tokens is None:
+            return self._msg_not_linked(config)
+        if tokens.is_expired() and not tokens.refresh_token:
+            return self._msg_relink(config)
+        return None
+
+    @staticmethod
+    def _msg_no_user_key(config: ConnectorConfig, key_name: str) -> str:
+        return f'{config.name!r} is not set up for you yet — it needs your {key_name}.'
+
+    @staticmethod
+    def _msg_no_shared_key(config: ConnectorConfig, key_name: str) -> str:
+        return f'{config.name!r} is not configured — the {key_name} is missing from the server settings.'
+
+    @staticmethod
+    def _msg_not_linked(config: ConnectorConfig) -> str:
+        return f'{config.name!r} is not linked for you yet — you can connect it in settings.'
+
+    @staticmethod
+    def _msg_relink(config: ConnectorConfig) -> str:
+        return f'{config.name!r} needs to be reconnected — its access has expired and cannot be refreshed.'
+
     async def resolve_secret(self, config: ConnectorConfig, slug: str) -> str | None:
         """Return the outbound bearer secret for *slug*, or ``None`` for ``auth none``.
 
@@ -68,29 +111,25 @@ class ConnectorAuth:
 
                 value = load_credentials(slug).get(key_name)
                 if not value:
-                    raise ConnectorNotLinked(f'{config.name!r} is not set up for you yet — it needs your {key_name}.')
+                    raise ConnectorNotLinked(self._msg_no_user_key(config, key_name))
                 return value
             # Shared key lives in system config (.env), not a user vault.
             value = os.environ.get(key_name)
             if not value:
-                raise ConnectorNotLinked(
-                    f'{config.name!r} is not configured — the {key_name} is missing from the server settings.'
-                )
+                raise ConnectorNotLinked(self._msg_no_shared_key(config, key_name))
             return value
 
         # OAuth: load, refresh if near expiry, use the (possibly refreshed) access token.
         tokens = self._store.load(slug, config.name)
         if tokens is None:
-            raise ConnectorNotLinked(f'{config.name!r} is not linked for you yet — you can connect it in settings.')
+            raise ConnectorNotLinked(self._msg_not_linked(config))
         if tokens.is_expired():
             tokens = await self._refresh(config, slug, tokens)
         return tokens.access_token
 
     async def _refresh(self, config: ConnectorConfig, slug: str, tokens: StoredTokens) -> StoredTokens:
         if not tokens.refresh_token or self._refresher is None:
-            raise ConnectorNotLinked(
-                f'{config.name!r} needs to be reconnected — its access has expired and cannot be refreshed.'
-            )
+            raise ConnectorNotLinked(self._msg_relink(config))
         refreshed = await self._refresher.refresh(config, tokens.refresh_token)
         # Providers may omit a new refresh token on refresh; keep the old one.
         if refreshed.refresh_token is None:

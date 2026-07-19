@@ -18,6 +18,8 @@ request, mirroring the pre-v2 force-load.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from pydantic_ai import RunContext
 from pydantic_ai.capabilities import Capability
 
@@ -25,7 +27,9 @@ from marcel_core.harness.context import MarcelDeps
 from marcel_core.skills.loader import SkillDoc, get_skill_resource, list_skill_resources
 
 
-def _skill_capability(doc: SkillDoc, *, eager: bool) -> Capability[MarcelDeps]:
+def _skill_capability(
+    doc: SkillDoc, *, eager: bool, toolsets: Sequence[object] | None = None
+) -> Capability[MarcelDeps]:
     skill_name = doc.name
     description = doc.description + (' — needs setup' if doc.is_setup else '')
 
@@ -47,6 +51,7 @@ def _skill_capability(doc: SkillDoc, *, eager: bool) -> Capability[MarcelDeps]:
         description=description,
         instructions=doc.content,
         tools=[read_skill_resource],
+        toolsets=list(toolsets) if toolsets else None,  # type: ignore[arg-type]
         defer_loading=not eager,
     )
 
@@ -56,12 +61,27 @@ def build_skill_capabilities(
     role: str = 'user',
     *,
     eager_skill: str | None = None,
+    connector_docs: Sequence[object] | None = None,
 ) -> list[Capability[MarcelDeps]]:
     """The deferred skill capabilities for *user_slug* at *role*.
 
     ``eager_skill`` (the turn's ``/<skill>`` override) is built non-deferred
     so its body is present from the first model request.
+
+    A skill's ``marcel-connectors`` are bundled onto its capability as toolsets
+    (FEAT-260718-230bf8), so loading the skill reveals those connectors' tools in
+    the same ``load_capability`` step — the connector activates *with* the skill
+    rather than needing a separate search. ``connector_docs`` is the catalog the
+    composition root already loaded; pass ``None`` to skip connector bundling.
     """
     from marcel_core.skills.loader import load_skills
 
-    return [_skill_capability(doc, eager=(doc.name == eager_skill)) for doc in load_skills(user_slug, role)]
+    capabilities: list[Capability[MarcelDeps]] = []
+    for doc in load_skills(user_slug, role):
+        toolsets = None
+        if connector_docs is not None and doc.connectors:
+            from marcel_core.connectors.toolset import connector_toolsets_for_skill
+
+            toolsets = connector_toolsets_for_skill(doc.connectors, user_slug, role, docs=connector_docs)  # type: ignore[arg-type]
+        capabilities.append(_skill_capability(doc, eager=(doc.name == eager_skill), toolsets=toolsets))
+    return capabilities

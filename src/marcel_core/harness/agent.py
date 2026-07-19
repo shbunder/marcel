@@ -193,6 +193,7 @@ def create_marcel_agent(
     user_slug: str | None = None,
     skills: bool = True,
     eager_skill: str | None = None,
+    connectors: bool = True,
 ) -> Agent[MarcelDeps, str]:
     """Create a configured Marcel agent with a role-appropriate tool set.
 
@@ -280,6 +281,7 @@ def create_marcel_agent(
             user_slug=user_slug,
             skills=skills,
             eager_skill=eager_skill,
+            connectors=connectors,
         ),
         toolsets=[toolset],
     )

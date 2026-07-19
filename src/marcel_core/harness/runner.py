@@ -464,6 +464,7 @@ async def stream_turn(
                     memory=False,
                     code_mode=False,
                     skills=False,
+                    connectors=False,
                 )
             except Exception as exc:
                 log.warning(

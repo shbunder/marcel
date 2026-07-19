@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic_ai.capabilities import AbstractCapability, Instrumentation
+from pydantic_ai.capabilities import AbstractCapability, Instrumentation, ToolSearch
 from pydantic_ai_harness.code_mode import CodeMode
 from pydantic_ai_harness.compaction import ClampOversizedMessages, ClearToolResults
 from pydantic_ai_harness.memory import Memory
@@ -29,6 +29,7 @@ from marcel_core.capabilities.persistence import persistence_store
 from marcel_core.capabilities.persistence.overflow import PasteOverflowStore
 from marcel_core.capabilities.policy import MarcelPolicy
 from marcel_core.config import settings
+from marcel_core.connectors.models import Discovery as ConnectorDiscovery
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.tracing import get_instrumentation_settings
 
@@ -106,6 +107,7 @@ def build_capabilities(
     user_slug: str | None = None,
     skills: bool = True,
     eager_skill: str | None = None,
+    connectors: bool = True,
 ) -> list[AbstractCapability[MarcelDeps]]:
     """Assemble the capability list for a Marcel agent.
 
@@ -141,10 +143,27 @@ def build_capabilities(
             exclude_tools=frozenset({'marcel'}),
         ),
     ]
+    # Connectors are loaded once and shared: the catalog feeds both the
+    # connector capabilities and the skill→connector bundling below, so a
+    # skill naming a connector in `marcel-connectors` activates it as part of
+    # that skill's load_capability step (FEAT-260718-230bf8).
+    connector_docs = None
+    if connectors and user_slug is not None:
+        from marcel_core.connectors.loader import load_connectors
+        from marcel_core.connectors.toolset import build_connector_capabilities
+
+        connector_docs = load_connectors(user_slug, role)
+        capabilities.extend(build_connector_capabilities(user_slug, role, docs=connector_docs))
+        # Deferred connectors hide their tool schemas until the model reaches
+        # for them; ToolSearch is how it reaches when no skill names them.
+        if any(d.config.discovery is ConnectorDiscovery.DEFERRED for d in connector_docs):
+            capabilities.append(ToolSearch())
     if skills and user_slug is not None:
         from marcel_core.skills.capability import build_skill_capabilities
 
-        capabilities.extend(build_skill_capabilities(user_slug, role, eager_skill=eager_skill))
+        capabilities.extend(
+            build_skill_capabilities(user_slug, role, eager_skill=eager_skill, connector_docs=connector_docs)
+        )
     if memory:
         capabilities.append(
             Memory(
