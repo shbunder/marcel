@@ -54,9 +54,22 @@ def scoping_zoo(tmp_path, monkeypatch):
             f'scope: {scope}\n'
         )
         (park / 'server.py').write_text(
-            'from fastmcp import FastMCP\n\nmcp = FastMCP("srv")\n\n'
-            '@mcp.tool\ndef headlines() -> str:\n    """Current headlines."""\n    return "none"\n'
+            'from fastmcp import FastMCP\n\n'
+            'def build(user_slug):\n'
+            '    mcp = FastMCP("srv")\n\n'
+            '    @mcp.tool\n'
+            '    def headlines() -> str:\n'
+            '        """Current headlines."""\n'
+            "        return f'serving:{user_slug}'\n\n"
+            '    return mcp\n'
         )
+
+    # Fresh per-test connector registry: the process-wide one keys instances by
+    # (connector name, slug), which would hand a later test a server built from
+    # an earlier test's tmp zoo.
+    import marcel_core.connectors.toolset as toolset_mod
+
+    monkeypatch.setattr(toolset_mod, '_REGISTRY', None)
 
     monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo))
     return zoo
@@ -125,3 +138,153 @@ class TestResolveJobScoping:
     def test_empty_declaration_resolves_empty(self, scoping_zoo):
         scope = resolve_job_scoping('shaun', [], [])
         assert scope.skill_docs == [] and scope.connector_docs == []
+
+
+# ---------------------------------------------------------------------------
+# Scoped executor assembly (STORY-260719-12b163) — scripted end-to-end runs
+# ---------------------------------------------------------------------------
+
+
+def _scripted_run(monkeypatch, script):
+    """Route execute_job's agent build through a FunctionModel.
+
+    ``script`` maps call index -> ModelResponse; every request's (messages,
+    info) pair is captured. Returns (captured, create_kwargs).
+    """
+    from pydantic_ai.messages import ModelResponse, TextPart
+
+    import marcel_core.harness.agent as agent_mod
+
+    captured: list = []
+    create_kwargs: list = []
+    # Bind the genuine factory, not a wrapper left by an earlier _scripted_run
+    # in the same test (wrapping a wrapper would silently discard this run's
+    # FunctionModel and route captures to the previous list).
+    real_create = getattr(agent_mod.create_marcel_agent, '__wrapped__', agent_mod.create_marcel_agent)
+
+    def handler(messages, info):
+        captured.append((messages, info))
+        idx = len(captured) - 1
+        if idx in script:
+            return script[idx]
+        return ModelResponse(parts=[TextPart('done')])
+
+    from pydantic_ai.models.function import FunctionModel
+
+    def wrapped(model=None, **kwargs):
+        create_kwargs.append(kwargs)
+        return real_create(FunctionModel(handler), **kwargs)
+
+    wrapped.__wrapped__ = real_create  # type: ignore[attr-defined]
+    monkeypatch.setattr(agent_mod, 'create_marcel_agent', wrapped)
+    return captured, create_kwargs
+
+
+def _tool_names(info) -> set[str]:
+    return {t.name for t in info.function_tools}
+
+
+def _request_size(messages, info) -> int:
+    return len(str(messages)) + sum(len(str(t)) for t in info.function_tools)
+
+
+class TestScopedExecution:
+    @pytest.mark.asyncio
+    async def test_scoped_digest_runs_lean(self, scoping_zoo, monkeypatch):
+        """Acceptance scenario 1: the request carries the news skill body and
+        only the declared surface — no memory block, no catalog, no unrelated
+        tools."""
+        from marcel_core.jobs.executor import SCOPED_JOB_TOOL_NAMES, execute_job
+
+        captured, create_kwargs = _scripted_run(monkeypatch, {})
+        job = _agent_job(users=['shaun'], skills=['news'])
+        run = await execute_job(job, 'test')
+
+        assert run.status.value == 'completed', run.error
+        assert create_kwargs[0]['tool_filter'] == set(SCOPED_JOB_TOOL_NAMES)
+        assert create_kwargs[0]['memory'] is False
+        assert len(create_kwargs[0]['extra_capabilities']) == 2  # eager skill + news MCP
+
+        messages, info = captured[0]
+        names = _tool_names(info)
+        assert 'headlines' in names  # the declared connector, non-deferred
+        assert 'read_skill_resource' in names  # the eager skill's resource tool
+        assert 'marcel' in names
+        # Nothing else: no web, no charts, no job management, no catalog.
+        assert not names & {'web', 'generate_chart', 'create_job', 'load_capability'}
+        text = str(messages)
+        assert 'Call `headlines()` for the current digest.' in text  # skill body eager
+        assert 'User preferences' not in text  # no memory injection
+
+    @pytest.mark.asyncio
+    async def test_undeclared_connector_tool_is_unreachable(self, scoping_zoo, monkeypatch):
+        """Acceptance scenario 2: a tool from an undeclared connector was never
+        in the toolset — calling it yields the framework's unknown-tool retry."""
+        from pydantic_ai.messages import ModelResponse, ToolCallPart
+
+        from marcel_core.jobs.executor import execute_job
+
+        captured, _ = _scripted_run(
+            monkeypatch,
+            {0: ModelResponse(parts=[ToolCallPart(tool_name='transactions', args={})])},
+        )
+        job = _agent_job(users=['shaun'], skills=['news'])
+        run = await execute_job(job, 'test')
+
+        assert run.status.value == 'completed'
+        assert all('transactions' not in _tool_names(info) for _messages, info in captured)
+        assert 'transactions' in str(captured[1][0]).lower()  # the retry names the unknown tool
+
+    @pytest.mark.asyncio
+    async def test_connector_serves_the_job_users_identity(self, scoping_zoo, monkeypatch):
+        """Acceptance scenario 4: the registry keys instances per (connector,
+        user), so the park serves the job's user — same delivery as a
+        conversation turn."""
+        from pydantic_ai.messages import ModelResponse, ToolCallPart
+
+        from marcel_core.jobs.executor import execute_job
+
+        captured, _ = _scripted_run(
+            monkeypatch,
+            {0: ModelResponse(parts=[ToolCallPart(tool_name='headlines', args={})])},
+        )
+        job = _agent_job(users=['shaun'], connectors=['news'])
+        run = await execute_job(job, 'test')
+
+        assert run.status.value == 'completed', run.error
+        assert 'serving:shaun' in str(captured[1][0])
+
+    @pytest.mark.asyncio
+    async def test_scoping_failure_fails_run_as_config(self, scoping_zoo, monkeypatch):
+        """A name that no longer resolves at run time fails loud — never a
+        silent run without the declared tools."""
+        from marcel_core.jobs.executor import execute_job
+
+        _scripted_run(monkeypatch, {})
+        job = _agent_job(users=['shaun'], connectors=['banking'])
+        run = await execute_job(job, 'test')
+
+        assert run.status.value == 'failed'
+        assert run.error_category == 'config'
+        assert run.error is not None and 'banking' in run.error and 'news' in run.error
+
+    @pytest.mark.asyncio
+    async def test_scoped_request_materially_smaller_than_unscoped(self, scoping_zoo, monkeypatch):
+        """NFR1: same job, scoped vs unscoped — the scoped request must be
+        materially smaller (guard against silent regression to full assembly)."""
+        from marcel_core.jobs.executor import execute_job
+
+        captured_scoped, _ = _scripted_run(monkeypatch, {})
+        scoped_job = _agent_job(users=['shaun'], skills=['news'])
+        run = await execute_job(scoped_job, 'test')
+        assert run.status.value == 'completed', run.error
+        scoped_size = _request_size(*captured_scoped[0])
+
+        captured_legacy, _ = _scripted_run(monkeypatch, {})
+        legacy_job = _agent_job(users=['shaun'])
+        run = await execute_job(legacy_job, 'test')
+        assert run.status.value == 'completed', run.error
+        legacy_size = _request_size(*captured_legacy[0])
+
+        assert len(_tool_names(captured_scoped[0][1])) < len(_tool_names(captured_legacy[0][1]))
+        assert scoped_size < legacy_size * 0.8, (scoped_size, legacy_size)

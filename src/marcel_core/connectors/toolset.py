@@ -231,11 +231,17 @@ def build_connector_capabilities(
     auth: ConnectorAuth | None = None,
     docs: Sequence[ConnectorDoc] | None = None,
     registry: ConnectorRegistry | None = None,
+    claimed_by_skills: set[str] | None = None,
 ) -> list[AbstractCapability]:
     """The connector capabilities visible to *user_slug* at *role*.
 
     ``docs`` lets a caller reuse an already-loaded catalog (the composition root
     loads it once for both connectors and skill linking).
+
+    ``claimed_by_skills`` names connectors whose name a visible skill also
+    carries. Capability ids must be unique within a run, so a paired name gets
+    exactly one capability — the skill's, which bundles the connector's
+    toolsets on load (STORY-260719-9207ca). Those connectors are skipped here.
     """
     resolver = auth or ConnectorAuth()
     catalog = list(docs) if docs is not None else load_connectors(user_slug, role)
@@ -245,6 +251,9 @@ def build_connector_capabilities(
 
     for doc in catalog:
         config = doc.config
+        if claimed_by_skills and config.name in claimed_by_skills:
+            log.debug('connectors: %s rides its paired skill capability — no standalone', config.name)
+            continue
         spawned = ConnectorRegistry.handles(config)
         try:
             problem = resolver.linkage_error(config, user_slug, for_spawn=spawned)
@@ -275,6 +284,65 @@ def build_connector_capabilities(
                 description=config.description,
                 allowed_tools=list(config.tools) or None,
                 defer_loading=config.discovery is Discovery.DEFERRED,
+            )
+        )
+    return capabilities
+
+
+class ConnectorUnavailable(RuntimeError):
+    """A declared connector cannot serve this run (unlinked, backoff, or malformed).
+
+    Raised by :func:`build_job_connector_capabilities` — a headless job run has
+    no user in the loop to read a needs-setup capability, so it fails loud
+    instead. The message is user-facing (``humanize_error``-friendly).
+    """
+
+
+def build_job_connector_capabilities(
+    docs: Sequence[ConnectorDoc],
+    user_slug: str,
+    *,
+    auth: ConnectorAuth | None = None,
+    registry: ConnectorRegistry | None = None,
+) -> list[AbstractCapability]:
+    """Non-deferred MCP capabilities for a scoped job run (FEAT-260718-49a01a).
+
+    The mirror of :func:`build_connector_capabilities` for headless runs, with
+    two deliberate differences: tool schemas are visible from the first request
+    (``defer_loading=False`` — a scoped job declared exactly what it needs, so
+    there is no catalog to defer into), and a connector that cannot serve
+    **raises** :class:`ConnectorUnavailable` instead of degrading to a
+    needs-setup capability — nobody is in the loop to read setup instructions,
+    so the run must fail loud with a message the notify channel can deliver.
+
+    Instances still come from the shared registry keyed per (connector, user),
+    so a per-user park serves the job under the job user's identity and a
+    per-user credential is delivered exactly as it is in conversation.
+    """
+    resolver = auth or ConnectorAuth()
+    reg = registry if registry is not None else _default_registry()
+    capabilities: list[AbstractCapability] = []
+    for doc in docs:
+        config = doc.config
+        spawned = ConnectorRegistry.handles(config)
+        problem = resolver.linkage_error(config, user_slug, for_spawn=spawned)
+        if problem is not None:
+            raise ConnectorUnavailable(f'Connector {config.name!r} is not ready for this run: {problem}')
+        try:
+            toolset = (
+                cast(MCPToolset, reg.acquire(config, user_slug))
+                if spawned
+                else _connector_toolset(config, user_slug, resolver)
+            )
+        except (ConnectorStartError, ValueError, OSError) as exc:
+            raise ConnectorUnavailable(f'Connector {config.name!r} failed to start: {exc}') from exc
+        capabilities.append(
+            MCP(
+                local=toolset,
+                id=config.name,
+                description=config.description,
+                allowed_tools=list(config.tools) or None,
+                defer_loading=False,
             )
         )
     return capabilities

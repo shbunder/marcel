@@ -81,11 +81,20 @@ def resolve_job_scoping(user_slug: str, skills: list[str], connectors: list[str]
     # reserved ``_system`` slug must never be joined into a per-user path.
     lookup = None if user_slug == SYSTEM_USER else user_slug
 
+    # Legacy job files reference skills by integration id ('icloud.calendar');
+    # the skill name is the part before the dot. Kept so pre-scoping JOB.md
+    # files resolve unchanged.
+    wanted_skills: list[str] = []
+    for ref in skills:
+        name = ref.split('.')[0]
+        if name not in wanted_skills:
+            wanted_skills.append(name)
+
     skill_map = {doc.name: doc for doc in load_skills(lookup, role)}
-    missing_skills = [name for name in skills if name not in skill_map]
+    missing_skills = [name for name in wanted_skills if name not in skill_map]
     if missing_skills:
         raise _unknown('skill', missing_skills, list(skill_map))
-    scope.skill_docs = [skill_map[name] for name in skills]
+    scope.skill_docs = [skill_map[name] for name in wanted_skills]
 
     wanted = list(connectors)
     for doc in scope.skill_docs:
@@ -99,3 +108,30 @@ def resolve_job_scoping(user_slug: str, skills: list[str], connectors: list[str]
         scope.connector_docs = [connector_map[name] for name in wanted]
 
     return scope
+
+
+def build_scoped_capabilities(scope: JobScope, user_slug: str) -> list:
+    """Materialize a resolved :class:`JobScope` into agent capabilities.
+
+    Listed skills attach **eager** (body as instructions, ``read_skill_resource``
+    included); listed connectors attach **non-deferred** under the job user's
+    identity. A skill in setup mode or a connector that cannot serve raises
+    :class:`JobScopingError` — headless runs fail loud, they never run with a
+    silently-reduced surface.
+    """
+    from marcel_core.connectors.toolset import ConnectorUnavailable, build_job_connector_capabilities
+    from marcel_core.skills.capability import build_eager_skill_capability
+
+    capabilities: list = []
+    for doc in scope.skill_docs:
+        if doc.is_setup:
+            raise JobScopingError(
+                f'Skill {doc.name!r} needs setup before this job can use it — '
+                f'its requirements (credentials or connectors) are unmet for this user.'
+            )
+        capabilities.append(build_eager_skill_capability(doc))
+    try:
+        capabilities.extend(build_job_connector_capabilities(scope.connector_docs, user_slug))
+    except ConnectorUnavailable as exc:
+        raise JobScopingError(str(exc)) from exc
+    return capabilities

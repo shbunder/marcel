@@ -9,6 +9,7 @@ capabilities.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from pydantic_ai.capabilities import AbstractCapability, Instrumentation, ToolSearch
@@ -32,6 +33,8 @@ from marcel_core.config import settings
 from marcel_core.connectors.models import Discovery as ConnectorDiscovery
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.tracing import get_instrumentation_settings
+
+log = logging.getLogger(__name__)
 
 _PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
 
@@ -147,22 +150,58 @@ def build_capabilities(
     # connector capabilities and the skill→connector bundling below, so a
     # skill naming a connector in `marcel-connectors` activates it as part of
     # that skill's load_capability step (FEAT-260718-230bf8).
+    #
+    # Skills load first because capability ids must be unique within a run
+    # (pydantic-ai) and a paired habitat shares one name across both kinds
+    # (connector-skill-pairs rule) — the news skill and the news connector
+    # would otherwise both claim id 'news' and crash every agent build
+    # (STORY-260719-9207ca). The skill wins the name: it is the disclosure
+    # path, and loading it activates the connector's toolsets in the same
+    # step, so the standalone connector capability is redundant for a paired
+    # name and is skipped.
     connector_docs = None
+    skill_docs = None
+    if skills and user_slug is not None:
+        from marcel_core.skills.loader import load_skills
+
+        skill_docs = load_skills(user_slug, role)
     if connectors and user_slug is not None:
         from marcel_core.connectors.loader import load_connectors
         from marcel_core.connectors.toolset import build_connector_capabilities
 
         connector_docs = load_connectors(user_slug, role)
-        capabilities.extend(build_connector_capabilities(user_slug, role, docs=connector_docs))
+        claimed = {doc.name for doc in skill_docs} if skill_docs else set()
+        for cdoc in connector_docs:
+            # A same-name skill that does not list its connector in
+            # marcel-connectors strands the connector's tools entirely —
+            # make the authoring error loud instead of silent.
+            if cdoc.config.name in claimed:
+                pairing = next(s for s in skill_docs or [] if s.name == cdoc.config.name)
+                if cdoc.config.name not in pairing.connectors:
+                    log.warning(
+                        "skill %r shares the connector's name but does not list it in "
+                        "metadata.marcel-connectors — the connector's tools are unreachable "
+                        'until the pairing is declared (connector-skill-pairs rule)',
+                        cdoc.config.name,
+                    )
+        capabilities.extend(
+            build_connector_capabilities(user_slug, role, docs=connector_docs, claimed_by_skills=claimed)
+        )
         # Deferred connectors hide their tool schemas until the model reaches
         # for them; ToolSearch is how it reaches when no skill names them.
         if any(d.config.discovery is ConnectorDiscovery.DEFERRED for d in connector_docs):
             capabilities.append(ToolSearch())
-    if skills and user_slug is not None:
+    if skill_docs is not None:
         from marcel_core.skills.capability import build_skill_capabilities
 
         capabilities.extend(
-            build_skill_capabilities(user_slug, role, eager_skill=eager_skill, connector_docs=connector_docs)
+            build_skill_capabilities(
+                user_slug or '',
+                role,
+                eager_skill=eager_skill,
+                connector_docs=connector_docs,
+                docs=skill_docs,
+            )
         )
     if memory:
         capabilities.append(

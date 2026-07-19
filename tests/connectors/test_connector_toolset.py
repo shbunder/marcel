@@ -579,3 +579,76 @@ class TestSpawnedTransports:
         from marcel_core.connectors.toolset import _resolve_park_argv
 
         assert _resolve_park_argv(['npx', '-y', 'x'], None) == ['npx', '-y', 'x']
+
+
+class TestPairedNameComposition:
+    """STORY-260719-9207ca: a skill and connector sharing a name (the pairing
+    convention) must compose into ONE capability — pydantic-ai rejects
+    duplicate capability ids at Agent construction, so the collision crashed
+    every agent build for a user with the paired zoo installed."""
+
+    def _paired_zoo(self, tmp_path, monkeypatch, *, declare_pairing: bool):
+        from marcel_core.config import settings
+        from marcel_core.storage import _root
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path / 'data')
+        zoo = tmp_path / 'zoo'
+        skill = zoo / 'skills' / 'news'
+        skill.mkdir(parents=True)
+        metadata = 'metadata:\n  marcel-connectors: news\n' if declare_pairing else ''
+        (skill / 'SKILL.md').write_text(
+            f'---\nname: news\ndescription: Read the news.\n{metadata}---\n\nCall `headlines()`.\n'
+        )
+        park = zoo / 'connectors' / 'news'
+        park.mkdir(parents=True)
+        (park / 'connector.yaml').write_text(
+            'name: news\ndescription: news tools\n'
+            'server: {transport: inprocess, module: server.py}\n'
+            'auth: {mode: none, per_user: false}\n'
+        )
+        (park / 'server.py').write_text(
+            'from fastmcp import FastMCP\nmcp = FastMCP("srv")\n\n'
+            '@mcp.tool\ndef headlines() -> str:\n    """h"""\n    return "x"\n'
+        )
+        import marcel_core.connectors.toolset as toolset_mod
+
+        monkeypatch.setattr(toolset_mod, '_REGISTRY', None)
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo))
+        return zoo
+
+    @pytest.mark.asyncio
+    async def test_paired_zoo_builds_and_runs(self, tmp_path, monkeypatch):
+        from pydantic_ai.models.test import TestModel
+
+        from marcel_core.harness.agent import create_marcel_agent
+        from marcel_core.harness.context import MarcelDeps
+
+        self._paired_zoo(tmp_path, monkeypatch, declare_pairing=True)
+        agent = create_marcel_agent(TestModel(call_tools=[]), system_prompt='x', role='user', user_slug='shaun')
+        deps = MarcelDeps(user_slug='shaun', conversation_id='shaun:cli', channel='cli')
+        result = await agent.run('hi', deps=deps)
+        assert result.output  # the build no longer raises UserError
+
+    def test_paired_name_yields_single_capability(self, tmp_path, monkeypatch):
+        from marcel_core.composition import build_capabilities
+
+        self._paired_zoo(tmp_path, monkeypatch, declare_pairing=True)
+        caps = build_capabilities(role='user', user_slug='shaun')
+        news_caps = [c for c in caps if getattr(c, 'id', None) == 'news']
+        assert len(news_caps) == 1
+        # The survivor is the skill capability (which bundles the connector's
+        # toolsets on load), not the standalone MCP capability.
+        assert type(news_caps[0]).__name__ != 'MCP'
+        assert (news_caps[0].description or '').startswith('Read the news')
+
+    def test_half_paired_name_warns(self, tmp_path, monkeypatch, caplog):
+        import logging as _logging
+
+        from marcel_core.composition import build_capabilities
+
+        self._paired_zoo(tmp_path, monkeypatch, declare_pairing=False)
+        caplog.set_level(_logging.WARNING, logger='marcel_core.composition')
+        caps = build_capabilities(role='user', user_slug='shaun')
+        news_caps = [c for c in caps if getattr(c, 'id', None) == 'news']
+        assert len(news_caps) == 1  # the skill still wins the id — no crash
+        assert any('marcel-connectors' in r.message for r in caplog.records)

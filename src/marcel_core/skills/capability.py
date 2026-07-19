@@ -28,7 +28,11 @@ from marcel_core.skills.loader import SkillDoc, get_skill_resource, list_skill_r
 
 
 def _skill_capability(
-    doc: SkillDoc, *, eager: bool, toolsets: Sequence[object] | None = None
+    doc: SkillDoc,
+    *,
+    eager: bool,
+    toolsets: Sequence[object] | None = None,
+    capability_id: str | None = None,
 ) -> Capability[MarcelDeps]:
     skill_name = doc.name
     description = doc.description + (' — needs setup' if doc.is_setup else '')
@@ -47,7 +51,7 @@ def _skill_capability(
         return content
 
     return Capability(
-        id=skill_name,
+        id=capability_id or skill_name,
         description=description,
         instructions=doc.content,
         tools=[read_skill_resource],
@@ -59,12 +63,29 @@ def _skill_capability(
     )
 
 
+def build_eager_skill_capability(doc: SkillDoc) -> Capability[MarcelDeps]:
+    """An eager, toolset-free capability for a scoped job run (FEAT-260718-49a01a).
+
+    The skill body rides as instructions from the first request — no catalog,
+    no ``load_capability`` round-trip. Its connectors attach separately as
+    non-deferred MCP capabilities (see :mod:`marcel_core.jobs.scoping`), so no
+    toolsets are bundled here: bundling would attach the same tools twice.
+
+    The id carries a ``-skill`` suffix so a paired connector capability of the
+    same name can sit beside it — capability ids must be unique within a run,
+    and an eager capability's id is never model-visible (only deferred ids
+    appear in the ``load_capability`` catalog).
+    """
+    return _skill_capability(doc, eager=True, capability_id=f'{doc.name}-skill')
+
+
 def build_skill_capabilities(
     user_slug: str,
     role: str = 'user',
     *,
     eager_skill: str | None = None,
     connector_docs: Sequence[object] | None = None,
+    docs: Sequence[SkillDoc] | None = None,
 ) -> list[Capability[MarcelDeps]]:
     """The deferred skill capabilities for *user_slug* at *role*.
 
@@ -76,11 +97,12 @@ def build_skill_capabilities(
     the same ``load_capability`` step — the connector activates *with* the skill
     rather than needing a separate search. ``connector_docs`` is the catalog the
     composition root already loaded; pass ``None`` to skip connector bundling.
+    ``docs`` likewise reuses an already-loaded skill catalog.
     """
     from marcel_core.skills.loader import load_skills
 
     capabilities: list[Capability[MarcelDeps]] = []
-    for doc in load_skills(user_slug, role):
+    for doc in docs if docs is not None else load_skills(user_slug, role):
         toolsets = None
         if connector_docs is not None and doc.connectors:
             from marcel_core.connectors.toolset import connector_toolsets_for_skill

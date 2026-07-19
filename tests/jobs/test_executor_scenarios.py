@@ -1,8 +1,9 @@
 """Scenario-based tests for jobs/executor.py.
 
-Covers: _load_job_memories, _resolve_job_skills, _build_job_context,
-execute_job, execute_job_with_retries, and _notify_if_needed through
-realistic job execution scenarios with mocked agents.
+Covers: _load_job_memories, _build_job_context, execute_job,
+execute_job_with_retries, and _notify_if_needed through realistic job
+execution scenarios with mocked agents. Scoped-assembly scenarios
+(FEAT-260718-49a01a) live in test_job_scoping.py next to their zoo fixture.
 """
 
 from __future__ import annotations
@@ -148,38 +149,12 @@ class TestLoadJobMemories:
 
 
 # ---------------------------------------------------------------------------
-# _resolve_job_skills
-# ---------------------------------------------------------------------------
-
-
-class TestResolveJobSkills:
-    def test_resolves_dotted_skill_refs(self):
-        from marcel_core.jobs.executor import _resolve_job_skills
-
-        job = _make_job(skills=['banking.sync', 'banking.balance'])
-        mock_skill = MagicMock()
-        mock_skill.name = 'banking'
-        with patch('marcel_core.skills.loader.load_skills', return_value=[mock_skill]):
-            skills = _resolve_job_skills(job)
-        assert len(skills) == 1
-        assert skills[0].name == 'banking'
-
-    def test_missing_skills_ignored(self):
-        from marcel_core.jobs.executor import _resolve_job_skills
-
-        job = _make_job(skills=['nonexistent.action'])
-        with patch('marcel_core.skills.loader.load_skills', return_value=[]):
-            skills = _resolve_job_skills(job)
-        assert skills == []
-
-
-# ---------------------------------------------------------------------------
 # _build_job_context
 # ---------------------------------------------------------------------------
 
 
 class TestBuildJobContext:
-    def test_builds_context_with_skills_and_creds(self, tmp_path):
+    def test_legacy_context_injects_prose_matched_creds(self, tmp_path):
         from marcel_core.jobs.executor import _build_job_context
 
         # Set up credentials that match job text
@@ -190,43 +165,36 @@ class TestBuildJobContext:
         job = _make_job(
             system_prompt='Use MY_API_KEY to authenticate.',
             task='Run with MY_API_KEY.',
-            skills=['test.action'],
         )
 
-        mock_skill = MagicMock()
-        mock_skill.name = 'test'
-        mock_skill.is_setup = False
-        mock_skill.content = 'Skill docs here'
-        mock_skill.credential_keys = {'MY_API_KEY'}
-
-        with (
-            patch('marcel_core.skills.loader.load_skills', return_value=[mock_skill]),
-            patch('marcel_core.harness.context.load_channel_prompt', return_value='Deliver via Telegram.'),
-        ):
+        with patch('marcel_core.harness.context.load_channel_prompt', return_value='Deliver via Telegram.'):
             context = _build_job_context(job)
 
         assert 'Use MY_API_KEY' in context
         assert 'secret123' in context
         assert 'Channel' in context
-        assert 'Skill docs here' in context
 
-    def test_skips_setup_skills(self):
+    def test_scoped_context_carries_no_creds_or_memories(self, tmp_path):
+        """The scoped path (FEAT-260718-49a01a): connector auth lives at the
+        transport layer and memory injection is explicitly out — the prompt is
+        the job's own text plus channel + delivery policy, nothing else."""
         from marcel_core.jobs.executor import _build_job_context
 
-        job = _make_job(skills=['unconfigured.x'])
-        mock_skill = MagicMock()
-        mock_skill.name = 'unconfigured'
-        mock_skill.is_setup = True
-        mock_skill.content = 'Setup instructions'
-        mock_skill.credential_keys = set()
+        user_dir = tmp_path / 'users' / 'alice'
+        mem_dir = user_dir / 'memory'
+        mem_dir.mkdir(parents=True)
+        (user_dir / 'credentials.env').write_text('MY_API_KEY=secret123\n')
+        (mem_dir / 'style.md').write_text(
+            '---\nname: style\ndescription: tone\ntype: preference\n---\nAlice likes short bullets.\n'
+        )
 
-        with (
-            patch('marcel_core.skills.loader.load_skills', return_value=[mock_skill]),
-            patch('marcel_core.harness.context.load_channel_prompt', return_value=''),
-        ):
-            context = _build_job_context(job)
+        job = _make_job(system_prompt='Use MY_API_KEY.', task='Run with MY_API_KEY.')
+        with patch('marcel_core.harness.context.load_channel_prompt', return_value='ch'):
+            context = _build_job_context(job, scoped=True)
 
-        assert 'Setup instructions' not in context
+        assert 'secret123' not in context
+        assert 'short bullets' not in context
+        assert '## Delivery policy' in context
 
     def test_credential_referenced_only_in_task_text_is_injected(self, tmp_path):
         """A credential named in the job's task/system prompt (but not declared
@@ -240,12 +208,8 @@ class TestBuildJobContext:
         job = _make_job(
             system_prompt='Authenticate as usual.',
             task='Use FREEFORM_TOKEN to call the API.',
-            skills=[],
         )
-        with (
-            patch('marcel_core.skills.loader.load_skills', return_value=[]),
-            patch('marcel_core.harness.context.load_channel_prompt', return_value='ch'),
-        ):
+        with patch('marcel_core.harness.context.load_channel_prompt', return_value='ch'):
             context = _build_job_context(job)
 
         assert 'tok999' in context  # referenced token injected
@@ -262,11 +226,8 @@ class TestBuildJobContext:
             '---\nname: style\ndescription: tone\ntype: preference\n---\nAlice likes short bullets.\n'
         )
 
-        job = _make_job(skills=[])
-        with (
-            patch('marcel_core.skills.loader.load_skills', return_value=[]),
-            patch('marcel_core.harness.context.load_channel_prompt', return_value='ch'),
-        ):
+        job = _make_job()
+        with patch('marcel_core.harness.context.load_channel_prompt', return_value='ch'):
             context = _build_job_context(job)
 
         assert 'User preferences & feedback' in context
@@ -433,18 +394,18 @@ class TestExecuteJob:
         assert deps.turn.suppress_notify is expected
 
     @pytest.mark.asyncio
-    async def test_job_agent_built_without_deferred_skills(self, tmp_path, monkeypatch):
-        """Jobs inject the resolved skills' docs straight into the system prompt
-        (via ``_build_job_context``), so the job agent is built with
-        ``skills=False`` — no deferred skill catalog, no ``load_capability``
-        round-trip. This is the FEAT-260718-85b545 replacement for the retired
-        per-turn ``read_skills`` priming.
-        """
+    async def test_legacy_unscoped_job_keeps_full_pool_and_logs_advisory(self, tmp_path, monkeypatch, caplog):
+        """A pre-scoping job (no skills:/connectors:) builds exactly the
+        pre-FEAT-260718-49a01a agent — no tool filter, no extra capabilities,
+        skills/connectors/memory off — and each run logs a scoping advisory."""
+        import logging as _logging
+
         from marcel_core.jobs import save_job
         from marcel_core.jobs.executor import execute_job
 
-        job = _make_job(skills=['icloud.calendar', 'banking.balance'])
+        job = _make_job()
         save_job(job)
+        caplog.set_level(_logging.INFO, logger='marcel_core.jobs.executor')
 
         captured_kwargs: list = []
 
@@ -464,6 +425,9 @@ class TestExecuteJob:
 
         assert captured_kwargs, 'create_marcel_agent was not called'
         assert all(kw.get('skills') is False for kw in captured_kwargs)
+        assert all(kw.get('tool_filter') is None for kw in captured_kwargs)
+        assert all(not kw.get('extra_capabilities') for kw in captured_kwargs)
+        assert any('runs unscoped' in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
