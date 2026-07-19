@@ -157,10 +157,10 @@ PY
 }
 
 DEP_VENV_COUNT=0
-# toolkit/ parks import deps in-process; connectors/ parks with a stdio server
-# spawn their dep-venv interpreter directly (FEAT-260718-c232d9 — the venv IS
-# the `command:` entry point, resolved park-relative by the kernel).
-for HABITAT_ROOT in "$ZOO_DIR/toolkit" "$ZOO_DIR/connectors"; do
+# connectors/ parks with a stdio server spawn their dep-venv interpreter
+# directly (FEAT-260718-c232d9 — the venv IS the `command:` entry point,
+# resolved park-relative by the kernel). The toolkit habitat is retired.
+for HABITAT_ROOT in "$ZOO_DIR/connectors"; do
   if [[ -d "$HABITAT_ROOT" ]]; then
     for habitat_dir in "$HABITAT_ROOT"/*/; do
       habitat_dir="${habitat_dir%/}"  # strip trailing slash
