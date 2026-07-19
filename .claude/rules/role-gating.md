@@ -2,7 +2,7 @@
 paths:
   - "src/marcel_core/harness/**/*.py"
   - "src/marcel_core/tools/**/*.py"
-  - "src/marcel_core/agents/**/*"
+  - "src/marcel_core/capabilities/subagents/**/*"
 ---
 
 # Rule — role gating

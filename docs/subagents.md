@@ -5,8 +5,8 @@
     five-habitat taxonomy rename (ISSUE-3c1534). The new page uses the
     kind-level name (matching `docs/plugins.md`, `docs/channels.md`,
     `docs/jobs.md`) and covers the same content — subagent frontmatter
-    schema, the `delegate` tool contract, recursion guard, cost and
-    safety, and scope limits v1.
+    schema, the `delegate` tool contract, the recursion rule, cost and
+    safety, and scope limits.
 
 **See [Agents](agents.md).**
 

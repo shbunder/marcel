@@ -76,9 +76,10 @@ class TestCreateMarcelAgent:
         agent = create_marcel_agent(system_prompt='You are a test assistant.', role='admin')
         assert agent._instructions == ['You are a test assistant.']
         names = _registered_tool_names(agent)
-        # bash/read_file & co. are capabilities now (FEAT-260718-38235c);
+        # bash/read_file & co. are capabilities now (FEAT-260718-38235c),
+        # and delegate is the SubAgents capability's tool (FEAT-260718-b6d1da);
         # the registry keeps the remaining admin power tools.
-        assert 'delegate' in names
+        assert 'delegate' not in names
         assert 'claude_code' in names
         assert 'git_status' in names
 
@@ -185,8 +186,10 @@ class TestAvailableToolNames:
         # role pool so delegate frontmatter can grant them by name.
         assert 'run_command' in names
         assert 'read_file' in names
-        assert 'delegate' in names
         assert 'claude_code' in names
+        # delegate is granted via the subagents build flag, never the pool —
+        # a child's default pool must not carry it (recursion rule).
+        assert 'delegate' not in names
 
 
 def _registered_tool_names(agent) -> set[str]:
@@ -218,9 +221,8 @@ class TestToolFilter:
     def test_filter_none_registers_full_role_pool(self):
         agent = create_marcel_agent(system_prompt='t', role='admin')
         names = _registered_tool_names(agent)
-        # Admin should get the full registry pool (shell/file tools are
-        # capability-provided and asserted at the composition level)
-        assert 'delegate' in names
+        # Admin should get the full registry pool (shell/file tools and
+        # delegate are capability-provided, asserted at composition level)
         assert 'git_status' in names
         assert 'web' in names
 
