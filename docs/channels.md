@@ -66,8 +66,8 @@ requires touching the scheduler, the job executor, or the notify tool.
 ```
 
 The habitat's `__init__.py` **must** call `register_channel(plugin)` at
-import time — discovery is side-effect-driven, mirroring the toolkit
-registry. Use **relative imports** inside the habitat
+import time — discovery is side-effect-driven. Use **relative imports**
+inside the habitat
 (`from . import bot, sessions`); the kernel loads habitats under the
 private `_marcel_ext_channels.<name>` namespace, not under
 `marcel_core.*`, so absolute imports of sibling modules will fail at
@@ -248,10 +248,10 @@ or a future SMS channel.
 
 ## See also
 
-- [Habitats](habitats.md) — the six-kind taxonomy.
+- [Habitats](habitats.md) — the five-kind taxonomy.
 - [Telegram](channels/telegram.md) — the sole concrete channel habitat
   shipped today.
-- [Plugins (toolkit)](plugins.md) — the sibling Python-habitat kind; like
-  channels, toolkits load in-process (lean isolation).
+- [Connectors](connectors.md) — the sibling habitat kind that carries
+  code (an MCP server plus per-user auth).
 - [Architecture](architecture.md) — where channels fit in the kernel as
   a whole.

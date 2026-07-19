@@ -52,7 +52,7 @@ directory form.
 name: explore
 description: Fast read-only codebase explorer
 model: inherit
-tools: [read_file, web, integration, marcel]
+tools: [read_file, web, marcel]
 disallowed_tools: []
 max_requests: 25
 timeout_seconds: 300
@@ -117,7 +117,7 @@ parent can decide how to recover. See
 The `tools` allowlist uses the same stable short names as the main
 agent's tool registry.
 
-**Read-only / everyone:** `web`, `integration`, `marcel`,
+**Read-only / everyone:** `web`, `marcel`,
 `generate_chart`, `create_job`, `list_jobs`, `get_job`, `update_job`,
 `delete_job`, `run_job_now`, `job_templates`, `job_cache_write`,
 `job_cache_read`
@@ -216,7 +216,7 @@ Three subagents ship as habitats in
 `<MARCEL_ZOO_DIR>/agents/`:
 
 - **`explore`** — a read-only file/codebase explorer. Tools:
-  `read_file`, `web`, `integration`, `marcel`. Good for "find the
+  `read_file`, `web`, `marcel`. Good for "find the
   code that does X" and "summarize the structure of Y".
 - **`plan`** — a software architect that turns a fuzzy task into a
   concrete implementation plan. Tools: `read_file`, `web`, `marcel`.
@@ -261,9 +261,9 @@ model.
 ## Why subagents need no extra isolation
 
 Subagents are markdown plus a model instance — there is no Python code
-to isolate. (Python habitats themselves run in-process under lean
-isolation — a thin dep-venv only where a real PyPI dep requires it; see
-[Toolkit isolation](plugins.md#isolation).) Subagents already run in a
+to isolate. (Habitats that *do* carry code — connector servers — have
+their own lifecycle and trust model; see
+[Connectors → Trust model](connectors.md#trust-model).) Subagents already run in a
 clean context (no parent state bleeds in), with tight tool allowlists
 (role gating + explicit allowlist), under a `max_requests` /
 `timeout_seconds` budget. There is no additional isolation ceiling to
@@ -288,7 +288,7 @@ See ISSUE-074 for the full design and the list of deferred features.
 
 ## See also
 
-- [Habitats](habitats.md) — the six-kind taxonomy.
+- [Habitats](habitats.md) — the five-kind taxonomy.
 - [Model tiers](model-tiers.md) — how `fast` / `standard` / `power` /
   `fallback` resolve at delegate time.
 - [Self-modification](self-modification.md) — the broader permission

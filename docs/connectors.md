@@ -5,8 +5,8 @@ use it ([ADR-260718-231cad][adr]). It is the habitat kind you reach for when the
 capability already exists as an MCP server — anywhere in the ecosystem — and what
 Marcel needs to add is *whose account* the call goes out as.
 
-Compared with a [toolkit](plugins.md), which is Python you write and Marcel runs
-in-process, a connector is a server Marcel *talks to*. That difference is the
+Unlike the retired [toolkit habitat](plugins.md) — Python handlers Marcel ran
+in-process — a connector is a server Marcel *talks to*. That difference is the
 whole point: you get the MCP ecosystem, and each family member gets their own
 credentials.
 
@@ -166,8 +166,9 @@ isolation boundary. Marcel runs as a single container under one uid, so:
 - a `stdio` subprocess runs as `marcel`, with the container filesystem in reach;
 - an `inprocess` server shares Marcel's own memory, including the credential vault.
 
-Connector code is therefore **trusted code**, on the same footing as in-process
-toolkit habitats. Install a connector only if you would run it as yourself.
+Connector code is therefore **trusted code**, on the same footing any
+in-process code would be. Install a connector only if you would run it as
+yourself.
 
 Practically:
 

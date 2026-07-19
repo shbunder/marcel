@@ -26,11 +26,8 @@ log = get_logger(__name__)
 
 
 def register(marcel):
-    # A tool — dispatchable via the `toolkit` tool as "demo.ping".
-    @marcel.tool("demo.ping")
-    async def ping(params: dict, user_slug: str) -> str:
-        log.info("demo.ping for %s", user_slug)
-        return "pong"
+    # A connector habitat — an MCP server + per-user auth, by park path.
+    marcel.connector("parks/demo")
 
     # An event-bus subscription — observe or gate every tool call.
     def audit(event, ctx):
@@ -50,16 +47,19 @@ is a method:
 
 | Method | Registers | Status |
 |---|---|---|
-| `marcel.tool(name)` | A toolkit handler (used as a decorator). Same registry as `@marcel_tool` — that decorator is the back-compat sugar. | **Live** — dispatchable immediately. |
 | `marcel.on(event, handler)` | A lifecycle [event-bus](#the-lifecycle-event-bus) subscription, applied to every turn. | **Live**. |
 | `marcel.channel(plugin)` | A channel plugin (transport + formatting). | **Live**. |
+| `marcel.connector(source)` | A [connector](connectors.md) habitat by its `connector.yaml` directory path. | Recorded; loader wiring lands in F1. |
 | `marcel.skill(source)` | A skill habitat by path. | Recorded; loader wiring lands in F1. |
 | `marcel.job(source)` | A job template by path. | Recorded; loader wiring lands in F1. |
 | `marcel.agent(source)` | A subagent by path. | Recorded; loader wiring lands in F1. |
 | `marcel.command(name, handler)` | A platform/slash command. | Recorded; wiring lands in F1. |
+| `marcel.tool(name)` | **Deprecated no-op** — the toolkit habitat [retired](plugins.md) (FEAT-260718-c232d9). The decorator warns and does **not** register the handler; register a connector instead. | Shim for one release. |
 
-`marcel.tool("x.y")` and `@marcel_tool("x.y")` are equivalent entrypoints
-into the same toolkit registry, so existing habitats keep working unchanged.
+`@marcel_tool("x.y")` (importable from `marcel_sdk` and
+`marcel_core.plugin`) is the same shim in decorator form: it imports, warns,
+and registers nothing. Port stragglers to a connector — see
+[Toolkit habitats — retired](plugins.md).
 
 ## The `marcel-sdk` import wall
 
@@ -75,8 +75,10 @@ What it exposes:
 - **Contracts**: `ExtensionAPI`, `ToolResult`, and the event bus —
   `EventBus`, `EventContext`, and the event types (`ToolCallEvent`,
   `ToolResultEvent`, …).
-- **Helpers**: `credentials`, `paths`, `models`, `rss`, `get_logger`, and
-  the `marcel_tool` decorator.
+- **Helpers**: `credentials`, `paths`, `models`, `rss`, and `get_logger`.
+  (`marcel_tool` is still importable, but only as the one-release
+  [deprecation shim](plugins.md#the-deprecation-shim) — it registers
+  nothing.)
 
 Importing `marcel_core.*` from an extension defeats the wall — the kernel
 may refactor internals at any time, so an extension that reaches past
@@ -146,10 +148,10 @@ These run in that order (a denial short-circuits the rest), and your own
 `tool_call` handlers run after them — so an extension can add its own
 allow/deny rules on top.
 
-## Relationship to the six habitat kinds
+## Relationship to the five habitat kinds
 
 The [five-kind taxonomy](habitats.md) describes *what* you can build
-(toolkit / skill / channel / job / subagent). `register(marcel)` is *how*
-an extension registers them — through one object instead of six separate
+(skill / connector / channel / job / subagent). `register(marcel)` is *how*
+an extension registers them — through one object instead of five separate
 discovery paths. Both coexist today: existing per-kind habitats load as
 before; new extensions use `register(marcel)`.

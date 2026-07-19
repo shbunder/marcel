@@ -141,15 +141,19 @@ The field defaults to `agent`, so every pre-existing `JOB.md` /
 | Value | What runs | When to use it | Extra fields on `JobDefinition` / `template.yaml` |
 |---|---|---|---|
 | `agent` (default) | Full main-agent turn: system prompt, skills, memories, the whole model-fallback chain | Anything conversational, anything that needs the agent to reason about its output | `system_prompt`, `task`, `model`, `skills` (existing fields) |
-| `tool` | One toolkit handler called directly — **no LLM, no retries** | Deterministic periodic work (RSS fetch, health poll, bank sync) where the handler already owns its own idempotency | `tool: <family>.<action>`, `tool_params: {...}` |
+| `tool` | One [connector](connectors.md) tool called directly — **no LLM, no retries** | Deterministic periodic work (RSS fetch, health poll, bank sync) where the tool already owns its own idempotency | `tool: <connector>.<tool>`, `tool_params: {...}` |
 | `subagent` | Scoped subagent run (fresh `MarcelDeps`, tool filter + model from the subagent's frontmatter) — no chain retries | Bounded focused work: morning digest, weekly review — cheap context, no full skill set | `subagent: <name>`, `subagent_task: "..."` (supports `{user_slug}` placeholder) |
 
-`dispatch_type: tool` is the real cost saver. A daily `news.sync` or
-`docker_health_sweep` that doesn't need the agent can skip the whole
-LLM cost — the executor calls the handler, captures its return string,
-writes a `JobRun` with `status=COMPLETED`. Failures still classify
-errors the same way (`timeout`, `network`, `rate_limit`, …) so existing
-telemetry remains uniform across dispatch types.
+`dispatch_type: tool` is the real cost saver. A daily `news.sync` that
+doesn't need the agent can skip the whole LLM cost — the executor
+resolves `<connector>.<tool>` against the connector habitats (the ref
+`news.sync` means *connector `news`, MCP tool `sync`*), calls the tool
+over the real MCP protocol, captures its return string, and writes a
+`JobRun` with `status=COMPLETED`. Refs that predate the toolkit
+retirement keep working unchanged — the same `family.tool` string now
+resolves to a connector tool. Failures still classify errors the same
+way (`timeout`, `network`, `rate_limit`, …) so existing telemetry
+remains uniform across dispatch types.
 
 ### Shape validation
 
@@ -190,8 +194,8 @@ for the template-loader validation.
 The executor (`src/marcel_core/jobs/executor.py`) selects one of three
 fire functions based on `dispatch_type`:
 
-- `_fire_tool_job` — deterministic handler dispatch; no retries, no
-  chain machinery. The tool owns its own idempotency.
+- `_fire_tool_job` — deterministic connector-tool dispatch; no retries,
+  no chain machinery. The tool owns its own idempotency.
 - `_fire_subagent_job` — loads the subagent via the agents loader,
   builds a fresh pydantic-ai agent with the subagent's tool filter +
   timeout, runs it against the templated task.
@@ -227,8 +231,11 @@ telemetry and notify behaviour stay uniform.
 10. Records `delivery_status` and `delivery_error` on each run for
     observability.
 
-Jobs get the same toolkit handlers as regular users (banking, iCloud,
-browser, etc.) but not admin tools (shell, file I/O).
+Job turns run lean: the job's declared skills have their docs injected
+eagerly into the system prompt (no deferred catalog for headless runs),
+and admin tools (shell, file I/O) are never available. Deterministic
+connector work belongs in `dispatch_type: tool`, which calls the
+connector tool directly without an LLM.
 
 ### System-scope runs
 
@@ -361,36 +368,69 @@ Discovery is a cold read on every call, so editing the YAML takes
 effect without a restart. Then update
 `<MARCEL_ZOO_DIR>/skills/jobs/SKILL.md` to document the new template.
 
-### 2. `scheduled_jobs:` in a toolkit (declarative)
+### 2. `scheduled_jobs:` in a connector (declarative)
 
-A toolkit habitat can declare always-on background work inline in its
-`toolkit.yaml`:
+A [connector](connectors.md) habitat can declare always-on background
+work inline in its `connector.yaml`:
 
 ```yaml
-# <MARCEL_ZOO_DIR>/toolkit/news/toolkit.yaml
+# <MARCEL_ZOO_DIR>/connectors/news/connector.yaml
 name: news
-provides:
-  - news.sync
+description: Sync, store, and query RSS news articles
+server:
+  transport: inprocess
+  module: server.py
+auth:
+  mode: none
+  per_user: false
 
 scheduled_jobs:
-  - name: "News digest"
+  - name: "News sync"
     handler: news.sync
-    cron: "0 7 * * *"
+    cron: "0 6,18 * * *"
+    timezone: "Europe/Brussels"
     notify: on_failure
 ```
 
 Each entry becomes a system-scope `JobDefinition` at scheduler
-startup. Full schema + validation rules: see
-[Plugins → Scheduled jobs](plugins.md#scheduled-jobs).
+startup, materialised through the `habitat:<name>` template with a
+stable, deterministic job id — so already-on-disk jobs (and any user
+edits to their `JOB.md`) survive restarts, and removing the connector
+directory cleanly removes its jobs on the next reconciliation.
+
+Entry schema (unknown keys are rejected):
+
+| Key | Required | Notes |
+|---|---|---|
+| `name` | yes | Unique job name; used as the `JobDefinition.name`. |
+| `handler` | yes | `<connector>.<tool>` ref — the same shape `dispatch_type: tool` uses. |
+| `cron` | XOR with `interval_seconds` | Standard 5-field cron expression. |
+| `interval_seconds` | XOR with `cron` | Positive integer. |
+| `timezone` | no | IANA name; applies to `cron` only. |
+| `description` | no | One-line human description. |
+| `notify` | no | `always \| on_failure \| on_output \| silent`. |
+| `channel` | no | Delivery channel (default `telegram`). |
+| `task`, `system_prompt`, `model` | no | Per-entry overrides; the defaults synthesise a "call this tool and report" prompt. |
+
+A malformed entry fails the connector's manifest validation, and a
+malformed connector is logged and skipped — its siblings keep loading.
+
+!!! note "History"
+    Before FEAT-260718-c232d9 this block lived in the toolkit habitat's
+    `toolkit.yaml`. The entry shape is field-compatible and the job ids
+    are stable across the migration, so a park that moved from
+    `toolkit/<name>/` to `connectors/<name>/` kept its job identity,
+    cadence, and notify policy. See
+    [Toolkit habitats — retired](plugins.md).
 
 ### Templates vs. `scheduled_jobs:` — which to use?
 
 | If your work is… | Use… |
 |---|---|
 | Conversational — the user decides when and for whom | A **template**, invoked via `create_job`. |
-| Always on — fires on its own whenever the toolkit is loaded, no user opt-in | A **`scheduled_jobs:`** entry in the toolkit. |
+| Always on — fires on its own whenever the connector is installed, no user opt-in | A **`scheduled_jobs:`** entry in the connector. |
 
-A toolkit can ship both: a `scheduled_jobs:` entry for the default
+A connector can ship both: a `scheduled_jobs:` entry for the default
 behaviour operators get out of the box, and a `template.yaml` for
 users who want to spin up their own variants with different cadences
 or notification policies.
@@ -465,9 +505,9 @@ the legacy directories are gone.
 
 ## See also
 
-- [Habitats](habitats.md) — the six-kind taxonomy.
-- [Plugins (toolkit)](plugins.md) — how `scheduled_jobs:` ties into a
-  toolkit's `toolkit.yaml`.
+- [Habitats](habitats.md) — the five-kind taxonomy.
+- [Connectors](connectors.md) — the habitat kind behind
+  `dispatch_type: tool` refs and declarative `scheduled_jobs:`.
 - [Agents](agents.md) — the subagent kind referenced by
   `dispatch_type: subagent`.
 - [Skills](skills.md) — how skill requirements flow into job runs via

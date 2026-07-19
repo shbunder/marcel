@@ -12,7 +12,7 @@ These docs are written for **developers** extending Marcel, integrating new skil
 |-------------|-----------|
 | Setting Marcel up for the first time | [README](https://github.com/shbunder/marcel/blob/main/README.md) → [SETUP](https://github.com/shbunder/marcel/blob/main/SETUP.md) |
 | Trying to understand the codebase | [Architecture](architecture.md) |
-| Adding a new skill or integration | [Skills](skills.md), then the `banking` / `news` / `icloud` habitats in marcel-zoo as external-habitat references (kernel ships zero first-party integrations) |
+| Adding a new skill or connector | [Skills](skills.md) and [Connectors](connectors.md), then the `banking` / `news` / `icloud` parks in marcel-zoo as external-habitat references (kernel ships zero first-party integrations) |
 | Storing or querying user data | [Storage](storage.md) |
 | Writing a background job | [Jobs](jobs.md) |
 | Building a native frontend | [A2UI Components](a2ui-components.md), [Artifacts](artifacts.md) |
@@ -30,9 +30,9 @@ The two never mix — personal assistant context doesn't leak into coder mode, a
 
 **Flat-file storage.** Everything Marcel remembers lives on disk as plain text or markdown — no database. User data is under `~/.marcel/users/{slug}/`, skills come from the zoo (with runtime per-user installs under `~/.marcel/users/{slug}/skills/`), conversations are append-only JSONL segments. See [Storage](storage.md) for the full layout.
 
-**Habitats are pluggable.** Marcel's kernel ships no behaviour. Every capability (banking, calendar, news, Telegram, scheduled jobs, subagents) is a self-contained habitat in [marcel-zoo](https://github.com/shbunder/marcel-zoo) — one of six kinds (toolkit, skill, connector, subagent, channel, job). Habitats can be added or removed without touching core code. See [Habitats](habitats.md) for the full taxonomy.
+**Habitats are pluggable.** Marcel's kernel ships no behaviour. Every capability (banking, calendar, news, Telegram, scheduled jobs, subagents) is a self-contained habitat in [marcel-zoo](https://github.com/shbunder/marcel-zoo) — one of five kinds (skill, connector, subagent, channel, job). Habitats can be added or removed without touching core code. See [Habitats](habitats.md) for the full taxonomy.
 
-**One agent tool per capability.** Instead of advertising dozens of tools to the LLM, Marcel uses a small set of dispatcher tools (`marcel`, `toolkit` — with `integration` as a back-compat alias) that route to many actions. This keeps prompt token usage low and reduces tool-selection confusion.
+**Context cost scales with use, not install count.** Instead of advertising dozens of tools to the LLM up front, Marcel keeps a compact catalog: skills load on demand via `load_capability`, and a [connector](connectors.md)'s MCP tools stay out of context until the model reaches for them (or a skill activates them). The `marcel` utility tool bundles internal actions behind one dispatcher. This keeps prompt token usage low and reduces tool-selection confusion.
 
 **Recoverable self-modification.** Before Marcel rewrites its own code, it commits the current state to git. A watchdog health-checks every restart and rolls back on failure. See [Self-Modification](self-modification.md).
 

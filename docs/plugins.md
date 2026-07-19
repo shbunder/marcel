@@ -1,388 +1,81 @@
-# Toolkit habitats
-
-A **toolkit habitat** is a Python package that registers handlers the
-agent can call through the `toolkit` tool.
-It is the *executable* layer of Marcel's userspace — the code that
-actually talks to external services, runs shell commands, or encodes
-deterministic logic. Toolkit handlers are what skills *reach for*; the
-skill layer (see [Skills](skills.md)) teaches the agent *when* to call
-them.
-
-See [Habitats](habitats.md) for how toolkits fit alongside the other
-four kinds.
-
-Marcel is split into a clean kernel / userspace boundary. The kernel is
-[`marcel_core`](https://github.com/shbunder/marcel) — harness, runner,
-storage, agent loop, tool protocol, scheduler. The userspace is
-**marcel-zoo**, a separate repository of habitats. The zoo location is
-configured via the `MARCEL_ZOO_DIR` environment variable (no default —
-discovery is a silent no-op when unset).
-
-`marcel_core.plugin` is the stable surface zoo habitats import from.
-Anything re-exported there is a stability promise; anything else in
-`marcel_core` is internal and may change between versions.
-
-## Configuring the zoo location
-
-Set `MARCEL_ZOO_DIR` in `.env.local` (or the environment) to point at
-your marcel-zoo checkout:
-
-```bash
-MARCEL_ZOO_DIR=~/projects/marcel-zoo
-```
-
-When unset, Marcel still runs — the kernel ships zero first-party
-habitats of any kind, so only the user's data-root skills are
-available. Pointing at a zoo checkout layers in habitats from
-`<MARCEL_ZOO_DIR>/toolkit/`, `<MARCEL_ZOO_DIR>/skills/`,
-`<MARCEL_ZOO_DIR>/channels/`, `<MARCEL_ZOO_DIR>/agents/`, and
-`<MARCEL_ZOO_DIR>/jobs/`.
-
-## Directory layout
-
-A toolkit habitat lives at `<MARCEL_ZOO_DIR>/toolkit/<name>/` and is
-discovered automatically on the next registry load. The directory is a
-Python package — `__init__.py` is required and runs at discovery time
-to trigger `@marcel_tool` decorators. A sibling `toolkit.yaml` declares
-the habitat's metadata (see [Metadata](#metadata)).
-
-```text
-<MARCEL_ZOO_DIR>/toolkit/<name>/
-├── __init__.py          # required — decorators registered on import
-├── toolkit.yaml         # required — name, description, provides, requires
-└── <module>.py          # optional — any internal modules the habitat owns
-```
-
-## Minimal example
-
-`<MARCEL_ZOO_DIR>/toolkit/demo/__init__.py`:
-
-```python
-from marcel_core.plugin import get_logger, marcel_tool
-
-log = get_logger(__name__)
-
-
-@marcel_tool("demo.ping")
-async def ping(params: dict, user_slug: str) -> str:
-    log.info("demo.ping called for %s", user_slug)
-    return "pong"
-```
-
-`<MARCEL_ZOO_DIR>/toolkit/demo/toolkit.yaml`:
-
-```yaml
-name: demo
-description: Trivial demo toolkit
-provides:
-  - demo.ping
-requires: {}
-```
-
-Calling `toolkit(id="demo.ping")` from the agent dispatches to the
-handler above. No changes to kernel code, no entry in `skills.json`,
-no restart beyond whatever the user's normal reload path is.
-
-## Metadata
-
-Each toolkit habitat ships a `toolkit.yaml` next to its `__init__.py`.
-The kernel uses it to resolve a skill habitat's `metadata.marcel-connectors`
-(see [Skills](skills.md)) back to the toolkit's requirements.
-
-| Key | Required | Description |
-|---|---|---|
-| `name` | yes (when set) | Must equal the directory name. Defaults to the directory name when omitted. |
-| `description` | no | One-line description shown in tooling. |
-| `provides` | no | List of handler names registered by this toolkit. Every entry must start with `<name>.`. Used for documentation and consistency checks; the source of truth for dispatch is still the `@marcel_tool` decorator. |
-| `requires` | no | Dict of resources the toolkit needs to function. Recognised keys: `credentials`, `env`, `files`, `packages`. Unknown keys log a warning and are ignored. |
-| `scheduled_jobs` | no | List of background job declarations — see [Scheduled jobs](#scheduled-jobs). |
-
-Validation rules — any failure logs an error and skips metadata
-registration; the handlers continue to dispatch normally, but
-`marcel-connectors` resolution against this toolkit will return `None`
-(treated as "requirements not met"):
-
-- `name` must equal the directory name.
-- `provides` must be a list of strings, all in the `<name>.*` namespace.
-- `requires` must be a mapping.
-
-A habitat without `toolkit.yaml` logs a warning and registers no
-metadata — perfectly valid for toolkits that no skill depends on, but
-means future skills cannot link to it via `metadata.marcel-connectors`.
-
-### Directory-name ↔ handler-namespace rule
-
-The directory name must match the `family` segment of every handler
-name registered by the package:
-
-| Toolkit dir | Allowed handler names | Rejected handler names |
-|---|---|---|
-| `demo/` | `demo.ping`, `demo.status` | `container.start`, `other.x` |
-| `banking/` | `banking.balance`, `banking.transactions` | `money.total` |
-
-If any handler registered by the package falls outside the namespace,
-**the entire toolkit is rolled back**: no partial state leaks into the
-registry. The failure is logged at ERROR level; discovery of sibling
-toolkits continues normally.
-
-This rule exists so a toolkit's dotted handler prefix is a stable
-reverse-lookup to its source directory — useful for skills that
-declare `metadata.marcel-connectors` (see [Skills](skills.md), ISSUE-6ad5c7).
-
-### Error isolation
-
-Errors in one toolkit never abort discovery of its siblings:
-
-- `__init__.py` raises at import time → logged, that toolkit is
-  skipped, siblings load.
-- Handler registered outside the directory's namespace → logged, that
-  toolkit rolled back, siblings load.
-- Directory without `__init__.py` → logged as a warning, treated as
-  not a habitat.
-
-The net effect is that a user's marcel-zoo checkout can have one
-broken toolkit without taking the rest of the install down.
-
-## Isolation
-
-Toolkits run **in-process** — no subprocess, no UDS mesh, no per-habitat
-kernel clone (lean isolation, ADR-260628-6101c5). Two tiers:
-
-- **Dependency-free** (the common case) — the habitat has no
-  `pyproject.toml`; its `__init__.py` runs directly in the kernel process.
-  Nothing to provision.
-- **Thin dep-venv** — a habitat with real PyPI deps ships a
-  `pyproject.toml` declaring *only* those deps. `make zoo-setup` builds a
-  small `.venv` holding just them (never a `marcel-core` clone); the kernel
-  appends that venv's `site-packages` to `sys.path` at load time, so the
-  deps import in-process. Example: `icloud` (caldav + vobject).
-
-A slow or hung handler is contained by a **call-boundary timeout** in the
-`toolkit` tool (`asyncio.wait_for`), not by process isolation — a
-misbehaving handler cannot stall the turn.
-
-## Scheduled jobs
-
-A toolkit can declare periodic background work by adding a
-`scheduled_jobs:` block to its `toolkit.yaml`. Each entry becomes a
-system-scope [`JobDefinition`](jobs.md#data-models) at scheduler
-startup — same retry, alerting, notification, and observability story
-as other jobs. No kernel code changes required.
-
-### Why declarative
-
-Marcel's periodic jobs are not raw cron handlers; they are full **jobs**
-dispatched through the scheduler. That keeps two cases on one pipeline:
-
-- **Deterministic case** — "call handler X on cron Y, report the
-  result." Declare three fields and you are done. If the handler
-  owns its own idempotency and the caller doesn't want LLM
-  involvement, combine this with `dispatch_type: tool` on the job
-  (see [Jobs](jobs.md#dispatch-types)) to skip the agent turn
-  entirely.
-- **LLM-creative case** — "every morning, summarize today's calendar
-  and surface conflicts." Override `task` / `system_prompt` / `model`
-  per entry to inject the prompt the agent should run.
-
-The alternative imperative shape (a `register_scheduled(scheduler)`
-callback in `__init__.py`) was considered and rejected — see
-`ISSUE-82f52b` (marcel-admin board archive):
-declarative data is auditable without import side effects, validates
-uniformly, and rolls back uniformly.
-
-### Schema
-
-```yaml
-# toolkit.yaml
-name: news
-provides:
-  - news.sync
-
-scheduled_jobs:
-  - name: "News digest"
-    handler: news.sync                # required, must be in provides:
-    cron: "0 7 * * *"                 # required (XOR with interval_seconds)
-    params:                           # optional dict — passed to the handler
-      sources: "rss,atom"
-    description: "Pull every feed and summarise"  # optional
-    notify: on_failure                # optional: always | on_failure | on_output | silent (default)
-    channel: telegram                 # optional, default 'telegram'
-    timezone: "Europe/Brussels"       # optional, applies to cron only
-    task: "Summarize today's news as bullets."   # optional override
-    system_prompt: "You are the morning briefer." # optional override
-    model: "anthropic:claude-sonnet-4-6"          # optional override
-```
-
-| Key | Required | Notes |
-|---|---|---|
-| `name` | yes | Unique within the toolkit *and* across every other loaded habitat's job names. Used as the `JobDefinition.name`. |
-| `handler` | yes | Must appear in this toolkit's `provides:` list. |
-| `cron` | XOR with `interval_seconds` | Standard 5-field cron expression validated by croniter. |
-| `interval_seconds` | XOR with `cron` | Positive integer. |
-| `params` | no | Dict passed to the handler. Stringify your values — Marcel does not coerce types. |
-| `notify` | no | `silent` by default. `on_failure` is the right choice for sync jobs that should only ping the user when something breaks. |
-| `task`, `system_prompt`, `model` | no | Per-entry overrides. The defaults synthesise a "call handler X with these params and report" prompt. |
-
-### Lifecycle
-
-- **First discovery.** Each spec is materialised as a `JobDefinition`
-  with a deterministic ID (`sha256("<toolkit>:<name>")[:12]`), saved
-  to the same `<data_root>/jobs/<slug>/` flat layout as every other
-  job. The job is `template='habitat:<name>'` so reconciliation can
-  find it later.
-- **Subsequent restarts.** Already-on-disk jobs (matched by stable
-  ID) are left untouched — user edits to the JOB.md file survive.
-  Add a new entry → it appears next startup.
-- **Reconciliation.** On every scheduler rebuild, any job with
-  `template='habitat:<name>'` whose habitat is no longer in the
-  metadata registry — or whose entry name no longer appears in that
-  habitat's `scheduled_jobs:` — is **deleted from disk**. Uninstalling
-  a toolkit (removing its directory) cleanly removes its jobs too.
-
-### Validation and rollback
-
-`scheduled_jobs:` is the **strict** part of `toolkit.yaml`. Where a
-malformed `provides:` only suppresses metadata (handlers keep
-dispatching), a malformed `scheduled_jobs:` entry **rolls back the
-entire toolkit**: handlers are removed from the registry, no metadata
-is published, the scheduler never sees the broken state.
-
-This is the same all-or-nothing principle the
-directory-name ↔ handler-namespace check uses (ISSUE-6ad5c7). The
-reasoning: a half-shipped scheduled job is a silent gap users would
-not notice — they would only learn about it the next time the missing
-job *should have* fired.
-
-Conditions that trigger toolkit rollback:
-
-- `scheduled_jobs:` is not a list, or an entry is not a mapping
-- Missing/empty `name`, missing `handler`
-- `handler` not declared in `provides:`
-- Neither (or both) of `cron` / `interval_seconds` set
-- `cron` fails croniter validation
-- `interval_seconds` is non-positive or boolean
-- Duplicate `name` within the toolkit
-- `name` collision against a different already-loaded habitat
-- `notify` not in `{always, on_failure, on_output, silent}`
-- `params` is not a mapping
-
-All such failures log at ERROR level naming the offending toolkit and
-entry; sibling toolkits continue loading.
-
-## What `marcel_core.plugin` exposes
-
-```python
-from marcel_core.plugin import marcel_tool, get_logger, ToolkitHandler
-from marcel_core.plugin import credentials, paths, models, rss
-```
-
-### Top-level
-
-| Symbol | Purpose |
-|---|---|
-| `marcel_tool(handler_name)` | Decorator that registers an async handler. Validates the `family.action` naming convention. |
-| `ToolkitHandler` | Type alias for the handler signature: `Callable[[dict, str], Awaitable[str]]`. |
-| `get_logger(name)` | Returns a module logger. Prefer this over `logging.getLogger` directly so future plugin-specific filtering hooks can be added without rewriting habitats. |
-| `register_channel(plugin)` | Register a channel habitat with the channel registry. See [Channels](channels.md). |
-
-### `marcel_core.plugin.credentials`
-
-Per-user credential storage. Encrypted with `MARCEL_CREDENTIALS_KEY`
-when set, plaintext fallback otherwise — habitats need not care which.
-
-| Symbol | Purpose |
-|---|---|
-| `load(slug) -> dict[str, str]` | Read every key/value pair stored for the user. Returns `{}` when no file exists. |
-| `save(slug, creds: dict[str, str])` | Overwrite the user's credential file with *creds*. Writes are atomic and chmod'd to `0600`. |
-
-`save()` replaces the entire blob, so the standard pattern is
-read–mutate–write rather than per-key set:
-
-```python
-from marcel_core.plugin import credentials
-
-creds = credentials.load(user_slug)
-creds["MY_SERVICE_API_KEY"] = new_value
-credentials.save(user_slug, creds)
-```
-
-### `marcel_core.plugin.paths`
-
-Per-user filesystem helpers. Hides the data-root layout so a habitat
-never sees `<data_root>/users/{slug}/...` literally.
-
-| Symbol | Purpose |
-|---|---|
-| `user_dir(slug) -> Path` | The user's data directory. **Not** created by this call — caller does `mkdir(parents=True, exist_ok=True)` on the specific subpath it needs. |
-| `cache_dir(slug) -> Path` | The user's cache subdirectory, created on first call. Use this for any `*.db` / `*.json` cache file the habitat owns. |
-| `list_user_slugs() -> list[str]` | The slugs of every existing user — used by sync loops that need to enumerate linked accounts. Returns `[]` when no users dir exists. |
-
-```python
-from marcel_core.plugin import paths
-
-cache_file = paths.cache_dir(user_slug) / "mything.db"
-key_file = paths.user_dir(user_slug) / "signing_key.pem"
-for slug in paths.list_user_slugs():
-    sync_one_user(slug)
-```
-
-### `marcel_core.plugin.models`
-
-Model registry + per-channel preference, used by the settings toolkit
-to render and persist model choices.
-
-| Symbol | Purpose |
-|---|---|
-| `all_models() -> dict[str, str]` | Curated `model_id -> display_name` mapping (Anthropic + OpenAI + optional local model). |
-| `default_model() -> str` | The currently-configured tier-1 model, read live from `settings.marcel_standard_model`. |
-| `get_channel_model(slug, channel) -> str \| None` | The user's preferred model for a channel, or `None` when unset (use `default_model()` as fallback). |
-| `set_channel_model(slug, channel, model)` | Persist the user's preferred model for a channel. |
-
-```python
-from marcel_core.plugin import models
-
-current = models.get_channel_model(user_slug, "telegram") or models.default_model()
-models.set_channel_model(user_slug, "telegram", "anthropic:claude-sonnet-4-6")
-```
-
-### `marcel_core.plugin.rss`
-
-RSS / Atom feed fetcher, used by the news toolkit to pull syndication
-feeds without reaching into `marcel_core.tools.*`.
-
-| Symbol | Purpose |
-|---|---|
-| `fetch_feed(url, max_articles=50) -> list[dict[str, str]]` | Fetch and parse an RSS / Atom URL. Each article dict has `title`, `link`, `description`, `published`, `category` (keys present when the source provides them). Raises `ValueError` for non-XML / empty bodies, `httpx.HTTPStatusError` for non-2xx responses — callers log and move on. |
-
-```python
-from marcel_core.plugin import rss
-
-articles = await rss.fetch_feed("https://www.vrt.be/vrtnws/nl.rss.articles.xml")
-for art in articles:
-    print(art["title"], art["link"])
-```
-
-Anything not listed above is internal — zoo code that imports it owns
-the breakage on any future Marcel upgrade.
-
-## Where toolkits live
-
-The kernel ships zero bundled toolkits. Every real toolkit lives in
-marcel-zoo — `docker` (ISSUE-6ad5c7), `icloud` (ISSUE-e7d127), `news`
-(ISSUE-d5f8ab), and `banking` (ISSUE-13c7f2) have all migrated out. The
-settings toolkit handler was retired as dead code under ISSUE-e1b9c4 —
-the live settings surface is the `marcel(action="...")` utility tool,
-not a `toolkit(id="settings.*")` handler.
+# Toolkit habitats — retired
+
+The **toolkit habitat is retired** (FEAT-260718-c232d9). Integrations are now
+**[connectors](connectors.md)** — MCP servers with per-user authentication.
+This page remains only as a signpost for readers following old links; the
+connector page is the current reference for everything that used to live here.
+
+What retired, concretely:
+
+- **`toolkit/<name>/` habitats no longer exist.** The four parks that lived
+  there (`news`, `docker`, `icloud`, `banking`) are now `connectors/<name>/`
+  habitats in marcel-zoo, exposing native MCP tools.
+- **The `toolkit(id="family.action")` dispatcher tool is gone.** The model
+  calls a connector's tools directly — they are native MCP tools, resolved
+  per user at capability-build time and disclosed on demand.
+- **`toolkit.yaml` is replaced by `connector.yaml`** (see
+  [the manifest](connectors.md#the-manifest)), including the
+  `scheduled_jobs:` block, which kept its entry shape (see
+  [Jobs](jobs.md#2-scheduled_jobs-in-a-connector-declarative)).
+- **Skills no longer resolve `metadata.marcel-connectors` against
+  toolkits.** The key names connector habitats only; a skill's aggregated
+  credential requirements come from each connector's
+  `auth.credential_keys`.
+
+## The deprecation shim
+
+`@marcel_tool` survives **one release** as an import shim, so a straggler
+habitat or extension fails soft with directions instead of an `ImportError`:
+
+- `from marcel_core.plugin import marcel_tool` still imports, but the
+  decorator **does not register anything** — it emits a `DeprecationWarning`
+  pointing at [Connectors](connectors.md) and returns the function unchanged.
+- The extension API's `marcel.tool(name)` is likewise a deprecated no-op.
+  Extensions register connectors instead, via `marcel.connector(path)` — see
+  [Extensions](extensions.md).
+
+A handler decorated through either shim is silently absent from the agent's
+tool surface — the warning in the logs is the only trace. Port it.
+
+## Migrating a toolkit to a connector
+
+The four zoo parks all took the same route; model a migration on them.
+
+1. **Handlers become native MCP tools.** Write a bundled server module
+   (e.g. `server.py`, FastMCP) exposing either a module-level `mcp` server
+   object — for a shared, credential-free server — or a `build(user_slug)`
+   factory when the server must be closed over one user (per-user storage,
+   per-user credentials).
+   Each `@marcel_tool("news.sync")` handler becomes an `@mcp.tool` function
+   named `sync`; params turn into typed function arguments instead of a
+   stringly `params: dict`.
+2. **`toolkit.yaml` becomes `connector.yaml`.** `requires: {credentials: …}`
+   maps to `auth.credential_keys` (resolved from the user's vault);
+   env / files / packages prose moves to the paired skill's `SETUP.md`.
+   The `provides:` list is replaced by the optional `tools:` allowlist.
+3. **`scheduled_jobs:` moves into `connector.yaml`.** The entry shape is
+   field-compatible, and the scheduler materialises entries through the same
+   `habitat:<name>` template and stable job id — a park keeps its job
+   identity, cadence, and notify policy across the migration. The `handler:`
+   ref (`news.sync`) now means *connector `news`, MCP tool `sync`*.
+4. **Skill bodies call tools directly.** Replace
+   `toolkit(id="news.sync", params={})` instructions with the tool's own
+   name — the paired skill's `metadata.marcel-connectors` activates the
+   connector's tools in the same `load_capability` step, so the model has
+   them in hand when the skill's guidance arrives.
+5. **Dependencies.** A park with real PyPI deps declares them in the park's
+   `pyproject.toml`; `make zoo-deps` (or `make env-sync`) provisions a
+   per-park dep-venv. For a `stdio` park that dep-venv's interpreter *is*
+   the committed entry point — `command: [.venv/bin/python, server.py]`,
+   resolved relative to the park directory.
 
 ## See also
 
-- [Habitats](habitats.md) — the six-kind taxonomy.
-- [Skills](skills.md) — the paired markdown layer that teaches the
-  agent *when* to reach for a toolkit handler.
-- [Jobs](jobs.md) — how `scheduled_jobs:` entries and standalone
-  `template.yaml` files coexist under one job system.
-- [Channels](channels.md) — the sibling transport habitat kind.
-- [Storage](storage.md) — where `<data_root>` resolves and how
-  per-user data is organised.
-- [Architecture](architecture.md) — kernel / userspace model and where
-  habitats sit in the overall design.
+- [Connectors](connectors.md) — the current integration habitat kind:
+  manifest schema, transports, auth modes, trust model.
+- [Habitats](habitats.md) — the five-kind taxonomy (skill, connector,
+  subagent, channel, job).
+- [Extensions](extensions.md) — registering habitats through
+  `register(marcel)`.
+- [Jobs](jobs.md) — `dispatch_type: tool` refs and declarative
+  `scheduled_jobs:`.

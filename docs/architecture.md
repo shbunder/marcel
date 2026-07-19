@@ -46,7 +46,6 @@ src/marcel_core/
       conversations.py # search_conversations, compact actions
       notifications.py # notify action + send_notify helper
       settings.py      # list_models, get_model, set_model actions
-    integration.py # Integration dispatcher — routes to skill registry
     charts.py      # Chart generation via matplotlib
     rss.py         # RSS/Atom feed fetcher
     claude_code.py # Claude Code delegation
@@ -58,14 +57,20 @@ src/marcel_core/
     cache.py       # Inter-job data sharing cache
     tool.py        # Job management tool (list, create, run)
   skills/
-    registry.py    # Merges skills.json with auto-discovered python integrations
-    executor.py    # Routes to shell/http/python handlers
     loader.py      # Skill discovery + three-root per-user chain (SKILL.md, SETUP.md)
     capability.py  # Factory: each skill → a deferred pydantic-ai Capability
                    #   (defer_loading=True) + scoped read_skill_resource tool
-                   # All toolkit habitats (banking, icloud, docker, news, …)
-                   # live under <MARCEL_ZOO_DIR>/toolkit/ — see Toolkit docs.
-                   # Kernel ships zero first-party toolkits.
+  connectors/      # Connector habitats — MCP servers with per-user auth
+    loader.py      # connector.yaml discovery + per-user scoping/filtering
+    models.py      # Manifest schema (server, auth, scope, scheduled_jobs)
+    toolset.py     # Per-user MCP toolsets + <connector>.<tool> job dispatch
+    auth.py        # Per-user credential resolution and injection
+    oauth.py       # OAuth 2.1 + PKCE linking flow, /connectors/callback
+    tokens.py      # Encrypted per-user token store + refresh
+    lifecycle.py   # Spawned-instance lifecycle (per connector+user, backoff)
+                   # Connector parks (banking, icloud, docker, news, …) live
+                   # under <MARCEL_ZOO_DIR>/connectors/ — see Connectors docs.
+                   # Kernel ships zero first-party connectors.
   storage/         # Flat-file read/write helpers (users, memory, artifacts)
     artifacts.py   # Artifact storage for rich content (Mini App)
   auth/            # Token verification, Telegram initData, input validation
@@ -117,8 +122,8 @@ Connect to `/ws/chat`. Send JSON, receive a stream of JSON messages.
 {"type": "started", "conversation": "2026-03-26T14-32"}
 {"type": "token", "text": "You have..."}
 {"type": "token", "text": " a dentist..."}
-{"type": "tool_call", "name": "integration", "arguments": {"id": "icloud.calendar"}}
-{"type": "tool_result", "name": "integration", "preview": "[3 events]"}
+{"type": "tool_call", "name": "calendar", "arguments": {"days_ahead": 7}}
+{"type": "tool_result", "name": "calendar", "preview": "[3 events]"}
 {"type": "done", "cost_usd": 0.012}
 ```
 
