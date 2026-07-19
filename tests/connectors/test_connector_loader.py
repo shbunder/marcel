@@ -573,3 +573,36 @@ class TestSlugValidation:
     def test_invalid_slug_yields_no_roots(self, roots, bad):
         assert _connector_dirs(bad) == []
         assert load_connectors(bad) == []
+
+
+class TestLoopbackNotPrefixMatch:
+    """The https carve-out must compare the host, not a string prefix.
+
+    Regression: `url.startswith('http://localhost')` also matches
+    `http://localhost.attacker.example`, which is a remote host — reopening the
+    cleartext-bearer hazard the https rule exists to close.
+    """
+
+    @pytest.mark.parametrize('url', ['http://localhost.attacker.example/mcp', 'http://localhostevil.com/mcp'])
+    def test_lookalike_host_rejected(self, url):
+        with pytest.raises(ValidationError, match='must be https'):
+            ConnectorConfig.model_validate(
+                {
+                    'name': 'weather',
+                    'description': 'x',
+                    'server': {'transport': 'http', 'url': url},
+                    'auth': {'mode': 'none', 'per_user': False},
+                }
+            )
+
+    @pytest.mark.parametrize('url', ['http://localhost:9000/mcp', 'http://127.0.0.1:9000/mcp'])
+    def test_real_loopback_allowed(self, url):
+        cfg = ConnectorConfig.model_validate(
+            {
+                'name': 'weather',
+                'description': 'x',
+                'server': {'transport': 'http', 'url': url},
+                'auth': {'mode': 'none', 'per_user': False},
+            }
+        )
+        assert cfg.server.url == url

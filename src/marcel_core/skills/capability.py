@@ -51,6 +51,9 @@ def _skill_capability(
         description=description,
         instructions=doc.content,
         tools=[read_skill_resource],
+        # Widening: connector toolsets arrive as Sequence[object] so this module
+        # never has to import the connectors package (capabilities meet only at
+        # the composition root, ADR-260718-0cf8e8).
         toolsets=list(toolsets) if toolsets else None,  # type: ignore[arg-type]
         defer_loading=not eager,
     )
@@ -82,6 +85,7 @@ def build_skill_capabilities(
         if connector_docs is not None and doc.connectors:
             from marcel_core.connectors.toolset import connector_toolsets_for_skill
 
+            # Same widening as above — connector_docs is Sequence[object] here.
             toolsets = connector_toolsets_for_skill(doc.connectors, user_slug, role, docs=connector_docs)  # type: ignore[arg-type]
         capabilities.append(_skill_capability(doc, eager=(doc.name == eager_skill), toolsets=toolsets))
     return capabilities

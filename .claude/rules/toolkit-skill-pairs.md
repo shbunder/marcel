@@ -20,7 +20,7 @@ loader and plugin surface live under `src/marcel_core/toolkit/` and
 `src/marcel_core/skills/` but the habitats they discover live
 exclusively in the zoo.
 
-See [docs/habitats.md](../../docs/habitats.md) for the full five-kind
+See [docs/habitats.md](../../docs/habitats.md) for the full six-kind
 taxonomy. This rule is specifically about the toolkit ↔ skill pairing —
 the two-habitat pattern that most real features use.
 
@@ -60,6 +60,8 @@ the two-habitat pattern that most real features use.
   is agentskills.io-conformant (`name` == dir name + `description`); the
   link to a toolkit lives in the spec-legal `metadata:` map as
   `metadata.marcel-connectors: <toolkit>` (comma-separated for several).
+  The same key also names [connector habitats](../../docs/connectors.md),
+  which are resolved first; this rule concerns the toolkit case.
   Skill-local requirements go in `metadata.marcel-requires-credentials`
   / `metadata.marcel-requires-env`, but for any skill that calls
   `toolkit(id="...")`, prefer `marcel-connectors` so the credential/env

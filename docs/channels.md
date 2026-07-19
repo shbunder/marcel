@@ -248,7 +248,7 @@ or a future SMS channel.
 
 ## See also
 
-- [Habitats](habitats.md) — the five-kind taxonomy.
+- [Habitats](habitats.md) — the six-kind taxonomy.
 - [Telegram](channels/telegram.md) — the sole concrete channel habitat
   shipped today.
 - [Plugins (toolkit)](plugins.md) — the sibling Python-habitat kind; like

@@ -549,3 +549,15 @@ class TestSecurityAuditRegressions:
         rendered = bytes(resp.body).decode()
         assert '<script>' not in rendered
         assert '&lt;script&gt;' in rendered
+
+
+class TestPublicBaseHostCheck:
+    """The redirect base carve-out is host-based too (same bypass class)."""
+
+    @pytest.mark.parametrize('base', ['http://localhost.attacker.example', 'http://localhostevil.com'])
+    def test_lookalike_host_rejected(self, base, monkeypatch):
+        from marcel_core.config import settings
+
+        monkeypatch.setattr(settings, 'marcel_public_url', base)
+        with pytest.raises(OAuthError, match='https'):
+            public_base_url()

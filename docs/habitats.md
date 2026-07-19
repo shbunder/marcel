@@ -166,8 +166,9 @@ system_prompt: unused — dispatch_type is tool
 ## Composition — how habitats reference each other
 
 Habitats reference each other **by name**, uniformly. A skill's
-`metadata.marcel-connectors: banking` resolves to the `banking` toolkit
-habitat. A job's `dispatch_type: tool`, `tool: banking.sync` resolves to the
+`metadata.marcel-connectors: banking` resolves to the `banking`
+**connector** habitat if one exists, and otherwise to the `banking`
+**toolkit** habitat — the same key spans both, connector first. A job's `dispatch_type: tool`, `tool: banking.sync` resolves to the
 `banking` toolkit's `banking.sync` handler. A subagent's
 `tools: [toolkit]` allows it to call the toolkit dispatcher — access to
 individual handlers is controlled by the skill layer's `marcel-connectors`.

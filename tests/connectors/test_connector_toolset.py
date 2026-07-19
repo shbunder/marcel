@@ -468,3 +468,59 @@ class TestSpawnedTransports:
         assert declared == {'CLOCK_API_KEY': 'k1'}  # only the connector's own credential
         for var in ('MARCEL_CREDENTIALS_KEY', 'MARCEL_API_TOKEN', 'ANTHROPIC_API_KEY'):
             assert var not in declared
+
+    def test_broken_auth_degrades_and_the_catalog_survives(self):
+        """B7 / FR1: the build-layer isolation contract, exercised.
+
+        linkage_error reaches the credential vault and the token store, so it
+        can raise OSError or ValueError. One malformed habitat must degrade to
+        needs-setup while every other connector still builds.
+        """
+
+        class _ExplodingAuth(ConnectorAuth):
+            def linkage_error(self, config, slug, *, for_spawn=False):
+                if config.name == 'broken':
+                    raise ValueError('unsafe connector name')
+                return None
+
+        docs = [_doc(_cfg(name='broken', mode='none')), _doc(_cfg(name='fine', mode='none'))]
+        caps = build_connector_capabilities('shaun', docs=docs, auth=_ExplodingAuth())
+        by_id = {c.id: c for c in caps}
+        assert (by_id['broken'].description or '').endswith('— needs setup')
+        assert not (by_id['fine'].description or '').endswith('— needs setup')
+
+    def test_broken_auth_omits_from_skill_bundle_without_raising(self):
+        class _ExplodingAuth(ConnectorAuth):
+            def linkage_error(self, config, slug, *, for_spawn=False):
+                raise OSError('vault unreadable')
+
+        cfg = _cfg(name='weather', mode='none')
+        assert connector_toolsets_for_skill(['weather'], 'shaun', docs=[_doc(cfg)], auth=_ExplodingAuth()) == []
+
+    @pytest.mark.asyncio
+    async def test_agent_calls_reach_the_fake_server_carrying_no_marcel_credential(self, monkeypatch):
+        """Binds odile's FakeMCPServer to the kernel (NFR4) and inspects the call.
+
+        Covers the feature ACs that name a faked server and scenario-inspected
+        outbound traffic: the tool call really crosses the MCP protocol, the
+        fake records what arrived, and nothing Marcel-audience rides along.
+        """
+        from fastmcp.client import Client
+
+        from marcel_core.connectors.toolset import _spawned_toolset
+        from tests.connectors.fake_inprocess_server import SERVER
+
+        monkeypatch.setenv('MARCEL_CREDENTIALS_KEY', 'master-key-must-not-travel')
+        monkeypatch.setenv('MARCEL_API_TOKEN', 'marcel-token-must-not-travel')
+
+        toolset = _spawned_toolset(_spawn_cfg(transport='inprocess'), 'shaun', ConnectorAuth())
+        async with Client(SERVER.server) as client:
+            result = await client.call_tool('now', {})
+
+        assert toolset is not None
+        assert '2026-07-19' in str(result.content[0])
+        # The fake recorded the call, and no Marcel secret appears in what it saw.
+        assert SERVER.called('now')
+        seen = str(SERVER.calls('now'))
+        assert 'master-key-must-not-travel' not in seen
+        assert 'marcel-token-must-not-travel' not in seen

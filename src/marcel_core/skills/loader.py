@@ -229,20 +229,30 @@ def _env_present(env_keys: list[str]) -> bool:
     return all(os.environ.get(key) for key in env_keys)
 
 
-def _connector_requirements_met(connectors: list[str], user_slug: str) -> bool:
-    """Until connectors ship (FEAT-260718-230bf8), a ``marcel-connectors``
-    name may resolve to a still-present toolkit — check its toolkit.yaml
-    ``requires`` (the same SETUP.md trigger as the retired ``depends_on``).
-    An unregistered name is treated as unmet so the user sees SETUP.md.
+def _connector_requirements_met(connectors: list[str], user_slug: str, role: str = 'user') -> bool:
+    """Whether a skill's ``marcel-connectors`` are satisfied for this user.
+
+    A name resolves in two worlds. **Connector habitats** (FEAT-260718-230bf8)
+    come first: a discoverable connector counts as met, because an unlinked one
+    already degrades on its own — the connector capability becomes a readable
+    "needs setup" stand-in, and gating the *skill* on it too would hide the
+    skill body behind SETUP.md even for a fully-linked user. Only if the name is
+    not a connector do we fall back to the pre-connector meaning, a **toolkit**
+    whose ``toolkit.yaml`` ``requires`` is the SETUP.md trigger (the same one
+    the retired ``depends_on`` had). A name that is neither is unmet, so the
+    user sees SETUP.md rather than a skill that cannot work.
     """
     if not connectors:
         return True
+    from marcel_core.connectors.loader import get_connector
     from marcel_core.toolkit import get_toolkit_metadata
 
     for name in connectors:
+        if get_connector(name, user_slug, role) is not None:
+            continue  # a connector habitat: linkage is the connector's own concern
         meta = get_toolkit_metadata(name)
         if meta is None:
-            log.debug('skill connector %r has no toolkit metadata yet — treating as unmet', name)
+            log.debug('skill connector %r resolves to neither a connector nor a toolkit — unmet', name)
             return False
         req = meta.requires or {}
         if not _credentials_present(list(req.get('credentials', [])), user_slug):
@@ -260,13 +270,13 @@ def _connector_requirements_met(connectors: list[str], user_slug: str) -> bool:
     return True
 
 
-def _requirements_met(doc_meta: dict[str, str], connectors: list[str], user_slug: str) -> bool:
+def _requirements_met(doc_meta: dict[str, str], connectors: list[str], user_slug: str, role: str = 'user') -> bool:
     """Whether a skill's own requirements (from metadata) are satisfied."""
     if not _credentials_present(_csv(doc_meta.get('marcel-requires-credentials')), user_slug):
         return False
     if not _env_present(_csv(doc_meta.get('marcel-requires-env'))):
         return False
-    return _connector_requirements_met(connectors, user_slug)
+    return _connector_requirements_met(connectors, user_slug, role)
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +284,7 @@ def _requirements_met(doc_meta: dict[str, str], connectors: list[str], user_slug
 # ---------------------------------------------------------------------------
 
 
-def _load_skill_dir(skill_dir: Path, source: str, user_slug: str) -> SkillDoc | None:
+def _load_skill_dir(skill_dir: Path, source: str, user_slug: str, role: str = 'user') -> SkillDoc | None:
     """Load and validate one skill directory, or None if nonconformant.
 
     Serves SETUP.md instead of SKILL.md when the skill's requirements are
@@ -312,10 +322,13 @@ def _load_skill_dir(skill_dir: Path, source: str, user_slug: str) -> SkillDoc | 
     if tier is not None and tier not in _VALID_TIERS:
         log.warning('skills: %s marcel-tier %r invalid — ignoring', skill_dir.name, tier)
         tier = None
-    role = metadata.get('marcel-role')
-    if role is not None and role not in _VALID_ROLES:
-        log.warning('skills: %s marcel-role %r invalid — ignoring', skill_dir.name, role)
-        role = None
+    # NB: named skill_role, not role — `role` is the *user's* role parameter,
+    # and shadowing it here would feed the skill's own gate into the
+    # requirement checks below instead of the caller's role.
+    skill_role = metadata.get('marcel-role')
+    if skill_role is not None and skill_role not in _VALID_ROLES:
+        log.warning('skills: %s marcel-role %r invalid — ignoring', skill_dir.name, skill_role)
+        skill_role = None
     default_enabled = metadata.get('marcel-default-enabled')
     if default_enabled is not None and default_enabled not in _VALID_DEFAULT_ENABLED:
         log.warning(
@@ -341,7 +354,7 @@ def _load_skill_dir(skill_dir: Path, source: str, user_slug: str) -> SkillDoc | 
         else []
     )
 
-    met = _requirements_met(metadata, connectors, user_slug)
+    met = _requirements_met(metadata, connectors, user_slug, role)
     if met or not setup_md.exists():
         return SkillDoc(
             name=fm['name'],
@@ -352,7 +365,7 @@ def _load_skill_dir(skill_dir: Path, source: str, user_slug: str) -> SkillDoc | 
             is_setup=False,
             metadata=metadata,
             preferred_tier=tier,
-            role=role,
+            role=skill_role,
             default_enabled=default_enabled,
             connectors=connectors,
             credential_keys=cred_keys,
@@ -371,7 +384,7 @@ def _load_skill_dir(skill_dir: Path, source: str, user_slug: str) -> SkillDoc | 
         is_setup=True,
         metadata=metadata,
         preferred_tier=None,
-        role=role,
+        role=skill_role,
         default_enabled=default_enabled,
         connectors=connectors,
         credential_keys=cred_keys,
@@ -391,7 +404,7 @@ def load_skills(user_slug: str, role: str = 'user') -> list[SkillDoc]:
         for entry in sorted(skills_path.iterdir()):
             if not entry.is_dir() or entry.name.startswith(('_', '.')):
                 continue
-            doc = _load_skill_dir(entry, source, user_slug)
+            doc = _load_skill_dir(entry, source, user_slug, role)
             if doc is None:
                 continue
             if doc.name in by_name and by_name[doc.name].source != source:

@@ -146,10 +146,10 @@ These run in that order (a denial short-circuits the rest), and your own
 `tool_call` handlers run after them — so an extension can add its own
 allow/deny rules on top.
 
-## Relationship to the five habitat kinds
+## Relationship to the six habitat kinds
 
 The [five-kind taxonomy](habitats.md) describes *what* you can build
 (toolkit / skill / channel / job / subagent). `register(marcel)` is *how*
-an extension registers them — through one object instead of five separate
+an extension registers them — through one object instead of six separate
 discovery paths. Both coexist today: existing per-kind habitats load as
 before; new extensions use `register(marcel)`.

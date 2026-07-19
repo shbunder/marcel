@@ -77,6 +77,7 @@ class ExtensionRegistry:
         """Drop all collected registrations (used when reloading / in tests)."""
         self.handlers.clear()
         self.skills.clear()
+        self.connectors.clear()
         self.jobs.clear()
         self.agents.clear()
         self.commands.clear()

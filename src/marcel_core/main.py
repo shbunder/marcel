@@ -50,6 +50,30 @@ from marcel_core.plugin.channels import discover as discover_channels
 log = logging.getLogger(__name__)
 
 
+async def _connector_reaper_loop() -> None:
+    """Stop spawned connector servers that have gone idle.
+
+    stdio/inprocess connectors are real processes kept alive between turns so a
+    conversation does not pay a spawn per message. Without something calling
+    reap_idle they would live until restart — a connector used once at
+    breakfast still running at dinner. Runs on the same cadence as the
+    summarization loop; a Marcel with no connectors never builds a registry, so
+    this is a cheap no-op there.
+    """
+    from marcel_core.connectors.toolset import active_registry
+
+    while True:
+        await asyncio.sleep(15 * 60)
+        try:
+            registry = active_registry()
+            if registry is not None:
+                closed = await registry.reap_idle()
+                if closed:
+                    log.info('main: stopped %d idle connector server(s)', closed)
+        except Exception:
+            log.exception('connector reaper loop error')
+
+
 async def _background_summarization_loop() -> None:
     """Periodically check all channels for idle conversations and summarize them.
 
@@ -114,7 +138,7 @@ def _log_zoo_summary() -> None:
         return
 
     counts: dict[str, int] = {}
-    for kind in ('channels', 'toolkit', 'skills', 'jobs', 'agents'):
+    for kind in ('channels', 'toolkit', 'skills', 'connectors', 'jobs', 'agents'):
         subdir = zoo_dir / kind
         if not subdir.is_dir():
             counts[kind] = 0
@@ -154,11 +178,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _log_zoo_summary()
 
     summarize_task = asyncio.create_task(_background_summarization_loop())
+    reaper_task = asyncio.create_task(_connector_reaper_loop())
     scheduler.start()
     log.info('main: all background tasks started')
     yield
     scheduler.stop()
     summarize_task.cancel()
+    reaper_task.cancel()
+    # Spawned connector servers are child processes; leaving them behind on
+    # redeploy would orphan them.
+    from marcel_core.connectors.toolset import active_registry
+
+    registry = active_registry()
+    if registry is not None:
+        await registry.shutdown()
     log.info('main: shutdown complete')
 
 

@@ -14,6 +14,7 @@ later feature (FEAT-260718-c232d9), so nothing in this module imports a toolkit.
 from __future__ import annotations
 
 from enum import Enum
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -68,6 +69,20 @@ class DefaultEnabled(str, Enum):
 RESERVED_ENV_PREFIXES = ('MARCEL_', 'ANTHROPIC_', 'OPENAI_', 'TELEGRAM_', 'AWS_')
 
 
+# Hosts for which cleartext http is tolerated during development. Compared
+# against the parsed *host*, never a string prefix: `http://localhost.attacker
+# .example` starts with 'http://localhost' but is a remote host, so a prefix
+# match would wave through exactly the cleartext-bearer hazard this rejects.
+LOOPBACK_HOSTS = frozenset({'localhost', '127.0.0.1', '::1'})
+
+
+def is_loopback_http(url: str) -> bool:
+    """Whether *url* is plain http pointed at this machine."""
+    if not url.startswith('http://'):
+        return False
+    return (urlparse(url).hostname or '') in LOOPBACK_HOSTS
+
+
 def _reject_reserved_env(name: str, field: str) -> None:
     if name.upper().startswith(RESERVED_ENV_PREFIXES):
         raise ValueError(
@@ -108,7 +123,7 @@ class ServerSpec(BaseModel):
         # network as an SSRF primitive). Same localhost carve-out the public
         # base URL uses for development.
         if self.transport is Transport.HTTP and self.url is not None:
-            if not self.url.startswith('https://') and not self.url.startswith('http://localhost'):
+            if not self.url.startswith('https://') and not is_loopback_http(self.url):
                 raise ValueError('server.url must be https (http is only allowed for localhost during development)')
         return self
 

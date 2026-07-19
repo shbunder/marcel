@@ -36,7 +36,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from marcel_core.connectors.models import AuthMode, ConnectorConfig, OAuthSpec, Scope
+from marcel_core.connectors.models import AuthMode, ConnectorConfig, OAuthSpec, Scope, is_loopback_http
 from marcel_core.connectors.tokens import StoredTokens, TokenStore
 
 log = logging.getLogger(__name__)
@@ -117,7 +117,7 @@ def public_base_url() -> str:
             'Connector linking is not configured yet — the server needs its public address '
             '(MARCEL_PUBLIC_URL) set before accounts can be connected.'
         )
-    if not base.startswith('https://') and not base.startswith('http://localhost'):
+    if not base.startswith('https://') and not is_loopback_http(base):
         raise OAuthError(
             'Connector linking needs a secure public address — MARCEL_PUBLIC_URL must be https '
             '(http is only allowed for localhost during development).'
@@ -182,6 +182,8 @@ class ConnectorOAuth:
 
     def _client(self) -> httpx.AsyncClient:
         if self._http is not None:
+            # _NonClosing is an async-context shim, not an AsyncClient: it yields the
+            # caller's client so `async with` here does not close what we don't own.
             return _NonClosing(self._http)  # type: ignore[return-value]
         return httpx.AsyncClient(timeout=_HTTP_TIMEOUT)
 

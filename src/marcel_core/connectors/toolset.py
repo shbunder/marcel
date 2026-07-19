@@ -62,6 +62,15 @@ def _default_registry() -> ConnectorRegistry:
 _REGISTRY: ConnectorRegistry | None = None
 
 
+def active_registry() -> ConnectorRegistry | None:
+    """The process-wide registry if one was ever built, else ``None``.
+
+    Lets the server's lifespan reap idle instances and shut them down without
+    forcing a registry into existence on a Marcel that has no connectors.
+    """
+    return _REGISTRY
+
+
 async def _close_toolset(instance: object) -> None:
     closer = getattr(instance, 'aclose', None) or getattr(instance, 'close', None)
     if closer is not None:
