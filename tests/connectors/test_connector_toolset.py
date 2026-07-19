@@ -305,7 +305,6 @@ def _spawn_cfg(name='clock', transport='stdio', mode='none'):
     server = {'transport': 'stdio', 'command': ['clock-mcp', '--stdio']}
     if transport == 'inprocess':
         server = {'transport': 'inprocess', 'module': 'tests.connectors.fake_inprocess_server'}
-        scope = 'admin'  # inprocess is admin-scope-only (security audit)
     auth: dict = {'mode': 'none', 'per_user': False}
     if mode == 'api_key':
         auth = {'mode': 'api_key', 'per_user': True, 'credential_keys': ['CLOCK_API_KEY']}

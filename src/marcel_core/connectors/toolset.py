@@ -136,9 +136,9 @@ def _spawned_toolset(config: ConnectorConfig, slug: str, auth: ConnectorAuth) ->
 
     if config.server.transport is Transport.INPROCESS:
         # No credential is resolved here on purpose: the schema pins inprocess to
-        # `auth: none` + `scope: admin`, because the imported server object is a
-        # module singleton shared by every user and so cannot hold a per-user
-        # secret. Computing a credential here would look like it was delivered.
+        # `auth: none`, because the imported server object is a module singleton
+        # shared by every user and so cannot hold a per-user secret. Computing a
+        # credential here would look like it was delivered.
         module = config.server.module
         if module is None:  # pragma: no cover - schema guarantees it
             raise ValueError(f'connector {config.name!r} is inprocess without a module')

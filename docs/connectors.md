@@ -60,11 +60,13 @@ enforced at load time.
 `http` is the default choice, and the **only** one where the server never touches
 the host. Prefer it for anything third-party — see [Trust model](#trust-model).
 
-`inprocess` is constrained by the schema to `scope: admin` and `auth: none`.
-Python caches modules, so the server object is a singleton shared by every user:
-it has no way to know whose turn it is serving, and so cannot hold a per-user
-credential. It is the right shape for a bundled, first-party, credential-free
-server and the wrong shape for anything else.
+`inprocess` is constrained by the schema to `auth: none`. Python caches
+modules, so the server object is a singleton shared by every user: it has no way
+to know whose turn it is serving, and so cannot hold a per-user credential. It
+is the right shape for a bundled, first-party, credential-free server — which
+may be family-visible (`scope: all`); the trust decision is made at *install*
+time, since the server runs in Marcel's process whoever triggers it — and the
+wrong shape for anything carrying a credential.
 
 ### Auth modes
 
@@ -172,8 +174,9 @@ Practically:
 - Prefer **`http`** for anything third-party. The server never touches the host.
 - Treat **`stdio`** as a deliberate admin decision, not the path of least
   resistance — an `npx`-fetched server is arbitrary code with filesystem access.
-- **`inprocess`** is admin-scoped and credential-free by construction; use it for
-  bundled first-party servers only.
+- **`inprocess`** is credential-free by construction; use it for bundled
+  first-party servers only. Who may *use* it is a `scope:` choice — the trust
+  decision was already made when an admin installed it.
 
 Marcel never forwards its own tokens upstream. A connector receives only the
 credential resolved for it, from the user's vault or their token store — there is

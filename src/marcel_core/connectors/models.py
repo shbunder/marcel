@@ -205,24 +205,28 @@ class ConnectorConfig(BaseModel):
     default_enabled: DefaultEnabled = DefaultEnabled.ALL
 
     @model_validator(mode='after')
-    def _inprocess_is_admin_only(self) -> ConnectorConfig:
-        """An in-process server shares Marcel's own process, so it cannot be per-user.
+    def _inprocess_carries_no_credential(self) -> ConnectorConfig:
+        """An in-process server cannot hold a per-user credential.
 
-        Python caches modules, so every user would get the *same* server object:
-        the per-(connector, user) keying that keeps credential attribution honest
-        simply does not apply, and the server has no way to know whose turn it is
-        serving. Constrain it structurally to the shape it is actually safe in —
-        a bundled, first-party, admin-scoped server with no credential — rather
-        than leaving the footgun to convention.
+        Python caches modules, so every user gets the *same* server object: the
+        per-(connector, user) keying that keeps credential attribution honest
+        does not apply, and the server has no way to know whose turn it is
+        serving. ``auth: none`` is therefore structural, not advisory.
+
+        ``scope`` is deliberately *not* constrained. The security audit
+        (FEAT-260718-230bf8) originally paired this with ``scope: admin`` on the
+        grounds that an inprocess server shares Marcel's memory — but that risk
+        is about who may **install** a connector, and habitats are
+        admin-installed either way. ``scope`` gates who may **use** one, which
+        does not change what the code can reach: the server runs in Marcel's
+        process whichever family member triggers it. Forcing admin-only bought
+        no containment and would have kept a credential-free first-party server
+        (news) away from the family it exists for. See ADR-260718-231cad,
+        Amendment 2026-07-19b.
         """
-        if self.server.transport is Transport.INPROCESS:
-            if self.scope is not Scope.ADMIN:
-                raise ValueError(
-                    "server.transport 'inprocess' requires scope: admin — it runs inside Marcel's own process"
-                )
-            if self.auth.mode is not AuthMode.NONE:
-                raise ValueError(
-                    "server.transport 'inprocess' cannot carry a per-user credential "
-                    '(the server object is shared across users); use stdio or http'
-                )
+        if self.server.transport is Transport.INPROCESS and self.auth.mode is not AuthMode.NONE:
+            raise ValueError(
+                "server.transport 'inprocess' cannot carry a per-user credential "
+                '(the server object is shared across users); use stdio or http'
+            )
         return self

@@ -23,7 +23,6 @@ def _cfg(name='clock', transport='stdio'):
     server = {'transport': 'stdio', 'command': ['clock-mcp']}
     if transport == 'inprocess':
         server = {'transport': 'inprocess', 'module': 'connectors.clock.server'}
-        scope = 'admin'  # inprocess is admin-scope-only (security audit)
     if transport == 'http':
         server = {'transport': 'http', 'url': 'https://x.test'}
     return ConnectorConfig.model_validate(
