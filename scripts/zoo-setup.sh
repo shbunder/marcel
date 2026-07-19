@@ -157,14 +157,18 @@ PY
 }
 
 DEP_VENV_COUNT=0
-TOOLKIT_ROOT="$ZOO_DIR/toolkit"
-if [[ -d "$TOOLKIT_ROOT" ]]; then
-  for habitat_dir in "$TOOLKIT_ROOT"/*/; do
-    habitat_dir="${habitat_dir%/}"  # strip trailing slash
-    [[ -d "$habitat_dir" ]] || continue
-    provision_dep_venv "$habitat_dir"
-  done
-fi
+# toolkit/ parks import deps in-process; connectors/ parks with a stdio server
+# spawn their dep-venv interpreter directly (FEAT-260718-c232d9 — the venv IS
+# the `command:` entry point, resolved park-relative by the kernel).
+for HABITAT_ROOT in "$ZOO_DIR/toolkit" "$ZOO_DIR/connectors"; do
+  if [[ -d "$HABITAT_ROOT" ]]; then
+    for habitat_dir in "$HABITAT_ROOT"/*/; do
+      habitat_dir="${habitat_dir%/}"  # strip trailing slash
+      [[ -d "$habitat_dir" ]] || continue
+      provision_dep_venv "$habitat_dir"
+    done
+  fi
+done
 
 info "Zoo setup complete."
 info "  Zoo dir : $ZOO_DIR"
