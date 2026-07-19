@@ -408,3 +408,13 @@ grep -r '"fallback_used":"local"' ~/.marcel/jobs/*/runs/*.jsonl
   the session goes idle. The frustration loop is the intended corrective
   — a complex question that doesn't include `debug`/`analyze`/etc. keywords
   still misroutes until frustration or idle reset kicks in.
+
+## Tier-conditional capabilities
+
+The resolved tier also shapes the turn's capability list
+(FEAT-260718-637764): STANDARD and POWER turns get the `write_plan`
+planning tool with a cache-safe plan reminder (small models plan poorly,
+so LOCAL/FAST skip it), and every interactive tier carries a context-
+pressure warner sized to its budget — cloud tiers use
+`MARCEL_LIMIT_WARN_CONTEXT_TOKENS`, the local tier
+`MARCEL_LIMIT_WARN_CONTEXT_TOKENS_LOCAL`.
