@@ -157,8 +157,9 @@ For each conversation turn:
    attaches Planning (a `write_plan` tool with a cache-safe plan reminder),
    and every interactive tier carries LimitWarner — an `[LimitWarner]`
    warning is injected as context pressure approaches the tier's budget
-   (`MARCEL_LIMIT_WARN_CONTEXT_TOKENS`, `_LOCAL` for the local tier,
-   `_THRESHOLD` — FEAT-260718-637764). Lean paths (jobs, subagent
+   (`MARCEL_LIMIT_WARN_CONTEXT_TOKENS`,
+   `MARCEL_LIMIT_WARN_CONTEXT_TOKENS_LOCAL` for the local tier,
+   `MARCEL_LIMIT_WARN_THRESHOLD` — FEAT-260718-637764). Lean paths (jobs, subagent
    children, explain) skip both.
 6. agent.run_stream(user_text, message_history=context, conversation_id="user:channel")
 7. For each stream event:
