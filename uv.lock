@@ -1657,6 +1657,7 @@ name = "odile"
 version = "0.2.0"
 source = { editable = "../odile" }
 dependencies = [
+    { name = "fastmcp-slim", extra = ["server"] },
     { name = "httpx" },
     { name = "pydantic-ai-slim" },
     { name = "pytest" },
@@ -1665,6 +1666,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fastmcp-slim", extras = ["server"], specifier = ">=3.3" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "pydantic-ai-slim", specifier = ">=1.79.0" },
     { name = "pytest", specifier = ">=8.0.0" },
