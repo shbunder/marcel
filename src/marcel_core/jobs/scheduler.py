@@ -189,7 +189,10 @@ def _ensure_habitat_jobs() -> None:
             system_prompt=cspec.system_prompt or '',
             task=cspec.task or f'Call {cspec.handler} and report the result.',
             model=cspec.model or 'anthropic:claude-haiku-4-5-20251001',
-            skills=[cspec.handler] if wants_agent else [],
+            # An agent-shaped habitat job is scoped to its own connector
+            # (FEAT-260718-49a01a) — the declaring habitat's tools are the
+            # surface, whether or not a paired skill exists.
+            connectors=[habitat_name] if wants_agent else [],
             notify=NotifyPolicy(cspec.notify) if cspec.notify else NotifyPolicy.ON_FAILURE,
             channel=cspec.channel or 'telegram',
             template=f'{_HABITAT_TEMPLATE_PREFIX}{habitat_name}',

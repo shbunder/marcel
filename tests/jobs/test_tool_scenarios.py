@@ -211,7 +211,6 @@ class TestCreateVariations:
                 system_prompt='sync worker',
                 interval_hours=8.0,
                 template='sync',
-                skills=['banking.sync'],
                 timeout_minutes=5.0,
                 channel='telegram',
             )

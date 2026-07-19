@@ -288,3 +288,76 @@ class TestScopedExecution:
 
         assert len(_tool_names(captured_scoped[0][1])) < len(_tool_names(captured_legacy[0][1]))
         assert scoped_size < legacy_size * 0.8, (scoped_size, legacy_size)
+
+
+# ---------------------------------------------------------------------------
+# Save-time validation through the job tools (STORY-260719-bde17a)
+# ---------------------------------------------------------------------------
+
+
+def _ctx(user_slug: str = 'shaun'):
+    from unittest.mock import MagicMock
+
+    from marcel_core.harness.context import MarcelDeps
+
+    ctx = MagicMock()
+    ctx.deps = MarcelDeps(user_slug=user_slug, conversation_id='conv-1', channel='cli')
+    return ctx
+
+
+class TestSaveTimeValidation:
+    @pytest.mark.asyncio
+    async def test_create_job_rejects_unknown_connector_with_candidates(self, scoping_zoo):
+        from marcel_core.jobs.tool import create_job
+
+        result = await create_job(
+            _ctx(),
+            name='Digest',
+            task='Write it.',
+            trigger_type='cron',
+            system_prompt='You write digests.',
+            cron='0 7 * * *',
+            connectors=['banking'],
+        )
+        assert 'Cannot save job' in result
+        assert 'banking' in result and 'news' in result
+
+    @pytest.mark.asyncio
+    async def test_create_job_accepts_valid_scoping(self, scoping_zoo):
+        from marcel_core.jobs import load_job
+        from marcel_core.jobs.tool import create_job
+
+        result = await create_job(
+            _ctx(),
+            name='Digest',
+            task='Write it.',
+            trigger_type='cron',
+            system_prompt='You write digests.',
+            cron='0 7 * * *',
+            skills=['news'],
+        )
+        assert 'Job created' in result
+        import re
+
+        match = re.search(r'ID: `(\w+)`', result)
+        assert match is not None
+        job = load_job(match.group(1))
+        assert job is not None and job.skills == ['news']
+
+    @pytest.mark.asyncio
+    async def test_update_job_validates_and_replaces_scoping(self, scoping_zoo):
+        from marcel_core.jobs import save_job
+        from marcel_core.jobs.tool import update_job
+
+        job = _agent_job(users=['shaun'])
+        save_job(job)
+
+        result = await update_job(_ctx(), job.id, connectors=['nope'])
+        assert 'Cannot save job' in result and 'nope' in result
+
+        result = await update_job(_ctx(), job.id, skills=['news'])
+        assert 'updated' in result
+        from marcel_core.jobs import load_job
+
+        loaded = load_job(job.id)
+        assert loaded is not None and loaded.skills == ['news']

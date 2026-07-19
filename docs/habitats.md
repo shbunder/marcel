@@ -30,7 +30,7 @@ sense once you know where they sit in the taxonomy.
 | **Skill** | `skills/<name>/` | `SKILL.md` + optional `SETUP.md` | [Skills](skills.md) | Markdown that teaches the agent *when* to reach for a tool. The *prompting* layer. |
 | **Subagent** | `agents/<name>.md` | single Markdown file | [Agents](agents.md) | Named, scoped agents (with their own tool filter + model) the main agent can `delegate()` to. |
 | **Channel** | `channels/<name>/` | `__init__.py` + `channel.yaml` | [Channels](channels.md) | Bidirectional transports: FastAPI router for inbound webhooks + `send_message` / `send_photo` / friends for outbound push. |
-| **Job** | `jobs/<name>/template.yaml` | YAML + optional scripts | [Jobs](jobs.md) | Scheduled background work: cron / interval / event / oneshot triggers, run by the executor under one of three *dispatch types*. |
+| **Job** | `jobs/<name>/template.yaml` | YAML + optional scripts | [Jobs](jobs.md) | Scheduled background work: cron / interval / event / oneshot triggers, run by the executor under one of three *dispatch types*; agent jobs declare `skills:`/`connectors:` to run scoped and lean. |
 
 Channel, skill, subagent, and job habitats are discovered **eagerly at
 startup** through the uniform surface in

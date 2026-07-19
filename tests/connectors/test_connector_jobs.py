@@ -189,3 +189,27 @@ class TestAdminScopeGuardInDispatch:
 
         with pytest.raises(PermissionError, match='admin-scoped'):
             await call_connector_tool('secretpark.anything', {}, 'bob', role='user')
+
+
+class TestAgentShapedHabitatJobScoping:
+    def test_agent_habitat_job_scoped_to_its_connector(self, zoo_with_clockpark, monkeypatch):
+        """FEAT-260718-49a01a: a park opting into the agent shape gets a job
+        scoped to the declaring connector — no dependence on a paired skill."""
+        from marcel_core.jobs import load_job
+        from marcel_core.jobs.models import JobDispatchType
+        from marcel_core.jobs.scheduler import _ensure_habitat_jobs, _habitat_job_id
+
+        park_yaml = zoo_with_clockpark / 'connectors' / 'clockpark' / 'connector.yaml'
+        park_yaml.write_text(
+            park_yaml.read_text().replace(
+                '    notify: on_failure\n',
+                '    notify: on_failure\n    task: "Summarize the clock."\n',
+            )
+        )
+        _ensure_habitat_jobs()
+
+        job = load_job(_habitat_job_id('clockpark', 'Clock tick'))
+        assert job is not None
+        assert job.dispatch_type is JobDispatchType.AGENT
+        assert job.connectors == ['clockpark']
+        assert job.skills == []
