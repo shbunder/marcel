@@ -148,8 +148,14 @@ class JobDefinition(BaseModel):
     task: str
     model: str = 'anthropic:claude-haiku-4-5-20251001'
 
-    # Skills the job needs — full docs + credentials are auto-injected into the prompt
+    # Scoping (FEAT-260718-49a01a, AGENT dispatch): the exact capability
+    # surface the job's runs get. Listed skills attach eagerly (body as
+    # instructions — no catalog, no load_capability round-trip); listed
+    # connectors attach non-deferred, authenticated as the job's user.
+    # Nothing else attaches. Both empty = the legacy unscoped agent (full
+    # role toolset), which logs a scoping advisory per run.
     skills: list[str] = Field(default_factory=list)
+    connectors: list[str] = Field(default_factory=list)
 
     # pydantic-ai usage limits (None = pydantic-ai default of 50)
     request_limit: int | None = None
@@ -217,12 +223,23 @@ class JobDefinition(BaseModel):
         ``tool_params`` empty-dict default and ``subagent_task`` absence are
         treated as "not populated" so a permissive default does not trip
         the mismatched-shape check.
+
+        ``connectors`` is AGENT-only: a TOOL job already names its one
+        connector tool in ``tool``, and SUBAGENT scoping arrives with
+        FEAT-260718-b6d1da — so carrying the field on either shape would be
+        a silent no-op the author believes is doing something. ``skills``
+        predates scoping and stays unconstrained for legacy job files.
         """
         dt = self.dispatch_type
         has_tool = self.tool is not None
         has_tool_params = bool(self.tool_params)
         has_subagent = self.subagent is not None
         has_subagent_task = self.subagent_task is not None
+
+        if dt is not JobDispatchType.AGENT and self.connectors:
+            raise ValueError(
+                f'dispatch_type={dt.value!r} cannot carry `connectors` — connector scoping applies to agent jobs',
+            )
 
         if dt is JobDispatchType.TOOL:
             if not has_tool:

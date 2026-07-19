@@ -58,6 +58,7 @@ _FRONTMATTER_FIELDS: tuple[str, ...] = (
     'subagent_task',
     'model',
     'skills',
+    'connectors',
     'request_limit',
     'allow_local_fallback',
     'allow_fallback_chain',
