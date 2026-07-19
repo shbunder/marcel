@@ -24,7 +24,8 @@ transport, where the server never touches the host — not this registry.
 
 :class:`ConnectorRegistry` owns those instances:
 
-* **lazy start** — nothing is spawned until the pair is first asked for;
+* **lazy start** — nothing is built until the pair is first asked for, and the
+  transport itself defers the subprocess to its first connect;
 * **reuse** — the same pair gets the same instance across turns, so a
   conversation does not pay a subprocess spawn per message;
 * **idle stop** — :meth:`reap_idle` closes instances untouched for longer than
@@ -56,8 +57,15 @@ BACKOFF_BASE_SECONDS = 2.0
 # …never waiting longer than this between attempts.
 BACKOFF_MAX_SECONDS = 300.0
 
-InstanceFactory = Callable[[ConnectorConfig, str], Awaitable[object]]
-"""Builds the transport instance for one (connector, user). Injected for tests."""
+InstanceFactory = Callable[[ConnectorConfig, str], object]
+"""Builds the transport instance for one (connector, user). Injected for tests.
+
+Synchronous on purpose: constructing a client/toolset is cheap and does **not**
+spawn anything — fastmcp defers the actual subprocess to the first connect. So
+"lazy start" is already the transport's behaviour, and this registry's job is
+the part fastmcp does not do: keeping one instance per pair alive across turns,
+reaping it when idle, and refusing to rebuild a broken one in a tight loop.
+"""
 
 
 class ConnectorStartError(Exception):
@@ -95,7 +103,7 @@ class ConnectorRegistry:
         """Whether this connector's transport needs a managed instance."""
         return config.server.transport in (Transport.STDIO, Transport.INPROCESS)
 
-    async def acquire(self, config: ConnectorConfig, slug: str, *, now: float | None = None) -> object:
+    def acquire(self, config: ConnectorConfig, slug: str, *, now: float | None = None) -> object:
         """The live instance for ``(config, slug)``, spawning it on first use.
 
         Raises :class:`ConnectorStartError` while the pair is inside its restart
@@ -116,7 +124,7 @@ class ConnectorRegistry:
             )
 
         try:
-            instance = await self._factory(config, slug)
+            instance = self._factory(config, slug)
         except Exception as exc:
             entry.failures += 1
             delay = min(BACKOFF_BASE_SECONDS * (2 ** (entry.failures - 1)), BACKOFF_MAX_SECONDS)

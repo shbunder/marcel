@@ -19,24 +19,53 @@ stay out of context until the model reaches for them — via ``ToolSearch`` or v
 a skill naming the connector in ``marcel-connectors``. ``eager`` opts a hot-path
 connector out.
 
-Only the ``http`` transport is built here; ``stdio``/``inprocess`` need the
-per-user process lifecycle and land with that story.
+``http`` connectors are a shared upstream reached with a per-request header.
+``stdio``/``inprocess`` connectors instead get one instance per (connector,
+user) from :class:`~marcel_core.connectors.lifecycle.ConnectorRegistry`, because
+their credential is delivered once in the spawn environment. Building either is
+cheap and spawns nothing — fastmcp defers the subprocess to the first connect.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from typing import Any, cast
 
 import httpx
 from pydantic_ai.capabilities import MCP, AbstractCapability, Capability
 from pydantic_ai.mcp import MCPToolset
 
 from marcel_core.connectors.auth import ConnectorAuth
+from marcel_core.connectors.lifecycle import ConnectorRegistry, ConnectorStartError
 from marcel_core.connectors.loader import ConnectorDoc, load_connectors
 from marcel_core.connectors.models import ConnectorConfig, Discovery, Transport
 
 log = logging.getLogger(__name__)
+
+
+def _default_registry() -> ConnectorRegistry:
+    """The process-wide registry for spawned connectors.
+
+    Built lazily so importing this module spawns nothing and so tests can
+    substitute their own. ``closer`` shuts the toolset down when reaped.
+    """
+    global _REGISTRY
+    if _REGISTRY is None:
+        _REGISTRY = ConnectorRegistry(
+            lambda config, slug: _spawned_toolset(config, slug, ConnectorAuth()),
+            closer=_close_toolset,
+        )
+    return _REGISTRY
+
+
+_REGISTRY: ConnectorRegistry | None = None
+
+
+async def _close_toolset(instance: object) -> None:
+    closer = getattr(instance, 'aclose', None) or getattr(instance, 'close', None)
+    if closer is not None:
+        await closer()
 
 
 class _PerRequestAuth(httpx.Auth):
@@ -85,12 +114,56 @@ def _connector_toolset(config: ConnectorConfig, slug: str, auth: ConnectorAuth) 
     )
 
 
+def _spawned_toolset(config: ConnectorConfig, slug: str, auth: ConnectorAuth) -> MCPToolset:
+    """The MCPToolset for one linked stdio/inprocess connector.
+
+    Constructing this spawns nothing — fastmcp defers the subprocess (or the
+    in-process server import) to the first connect. The credential is baked into
+    the environment here because a spawned server has no per-request header;
+    that is also why the instance is keyed per (connector, user) upstream.
+    """
+    from fastmcp.client import Client
+    from fastmcp.client.transports import StdioTransport
+
+    env = auth.spawn_env(config, slug)
+    if config.server.transport is Transport.INPROCESS:
+        module = config.server.module
+        if module is None:  # pragma: no cover - schema guarantees it
+            raise ValueError(f'connector {config.name!r} is inprocess without a module')
+        server = _load_inprocess_server(module)
+        return MCPToolset(server, id=config.name)
+
+    command = config.server.command
+    if not command:  # pragma: no cover - schema guarantees it
+        raise ValueError(f'connector {config.name!r} is stdio without a command')
+    transport = StdioTransport(command=command[0], args=list(command[1:]), env=env)
+    return MCPToolset(Client(transport), id=config.name)
+
+
+def _load_inprocess_server(module_path: str) -> Any:
+    """Import a bundled in-process FastMCP server by dotted path.
+
+    The habitat points ``server.module`` at a module exposing ``mcp`` (the
+    FastMCP instance) — the FastMCP convention. In-process servers share
+    Marcel's own process, so this import is trusted code by construction (see
+    :mod:`marcel_core.connectors.lifecycle` on the trust model).
+    """
+    import importlib
+
+    module = importlib.import_module(module_path)
+    server = getattr(module, 'mcp', None)
+    if server is None:
+        raise ValueError(f'{module_path!r} exposes no `mcp` FastMCP server instance')
+    return server
+
+
 def build_connector_capabilities(
     user_slug: str,
     role: str = 'user',
     *,
     auth: ConnectorAuth | None = None,
     docs: Sequence[ConnectorDoc] | None = None,
+    registry: ConnectorRegistry | None = None,
 ) -> list[AbstractCapability]:
     """The connector capabilities visible to *user_slug* at *role*.
 
@@ -101,18 +174,29 @@ def build_connector_capabilities(
     catalog = list(docs) if docs is not None else load_connectors(user_slug, role)
     capabilities: list[AbstractCapability] = []
 
+    reg = registry if registry is not None else _default_registry()
+
     for doc in catalog:
         config = doc.config
-        if config.server.transport is not Transport.HTTP:
-            # stdio / inprocess need the per-user process lifecycle.
-            continue
-        problem = resolver.linkage_error(config, user_slug)
+        spawned = ConnectorRegistry.handles(config)
+        problem = resolver.linkage_error(config, user_slug, for_spawn=spawned)
         if problem is not None:
             capabilities.append(_needs_setup_capability(config, problem))
             continue
+        try:
+            toolset = (
+                cast(MCPToolset, reg.acquire(config, user_slug))
+                if spawned
+                else _connector_toolset(config, user_slug, resolver)
+            )
+        except ConnectorStartError as exc:
+            # Backoff or a failed build — surface it readably rather than
+            # advertising tools that cannot run.
+            capabilities.append(_needs_setup_capability(config, str(exc)))
+            continue
         capabilities.append(
             MCP(
-                local=_connector_toolset(config, user_slug, resolver),
+                local=toolset,
                 id=config.name,
                 description=config.description,
                 allowed_tools=list(config.tools) or None,
@@ -129,6 +213,7 @@ def connector_toolsets_for_skill(
     *,
     auth: ConnectorAuth | None = None,
     docs: Sequence[ConnectorDoc] | None = None,
+    registry: ConnectorRegistry | None = None,
 ) -> list[MCPToolset]:
     """Toolsets for the connectors a skill names in ``marcel-connectors``.
 
@@ -143,13 +228,25 @@ def connector_toolsets_for_skill(
     resolver = auth or ConnectorAuth()
     catalog = {d.name: d for d in (docs if docs is not None else load_connectors(user_slug, role))}
 
+    reg = registry if registry is not None else _default_registry()
     toolsets: list[MCPToolset] = []
     for name in connector_names:
         doc = catalog.get(name)
-        if doc is None or doc.config.server.transport is not Transport.HTTP:
+        if doc is None:
             continue
-        if resolver.linkage_error(doc.config, user_slug) is not None:
+        config = doc.config
+        spawned = ConnectorRegistry.handles(config)
+        if resolver.linkage_error(config, user_slug, for_spawn=spawned) is not None:
             log.debug('connectors: %s not linked for %s — omitted from skill bundle', name, user_slug)
             continue
-        toolsets.append(_connector_toolset(doc.config, user_slug, resolver))
+        try:
+            toolset = (
+                cast(MCPToolset, reg.acquire(config, user_slug))
+                if spawned
+                else _connector_toolset(config, user_slug, resolver)
+            )
+        except ConnectorStartError:
+            log.debug('connectors: %s could not start for %s — omitted from skill bundle', name, user_slug)
+            continue
+        toolsets.append(toolset)
     return toolsets

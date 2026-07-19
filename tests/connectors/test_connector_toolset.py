@@ -59,6 +59,15 @@ def _doc(cfg, tmp_path=None):
     return ConnectorDoc(config=cfg, source='zoo-global', connector_dir=Path(tmp_path or '/x'))
 
 
+def _fake_toolset(name='clock'):
+    """A real MCPToolset over the bundled fake server — what a registry hands back."""
+    from pydantic_ai.mcp import MCPToolset
+
+    from marcel_core.connectors.toolset import _load_inprocess_server
+
+    return MCPToolset(_load_inprocess_server('tests.connectors.fake_inprocess_server'), id=name)
+
+
 def _link_api_key(slug='shaun'):
     from marcel_core.storage.credentials import save_credentials
 
@@ -114,10 +123,14 @@ class TestBuildConnectorCapabilities:
         caps = build_connector_capabilities('shaun', docs=[_doc(_cfg(name='gh', mode='oauth'))])
         assert not (caps[0].description or '').endswith('— needs setup')
 
-    def test_non_http_transport_skipped(self):
+    def test_spawned_transport_is_handled_not_skipped(self):
+        """stdio/inprocess are built via the registry (story e), not dropped."""
+        from marcel_core.connectors.lifecycle import ConnectorRegistry
+
         _link_api_key()
-        caps = build_connector_capabilities('shaun', docs=[_doc(_cfg(transport='stdio'))])
-        assert caps == []  # stdio/inprocess land with the lifecycle story
+        reg = ConnectorRegistry(lambda c, s: _fake_toolset(c.name))
+        caps = build_connector_capabilities('shaun', docs=[_doc(_cfg(transport='stdio', mode='none'))], registry=reg)
+        assert [c.id for c in caps] == ['weather']
 
     def test_empty_catalog(self):
         assert build_connector_capabilities('shaun', docs=[]) == []
@@ -169,9 +182,12 @@ class TestSkillConnectorBundling:
         _link_api_key()
         assert connector_toolsets_for_skill(['ghost'], 'shaun', docs=[_doc(_cfg())]) == []
 
-    def test_non_http_omitted(self):
-        _link_api_key()
-        assert connector_toolsets_for_skill(['weather'], 'shaun', docs=[_doc(_cfg(transport='stdio'))]) == []
+    def test_spawned_connector_bundled_too(self):
+        from marcel_core.connectors.lifecycle import ConnectorRegistry
+
+        reg = ConnectorRegistry(lambda c, s: _fake_toolset(c.name))
+        cfg = _cfg(transport='stdio', mode='none')
+        assert len(connector_toolsets_for_skill(['weather'], 'shaun', docs=[_doc(cfg)], registry=reg)) == 1
 
     def test_no_names_is_empty(self):
         assert connector_toolsets_for_skill([], 'shaun', docs=[_doc(_cfg())]) == []
@@ -277,3 +293,147 @@ class TestCompositionWiring:
         admin_caps = build_capabilities(user_slug='shaun', role='admin', skills=False)
         assert not any(getattr(c, 'id', None) == 'secret' for c in user_caps)
         assert any(getattr(c, 'id', None) == 'secret' for c in admin_caps)
+
+
+# ---------------------------------------------------------------------------
+# spawned transports (stdio / inprocess) — story e
+# ---------------------------------------------------------------------------
+
+
+def _spawn_cfg(name='clock', transport='stdio', mode='none'):
+    server = {'transport': 'stdio', 'command': ['clock-mcp', '--stdio']}
+    if transport == 'inprocess':
+        server = {'transport': 'inprocess', 'module': 'tests.connectors.fake_inprocess_server'}
+    auth: dict = {'mode': 'none', 'per_user': False}
+    if mode == 'api_key':
+        auth = {'mode': 'api_key', 'per_user': True, 'credential_keys': ['CLOCK_API_KEY']}
+    if mode == 'oauth':
+        auth = {'mode': 'oauth', 'oauth': {'issuer': 'https://i.test', 'client_id': 'app'}}
+    return ConnectorConfig.model_validate(
+        {'name': name, 'description': f'{name} connector', 'server': server, 'auth': auth}
+    )
+
+
+class TestSpawnedTransports:
+    def test_stdio_builds_via_registry_and_is_reused(self):
+        from marcel_core.connectors.lifecycle import ConnectorRegistry
+
+        built: list[tuple[str, str]] = []
+
+        def factory(config, slug):
+            built.append((config.name, slug))
+            return _fake_toolset(config.name)
+
+        reg = ConnectorRegistry(factory)
+        docs = [_doc(_spawn_cfg())]
+        caps1 = build_connector_capabilities('shaun', docs=docs, registry=reg)
+        caps2 = build_connector_capabilities('shaun', docs=docs, registry=reg)
+        assert caps1[0].id == 'clock' and caps2[0].id == 'clock'
+        assert built == [('clock', 'shaun')]  # one build across two turns
+
+    def test_stdio_unlinked_is_needs_setup(self):
+        from marcel_core.connectors.lifecycle import ConnectorRegistry
+
+        reg = ConnectorRegistry(lambda c, s: _fake_toolset(c.name))
+        caps = build_connector_capabilities('shaun', docs=[_doc(_spawn_cfg(mode='api_key'))], registry=reg)
+        assert (caps[0].description or '').endswith('— needs setup')
+
+    def test_start_failure_degrades_readably(self):
+        from marcel_core.connectors.lifecycle import ConnectorRegistry
+
+        def boom(config, slug):
+            raise RuntimeError('cannot spawn')
+
+        reg = ConnectorRegistry(boom)
+        caps = build_connector_capabilities('shaun', docs=[_doc(_spawn_cfg())], registry=reg)
+        assert (caps[0].description or '').endswith('— needs setup')
+        assert 'could not be started' in str(caps[0].get_instructions())
+
+    def test_expired_oauth_refuses_to_spawn(self):
+        """A spawned server can't refresh mid-life, so an expired token means
+        reconnect rather than starting something that fails every call."""
+        from marcel_core.connectors.lifecycle import ConnectorRegistry
+
+        TokenStore().store('shaun', 'clock', StoredTokens(access_token='a', refresh_token='r', expires_at=1.0))
+        reg = ConnectorRegistry(lambda c, s: _fake_toolset(c.name))
+        caps = build_connector_capabilities('shaun', docs=[_doc(_spawn_cfg(mode='oauth'))], registry=reg)
+        assert 'reconnected' in str(caps[0].get_instructions())
+
+    def test_http_oauth_expired_but_refreshable_still_exposes_tools(self):
+        """Contrast: http refreshes per request, so the same token is fine there."""
+        TokenStore().store('shaun', 'gh', StoredTokens(access_token='a', refresh_token='r', expires_at=1.0))
+        caps = build_connector_capabilities('shaun', docs=[_doc(_cfg(name='gh', mode='oauth'))])
+        assert not (caps[0].description or '').endswith('— needs setup')
+
+    @pytest.mark.asyncio
+    async def test_inprocess_server_end_to_end(self):
+        """A bundled in-process FastMCP server is reachable through the toolset."""
+        from fastmcp.client import Client
+        from pydantic_ai.mcp import MCPToolset
+
+        from marcel_core.connectors.toolset import _load_inprocess_server, _spawned_toolset
+
+        toolset = _spawned_toolset(_spawn_cfg(transport='inprocess'), 'shaun', ConnectorAuth())
+        assert isinstance(toolset, MCPToolset)
+        # The bundled server really is reachable and exposes its tool.
+        server = _load_inprocess_server('tests.connectors.fake_inprocess_server')
+        async with Client(server) as client:
+            tools = await client.list_tools()
+        assert 'now' in {t.name for t in tools}
+
+    def test_inprocess_module_without_server_is_rejected(self):
+        from marcel_core.connectors.toolset import _load_inprocess_server
+
+        with pytest.raises(ValueError, match='exposes no `mcp`'):
+            _load_inprocess_server('tests.connectors.fake_inprocess_broken')
+
+    def test_spawn_env_carries_the_credential(self):
+        from marcel_core.storage.credentials import save_credentials
+
+        save_credentials('shaun', {'CLOCK_API_KEY': 'k1'})
+        env = ConnectorAuth().spawn_env(_spawn_cfg(mode='api_key'), 'shaun')
+        assert env == {'CLOCK_API_KEY': 'k1'}
+
+    def test_real_stdio_toolset_constructs_without_spawning(self):
+        """Constructing a stdio toolset builds the transport but spawns nothing."""
+        from pydantic_ai.mcp import MCPToolset
+
+        from marcel_core.connectors.toolset import _spawned_toolset
+
+        toolset = _spawned_toolset(_spawn_cfg(), 'shaun', ConnectorAuth())
+        assert isinstance(toolset, MCPToolset)
+
+    def test_stdio_spawn_env_carries_credential(self):
+        """The credential reaches the subprocess env (there is no per-request header)."""
+        from marcel_core.storage.credentials import save_credentials
+
+        save_credentials('shaun', {'CLOCK_API_KEY': 'k1'})
+        cfg = _spawn_cfg(mode='api_key')
+        assert ConnectorAuth().spawn_env(cfg, 'shaun') == {'CLOCK_API_KEY': 'k1'}
+
+    def test_skill_bundle_omits_connector_in_backoff(self):
+        from marcel_core.connectors.lifecycle import ConnectorRegistry
+
+        def boom(config, slug):
+            raise RuntimeError('cannot spawn')
+
+        reg = ConnectorRegistry(boom)
+        cfg = _cfg(transport='stdio', mode='none')
+        assert connector_toolsets_for_skill(['weather'], 'shaun', docs=[_doc(cfg)], registry=reg) == []
+
+    @pytest.mark.asyncio
+    async def test_close_toolset_calls_the_client_closer(self):
+        from marcel_core.connectors.toolset import _close_toolset
+
+        closed = []
+
+        class _WithAclose:
+            async def aclose(self):
+                closed.append('aclose')
+
+        class _Bare:
+            pass
+
+        await _close_toolset(_WithAclose())
+        await _close_toolset(_Bare())  # no closer → no-op, no raise
+        assert closed == ['aclose']

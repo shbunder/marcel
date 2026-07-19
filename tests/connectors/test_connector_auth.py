@@ -292,3 +292,38 @@ class TestOAuthAuth:
         # ConnectorAuth without a refresher wired cannot refresh.
         with pytest.raises(ConnectorNotLinked, match='reconnected'):
             await ConnectorAuth().outbound_headers(_cfg('oauth', name='gh'), 'shaun')
+
+
+class TestSpawnEnvBranches:
+    """spawn_env is the sync credential path for stdio/inprocess."""
+
+    @pytest.mark.asyncio
+    async def test_shared_key_from_env(self, data_dir, monkeypatch):
+        monkeypatch.setenv('SHARED_KEY', 'sh')
+        cfg = _cfg('api_key', per_user=False, credential_keys=('SHARED_KEY',))
+        assert ConnectorAuth().spawn_env(cfg, 'shaun') == {'SHARED_KEY': 'sh'}
+
+    def test_shared_key_missing_raises(self, data_dir, monkeypatch):
+        monkeypatch.delenv('SHARED_KEY', raising=False)
+        cfg = _cfg('api_key', per_user=False, credential_keys=('SHARED_KEY',))
+        with pytest.raises(ConnectorNotLinked, match='not configured'):
+            ConnectorAuth().spawn_env(cfg, 'shaun')
+
+    def test_per_user_key_missing_raises(self, data_dir):
+        with pytest.raises(ConnectorNotLinked, match='WEATHER_API_KEY'):
+            ConnectorAuth().spawn_env(_cfg('api_key'), 'shaun')
+
+    def test_oauth_valid_token(self, data_dir):
+        from marcel_core.connectors.auth import OAUTH_TOKEN_ENV
+
+        TokenStore().store('shaun', 'gh', StoredTokens(access_token='tok'))
+        assert ConnectorAuth().spawn_env(_cfg('oauth', name='gh'), 'shaun') == {OAUTH_TOKEN_ENV: 'tok'}
+
+    def test_oauth_expired_refuses(self, data_dir):
+        """No sync refresh is possible, so an expired token must not be spawned with."""
+        TokenStore().store('shaun', 'gh', StoredTokens(access_token='old', refresh_token='r', expires_at=1.0))
+        with pytest.raises(ConnectorNotLinked, match='reconnected'):
+            ConnectorAuth().spawn_env(_cfg('oauth', name='gh'), 'shaun')
+
+    def test_none_is_empty(self, data_dir):
+        assert ConnectorAuth().spawn_env(_cfg('none'), 'shaun') == {}

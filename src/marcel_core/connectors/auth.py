@@ -54,14 +54,20 @@ class ConnectorAuth:
         self._store = store or TokenStore()
         self._refresher = refresher
 
-    def linkage_error(self, config: ConnectorConfig, slug: str) -> str | None:
+    def linkage_error(self, config: ConnectorConfig, slug: str, *, for_spawn: bool = False) -> str | None:
         """Readable reason *slug* cannot use *config* yet, or ``None`` if usable.
 
         Synchronous on purpose: it only reads the vault, the environment and the
         token store, so the composition root can decide at agent-build time
         whether to expose a connector's tools or its "needs setup" stand-in.
-        A token that is merely *expired but refreshable* counts as linked — the
-        per-request auth flow refreshes it at call time.
+
+        For an ``http`` connector a token that is merely *expired but
+        refreshable* still counts as linked — the per-request auth flow
+        refreshes it at call time. With ``for_spawn=True`` (stdio/inprocess) it
+        does **not**: those servers receive their credential once at spawn and
+        there is no synchronous way to refresh it first, so handing over an
+        expired token would spawn a server that simply fails every call. Better
+        to report it as needing reconnection than to start something broken.
         """
         auth = config.auth
         if auth.mode is AuthMode.NONE:
@@ -77,9 +83,41 @@ class ConnectorAuth:
         tokens = self._store.load(slug, config.name)
         if tokens is None:
             return self._msg_not_linked(config)
-        if tokens.is_expired() and not tokens.refresh_token:
+        if tokens.is_expired() and (for_spawn or not tokens.refresh_token):
             return self._msg_relink(config)
         return None
+
+    def spawn_env(self, config: ConnectorConfig, slug: str) -> dict[str, str]:
+        """Synchronous credential environment for spawning a connector server.
+
+        The sync sibling of :meth:`outbound_env`, for the build-time path that
+        constructs a stdio/inprocess transport. Callers must have cleared
+        :meth:`linkage_error` with ``for_spawn=True`` first — that is what
+        guarantees there is a usable, unexpired credential to hand over here.
+        """
+        auth = config.auth
+        if auth.mode is AuthMode.NONE:
+            return {}
+        if auth.mode is AuthMode.API_KEY:
+            key_name = auth.credential_keys[0]
+            if auth.per_user:
+                from marcel_core.storage.credentials import load_credentials
+
+                value = load_credentials(slug).get(key_name)
+            else:
+                value = os.environ.get(key_name)
+            if not value:
+                raise ConnectorNotLinked(
+                    self._msg_no_user_key(config, key_name)
+                    if auth.per_user
+                    else self._msg_no_shared_key(config, key_name)
+                )
+            return {key_name: value}
+
+        tokens = self._store.load(slug, config.name)
+        if tokens is None or tokens.is_expired():
+            raise ConnectorNotLinked(self._msg_relink(config))
+        return {OAUTH_TOKEN_ENV: tokens.access_token}
 
     @staticmethod
     def _msg_no_user_key(config: ConnectorConfig, key_name: str) -> str:
