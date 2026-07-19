@@ -364,6 +364,29 @@ class Terrarium:
                 ),
             )
 
+    def install_connector(self, park_dir: Path) -> None:
+        """Install a connector habitat into the sealed world's zoo.
+
+        The Terrarium seals with ``zoo_dir=None`` so scenarios see no habitats
+        by accident; this is the explicit opt-in, mirroring :meth:`fake_api`'s
+        declare-what-exists shape. The park is symlinked into a synthetic zoo
+        under the sealed data root, so per-turn connector discovery
+        (FEAT-260718-230bf8) finds exactly the parks a scenario declares —
+        a deferred connector's tools then become callable after a scripted
+        ``load_capability`` step, the production disclosure flow.
+        """
+        from marcel_core.config import settings
+
+        self._require_entered()
+        connectors_root = self.data_root / 'scenario-zoo' / 'connectors'
+        connectors_root.mkdir(parents=True, exist_ok=True)
+        link = connectors_root / park_dir.name
+        if not link.exists():
+            link.symlink_to(park_dir.resolve(), target_is_directory=True)
+        # Entry saved marcel_zoo_dir; exit restores it — mid-run reassignment
+        # is inside the sealed window.
+        settings.marcel_zoo_dir = str(connectors_root.parent)
+
     def fake_api(self, base_url: str) -> FakeAPI:
         """Declare a fake external API at ``base_url``.
 
