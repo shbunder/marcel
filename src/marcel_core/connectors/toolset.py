@@ -136,13 +136,15 @@ def _spawned_toolset(config: ConnectorConfig, slug: str, auth: ConnectorAuth) ->
 
     if config.server.transport is Transport.INPROCESS:
         # No credential is resolved here on purpose: the schema pins inprocess to
-        # `auth: none`, because the imported server object is a module singleton
-        # shared by every user and so cannot hold a per-user secret. Computing a
-        # credential here would look like it was delivered.
+        # `auth: none`, because an in-process server cannot receive a per-user
+        # secret. Identity is different from a credential though — a park that
+        # stores per-user *data* (news articles, say) may expose a factory, and
+        # the registry's per-(connector, user) keying hands each user their own
+        # instance closed over their slug.
         module = config.server.module
         if module is None:  # pragma: no cover - schema guarantees it
             raise ValueError(f'connector {config.name!r} is inprocess without a module')
-        return MCPToolset(_load_inprocess_server(module), id=config.name)
+        return MCPToolset(_load_inprocess_server(module, slug), id=config.name)
 
     env = auth.spawn_env(config, slug)
     command = config.server.command
@@ -152,20 +154,31 @@ def _spawned_toolset(config: ConnectorConfig, slug: str, auth: ConnectorAuth) ->
     return MCPToolset(Client(transport), id=config.name)
 
 
-def _load_inprocess_server(module_path: str) -> Any:
+def _load_inprocess_server(module_path: str, slug: str | None = None) -> Any:
     """Import a bundled in-process FastMCP server by dotted path.
 
-    The habitat points ``server.module`` at a module exposing ``mcp`` (the
-    FastMCP instance) — the FastMCP convention. In-process servers share
-    Marcel's own process, so this import is trusted code by construction (see
-    :mod:`marcel_core.connectors.lifecycle` on the trust model).
+    The habitat's ``server.module`` exposes one of two shapes:
+
+    * ``build(user_slug) -> FastMCP`` — a **factory**, for parks whose data is
+      per-user. The registry keys instances per (connector, user), so each user
+      gets their own server closed over their slug. The slug is identity, not a
+      credential — ``auth: none`` still holds.
+    * ``mcp`` — a module-level FastMCP **singleton**, for genuinely
+      user-agnostic servers. Preferred only when there is no per-user state.
+
+    In-process servers share Marcel's own process, so this import is trusted
+    code by construction (see :mod:`marcel_core.connectors.lifecycle` on the
+    trust model).
     """
     import importlib
 
     module = importlib.import_module(module_path)
+    build = getattr(module, 'build', None)
+    if callable(build) and slug is not None:
+        return build(slug)
     server = getattr(module, 'mcp', None)
     if server is None:
-        raise ValueError(f'{module_path!r} exposes no `mcp` FastMCP server instance')
+        raise ValueError(f'{module_path!r} exposes neither a `build(user_slug)` factory nor an `mcp` server')
     return server
 
 
