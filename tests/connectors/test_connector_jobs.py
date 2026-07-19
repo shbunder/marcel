@@ -161,3 +161,31 @@ class TestDispatchShapeRoundTrip:
         assert loaded.dispatch_type is JobDispatchType.TOOL
         assert loaded.tool == 'clockpark.whoami'
         assert loaded.tool_params == {'a': 'b'}
+
+
+class TestAdminScopeGuardInDispatch:
+    """Defense in depth: a non-admin run may not dispatch an admin-scoped connector.
+
+    Unreachable today (TOOL jobs are admin-authored only) — this pins the
+    refusal so a future create_job widening fails loudly, not silently.
+    """
+
+    @pytest.mark.asyncio
+    async def test_non_admin_role_refused_for_admin_connector(self, tmp_path, monkeypatch):
+        from marcel_core.config import settings
+        from marcel_core.connectors.toolset import call_connector_tool
+
+        zoo = tmp_path / 'zoo'
+        park = zoo / 'connectors' / 'secretpark'
+        park.mkdir(parents=True)
+        (park / 'connector.yaml').write_text(
+            'name: secretpark\ndescription: x\nscope: admin\n'
+            'server: {transport: inprocess, module: server.py}\n'
+            'auth: {mode: none, per_user: false}\n'
+        )
+        (park / 'server.py').write_text('from fastmcp import FastMCP\nmcp = FastMCP("secretpark")\n')
+        monkeypatch.setattr(settings, 'marcel_zoo_dir', str(zoo))
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path / 'data')
+
+        with pytest.raises(PermissionError, match='admin-scoped'):
+            await call_connector_tool('secretpark.anything', {}, 'bob', role='user')

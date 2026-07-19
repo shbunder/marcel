@@ -39,7 +39,7 @@ from pydantic_ai.mcp import MCPToolset
 from marcel_core.connectors.auth import ConnectorAuth
 from marcel_core.connectors.lifecycle import ConnectorRegistry, ConnectorStartError
 from marcel_core.connectors.loader import ConnectorDoc, load_connectors
-from marcel_core.connectors.models import ConnectorConfig, Discovery, Transport
+from marcel_core.connectors.models import ConnectorConfig, Discovery, Scope, Transport
 
 log = logging.getLogger(__name__)
 
@@ -326,7 +326,7 @@ def connector_toolsets_for_skill(
     return toolsets
 
 
-async def call_connector_tool(ref: str, params: dict, slug: str, *, timeout: float = 300.0) -> str:
+async def call_connector_tool(ref: str, params: dict, slug: str, *, role: str = 'admin', timeout: float = 300.0) -> str:
     """Call ``<connector>.<tool>`` directly — the job-dispatch path (D2).
 
     ``dispatch_type: tool`` job refs like ``news.sync`` historically named a
@@ -352,6 +352,14 @@ async def call_connector_tool(ref: str, params: dict, slug: str, *, timeout: flo
     if doc is None:
         raise KeyError(f'no connector named {family!r}')
     config = doc.config
+    # Defense in depth (security re-check, FEAT-260719-c232d9 Medium): today
+    # every TOOL job is admin-authored — create_job deliberately exposes
+    # neither dispatch_type nor tool — so this refusal is unreachable. It
+    # exists so that IF a future feature lets a non-admin author a tool job,
+    # naming an admin-scoped connector fails loudly here instead of silently
+    # becoming a privilege escalation.
+    if config.scope is Scope.ADMIN and role != 'admin':
+        raise PermissionError(f'{family!r} is admin-scoped; a non-admin run may not dispatch its tools')
 
     if config.server.transport is Transport.INPROCESS:
         server = _load_inprocess_server(config.server.module or '', slug, doc.connector_dir)
