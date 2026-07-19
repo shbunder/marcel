@@ -18,7 +18,9 @@ Surface:
   bus (:class:`EventBus`, :class:`EventContext`, and the event types).
   Imported eagerly.
 - **Helpers** (kernel-backed): ``credentials``, ``paths``, ``models``,
-  ``rss``, ``get_logger``, and the ``marcel_tool`` decorator. Resolved
+  ``rss``, ``get_logger``, and the ``marcel_tool`` decorator (a one-release
+  deprecation shim — it warns and registers nothing; port to a connector
+  habitat, see docs/connectors.md). Resolved
   **lazily** on first attribute access so ``marcel_core`` can import the
   contracts above without an import cycle.
 

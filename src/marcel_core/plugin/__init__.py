@@ -29,20 +29,13 @@ Surface today:
 Other habitat types (skills, agents) will add their surfaces here as
 their plugin plumbing lands (see ISSUE-2ccc10).
 
-Example — minimal external toolkit at
-``<MARCEL_ZOO_DIR>/toolkit/demo/__init__.py``::
-
-    from marcel_core.plugin import marcel_tool, get_logger
-    from marcel_core.plugin import credentials, paths
-
-    log = get_logger(__name__)
-
-    @marcel_tool("demo.ping")
-    async def ping(params: dict, user_slug: str) -> str:
-        log.info("demo.ping called for %s", user_slug)
-        api_key = credentials.load(user_slug).get("DEMO_API_KEY")
-        cache = paths.cache_dir(user_slug) / "demo.json"
-        return "pong"
+``ToolkitHandler`` and ``marcel_tool`` are still re-exported for exactly one
+release as deprecation shims — the toolkit habitat retired with
+FEAT-260718-c232d9 and ``@marcel_tool`` registers nothing (it warns and
+returns the function unchanged). Executable integrations are connector
+habitats now: a ``connector.yaml`` plus an MCP server under
+``<MARCEL_ZOO_DIR>/connectors/<name>/`` — see docs/connectors.md for the
+migration guide.
 """
 
 from __future__ import annotations
