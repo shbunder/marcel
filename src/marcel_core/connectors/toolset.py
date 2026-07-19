@@ -150,8 +150,31 @@ def _spawned_toolset(config: ConnectorConfig, slug: str, auth: ConnectorAuth) ->
     command = config.server.command
     if not command:  # pragma: no cover - schema guarantees it
         raise ValueError(f'connector {config.name!r} is stdio without a command')
-    transport = StdioTransport(command=command[0], args=list(command[1:]), env=env)
+    argv = _resolve_park_argv(command, getattr(config, '_connector_dir', None))
+    transport = StdioTransport(command=argv[0], args=argv[1:], env=env)
     return MCPToolset(Client(transport), id=config.name)
+
+
+def _resolve_park_argv(command: list[str], connector_dir: Any) -> list[str]:
+    """Resolve park-relative argv entries against the habitat directory.
+
+    A committed connector.yaml cannot carry machine-specific absolute paths, so
+    `command: [.venv/bin/python, server.py]` names files relative to the park —
+    the dep-venv interpreter *is* the spawnable entry point (the dep-venv
+    decision from the news story). Entries that resolve to an existing file
+    under the park become absolute; anything else (e.g. a $PATH binary like
+    `npx`) passes through untouched.
+    """
+    if connector_dir is None:
+        return list(command)
+    from pathlib import Path
+
+    base = Path(str(connector_dir))
+    resolved: list[str] = []
+    for entry in command:
+        candidate = base / entry
+        resolved.append(str(candidate) if not Path(entry).is_absolute() and candidate.exists() else entry)
+    return resolved
 
 
 def _load_inprocess_server(module_path: str, slug: str | None = None, connector_dir: Any = None) -> Any:

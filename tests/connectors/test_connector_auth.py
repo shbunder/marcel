@@ -343,3 +343,30 @@ class TestSlugValidatorAgreement:
         else:
             with pytest.raises(ValueError, match='unsafe slug'):
                 store.store(slug, 'gh', StoredTokens(access_token='a'))
+
+
+class TestMultiKeySpawnEnv:
+    """A spawned server gets every declared credential key (icloud needs two)."""
+
+    def test_all_keys_delivered(self, data_dir):
+        from marcel_core.storage.credentials import save_credentials
+
+        save_credentials('shaun', {'ICLOUD_APPLE_ID': 'id@x', 'ICLOUD_APP_PASSWORD': 'pw'})
+        cfg = _cfg('api_key', credential_keys=('ICLOUD_APPLE_ID', 'ICLOUD_APP_PASSWORD'))
+        env = ConnectorAuth().spawn_env(cfg, 'shaun')
+        assert env == {'ICLOUD_APPLE_ID': 'id@x', 'ICLOUD_APP_PASSWORD': 'pw'}
+
+    def test_any_missing_key_refuses(self, data_dir):
+        from marcel_core.storage.credentials import save_credentials
+
+        save_credentials('shaun', {'ICLOUD_APPLE_ID': 'id@x'})  # password missing
+        cfg = _cfg('api_key', credential_keys=('ICLOUD_APPLE_ID', 'ICLOUD_APP_PASSWORD'))
+        with pytest.raises(ConnectorNotLinked, match='ICLOUD_APP_PASSWORD'):
+            ConnectorAuth().spawn_env(cfg, 'shaun')
+
+    def test_linkage_error_checks_every_key(self, data_dir):
+        from marcel_core.storage.credentials import save_credentials
+
+        save_credentials('shaun', {'ICLOUD_APPLE_ID': 'id@x'})
+        cfg = _cfg('api_key', credential_keys=('ICLOUD_APPLE_ID', 'ICLOUD_APP_PASSWORD'))
+        assert 'ICLOUD_APP_PASSWORD' in (ConnectorAuth().linkage_error(cfg, 'shaun') or '')

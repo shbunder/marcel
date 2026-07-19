@@ -560,3 +560,22 @@ class TestSpawnedTransports:
 
         with pytest.raises(ValueError, match='neither'):
             _load_inprocess_server('tests.connectors.fake_inprocess_broken', 'alice')
+
+    def test_park_relative_command_resolves_against_the_park(self, tmp_path):
+        """`command: [.venv/bin/python, server.py]` cannot be machine-absolute in a
+        committed connector.yaml — entries that exist under the park become
+        absolute; $PATH binaries pass through (the dep-venv decision)."""
+        from marcel_core.connectors.toolset import _resolve_park_argv
+
+        (tmp_path / '.venv' / 'bin').mkdir(parents=True)
+        (tmp_path / '.venv' / 'bin' / 'python').write_text('')
+        (tmp_path / 'server.py').write_text('')
+        argv = _resolve_park_argv(['.venv/bin/python', 'server.py', '--flag', 'npx'], tmp_path)
+        assert argv[0] == str(tmp_path / '.venv' / 'bin' / 'python')
+        assert argv[1] == str(tmp_path / 'server.py')
+        assert argv[2:] == ['--flag', 'npx']  # non-files untouched
+
+    def test_park_relative_command_without_dir_passes_through(self):
+        from marcel_core.connectors.toolset import _resolve_park_argv
+
+        assert _resolve_park_argv(['npx', '-y', 'x'], None) == ['npx', '-y', 'x']

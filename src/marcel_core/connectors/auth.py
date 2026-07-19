@@ -73,12 +73,21 @@ class ConnectorAuth:
         if auth.mode is AuthMode.NONE:
             return None
         if auth.mode is AuthMode.API_KEY:
-            key_name = auth.credential_keys[0]
             if auth.per_user:
                 from marcel_core.storage.credentials import load_credentials
 
-                return None if load_credentials(slug).get(key_name) else self._msg_no_user_key(config, key_name)
-            return None if os.environ.get(key_name) else self._msg_no_shared_key(config, key_name)
+                vault = load_credentials(slug)
+                lookup = vault.get
+            else:
+                lookup = os.environ.get
+            for key_name in auth.credential_keys:
+                if not lookup(key_name):
+                    return (
+                        self._msg_no_user_key(config, key_name)
+                        if auth.per_user
+                        else self._msg_no_shared_key(config, key_name)
+                    )
+            return None
 
         tokens = self._store.load(slug, config.name)
         if tokens is None:
@@ -99,20 +108,27 @@ class ConnectorAuth:
         if auth.mode is AuthMode.NONE:
             return {}
         if auth.mode is AuthMode.API_KEY:
-            key_name = auth.credential_keys[0]
+            # A spawned server gets *every* declared key — unlike the http
+            # bearer (one Authorization value), a subprocess may need several
+            # (icloud: apple id + app password).
+            env: dict[str, str] = {}
             if auth.per_user:
                 from marcel_core.storage.credentials import load_credentials
 
-                value = load_credentials(slug).get(key_name)
+                vault = load_credentials(slug)
+                lookup = vault.get
             else:
-                value = os.environ.get(key_name)
-            if not value:
-                raise ConnectorNotLinked(
-                    self._msg_no_user_key(config, key_name)
-                    if auth.per_user
-                    else self._msg_no_shared_key(config, key_name)
-                )
-            return {key_name: value}
+                lookup = os.environ.get
+            for key_name in auth.credential_keys:
+                value = lookup(key_name)
+                if not value:
+                    raise ConnectorNotLinked(
+                        self._msg_no_user_key(config, key_name)
+                        if auth.per_user
+                        else self._msg_no_shared_key(config, key_name)
+                    )
+                env[key_name] = value
+            return env
 
         tokens = self._store.load(slug, config.name)
         if tokens is None or tokens.is_expired():
