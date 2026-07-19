@@ -42,7 +42,7 @@ def _cfg(mode='api_key', *, name='weather', per_user=True, credential_keys=('WEA
     if mode == 'api_key':
         d['auth']['credential_keys'] = list(credential_keys)
     if mode == 'oauth':
-        d['auth']['oauth'] = oauth or {'issuer': 'https://issuer.test', 'scopes': ['read']}
+        d['auth']['oauth'] = oauth or {'issuer': 'https://issuer.test', 'client_id': 'marcel-app', 'scopes': ['read']}
     if mode == 'none':
         d['auth']['per_user'] = False
     return ConnectorConfig.model_validate(d)

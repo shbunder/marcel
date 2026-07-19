@@ -90,11 +90,21 @@ class ServerSpec(BaseModel):
 
 
 class OAuthSpec(BaseModel):
-    """OAuth 2.1 metadata — the issuer Marcel discovers endpoints from + scopes."""
+    """OAuth 2.1 metadata — the issuer Marcel discovers endpoints from + scopes.
+
+    ``client_id`` is the app registration Marcel authenticates as (there is no
+    dynamic client registration — family members are not OAuth clients). It is
+    not a secret, so it lives in the habitat. A *confidential* client also needs
+    a secret: name the env var holding it in ``client_secret_key`` and keep the
+    value in system config (``.env``), never in the habitat or a user's vault
+    (data-boundaries). Public clients rely on PKCE alone and omit it.
+    """
 
     model_config = ConfigDict(extra='forbid')
 
     issuer: str
+    client_id: str
+    client_secret_key: str | None = None  # env var name, not the secret
     scopes: list[str] = Field(default_factory=list)
 
 

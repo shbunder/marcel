@@ -96,7 +96,10 @@ class TestConnectorConfigSchema:
                 'name': 'gh',
                 'description': 'GitHub',
                 'server': {'transport': 'stdio', 'command': ['gh-mcp', '--stdio']},
-                'auth': {'mode': 'oauth', 'oauth': {'issuer': 'https://github.com', 'scopes': ['repo']}},
+                'auth': {
+                    'mode': 'oauth',
+                    'oauth': {'issuer': 'https://github.com', 'client_id': 'marcel-app', 'scopes': ['repo']},
+                },
                 'discovery': 'eager',
                 'scope': 'admin',
             }
@@ -169,7 +172,23 @@ class TestConnectorConfigSchema:
                     'name': 'x',
                     'description': 'x',
                     'server': {'transport': 'http', 'url': 'https://x.test'},
-                    'auth': {'mode': 'oauth', 'oauth': {'issuer': 'https://i.test'}, 'credential_keys': ['K']},
+                    'auth': {
+                        'mode': 'oauth',
+                        'oauth': {'issuer': 'https://i.test', 'client_id': 'a'},
+                        'credential_keys': ['K'],
+                    },
+                }
+            )
+
+    def test_oauth_requires_client_id(self):
+        # OAuth 2.1 needs a client registration; there is no dynamic registration.
+        with pytest.raises(ValidationError, match='client_id'):
+            ConnectorConfig.model_validate(
+                {
+                    'name': 'x',
+                    'description': 'x',
+                    'server': {'transport': 'http', 'url': 'https://x.test'},
+                    'auth': {'mode': 'oauth', 'oauth': {'issuer': 'https://i.test'}},
                 }
             )
 
@@ -202,7 +221,11 @@ class TestConnectorConfigSchema:
                     'name': 'x',
                     'description': 'x',
                     'server': {'transport': 'http', 'url': 'https://x.test'},
-                    'auth': {'mode': 'api_key', 'credential_keys': ['K'], 'oauth': {'issuer': 'https://i.test'}},
+                    'auth': {
+                        'mode': 'api_key',
+                        'credential_keys': ['K'],
+                        'oauth': {'issuer': 'https://i.test', 'client_id': 'a'},
+                    },
                 }
             )
 

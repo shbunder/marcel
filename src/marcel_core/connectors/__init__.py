@@ -23,6 +23,7 @@ from marcel_core.connectors.models import (
     Scope,
     Transport,
 )
+from marcel_core.connectors.oauth import ConnectorOAuth, OAuthError, redirect_uri
 from marcel_core.connectors.tokens import StoredTokens, TokenStore, TokenStoreError
 
 __all__ = [
@@ -31,7 +32,9 @@ __all__ = [
     'ConnectorConfig',
     'ConnectorDoc',
     'ConnectorNotLinked',
+    'ConnectorOAuth',
     'Discovery',
+    'OAuthError',
     'Scope',
     'StoredTokens',
     'TokenRefresher',
@@ -40,5 +43,6 @@ __all__ = [
     'Transport',
     'get_connector',
     'load_connectors',
+    'redirect_uri',
     'validate_connector_config',
 ]
