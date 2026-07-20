@@ -142,7 +142,7 @@ exposing the right names:
 | Member | Purpose |
 |---|---|
 | `name: str` | Unique channel identifier. Must equal the directory name. |
-| `capabilities: ChannelCapabilities` | Declares `markdown`, `rich_ui`, `streaming`, `progress_updates`, `attachments`. The prompt builder reads `rich_ui` to decide whether to inject the A2UI component catalog. |
+| `capabilities: ChannelCapabilities` | Declares `markdown`, `rich_ui`, `streaming`, `progress_updates`, `attachments`. The [channel capability](architecture.md) reads `rich_ui` to decide whether its instructions carry the A2UI component catalog. |
 | `router: APIRouter \| None` | Optional FastAPI router. Kernel-internal transports (e.g. the WebSocket) can return `None` if routing lives elsewhere. |
 | `async send_message(user_slug, text) -> bool` | Deliver a text message; `False` when the recipient is not registered. |
 | `async send_photo(user_slug, image_bytes, caption=None) -> bool` | Deliver an image; `False` when unsupported or unresolved. |
@@ -154,7 +154,7 @@ exposing the right names:
 | Field | Default | Meaning |
 |---|---|---|
 | `markdown` | `True` | Supports markdown formatting. |
-| `rich_ui` | `False` | Supports cards, buttons, structured artifacts (A2UI components). Drives whether the prompt builder injects the component catalog. |
+| `rich_ui` | `False` | Supports cards, buttons, structured artifacts (A2UI components). Drives whether the channel capability carries the component catalog. |
 | `streaming` | `True` | Real-time token streaming. `False` means buffer and send the final message. |
 | `progress_updates` | `True` | Can show intermediate progress (via `marcel(action="notify")`). |
 | `attachments` | `False` | Can receive and send files. |
@@ -195,7 +195,7 @@ as the other four kinds.
 
 ## Channel guidance in the system prompt
 
-The kernel injects a per-channel system-prompt fragment that tells the
+The kernel contributes per-channel guidance as a capability instruction block that tells the
 agent how to format for that surface. Resolution order (first hit
 wins):
 

@@ -125,7 +125,7 @@ class TestBuildInstructions:
         result = build_instructions(deps)
         assert 'Carol is a data scientist.' in result
 
-    def test_unknown_channel_falls_back_to_cli_hint(self, tmp_path, monkeypatch):
+    def test_unknown_channel_still_builds_identity_blocks(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         deps = MarcelDeps(user_slug='bob', conversation_id='conv-1', channel='unknown-channel')
         result = build_instructions(deps)
@@ -133,7 +133,7 @@ class TestBuildInstructions:
         assert 'bob' in result
 
     @pytest.mark.parametrize('channel', ['cli', 'app', 'ios', 'telegram', 'websocket'])
-    def test_all_known_channels(self, tmp_path, monkeypatch, channel):
+    def test_builder_is_channel_agnostic(self, tmp_path, monkeypatch, channel):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         deps = MarcelDeps(user_slug='user', conversation_id='conv-1', channel=channel)
         result = build_instructions(deps)
