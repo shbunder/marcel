@@ -17,6 +17,14 @@ sense once you know where they sit in the taxonomy.
 > coexists with the per-kind loaders below. See
 > [Extensions](extensions.md).
 
+**Who sees a habitat?** Availability = **role ∧ enablement ∧ configuration**
+(ADR-260707-c9919f, enforced since FEAT-260707-acb2b6): the habitat declares
+its role requirement, the household's `<data_root>/enablement.yaml` names who
+it is enabled for (absent = everyone; see
+[Installing habitats](marketplace.md)), and per-user configuration (credential
+linking) decides whether it serves tools or its SETUP flow.
+
+
 > **Where did toolkits go?** The former sixth kind — the toolkit habitat,
 > in-process Python handlers behind a `toolkit(id=…)` dispatcher — retired in
 > favour of connectors (FEAT-260718-c232d9). See

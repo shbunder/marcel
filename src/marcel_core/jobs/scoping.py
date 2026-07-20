@@ -50,10 +50,41 @@ def _role_for(user_slug: str) -> str:
     return get_user_role(user_slug)
 
 
-def _unknown(kind: str, missing: list[str], available: list[str]) -> JobScopingError:
+def _unknown(
+    kind: str,
+    missing: list[str],
+    available: list[str],
+    user_slug: str | None = None,
+) -> JobScopingError:
+    # Distinguish "not installed" from "installed but not enabled for this
+    # user" — the admin reading the run log needs to know which policy to fix
+    # (FEAT-260707-acb2b6, FR7).
+    if user_slug is not None:
+        from marcel_core.marketplace.enablement import enabled_for
+
+        globally = {'skill': _global_skill_names, 'connector': _global_connector_names}[kind]()
+        disabled = [n for n in missing if n in globally and not enabled_for(f'{kind}s', n, user_slug)]
+        if disabled:
+            names = ', '.join(sorted(disabled))
+            return JobScopingError(
+                f'{kind.capitalize()}(s) {names} installed but not enabled for {user_slug!r} — '
+                f'enable with `make enable-habitat` or drop them from the job.'
+            )
     names = ', '.join(sorted(missing))
     listing = ', '.join(sorted(available)) if available else '(none installed)'
     return JobScopingError(f'Unknown {kind}(s) for this job: {names}. Available {kind}s: {listing}.')
+
+
+def _global_skill_names() -> set[str]:
+    from marcel_core.skills.loader import load_skills
+
+    return {d.name for d in load_skills(None, 'admin')}
+
+
+def _global_connector_names() -> set[str]:
+    from marcel_core.connectors.loader import load_connectors
+
+    return {d.name for d in load_connectors(None, 'admin')}
 
 
 def resolve_job_scoping(user_slug: str, skills: list[str], connectors: list[str]) -> JobScope:
@@ -93,7 +124,7 @@ def resolve_job_scoping(user_slug: str, skills: list[str], connectors: list[str]
     skill_map = {doc.name: doc for doc in load_skills(lookup, role)}
     missing_skills = [name for name in wanted_skills if name not in skill_map]
     if missing_skills:
-        raise _unknown('skill', missing_skills, list(skill_map))
+        raise _unknown('skill', missing_skills, list(skill_map), lookup)
     scope.skill_docs = [skill_map[name] for name in wanted_skills]
 
     wanted = list(connectors)
@@ -104,7 +135,7 @@ def resolve_job_scoping(user_slug: str, skills: list[str], connectors: list[str]
         connector_map = {doc.config.name: doc for doc in load_connectors(lookup, role)}
         missing_connectors = [name for name in wanted if name not in connector_map]
         if missing_connectors:
-            raise _unknown('connector', missing_connectors, list(connector_map))
+            raise _unknown('connector', missing_connectors, list(connector_map), lookup)
         scope.connector_docs = [connector_map[name] for name in wanted]
 
     return scope
