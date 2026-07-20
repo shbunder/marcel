@@ -176,6 +176,13 @@ class Settings(BaseSettings):
     marcel_clamp_max_part_tokens: int = 50_000
     marcel_overflow_spill_chars: int = 32_000
 
+    # Conversation-segment context budget (FEAT-260707-89a886, STORY-31dae4):
+    # the active segment rotates + summarizes once it exceeds this many tokens
+    # (estimated ~4 chars/token), so the loaded context stays bounded and the
+    # overflow folds into the rolling summary instead of growing unbounded or
+    # being silently dropped. Below the 500-message / 500 KB hard backstops.
+    marcel_context_budget_tokens: int = 80_000
+
     # LimitWarner (FEAT-260718-637764): warn the model as context pressure
     # mounts, before hard truncation. Context budgets are per model class —
     # cloud tiers (fast/standard/power) run ~200k-context models, the local
