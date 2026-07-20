@@ -40,14 +40,14 @@ from pydantic_ai_harness.step_persistence import (
 
 from marcel_core.capabilities.persistence.extract import extract_tool_history, messages_to_model
 from marcel_core.config import settings
-from marcel_core.memory.conversation import (
+from marcel_core.memory.summarizer import summarize_if_idle
+from marcel_core.storage.conversation import (
     MAX_SUMMARY_CHARS,
     _conversation_dir,
     append_to_segment,
     load_latest_summary,
     read_active_segment,
 )
-from marcel_core.memory.summarizer import summarize_if_idle
 
 log = logging.getLogger(__name__)
 

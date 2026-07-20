@@ -26,9 +26,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from marcel_core.memory.history import HistoryMessage
 from marcel_core.storage._atomic import atomic_write
 from marcel_core.storage._root import data_root
+from marcel_core.storage.history import HistoryMessage
 
 log = logging.getLogger(__name__)
 

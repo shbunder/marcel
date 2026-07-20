@@ -331,8 +331,8 @@ class Terrarium:
     def seed_history(self, user_slug: str, channel: str, turns: list[tuple[str, str]]) -> None:
         """Pre-load conversation history as ``(role, text)`` tuples."""
         self._require_entered()
-        from marcel_core.memory.conversation import append_to_segment
-        from marcel_core.memory.history import HistoryMessage
+        from marcel_core.storage.conversation import append_to_segment
+        from marcel_core.storage.history import HistoryMessage
 
         for msg_role, text in turns:
             append_to_segment(

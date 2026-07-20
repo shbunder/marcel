@@ -104,7 +104,7 @@ class TestChatWebSocket:
 
     def test_continue_existing_conversation(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        from marcel_core.memory.conversation import ensure_channel
+        from marcel_core.storage.conversation import ensure_channel
 
         ensure_channel('shaun', 'websocket')
         conv_id = 'websocket-default'

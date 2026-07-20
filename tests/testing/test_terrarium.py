@@ -75,7 +75,7 @@ class TestWorldBuilding:
     def test_seed_history_lands_in_active_segment(self, terrarium):
         terrarium.user('alice')
         terrarium.seed_history('alice', 'cli', [('user', 'earlier question'), ('assistant', 'earlier answer')])
-        from marcel_core.memory.conversation import read_active_segment
+        from marcel_core.storage.conversation import read_active_segment
 
         texts = [m.text for m in read_active_segment('alice', 'cli')]
         assert texts == ['earlier question', 'earlier answer']
@@ -97,7 +97,7 @@ class TestScenarioTurns:
 
         assert result.reply == 'Hello Alice!'
         assert result.is_error is False
-        from marcel_core.memory.conversation import read_active_segment
+        from marcel_core.storage.conversation import read_active_segment
 
         roles = [(m.role, m.text) for m in read_active_segment('alice', 'cli')]
         assert ('user', 'hi marcel') in roles

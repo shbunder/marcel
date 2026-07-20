@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 
 from pydantic_ai import Agent
 
-from marcel_core.memory.conversation import (
+from marcel_core.storage.conversation import (
     SegmentSummary,
     has_active_content,
     is_idle,
@@ -31,7 +31,7 @@ from marcel_core.memory.conversation import (
     seal_active_segment,
     strip_tool_results_from_segment,
 )
-from marcel_core.memory.history import HistoryMessage
+from marcel_core.storage.history import HistoryMessage
 
 log = logging.getLogger(__name__)
 

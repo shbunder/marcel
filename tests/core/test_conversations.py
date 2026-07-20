@@ -6,9 +6,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from marcel_core.main import app
-from marcel_core.memory.conversation import append_to_segment, ensure_channel
-from marcel_core.memory.history import HistoryMessage
 from marcel_core.storage import _root
+from marcel_core.storage.conversation import append_to_segment, ensure_channel
+from marcel_core.storage.history import HistoryMessage
 
 
 @pytest.fixture(autouse=True)

@@ -32,9 +32,9 @@ from marcel_core.harness.runner import (
 )
 from marcel_core.harness.turn_router import resolve_turn_for_user
 from marcel_core.memory import extract_and_save_memories
-from marcel_core.memory.conversation import ensure_channel
 from marcel_core.plugin import get_channel
 from marcel_core.rate_limit import get_ws_bucket
+from marcel_core.storage.conversation import ensure_channel
 
 log = logging.getLogger(__name__)
 

@@ -5,13 +5,13 @@ from unittest.mock import patch
 
 import pytest
 
-from marcel_core.memory.pastes import PASTE_THRESHOLD, retrieve_paste, should_store_as_paste, store_paste
+from marcel_core.storage.pastes import PASTE_THRESHOLD, retrieve_paste, should_store_as_paste, store_paste
 
 
 @pytest.fixture
 def temp_data_root(tmp_path: Path):
     """Patch data_root to use temporary directory."""
-    with patch('marcel_core.memory.pastes.data_root', return_value=tmp_path):
+    with patch('marcel_core.storage.pastes.data_root', return_value=tmp_path):
         yield tmp_path
 
 

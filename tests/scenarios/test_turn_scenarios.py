@@ -25,7 +25,7 @@ class TestPlainReplyPersists:
         result = await scenario.run('hi marcel')
 
         assert result.reply == 'Hello Alice!'
-        from marcel_core.memory.conversation import read_active_segment
+        from marcel_core.storage.conversation import read_active_segment
 
         roles = [(m.role, m.text) for m in read_active_segment('alice', 'cli')]
         assert ('user', 'hi marcel') in roles
@@ -160,7 +160,7 @@ class TestExtensionRewriteReachesHistory:
         assert '[redacted]' in completion.result
         assert 'SECRET' not in completion.result
 
-        from marcel_core.memory.conversation import read_active_segment
+        from marcel_core.storage.conversation import read_active_segment
 
         texts = [m.text for m in read_active_segment('alice', 'cli') if m.text]
         assert any('[redacted]' in t for t in texts), 'rewritten form must persist'
@@ -299,7 +299,7 @@ class TestOversizedResultsSpillWithHandle:
         assert big not in completion.result, 'the full payload never reaches the model inline'
         assert 'read_tool_result' in completion.result, 'the model gets a read-back handle'
 
-        from marcel_core.memory.conversation import read_active_segment
+        from marcel_core.storage.conversation import read_active_segment
 
         tool_msgs = [m for m in read_active_segment('alice', 'cli') if m.role == 'tool']
         assert tool_msgs and len(tool_msgs[0].text or '') < len(big), 'segment stores the reduced form'
@@ -336,7 +336,7 @@ class TestMultiTurnContext:
         result = await second.run('and now?', conversation_id='conv-1')
 
         assert result.reply == 'as I said: none'
-        from marcel_core.memory.conversation import read_active_segment
+        from marcel_core.storage.conversation import read_active_segment
 
         messages = read_active_segment('alice', 'cli')
         assert [m.role for m in messages].count('user') == 2

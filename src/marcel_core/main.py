@@ -81,12 +81,12 @@ async def _background_summarization_loop() -> None:
     returns, rather than waiting for the next message.
     """
     from marcel_core.config import settings as cfg
-    from marcel_core.memory.conversation import (
+    from marcel_core.memory.summarizer import summarize_active_segment
+    from marcel_core.storage._root import data_root
+    from marcel_core.storage.conversation import (
         has_active_content,
         is_idle,
     )
-    from marcel_core.memory.summarizer import summarize_active_segment
-    from marcel_core.storage._root import data_root
 
     while True:
         await asyncio.sleep(15 * 60)  # 15 minutes

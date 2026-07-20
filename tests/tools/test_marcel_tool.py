@@ -88,7 +88,7 @@ class TestSearchConversations:
         msg2.text = 'It is sunny and 22°C in Brussels today.'
 
         with patch(
-            'marcel_core.memory.conversation.search_conversations',
+            'marcel_core.storage.conversation.search_conversations',
             return_value=[(entry, [msg1, msg2])],
         ):
             result = await marcel(_ctx(), action='search_conversations', query='Brussels')
@@ -106,7 +106,7 @@ class TestSearchConversations:
         msg.text = 'x' * 400
 
         with patch(
-            'marcel_core.memory.conversation.search_conversations',
+            'marcel_core.storage.conversation.search_conversations',
             return_value=[(entry, [msg])],
         ):
             result = await marcel(_ctx(), action='search_conversations', query='test')
@@ -128,7 +128,7 @@ class TestCompact:
     async def test_successful_compact(self):
         from datetime import datetime, timezone
 
-        from marcel_core.memory.conversation import SegmentSummary
+        from marcel_core.storage.conversation import SegmentSummary
 
         summary = SegmentSummary(
             segment_id='seg-001',
@@ -141,7 +141,7 @@ class TestCompact:
         )
         with (
             patch('marcel_core.memory.summarizer.summarize_active_segment', new_callable=AsyncMock, return_value=True),
-            patch('marcel_core.memory.conversation.load_latest_summary', return_value=summary),
+            patch('marcel_core.storage.conversation.load_latest_summary', return_value=summary),
         ):
             result = await marcel(_ctx(), action='compact')
         assert 'Conversation compressed' in result
@@ -152,7 +152,7 @@ class TestCompact:
     async def test_compact_success_no_summary(self):
         with (
             patch('marcel_core.memory.summarizer.summarize_active_segment', new_callable=AsyncMock, return_value=True),
-            patch('marcel_core.memory.conversation.load_latest_summary', return_value=None),
+            patch('marcel_core.storage.conversation.load_latest_summary', return_value=None),
         ):
             result = await marcel(_ctx(), action='compact')
         assert 'compressed successfully' in result
