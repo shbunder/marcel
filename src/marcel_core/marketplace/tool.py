@@ -1,10 +1,11 @@
 """The ``marketplace`` admin tool — conversational browse/install/update/remove.
 
 Admin-tier by registry declaration (structurally invisible to non-admins;
-the event-bus gate covers it as layer 2). Every mutating action is
-two-step: ``review``/``review_update`` render the summary and return the
-token the mutation requires — show the summary to the admin and get an
-explicit yes before calling ``install``/``update``.
+the event-bus gate covers it as layer 2). Install and update are two-step:
+``review``/``review_update`` render the summary and return the token the
+mutation requires — show the summary to the admin and get an explicit yes
+before calling ``install``/``update``. ``remove`` is single-step
+(reverting the removal commit restores everything).
 
 All flow work is blocking (git subprocesses, HTTP) and runs in a worker
 thread so the event loop never stalls.
@@ -72,6 +73,9 @@ async def marketplace(
     from marcel_core.marketplace.sources import get_source, load_sources
 
     who = {'user_slug': ctx.deps.user_slug, 'channel': ctx.deps.channel}
+
+    if kind is not None and kind not in ('skill', 'connector'):
+        return f'marketplace error: kind must be skill or connector, not {kind!r}.'
 
     def _need(**required: str | None) -> str | None:
         missing = [param for param, value in required.items() if not value]

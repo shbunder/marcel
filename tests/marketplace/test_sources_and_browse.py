@@ -125,7 +125,7 @@ class TestBrowse:
         assert len(news.ref) == 40  # pinned to the resolved commit sha
         trap = candidates[1]
         assert trap.has_scripts is True
-        assert trap.metadata.get('metadata', {}).get('marcel-default-enabled') == 'admin' or True
+        assert trap.metadata.get('metadata', {}).get('marcel-default-enabled') == 'admin'
         # Nothing was placed anywhere discoverable.
         zoo = zoo_with_sources
         assert not (zoo / 'skills').exists()

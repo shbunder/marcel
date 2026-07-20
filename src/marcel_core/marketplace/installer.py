@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -43,6 +44,19 @@ log = logging.getLogger(__name__)
 
 PROVENANCE_FILENAME = '.marcel-provenance.yaml'
 _KIND_ROOTS = {'skill': 'skills', 'connector': 'connectors'}
+_GIT_TIMEOUT_SECONDS = 60
+
+# One path component, never a flag, never a traversal: mirrors the habitat
+# name charsets the validators enforce downstream — but update/remove have no
+# downstream validator, so the guard lives here too (security audit, Medium:
+# never lean solely on git's out-of-tree refusal).
+_HABITAT_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9._-]{0,63}$')
+
+
+def _checked_name(name: str) -> str:
+    if not _HABITAT_NAME_RE.match(name) or '..' in name:
+        raise InstallError(f'Invalid habitat name {name!r} — one lowercase path component, no traversal.')
+    return name
 
 
 class InstallError(RuntimeError):
@@ -71,7 +85,7 @@ def _zoo_repo() -> Path:
 
 def _run_git(args: list[str], cwd: Path) -> str:
     try:
-        proc = subprocess.run(['git', *args], cwd=cwd, capture_output=True, text=True, timeout=60)
+        proc = subprocess.run(['git', *args], cwd=cwd, capture_output=True, text=True, timeout=_GIT_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired as exc:
         raise InstallError(f'git {args[0]} timed out') from exc
     if proc.returncode != 0:
@@ -80,6 +94,9 @@ def _run_git(args: list[str], cwd: Path) -> str:
 
 
 def _token(entry: SourceEntry, candidate: Candidate) -> str:
+    # A content binding, not a secret nonce: it enforces that the mutating
+    # call refers to the exact reviewed (source, kind, name, ref) — the
+    # admin-only tool registration is the auth boundary, not this hash.
     material = f'{entry.name}:{candidate.kind}:{candidate.name}:{candidate.ref}'
     return hashlib.sha256(material.encode()).hexdigest()[:16]
 
@@ -87,6 +104,10 @@ def _token(entry: SourceEntry, candidate: Candidate) -> str:
 def _file_hashes(root: Path) -> dict[str, str]:
     hashes: dict[str, str] = {}
     for path in sorted(root.rglob('*')):
+        if path.is_symlink():
+            # Never dereference — a planted link must not leak its target's
+            # bytes into hashes, staging, or a commit (security audit, HIGH).
+            raise InstallError(f'{root.name!r} contains a symlink ({path.relative_to(root)}) — refusing.')
         if path.is_file() and path.name != PROVENANCE_FILENAME:
             hashes[str(path.relative_to(root))] = hashlib.sha256(path.read_bytes()).hexdigest()
     return hashes
@@ -244,7 +265,7 @@ def install(
         )
 
     dest_parent = _dest_root(zoo, candidate.kind, placement_slug)
-    dest = dest_parent / candidate.name
+    dest = dest_parent / _checked_name(candidate.name)
     if dest.exists():
         raise InstallError(f'{candidate.name!r} is already installed at {dest} — use the update flow.')
 
@@ -280,8 +301,10 @@ def install(
         )
         commit = _run_git(['rev-parse', 'HEAD'], cwd=zoo).strip()
     except InstallError:
+        # Unstage FIRST: `checkout`/later commits read from the index, so the
+        # staged copy would resurrect the files we remove (pre-close finding).
+        _run_git(['reset', '-q', '--', str(dest.relative_to(zoo))], cwd=zoo)
         shutil.rmtree(dest, ignore_errors=True)
-        _run_git(['checkout', '--', '.'], cwd=zoo)
         raise
 
     seeded = seed_enablement(_KIND_ROOTS[candidate.kind], candidate.name, default)
@@ -296,7 +319,9 @@ def install(
 
 
 def _installed_dir(zoo: Path, kind: str, name: str) -> Path:
-    dest = zoo / _KIND_ROOTS[kind] / name
+    if kind not in _KIND_ROOTS:
+        raise InstallError(f"Unknown habitat kind {kind!r} — 'skill' or 'connector'.")
+    dest = zoo / _KIND_ROOTS[kind] / _checked_name(name)
     if not dest.is_dir():
         raise InstallError(f'No installed {kind} named {name!r} under {zoo / _KIND_ROOTS[kind]}.')
     return dest
@@ -354,6 +379,14 @@ def update(kind: str, name: str, token: str, *, user_slug: str, channel: str) ->
     zoo = _zoo_repo()
     installed = _installed_dir(zoo, kind, name)
     provenance = _load_provenance(installed)
+
+    # Re-run the conflict check: a household edit landing between review and
+    # apply must abort here too, not be silently overwritten (pre-close note).
+    recorded: dict[str, str] = provenance.get('files') or {}
+    current = _file_hashes(installed)
+    if sorted(set(f for f, h in recorded.items() if current.get(f) != h) | (set(current) - set(recorded))):
+        raise InstallError(f'{name!r} changed since the update was reviewed — review the update again.')
+
     entry, candidate = _find_candidate(str(provenance.get('source', '')), name)
     if token != _token(entry, candidate):
         raise InstallError('Review token does not match — review the update again before applying.')
@@ -389,7 +422,10 @@ def update(kind: str, name: str, token: str, *, user_slug: str, channel: str) ->
         )
         commit = _run_git(['rev-parse', 'HEAD'], cwd=zoo).strip()
     except InstallError:
-        _run_git(['checkout', '--', str(installed.relative_to(zoo))], cwd=zoo)
+        rel = str(installed.relative_to(zoo))
+        _run_git(['reset', '-q', '--', rel], cwd=zoo)  # unstage the new version first
+        shutil.rmtree(installed, ignore_errors=True)
+        _run_git(['checkout', '--', rel], cwd=zoo)  # restore HEAD's (old) version
         raise
 
     _audit(
@@ -408,8 +444,13 @@ def remove(kind: str, name: str, *, user_slug: str, channel: str) -> str:
     installed = _installed_dir(zoo, kind, name)
     rel = str(installed.relative_to(zoo))
     _run_git(['rm', '-r', '-q', '--', rel], cwd=zoo)
-    _run_git(['commit', '-q', '-m', f'marketplace: remove {kind} {name}'], cwd=zoo)
-    commit = _run_git(['rev-parse', 'HEAD'], cwd=zoo).strip()
+    try:
+        _run_git(['commit', '-q', '-m', f'marketplace: remove {kind} {name}'], cwd=zoo)
+        commit = _run_git(['rev-parse', 'HEAD'], cwd=zoo).strip()
+    except InstallError:
+        _run_git(['reset', '-q', '--', rel], cwd=zoo)
+        _run_git(['checkout', '--', rel], cwd=zoo)
+        raise
     cleaned = remove_enablement(_KIND_ROOTS[kind], name)
     _audit(
         'remove',

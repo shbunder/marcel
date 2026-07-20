@@ -39,6 +39,24 @@ class FetchError(RuntimeError):
     """A source could not be browsed or fetched — message is admin-readable."""
 
 
+def _reject_symlinks(root: Path) -> None:
+    """Refuse any candidate containing a symlink (security audit, HIGH).
+
+    ``shutil.copytree`` dereferences symlinks by default, so a hostile repo
+    shipping ``logo.png -> ~/.marcel/users/x/credentials`` would copy the
+    secret's bytes into staging and, post-review, into a zoo commit — and the
+    review renders names, not link targets, so the admin cannot catch it.
+    Habitats are text + scripts; they have no legitimate need for symlinks.
+    Checked on the *source* tree before anything is copied or hashed.
+    """
+    for path in root.rglob('*'):
+        if path.is_symlink():
+            raise FetchError(
+                f'candidate contains a symlink ({path.relative_to(root)}) — refusing; '
+                'symlinks are not allowed in habitats'
+            )
+
+
 @dataclass
 class Candidate:
     """One installable habitat, as seen from a source (nothing on disk yet)."""
@@ -135,8 +153,9 @@ class AgentskillsGitFetcher:
             src = root / Path(candidate.path_in_source).name
             if not (src / 'SKILL.md').is_file():
                 raise FetchError(f'candidate {candidate.name!r} has no SKILL.md at {candidate.path_in_source!r}')
+            _reject_symlinks(src)
             dest = staging / src.name
-            shutil.copytree(src, dest)
+            shutil.copytree(src, dest, symlinks=True)
         return dest
 
 
@@ -157,7 +176,10 @@ class PluginMarketplaceFetcher:
                 raise FetchError(f'source {entry.name!r}: marketplace.json is not valid JSON: {exc}') from exc
             candidates: list[Candidate] = []
             for plugin in listing.get('plugins', []):
-                plugin_root = clone / str(plugin.get('source', '')).lstrip('./')
+                plugin_root = (clone / str(plugin.get('source', '')).lstrip('./')).resolve()
+                if not plugin_root.is_relative_to(clone.resolve()):
+                    log.warning('marketplace: %s plugin source escapes the repo — skipped', entry.name)
+                    continue
                 skills_root = plugin_root / 'skills'
                 if skills_root.is_dir():
                     candidates.extend(_scan_skill_dirs(skills_root, entry.name, sha))
@@ -175,8 +197,9 @@ class PluginMarketplaceFetcher:
             matches = [p.parent for p in clone.rglob(f'{Path(candidate.path_in_source).name}/SKILL.md')]
             if not matches:
                 raise FetchError(f'candidate {candidate.name!r} no longer exists in the source')
+            _reject_symlinks(matches[0])
             dest = staging / matches[0].name
-            shutil.copytree(matches[0], dest)
+            shutil.copytree(matches[0], dest, symlinks=True)
         return dest
 
 

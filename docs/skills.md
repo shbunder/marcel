@@ -108,6 +108,7 @@ own extensions never sit at the top level — they live in the spec-legal
 |---|---|---|
 | `marcel-connectors` | comma-separated connector names, e.g. `banking,news` | The [connector](connectors.md) habitats this skill fronts. Each named connector activates *with* the skill (its tools ride along in the same `load_capability` step). A discoverable connector counts as satisfied — an unlinked one degrades on its own to a readable "needs setup" entry. A name that resolves to no connector means the skill serves `SETUP.md`. |
 | `marcel-tier` | `fast` \| `standard` \| `power` \| `local` | Preferred model tier while this skill is loaded (see [Model tiers](model-tiers.md)). |
+| `marcel-default-enabled` | `all` \| `admin` \| `none` | Who a fresh [marketplace install](marketplace.md) seeds the skill's enablement for. Absent means `all`. Seeding only until per-user enforcement lands (FEAT-260707-acb2b6). |
 | `marcel-role` | `admin` | Role-gates the skill — dropped from the catalog for non-admin users. |
 | `marcel-requires-credentials` | comma-separated keys, e.g. `MY_API_KEY` | Credentials that must exist in the user's store. |
 | `marcel-requires-env` | comma-separated vars, e.g. `SOME_ENV_VAR` | Environment variables that must be set. |
