@@ -93,21 +93,61 @@ fi
 
 if $CHECK_ONLY; then
   info "All prerequisites met. (--check mode — no changes made)"
+  info "Running runtime health check (doctor)..."
+  cd "$REPO_ROOT"
+  # Doctor reports server/webhook/zoo/user health and sets the exit code.
+  uv run python -m marcel_core.ops doctor || exit $?
   exit 0
 fi
 
-# ── .env ──────────────────────────────────────────────────────────────────────
+# ── .env + generated secrets (idempotent) ─────────────────────────────────────
 cd "$REPO_ROOT"
 if [[ ! -f .env ]]; then
-  if [[ -f .env.example ]]; then
-    cp .env.example .env
-    warn ".env created from .env.example — please fill in your credentials before Marcel can run."
-    warn "Edit $REPO_ROOT/.env then re-run this script."
-    exit 0
-  else
-    die ".env not found and no .env.example to copy from."
+  [[ -f .env.example ]] || die ".env not found and no .env.example to copy from."
+  cp .env.example .env
+  info ".env created from .env.example."
+fi
+
+# Generate the secrets that can be generated (idempotent: only fills a blank/
+# absent key, never overwrites an existing value). The Anthropic API key is the
+# one thing we cannot generate — it is prompted for below.
+gen_secret() { python3 -c "import secrets; print(secrets.token_urlsafe(32))"; }
+
+ensure_secret() {
+  local key="$1" file=".env.local"
+  touch "$file"
+  # Already set (non-empty) in .env or .env.local? Leave it.
+  if grep -qE "^${key}=.+" .env "$file" 2>/dev/null; then
+    info "  ${key} already set — keeping it."
+    return
+  fi
+  local value; value="$(gen_secret)"
+  printf '%s=%s\n' "$key" "$value" >> "$file"
+  info "  ${key} generated into .env.local"
+}
+
+if [[ "$CHECK_ONLY" != true ]]; then
+  info "Ensuring generated secrets..."
+  ensure_secret MARCEL_API_TOKEN
+  ensure_secret MARCEL_CREDENTIALS_KEY
+  ensure_secret TELEGRAM_WEBHOOK_SECRET
+
+  # Prompt only for what cannot be generated.
+  if ! grep -qE "^ANTHROPIC_API_KEY=.+" .env .env.local 2>/dev/null; then
+    if [[ -t 0 ]]; then
+      read -r -p "$(echo -e "${YELLOW}Enter your Anthropic API key (sk-ant-...): ${NC}")" _anthropic_key
+      if [[ -n "$_anthropic_key" ]]; then
+        printf 'ANTHROPIC_API_KEY=%s\n' "$_anthropic_key" >> .env.local
+        info "  ANTHROPIC_API_KEY saved to .env.local"
+      else
+        warn "  No key entered — set ANTHROPIC_API_KEY in .env.local before Marcel can answer."
+      fi
+    else
+      warn "  ANTHROPIC_API_KEY not set and no TTY to prompt — set it in .env.local before starting."
+    fi
   fi
 fi
+
 
 # ── Render and install systemd units ─────────────────────────────────────────
 info "Installing systemd user units..."
@@ -193,6 +233,11 @@ warn ""
 warn "NOTE: The container started before zoo habitats were provisioned."
 warn "      Restart to land deps + respawn UDS bridges cleanly:"
 warn "        make docker-restart"
+
+info ""
+info "Verifying with the doctor..."
+cd "$REPO_ROOT"
+uv run python -m marcel_core.ops doctor || warn "Doctor reported issues above — address them, then re-run \`make doctor\`."
 
 info ""
 info "Setup complete. Useful commands:"

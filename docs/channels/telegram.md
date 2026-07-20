@@ -165,7 +165,19 @@ Self-modification triggered by Marcel itself goes through the watchdog's restart
 
 ### 6. Register the webhook
 
-Run this once after the tunnel and service are both running:
+Once the tunnel and service are both running, register **and verify** the
+webhook in one command (reads the bot token + webhook secret from `.env`,
+calls the Bot API's `setWebhook`, and confirms with a `getWebhookInfo`
+round-trip):
+
+```bash
+make telegram-setup URL=https://your-domain.com
+```
+
+Re-run `make doctor` any time to confirm the webhook is still healthy.
+
+<details>
+<summary>Programmatic alternative (advanced)</summary>
 
 ```bash
 cd ~/projects/marcel && uv run python -c "
@@ -186,6 +198,8 @@ You should see:
 ```json
 {"ok": true, "result": true, "description": "Webhook was set"}
 ```
+
+</details>
 
 Send a message to your bot — Marcel will reply.
 
@@ -223,7 +237,7 @@ EOF
 
 `TELEGRAM_WEBHOOK_SECRET` is **required**. Marcel returns `503` if it is not set and `403` if the request header does not match.
 
-Telegram sends the secret as the `X-Telegram-Bot-Api-Secret-Token` header on every webhook request. Generate one with:
+Telegram sends the secret as the `X-Telegram-Bot-Api-Secret-Token` header on every webhook request. `scripts/setup.sh` **auto-generates** `TELEGRAM_WEBHOOK_SECRET` into `.env.local` for you; only generate one by hand if you skipped the guided bootstrap:
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
