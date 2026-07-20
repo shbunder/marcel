@@ -267,3 +267,22 @@ help: ## Show this help
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "For detailed commands, check the Makefile or run: make -n <target>"
+
+# --- Habitat marketplace (FEAT-260718-210a5f) --------------------------------
+.PHONY: marketplace-sources marketplace-browse marketplace-install marketplace-update marketplace-remove
+
+marketplace-sources:  ## List trusted habitat sources
+	uv run python -m marcel_core.marketplace.cli sources
+
+marketplace-browse:  ## Browse a source: make marketplace-browse SOURCE=<name>
+	uv run python -m marcel_core.marketplace.cli browse --source $(SOURCE)
+
+marketplace-install:  ## Install (reviewed): make marketplace-install SOURCE=<name> NAME=<habitat>
+	uv run python -m marcel_core.marketplace.cli install --source $(SOURCE) --name $(NAME)
+
+marketplace-update:  ## Update (reviewed): make marketplace-update KIND=skill|connector NAME=<habitat>
+	uv run python -m marcel_core.marketplace.cli update --kind $(KIND) --name $(NAME)
+
+marketplace-remove:  ## Remove: make marketplace-remove KIND=skill|connector NAME=<habitat>
+	uv run python -m marcel_core.marketplace.cli remove --kind $(KIND) --name $(NAME)
+

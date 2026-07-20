@@ -20,6 +20,7 @@ from marcel_core.config import settings
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.harness.model_chain import Tier, model_label
 from marcel_core.jobs import tool as job_tools
+from marcel_core.marketplace import tool as marketplace_tools
 from marcel_core.tools import (
     charts as chart_tools,
     claude_code as claude_code_tool,
@@ -135,6 +136,9 @@ _TOOL_REGISTRY: list[tuple[str, object, str | None]] = [
     ('git_commit', core_tools.git_commit, 'admin'),
     ('git_push', core_tools.git_push, 'admin'),
     ('claude_code', claude_code_tool.claude_code, 'admin'),
+    # Marketplace: installing a habitat is installing software — admin only
+    # (three-state lifecycle, FEAT-260718-210a5f).
+    ('marketplace', marketplace_tools.marketplace, 'admin'),
     # All-user tools
     ('generate_chart', chart_tools.generate_chart, None),
     ('marcel', marcel_tools.marcel, None),
