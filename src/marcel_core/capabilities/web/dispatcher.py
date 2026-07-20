@@ -1,9 +1,9 @@
 """The ``web`` tool — one entry point that routes to many actions.
 
 This is the only web-related function advertised to the pydantic-ai
-agent. It delegates search to :mod:`marcel_core.tools.web.search` and
+agent. It delegates search to :mod:`marcel_core.capabilities.web.search` and
 browser operations to the existing functions in
-:mod:`marcel_core.tools.browser.pydantic_tools`. Mirrors the pattern used
+:mod:`marcel_core.capabilities.web.browser.pydantic_tools`. Mirrors the pattern used
 by :mod:`marcel_core.tools.marcel.dispatcher`.
 
 Browser actions require Playwright to be installed. When it is not, the
@@ -17,9 +17,8 @@ import logging
 
 from pydantic_ai import RunContext
 
-from marcel_core.harness.context import MarcelDeps
-from marcel_core.tools.browser import is_available as browser_is_available
-from marcel_core.tools.browser.pydantic_tools import (
+from marcel_core.capabilities.web.browser import is_available as browser_is_available
+from marcel_core.capabilities.web.browser.pydantic_tools import (
     browser_click as _browser_click,
     browser_close as _browser_close,
     browser_content as _browser_content,
@@ -33,7 +32,8 @@ from marcel_core.tools.browser.pydantic_tools import (
     browser_tab as _browser_tab,
     browser_type as _browser_type,
 )
-from marcel_core.tools.web.search import run_search
+from marcel_core.capabilities.web.search import run_search
+from marcel_core.harness.context import MarcelDeps
 
 log = logging.getLogger(__name__)
 

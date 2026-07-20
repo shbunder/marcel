@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
-from marcel_core.tools.web.backends import SearchBackend, SearchBackendError, SearchResult
+from marcel_core.capabilities.web.backends import SearchBackend, SearchBackendError, SearchResult
 
 log = logging.getLogger(__name__)
 

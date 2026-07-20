@@ -19,6 +19,7 @@ src/marcel_core/
     execution/     # SandboxedShell (bwrap), FilteredFileSystem, CodeMode wiring
     persistence/   # MarcelStepStore (runs ledger, snapshot deltas), converters, spill store
     memory/        # per-user notebook stores for the harness Memory capability
+    web/           # search + headless browser as the `web` capability (ADR-260720-9318b1)
     subagents/     # SubagentDoc parsing + SubAgents delegation wiring
   api/
     health.py      # GET /health
@@ -43,7 +44,7 @@ src/marcel_core/
     prompts/       # bundled per-channel prompt files (cli, websocket, ios, app, job)
     telegram/      # Telegram webhook, bot client, formatting, session state
   tools/
-    core.py        # git_* tools (shell/file surfaces are capabilities — see capabilities/execution)
+    core.py        # git_* tools (shell/file & web are capabilities — see capabilities/execution, capabilities/web)
     marcel/        # Unified Marcel utility tool — per-action sub-modules
       dispatcher.py    # The marcel() entry point advertised to the LLM
       conversations.py # search_conversations, compact actions

@@ -240,6 +240,16 @@ def build_capabilities(
             )
         )
 
+    # Web (ADR-260720-9318b1): the `web` tool is a non-deferred capability,
+    # attached on the same filter contract the registry loop used — present
+    # when no filter is set or the filter names it, absent for the explain
+    # tier (empty filter) and scoped jobs. Non-deferred so CodeMode keeps
+    # folding it into run_code.
+    if tool_filter is None or 'web' in tool_filter:
+        from marcel_core.capabilities.web import build_web_capability
+
+        capabilities.append(build_web_capability())
+
     if code_mode:
         capabilities.append(CodeMode(tools=sorted(CODE_MODE_ELIGIBLE)))
 

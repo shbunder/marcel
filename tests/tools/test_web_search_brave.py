@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from marcel_core.tools.web.backends import SearchBackendError
-from marcel_core.tools.web.brave import BraveBackend
+from marcel_core.capabilities.web.backends import SearchBackendError
+from marcel_core.capabilities.web.brave import BraveBackend
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -73,7 +73,7 @@ class TestBraveBackend:
         client = _mock_client(resp)
         backend = BraveBackend(api_key='test-key')
 
-        with patch('marcel_core.tools.web.brave.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.brave.httpx.AsyncClient', return_value=client):
             results = await backend.search('paris-roubaix 2026', max_results=5)
 
         assert len(results) == 2
@@ -88,7 +88,7 @@ class TestBraveBackend:
         client = _mock_client(resp)
         backend = BraveBackend(api_key='secret-123')
 
-        with patch('marcel_core.tools.web.brave.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.brave.httpx.AsyncClient', return_value=client):
             await backend.search('query', max_results=5)
 
         call_args = client.get.call_args
@@ -101,7 +101,7 @@ class TestBraveBackend:
         client = _mock_client(resp)
         backend = BraveBackend(api_key='test-key')
 
-        with patch('marcel_core.tools.web.brave.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.brave.httpx.AsyncClient', return_value=client):
             await backend.search('query', max_results=100)
 
         params = client.get.call_args.kwargs['params']
@@ -113,7 +113,7 @@ class TestBraveBackend:
         client = _mock_client(resp)
         backend = BraveBackend(api_key='test-key')
 
-        with patch('marcel_core.tools.web.brave.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.brave.httpx.AsyncClient', return_value=client):
             await backend.search('query', max_results=0)
 
         params = client.get.call_args.kwargs['params']
@@ -125,7 +125,7 @@ class TestBraveBackend:
         client = _mock_client(resp)
         backend = BraveBackend(api_key='bad-key')
 
-        with patch('marcel_core.tools.web.brave.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.brave.httpx.AsyncClient', return_value=client):
             with pytest.raises(SearchBackendError) as exc_info:
                 await backend.search('query', max_results=5)
 
@@ -137,7 +137,7 @@ class TestBraveBackend:
         client = _mock_client(resp)
         backend = BraveBackend(api_key='test-key')
 
-        with patch('marcel_core.tools.web.brave.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.brave.httpx.AsyncClient', return_value=client):
             with pytest.raises(SearchBackendError) as exc_info:
                 await backend.search('query', max_results=5)
 
@@ -149,7 +149,7 @@ class TestBraveBackend:
         client = _mock_client(resp)
         backend = BraveBackend(api_key='test-key')
 
-        with patch('marcel_core.tools.web.brave.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.brave.httpx.AsyncClient', return_value=client):
             with pytest.raises(SearchBackendError) as exc_info:
                 await backend.search('query', max_results=5)
 
@@ -161,7 +161,7 @@ class TestBraveBackend:
         client = _mock_client(resp)
         backend = BraveBackend(api_key='test-key')
 
-        with patch('marcel_core.tools.web.brave.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.brave.httpx.AsyncClient', return_value=client):
             with pytest.raises(SearchBackendError) as exc_info:
                 await backend.search('query', max_results=5)
 
@@ -175,7 +175,7 @@ class TestBraveBackend:
         client.__aexit__ = AsyncMock(return_value=False)
         backend = BraveBackend(api_key='test-key')
 
-        with patch('marcel_core.tools.web.brave.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.brave.httpx.AsyncClient', return_value=client):
             with pytest.raises(SearchBackendError) as exc_info:
                 await backend.search('query', max_results=5)
 
@@ -187,7 +187,7 @@ class TestBraveBackend:
         client = _mock_client(resp)
         backend = BraveBackend(api_key='test-key')
 
-        with patch('marcel_core.tools.web.brave.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.brave.httpx.AsyncClient', return_value=client):
             results = await backend.search('query', max_results=5)
 
         assert results == []
@@ -198,7 +198,7 @@ class TestBraveBackend:
         client = _mock_client(resp)
         backend = BraveBackend(api_key='test-key')
 
-        with patch('marcel_core.tools.web.brave.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.brave.httpx.AsyncClient', return_value=client):
             results = await backend.search('query', max_results=5)
 
         assert results == []

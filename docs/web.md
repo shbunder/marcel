@@ -189,7 +189,7 @@ fall back, or report cleanly.
 ## Adding a new backend
 
 1. Create a new module under
-   [src/marcel_core/tools/web/](https://github.com/shbunder/marcel/tree/main/src/marcel_core/tools/web/), e.g.
+   [src/marcel_core/capabilities/web/](https://github.com/shbunder/marcel/tree/main/src/marcel_core/capabilities/web/), e.g.
    `tavily.py`.
 2. Implement the `SearchBackend` protocol:
 
@@ -219,7 +219,7 @@ fall back, or report cleanly.
    ```
 
 4. Wire it into `select_backend()` in
-   [src/marcel_core/tools/web/backends.py](https://github.com/shbunder/marcel/blob/main/src/marcel_core/tools/web/backends.py)
+   [src/marcel_core/capabilities/web/backends.py](https://github.com/shbunder/marcel/blob/main/src/marcel_core/capabilities/web/backends.py)
    — decide the priority relative to Brave and DDG.
 5. Add unit tests under
    [tests/tools/test_web_search_tavily.py](https://github.com/shbunder/marcel/tree/main/tests/tools/) following the
@@ -228,7 +228,7 @@ fall back, or report cleanly.
 
 If the new backend takes a user-configurable URL (e.g. a self-hosted
 SearXNG endpoint), call
-[`is_url_allowed`](https://github.com/shbunder/marcel/blob/main/src/marcel_core/tools/browser/security.py) on the
+[`is_url_allowed`](https://github.com/shbunder/marcel/blob/main/src/marcel_core/capabilities/web/browser/security.py) on the
 URL before any HTTP request — same SSRF protection pattern the browser
 tool uses.
 

@@ -1,7 +1,7 @@
 """Brave Search API backend.
 
 Uses the public Brave Search API at ``api.search.brave.com``. Primary
-backend for :func:`~marcel_core.tools.web.backends.select_backend` when
+backend for :func:`~marcel_core.capabilities.web.backends.select_backend` when
 ``BRAVE_API_KEY`` is configured.
 
 Docs: https://brave.com/search/api/
@@ -14,7 +14,7 @@ import logging
 
 import httpx
 
-from marcel_core.tools.web.backends import SearchBackend, SearchBackendError, SearchResult
+from marcel_core.capabilities.web.backends import SearchBackend, SearchBackendError, SearchResult
 
 log = logging.getLogger(__name__)
 
