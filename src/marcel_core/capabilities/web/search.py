@@ -2,7 +2,7 @@
 
 Enforces the per-turn rate limit, selects a backend, runs the query,
 maps errors to ``Search error: ...`` strings, and formats the happy
-path via :mod:`marcel_core.tools.web.formatter`.
+path via :mod:`marcel_core.capabilities.web.formatter`.
 
 If the primary backend (Brave) returns a rate-limit error, this module
 transparently retries the query against DuckDuckGo so the user gets a
@@ -19,9 +19,9 @@ import time
 
 from pydantic_ai import RunContext
 
+from marcel_core.capabilities.web.backends import SearchBackend, SearchBackendError, select_backend
+from marcel_core.capabilities.web.formatter import format_results
 from marcel_core.harness.context import MarcelDeps
-from marcel_core.tools.web.backends import SearchBackend, SearchBackendError, select_backend
-from marcel_core.tools.web.formatter import format_results
 
 log = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ async def _run_with_failover(
             log.warning('web.search: Brave rate limit hit, failing over to DuckDuckGo')
             # Local import to avoid pulling httpx into the module load path
             # for callers that only care about the protocol.
-            from marcel_core.tools.web.duckduckgo import DuckDuckGoBackend
+            from marcel_core.capabilities.web.duckduckgo import DuckDuckGoBackend
 
             ddg = DuckDuckGoBackend()
             try:

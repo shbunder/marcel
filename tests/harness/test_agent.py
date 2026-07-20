@@ -215,16 +215,23 @@ def _registered_tool_names(agent) -> set[str]:
     return names
 
 
+def _has_web_capability(agent) -> bool:
+    """web is a non-deferred capability now (ADR-260720-9318b1), not a
+    FunctionToolset entry — check the composed capability list."""
+    return any(getattr(c, 'id', None) == 'web-tools' for c in agent.root_capability.capabilities)
+
+
 class TestToolFilter:
     """ISSUE-074: ``tool_filter`` restricts which tools a created agent exposes."""
 
     def test_filter_none_registers_full_role_pool(self):
         agent = create_marcel_agent(system_prompt='t', role='admin')
         names = _registered_tool_names(agent)
-        # Admin should get the full registry pool (shell/file tools and
-        # delegate are capability-provided, asserted at composition level)
+        # Admin should get the full registry pool (shell/file tools, delegate
+        # and web are capability-provided, asserted at composition level)
         assert 'git_status' in names
-        assert 'web' in names
+        assert 'web' not in names
+        assert _has_web_capability(agent)
 
     def test_empty_filter_registers_no_tools(self):
         agent = create_marcel_agent(system_prompt='t', role='admin', tool_filter=set())
@@ -236,7 +243,10 @@ class TestToolFilter:
             role='admin',
             tool_filter={'web', 'git_status'},
         )
-        assert _registered_tool_names(agent) == {'web', 'git_status'}
+        # web is capability-provided (filter still gates it on); the registry
+        # side of the filter yields git_status alone.
+        assert _registered_tool_names(agent) == {'git_status'}
+        assert _has_web_capability(agent)
 
     def test_role_gate_beats_allowlist(self):
         """A user-role agent can never get admin tools, even if allowlisted.
@@ -249,9 +259,11 @@ class TestToolFilter:
             role='user',
             tool_filter={'bash', 'claude_code', 'delegate', 'web'},
         )
-        # Only ``web`` survives because the admin-only tools are stripped
-        # regardless of allowlist content.
-        assert _registered_tool_names(agent) == {'web'}
+        # The admin-only tools are stripped regardless of allowlist content;
+        # web survives as its capability (all-users), leaving the registry
+        # FunctionToolset empty.
+        assert _registered_tool_names(agent) == set()
+        assert _has_web_capability(agent)
 
     def test_user_role_default_pool_has_no_admin_tools(self):
         agent = create_marcel_agent(system_prompt='t', role='user')

@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from marcel_core.tools.web.backends import SearchBackendError
-from marcel_core.tools.web.duckduckgo import (
+from marcel_core.capabilities.web.backends import SearchBackendError
+from marcel_core.capabilities.web.duckduckgo import (
     DuckDuckGoBackend,
     decode_duckduckgo_url,
     decode_html_entities,
@@ -210,7 +210,7 @@ class TestDuckDuckGoBackendHttp:
         client = _mock_client(resp)
         backend = DuckDuckGoBackend()
 
-        with patch('marcel_core.tools.web.duckduckgo.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.duckduckgo.httpx.AsyncClient', return_value=client):
             results = await backend.search('example', max_results=5)
 
         assert len(results) == 3
@@ -222,7 +222,7 @@ class TestDuckDuckGoBackendHttp:
         client = _mock_client(resp)
         backend = DuckDuckGoBackend()
 
-        with patch('marcel_core.tools.web.duckduckgo.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.duckduckgo.httpx.AsyncClient', return_value=client):
             results = await backend.search('example', max_results=2)
 
         assert len(results) == 2
@@ -233,7 +233,7 @@ class TestDuckDuckGoBackendHttp:
         client = _mock_client(resp)
         backend = DuckDuckGoBackend()
 
-        with patch('marcel_core.tools.web.duckduckgo.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.duckduckgo.httpx.AsyncClient', return_value=client):
             with pytest.raises(SearchBackendError) as exc_info:
                 await backend.search('example', max_results=5)
 
@@ -246,7 +246,7 @@ class TestDuckDuckGoBackendHttp:
         client = _mock_client(resp)
         backend = DuckDuckGoBackend()
 
-        with patch('marcel_core.tools.web.duckduckgo.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.duckduckgo.httpx.AsyncClient', return_value=client):
             with pytest.raises(SearchBackendError) as exc_info:
                 await backend.search('example', max_results=5)
 
@@ -260,7 +260,7 @@ class TestDuckDuckGoBackendHttp:
         client.__aexit__ = AsyncMock(return_value=False)
         backend = DuckDuckGoBackend()
 
-        with patch('marcel_core.tools.web.duckduckgo.httpx.AsyncClient', return_value=client):
+        with patch('marcel_core.capabilities.web.duckduckgo.httpx.AsyncClient', return_value=client):
             with pytest.raises(SearchBackendError) as exc_info:
                 await backend.search('example', max_results=5)
 

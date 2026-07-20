@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from marcel_core.capabilities.web.backends import SearchResult
+from marcel_core.capabilities.web.dispatcher import web
+from marcel_core.capabilities.web.search import MAX_SEARCHES_PER_TURN
 from marcel_core.harness.context import MarcelDeps, TurnState
-from marcel_core.tools.web.backends import SearchResult
-from marcel_core.tools.web.dispatcher import web
-from marcel_core.tools.web.search import MAX_SEARCHES_PER_TURN
 
 
 def _ctx() -> MagicMock:
@@ -28,7 +28,7 @@ def _ctx() -> MagicMock:
 class TestUnknownAction:
     @pytest.mark.asyncio
     async def test_unknown_action_lists_available(self):
-        with patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True):
+        with patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True):
             result = await web(_ctx(), action='bogus')
         assert 'Unknown action' in result
         assert 'search, navigate' in result
@@ -42,13 +42,13 @@ class TestUnknownAction:
 class TestPlaywrightGate:
     @pytest.mark.asyncio
     async def test_navigate_blocked_when_playwright_missing(self):
-        with patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=False):
+        with patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=False):
             result = await web(_ctx(), action='navigate', url='https://example.com')
         assert 'playwright not installed' in result
 
     @pytest.mark.asyncio
     async def test_snapshot_blocked_when_playwright_missing(self):
-        with patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=False):
+        with patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=False):
             result = await web(_ctx(), action='snapshot')
         assert 'playwright not installed' in result
 
@@ -58,8 +58,8 @@ class TestPlaywrightGate:
         mock_backend.name = 'brave'
         mock_backend.search = AsyncMock(return_value=[SearchResult(title='T', url='https://example.com', snippet='S')])
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=False),
-            patch('marcel_core.tools.web.search.select_backend', return_value=mock_backend),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=False),
+            patch('marcel_core.capabilities.web.search.select_backend', return_value=mock_backend),
         ):
             result = await web(_ctx(), action='search', query='test')
         assert 'Search results for "test"' in result
@@ -75,14 +75,14 @@ class TestSearchAction:
     @pytest.mark.asyncio
     async def test_empty_query_returns_error(self):
         ctx = _ctx()
-        with patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True):
+        with patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True):
             result = await web(ctx, action='search', query='')
         assert 'Search error: query is required' in result
 
     @pytest.mark.asyncio
     async def test_whitespace_only_query_returns_error(self):
         ctx = _ctx()
-        with patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True):
+        with patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True):
             result = await web(ctx, action='search', query='   ')
         assert 'Search error: query is required' in result
 
@@ -91,7 +91,7 @@ class TestSearchAction:
         ctx = _ctx()
         ctx.deps.turn.web_search_count = MAX_SEARCHES_PER_TURN
 
-        with patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True):
+        with patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True):
             result = await web(ctx, action='search', query='test')
 
         assert 'per-turn search limit' in result
@@ -105,8 +105,8 @@ class TestSearchAction:
         mock_backend.name = 'brave'
         mock_backend.search = AsyncMock(return_value=[SearchResult(title='T', url='https://example.com', snippet='S')])
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
-            patch('marcel_core.tools.web.search.select_backend', return_value=mock_backend),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.search.select_backend', return_value=mock_backend),
         ):
             await web(ctx, action='search', query='test')
             await web(ctx, action='search', query='test2')
@@ -120,8 +120,8 @@ class TestSearchAction:
         mock_backend.name = 'brave'
         mock_backend.search = AsyncMock(return_value=[])
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
-            patch('marcel_core.tools.web.search.select_backend', return_value=mock_backend),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.search.select_backend', return_value=mock_backend),
         ):
             result = await web(ctx, action='search', query='obscure')
 
@@ -137,9 +137,9 @@ class TestBrowserDispatch:
     @pytest.mark.asyncio
     async def test_navigate_routes_to_browser_navigate(self):
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
             patch(
-                'marcel_core.tools.web.dispatcher._browser_navigate',
+                'marcel_core.capabilities.web.dispatcher._browser_navigate',
                 new_callable=AsyncMock,
                 return_value='navigated',
             ) as mock_nav,
@@ -151,16 +151,16 @@ class TestBrowserDispatch:
 
     @pytest.mark.asyncio
     async def test_navigate_without_url_returns_error(self):
-        with patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True):
+        with patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True):
             result = await web(_ctx(), action='navigate')
         assert 'navigate requires url' in result
 
     @pytest.mark.asyncio
     async def test_click_routes_with_ref(self):
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
             patch(
-                'marcel_core.tools.web.dispatcher._browser_click',
+                'marcel_core.capabilities.web.dispatcher._browser_click',
                 new_callable=AsyncMock,
                 return_value='clicked',
             ) as mock_click,
@@ -174,16 +174,16 @@ class TestBrowserDispatch:
 
     @pytest.mark.asyncio
     async def test_type_without_text_returns_error(self):
-        with patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True):
+        with patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True):
             result = await web(_ctx(), action='type', ref=1)
         assert 'type requires text' in result
 
     @pytest.mark.asyncio
     async def test_type_with_text(self):
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
             patch(
-                'marcel_core.tools.web.dispatcher._browser_type',
+                'marcel_core.capabilities.web.dispatcher._browser_type',
                 new_callable=AsyncMock,
                 return_value='typed',
             ) as mock_type,
@@ -195,16 +195,16 @@ class TestBrowserDispatch:
 
     @pytest.mark.asyncio
     async def test_scroll_without_direction_returns_error(self):
-        with patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True):
+        with patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True):
             result = await web(_ctx(), action='scroll')
         assert 'scroll requires direction' in result
 
     @pytest.mark.asyncio
     async def test_scroll_uses_default_amount(self):
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
             patch(
-                'marcel_core.tools.web.dispatcher._browser_scroll',
+                'marcel_core.capabilities.web.dispatcher._browser_scroll',
                 new_callable=AsyncMock,
                 return_value='scrolled',
             ) as mock_scroll,
@@ -216,22 +216,22 @@ class TestBrowserDispatch:
 
     @pytest.mark.asyncio
     async def test_press_key_without_key_returns_error(self):
-        with patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True):
+        with patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True):
             result = await web(_ctx(), action='press_key')
         assert 'press_key requires key' in result
 
     @pytest.mark.asyncio
     async def test_evaluate_without_script_returns_error(self):
-        with patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True):
+        with patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True):
             result = await web(_ctx(), action='evaluate')
         assert 'evaluate requires script' in result
 
     @pytest.mark.asyncio
     async def test_snapshot_routes(self):
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
             patch(
-                'marcel_core.tools.web.dispatcher._browser_snapshot',
+                'marcel_core.capabilities.web.dispatcher._browser_snapshot',
                 new_callable=AsyncMock,
                 return_value='snap',
             ),
@@ -242,9 +242,9 @@ class TestBrowserDispatch:
     @pytest.mark.asyncio
     async def test_read_routes(self):
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
             patch(
-                'marcel_core.tools.web.dispatcher._browser_read',
+                'marcel_core.capabilities.web.dispatcher._browser_read',
                 new_callable=AsyncMock,
                 return_value='readable markdown',
             ) as mock_read,
@@ -256,9 +256,9 @@ class TestBrowserDispatch:
     @pytest.mark.asyncio
     async def test_close_routes(self):
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
             patch(
-                'marcel_core.tools.web.dispatcher._browser_close',
+                'marcel_core.capabilities.web.dispatcher._browser_close',
                 new_callable=AsyncMock,
                 return_value='closed',
             ),
@@ -269,9 +269,9 @@ class TestBrowserDispatch:
     @pytest.mark.asyncio
     async def test_content_routes_with_selector(self):
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
             patch(
-                'marcel_core.tools.web.dispatcher._browser_content',
+                'marcel_core.capabilities.web.dispatcher._browser_content',
                 new_callable=AsyncMock,
                 return_value='<html/>',
             ) as mock_content,
@@ -283,9 +283,9 @@ class TestBrowserDispatch:
     @pytest.mark.asyncio
     async def test_screenshot_routes(self):
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
             patch(
-                'marcel_core.tools.web.dispatcher._browser_screenshot',
+                'marcel_core.capabilities.web.dispatcher._browser_screenshot',
                 new_callable=AsyncMock,
                 return_value='[screenshot]',
             ) as mock_shot,
@@ -296,16 +296,16 @@ class TestBrowserDispatch:
 
     @pytest.mark.asyncio
     async def test_tab_requires_tab_action(self):
-        with patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True):
+        with patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True):
             result = await web(_ctx(), action='tab')
         assert 'tab requires tab_action' in result
 
     @pytest.mark.asyncio
     async def test_tab_routes(self):
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
             patch(
-                'marcel_core.tools.web.dispatcher._browser_tab',
+                'marcel_core.capabilities.web.dispatcher._browser_tab',
                 new_callable=AsyncMock,
                 return_value='tabs',
             ) as mock_tab,

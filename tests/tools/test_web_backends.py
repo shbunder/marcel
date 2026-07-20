@@ -6,9 +6,9 @@ from unittest.mock import patch
 
 import pytest
 
-from marcel_core.tools.web.backends import SearchBackendError, select_backend
-from marcel_core.tools.web.brave import BraveBackend
-from marcel_core.tools.web.duckduckgo import DuckDuckGoBackend
+from marcel_core.capabilities.web.backends import SearchBackendError, select_backend
+from marcel_core.capabilities.web.brave import BraveBackend
+from marcel_core.capabilities.web.duckduckgo import DuckDuckGoBackend
 
 
 class TestSelectBackend:

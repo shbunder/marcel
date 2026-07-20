@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from marcel_core.tools.web.backends import SearchResult
-from marcel_core.tools.web.formatter import format_results
+from marcel_core.capabilities.web.backends import SearchResult
+from marcel_core.capabilities.web.formatter import format_results
 
 
 def _result(idx: int) -> SearchResult:

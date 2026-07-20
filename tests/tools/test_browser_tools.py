@@ -11,8 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from marcel_core.harness.context import MarcelDeps
-from marcel_core.tools.browser.pydantic_tools import (
+from marcel_core.capabilities.web.browser.pydantic_tools import (
     browser_click,
     browser_close,
     browser_content,
@@ -26,6 +25,7 @@ from marcel_core.tools.browser.pydantic_tools import (
     browser_tab,
     browser_type,
 )
+from marcel_core.harness.context import MarcelDeps
 
 
 def _ctx() -> MagicMock:
@@ -68,11 +68,11 @@ def _mock_manager():
 def mock_browser():
     mgr, page = _mock_manager()
     with (
-        patch('marcel_core.tools.browser.pydantic_tools._get_manager', return_value=mgr),
-        patch('marcel_core.tools.browser.pydantic_tools._get_allowlist', return_value=None),
-        patch('marcel_core.tools.browser.pydantic_tools._get_timeout', return_value=30000),
+        patch('marcel_core.capabilities.web.browser.pydantic_tools._get_manager', return_value=mgr),
+        patch('marcel_core.capabilities.web.browser.pydantic_tools._get_allowlist', return_value=None),
+        patch('marcel_core.capabilities.web.browser.pydantic_tools._get_timeout', return_value=30000),
         patch(
-            'marcel_core.tools.browser.pydantic_tools.build_snapshot',
+            'marcel_core.capabilities.web.browser.pydantic_tools.build_snapshot',
             new_callable=AsyncMock,
             return_value=(
                 '[1] main\n[2] heading "Snapshot text"\n[3] button "Submit"\n[4] link "Home"\n[5] textbox\n[6] paragraph',
@@ -80,12 +80,12 @@ def mock_browser():
             ),
         ),
         patch(
-            'marcel_core.tools.browser.pydantic_tools.take_screenshot',
+            'marcel_core.capabilities.web.browser.pydantic_tools.take_screenshot',
             new_callable=AsyncMock,
             return_value='base64encodedpng',
         ),
         patch(
-            'marcel_core.tools.browser.pydantic_tools.extract_readable',
+            'marcel_core.capabilities.web.browser.pydantic_tools.extract_readable',
             new_callable=AsyncMock,
             return_value='# Extracted\n\nReadable markdown body.',
         ),
@@ -110,8 +110,11 @@ class TestBrowserNavigate:
     @pytest.mark.asyncio
     async def test_navigate_blocked_url(self):
         with (
-            patch('marcel_core.tools.browser.pydantic_tools._get_allowlist', return_value=['allowed.com']),
-            patch('marcel_core.tools.browser.pydantic_tools.is_url_allowed', return_value=(False, 'not in allowlist')),
+            patch('marcel_core.capabilities.web.browser.pydantic_tools._get_allowlist', return_value=['allowed.com']),
+            patch(
+                'marcel_core.capabilities.web.browser.pydantic_tools.is_url_allowed',
+                return_value=(False, 'not in allowlist'),
+            ),
         ):
             result = await browser_navigate(_ctx(), 'https://blocked.com')
         assert 'Error' in result
@@ -131,7 +134,7 @@ class TestBrowserNavigate:
         has something to work with on the first call.
         """
         with patch(
-            'marcel_core.tools.browser.pydantic_tools.build_snapshot',
+            'marcel_core.capabilities.web.browser.pydantic_tools.build_snapshot',
             new_callable=AsyncMock,
             return_value=('(Empty page)', {}),
         ):
@@ -222,7 +225,8 @@ class TestBrowserClick:
         mgr, page = mock_browser
         mgr.get_ref_map.return_value = {1: {'role': 'button', 'name': 'Submit'}}
         with patch(
-            'marcel_core.tools.browser.pydantic_tools._build_aria_selector', return_value='role=button[name="Submit"]'
+            'marcel_core.capabilities.web.browser.pydantic_tools._build_aria_selector',
+            return_value='role=button[name="Submit"]',
         ):
             result = await browser_click(_ctx(), ref=1)
         assert 'Clicked' in result
@@ -252,7 +256,7 @@ class TestBrowserClick:
     async def test_click_no_aria_selector(self, mock_browser):
         mgr, _ = mock_browser
         mgr.get_ref_map.return_value = {1: {'role': 'generic', 'name': ''}}
-        with patch('marcel_core.tools.browser.pydantic_tools._build_aria_selector', return_value=None):
+        with patch('marcel_core.capabilities.web.browser.pydantic_tools._build_aria_selector', return_value=None):
             result = await browser_click(_ctx(), ref=1)
         assert 'Error' in result
 
@@ -274,7 +278,9 @@ class TestBrowserType:
     async def test_type_by_ref(self, mock_browser):
         mgr, _ = mock_browser
         mgr.get_ref_map.return_value = {1: {'role': 'textbox', 'name': 'Search'}}
-        with patch('marcel_core.tools.browser.pydantic_tools._build_aria_selector', return_value='role=textbox'):
+        with patch(
+            'marcel_core.capabilities.web.browser.pydantic_tools._build_aria_selector', return_value='role=textbox'
+        ):
             result = await browser_type(_ctx(), text='hello', ref=1)
         assert 'Typed' in result
 
@@ -302,7 +308,7 @@ class TestBrowserType:
     async def test_type_no_aria_selector(self, mock_browser):
         mgr, _ = mock_browser
         mgr.get_ref_map.return_value = {1: {'role': 'generic', 'name': ''}}
-        with patch('marcel_core.tools.browser.pydantic_tools._build_aria_selector', return_value=None):
+        with patch('marcel_core.capabilities.web.browser.pydantic_tools._build_aria_selector', return_value=None):
             result = await browser_type(_ctx(), text='x', ref=1)
         assert 'Error' in result
 
@@ -405,8 +411,12 @@ class TestBrowserTab:
         ctx_mock = AsyncMock()
         mgr.get_or_create_context.return_value = ctx_mock
 
-        with patch('marcel_core.tools.browser.pydantic_tools.is_url_allowed', return_value=(False, 'blocked')):
-            with patch('marcel_core.tools.browser.pydantic_tools._get_allowlist', return_value=['allowed.com']):
+        with patch(
+            'marcel_core.capabilities.web.browser.pydantic_tools.is_url_allowed', return_value=(False, 'blocked')
+        ):
+            with patch(
+                'marcel_core.capabilities.web.browser.pydantic_tools._get_allowlist', return_value=['allowed.com']
+            ):
                 result = await browser_tab(_ctx(), action='new', url='https://blocked.com')
         assert 'Error' in result
 

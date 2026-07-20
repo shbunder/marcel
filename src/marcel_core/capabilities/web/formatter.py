@@ -18,7 +18,7 @@ formats the happy path.
 
 from __future__ import annotations
 
-from marcel_core.tools.web.backends import SearchResult
+from marcel_core.capabilities.web.backends import SearchResult
 
 
 def format_results(results: list[SearchResult], query: str, backend_name: str) -> str:

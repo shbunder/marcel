@@ -3,9 +3,9 @@
 The ``web(action="search")`` dispatcher delegates to a backend that
 implements :class:`SearchBackend`. Today two backends exist:
 
-- :class:`~marcel_core.tools.web.brave.BraveBackend` — primary, JSON API,
+- :class:`~marcel_core.capabilities.web.brave.BraveBackend` — primary, JSON API,
   stable contract, free tier 1000/month
-- :class:`~marcel_core.tools.web.duckduckgo.DuckDuckGoBackend` — fallback,
+- :class:`~marcel_core.capabilities.web.duckduckgo.DuckDuckGoBackend` — fallback,
   HTML scraping, no API key, best-effort
 
 Selection is automatic: Brave is used if ``BRAVE_API_KEY`` is set,
@@ -13,10 +13,10 @@ otherwise DuckDuckGo with a warning. The ``WEB_SEARCH_BACKEND`` env var is
 a safety valve for testing — not documented in the tool docstring.
 
 Adding a new backend: create a new module under
-``src/marcel_core/tools/web/``, implement :class:`SearchBackend`, and add
+``src/marcel_core/capabilities/web/``, implement :class:`SearchBackend`, and add
 a branch to :func:`select_backend`. If the new backend takes a
 user-configurable URL (e.g. a self-hosted SearXNG), call
-``marcel_core.tools.browser.security.is_url_allowed`` on it before any
+``marcel_core.capabilities.web.browser.security.is_url_allowed`` on it before any
 HTTP request — same SSRF protection pattern the browser tool uses.
 """
 
@@ -90,9 +90,9 @@ def select_backend() -> SearchBackend:
     """
     # Local import so modules can import from backends without pulling in
     # httpx transitively at import time — keeps unit tests light.
+    from marcel_core.capabilities.web.brave import BraveBackend
+    from marcel_core.capabilities.web.duckduckgo import DuckDuckGoBackend
     from marcel_core.config import settings
-    from marcel_core.tools.web.brave import BraveBackend
-    from marcel_core.tools.web.duckduckgo import DuckDuckGoBackend
 
     override = (settings.web_search_backend or '').strip().lower() or None
 

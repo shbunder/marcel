@@ -16,9 +16,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from marcel_core.capabilities.web.backends import SearchBackendError, SearchResult
+from marcel_core.capabilities.web.dispatcher import web
 from marcel_core.harness.context import MarcelDeps, TurnState
-from marcel_core.tools.web.backends import SearchBackendError, SearchResult
-from marcel_core.tools.web.dispatcher import web
 
 
 def _ctx() -> MagicMock:
@@ -64,9 +64,9 @@ class TestBraveRateLimitFailover:
         )
 
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
-            patch('marcel_core.tools.web.search.select_backend', return_value=brave),
-            patch('marcel_core.tools.web.duckduckgo.DuckDuckGoBackend', return_value=ddg),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.search.select_backend', return_value=brave),
+            patch('marcel_core.capabilities.web.duckduckgo.DuckDuckGoBackend', return_value=ddg),
         ):
             result = await web(_ctx(), action='search', query='paris roubaix')
 
@@ -86,9 +86,9 @@ class TestBraveRateLimitFailover:
         )
 
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
-            patch('marcel_core.tools.web.search.select_backend', return_value=brave),
-            patch('marcel_core.tools.web.duckduckgo.DuckDuckGoBackend', return_value=ddg),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.search.select_backend', return_value=brave),
+            patch('marcel_core.capabilities.web.duckduckgo.DuckDuckGoBackend', return_value=ddg),
         ):
             result = await web(_ctx(), action='search', query='paris roubaix')
 
@@ -108,9 +108,9 @@ class TestBraveRateLimitFailover:
             return _ddg_mock(return_value=[])
 
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
-            patch('marcel_core.tools.web.search.select_backend', return_value=brave),
-            patch('marcel_core.tools.web.duckduckgo.DuckDuckGoBackend', side_effect=_ddg_factory),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.search.select_backend', return_value=brave),
+            patch('marcel_core.capabilities.web.duckduckgo.DuckDuckGoBackend', side_effect=_ddg_factory),
         ):
             result = await web(_ctx(), action='search', query='query')
 
@@ -129,9 +129,9 @@ class TestBraveRateLimitFailover:
             return _ddg_mock(return_value=[])
 
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
-            patch('marcel_core.tools.web.search.select_backend', return_value=brave),
-            patch('marcel_core.tools.web.duckduckgo.DuckDuckGoBackend', side_effect=_ddg_factory),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.search.select_backend', return_value=brave),
+            patch('marcel_core.capabilities.web.duckduckgo.DuckDuckGoBackend', side_effect=_ddg_factory),
         ):
             result = await web(_ctx(), action='search', query='query')
 
@@ -146,8 +146,8 @@ class TestBraveRateLimitFailover:
         ddg_primary = _ddg_mock(side_effect=SearchBackendError('rate limit thing'))
 
         with (
-            patch('marcel_core.tools.web.dispatcher.browser_is_available', return_value=True),
-            patch('marcel_core.tools.web.search.select_backend', return_value=ddg_primary),
+            patch('marcel_core.capabilities.web.dispatcher.browser_is_available', return_value=True),
+            patch('marcel_core.capabilities.web.search.select_backend', return_value=ddg_primary),
         ):
             result = await web(_ctx(), action='search', query='query')
 
@@ -159,7 +159,7 @@ class TestDdgFallbackWarningOnce:
     """The 'no BRAVE_API_KEY' warning should fire once per process, not per call."""
 
     def test_warning_throttled(self):
-        import marcel_core.tools.web.backends as backends_mod
+        import marcel_core.capabilities.web.backends as backends_mod
 
         # Reset the module-level flag for a clean test
         backends_mod._ddg_fallback_warned = False

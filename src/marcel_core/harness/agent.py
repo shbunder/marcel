@@ -27,7 +27,6 @@ from marcel_core.tools import (
     core as core_tools,
     marcel as marcel_tools,
 )
-from marcel_core.tools.web import web as web_tool
 
 log = logging.getLogger(__name__)
 
@@ -122,10 +121,6 @@ def _build_local_model(model_string: str) -> OpenAIChatModel:
 # Entries are ``(name, callable, role_required)`` where ``role_required`` is
 # either ``'admin'`` (restricted) or ``None`` (available to every role).
 _TOOL_REGISTRY: list[tuple[str, object, str | None]] = [
-    # Web: search + browser actions unified behind one dispatcher. Always
-    # available — the dispatcher returns a clean error for browser actions
-    # when playwright isn't installed, so ``search`` still works bare.
-    ('web', web_tool, None),
     # Admin power tools. Shell (run_command …) and FileSystem (read_file …)
     # are capabilities now — attached in composition.build_capabilities for
     # admin roles, gated as layer 2 via admin_tool_names() below.
@@ -163,6 +158,12 @@ def available_tool_names(role: str) -> set[str]:
     guard and any ``disallowed_tools`` can be applied on top.
     """
     names = {name for name, _fn, required in _TOOL_REGISTRY if required is None or required == role}
+    # `web` is a capability now (ADR-260720-9318b1), attached in composition
+    # gated on tool_filter — but its name must stay in every role's pool so a
+    # subagent frontmatter naming `web` still resolves (execution precedent).
+    from marcel_core.capabilities.web import WEB_TOOL_NAME
+
+    names |= {WEB_TOOL_NAME}
     if role == 'admin':
         # Shell and FileSystem are admin capabilities; their tool names join
         # the default pool so delegate's frontmatter-omitted children keep

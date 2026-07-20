@@ -13,15 +13,15 @@ import logging
 
 from pydantic_ai import RunContext
 
-from marcel_core.harness.context import MarcelDeps
-from marcel_core.tools.browser.manager import (
+from marcel_core.capabilities.web.browser.manager import (
     _build_aria_selector,
     _is_sparse_snapshot,
     build_snapshot,
     extract_readable,
     take_screenshot,
 )
-from marcel_core.tools.browser.security import is_url_allowed
+from marcel_core.capabilities.web.browser.security import is_url_allowed
+from marcel_core.harness.context import MarcelDeps
 
 log = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ def _session_key(ctx: RunContext[MarcelDeps]) -> str:
 
 def _get_manager():
     """Lazy import to avoid importing playwright at module level."""
-    from marcel_core.tools.browser import browser_manager
+    from marcel_core.capabilities.web.browser import browser_manager
 
     return browser_manager
 

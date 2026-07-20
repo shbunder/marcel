@@ -6,17 +6,17 @@ type, scroll, press_key, tab, close).
 
 Usage::
 
-    from marcel_core.tools.browser import is_available
+    from marcel_core.capabilities.web.browser import is_available
 
     if is_available():
-        from marcel_core.tools.browser.pydantic_tools import browser_navigate, ...
+        from marcel_core.capabilities.web.browser.pydantic_tools import browser_navigate, ...
 """
 
 from __future__ import annotations
 
 import importlib.util
 
-from marcel_core.tools.browser.manager import BrowserManager
+from marcel_core.capabilities.web.browser.manager import BrowserManager
 
 # Module-level singleton — shared across all sessions.
 browser_manager = BrowserManager()
