@@ -1,18 +1,19 @@
-"""Habitat Protocol — uniform discovery surface across the five habitat kinds.
+"""Habitat Protocol — uniform discovery surface for the eagerly-discovered habitats.
 
-Marcel discovers five kinds of habitats at startup
+Of the five habitat kinds in the taxonomy, four are discovered at startup
 (:class:`ChannelHabitat`, :class:`SkillHabitat`,
-:class:`SubagentHabitat`, :class:`JobHabitat`). Each has its own native
+:class:`SubagentHabitat`, :class:`JobHabitat`); connectors are the fifth kind
+but resolve per-user at agent-build time, not here. Each has its own native
 loader with different signatures (side-effecting ``discover()`` vs
 list-returning ``load_agent_docs(user_slug)`` vs per-user ``load_skills(user_slug)``).
 
 This module adds a uniform wrapper so the orchestrator, logging, and
-test assertions can treat all five the same way. Wrappers are
+test assertions can treat all four the same way. Wrappers are
 **additive** — the native loaders keep working unchanged; the Protocol
 just absorbs the signature differences.
 
 Use :func:`marcel_core.plugin.orchestrator.discover_all_habitats` as the
-entry point; this module is the Protocol definition + the five concrete
+entry point; this module is the Protocol definition + the four concrete
 wrappers.
 """
 

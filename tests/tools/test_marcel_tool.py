@@ -307,7 +307,7 @@ class TestRetiredSkillActions:
 
     @pytest.mark.asyncio
     async def test_read_skill_resource_redirects(self):
-        result = await marcel(_ctx(), action='read_skill_resource', name='recipes', resource='feeds')
+        result = await marcel(_ctx(), action='read_skill_resource', name='recipes')
         assert 'retired' in result
         assert 'load_capability' in result
 

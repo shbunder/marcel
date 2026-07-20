@@ -186,7 +186,7 @@ class AuthSpec(BaseModel):
 class ConnectorScheduledJob(BaseModel):
     """One ``scheduled_jobs:`` entry from ``connector.yaml``.
 
-    Field-compatible with the toolkit's ``ScheduledJobSpec`` (D1,
+    The successor to the toolkit's retired scheduled-job spec (D1,
     FEAT-260718-c232d9): a park migrating from toolkit to connector keeps its
     job identity, cadence and notify policy — the scheduler materializes both
     through the same ``habitat:<name>`` template and stable job id.

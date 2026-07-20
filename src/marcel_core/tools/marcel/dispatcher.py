@@ -26,11 +26,9 @@ async def marcel(
     name: str | None = None,
     query: str | None = None,
     message: str | None = None,
-    type_filter: str | None = None,
     max_results: int | None = None,
     component: str | None = None,
     props: dict | None = None,
-    resource: str | None = None,
 ) -> str:
     """Marcel's internal utilities for managing skills, conversations, and settings.
 
@@ -52,11 +50,9 @@ async def marcel(
         name: Channel name for get_model; "channel:provider:model" for set_model; optional title for render.
         query: Search query for search_conversations.
         message: Progress message for notify.
-        type_filter: Unused (kept for API compatibility).
         max_results: Max results for search_conversations (default 5).
         component: Component name for render (e.g. "transaction_list", "balance_card").
         props: Component props for render — a dict matching the component's JSON Schema.
-        resource: Unused (kept for API compatibility).
 
     Returns:
         Action result string.

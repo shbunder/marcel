@@ -37,6 +37,25 @@ class TestComposition:
         assert 'web' in CODE_MODE_ELIGIBLE
 
 
+class TestCodeModeCoupling:
+    def test_code_mode_omits_web_when_filter_excludes_it(self):
+        """A build with code_mode on but web filtered out must not hand
+        CodeMode a tool that was never attached (code-review finding)."""
+        from pydantic_ai_harness.code_mode import CodeMode
+
+        caps = build_capabilities(role='admin', code_mode=True, tool_filter={'read_file'})
+        assert 'web-tools' not in {getattr(c, 'id', None) for c in caps}
+        (cm,) = [c for c in caps if isinstance(c, CodeMode)]
+        assert cm.tools == []  # the eligible set was derived from attachment
+
+    def test_code_mode_includes_web_on_the_default_build(self):
+        from pydantic_ai_harness.code_mode import CodeMode
+
+        caps = build_capabilities(role='user', code_mode=True)
+        (cm,) = [c for c in caps if isinstance(c, CodeMode)]
+        assert cm.tools == ['web']
+
+
 class TestCodeModeStillWrapsWeb:
     @pytest.mark.asyncio
     async def test_run_code_sees_web_as_sandboxed_not_native(self):

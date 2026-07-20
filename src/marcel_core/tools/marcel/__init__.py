@@ -16,9 +16,9 @@ stays modular and easy to navigate:
 - :mod:`.notifications` — ``notify`` (and ``send_notify`` for in-process callers)
 - :mod:`.settings` — ``list_models``, ``get_model``, ``set_model``
 
-External capabilities (browser, bash, file I/O, charts) and integration
-dispatch remain as separate tools. Only **internal** Marcel utilities live
-here.
+External surfaces — the ``web`` capability (search + browser), the Shell
+and FileSystem execution capabilities, and chart rendering — live outside
+this module. Only **internal** Marcel utilities live here.
 """
 
 from __future__ import annotations
