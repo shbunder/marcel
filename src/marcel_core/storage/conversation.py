@@ -69,6 +69,10 @@ class ChannelMeta:
     next_segment_num: int
     total_messages: int = 0
     last_summary_at: datetime | None = None
+    # Segments rotated out but not yet summarized (FEAT-260707-89a886).
+    # load_context reconciles these into the rolling summary before building
+    # a turn's context, so a rotated segment is never silently dropped.
+    pending_summary_segments: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d = {
@@ -79,6 +83,8 @@ class ChannelMeta:
             'next_segment_num': self.next_segment_num,
             'total_messages': self.total_messages,
         }
+        if self.pending_summary_segments:
+            d['pending_summary_segments'] = list(self.pending_summary_segments)
         if self.last_summary_at:
             d['last_summary_at'] = self.last_summary_at.isoformat()
         return d
@@ -93,6 +99,7 @@ class ChannelMeta:
             next_segment_num=obj['next_segment_num'],
             total_messages=obj.get('total_messages', 0),
             last_summary_at=(datetime.fromisoformat(obj['last_summary_at']) if obj.get('last_summary_at') else None),
+            pending_summary_segments=list(obj.get('pending_summary_segments', [])),
         )
 
 
@@ -378,8 +385,14 @@ def append_to_segment(
     # Check if we need to rotate (size-based, not summarization)
     needs_rotate = False
     if seg_path.exists():
+        from marcel_core.config import settings
+
         stat = seg_path.stat()
-        if stat.st_size >= MAX_SEGMENT_BYTES:
+        # Primary trigger: the configurable token budget (byte-proxied at
+        # ~4 chars/token), so context stays bounded (STORY-31dae4). The 500 KB /
+        # 500-message limits remain as absolute backstops.
+        budget_bytes = settings.marcel_context_budget_tokens * 4
+        if stat.st_size >= min(budget_bytes, MAX_SEGMENT_BYTES):
             needs_rotate = True
         else:
             # Count messages (approximate: count lines)
@@ -410,15 +423,21 @@ def append_to_segment(
 
 def _rotate_segment(user_slug: str, channel: str, meta: ChannelMeta) -> ChannelMeta:
     """Create a new active segment (file rotation, not summarization)."""
+    outgoing = meta.active_segment
     new_id = _make_segment_id(meta.next_segment_num)
     seg_path = _segment_path(user_slug, channel, new_id)
     seg_path.parent.mkdir(parents=True, exist_ok=True)
     seg_path.touch()
 
+    # Queue the outgoing segment for summarization — load_context folds it into
+    # the rolling summary before the next turn, so its content is never lost
+    # from context (FEAT-260707-89a886, was silently dropped).
+    if outgoing not in meta.pending_summary_segments:
+        meta.pending_summary_segments.append(outgoing)
     meta.active_segment = new_id
     meta.next_segment_num += 1
     save_channel_meta(user_slug, channel, meta)
-    log.info('Rotated to new segment %s for %s/%s', new_id, user_slug, channel)
+    log.info('Rotated to new segment %s for %s/%s (queued %s for summary)', new_id, user_slug, channel, outgoing)
     return meta
 
 

@@ -164,39 +164,62 @@ async def summarize_active_segment(
         len(messages),
     )
 
+    # Seal the active segment and open a new one, then summarize the sealed
+    # file through the shared helper (also used for rotation-pending segments).
     try:
-        # 1. Seal the active segment and open a new one
-        sealed_id, meta = seal_active_segment(user_slug, channel)
+        sealed_id, _meta = seal_active_segment(user_slug, channel)
+    except Exception:
+        log.exception('%s-%s: sealing failed', user_slug, channel)
+        state.consecutive_failures += 1
+        state.last_attempt = datetime.now(tz=timezone.utc)
+        return False
+    return await _summarize_segment_file(user_slug, channel, sealed_id, trigger, state)
 
-        # 2. Strip tool results from the sealed segment
-        stripped = strip_tool_results_from_segment(user_slug, channel, sealed_id)
-        log.debug('%s-%s: stripped %d tool results from %s', user_slug, channel, stripped, sealed_id)
 
-        # 3. Generate summary via Haiku
+async def _summarize_segment_file(
+    user_slug: str,
+    channel: str,
+    segment_id: str,
+    trigger: str,
+    state: 'SummarizationState',
+) -> bool:
+    """Summarize one already-sealed segment file, chaining the rolling summary.
+
+    Shared by :func:`summarize_active_segment` (which seals first) and
+    :func:`summarize_pending_segments` (rotation queue, already sealed by the
+    rotation). Strips tool results, generates a Haiku summary that chains the
+    latest one, and saves it. Updates the circuit-breaker state.
+    """
+    messages = read_segment(user_slug, channel, segment_id)
+    if not messages:
+        return False
+    try:
+        stripped = strip_tool_results_from_segment(user_slug, channel, segment_id)
+        log.debug('%s-%s: stripped %d tool results from %s', user_slug, channel, stripped, segment_id)
+
         previous_summary = load_latest_summary(user_slug, channel)
         summary_text = await _generate_summary(messages, previous_summary)
 
-        # 4. Compute time span
         timestamps = [m.timestamp for m in messages if m.timestamp]
         time_from = min(timestamps) if timestamps else datetime.now(tz=timezone.utc)
         time_to = max(timestamps) if timestamps else datetime.now(tz=timezone.utc)
 
-        # 5. Save summary
-        summary = SegmentSummary(
-            segment_id=sealed_id,
-            created_at=datetime.now(tz=timezone.utc),
-            trigger=trigger,
-            message_count=len(messages),
-            time_span_from=time_from,
-            time_span_to=time_to,
-            summary=summary_text,
-            previous_summary_segment=(previous_summary.segment_id if previous_summary else None),
+        save_summary(
+            user_slug,
+            channel,
+            SegmentSummary(
+                segment_id=segment_id,
+                created_at=datetime.now(tz=timezone.utc),
+                trigger=trigger,
+                message_count=len(messages),
+                time_span_from=time_from,
+                time_span_to=time_to,
+                summary=summary_text,
+                previous_summary_segment=(previous_summary.segment_id if previous_summary else None),
+            ),
         )
-        save_summary(user_slug, channel, summary)
-
         state.consecutive_failures = 0
         state.last_attempt = datetime.now(tz=timezone.utc)
-
         log.info(
             '%s-%s: %s summarization complete — %d messages → %d char summary',
             user_slug,
@@ -206,12 +229,48 @@ async def summarize_active_segment(
             len(summary_text),
         )
         return True
-
     except Exception:
-        log.exception('%s-%s: summarization failed', user_slug, channel)
+        log.exception('%s-%s: summarization failed for %s', user_slug, channel, segment_id)
         state.consecutive_failures += 1
         state.last_attempt = datetime.now(tz=timezone.utc)
         return False
+
+
+async def summarize_pending_segments(user_slug: str, channel: str) -> int:
+    """Summarize any segments rotation queued but never summarized.
+
+    Rotation (size/budget) hands the outgoing segment to
+    ``meta.pending_summary_segments`` synchronously; this reconciles that queue
+    into the rolling summary before a turn's context is built, so a rotated
+    segment is never silently absent from context (FEAT-260707-89a886).
+    Processes oldest-first so the summaries chain correctly. Returns how many
+    were summarized.
+    """
+    from marcel_core.storage.conversation import load_channel_meta, save_channel_meta
+
+    meta = load_channel_meta(user_slug, channel)
+    if meta is None or not meta.pending_summary_segments:
+        return 0
+
+    state = _get_state(user_slug, channel)
+    if state.consecutive_failures >= MAX_SUMMARIZATION_FAILURES:
+        return 0
+
+    done = 0
+    for segment_id in list(meta.pending_summary_segments):
+        ok = await _summarize_segment_file(user_slug, channel, segment_id, 'rotate', state)
+        # Re-load meta each iteration: _summarize_segment_file does not touch it,
+        # but keeping the dequeue authoritative against concurrent appends.
+        meta = load_channel_meta(user_slug, channel)
+        if meta is None:
+            break
+        if ok and segment_id in meta.pending_summary_segments:
+            meta.pending_summary_segments.remove(segment_id)
+            save_channel_meta(user_slug, channel, meta)
+            done += 1
+        elif not ok:
+            break  # circuit-breaker / transient — retry the rest next turn
+    return done
 
 
 async def _generate_summary(

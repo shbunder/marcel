@@ -117,6 +117,15 @@ class MarcelStepStore:
         3. Load + convert active segment messages
         4. Record the served length so snapshot deltas can be computed
         """
+        # Reconcile any segments rotation queued but never summarized, so a
+        # rotated segment folds into the rolling summary instead of vanishing
+        # from context (FEAT-260707-89a886).
+        from marcel_core.memory.summarizer import summarize_pending_segments
+
+        folded = await summarize_pending_segments(user_slug, channel)
+        if folded:
+            log.info('%s-%s: folded %d rotated segment(s) into the rolling summary', user_slug, channel, folded)
+
         idle_minutes = settings.marcel_idle_summarize_minutes
         summarized = await summarize_if_idle(user_slug, channel, idle_minutes)
         if summarized:
