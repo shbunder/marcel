@@ -153,7 +153,7 @@ def disable(kind: str, name: str, slug: str) -> str:
     value = entries.get(name)
     if value is None or value == 'all':
         remaining = sorted(s for s in list_user_slugs() if s != slug)
-        manifest.setdefault(kind, {})[name] = remaining
+        manifest[kind] = {**entries, name: remaining}  # normalized — never .setdefault onto garbage
         _save(manifest)
         return f'{name} disabled for {slug} (was all; now: {", ".join(remaining) or "nobody"}).'
     if not isinstance(value, list):

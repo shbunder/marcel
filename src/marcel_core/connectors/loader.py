@@ -148,6 +148,22 @@ def load_connectors(user_slug: str | None, role: str = 'user') -> list[Connector
     if role not in _VALID_ROLES:
         role = 'user'
     by_name: dict[str, ConnectorDoc] = {}
+
+    # Extension-registered connector habitats (api.connector(source),
+    # FEAT-260707-acb2b6): loaded least-specific — a zoo/data habitat of the
+    # same name overrides an extension-shipped one — and subject to exactly
+    # the same validation, role and enablement filters as every other root.
+    from marcel_core.plugin.extension import extension_registry
+
+    for raw in extension_registry().connectors:
+        ext_dir = Path(raw)
+        if not ext_dir.is_dir():
+            log.warning('connectors: extension-registered path %s is not a directory — skipped', ext_dir)
+            continue
+        doc = _load_connector_dir(ext_dir, 'extension')
+        if doc is not None:
+            by_name[doc.name] = doc
+
     for path, source in _connector_dirs(user_slug):
         for entry in sorted(path.iterdir()):
             if not entry.is_dir() or entry.name.startswith(('_', '.')):

@@ -49,7 +49,7 @@ is a method:
 |---|---|---|
 | `marcel.on(event, handler)` | A lifecycle [event-bus](#the-lifecycle-event-bus) subscription, applied to every turn. | **Live**. |
 | `marcel.channel(plugin)` | A channel plugin (transport + formatting). | **Live**. |
-| `marcel.connector(source)` | A [connector](connectors.md) habitat by its `connector.yaml` directory path. | Recorded; loader wiring lands in F1. |
+| `marcel.connector(source)` | A [connector](connectors.md) habitat by its `connector.yaml` directory path. | **Live** (FEAT-260707-acb2b6) — discovered by the connector loader, subject to the same validation, role and [enablement](marketplace.md) filters as zoo habitats; zoo/data habitats override on a name collision. |
 | `marcel.skill(source)` | A skill habitat by path. | Recorded; loader wiring lands in F1. |
 | `marcel.job(source)` | A job template by path. | Recorded; loader wiring lands in F1. |
 | `marcel.agent(source)` | A subagent by path. | Recorded; loader wiring lands in F1. |

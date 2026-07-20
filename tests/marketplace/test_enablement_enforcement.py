@@ -216,3 +216,107 @@ class TestActivationGuidanceParity:
         (cap,) = build_connector_capabilities('kiddo', 'user', docs=docs)
         assert 'needs setup' in (cap.description or '')
         assert not getattr(cap, 'toolsets', None)  # no tools advertised
+
+
+class TestExtensionRegisteredConnectors:
+    """register() extensions get the full flow via api.connector() — now
+    actually wired into the loader (pre-close finding: was record-only)."""
+
+    @pytest.fixture
+    def ext_park(self, household, tmp_path):
+        from marcel_core.plugin.extension import extension_registry
+
+        park = tmp_path / 'ext-park' / 'weatherext'
+        park.mkdir(parents=True)
+        (park / 'connector.yaml').write_text(
+            'name: weatherext\ndescription: Extension weather.\n'
+            'server: {transport: stdio, command: [server.py]}\n'
+            'auth: {mode: api_key, credential_keys: [WEATHER_KEY]}\n'
+        )
+        extension_registry().connectors.append(str(park))
+        yield park
+        extension_registry().connectors.clear()
+
+    def test_discovered_with_source_extension(self, ext_park):
+        from marcel_core.connectors.loader import load_connectors
+
+        (doc,) = [d for d in load_connectors('kiddo', 'user') if d.name == 'weatherext']
+        assert doc.source == 'extension'
+
+    def test_enablement_and_guidance_apply_like_any_habitat(self, ext_park, household):
+        from marcel_core.connectors.loader import load_connectors
+        from marcel_core.connectors.toolset import build_connector_capabilities
+
+        _, data = household
+        # Unlinked per-user api_key → the needs-setup guidance flow.
+        docs = [d for d in load_connectors('kiddo', 'user') if d.name == 'weatherext']
+        (cap,) = build_connector_capabilities('kiddo', 'user', docs=docs)
+        assert 'needs setup' in (cap.description or '')
+
+        # And household policy filters it exactly like a zoo habitat.
+        _manifest(data, {'connectors': {'weatherext': ['shaun']}})
+        assert 'weatherext' not in {d.name for d in load_connectors('kiddo', 'user')}
+
+    def test_zoo_habitat_overrides_extension_on_collision(self, ext_park, household):
+        from marcel_core.connectors.loader import load_connectors
+
+        zoo, _ = household
+        shadow = zoo / 'connectors' / 'weatherext'
+        shadow.mkdir()
+        (shadow / 'connector.yaml').write_text(
+            'name: weatherext\ndescription: Zoo override.\n'
+            'server: {transport: inprocess, module: server.py}\n'
+            'auth: {mode: none, per_user: false}\n'
+        )
+        (shadow / 'server.py').write_text('from fastmcp import FastMCP\nmcp = FastMCP("s")\n')
+        (doc,) = [d for d in load_connectors('kiddo', 'user') if d.name == 'weatherext']
+        assert doc.source == 'zoo-global'
+
+
+class TestToolDispatchRespectsEnablement:
+    @pytest.mark.asyncio
+    async def test_tool_job_for_disabled_user_fails_loud(self, household):
+        """An admin-authored TOOL job targeting a user the connector is
+        disabled for fails that run loudly (verifier finding — the AGENT
+        path's honest collision surface, extended to TOOL dispatch)."""
+        from marcel_core.jobs.executor import _fire_tool_job
+        from marcel_core.jobs.models import JobDefinition, JobDispatchType, RunStatus, TriggerSpec, TriggerType
+
+        _, data = household
+        _manifest(data, {'connectors': {'banking': ['shaun']}})
+
+        job = JobDefinition(
+            name='Sync',
+            users=['kiddo'],
+            trigger=TriggerSpec(type=TriggerType.INTERVAL, interval_seconds=3600),
+            dispatch_type=JobDispatchType.TOOL,
+            tool='banking.transactions',
+            system_prompt='',
+            task='sync',
+        )
+        run = await _fire_tool_job(job, 'test', user_slug='kiddo')
+        assert run.status is RunStatus.FAILED
+        assert run.error_category == 'config'
+        assert 'installed but not enabled' in (run.error or '')
+
+    @pytest.mark.asyncio
+    async def test_system_runs_not_gated(self, household):
+        """System-scope TOOL jobs have no user to gate — they proceed to
+        dispatch (and here succeed against the inprocess park)."""
+        from marcel_core.jobs.executor import _fire_tool_job
+        from marcel_core.jobs.models import JobDefinition, JobDispatchType, RunStatus, TriggerSpec, TriggerType
+
+        _, data = household
+        _manifest(data, {'connectors': {'banking': []}})
+
+        job = JobDefinition(
+            name='Sync',
+            users=[],
+            trigger=TriggerSpec(type=TriggerType.INTERVAL, interval_seconds=3600),
+            dispatch_type=JobDispatchType.TOOL,
+            tool='banking.transactions',
+            system_prompt='',
+            task='sync',
+        )
+        run = await _fire_tool_job(job, 'test')
+        assert run.status is RunStatus.COMPLETED

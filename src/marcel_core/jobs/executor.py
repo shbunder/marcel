@@ -537,6 +537,24 @@ async def _fire_tool_job(
     # job templates written for toolkits keep working unchanged.
     from marcel_core.connectors.toolset import call_connector_tool
 
+    # Enablement applies to TOOL dispatch too (FEAT-260707-acb2b6): an
+    # admin-authored job targeting a user the connector is disabled for
+    # fails that user's run loudly — the same honest surface the scoped
+    # AGENT path gives the collision. System runs have no user to gate.
+    family = job.tool.split('.', 1)[0]
+    if slug != SYSTEM_USER:
+        from marcel_core.marketplace.enablement import enabled_for
+
+        if not enabled_for('connectors', family, slug):
+            run.error = (
+                f'Connector {family!r} installed but not enabled for {slug!r} — '
+                'enable with `make enable-habitat` or retarget the job.'
+            )
+            run.error_category = 'config'
+            run.status = RunStatus.FAILED
+            run.finished_at = datetime.now(UTC)
+            return run
+
     try:
         result = await asyncio.wait_for(
             call_connector_tool(job.tool, job.tool_params, slug, timeout=job.timeout_seconds),
