@@ -163,13 +163,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from marcel_core.plugin.extension import emit_resources_discover, extension_registry
     from marcel_core.plugin.orchestrator import discover_all_habitats
 
-    # Populate toolkit handlers and habitat metadata before the scheduler
-    # starts — rebuild_schedule() → _ensure_habitat_jobs() reads _metadata to
-    # decide which habitat:* jobs to materialize and which to treat as orphan.
-    # Skipping this means every habitat-scheduled job is deleted on cold start.
-    # The orchestrator (ISSUE-5f4d34) calls the toolkit/channel/skill/
-    # subagent/job loaders in a fixed order, isolating their failures so a
-    # broken kind cannot poison the others. Habitats load in-process (lean
+    # Populate habitat metadata before the scheduler starts —
+    # rebuild_schedule() → _ensure_habitat_jobs() reads connector
+    # scheduled_jobs to decide which habitat:* jobs to materialize and which
+    # to treat as orphan. Skipping this means every habitat-scheduled job is
+    # deleted on cold start. The orchestrator (ISSUE-5f4d34) calls the
+    # channel/skill/subagent/job loaders in a fixed order, isolating their
+    # failures so a broken kind cannot poison the others. Habitats load in-process (lean
     # isolation, ADR-260628-6101c5) — no subprocess/UDS supervisor to start.
     discover_all_habitats(settings.zoo_dir)
     # Give loaded extensions a resources_discover hook to contribute skill /

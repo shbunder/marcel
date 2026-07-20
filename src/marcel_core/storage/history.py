@@ -1,7 +1,7 @@
 """JSONL conversation history — message types.
 
 Core data types (``HistoryMessage``, ``ToolCall``) are used across the
-codebase. For conversation storage, use ``memory/conversation.py``
+codebase. For conversation storage, use ``storage/conversation.py``
 (segment-based continuous conversations).
 """
 

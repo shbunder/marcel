@@ -27,11 +27,10 @@ from marcel_core.plugin.habitat import (
 log = logging.getLogger(__name__)
 
 
-# Fixed dispatch order. Toolkit comes first because its @marcel_tool
-# registration populates _metadata — scheduler.rebuild_schedule() in
-# lifespan reads that dict. Channels second so their routers are
-# mountable early. Jobs, agents, and skills are markdown/YAML-only and
-# order-insensitive among themselves.
+# Fixed discovery order. Channels first so their routers are mountable
+# early; jobs, subagents, and skills are markdown/YAML-only and
+# order-insensitive among themselves. (Connectors are not discovered here
+# — they resolve per-user at agent-build time, not at eager startup.)
 _KINDS: tuple[tuple[str, type], ...] = (
     ('channel', ChannelHabitat),
     ('job', JobHabitat),

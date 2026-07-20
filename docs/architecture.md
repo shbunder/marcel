@@ -27,8 +27,8 @@ src/marcel_core/
     conversations.py # GET /conversations, /api/history, /api/forget
     artifacts.py   # GET /api/artifact/{id}, /api/artifacts — rich content
   harness/
-    agent.py       # create_agent() — pydantic-ai Agent with tool registration
-    context.py     # MarcelDeps, TurnState, build_instructions_async — assembles the five-block system prompt
+    agent.py       # create_marcel_agent() — pydantic-ai Agent with tool registration
+    context.py     # MarcelDeps, TurnState, build_instructions_async — assembles the two H1 identity blocks (channel/memory/skills ride as capabilities)
     runner.py      # stream_turn — streams from pydantic-ai agent, yields deltas/tool events
     marcelmd.py    # MARCEL.md loader — discovers home + project instruction files
   memory/            # post-turn memory formation (fire-and-forget agents)

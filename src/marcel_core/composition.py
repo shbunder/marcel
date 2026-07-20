@@ -129,21 +129,23 @@ def build_capabilities(
 ) -> list[AbstractCapability[MarcelDeps]]:
     """Assemble the capability list for a Marcel agent.
 
-    Today: the policy gate (always), step persistence (the store ignores
-    runs without a Marcel conversation id — jobs, subagents, the explain
-    tier), the compaction stack (clamp runaway parts first, then blank old
-    tool results past the token trigger — replaces the pre-harness
-    age-tier trimming), the Memory notebook (``memory=False`` for the lean
-    paths — jobs until FEAT-260718-49a01a declares scoping, and the
-    explain tier), the user's skills as deferred capabilities
-    (``skills=False``/no ``user_slug`` for the lean paths; ``eager_skill``
-    force-loads a ``/<skill>`` override), CodeMode over the eligible tool
-    set (``code_mode=False`` for the lean paths), admin execution
-    capabilities (Shell through bubblewrap, FileSystem rooted at the
-    session cwd — attached only when the role is admin AND the
-    ``tool_filter`` either is absent or names them, so constrained
-    subagents and the explain tier stay lean), and instrumentation (when
-    tracing is enabled).
+    The composition, in order: the always-on core (MarcelPolicy gate, step
+    persistence, overflow spill, the compaction stack); per-user habitats
+    (connectors + ToolSearch, skills as deferred capabilities, their
+    skill→connector bundling); the notebook Memory; delegation (SubAgents,
+    admin builds); CodeMode over the attached eligible tools; the channel
+    guidance and web capabilities; turn-quality (Planning on STANDARD/POWER,
+    LimitWarner) when a ``tier`` is given; admin execution (Shell via
+    bubblewrap, FileSystem rooted at the session cwd); and instrumentation
+    when tracing is on.
+
+    The keyword flags carve out the **lean paths** — jobs, subagent
+    children, the explain tier — which pass ``memory=False`` / ``skills=False``
+    / ``code_mode=False`` / no ``tier`` / no ``channel`` (and often an empty
+    or narrow ``tool_filter``) so they compose only what they need. This is
+    the single place capability lists are built (ADR-260718-0cf8e8); the one
+    sanctioned addition is a caller's ``extra_capabilities`` appended after
+    this list (scoped jobs use it — FEAT-260718-49a01a).
     """
     capabilities: list[AbstractCapability[MarcelDeps]] = [
         MarcelPolicy(),
@@ -251,7 +253,11 @@ def build_capabilities(
         capabilities.append(build_web_capability())
 
     if code_mode:
-        capabilities.append(CodeMode(tools=sorted(CODE_MODE_ELIGIBLE)))
+        # Only offer CodeMode the eligible tools that were actually attached
+        # this build — web is filter-gated above, so on a web-excluding filter
+        # (explain tier, scoped jobs) CodeMode must not be handed it.
+        eligible = {t for t in CODE_MODE_ELIGIBLE if t != 'web' or tool_filter is None or 'web' in tool_filter}
+        capabilities.append(CodeMode(tools=sorted(eligible)))
 
     # Turn-quality capabilities (FEAT-260718-637764) — interactive turns only:
     # `tier` is passed by the runner and stays None on the lean paths (jobs,

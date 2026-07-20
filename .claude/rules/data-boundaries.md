@@ -21,7 +21,7 @@ These never mix.
 ## Never
 
 - **User preference in `.env`.** `ALICE_MORNING_DIGEST_ENABLED=true` is wrong. Preferences live in `profile.md` frontmatter under `~/.marcel/users/alice/`.
-- **Secret in a user file.** Credentials do not live in `profile.md`, conversation history JSONL, memory files, or anything outside `~/.marcel/users/{slug}/credentials/`. Credentials in that directory are encrypted with `MARCEL_CREDENTIAL_ENC_KEY`.
+- **Secret in a user file.** Credentials do not live in `profile.md`, conversation history JSONL, memory files, or anything outside `~/.marcel/users/{slug}/credentials/`. Credentials in that directory are encrypted with `MARCEL_CREDENTIALS_KEY`.
 - **Cross-user state at the top level.** A top-level file under `~/.marcel/` that holds shared household data (calendar, grocery list) is a design smell. Design an explicit per-user reference pattern — e.g., each user has a `calendar_links.md` pointing at the shared source — not a root-level pile.
 - **Hardcoded `/home/shbunder/.marcel`.** Always resolve the data root via `settings.data_dir` (pydantic-settings) or a storage helper. Hardcoding breaks multi-user, breaks testing, and breaks deployment.
 

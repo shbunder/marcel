@@ -4,6 +4,12 @@ Toolkits were in-process handlers behind one ``toolkit(id=…)`` dispatcher.
 Integrations are now **connectors** — MCP servers with per-user auth
 (``docs/connectors.md``). This module survives one release as an import shim
 (FR4) so a straggler extension fails soft with directions, not an ImportError.
+
+
+Removal trigger: no in-tree code uses ``@marcel_tool`` (verified); this
+shim exists only so an out-of-tree zoo extension fails soft for one
+release. Delete it once the marcel-zoo has no ``@marcel_tool`` importers
+(tracked as the next SDK-surface cleanup).
 """
 
 from __future__ import annotations

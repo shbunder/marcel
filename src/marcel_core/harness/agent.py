@@ -55,12 +55,6 @@ KNOWN_MODELS: dict[str, str] = {
     'openai:o3-mini': 'o3-mini (fast reasoning)',
 }
 
-# Historical constant — retained for backwards compatibility with any
-# external imports. Prefer :func:`default_model` in new code so runtime
-# changes to ``settings.marcel_standard_model`` (env var updates, test
-# monkeypatches) are honoured.
-DEFAULT_MODEL = 'anthropic:claude-sonnet-4-6'
-
 
 def default_model() -> str:
     """Return the currently-configured tier-1 model.
@@ -213,10 +207,11 @@ def create_marcel_agent(
 ) -> Agent[MarcelDeps, str]:
     """Create a configured Marcel agent with a role-appropriate tool set.
 
-    Admin users receive the full suite of power tools (bash, file I/O, git,
-    claude_code, delegate). Regular users receive only integration and the
-    unified marcel utils tool — enough for a household assistant without
-    exposing arbitrary shell access.
+    Admin users receive the full suite of power tools (Shell, FileSystem,
+    git, claude_code, delegate, marketplace). Regular users receive the
+    all-users tools — the unified ``marcel`` utility, the ``web`` capability,
+    chart rendering, and job management — enough for a household assistant
+    without exposing arbitrary shell access.
 
     Args:
         model: Fully-qualified pydantic-ai model string, e.g.

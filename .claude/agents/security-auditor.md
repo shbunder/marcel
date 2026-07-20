@@ -15,7 +15,7 @@ Marcel runs on a home server. The threat model is a mix of "kids mess around" (a
 ### 1. Credential storage
 
 - Credentials live encrypted under `~/.marcel/users/{slug}/credentials/`. Verify any new integration routes secrets through the credential store and NOT into `.env*`, the user's `profile.md`, or (worst) conversation history JSONL.
-- Encryption key lives in `MARCEL_CREDENTIAL_ENC_KEY`. Any code path that logs credentials, echoes them in errors, or serializes them to a response must be flagged.
+- Encryption key lives in `MARCEL_CREDENTIALS_KEY`. Any code path that logs credentials, echoes them in errors, or serializes them to a response must be flagged.
 
 ### 2. API token + Telegram webhook
 

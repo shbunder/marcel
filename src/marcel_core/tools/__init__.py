@@ -1,1 +1,1 @@
-"""Tool implementations for Marcel — core tools, integrations, and claude-code delegation."""
+"""Tool implementations for Marcel — git tools, charts, the marcel utility, and claude-code delegation."""

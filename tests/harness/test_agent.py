@@ -9,12 +9,12 @@ from pydantic_ai.models.test import TestModel
 
 from marcel_core.config import settings
 from marcel_core.harness.agent import (
-    DEFAULT_MODEL,
     KNOWN_MODELS,
     _build_local_model,
     all_models,
     available_tool_names,
     create_marcel_agent,
+    default_model,
 )
 from marcel_core.harness.context import MarcelDeps
 
@@ -43,8 +43,9 @@ class TestAllModels:
         assert 'bogus:model' not in KNOWN_MODELS
 
     def test_default_model_is_qualified(self):
-        assert ':' in DEFAULT_MODEL
-        provider, _, model = DEFAULT_MODEL.partition(':')
+        model_id = default_model()
+        assert ':' in model_id
+        provider, _, model = model_id.partition(':')
         assert provider and model
 
     def test_known_models_are_all_qualified(self):
