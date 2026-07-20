@@ -209,7 +209,7 @@ class TestConversationsAPI:
         assert resp.json()['conversations'] == []
 
     def test_list_conversations_success(self, conv_client):
-        from marcel_core.memory.conversation import ChannelMeta
+        from marcel_core.storage.conversation import ChannelMeta
 
         now = datetime.now(timezone.utc)
         channels = [
@@ -227,7 +227,7 @@ class TestConversationsAPI:
         assert len(data['conversations']) == 1
 
     def test_get_history_success(self, conv_client):
-        from marcel_core.memory.history import HistoryMessage
+        from marcel_core.storage.history import HistoryMessage
 
         messages = [
             HistoryMessage(role='user', text='Hello', timestamp=datetime.now(timezone.utc), conversation_id='test'),
@@ -260,7 +260,7 @@ class TestConversationsAPI:
         assert resp.status_code == 400
 
     def test_forget_endpoint_success(self, conv_client):
-        from marcel_core.memory.conversation import SegmentSummary
+        from marcel_core.storage.conversation import SegmentSummary
 
         summary = SegmentSummary(
             segment_id='seg-1',
@@ -274,7 +274,7 @@ class TestConversationsAPI:
         with (
             patch('marcel_core.api.conversations.verify_api_token', return_value=True),
             patch('marcel_core.api.conversations.valid_user_slug', return_value=True),
-            patch('marcel_core.memory.conversation.has_active_content', return_value=True),
+            patch('marcel_core.storage.conversation.has_active_content', return_value=True),
             patch('marcel_core.memory.summarizer.summarize_active_segment', new_callable=AsyncMock, return_value=True),
             patch('marcel_core.api.conversations.load_latest_summary', return_value=summary),
         ):
@@ -289,7 +289,7 @@ class TestConversationsAPI:
         with (
             patch('marcel_core.api.conversations.verify_api_token', return_value=True),
             patch('marcel_core.api.conversations.valid_user_slug', return_value=True),
-            patch('marcel_core.memory.conversation.has_active_content', return_value=False),
+            patch('marcel_core.storage.conversation.has_active_content', return_value=False),
         ):
             resp = conv_client.post('/api/forget', params={'user': 'alice'}, headers={'Authorization': 'Bearer ok'})
         data = resp.json()
@@ -300,7 +300,7 @@ class TestConversationsAPI:
         with (
             patch('marcel_core.api.conversations.verify_api_token', return_value=True),
             patch('marcel_core.api.conversations.valid_user_slug', return_value=True),
-            patch('marcel_core.memory.conversation.has_active_content', return_value=True),
+            patch('marcel_core.storage.conversation.has_active_content', return_value=True),
             patch('marcel_core.memory.summarizer.summarize_active_segment', new_callable=AsyncMock, return_value=False),
         ):
             resp = conv_client.post('/api/forget', params={'user': 'alice'}, headers={'Authorization': 'Bearer ok'})
@@ -308,7 +308,7 @@ class TestConversationsAPI:
         assert data['success'] is False
 
     def test_get_message_deprecated(self, conv_client):
-        from marcel_core.memory.history import HistoryMessage
+        from marcel_core.storage.history import HistoryMessage
 
         messages = [
             HistoryMessage(
@@ -334,7 +334,7 @@ class TestConversationsAPI:
         assert resp.status_code == 404
 
     def test_get_message_by_turn(self, conv_client):
-        from marcel_core.memory.history import HistoryMessage
+        from marcel_core.storage.history import HistoryMessage
 
         messages = [
             HistoryMessage(
@@ -353,7 +353,7 @@ class TestConversationsAPI:
         assert resp.json()['content'] == 'First'
 
     def test_get_message_turn_out_of_range(self, conv_client):
-        from marcel_core.memory.history import HistoryMessage
+        from marcel_core.storage.history import HistoryMessage
 
         messages = [
             HistoryMessage(role='assistant', text='Only', timestamp=datetime.now(timezone.utc), conversation_id='test'),

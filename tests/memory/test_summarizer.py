@@ -12,8 +12,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from marcel_core.memory.conversation import SegmentSummary
-from marcel_core.memory.history import HistoryMessage, MessageRole
 from marcel_core.memory.summarizer import (
     _generate_summary,
     _get_state,
@@ -23,6 +21,8 @@ from marcel_core.memory.summarizer import (
     summarize_if_idle,
 )
 from marcel_core.storage import _root
+from marcel_core.storage.conversation import SegmentSummary
+from marcel_core.storage.history import HistoryMessage, MessageRole
 
 _NOW = datetime.now(tz=timezone.utc)
 
@@ -216,7 +216,7 @@ class TestGenerateSummary:
 
     @pytest.mark.asyncio
     async def test_handles_all_message_types(self):
-        from marcel_core.memory.history import ToolCall
+        from marcel_core.storage.history import ToolCall
 
         messages = [
             _msg('user', 'Check the weather'),

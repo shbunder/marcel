@@ -25,8 +25,8 @@ from marcel_core.harness.runner import (
     _resolve_turn_tier,
     stream_turn,
 )
-from marcel_core.memory.history import HistoryMessage, MessageRole, ToolCall
 from marcel_core.storage import _root
+from marcel_core.storage.history import HistoryMessage, MessageRole, ToolCall
 
 
 @asynccontextmanager
@@ -109,7 +109,7 @@ class TestStreamTurn:
     async def test_appends_to_history(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
-        from marcel_core.memory.conversation import read_active_segment
+        from marcel_core.storage.conversation import read_active_segment
 
         with patch('marcel_core.harness.runner.create_marcel_agent', return_value=_make_mock_agent(['reply'])):
             async for _ in stream_turn('shaun', 'cli', 'what is 2+2?', 'conv-1'):
@@ -198,7 +198,7 @@ class TestStreamTurn:
         is what lands in history and in the model's user prompt."""
         from marcel_core.harness.model_chain import Tier
         from marcel_core.harness.turn_router import TierSource, TurnPlan
-        from marcel_core.memory.conversation import read_active_segment
+        from marcel_core.storage.conversation import read_active_segment
 
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
@@ -1090,7 +1090,7 @@ class TestStreamTurnWithHistory:
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
 
         # Seed history with a prior turn (via segment-based storage)
-        from marcel_core.memory.conversation import append_to_segment
+        from marcel_core.storage.conversation import append_to_segment
 
         append_to_segment(
             'shaun',
@@ -1274,7 +1274,7 @@ class TestModelInstanceTurn:
     @pytest.mark.asyncio
     async def test_instance_turn_persists_conversation(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        from marcel_core.memory.conversation import read_active_segment
+        from marcel_core.storage.conversation import read_active_segment
 
         model = TestModel(custom_output_text='noted!', call_tools=[])
         _ = [e async for e in stream_turn('shaun', 'cli', 'remember the milk', 'conv-1', model=model)]

@@ -47,8 +47,8 @@ from marcel_core.harness.turn_router import (
     TurnPlan,
     resolve_turn,
 )
-from marcel_core.memory.conversation import append_to_segment
-from marcel_core.memory.history import HistoryMessage
+from marcel_core.storage.conversation import append_to_segment
+from marcel_core.storage.history import HistoryMessage
 from marcel_core.storage.settings import (
     load_channel_model,
     load_channel_tier,

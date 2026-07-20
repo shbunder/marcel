@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from contextvars import ContextVar
 
-from marcel_core.memory.pastes import retrieve_paste, store_paste
+from marcel_core.storage.pastes import retrieve_paste, store_paste
 
 current_overflow_user: ContextVar[str | None] = ContextVar('current_overflow_user', default=None)
 """The user owning spills for the current task — set by ``stream_turn``."""

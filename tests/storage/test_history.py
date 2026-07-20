@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from marcel_core.memory.history import (
+from marcel_core.storage.history import (
     HistoryMessage,
     ToolCall,
 )

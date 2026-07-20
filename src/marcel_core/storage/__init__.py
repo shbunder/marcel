@@ -3,7 +3,7 @@
 All read/write operations for users and distilled memory.
 Files are plain markdown; no database is required.
 
-Conversation history is managed by :mod:`marcel_core.memory.history` (JSONL
+Conversation history is managed by :mod:`marcel_core.storage.history` (JSONL
 session files), not by this module.
 
 Public API

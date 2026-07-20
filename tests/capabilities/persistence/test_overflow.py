@@ -86,7 +86,7 @@ async def test_traversal_handle_rejected(store, as_alice, tmp_path):
 
 async def test_retrieve_paste_rejects_traversal_refs(tmp_path, monkeypatch):
     """Defense-in-depth: the paste layer refuses non-hash refs on its own."""
-    from marcel_core.memory.pastes import retrieve_paste
+    from marcel_core.storage.pastes import retrieve_paste
 
     monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
     victim = tmp_path / 'users' / 'bob' / 'credentials.enc'

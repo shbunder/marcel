@@ -73,7 +73,7 @@ class TestSealingCoexistsWithTheStore:
         from datetime import datetime, timezone
 
         from marcel_core.capabilities.persistence import persistence_store
-        from marcel_core.memory.conversation import (
+        from marcel_core.storage.conversation import (
             SegmentSummary,
             read_active_segment,
             save_summary,
@@ -146,7 +146,7 @@ class TestToolHistoryPersistsExactlyOnce:
         )
         await s1.run('use the probe')
 
-        from marcel_core.memory.conversation import read_active_segment
+        from marcel_core.storage.conversation import read_active_segment
 
         after_one = read_active_segment('alice', 'cli')
         tools_after_one = len([m for m in after_one if m.role == 'tool'])

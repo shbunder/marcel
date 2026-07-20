@@ -33,7 +33,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from marcel_core.memory.history import HistoryMessage, ToolCall
+from marcel_core.storage.history import HistoryMessage, ToolCall
 
 
 def messages_to_model(

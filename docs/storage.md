@@ -326,13 +326,13 @@ Read/write the user's role (`'admin'` or `'user'`) from `profile.md` frontmatter
 ### Conversations (continuous model)
 
 ```python
-from marcel_core.memory.conversation import (
+from marcel_core.storage.conversation import (
     ensure_channel, append_to_segment, read_active_segment,
     seal_active_segment, search_conversations,
     load_latest_summary, is_idle, has_active_content,
     ChannelMeta, SegmentSummary,
 )
-from marcel_core.memory.history import HistoryMessage, ToolCall
+from marcel_core.storage.history import HistoryMessage, ToolCall
 ```
 
 ```python

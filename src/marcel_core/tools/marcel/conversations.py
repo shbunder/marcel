@@ -20,7 +20,7 @@ async def search_conversations(
     if not query:
         return 'Error: query= is required for search_conversations action.'
 
-    from marcel_core.memory.conversation import search_conversations as _search
+    from marcel_core.storage.conversation import search_conversations as _search
 
     log.info('[marcel:search_conversations] user=%s query=%s', ctx.deps.user_slug, query)
 
@@ -51,8 +51,8 @@ async def search_conversations(
 
 async def compact(ctx: RunContext[MarcelDeps]) -> str:
     """Compress the current conversation segment into a summary."""
-    from marcel_core.memory.conversation import load_latest_summary
     from marcel_core.memory.summarizer import summarize_active_segment
+    from marcel_core.storage.conversation import load_latest_summary
 
     log.info('[marcel:compact] user=%s channel=%s', ctx.deps.user_slug, ctx.deps.channel)
 

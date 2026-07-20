@@ -11,12 +11,12 @@ from pydantic import BaseModel
 log = logging.getLogger(__name__)
 
 from marcel_core.auth import valid_user_slug, verify_api_token, verify_telegram_init_data
-from marcel_core.memory.conversation import (
+from marcel_core.plugin import get_channel
+from marcel_core.storage.conversation import (
     list_channels,
     load_latest_summary,
     read_active_segment,
 )
-from marcel_core.plugin import get_channel
 
 router = APIRouter()
 
@@ -187,8 +187,8 @@ async def forget_conversation(
     Equivalent to the Telegram /forget command. Seals the active segment,
     generates a summary, and opens a new active segment.
     """
-    from marcel_core.memory.conversation import has_active_content
     from marcel_core.memory.summarizer import summarize_active_segment
+    from marcel_core.storage.conversation import has_active_content
 
     token = authorization.removeprefix('Bearer ').strip()
     if not verify_api_token(token):

@@ -31,12 +31,9 @@ src/marcel_core/
     context.py     # MarcelDeps, TurnState, build_instructions_async — assembles the five-block system prompt
     runner.py      # stream_turn — streams from pydantic-ai agent, yields deltas/tool events
     marcelmd.py    # MARCEL.md loader — discovers home + project instruction files
-  memory/
-    conversation.py  # Segment-based continuous conversation storage
-    summarizer.py    # Idle summarization — seals segments, generates rolling summaries
-    extract.py       # Post-turn fire-and-forget memory extraction (Haiku)
-    history.py       # Message types (HistoryMessage, ToolCall)
-    pastes.py        # Content-addressed paste store (backend for spilled tool results)
+  memory/            # post-turn memory formation (fire-and-forget agents)
+    extract.py       # distil durable facts into the per-user memory store
+    summarizer.py    # seal + summarize idle conversation segments
   channels/
     adapter.py     # ChannelAdapter protocol — generic event dispatch (transport)
     websocket.py   # WebSocket channel adapter (transport)
@@ -75,8 +72,12 @@ src/marcel_core/
                    # Connector parks (banking, icloud, docker, news, …) live
                    # under <MARCEL_ZOO_DIR>/connectors/ — see Connectors docs.
                    # Kernel ships zero first-party connectors.
-  storage/         # Flat-file read/write helpers (users, memory, artifacts)
+  storage/         # Flat-file substrate (users, distilled memory, conversation, artifacts)
     artifacts.py   # Artifact storage for rich content (Mini App)
+    conversation.py  # Segment-based continuous conversation store (JSONL)
+    history.py     # Conversation message types (HistoryMessage, ToolCall)
+    pastes.py      # Content-addressed paste store (spilled tool-result backend)
+    memory.py      # Typed distilled-memory files (frontmatter markdown)
   auth/            # Token verification, Telegram initData, input validation
   watchdog/        # Self-modification safety, health checks, git rollback
   defaults/        # Bundled skill docs (SKILL.md, SETUP.md) seeded to data root
@@ -88,7 +89,7 @@ src/marcel_core/
     {slug}/
       profile.md   # User identity and preferences
       skills/      # Runtime-installed per-user skills (source `data-user`)
-      memory/      # Typed memory files with frontmatter
+      memory/      # Typed distilled-memory files with frontmatter
       conversation/{channel}/  # Continuous conversation storage (segments + summaries)
       .pastes/     # Large tool result content
     _household/    # Shared family memories

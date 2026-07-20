@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from marcel_core.memory import conversation as conversation_module
-from marcel_core.memory.conversation import (
+from marcel_core.storage import conversation as conversation_module
+from marcel_core.storage.conversation import (
     ChannelMeta,
     SegmentSummary,
     append_to_segment,
@@ -27,7 +27,7 @@ from marcel_core.memory.conversation import (
     search_conversations,
     strip_tool_results_from_segment,
 )
-from marcel_core.memory.history import HistoryMessage, MessageRole
+from marcel_core.storage.history import HistoryMessage, MessageRole
 
 
 def _msg(role: MessageRole = 'user', text: str = 'Hello', minute: int = 0) -> HistoryMessage:
@@ -46,7 +46,7 @@ def _segment_file(root: Path, channel: str = 'telegram', segment: str = 'seg-000
 @pytest.fixture
 def temp_data_root(tmp_path: Path):
     """Patch data_root to use temporary directory."""
-    with patch('marcel_core.memory.conversation.data_root', return_value=tmp_path):
+    with patch('marcel_core.storage.conversation.data_root', return_value=tmp_path):
         yield tmp_path
 
 
