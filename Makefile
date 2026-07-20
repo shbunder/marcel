@@ -181,18 +181,32 @@ zoo-docker-sync: zoo-sync zoo-docker-deps ## Pull the zoo (host) and refresh dep
 DATA_DIR ?= $(HOME)/.marcel
 
 .PHONY: add-user
-add-user: ## Create a new Marcel user (usage: make add-user USER=alice [ROLE=admin])
+add-user: ## Onboard a user — profile, role, memory dir (usage: make add-user USER=alice [ROLE=admin])
 	@if [ -z "$(USER)" ]; then \
 		echo -e "$(WARNING) Usage: make add-user USER=<slug> [ROLE=admin|user]"; \
 		exit 1; \
 	fi
-	@mkdir -p "$(DATA_DIR)/users/$(USER)"
-	@if [ -n "$(ROLE)" ]; then \
-		uv run python -c "from marcel_core.storage.users import set_user_role; set_user_role('$(USER)', '$(ROLE)')"; \
-		echo -e "$(INFO) User '$(USER)' created with role '$(ROLE)' at $(DATA_DIR)/users/$(USER)"; \
-	else \
-		echo -e "$(INFO) User '$(USER)' created at $(DATA_DIR)/users/$(USER)"; \
+	@uv run python -m marcel_core.ops add-user --user "$(USER)" --role "$(or $(ROLE),user)"
+
+.PHONY: remove-user
+remove-user: ## Offboard a user by archiving (never deleting) (usage: make remove-user USER=alice)
+	@if [ -z "$(USER)" ]; then \
+		echo -e "$(WARNING) Usage: make remove-user USER=<slug>"; \
+		exit 1; \
 	fi
+	@uv run python -m marcel_core.ops remove-user --user "$(USER)"
+
+.PHONY: telegram-setup
+telegram-setup: ## Register + verify the Telegram webhook via the Bot API (usage: make telegram-setup URL=https://your.public.url)
+	@if [ -z "$(URL)" ]; then \
+		echo -e "$(WARNING) Usage: make telegram-setup URL=<public https base URL>"; \
+		exit 1; \
+	fi
+	@uv run python -m marcel_core.ops telegram-setup --url "$(URL)"
+
+.PHONY: doctor
+doctor: ## Report install/runtime health — server, webhook, zoo, users (exit 0 when healthy)
+	@uv run python -m marcel_core.ops doctor
 
 .PHONY: link-telegram
 link-telegram: ## Link a Marcel user to a Telegram chat ID (usage: make link-telegram USER=alice CHAT=123456789)

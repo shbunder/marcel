@@ -21,6 +21,34 @@ Both must be cloned. The kernel goes under `~/projects/marcel` (where you edit),
 
 ---
 
+## Quick start (the happy path)
+
+On a fresh Linux host with Docker, three commands take you from nothing to a
+running Marcel:
+
+```bash
+git clone https://github.com/shbunder/marcel.git ~/projects/marcel && cd ~/projects/marcel
+./scripts/setup.sh          # generates secrets, prompts only for your Anthropic key,
+                            # clones the zoo, installs systemd units, starts the container,
+                            # and verifies health with the doctor — idempotent, safe to re-run
+make add-user USER=you ROLE=admin
+```
+
+Then, any time:
+
+```bash
+make doctor                 # server / Telegram webhook / zoo / users health
+make add-user USER=alice    # onboard a family member (single onboarding path)
+make remove-user USER=alice # offboard by archiving (never deleted — recoverable)
+make telegram-setup URL=https://your.public.url   # register + verify the Telegram webhook
+```
+
+The rest of this guide is the **manual appendix** — the step-by-step behind
+those commands, for the exceptional cases (custom paths, no systemd, debugging
+a failed bootstrap).
+
+---
+
 ## Step 1: Clone and configure the kernel
 
 ```bash
@@ -127,14 +155,18 @@ To verify prerequisites without starting anything:
 
 ## Step 5: Add family members
 
-Each user needs a directory under `~/.marcel/users/`:
+`make add-user` is the single onboarding path — it creates the user's
+directory, a `profile.md` with their role, and the memory directory:
 
 ```bash
-mkdir -p ~/.marcel/users/alice
-mkdir -p ~/.marcel/users/bob
+make add-user USER=alice            # a regular family member
+make add-user USER=you ROLE=admin   # the admin (host-management powers)
 ```
 
 User slugs must be lowercase letters, numbers, hyphens, or underscores.
+Offboard with `make remove-user USER=alice`, which **archives** the user's
+directory under `~/.marcel/archive/users/` rather than deleting it — nothing
+is ever lost.
 
 ## Step 6: Distribute the CLI
 
@@ -165,7 +197,7 @@ Add to `.env.local`:
 
 ```
 TELEGRAM_BOT_TOKEN=123456789:ABCdef-your-token
-TELEGRAM_WEBHOOK_SECRET=<generate with: python3 -c "import secrets; print(secrets.token_urlsafe(32))">
+# TELEGRAM_WEBHOOK_SECRET is already generated for you by scripts/setup.sh.
 ```
 
 ### 7c. Link family members
@@ -188,11 +220,16 @@ Telegram needs to reach your server. The easiest option is a [Cloudflare tunnel]
 cloudflared tunnel --url http://localhost:7420
 ```
 
-Then register the webhook:
+Then register **and verify** the webhook in one step (no hand-written curl):
 
 ```bash
-curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://your-tunnel.trycloudflare.com/telegram/webhook&secret_token=<YOUR_WEBHOOK_SECRET>"
+make telegram-setup URL=https://your-tunnel.trycloudflare.com
 ```
+
+This reads your bot token + webhook secret from `.env`, calls the Bot API's
+`setWebhook`, and confirms with a `getWebhookInfo` round-trip — reporting the
+exact failure (bad token, wrong URL, unreachable) if anything is off. Re-run
+`make doctor` any time to check the webhook is still healthy.
 
 ## Day-to-day operations
 
