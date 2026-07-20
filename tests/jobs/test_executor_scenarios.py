@@ -167,7 +167,7 @@ class TestBuildJobContext:
             task='Run with MY_API_KEY.',
         )
 
-        with patch('marcel_core.harness.context.load_channel_prompt', return_value='Deliver via Telegram.'):
+        with patch('marcel_core.channels.capability.load_channel_prompt', return_value='Deliver via Telegram.'):
             context = _build_job_context(job)
 
         assert 'Use MY_API_KEY' in context
@@ -189,7 +189,7 @@ class TestBuildJobContext:
         )
 
         job = _make_job(system_prompt='Use MY_API_KEY.', task='Run with MY_API_KEY.')
-        with patch('marcel_core.harness.context.load_channel_prompt', return_value='ch'):
+        with patch('marcel_core.channels.capability.load_channel_prompt', return_value='ch'):
             context = _build_job_context(job, scoped=True)
 
         assert 'secret123' not in context
@@ -209,7 +209,7 @@ class TestBuildJobContext:
             system_prompt='Authenticate as usual.',
             task='Use FREEFORM_TOKEN to call the API.',
         )
-        with patch('marcel_core.harness.context.load_channel_prompt', return_value='ch'):
+        with patch('marcel_core.channels.capability.load_channel_prompt', return_value='ch'):
             context = _build_job_context(job)
 
         assert 'tok999' in context  # referenced token injected
@@ -227,7 +227,7 @@ class TestBuildJobContext:
         )
 
         job = _make_job()
-        with patch('marcel_core.harness.context.load_channel_prompt', return_value='ch'):
+        with patch('marcel_core.channels.capability.load_channel_prompt', return_value='ch'):
             context = _build_job_context(job)
 
         assert 'User preferences & feedback' in context
@@ -248,7 +248,7 @@ class TestBuildJobContext:
         job = _make_job(notify=policy)
         with (
             patch('marcel_core.skills.loader.load_skills', return_value=[]),
-            patch('marcel_core.harness.context.load_channel_prompt', return_value='ch'),
+            patch('marcel_core.channels.capability.load_channel_prompt', return_value='ch'),
         ):
             context = _build_job_context(job)
 

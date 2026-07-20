@@ -178,7 +178,7 @@ def _build_job_context(job: JobDefinition, user_slug: str | None = None, *, scop
     preference/feedback memories so pre-scoping jobs behave exactly as
     before. System-scope runs skip per-user injection either way.
     """
-    from marcel_core.harness.context import load_channel_prompt
+    from marcel_core.channels.capability import load_channel_prompt
     from marcel_core.storage.credentials import load_credentials
 
     slug = _resolve_run_user(job, user_slug)

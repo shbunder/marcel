@@ -223,7 +223,7 @@ def build_capabilities(
     # eager capability — placed before Memory so the prompt keeps its
     # historical block order. Lean paths pass no channel and skip it.
     if channel is not None:
-        from marcel_core.capabilities.channel import build_channel_capability
+        from marcel_core.channels.capability import build_channel_capability
 
         capabilities.append(build_channel_capability(channel, user_slug, role))
 

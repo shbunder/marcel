@@ -18,12 +18,6 @@ log = logging.getLogger(__name__)
 # classes, so both dataclasses must permit arbitrary field types.
 _TURN_STATE_CONFIG = ConfigDict(arbitrary_types_allowed=True)
 
-# Path to bundled channel-type prompt files (kernel-owned; describe how
-# Marcel should format responses on each kernel-shipped channel — CLI,
-# WebSocket, iOS, etc.). Habitat channels like Telegram ship their own
-# prompt inside the habitat.
-_CHANNEL_PROMPTS_DIR = Path(__file__).resolve().parent.parent / 'channel_prompts'
-
 
 @pydantic_dc.dataclass(config=_TURN_STATE_CONFIG)
 class TurnState:
@@ -170,43 +164,6 @@ def build_server_context(cwd: str | None = None) -> str:
     return '\n'.join(lines)
 
 
-def load_channel_prompt(channel: str) -> str:
-    """Load channel-specific prompt from the data root, falling back to the kernel bundle.
-
-    Looks for ``<data_root>/channels/<channel>.md`` first (user-editable),
-    then falls back to the bundled kernel prompt at
-    ``src/marcel_core/channel_prompts/<channel>.md``.
-
-    Args:
-        channel: The channel name (e.g., 'telegram', 'cli').
-
-    Returns:
-        The channel prompt body text (frontmatter stripped).
-    """
-    from marcel_core.harness.marcelmd import _strip_channel_preamble
-    from marcel_core.skills.loader import _parse_frontmatter
-
-    # 1. User-editable override in data root
-    try:
-        from marcel_core.config import settings
-
-        data_channel = settings.data_dir / 'channels' / f'{channel}.md'
-        if data_channel.exists():
-            _, body = _parse_frontmatter(data_channel.read_text(encoding='utf-8'))
-            return _strip_channel_preamble(body).strip()
-    except Exception:
-        log.debug('Could not check data root channel prompt for %s', channel, exc_info=True)
-
-    # 2. Kernel-bundled prompt for kernel channel types (cli, ws, ios, app, job)
-    bundled = _CHANNEL_PROMPTS_DIR / f'{channel}.md'
-    if bundled.exists():
-        _, body = _parse_frontmatter(bundled.read_text(encoding='utf-8'))
-        return _strip_channel_preamble(body).strip()
-
-    # 3. Generic fallback — keep as plain guidance (no preamble to strip)
-    return f'Respond in a format appropriate for the {channel} channel.'
-
-
 async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
     """Build the system prompt as clean H1 blocks.
 
@@ -220,7 +177,7 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
     harness Memory capability injects a bounded notebook snapshot per request
     and owns the read/write/search tools (FEAT-260718-30d45a). Channel
     guidance and the A2UI catalog are the channel capability's instructions
-    (:mod:`marcel_core.capabilities.channel`, FEAT-260720-089958), appended
+    (:mod:`marcel_core.channels.capability`, FEAT-260720-089958), appended
     by the composition root right before the Memory block.
 
     The ``query`` argument is kept for API compatibility but is no longer

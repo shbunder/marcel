@@ -98,7 +98,7 @@ It returns a short confirmation string with the artifact id, or an error message
 
 ### Channel gating
 
-The channel capability (`capabilities/channel/`) only advertises the A2UI component catalog to channels that can actually render it. The `channel_supports_rich_ui(channel)` helper in `channels/adapter.py` is the single source of truth — it currently returns `True` for `telegram`, `websocket`, `app`, `ios`, and `macos`, and `False` for `cli` and `job`. Text-only channels never see the `## A2UI Components` section in their prompt and therefore never call `marcel(action="render")`.
+The channel capability (`channels/capability.py`) only advertises the A2UI component catalog to channels that can actually render it. The `channel_supports_rich_ui(channel)` helper in `channels/adapter.py` is the single source of truth — it currently returns `True` for `telegram`, `websocket`, `app`, `ios`, and `macos`, and `False` for `cli` and `job`. Text-only channels never see the `## A2UI Components` section in their prompt and therefore never call `marcel(action="render")`.
 
 When adding a new rich-UI channel, update `_RICH_UI_CHANNELS` in `channels/adapter.py` to pick up the gating automatically.
 
