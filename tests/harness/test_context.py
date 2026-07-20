@@ -255,7 +255,7 @@ class TestBuildInstructionsAsync:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path / 'zoo'))
 
-        from marcel_core.capabilities.channel import build_channel_capability
+        from marcel_core.channels.capability import build_channel_capability
 
         # The catalog rides the channel capability now (FEAT-260720-089958).
         cap = build_channel_capability('telegram', 'shaun')
@@ -284,7 +284,7 @@ class TestBuildInstructionsAsync:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path / 'zoo'))
 
-        from marcel_core.capabilities.channel import build_channel_capability
+        from marcel_core.channels.capability import build_channel_capability
 
         cap = build_channel_capability('cli', 'shaun')
         assert 'A2UI Components' not in _cap_text(cap)

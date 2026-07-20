@@ -18,7 +18,6 @@ src/marcel_core/
     policy/        # MarcelPolicy — tool interception via the turn's event bus
     execution/     # SandboxedShell (bwrap), FilteredFileSystem, CodeMode wiring
     persistence/   # MarcelStepStore (runs ledger, snapshot deltas), converters, spill store
-    channel/       # channel guidance + A2UI catalog as capability instructions
     memory/        # per-user notebook stores for the harness Memory capability
     subagents/     # SubagentDoc parsing + SubAgents delegation wiring
   api/
@@ -38,8 +37,10 @@ src/marcel_core/
     history.py       # Message types (HistoryMessage, ToolCall)
     pastes.py        # Content-addressed paste store (backend for spilled tool results)
   channels/
-    adapter.py     # ChannelAdapter protocol — generic event dispatch
-    websocket.py   # WebSocket channel adapter
+    adapter.py     # ChannelAdapter protocol — generic event dispatch (transport)
+    websocket.py   # WebSocket channel adapter (transport)
+    capability.py  # channel guidance + A2UI catalog as capability instructions
+    prompts/       # bundled per-channel prompt files (cli, websocket, ios, app, job)
     telegram/      # Telegram webhook, bot client, formatting, session state
   tools/
     core.py        # git_* tools (shell/file surfaces are capabilities — see capabilities/execution)
@@ -145,7 +146,8 @@ For each conversation turn:
    - `# Marcel — who you are` — global MARCEL.md (H1 + self-ref blockquote stripped)
    - `# <User> — who the user is` — profile body (+ server context H2 for admin)
    - `# A2UI Components` and `# <Channel> — how to respond` ride the
-     **channel capability** (`capabilities/channel/`, FEAT-260720-089958) —
+     **channel capability** (`channels/capability.py`, FEAT-260720-089958;
+     domain-owns-factory convention, ADR-260720-f23f23) —
      same text, contributed as capability instructions right before the
      Memory block (see [A2UI Components](a2ui-components.md))
 

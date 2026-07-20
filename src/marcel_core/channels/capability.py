@@ -1,5 +1,12 @@
 """Channel guidance as a pydantic-ai capability (FEAT-260720-089958).
 
+Lives in the ``channels`` domain package per the convention decided in
+ADR-260720-f23f23: a domain package owns its capability factory
+(``skills/capability.py``, ``connectors/toolset.py``, this module);
+``capabilities/`` hosts run-shaping packages with no other domain home.
+The bundled per-channel prompt files live beside it in
+``channels/prompts/``.
+
 The channel's agent-side influence — the ``# <Channel> — how to respond``
 guidance block and, for rich-UI channels, the A2UI component catalog — rides
 as one eager :class:`~pydantic_ai.capabilities.Capability` attached by the
@@ -23,6 +30,51 @@ if TYPE_CHECKING:
     from pydantic_ai.capabilities import Capability
 
     from marcel_core.harness.context import MarcelDeps
+
+import logging
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+_CHANNEL_PROMPTS_DIR = Path(__file__).resolve().parent / 'prompts'
+
+
+def load_channel_prompt(channel: str) -> str:
+    """Load channel-specific prompt from the data root, falling back to the kernel bundle.
+
+    Looks for ``<data_root>/channels/<channel>.md`` first (user-editable),
+    then falls back to the bundled kernel prompt at
+    ``src/marcel_core/channels/prompts/<channel>.md``.
+
+    Args:
+        channel: The channel name (e.g., 'telegram', 'cli').
+
+    Returns:
+        The channel prompt body text (frontmatter stripped).
+    """
+    from marcel_core.harness.marcelmd import _strip_channel_preamble
+    from marcel_core.skills.loader import _parse_frontmatter
+
+    # 1. User-editable override in data root
+    try:
+        from marcel_core.config import settings
+
+        data_channel = settings.data_dir / 'channels' / f'{channel}.md'
+        if data_channel.exists():
+            _, body = _parse_frontmatter(data_channel.read_text(encoding='utf-8'))
+            return _strip_channel_preamble(body).strip()
+    except Exception:
+        log.debug('Could not check data root channel prompt for %s', channel, exc_info=True)
+
+    # 2. Kernel-bundled prompt for kernel channel types (cli, ws, ios, app, job)
+    bundled = _CHANNEL_PROMPTS_DIR / f'{channel}.md'
+    if bundled.exists():
+        _, body = _parse_frontmatter(bundled.read_text(encoding='utf-8'))
+        return _strip_channel_preamble(body).strip()
+
+    # 3. Generic fallback — keep as plain guidance (no preamble to strip)
+    return f'Respond in a format appropriate for the {channel} channel.'
+
 
 _A2UI_PREAMBLE = (
     'Prefer these structured components over plain-text summaries when the data '
@@ -48,7 +100,6 @@ def build_channel_capability(
     from pydantic_ai.capabilities import Capability
 
     from marcel_core.channels.adapter import channel_supports_rich_ui
-    from marcel_core.harness.context import load_channel_prompt
 
     blocks: list[str] = []
 

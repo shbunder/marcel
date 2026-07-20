@@ -61,7 +61,7 @@ def channel_supports_rich_ui(channel: str) -> bool:
        macos) that have no plugin module.
     3. Otherwise ``False``.
 
-    Used by the channel capability (``capabilities/channel/``) to decide
+    Used by the channel capability (``channels/capability.py``) to decide
     whether its instructions carry the A2UI component catalog. Text-only
     channels (cli, job) should not be told about components they cannot
     render.
