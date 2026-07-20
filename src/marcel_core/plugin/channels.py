@@ -187,6 +187,19 @@ def channel_has_rich_ui(name: str) -> bool | None:
     return plugin.capabilities.rich_ui
 
 
+def channel_registered_interaction_profile(name: str) -> str | None:
+    """Return the registered ``interaction_profile`` for *name*, or ``None``.
+
+    Three-valued like :func:`channel_has_rich_ui`: ``None`` means "not a
+    registered plugin" so the caller falls back to the built-in default
+    (FEAT-260707-89a886).
+    """
+    plugin = _registry.get(name)
+    if plugin is None:
+        return None
+    return plugin.capabilities.interaction_profile
+
+
 def discover() -> None:
     """Discover external channel habitats from ``<MARCEL_ZOO_DIR>/channels/``.
 

@@ -190,7 +190,7 @@ full fidelity; each request pays only for what the stack lets through.
 
 ### Continuous conversation model
 
-Marcel uses a single continuous conversation per (user, channel) pair. There are no sessions — the conversation never ends. Instead, it's managed through **segments** and **rolling summaries**:
+Marcel keeps one conversation substrate per (user, channel) pair — **segments** + **rolling summaries** — and adapts sealing to the channel's **interaction profile** (FEAT-260707-89a886, ADR-260707-ac8f49). A `continuous` channel (Telegram) rolls indefinitely, sealing on idle or context budget; a `session` channel (CLI, the web app) seals + summarizes once at session end (disconnect/idle) so the next session starts from the summary. Same files, one summarizer, two seal boundaries:
 
 - **Segments**: The active conversation is stored as append-only JSONL segments. When a segment reaches 500 messages or 500KB, it rotates to a new file.
 - **Idle summarization**: When the conversation is idle for 60+ minutes, the active segment is sealed, tool results are stripped, and a Haiku-generated summary is saved. The summary incorporates the previous summary, creating a **rolling summary chain** that preserves the full conversation arc while naturally fading old details.

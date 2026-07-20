@@ -38,6 +38,27 @@ class ChannelCapabilities:
     attachments: bool = False
     """Can receive/send files."""
 
+    interaction_profile: str = 'continuous'
+    """How the channel's conversation is sealed (FEAT-260707-89a886).
+
+    ``continuous`` (default — every existing channel) keeps one rolling
+    conversation that seals on idle/budget only (Telegram threads spanning
+    months). ``session`` channels have an explicit end — client disconnect
+    or idle — at which the segment is sealed + summarized once, so the next
+    session starts from the rolling summary instead of replaying the whole
+    prior transcript (ADR-260707-ac8f49).
+    """
+
+    def __post_init__(self) -> None:
+        if self.interaction_profile not in ('continuous', 'session'):
+            raise ValueError(f"interaction_profile must be 'continuous' or 'session', not {self.interaction_profile!r}")
+
+
+# Channels whose interaction is inherently session-scoped without a registered
+# plugin — a CLI invocation ends, a WebSocket connection closes. Native app
+# clients (app/ios/macos) and messaging (telegram) stay continuous.
+_BUILTIN_SESSION_CHANNELS = frozenset({'cli', 'websocket'})
+
 
 # Built-in rich-UI channels the kernel knows about without a registered
 # plugin — native clients (app, ios, macos) consume the /api/components
@@ -72,6 +93,41 @@ def channel_supports_rich_ui(channel: str) -> bool:
     if registered is not None:
         return registered
     return channel in _BUILTIN_RICH_UI_CHANNELS
+
+
+def channel_interaction_profile(channel: str) -> str:
+    """The channel's interaction profile — ``continuous`` or ``session``.
+
+    Resolution mirrors :func:`channel_supports_rich_ui`: a registered
+    :class:`~marcel_core.plugin.channels.ChannelPlugin`'s declared profile
+    wins; otherwise the built-in session set (cli, websocket); otherwise
+    ``continuous`` (FEAT-260707-89a886). ``session`` channels seal +
+    summarize at session end (see :func:`seal_session_if_needed`).
+    """
+    from marcel_core.plugin.channels import channel_registered_interaction_profile
+
+    registered = channel_registered_interaction_profile(channel)
+    if registered is not None:
+        return registered
+    return 'session' if channel in _BUILTIN_SESSION_CHANNELS else 'continuous'
+
+
+async def seal_session_if_needed(user_slug: str, channel: str) -> bool:
+    """Seal + summarize at a session boundary, for ``session`` channels only.
+
+    Called at an observable session end (a WebSocket disconnect). A
+    ``continuous`` channel keeps rolling — its sealing stays idle/budget
+    driven — so this is a no-op for it. Returns True if a seal happened.
+    """
+    if channel_interaction_profile(channel) != 'session':
+        return False
+    from marcel_core.storage.conversation import has_active_content
+
+    if not has_active_content(user_slug, channel):
+        return False
+    from marcel_core.memory.summarizer import summarize_active_segment
+
+    return await summarize_active_segment(user_slug, channel, trigger='session_end')
 
 
 class ChannelAdapter(Protocol):

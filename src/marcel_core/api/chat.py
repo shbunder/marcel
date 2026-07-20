@@ -50,6 +50,7 @@ async def chat(websocket: WebSocket) -> None:
     adapter = WebSocketAdapter(websocket)
     authenticated = False
     forced_user_slug: str | None = None
+    last_seen: tuple[str, str] | None = None  # (user_slug, channel) for the session-end seal
 
     try:
         while True:
@@ -99,6 +100,7 @@ async def chat(websocket: WebSocket) -> None:
 
             conversation_id: str | None = data.get('conversation')
             channel: str = data.get('channel', 'cli')
+            last_seen = (user_slug, channel)
             model: str | None = data.get('model') or None
             cwd: str | None = data.get('cwd') or None
 
@@ -158,6 +160,16 @@ async def chat(websocket: WebSocket) -> None:
 
     except WebSocketDisconnect:
         log.info('chat: websocket disconnected')
+        # A WebSocket close is an observable session boundary: for a
+        # session-profile channel, seal + summarize once so the next
+        # session starts from the summary (FEAT-260707-89a886).
+        if last_seen is not None:
+            from marcel_core.channels.adapter import seal_session_if_needed
+
+            try:
+                await seal_session_if_needed(*last_seen)
+            except Exception:
+                log.exception('chat: session-end seal failed for %s', last_seen)
     except BaseException as exc:
         log.exception('chat: unexpected error (%s) — websocket will close', type(exc).__name__)
         # Make the documented close real. Returning here lets Starlette's
