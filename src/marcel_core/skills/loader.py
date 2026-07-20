@@ -398,7 +398,17 @@ def load_skills(user_slug: str | None, role: str = 'user') -> list[SkillDoc]:
                 )
             by_name[doc.name] = doc
 
-    visible = [d for d in by_name.values() if d.role is None or d.role == role]
+    # Availability = role ∧ enablement ∧ configuration (ADR-260707-c9919f).
+    # Enablement filters here — the loader choke point — so a scoped-out
+    # user's build never contains the skill anywhere downstream
+    # (FEAT-260707-acb2b6). The None view (boot/global) is unfiltered.
+    from marcel_core.marketplace.enablement import enabled_for
+
+    visible = [
+        d
+        for d in by_name.values()
+        if (d.role is None or d.role == role) and enabled_for('skills', d.name, user_slug, role)
+    ]
     return sorted(visible, key=lambda d: d.name)
 
 

@@ -44,6 +44,11 @@ def main(argv: list[str] | None = None) -> int:
     p_remove = sub.add_parser('remove')
     p_remove.add_argument('--kind', required=True, choices=('skill', 'connector'))
     p_remove.add_argument('--name', required=True)
+    for verb in ('enable', 'disable'):
+        p_en = sub.add_parser(verb)
+        p_en.add_argument('--kind', required=True, choices=('skill', 'connector'))
+        p_en.add_argument('--name', required=True)
+        p_en.add_argument('--user', required=True)
     args = parser.parse_args(argv)
 
     try:
@@ -71,6 +76,11 @@ def main(argv: list[str] | None = None) -> int:
         elif args.action == 'remove':
             commit = installer.remove(args.kind, args.name, **_WHO)
             print(f'removed (commit {commit[:12]})')
+        elif args.action in ('enable', 'disable'):
+            from marcel_core.marketplace import enablement
+
+            fn = enablement.enable if args.action == 'enable' else enablement.disable
+            print(fn(f'{args.kind}s', args.name, args.user))
     except (installer.InstallError, FetchError, ValueError) as exc:
         print(f'error: {exc}', file=sys.stderr)
         return 1

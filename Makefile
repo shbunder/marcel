@@ -286,3 +286,11 @@ marketplace-update:  ## Update (reviewed): make marketplace-update KIND=skill|co
 marketplace-remove:  ## Remove: make marketplace-remove KIND=skill|connector NAME=<habitat>
 	uv run python -m marcel_core.marketplace.cli remove --kind $(KIND) --name $(NAME)
 
+.PHONY: enable-habitat disable-habitat
+
+enable-habitat:  ## Enable for a user: make enable-habitat KIND=skill|connector NAME=<habitat> USER=<slug>
+	uv run python -m marcel_core.marketplace.cli enable --kind $(KIND) --name $(NAME) --user $(USER)
+
+disable-habitat:  ## Disable for a user: make disable-habitat KIND=skill|connector NAME=<habitat> USER=<slug>
+	uv run python -m marcel_core.marketplace.cli disable --kind $(KIND) --name $(NAME) --user $(USER)
+

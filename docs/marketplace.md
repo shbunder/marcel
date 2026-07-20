@@ -15,11 +15,14 @@ the two adults and invisible to the kids. On top of enablement sits per-user
 *configuration* — an enabled-but-unlinked connector serves its SETUP flow
 instead of tools.
 
-!!! note
-    This page covers **available → installed** (the marketplace,
-    FEAT-260718-210a5f). Enablement *enforcement* — actually filtering
-    catalogs by the manifest — lands with FEAT-260707-acb2b6; until then the
-    manifest is seeded but advisory.
+Enablement is **enforced** (FEAT-260707-acb2b6): the skills and connectors
+loaders filter by the manifest per build, so a scoped-out user's Marcel
+simply never contains the habitat — no catalog entry, no tools, no job
+resolution. **Availability = role ∧ enablement ∧ configuration**: the
+habitat's author declares the role requirement, the household manifest
+declares enablement, and the user's own linking/credentials decide
+configuration (an enabled-but-unlinked connector serves its SETUP flow).
+A malformed manifest entry fails closed as admin-only with a loud log.
 
 ## Trusted sources — `sources.yaml`
 
@@ -57,7 +60,14 @@ make marketplace-browse SOURCE=anthropic-skills
 make marketplace-install SOURCE=anthropic-skills NAME=slack-gif-creator
 make marketplace-update KIND=skill NAME=slack-gif-creator
 make marketplace-remove KIND=skill NAME=slack-gif-creator
+make enable-habitat KIND=skill NAME=slack-gif-creator USER=kiddo
+make disable-habitat KIND=skill NAME=slack-gif-creator USER=kiddo
 ```
+
+Enable/disable edit the manifest atomically and apply on the next turn —
+no restart. Disabling from the everyone-default writes the explicit
+everyone-but-that-user list (the manifest's two legal shapes are `all` and
+a named list).
 
 **Browsing is read-only**: candidates are listed by parsing text
 (frontmatter, JSON catalogs) — nothing from a source is imported or executed,

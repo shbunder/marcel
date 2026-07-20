@@ -165,7 +165,15 @@ def load_connectors(user_slug: str | None, role: str = 'user') -> list[Connector
                 )
             by_name[doc.name] = doc
 
-    visible = [d for d in by_name.values() if d.config.scope is Scope.ALL or role == 'admin']
+    # Availability = role ∧ enablement ∧ configuration (ADR-260707-c9919f);
+    # same choke-point enforcement as the skills loader (FEAT-260707-acb2b6).
+    from marcel_core.marketplace.enablement import enabled_for
+
+    visible = [
+        d
+        for d in by_name.values()
+        if (d.config.scope is Scope.ALL or role == 'admin') and enabled_for('connectors', d.name, user_slug, role)
+    ]
     return sorted(visible, key=lambda d: d.name)
 
 
