@@ -61,9 +61,10 @@ def channel_supports_rich_ui(channel: str) -> bool:
        macos) that have no plugin module.
     3. Otherwise ``False``.
 
-    Used by the harness to decide whether to inject the A2UI component
-    catalog into the system prompt. Text-only channels (cli, job) should
-    not be told about components they cannot render.
+    Used by the channel capability (``capabilities/channel/``) to decide
+    whether its instructions carry the A2UI component catalog. Text-only
+    channels (cli, job) should not be told about components they cannot
+    render.
     """
     from marcel_core.plugin.channels import channel_has_rich_ui
 

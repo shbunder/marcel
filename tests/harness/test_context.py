@@ -82,6 +82,11 @@ class TestBuildServerContext:
 # ---------------------------------------------------------------------------
 
 
+def _cap_text(cap) -> str:
+    """The attribute is the decorator method — read via get_instructions()."""
+    return '\n'.join(str(part) for part in (cap.get_instructions() or []))
+
+
 class TestBuildInstructions:
     def test_includes_user_slug(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
@@ -89,17 +94,13 @@ class TestBuildInstructions:
         result = build_instructions(deps)
         assert 'alice' in result
 
-    def test_includes_channel_hint(self, tmp_path, monkeypatch):
+    def test_channel_guidance_left_the_prompt_builder(self, tmp_path, monkeypatch):
+        """Channel guidance rides the channel capability now
+        (FEAT-260720-089958) — the prompt builder emits no channel block."""
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         deps = MarcelDeps(user_slug='bob', conversation_id='conv-1', channel='telegram')
         result = build_instructions(deps)
-        assert 'telegram' in result.lower()
-
-    def test_cli_channel_hint(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
-        deps = MarcelDeps(user_slug='bob', conversation_id='conv-1', channel='cli')
-        result = build_instructions(deps)
-        assert 'markdown' in result.lower()
+        assert 'how to respond' not in result
 
     def test_admin_role_includes_server_context(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
@@ -124,7 +125,7 @@ class TestBuildInstructions:
         result = build_instructions(deps)
         assert 'Carol is a data scientist.' in result
 
-    def test_unknown_channel_falls_back_to_cli_hint(self, tmp_path, monkeypatch):
+    def test_unknown_channel_still_builds_identity_blocks(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         deps = MarcelDeps(user_slug='bob', conversation_id='conv-1', channel='unknown-channel')
         result = build_instructions(deps)
@@ -132,7 +133,7 @@ class TestBuildInstructions:
         assert 'bob' in result
 
     @pytest.mark.parametrize('channel', ['cli', 'app', 'ios', 'telegram', 'websocket'])
-    def test_all_known_channels(self, tmp_path, monkeypatch, channel):
+    def test_builder_is_channel_agnostic(self, tmp_path, monkeypatch, channel):
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         deps = MarcelDeps(user_slug='user', conversation_id='conv-1', channel=channel)
         result = build_instructions(deps)
@@ -158,13 +159,13 @@ class TestBuildInstructionsAsync:
         monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
         deps = MarcelDeps(user_slug='dan', conversation_id='conv-1', channel='cli')
         result = await build_instructions_async(deps)
-        # On a non-rich channel the blocks are, in order: Marcel / user / channel.
-        # Skills left the prompt entirely — they are deferred capabilities now
-        # (FEAT-260718-85b545); memory left it too (FEAT-260718-30d45a).
+        # The builder emits exactly the identity blocks, in order. Skills are
+        # deferred capabilities (FEAT-260718-85b545), memory is the Memory
+        # capability (FEAT-260718-30d45a), and channel guidance + A2UI are
+        # the channel capability (FEAT-260720-089958).
         headers = (
             '# Marcel — who you are',
             '# Dan — who the user is',
-            '# Cli — how to respond',
         )
         for header in headers:
             assert header in result
@@ -172,6 +173,7 @@ class TestBuildInstructionsAsync:
         assert positions == sorted(positions)
         assert '# Skills — what you can do' not in result
         assert '# Memory — what you should know' not in result
+        assert 'how to respond' not in result
 
     @pytest.mark.asyncio
     async def test_memory_never_in_prompt(self, tmp_path, monkeypatch):
@@ -198,12 +200,11 @@ class TestBuildInstructionsAsync:
         # Server context is present as an H2 (not H1)
         assert '## Server context' in result
 
-        # And it appears AFTER the user H1 and BEFORE the next H1 (the channel
-        # block — there is no Skills block anymore).
+        # And it appears AFTER the user H1 (the last block — channel guidance
+        # left the builder for the channel capability).
         user_h1 = result.index('# Admin — who the user is')
         server_h2 = result.index('## Server context')
-        channel_h1 = result.index('# Cli — how to respond')
-        assert user_h1 < server_h2 < channel_h1
+        assert user_h1 < server_h2
 
     @pytest.mark.asyncio
     async def test_non_admin_omits_server_context(self, tmp_path, monkeypatch):
@@ -224,9 +225,9 @@ class TestBuildInstructionsAsync:
         result = await build_instructions_async(deps)
 
         # The wrapper H1 should be present exactly once under the Shaun block
+        # (the user block is the final block now — slice to end of string).
         shaun_block_start = result.index('# Shaun — who the user is')
-        next_block_start = result.index('# Cli')
-        shaun_block = result[shaun_block_start:next_block_start]
+        shaun_block = result[shaun_block_start:]
 
         # Only the wrapper H1 — not the profile's own '# Shaun'
         assert shaun_block.count('# Shaun') == 1
@@ -254,14 +255,19 @@ class TestBuildInstructionsAsync:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path / 'zoo'))
 
+        from marcel_core.capabilities.channel import build_channel_capability
+
+        # The catalog rides the channel capability now (FEAT-260720-089958).
+        cap = build_channel_capability('telegram', 'shaun')
+        text = _cap_text(cap)
+        assert '# A2UI Components' in text
+        assert 'transaction_list' in text
+        assert 'marcel(action="render"' in text
+        assert '# Telegram — how to respond' in text
+
         deps = MarcelDeps(user_slug='shaun', conversation_id='conv-1', channel='telegram')
         result = await build_instructions_async(deps)
-
-        # A2UI components are their own H1 block now (promoted out of the old
-        # Skills block — FEAT-260718-85b545).
-        assert '# A2UI Components' in result
-        assert 'transaction_list' in result
-        assert 'marcel(action="render"' in result
+        assert 'A2UI Components' not in result  # and left the builder
 
     @pytest.mark.asyncio
     async def test_cli_channel_omits_a2ui_catalog(self, tmp_path, monkeypatch):
@@ -278,7 +284,8 @@ class TestBuildInstructionsAsync:
         )
         monkeypatch.setattr(settings, 'marcel_zoo_dir', str(tmp_path / 'zoo'))
 
-        deps = MarcelDeps(user_slug='shaun', conversation_id='conv-1', channel='cli')
-        result = await build_instructions_async(deps)
+        from marcel_core.capabilities.channel import build_channel_capability
 
-        assert 'A2UI Components' not in result
+        cap = build_channel_capability('cli', 'shaun')
+        assert 'A2UI Components' not in _cap_text(cap)
+        assert '# Cli — how to respond' in _cap_text(cap)

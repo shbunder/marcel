@@ -213,40 +213,26 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
     Structure:
         # Marcel — who you are           (global MARCEL.md, H1 + self-ref blockquote stripped)
         # <user> — who the user is       (profile body, with server-context H2 folded in for admin)
-        # A2UI Components — …            (rich-UI channels only — the component render catalog)
-        # <channel> — how to respond     (channel guidance, preamble stripped)
 
     Skills are no longer a prompt block: they are deferred capabilities
     (FEAT-260718-85b545), so the framework injects the capability catalog and
     owns ``load_capability``. Memory is likewise not a prompt block — the
     harness Memory capability injects a bounded notebook snapshot per request
-    and owns the read/write/search tools (FEAT-260718-30d45a).
+    and owns the read/write/search tools (FEAT-260718-30d45a). Channel
+    guidance and the A2UI catalog are the channel capability's instructions
+    (:mod:`marcel_core.capabilities.channel`, FEAT-260720-089958), appended
+    by the composition root right before the Memory block.
 
     The ``query`` argument is kept for API compatibility but is no longer
     used (pre-selection retired with ISSUE-068; the skill index block with
     FEAT-260718-85b545).
     """
-    from marcel_core.channels.adapter import channel_supports_rich_ui
     from marcel_core.harness.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
-    from marcel_core.skills.loader import format_components_catalog, load_skills
     from marcel_core.storage import load_user_profile
 
     # -- Load everything up front (cheap file reads) ------------------------
     marcelmd = format_marcelmd_for_prompt(load_marcelmd_files(deps.user_slug))
     profile = load_user_profile(deps.user_slug).strip()
-
-    # Skills are deferred capabilities now (FEAT-260718-85b545): the
-    # framework injects the catalog and owns load_capability, so the prompt
-    # carries no skill index. Only the A2UI component catalog stays eager —
-    # it feeds the channel's rich-UI rendering, not skill disclosure.
-    components_catalog = (
-        format_components_catalog(load_skills(deps.user_slug, deps.role))
-        if channel_supports_rich_ui(deps.channel)
-        else ''
-    )
-
-    channel_prompt = load_channel_prompt(deps.channel)
-    channel_label = deps.channel.capitalize()
 
     # -- Assemble the H1 blocks ---------------------------------------------
     blocks: list[str] = []
@@ -269,46 +255,23 @@ async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
         user_block += ['', build_server_context(deps.cwd)]
     blocks.append('\n'.join(user_block).rstrip())
 
-    # Block 3: A2UI components (rich-UI channels only)
-    if components_catalog:
-        blocks.append(
-            '\n'.join(
-                [
-                    '# A2UI Components — how to show rich content',
-                    '',
-                    'Prefer these structured components over plain-text summaries when the data '
-                    'fits one of them. Emit via `marcel(action="render", component="...", props={...})` — '
-                    'do NOT write the component JSON directly in your reply. On Telegram the user gets a '
-                    '"View in app" button that opens the Mini App and renders the component natively.',
-                    '',
-                    components_catalog,
-                ]
-            ).rstrip()
-        )
-
-    # Block 4: how to respond (channel guidance)
-    channel_block = [f'# {channel_label} — how to respond']
-    if channel_prompt:
-        channel_block += ['', channel_prompt]
-    blocks.append('\n'.join(channel_block).rstrip())
-
     return '\n\n'.join(blocks)
 
 
 def build_instructions(deps: MarcelDeps) -> str:
-    """Sync fallback for the four-block system prompt.
+    """Sync fallback for the H1-block system prompt.
 
     Used during Agent initialization when the async builder is not
     available. Produces the same H1 structure as
-    :func:`build_instructions_async` — the two must not diverge.
+    :func:`build_instructions_async` — the two must not diverge. Channel
+    guidance is the channel capability's job on both paths
+    (FEAT-260720-089958).
     """
     from marcel_core.harness.marcelmd import format_marcelmd_for_prompt, load_marcelmd_files
     from marcel_core.storage import load_user_profile
 
     marcelmd = format_marcelmd_for_prompt(load_marcelmd_files(deps.user_slug))
     profile = load_user_profile(deps.user_slug).strip()
-    channel_prompt = load_channel_prompt(deps.channel)
-    channel_label = deps.channel.capitalize()
 
     blocks: list[str] = []
 
@@ -329,10 +292,5 @@ def build_instructions(deps: MarcelDeps) -> str:
     blocks.append('\n'.join(user_block).rstrip())
 
     # Skills are deferred capabilities (FEAT-260718-85b545) — no prompt block.
-
-    channel_block = [f'# {channel_label} — how to respond']
-    if channel_prompt:
-        channel_block += ['', channel_prompt]
-    blocks.append('\n'.join(channel_block).rstrip())
 
     return '\n\n'.join(blocks)
