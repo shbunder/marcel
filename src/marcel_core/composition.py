@@ -125,6 +125,7 @@ def build_capabilities(
     connectors: bool = True,
     subagents: bool = True,
     tier: Tier | None = None,
+    channel: str | None = None,
 ) -> list[AbstractCapability[MarcelDeps]]:
     """Assemble the capability list for a Marcel agent.
 
@@ -217,6 +218,15 @@ def build_capabilities(
                 docs=skill_docs,
             )
         )
+    # Channel guidance (FEAT-260720-089958): the `# <Channel> — how to
+    # respond` block (+ the A2UI catalog on rich-UI channels) rides as an
+    # eager capability — placed before Memory so the prompt keeps its
+    # historical block order. Lean paths pass no channel and skip it.
+    if channel is not None:
+        from marcel_core.capabilities.channel import build_channel_capability
+
+        capabilities.append(build_channel_capability(channel, user_slug, role))
+
     if memory:
         capabilities.append(
             Memory(

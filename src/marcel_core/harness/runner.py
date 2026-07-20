@@ -491,6 +491,7 @@ async def stream_turn(
                     user_slug=user_slug,
                     eager_skill=eager_skill,
                     tier=current.tier,
+                    channel=channel,
                 )
             except Exception as exc:
                 log.warning(

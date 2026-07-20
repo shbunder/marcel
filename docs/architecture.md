@@ -18,6 +18,7 @@ src/marcel_core/
     policy/        # MarcelPolicy — tool interception via the turn's event bus
     execution/     # SandboxedShell (bwrap), FilteredFileSystem, CodeMode wiring
     persistence/   # MarcelStepStore (runs ledger, snapshot deltas), converters, spill store
+    channel/       # channel guidance + A2UI catalog as capability instructions
     memory/        # per-user notebook stores for the harness Memory capability
     subagents/     # SubagentDoc parsing + SubAgents delegation wiring
   api/
@@ -143,9 +144,10 @@ For each conversation turn:
 3. build_instructions_async() — assembles the H1 blocks:
    - `# Marcel — who you are` — global MARCEL.md (H1 + self-ref blockquote stripped)
    - `# <User> — who the user is` — profile body (+ server context H2 for admin)
-   - `# <Channel> — how to respond` — channel guidance (preamble stripped)
-   - `# A2UI Components` — component catalog, **rich-UI channels only**
-     (see [A2UI Components](a2ui-components.md))
+   - `# A2UI Components` and `# <Channel> — how to respond` ride the
+     **channel capability** (`capabilities/channel/`, FEAT-260720-089958) —
+     same text, contributed as capability instructions right before the
+     Memory block (see [A2UI Components](a2ui-components.md))
 
    Skills are no longer a prompt block. Each visible skill is a deferred
    pydantic-ai Capability, disclosed as a compact catalog plus a

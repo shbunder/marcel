@@ -207,6 +207,7 @@ def create_marcel_agent(
     connectors: bool = True,
     subagents: bool = True,
     tier: 'Tier | None' = None,
+    channel: str | None = None,
     extra_capabilities: Sequence[AbstractCapability[MarcelDeps]] | None = None,
 ) -> Agent[MarcelDeps, str]:
     """Create a configured Marcel agent with a role-appropriate tool set.
@@ -303,6 +304,7 @@ def create_marcel_agent(
         connectors=connectors,
         subagents=subagents,
         tier=tier,
+        channel=channel,
     )
     if extra_capabilities:
         capabilities.extend(extra_capabilities)
