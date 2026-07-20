@@ -36,6 +36,15 @@ log = logging.getLogger(__name__)
 MAX_SEGMENT_MESSAGES = 500
 MAX_SEGMENT_BYTES = 500 * 1024  # 500KB
 
+# Safety bound on the summarize-on-rotate queue (FEAT-260707-89a886). While
+# the summarizer is failing (circuit breaker open), rotation would otherwise
+# append unboundedly to pending_summary_segments, and load_context would
+# replay them all raw. Past this many pending segments we DEFER rotation
+# instead — the active segment keeps growing (its content stays in context)
+# and a loud log fires — so a summarizer outage degrades to "one large live
+# segment", never to unbounded queue growth or a context balloon.
+MAX_PENDING_SEGMENTS = 8
+
 # Summary cap for inclusion in context window.
 MAX_SUMMARY_TOKENS = 2000  # ~8000 chars at 4 chars/token
 MAX_SUMMARY_CHARS = MAX_SUMMARY_TOKENS * 4
@@ -399,6 +408,18 @@ def append_to_segment(
             line_count = sum(1 for _ in open(seg_path, 'r', encoding='utf-8') if _.strip())
             if line_count >= MAX_SEGMENT_MESSAGES:
                 needs_rotate = True
+
+    # Defer rotation while the summarize queue is saturated (summarizer outage)
+    # — keep the content in the active segment (and thus in context) rather
+    # than growing an unbounded pending queue (FEAT-260707-89a886 safety bound).
+    if needs_rotate and len(meta.pending_summary_segments) >= MAX_PENDING_SEGMENTS:
+        log.warning(
+            '%s-%s: deferring rotation — %d segments still awaiting summary (summarizer stalled?)',
+            user_slug,
+            channel,
+            len(meta.pending_summary_segments),
+        )
+        needs_rotate = False
 
     if needs_rotate:
         meta = _rotate_segment(user_slug, channel, meta)

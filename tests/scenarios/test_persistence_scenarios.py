@@ -164,3 +164,46 @@ class TestToolHistoryPersistsExactlyOnce:
             f'expected {tools_after_one} tool entries after 2 turns, found {len(tool_entries)}'
         )
         assert len(assistant_tool_calls) == calls_after_one
+
+
+class TestInteractionProfilesEndToEnd:
+    """Scenario: the two interaction profiles behave differently at a session
+    boundary over a real (scripted) turn loop (FEAT-260707-89a886, aa82d6)."""
+
+    async def test_session_channel_seals_at_session_end(self, terrarium):
+        from unittest.mock import AsyncMock, patch
+
+        from marcel_core.capabilities.persistence import persistence_store
+        from marcel_core.channels.adapter import seal_session_if_needed
+
+        terrarium.user('alice')
+        s = terrarium.scenario(reply('Noted the recipe.'), user='alice', channel='cli')
+        await s.run('save the lasagna recipe')
+
+        # Session end (a WebSocket disconnect calls this): cli is session-profile.
+        # The Haiku half is scripted — this scenario exercises the seal wiring.
+        with patch(
+            'marcel_core.memory.summarizer._generate_summary',
+            AsyncMock(return_value='Alice saved a lasagna recipe.'),
+        ):
+            sealed = await seal_session_if_needed('alice', 'cli')
+        assert sealed is True
+
+        # The next session starts from the summary, not the raw transcript.
+        context = await persistence_store().load_context('alice', 'cli')
+        rendered = str(context)
+        assert 'Previous conversation summary' in rendered
+        assert 'save the lasagna recipe' not in rendered
+
+    async def test_continuous_channel_ignores_session_end(self, terrarium):
+        from marcel_core.capabilities.persistence import persistence_store
+        from marcel_core.channels.adapter import seal_session_if_needed
+
+        terrarium.user('bob')
+        s = terrarium.scenario(reply('Got it.'), user='bob', channel='telegram')
+        await s.run('what did we discuss?')
+
+        # telegram is continuous — a session-end signal is a no-op, the thread rolls on.
+        assert await seal_session_if_needed('bob', 'telegram') is False
+        context = await persistence_store().load_context('bob', 'telegram')
+        assert 'what did we discuss?' in str(context)  # still verbatim, unsealed

@@ -131,3 +131,74 @@ class TestContinuousUnchanged:
         assert meta is not None
         assert meta.pending_summary_segments == []
         assert len(read_active_segment('shaun', 'telegram')) == 20
+
+
+class TestSummarizerFailureSafetyValve:
+    """The failure path (12dfc2 AC#3 / 31dae4 AC#4): when the summarizer can't
+    fold a rotated segment, its content must STILL be in context — replayed
+    raw — never silently absent."""
+
+    @pytest.mark.asyncio
+    async def test_unfolded_pending_replayed_raw_in_context(self, monkeypatch):
+        from marcel_core.capabilities.persistence.store import MarcelStepStore
+        from marcel_core.config import settings
+        from marcel_core.memory import summarizer
+
+        monkeypatch.setattr(settings, 'marcel_context_budget_tokens', 20)
+        monkeypatch.setattr(settings, 'marcel_idle_summarize_minutes', 9999)
+        ensure_channel('shaun', 'cli')
+        for i in range(6):
+            append_to_segment('shaun', 'cli', _msg(f'vital fact {i} the model must not lose during an outage'))
+        assert load_channel_meta('shaun', 'cli').pending_summary_segments  # type: ignore[union-attr]
+
+        # Summarizer is down (breaker open) — folding fails, pending stays.
+        state = summarizer._get_state('shaun', 'cli')
+        state.consecutive_failures = summarizer.MAX_SUMMARIZATION_FAILURES
+
+        context = await MarcelStepStore().load_context('shaun', 'cli')
+        rendered = str(context)
+        assert 'vital fact 0' in rendered  # raw-replayed, not dropped
+        assert load_latest_summary('shaun', 'cli') is None  # never got summarized
+        # Pending is retained for a later retry, not lost.
+        assert load_channel_meta('shaun', 'cli').pending_summary_segments  # type: ignore[union-attr]
+
+    def test_rotation_defers_when_pending_saturated(self, monkeypatch):
+        from marcel_core.config import settings
+        from marcel_core.storage.conversation import MAX_PENDING_SEGMENTS
+
+        monkeypatch.setattr(settings, 'marcel_context_budget_tokens', 20)
+        ensure_channel('shaun', 'cli')
+        # Force many rotations without any summary folding (nothing drains it).
+        for i in range(200):
+            append_to_segment('shaun', 'cli', _msg(f'padding message {i} long enough to rotate repeatedly here'))
+        pending = load_channel_meta('shaun', 'cli').pending_summary_segments  # type: ignore[union-attr]
+        assert len(pending) <= MAX_PENDING_SEGMENTS  # bounded, never unbounded
+
+
+class TestSessionRestartsFromSummary:
+    """aa82d6 AC#2: after a session-channel seal, the next session's built
+    context starts from the summary, not the raw transcript."""
+
+    @pytest.mark.asyncio
+    async def test_next_session_context_is_summary_not_transcript(self, monkeypatch):
+        from marcel_core.capabilities.persistence.store import MarcelStepStore
+        from marcel_core.channels.adapter import seal_session_if_needed
+        from marcel_core.config import settings
+
+        monkeypatch.setattr(settings, 'marcel_idle_summarize_minutes', 9999)
+        ensure_channel('shaun', 'cli')  # cli is a session-profile channel
+        for i in range(4):
+            append_to_segment('shaun', 'cli', _msg(f'SECRET_TOKEN_{i} said this session'))
+
+        with patch(
+            'marcel_core.memory.summarizer._generate_summary',
+            AsyncMock(return_value='The user shared some tokens in the prior session.'),
+        ):
+            assert await seal_session_if_needed('shaun', 'cli') is True
+
+        # Next session's context: summary present, raw transcript gone.
+        context = await MarcelStepStore().load_context('shaun', 'cli')
+        rendered = str(context)
+        assert 'Previous conversation summary' in rendered
+        assert 'shared some tokens' in rendered
+        assert 'SECRET_TOKEN_0' not in rendered  # not replaying the raw transcript

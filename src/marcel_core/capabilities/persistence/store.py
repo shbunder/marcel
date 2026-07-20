@@ -141,8 +141,30 @@ class MarcelStepStore:
         return model_messages
 
     def _conversation_state(self, user_slug: str, channel: str) -> list[ModelMessage]:
-        """Summary-prefixed provider-shaped view of the conversation."""
-        model_messages = messages_to_model(read_active_segment(user_slug, channel))
+        """Summary-prefixed provider-shaped view of the conversation.
+
+        Any segments still queued for summary (the summarizer failed to fold
+        them — circuit breaker open or a transient error) are replayed **raw**
+        ahead of the active segment, so their content is never absent from
+        context even during a summarizer outage (FEAT-260707-89a886). Once the
+        summarizer recovers, load_context folds them into the summary and this
+        raw replay stops.
+        """
+        from marcel_core.storage.conversation import load_channel_meta, read_segment
+
+        pending: list[ModelMessage] = []
+        meta = load_channel_meta(user_slug, channel)
+        if meta is not None and meta.pending_summary_segments:
+            for segment_id in meta.pending_summary_segments:
+                pending.extend(messages_to_model(read_segment(user_slug, channel, segment_id)))
+            log.info(
+                '%s-%s: replaying %d unfolded pending segment(s) raw (summarizer stalled)',
+                user_slug,
+                channel,
+                len(meta.pending_summary_segments),
+            )
+
+        model_messages = pending + messages_to_model(read_active_segment(user_slug, channel))
         latest_summary = load_latest_summary(user_slug, channel)
         if latest_summary:
             summary_text = latest_summary.summary

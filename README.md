@@ -20,7 +20,7 @@ As such the author basically wants to see how feasible such a setup is by experi
 
 Marcel is meant to run centrally on a home server, which means it requires a tech-savvy zoo keeper. This enables the family to have full control over their new pet. Just watch out with the police, I'm not sure keeping a pet Giraffe is allowed in every country. Ask Marcel for the legal implication. 
 
-Family members can interact with Marcel through traditional chat channels like Telegram. The result of using this means of communication is that Marcel works with one continuous conversation per channel, instead of being a multi-session agent. 
+Family members can interact with Marcel through traditional chat channels like Telegram. Marcel adapts its memory to the channel: messaging channels like Telegram run as one continuous conversation, while session channels (the CLI, the web app) start each session fresh-but-informed from a rolling summary of the last one.
 
 Ultimately Marcel should feel like just another member of the family, a brother maybe, that’s always locked-up in his room and that you never see at the dinner table. 
 

@@ -190,6 +190,15 @@ async def _summarize_segment_file(
     rotation). Strips tool results, generates a Haiku summary that chains the
     latest one, and saves it. Updates the circuit-breaker state.
     """
+    # Idempotency: a crash between save_summary and the pending dequeue would
+    # otherwise re-summarize an already-summarized segment, chaining it onto
+    # its own summary. Skip (and let the caller dequeue) if one exists.
+    from marcel_core.storage.conversation import load_summary
+
+    if load_summary(user_slug, channel, segment_id) is not None:
+        log.debug('%s-%s: %s already summarized — skipping', user_slug, channel, segment_id)
+        return True
+
     messages = read_segment(user_slug, channel, segment_id)
     if not messages:
         return False
