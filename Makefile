@@ -180,6 +180,13 @@ zoo-docker-sync: zoo-sync zoo-docker-deps ## Pull the zoo (host) and refresh dep
 # Onboarding
 DATA_DIR ?= $(HOME)/.marcel
 
+# Clear the inherited $USER. Make imports the environment as make variables, and
+# every login shell sets USER — so `if [ -z "$(USER)" ]` in the targets below was
+# never empty and never fired. A bare `make remove-user` archived the operator's
+# own account (STORY-260721-02e4f9). A simple assignment beats the environment but
+# loses to the command line, so `make add-user USER=alice` still works.
+USER :=
+
 .PHONY: add-user
 add-user: ## Onboard a user — profile, role, memory dir (usage: make add-user USER=alice [ROLE=admin])
 	@if [ -z "$(USER)" ]; then \
