@@ -167,6 +167,12 @@ def build_server_context(cwd: str | None = None) -> str:
 async def build_instructions_async(deps: MarcelDeps, query: str = '') -> str:
     """Build the system prompt as clean H1 blocks.
 
+    Identity/profile assembly deliberately stays a constructor argument
+    rather than a Capability: migration would break the BeforeAgentStartEvent
+    prompt-rewrite seam and wrap a non-removable block in composability
+    machinery it cannot use (ADR-260721-4b5cfc). Optional instruction blocks
+    (channel guidance, memory, skills) are capabilities.
+
     Structure:
         # Marcel — who you are           (global MARCEL.md, H1 + self-ref blockquote stripped)
         # <user> — who the user is       (profile body, with server-context H2 folded in for admin)

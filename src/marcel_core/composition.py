@@ -14,7 +14,7 @@ from pathlib import Path
 
 from pydantic_ai.capabilities import AbstractCapability, Instrumentation, ToolSearch
 from pydantic_ai_harness.code_mode import CodeMode
-from pydantic_ai_harness.compaction import ClampOversizedMessages, ClearToolResults
+from pydantic_ai_harness.compaction import ClampOversizedMessages, ClearToolResults, DeduplicateFileReads
 from pydantic_ai_harness.memory import Memory
 from pydantic_ai_harness.overflowing_tool_output import (
     Band,
@@ -95,6 +95,23 @@ FILESYSTEM_DENIED_READ_PATTERNS = (
     '**/credentials.enc',
 )
 
+
+def _read_file_key(call) -> str | None:
+    """Dedup key for FileSystem ``read_file`` calls — ``None`` for all others.
+
+    Includes offset/limit so only an *identical* read window supersedes an
+    earlier one; a windowed read may hold content the latest full read's
+    truncation does not, and a wrong key drops live data.
+    """
+    if call.tool_name != 'read_file':
+        return None
+    args = call.args_as_dict()
+    path = args.get('path')
+    if not path:
+        return None
+    return f'{path}#{args.get("offset", 0)}:{args.get("limit")}'
+
+
 # Tool names contributed by the admin-only capabilities — unioned into
 # admin_tool_names() so the event-bus role gate (layer 2) covers them.
 SHELL_TOOL_NAMES = frozenset({'run_command', 'start_command', 'check_command', 'stop_command'})
@@ -163,6 +180,18 @@ def build_capabilities(
             exclude_tools=frozenset({'marcel'}),
         ),
     ]
+    # Registry tool bundles (FEAT-260721-51f9e3, domain-owns-factory): each
+    # domain declares its tools next to its factory; the aggregate in
+    # harness/agent.py stays the role-gate source of truth. All-user bundles
+    # here; admin bundles in the admin block below — the structural gate is
+    # "the bundle is never composed", same as the old registration loop.
+    from marcel_core.jobs.capability import build_jobs_tool_capability
+    from marcel_core.tools.capability import build_utility_tool_capability
+
+    for bundle in (build_utility_tool_capability(role, tool_filter), build_jobs_tool_capability(role, tool_filter)):
+        if bundle is not None:
+            capabilities.append(bundle)
+
     # Connectors are loaded once and shared: the catalog feeds both the
     # connector capabilities and the skill→connector bundling below, so a
     # skill naming a connector in `marcel-connectors` activates it as part of
@@ -309,6 +338,16 @@ def build_capabilities(
         # specific tools, the capability toolset is narrowed to that subset
         # so a read-only subagent (``tools: [read_file]``) never gains
         # write_file — the role-gating "keep allowlists tight" contract.
+        from marcel_core.marketplace.capability import build_marketplace_tool_capability
+        from marcel_core.tools.capability import build_dev_tool_capability
+
+        for bundle in (
+            build_dev_tool_capability(role, tool_filter),
+            build_marketplace_tool_capability(role, tool_filter),
+        ):
+            if bundle is not None:
+                capabilities.append(bundle)
+
         if _wants(SHELL_TOOL_NAMES | {'bash'}):
             shell_allowed = None
             if tool_filter is not None and 'bash' not in tool_filter:
@@ -334,6 +373,13 @@ def build_capabilities(
                     allowed_tools=fs_allowed,
                 )
             )
+            # Content-aware companion to ClearToolResults: when the same
+            # read window is fetched again, the earlier result is blanked
+            # in place (count-preserving — safe for the persistence delta
+            # guard). Keyed on (path, offset, limit): only an identical
+            # window supersedes — a different window may hold lines the
+            # newest read does not (FEAT-260721-51f9e3).
+            capabilities.append(DeduplicateFileReads(file_key=_read_file_key))
 
     instrumentation = get_instrumentation_settings()
     if instrumentation is not None:

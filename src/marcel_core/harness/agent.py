@@ -13,20 +13,14 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.toolsets import FunctionToolset
 
 from marcel_core.composition import build_capabilities
 from marcel_core.config import settings
 from marcel_core.harness.context import MarcelDeps
 from marcel_core.harness.model_chain import Tier, model_label
-from marcel_core.jobs import tool as job_tools
-from marcel_core.marketplace import tool as marketplace_tools
-from marcel_core.tools import (
-    charts as chart_tools,
-    claude_code as claude_code_tool,
-    core as core_tools,
-    marcel as marcel_tools,
-)
+from marcel_core.jobs.capability import JOB_TOOLS
+from marcel_core.marketplace.capability import MARKETPLACE_TOOLS
+from marcel_core.tools.capability import DEV_TOOLS, UTILITY_TOOLS
 
 log = logging.getLogger(__name__)
 
@@ -105,42 +99,20 @@ def _build_local_model(model_string: str) -> OpenAIChatModel:
     return OpenAIChatModel(tag, provider=provider)
 
 
-# Name ↔ tool function mapping used by the registration loop below. Keeping
-# this as a single source of truth makes it trivial for ``tool_filter`` (and
-# the ``delegate`` tool's agent frontmatter) to reference tools by stable
-# short names like ``'bash'`` or ``'read_file'`` without knowing which module
-# they live in. Ordering here is the ordering they get registered in when no
-# filter is applied.
+# Aggregated tool registry — the role-gate source of truth.
 #
-# Entries are ``(name, callable, role_required)`` where ``role_required`` is
-# either ``'admin'`` (restricted) or ``None`` (available to every role).
+# Since FEAT-260721-51f9e3 each domain declares its own ``(name, callable,
+# role_required)`` triples next to its capability factory (domain-owns-
+# factory, ADR-260720-f23f23); this aggregate preserves the single source of
+# truth the role-gating rule requires: ``admin_tool_names()`` and
+# ``available_tool_names()`` below read it, and composition attaches the
+# same declarations as ``Capability`` tool bundles. Ordering here is the
+# ordering tools are presented in when no filter is applied.
 _TOOL_REGISTRY: list[tuple[str, object, str | None]] = [
-    # Admin power tools. Shell (run_command …) and FileSystem (read_file …)
-    # are capabilities now — attached in composition.build_capabilities for
-    # admin roles, gated as layer 2 via admin_tool_names() below.
-    ('git_status', core_tools.git_status, 'admin'),
-    ('git_diff', core_tools.git_diff, 'admin'),
-    ('git_log', core_tools.git_log, 'admin'),
-    ('git_add', core_tools.git_add, 'admin'),
-    ('git_commit', core_tools.git_commit, 'admin'),
-    ('git_push', core_tools.git_push, 'admin'),
-    ('claude_code', claude_code_tool.claude_code, 'admin'),
-    # Marketplace: installing a habitat is installing software — admin only
-    # (three-state lifecycle, FEAT-260718-210a5f).
-    ('marketplace', marketplace_tools.marketplace, 'admin'),
-    # All-user tools
-    ('generate_chart', chart_tools.generate_chart, None),
-    ('marcel', marcel_tools.marcel, None),
-    # Job management
-    ('create_job', job_tools.create_job, None),
-    ('list_jobs', job_tools.list_jobs, None),
-    ('get_job', job_tools.get_job, None),
-    ('update_job', job_tools.update_job, None),
-    ('delete_job', job_tools.delete_job, None),
-    ('run_job_now', job_tools.run_job_now, None),
-    ('job_templates', job_tools.job_templates, None),
-    ('job_cache_write', job_tools.job_cache_write, None),
-    ('job_cache_read', job_tools.job_cache_read, None),
+    *DEV_TOOLS,
+    *MARKETPLACE_TOOLS,
+    *UTILITY_TOOLS,
+    *JOB_TOOLS,
 ]
 
 
@@ -269,25 +241,11 @@ def create_marcel_agent(
     else:
         model_arg = model
 
-    # Build the tool set into a FunctionToolset, then wrap it so every call
-    # routes through the turn's event bus (tool_call / tool_result). The
-    # structural role gate below stays the *primary* defense — an admin tool
-    # is simply never added for a non-admin, so the model cannot see it. The
-    # bus (via the MarcelPolicy capability) is a second, harness-level
-    # enforcement layer.
-    toolset: FunctionToolset[MarcelDeps] = FunctionToolset()
-    registered: list[str] = []
-    for name, fn, required_role in _TOOL_REGISTRY:
-        # Role gate — admin-only tools are always stripped for non-admin agents,
-        # even if the caller explicitly allowlists them via ``tool_filter``.
-        if required_role == 'admin' and role != 'admin':
-            continue
-        # Name gate — when a filter is supplied, drop anything not in it.
-        if tool_filter is not None and name not in tool_filter:
-            continue
-        toolset.add_function(fn)  # type: ignore[arg-type]
-        registered.append(name)
-
+    # Registry tools attach as domain-owned Capability bundles inside
+    # build_capabilities (FEAT-260721-51f9e3). The structural role gate is
+    # unchanged in kind: an admin bundle is simply never composed for a
+    # non-admin, so the model cannot see its tools. The event bus (via the
+    # MarcelPolicy capability) remains the second, harness-level layer.
     capabilities = build_capabilities(
         role=role,
         cwd=cwd,
@@ -312,14 +270,13 @@ def create_marcel_agent(
         retries=2,
         end_strategy='exhaustive',
         capabilities=capabilities,
-        toolsets=[toolset],
     )
 
     log.info(
-        'agent ready: model=%s role=%s tools=%s%s',
+        'agent ready: model=%s role=%s capabilities=%d%s',
         model_label(model),
         role,
-        len(registered),
+        len(capabilities),
         ' (filtered)' if tool_filter is not None else '',
     )
     return agent
