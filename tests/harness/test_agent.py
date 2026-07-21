@@ -193,22 +193,27 @@ class TestAvailableToolNames:
         assert 'delegate' not in names
 
 
-def _registered_tool_names(agent) -> set[str]:
-    """Introspect the tool names registered on a pydantic-ai Agent.
+_REGISTRY_BUNDLE_IDS = frozenset({'dev-tools', 'marketplace-tools', 'utility-tools', 'job-tools'})
 
-    Marcel builds a ``FunctionToolset`` and passes it via ``toolsets=``
-    (interception happens in the ``MarcelPolicy`` capability, not a
-    wrapper toolset). Unwrap any wrapped toolset to its underlying
-    ``FunctionToolset`` and read ``.tools``. Not part of pydantic-ai's
-    public API but stable enough for test assertions; kept in one helper
-    so a pydantic-ai bump touches one
-    place.
+
+def _registered_tool_names(agent) -> set[str]:
+    """Introspect the registry-side tool names on a pydantic-ai Agent.
+
+    Since FEAT-260721-51f9e3 the registry tools attach as domain-owned
+    ``Capability`` tool bundles (dev/marketplace/utility/job) instead of a
+    hand-built ``FunctionToolset``. This helper keeps its original
+    semantics — the *registry-side* names only — by reading exactly those
+    bundles; web/shell/filesystem are separate capabilities asserted by
+    their own helpers. Not pydantic-ai public API but stable enough for
+    assertions; kept in one helper so a bump touches one place.
     """
     from pydantic_ai.toolsets import FunctionToolset, WrapperToolset
 
     names: set[str] = set()
-    for toolset in agent.toolsets:
-        current = toolset
+    for cap in agent.root_capability.capabilities:
+        if getattr(cap, 'id', None) not in _REGISTRY_BUNDLE_IDS:
+            continue
+        current = cap.get_toolset()
         while isinstance(current, WrapperToolset):
             current = current.wrapped
         if isinstance(current, FunctionToolset):
@@ -322,3 +327,59 @@ class TestModelInstanceSeam:
         )
         result = agent.run_sync('hello', deps=_deps())
         assert result.output == 'scripted reply'
+
+
+class TestBundleRegistryParity:
+    """FEAT-260721-51f9e3: the domain bundles expose byte-identical name sets
+    to the retired FunctionToolset loop, for every role/filter combination."""
+
+    def _expected(self, role: str, tool_filter: set[str] | None) -> set[str]:
+        from marcel_core.harness.agent import _TOOL_REGISTRY
+
+        return {
+            name
+            for name, _fn, required in _TOOL_REGISTRY
+            if (required != 'admin' or role == 'admin') and (tool_filter is None or name in tool_filter)
+        }
+
+    def test_parity_across_roles_and_filters(self):
+        cases = [
+            ('admin', None),
+            ('user', None),
+            ('admin', set()),
+            ('admin', {'git_status', 'marcel', 'create_job'}),
+            ('user', {'git_status', 'marcel', 'create_job'}),  # role gate beats allowlist
+            ('user', {'marketplace'}),  # admin bundle never composes for user
+        ]
+        for role, tool_filter in cases:
+            agent = create_marcel_agent(system_prompt='t', role=role, tool_filter=tool_filter)
+            assert _registered_tool_names(agent) == self._expected(role, tool_filter), (role, tool_filter)
+
+    def test_aggregate_registry_order_stable(self):
+        """delegate frontmatter + docs reference names by the aggregate; the
+        domain split must not lose or rename any."""
+        from marcel_core.harness.agent import _TOOL_REGISTRY
+
+        names = [name for name, _fn, _r in _TOOL_REGISTRY]
+        assert names == [
+            'git_status',
+            'git_diff',
+            'git_log',
+            'git_add',
+            'git_commit',
+            'git_push',
+            'claude_code',
+            'marketplace',
+            'generate_chart',
+            'marcel',
+            'create_job',
+            'list_jobs',
+            'get_job',
+            'update_job',
+            'delete_job',
+            'run_job_now',
+            'job_templates',
+            'job_cache_write',
+            'job_cache_read',
+        ]
+        assert len(names) == len(set(names)), 'no duplicate tool names across domains'

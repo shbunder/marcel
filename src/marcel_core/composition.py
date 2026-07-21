@@ -180,6 +180,18 @@ def build_capabilities(
             exclude_tools=frozenset({'marcel'}),
         ),
     ]
+    # Registry tool bundles (FEAT-260721-51f9e3, domain-owns-factory): each
+    # domain declares its tools next to its factory; the aggregate in
+    # harness/agent.py stays the role-gate source of truth. All-user bundles
+    # here; admin bundles in the admin block below — the structural gate is
+    # "the bundle is never composed", same as the old registration loop.
+    from marcel_core.jobs.capability import build_jobs_tool_capability
+    from marcel_core.tools.capability import build_utility_tool_capability
+
+    for bundle in (build_utility_tool_capability(tool_filter), build_jobs_tool_capability(tool_filter)):
+        if bundle is not None:
+            capabilities.append(bundle)
+
     # Connectors are loaded once and shared: the catalog feeds both the
     # connector capabilities and the skill→connector bundling below, so a
     # skill naming a connector in `marcel-connectors` activates it as part of
@@ -326,6 +338,13 @@ def build_capabilities(
         # specific tools, the capability toolset is narrowed to that subset
         # so a read-only subagent (``tools: [read_file]``) never gains
         # write_file — the role-gating "keep allowlists tight" contract.
+        from marcel_core.marketplace.capability import build_marketplace_tool_capability
+        from marcel_core.tools.capability import build_dev_tool_capability
+
+        for bundle in (build_dev_tool_capability(tool_filter), build_marketplace_tool_capability(tool_filter)):
+            if bundle is not None:
+                capabilities.append(bundle)
+
         if _wants(SHELL_TOOL_NAMES | {'bash'}):
             shell_allowed = None
             if tool_filter is not None and 'bash' not in tool_filter:

@@ -27,7 +27,7 @@ The admin-tier set has one source of truth: `admin_tool_names()` in `harness/age
 
 ## Rules for new tools
 
-1. **Every new tool declares its tier** at registration time, in the harness (the `_TOOL_REGISTRY` `role_required` column). Not as a runtime check inside the tool body.
+1. **Every new tool declares its tier** at declaration time, in its domain's capability module (`tools/capability.py`, `jobs/capability.py`, `marketplace/capability.py` — the `role_required` column of the declaration triples, aggregated into `_TOOL_REGISTRY` in `harness/agent.py`). Not as a runtime check inside the tool body.
 2. **The structural role check happens once**, at harness startup, when building the agent's tool set for a specific user. The bus handler is an additional pre-execution gate, not a substitute — a new admin tool still declares its tier so *both* layers see it.
 3. **Subagents inherit the parent's role** — but the `delegate` tool is stripped from every child's tool pool unless the child's frontmatter explicitly opts in. This prevents recursion-based role escalation.
 4. **A non-admin asking for an admin operation** should receive a polite refusal from the `marcel` utility tool. They never see the admin tool and cannot trick the model into calling a tool that isn't in its pool.
