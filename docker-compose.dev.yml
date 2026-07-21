@@ -31,9 +31,18 @@ services:
     # Override the prod CMD (watchdog + uvicorn) with a direct uvicorn --reload.
     # Self-mod restarts in dev go through the flag file → marcel-dev-redeploy.path
     # → redeploy.sh --env dev path, exactly mirroring prod's mechanism.
+    # --frozen --no-dev mirrors the image build (`uv sync --frozen
+    # --all-extras --no-dev`). A bare `uv run` re-resolves at container start
+    # and defaults to INCLUDING the dev group, which carries the editable
+    # `../odile` path dependency — resolving to /odile inside the container,
+    # where it does not exist. That crash-loops the container on start (it
+    # took prod down on 2026-07-21; see FEAT-260721-67d1e3). Dev runs the app,
+    # not the test suite — `make check` runs on the host, where odile resolves.
     command:
       - uv
       - run
+      - --frozen
+      - --no-dev
       - uvicorn
       - marcel_core.main:app
       - --host
