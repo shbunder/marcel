@@ -185,15 +185,6 @@ async def summarize_active_segment(
     if not messages:
         return False
 
-    log.info(
-        '%s-%s: starting %s summarization segment=%s (%d messages)',
-        user_slug,
-        channel,
-        trigger,
-        segment_id,
-        len(messages),
-    )
-
     # Automatic seals on continuous channels keep the visible chat tail
     # verbatim (FEAT-260721-a59c21); manual (/forget) and session_end fold
     # everything. When the whole segment fits in the tail there is nothing
@@ -205,6 +196,15 @@ async def summarize_active_segment(
         log.debug('%s-%s: %d message(s) all within the tail — nothing to fold', user_slug, channel, len(messages))
         return False
 
+    log.info(
+        '%s-%s: starting %s summarization segment=%s (%d messages)',
+        user_slug,
+        channel,
+        trigger,
+        segment_id,
+        len(messages),
+    )
+
     # Seal the active segment and open a new one, then summarize the sealed
     # file through the shared helper (also used for rotation-pending segments).
     try:
@@ -213,6 +213,12 @@ async def summarize_active_segment(
         log.exception('%s-%s: sealing failed', user_slug, channel)
         state.consecutive_failures += 1
         state.last_attempt = datetime.now(tz=timezone.utc)
+        return False
+    if sealed_id is None:
+        # Nothing foldable outside the tail (e.g. one user message followed
+        # by a long agentic run) — the seal was a no-op; keep everything
+        # verbatim rather than folding the visible tail to gist (B1).
+        log.debug('%s-%s: tail-keeping seal skipped — nothing to fold', user_slug, channel)
         return False
     return await _summarize_segment_file(user_slug, channel, sealed_id, trigger, state)
 

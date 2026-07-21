@@ -186,8 +186,14 @@ class MarcelStepStore:
                 # The remembered key elements (FEAT-260721-a59c21): naming them
                 # in the prefix tells the model what the long history holds,
                 # so it knows when a search_conversations lookup will pay off.
+                # Cap the body FIRST — the facts + lookup hint must survive
+                # truncation exactly when history is largest.
                 facts = '\n'.join(f'- {fact}' for fact in latest_summary.key_facts)
-                summary_text += f'\n\nKey facts from earlier (searchable via search_conversations):\n{facts}'
+                facts_block = f'\n\nKey facts from earlier (searchable via search_conversations):\n{facts}'
+                body_cap = max(500, MAX_SUMMARY_CHARS - len(facts_block))
+                if len(summary_text) > body_cap:
+                    summary_text = summary_text[:body_cap] + '\n... (summary truncated)'
+                summary_text += facts_block
             if len(summary_text) > MAX_SUMMARY_CHARS:
                 summary_text = summary_text[:MAX_SUMMARY_CHARS] + '\n... (summary truncated)'
             model_messages.insert(

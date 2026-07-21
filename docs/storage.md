@@ -97,13 +97,22 @@ Each JSONL line in a segment has the same format:
 #### Segment lifecycle
 
 1. **Active**: New messages are appended to the active segment.
-2. **Rotation**: When a segment reaches 500 messages or 500KB, a new
-   segment file is created (file rotation, not summarization).
-3. **Sealing**: When the conversation is idle for 60+ minutes, or the user
-   sends `/forget`, the active segment is sealed and a new one opened.
+2. **Rotation**: When a segment exceeds the context token budget
+   (`MARCEL_CONTEXT_BUDGET_TOKENS`) or the 500-message / 500 KB backstops,
+   the content *behind the verbatim tail* (`MARCEL_CONTEXT_TAIL_MESSAGES`,
+   default 15) moves into a new sealed file queued for summarization; the
+   tail seeds the new active segment, so the visible chat tail never
+   leaves context (FEAT-260721-a59c21).
+3. **Sealing**: When the conversation is idle for 60+ minutes, its oldest
+   active message passes `MARCEL_CONTEXT_MAX_AGE_DAYS` (7), or the user
+   sends `/forget`, the active segment is sealed. Automatic seals (idle,
+   age) keep the tail; `/forget` and session-end fold everything. A seal
+   with nothing foldable outside the tail is a no-op.
 4. **Summarization**: A Haiku agent generates a summary of the sealed
-   segment, incorporating the previous summary (rolling chain). Tool
-   results are stripped from sealed segments to save space.
+   segment — plus a `## Key Facts` section (names, dates, decisions) that
+   is surfaced in the context prefix — incorporating the previous summary
+   (rolling chain). Tool results are stripped from sealed segments to
+   save space.
 
 #### Channel metadata (`channel.meta.json`)
 

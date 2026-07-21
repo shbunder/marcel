@@ -88,6 +88,9 @@ class TestSealingCoexistsWithTheStore:
         # storage-level, exactly what summarize_active_segment persists
         # (the LLM half is out of scope in a sealed world).
         sealed_id, _meta = seal_active_segment('alice', 'cli')
+        # keep_tail=0 (the session/manual path) always seals — the no-op
+        # return is only reachable with a tail requested.
+        assert sealed_id is not None
         now = datetime.now(tz=timezone.utc)
         save_summary(
             'alice',
@@ -207,3 +210,50 @@ class TestInteractionProfilesEndToEnd:
         assert await seal_session_if_needed('bob', 'telegram') is False
         context = await persistence_store().load_context('bob', 'telegram')
         assert 'what did we discuss?' in str(context)  # still verbatim, unsealed
+
+
+class TestIdleSealKeepsTailScenario:
+    """Scenario (FEAT-260721-a59c21, NFR1): the messaging decay model over a
+    real turn loop — after an idle seal, the next turn's context is the
+    rolling summary + the verbatim tail + the new message."""
+
+    async def test_seal_keeps_tail_then_next_turn_sees_both(self, terrarium):
+        from unittest.mock import AsyncMock, patch
+
+        from marcel_core.capabilities.persistence import persistence_store
+        from marcel_core.config import settings
+        from marcel_core.memory.summarizer import summarize_active_segment
+        from marcel_core.storage.conversation import read_active_segment
+
+        terrarium.user('alice')
+        # Ten real turns on a continuous channel.
+        for i in range(10):
+            s = terrarium.scenario(reply(f'Noted item {i}.'), user='alice', channel='telegram')
+            await s.run(f'remember grocery item {i}')
+
+        # Idle seal with a small tail (the outer loop's job, scripted Haiku).
+        with (
+            patch.object(settings, 'marcel_context_tail_messages', 4),
+            patch(
+                'marcel_core.memory.summarizer._generate_summary',
+                AsyncMock(return_value='Alice listed grocery items zero through seven.'),
+            ),
+        ):
+            assert await summarize_active_segment('alice', 'telegram', trigger='idle') is True
+
+        # The visible tail survived verbatim on disk.
+        tail = read_active_segment('alice', 'telegram')
+        assert tail, 'the tail must stay in the active segment'
+        assert tail[-1].text == 'Noted item 9.'
+
+        # Next turn: context = summary + verbatim tail + the new message.
+        context = await persistence_store().load_context('alice', 'telegram')
+        rendered = str(context)
+        assert 'Previous conversation summary' in rendered
+        assert 'grocery items zero through seven' in rendered  # the gist
+        assert 'Noted item 9.' in rendered  # the verbatim tail
+        assert 'remember grocery item 0' not in rendered  # folded content is gist-only
+
+        s2 = terrarium.scenario(reply('Still with you.'), user='alice', channel='telegram')
+        result = await s2.run('and what was the last item?')
+        assert result.reply == 'Still with you.'

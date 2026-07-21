@@ -259,3 +259,75 @@ class TestKeyFactsLookup:
         texts = [m.text for m in excerpt]
         assert any(t and 'HUNTER2-changed-today' in t for t in texts)  # verbatim
         assert len(excerpt) > 1  # with surrounding context
+
+
+class TestFullFoldHole:
+    """Pre-close blocker B1: 'nothing to fold' must never invert into 'fold
+    everything'. One user message + a long agentic run left no interior user
+    boundary, and the old code sealed the WHOLE segment to gist."""
+
+    @pytest.mark.asyncio
+    async def test_no_user_boundary_keeps_everything_verbatim(self, monkeypatch):
+        from marcel_core.memory.summarizer import summarize_active_segment
+
+        monkeypatch.setattr(settings, 'marcel_context_tail_messages', 15)
+        ensure_channel('shaun', 'telegram')
+        append_to_segment('shaun', 'telegram', _msg('one ask'))
+        for i in range(19):
+            append_to_segment('shaun', 'telegram', _msg(f'agentic step {i}', role='assistant'))
+
+        with patch('marcel_core.memory.summarizer._generate_summary', _SUMMARY):
+            assert await summarize_active_segment('shaun', 'telegram', trigger='idle') is False
+
+        assert len(read_active_segment('shaun', 'telegram')) == 20  # untouched, not gist
+        assert load_latest_summary('shaun', 'telegram') is None
+
+    def test_seal_noop_returns_none_without_writes(self, monkeypatch):
+        from marcel_core.storage.conversation import seal_active_segment
+
+        _seed(4)
+        meta_before = load_channel_meta('shaun', 'telegram')
+        sealed_id, meta = seal_active_segment('shaun', 'telegram', keep_tail=15)
+        assert sealed_id is None
+        assert meta.active_segment == meta_before.active_segment  # type: ignore[union-attr]
+        assert len(read_active_segment('shaun', 'telegram')) == 4
+
+
+class TestCrashWindowDuplicatesNeverLoses:
+    """Pre-close blocker B2: the write order is tail file → meta flip →
+    folded rewrite. A crash at the last step must leave the tail duplicated
+    (in both files), never lost."""
+
+    @pytest.mark.asyncio
+    async def test_crash_during_folded_rewrite_keeps_tail_in_active(self, monkeypatch):
+        from marcel_core.storage import conversation as conv
+
+        monkeypatch.setattr(settings, 'marcel_context_tail_messages', 5)
+        _seed(20)
+
+        real_atomic = conv.atomic_write
+
+        def crashing_atomic(path, content):
+            # Crash only on the folded segment rewrite (step 3) — the meta
+            # flip (step 2) also goes through atomic_write and must succeed.
+            if str(path).endswith('.jsonl'):
+                raise OSError('simulated crash during folded rewrite')
+            return real_atomic(path, content)
+
+        monkeypatch.setattr(conv, 'atomic_write', crashing_atomic)
+        with pytest.raises(OSError):
+            conv.seal_active_segment('shaun', 'telegram', keep_tail=5)
+        monkeypatch.setattr(conv, 'atomic_write', real_atomic)
+
+        # Meta already flipped: the new active segment holds the tail.
+        tail = read_active_segment('shaun', 'telegram')
+        assert tail and tail[-1].text == 'message 19', 'tail must be in the new active segment'
+        # The sealed (old) file still holds the FULL conversation — the tail
+        # is duplicated, not lost; the summary will briefly cover it too.
+        meta = load_channel_meta('shaun', 'telegram')
+        assert meta is not None
+        from marcel_core.storage.conversation import read_segment
+
+        old_id = f'seg-{int(meta.active_segment.split("-")[1]) - 1:04d}'
+        old_msgs = read_segment('shaun', 'telegram', old_id)
+        assert len(old_msgs) == 20, 'crash must leave the full original segment intact'

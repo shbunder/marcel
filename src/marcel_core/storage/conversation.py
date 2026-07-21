@@ -464,20 +464,20 @@ def _rotate_segment(user_slug: str, channel: str, meta: ChannelMeta, keep_tail: 
 
     folded: list[str] = []
     tail_lines: list[str] = []
-    if keep_tail > 0 and outgoing_path.exists():
-        lines = [ln for ln in outgoing_path.read_text(encoding='utf-8').splitlines() if ln.strip()]
-        folded, tail_lines = _split_tail(lines, keep_tail)
-        if not folded:
+    if keep_tail > 0:
+        split = _read_tail_split(outgoing_path, keep_tail)
+        if split is None:
             # Nothing to fold — under-tail segment should not rotate at all;
             # callers guard on this, but stay safe if reached.
             return meta
+        folded, tail_lines = split
 
+    # Same crash-safe order as seal_active_segment: tail file, meta flip,
+    # folded rewrite — a crash duplicates the tail, never drops it.
     new_id = _make_segment_id(meta.next_segment_num)
     seg_path = _segment_path(user_slug, channel, new_id)
     seg_path.parent.mkdir(parents=True, exist_ok=True)
     seg_path.write_text(''.join(ln + '\n' for ln in tail_lines), encoding='utf-8')
-    if tail_lines:
-        atomic_write(outgoing_path, ''.join(ln + '\n' for ln in folded))
 
     # Queue the outgoing segment for summarization — load_context folds it into
     # the rolling summary before the next turn, so its content is never lost
@@ -487,6 +487,9 @@ def _rotate_segment(user_slug: str, channel: str, meta: ChannelMeta, keep_tail: 
     meta.active_segment = new_id
     meta.next_segment_num += 1
     save_channel_meta(user_slug, channel, meta)
+
+    if tail_lines:
+        atomic_write(outgoing_path, ''.join(ln + '\n' for ln in folded))
     log.info('Rotated to new segment %s for %s/%s (queued %s for summary)', new_id, user_slug, channel, outgoing)
     return meta
 
@@ -494,6 +497,24 @@ def _rotate_segment(user_slug: str, channel: str, meta: ChannelMeta, keep_tail: 
 # ---------------------------------------------------------------------------
 # Segment sealing (for summarization)
 # ---------------------------------------------------------------------------
+
+
+def _read_tail_split(seg_path: Path, keep_tail: int) -> tuple[list[str], list[str]] | None:
+    """Read a segment file and split it for a tail-keeping fold.
+
+    Returns ``(folded, tail)``, or ``None`` when there is nothing to fold —
+    the segment is missing, fits inside the tail, or the user-boundary snap
+    consumed it whole. ``None`` means the caller must NOT seal/rotate: with
+    ``keep_tail > 0``, "nothing to fold" is never license to fold everything
+    (that inversion was the FEAT-260721-a59c21 pre-close blocker B1).
+    """
+    if not seg_path.exists():
+        return None
+    lines = [ln for ln in seg_path.read_text(encoding='utf-8').splitlines() if ln.strip()]
+    folded, tail = _split_tail(lines, keep_tail)
+    if not folded:
+        return None
+    return folded, tail
 
 
 def _split_tail(lines: list[str], keep_tail: int) -> tuple[list[str], list[str]]:
@@ -532,18 +553,23 @@ def _split_tail(lines: list[str], keep_tail: int) -> tuple[list[str], list[str]]
     return lines[:split], lines[split:]
 
 
-def seal_active_segment(user_slug: str, channel: str, keep_tail: int = 0) -> tuple[str, ChannelMeta]:
+def seal_active_segment(user_slug: str, channel: str, keep_tail: int = 0) -> tuple[str | None, ChannelMeta]:
     """Seal the current active segment and open a new one.
 
     With ``keep_tail > 0`` (automatic seals on continuous channels —
     FEAT-260721-a59c21) the last messages stay verbatim: the new active
     segment is seeded with the tail and the sealed file keeps only the
     folded remainder, so the summary covers exactly what left the context.
-    Write order is crash-safe for Recoverable: the tail is written to the
-    new segment first, the sealed file is rewritten second, and the meta
-    flip commits last — a crash in between leaves the full original segment
-    still active (worst case a stray tail file that the next seal
-    overwrites). Returns (sealed_segment_id, updated_meta).
+    When nothing is foldable (segment fits in the tail, or the user-boundary
+    snap consumed it whole) the seal is a NO-OP and returns ``(None, meta)``
+    — with a tail requested, "nothing to fold" must never become "fold
+    everything". Write order is crash-safe for Recoverable, biased to
+    duplication over loss: tail file first, meta flip second, folded rewrite
+    last. A crash before the meta flip leaves the full original segment
+    active (stray tail file overwritten later); a crash after it leaves the
+    tail briefly present in both files — duplicated, never dropped
+    (ADR-260721-407f75: moved, not copied-then-lost). Returns
+    (sealed_segment_id | None, updated_meta).
     """
     meta = ensure_channel(user_slug, channel)
     sealed_id = meta.active_segment
@@ -551,24 +577,31 @@ def seal_active_segment(user_slug: str, channel: str, keep_tail: int = 0) -> tup
 
     folded: list[str] = []
     tail_lines: list[str] = []
-    if keep_tail > 0 and sealed_path.exists():
-        lines = [ln for ln in sealed_path.read_text(encoding='utf-8').splitlines() if ln.strip()]
-        folded, tail_lines = _split_tail(lines, keep_tail)
-        if not folded:
-            tail_lines = []  # nothing to fold — seal everything as before
+    if keep_tail > 0:
+        split = _read_tail_split(sealed_path, keep_tail)
+        if split is None:
+            log.debug('%s-%s: nothing to fold in %s (tail-keeping seal skipped)', user_slug, channel, sealed_id)
+            return None, meta
+        folded, tail_lines = split
 
-    # Open new active segment (seeded with the tail, if any)
+    # 1. New active segment, seeded with the tail (write, never append — a
+    #    stray file from an earlier crash must be overwritten).
     new_id = _make_segment_id(meta.next_segment_num)
     seg_path = _segment_path(user_slug, channel, new_id)
     seg_path.parent.mkdir(parents=True, exist_ok=True)
     seg_path.write_text(''.join(ln + '\n' for ln in tail_lines), encoding='utf-8')
-    if tail_lines:
-        atomic_write(sealed_path, ''.join(ln + '\n' for ln in folded))
 
+    # 2. Commit the flip before touching the old file: a crash from here on
+    #    duplicates the tail (in both files) instead of losing it.
     meta.active_segment = new_id
     meta.next_segment_num += 1
     meta.last_summary_at = datetime.now(tz=timezone.utc)
     save_channel_meta(user_slug, channel, meta)
+
+    # 3. Strip the tail out of the sealed file so the summary covers exactly
+    #    what left the context.
+    if tail_lines:
+        atomic_write(sealed_path, ''.join(ln + '\n' for ln in folded))
 
     log.info('Sealed segment %s, new active: %s (%d tail kept)', sealed_id, new_id, len(tail_lines))
     return sealed_id, meta
