@@ -392,22 +392,27 @@ def append_to_segment(
     seg_path = _segment_path(user_slug, channel, meta.active_segment)
 
     # Check if we need to rotate (size-based, not summarization)
-    needs_rotate = False
-    if seg_path.exists():
-        from marcel_core.config import settings
+    from marcel_core.config import settings
 
+    needs_rotate = False
+    hard_backstop = False
+    if seg_path.exists():
         stat = seg_path.stat()
         # Primary trigger: the configurable token budget (byte-proxied at
         # ~4 chars/token), so context stays bounded (STORY-31dae4). The 500 KB /
         # 500-message limits remain as absolute backstops.
         budget_bytes = settings.marcel_context_budget_tokens * 4
-        if stat.st_size >= min(budget_bytes, MAX_SEGMENT_BYTES):
+        if stat.st_size >= MAX_SEGMENT_BYTES:
+            needs_rotate = True
+            hard_backstop = True
+        elif stat.st_size >= min(budget_bytes, MAX_SEGMENT_BYTES):
             needs_rotate = True
         else:
             # Count messages (approximate: count lines)
             line_count = sum(1 for _ in open(seg_path, 'r', encoding='utf-8') if _.strip())
             if line_count >= MAX_SEGMENT_MESSAGES:
                 needs_rotate = True
+                hard_backstop = True
 
     # Defer rotation while the summarize queue is saturated (summarizer outage)
     # — keep the content in the active segment (and thus in context) rather
@@ -422,7 +427,11 @@ def append_to_segment(
         needs_rotate = False
 
     if needs_rotate:
-        meta = _rotate_segment(user_slug, channel, meta)
+        # Budget rotations keep the visible tail (FEAT-260721-a59c21); the
+        # rare hard-backstop overflow (500 msgs / 500 KB) folds everything —
+        # defensive, and it avoids a rotation loop on giant-message tails.
+        keep = 0 if hard_backstop else settings.marcel_context_tail_messages
+        meta = _rotate_segment(user_slug, channel, meta, keep_tail=keep)
         seg_path = _segment_path(user_slug, channel, meta.active_segment)
 
     # Append message
@@ -442,13 +451,33 @@ def append_to_segment(
     return meta
 
 
-def _rotate_segment(user_slug: str, channel: str, meta: ChannelMeta) -> ChannelMeta:
-    """Create a new active segment (file rotation, not summarization)."""
+def _rotate_segment(user_slug: str, channel: str, meta: ChannelMeta, keep_tail: int = 0) -> ChannelMeta:
+    """Create a new active segment (file rotation, not summarization).
+
+    With ``keep_tail > 0`` (budget rotations — FEAT-260721-a59c21) the last
+    messages move into the new active segment verbatim and only the folded
+    remainder is queued for summary, so the visible chat tail never drops to
+    gist mid-conversation. Same crash-safe order as ``seal_active_segment``.
+    """
     outgoing = meta.active_segment
+    outgoing_path = _segment_path(user_slug, channel, outgoing)
+
+    folded: list[str] = []
+    tail_lines: list[str] = []
+    if keep_tail > 0:
+        split = _read_tail_split(outgoing_path, keep_tail)
+        if split is None:
+            # Nothing to fold — under-tail segment should not rotate at all;
+            # callers guard on this, but stay safe if reached.
+            return meta
+        folded, tail_lines = split
+
+    # Same crash-safe order as seal_active_segment: tail file, meta flip,
+    # folded rewrite — a crash duplicates the tail, never drops it.
     new_id = _make_segment_id(meta.next_segment_num)
     seg_path = _segment_path(user_slug, channel, new_id)
     seg_path.parent.mkdir(parents=True, exist_ok=True)
-    seg_path.touch()
+    seg_path.write_text(''.join(ln + '\n' for ln in tail_lines), encoding='utf-8')
 
     # Queue the outgoing segment for summarization — load_context folds it into
     # the rolling summary before the next turn, so its content is never lost
@@ -458,6 +487,9 @@ def _rotate_segment(user_slug: str, channel: str, meta: ChannelMeta) -> ChannelM
     meta.active_segment = new_id
     meta.next_segment_num += 1
     save_channel_meta(user_slug, channel, meta)
+
+    if tail_lines:
+        atomic_write(outgoing_path, ''.join(ln + '\n' for ln in folded))
     log.info('Rotated to new segment %s for %s/%s (queued %s for summary)', new_id, user_slug, channel, outgoing)
     return meta
 
@@ -467,26 +499,111 @@ def _rotate_segment(user_slug: str, channel: str, meta: ChannelMeta) -> ChannelM
 # ---------------------------------------------------------------------------
 
 
-def seal_active_segment(user_slug: str, channel: str) -> tuple[str, ChannelMeta]:
+def _read_tail_split(seg_path: Path, keep_tail: int) -> tuple[list[str], list[str]] | None:
+    """Read a segment file and split it for a tail-keeping fold.
+
+    Returns ``(folded, tail)``, or ``None`` when there is nothing to fold —
+    the segment is missing, fits inside the tail, or the user-boundary snap
+    consumed it whole. ``None`` means the caller must NOT seal/rotate: with
+    ``keep_tail > 0``, "nothing to fold" is never license to fold everything
+    (that inversion was the FEAT-260721-a59c21 pre-close blocker B1).
+    """
+    if not seg_path.exists():
+        return None
+    lines = [ln for ln in seg_path.read_text(encoding='utf-8').splitlines() if ln.strip()]
+    folded, tail = _split_tail(lines, keep_tail)
+    if not folded:
+        return None
+    return folded, tail
+
+
+def _split_tail(lines: list[str], keep_tail: int) -> tuple[list[str], list[str]]:
+    """Split JSONL lines into (folded, tail) keeping >= ``keep_tail`` at the end.
+
+    The tail is what stays verbatim in the new active segment (the messages
+    a user sees in their chat view — FEAT-260721-a59c21). The boundary snaps
+    backward (growing the tail) until the tail starts on a ``user`` message,
+    so an assistant tool call is never orphaned from its result; the snap is
+    capped at twice ``keep_tail`` to bound the growth. Returns
+    ``([], lines)`` when there is nothing to fold.
+    """
+    if keep_tail <= 0:
+        return list(lines), []
+    if len(lines) <= keep_tail:
+        return [], list(lines)
+
+    def _role(line: str) -> str:
+        try:
+            return json.loads(line).get('role', '')
+        except (json.JSONDecodeError, AttributeError):
+            return ''
+
+    split = len(lines) - keep_tail
+    floor = max(0, len(lines) - 2 * keep_tail)
+    while split > floor and _role(lines[split]) != 'user':
+        split -= 1
+    if _role(lines[split]) != 'user':
+        # No user boundary in the window — at minimum never start the tail
+        # on a tool result (its call would be summarized away).
+        split = len(lines) - keep_tail
+        while split > floor and _role(lines[split]) == 'tool':
+            split -= 1
+    if split <= 0:
+        return [], list(lines)
+    return lines[:split], lines[split:]
+
+
+def seal_active_segment(user_slug: str, channel: str, keep_tail: int = 0) -> tuple[str | None, ChannelMeta]:
     """Seal the current active segment and open a new one.
 
-    Returns (sealed_segment_id, updated_meta).
+    With ``keep_tail > 0`` (automatic seals on continuous channels —
+    FEAT-260721-a59c21) the last messages stay verbatim: the new active
+    segment is seeded with the tail and the sealed file keeps only the
+    folded remainder, so the summary covers exactly what left the context.
+    When nothing is foldable (segment fits in the tail, or the user-boundary
+    snap consumed it whole) the seal is a NO-OP and returns ``(None, meta)``
+    — with a tail requested, "nothing to fold" must never become "fold
+    everything". Write order is crash-safe for Recoverable, biased to
+    duplication over loss: tail file first, meta flip second, folded rewrite
+    last. A crash before the meta flip leaves the full original segment
+    active (stray tail file overwritten later); a crash after it leaves the
+    tail briefly present in both files — duplicated, never dropped
+    (ADR-260721-407f75: moved, not copied-then-lost). Returns
+    (sealed_segment_id | None, updated_meta).
     """
     meta = ensure_channel(user_slug, channel)
     sealed_id = meta.active_segment
+    sealed_path = _segment_path(user_slug, channel, sealed_id)
 
-    # Open new active segment
+    folded: list[str] = []
+    tail_lines: list[str] = []
+    if keep_tail > 0:
+        split = _read_tail_split(sealed_path, keep_tail)
+        if split is None:
+            log.debug('%s-%s: nothing to fold in %s (tail-keeping seal skipped)', user_slug, channel, sealed_id)
+            return None, meta
+        folded, tail_lines = split
+
+    # 1. New active segment, seeded with the tail (write, never append — a
+    #    stray file from an earlier crash must be overwritten).
     new_id = _make_segment_id(meta.next_segment_num)
     seg_path = _segment_path(user_slug, channel, new_id)
     seg_path.parent.mkdir(parents=True, exist_ok=True)
-    seg_path.touch()
+    seg_path.write_text(''.join(ln + '\n' for ln in tail_lines), encoding='utf-8')
 
+    # 2. Commit the flip before touching the old file: a crash from here on
+    #    duplicates the tail (in both files) instead of losing it.
     meta.active_segment = new_id
     meta.next_segment_num += 1
     meta.last_summary_at = datetime.now(tz=timezone.utc)
     save_channel_meta(user_slug, channel, meta)
 
-    log.info('Sealed segment %s, new active: %s', sealed_id, new_id)
+    # 3. Strip the tail out of the sealed file so the summary covers exactly
+    #    what left the context.
+    if tail_lines:
+        atomic_write(sealed_path, ''.join(ln + '\n' for ln in folded))
+
+    log.info('Sealed segment %s, new active: %s (%d tail kept)', sealed_id, new_id, len(tail_lines))
     return sealed_id, meta
 
 
@@ -710,6 +827,30 @@ def is_idle(user_slug: str, channel: str, idle_minutes: int = 60) -> bool:
         return False
     elapsed = datetime.now(tz=timezone.utc) - meta.last_active
     return elapsed.total_seconds() > idle_minutes * 60
+
+
+def oldest_active_message_at(user_slug: str, channel: str) -> datetime | None:
+    """Timestamp of the oldest message in the active segment, or ``None``.
+
+    Reads only the first line — the age check on the load path
+    (FEAT-260721-a59c21) must not scan the whole segment every turn.
+    """
+    meta = load_channel_meta(user_slug, channel)
+    if meta is None:
+        return None
+    seg_path = _segment_path(user_slug, channel, meta.active_segment)
+    if not seg_path.exists():
+        return None
+    with open(seg_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            if not line.strip():
+                continue
+            try:
+                ts = json.loads(line).get('timestamp')
+                return datetime.fromisoformat(ts) if ts else None
+            except (json.JSONDecodeError, ValueError):
+                return None
+    return None
 
 
 def has_active_content(user_slug: str, channel: str) -> bool:

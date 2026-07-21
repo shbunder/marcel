@@ -107,8 +107,9 @@ async def _background_summarization_loop() -> None:
                     channel = channel_dir.name
                     idle_minutes = cfg.marcel_idle_summarize_minutes
                     if is_idle(user_slug, channel, idle_minutes) and has_active_content(user_slug, channel):
-                        log.info('%s-%s: background idle summarization triggered', user_slug, channel)
-                        await summarize_active_segment(user_slug, channel, trigger='idle')
+                        folded = await summarize_active_segment(user_slug, channel, trigger='idle')
+                        if folded:
+                            log.info('%s-%s: background idle summarization completed', user_slug, channel)
         except Exception:
             log.exception('background summarization loop error')
 

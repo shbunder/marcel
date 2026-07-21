@@ -64,7 +64,13 @@ Write in past tense, third person ("The user asked...", "Marcel helped...").
 Be concise but complete — this summary replaces the original messages.
 Do not include meta-commentary like "Here is the summary:".
 
-Return ONLY the summary text."""
+After the summary, add a section headed exactly `## Key Facts` with up to ten
+short bullet lines (`- fact`) naming the concrete things a reader might later
+need to look up: people, dates, deadlines, decisions, identifiers, open
+threads. These become the searchable memory of this segment — prefer the
+user's own words for names and topics so keyword search finds them.
+
+Return ONLY the summary text followed by the `## Key Facts` section."""
 
 _CHAINED_PROMPT_PREFIX = """\
 Here is the rolling summary of the conversation BEFORE this segment:
@@ -115,6 +121,30 @@ async def summarize_if_idle(
     return await summarize_active_segment(user_slug, channel, trigger='idle')
 
 
+async def summarize_if_stale(user_slug: str, channel: str, max_age_days: int) -> bool:
+    """Fold an active segment whose oldest message exceeds ``max_age_days``.
+
+    The age half of messaging-tuned decay (FEAT-260721-a59c21): a week-stale
+    conversation drops to gist + the verbatim tail, like a human's memory of
+    it. Runs on the load path, so the fold happens on the first turn after
+    the staleness threshold passes. Trigger ``'age'`` keeps the tail.
+    """
+    if max_age_days <= 0:
+        return False
+    if not has_active_content(user_slug, channel):
+        return False
+    from marcel_core.storage.conversation import oldest_active_message_at
+
+    oldest = oldest_active_message_at(user_slug, channel)
+    if oldest is None:
+        return False
+    age = datetime.now(tz=timezone.utc) - oldest
+    if age.days < max_age_days:
+        return False
+    log.info('%s-%s: oldest active message is %d day(s) old — age folding', user_slug, channel, age.days)
+    return await summarize_active_segment(user_slug, channel, trigger='age')
+
+
 async def summarize_active_segment(
     user_slug: str,
     channel: str,
@@ -155,6 +185,17 @@ async def summarize_active_segment(
     if not messages:
         return False
 
+    # Automatic seals on continuous channels keep the visible chat tail
+    # verbatim (FEAT-260721-a59c21); manual (/forget) and session_end fold
+    # everything. When the whole segment fits in the tail there is nothing
+    # to fold — skip, so a short conversation never collapses to gist.
+    from marcel_core.config import settings
+
+    keep_tail = settings.marcel_context_tail_messages if trigger in ('idle', 'age') else 0
+    if keep_tail > 0 and len(messages) <= keep_tail:
+        log.debug('%s-%s: %d message(s) all within the tail — nothing to fold', user_slug, channel, len(messages))
+        return False
+
     log.info(
         '%s-%s: starting %s summarization segment=%s (%d messages)',
         user_slug,
@@ -167,11 +208,17 @@ async def summarize_active_segment(
     # Seal the active segment and open a new one, then summarize the sealed
     # file through the shared helper (also used for rotation-pending segments).
     try:
-        sealed_id, _meta = seal_active_segment(user_slug, channel)
+        sealed_id, _meta = seal_active_segment(user_slug, channel, keep_tail=keep_tail)
     except Exception:
         log.exception('%s-%s: sealing failed', user_slug, channel)
         state.consecutive_failures += 1
         state.last_attempt = datetime.now(tz=timezone.utc)
+        return False
+    if sealed_id is None:
+        # Nothing foldable outside the tail (e.g. one user message followed
+        # by a long agentic run) — the seal was a no-op; keep everything
+        # verbatim rather than folding the visible tail to gist (B1).
+        log.debug('%s-%s: tail-keeping seal skipped — nothing to fold', user_slug, channel)
         return False
     return await _summarize_segment_file(user_slug, channel, sealed_id, trigger, state)
 
@@ -208,6 +255,7 @@ async def _summarize_segment_file(
 
         previous_summary = load_latest_summary(user_slug, channel)
         summary_text = await _generate_summary(messages, previous_summary)
+        summary_text, key_facts = _split_key_facts(summary_text)
 
         timestamps = [m.timestamp for m in messages if m.timestamp]
         time_from = min(timestamps) if timestamps else datetime.now(tz=timezone.utc)
@@ -224,6 +272,7 @@ async def _summarize_segment_file(
                 time_span_from=time_from,
                 time_span_to=time_to,
                 summary=summary_text,
+                key_facts=key_facts,
                 previous_summary_segment=(previous_summary.segment_id if previous_summary else None),
             ),
         )
@@ -280,6 +329,20 @@ async def summarize_pending_segments(user_slug: str, channel: str) -> int:
         elif not ok:
             break  # circuit-breaker / transient — retry the rest next turn
     return done
+
+
+def _split_key_facts(text: str) -> tuple[str, list[str]]:
+    """Split a ``## Key Facts`` section off a generated summary.
+
+    Returns (summary_without_section, facts). Tolerant of the section being
+    absent (older prompts, scripted test summaries) — then facts is empty.
+    """
+    marker = '## Key Facts'
+    if marker not in text:
+        return text.strip(), []
+    body, _, facts_block = text.partition(marker)
+    facts = [line[2:].strip() for line in facts_block.splitlines() if line.strip().startswith('- ')]
+    return body.strip(), facts
 
 
 async def _generate_summary(

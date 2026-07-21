@@ -94,9 +94,11 @@ shapes parse.
 4. On every turn (after classification), the message runs against
    `frustration_triggers`. A match on a FAST session bumps the stored
    tier to STANDARD.
-5. When a session is idle-summarized (`MARCEL_IDLE_SUMMARIZE_MINUTES`,
+5. When a session passes the idle boundary (`MARCEL_IDLE_SUMMARIZE_MINUTES`,
    default 60 minutes), `channel_tiers.{channel}` is cleared — the next
-   turn re-classifies from scratch.
+   turn re-classifies from scratch. The clear fires on the idle boundary
+   itself, whether or not a summary fold happened (a conversation that fits
+   inside the verbatim tail skips the fold but still re-classifies).
 
 ## Editing the config
 

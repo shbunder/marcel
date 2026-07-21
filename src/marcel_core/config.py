@@ -183,6 +183,16 @@ class Settings(BaseSettings):
     # being silently dropped. Below the 500-message / 500 KB hard backstops.
     marcel_context_budget_tokens: int = 80_000
 
+    # Messaging-tuned decay (FEAT-260721-a59c21): on continuous channels the
+    # last messages visible in the chat view stay verbatim through every
+    # automatic seal (idle / budget rotation / age) — only the content before
+    # the tail folds into the rolling summary. Manual /forget and session-end
+    # seals fold everything. And an active segment whose oldest message is
+    # older than the max age folds (keeping the tail) at the next load, so a
+    # week-stale conversation is gist + tail, like a human's memory of it.
+    marcel_context_tail_messages: int = 15
+    marcel_context_max_age_days: int = 7
+
     # LimitWarner (FEAT-260718-637764): warn the model as context pressure
     # mounts, before hard truncation. Context budgets are per model class —
     # cloud tiers (fast/standard/power) run ~200k-context models, the local

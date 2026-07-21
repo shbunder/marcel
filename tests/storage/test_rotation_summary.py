@@ -44,7 +44,8 @@ class TestRotationQueuesForSummary:
         from marcel_core.config import settings
 
         # Tiny budget so a couple of messages force a rotation.
-        monkeypatch.setattr(settings, 'marcel_context_budget_tokens', 20)  # 80 bytes
+        monkeypatch.setattr(settings, 'marcel_context_budget_tokens', 20)
+        monkeypatch.setattr(settings, 'marcel_context_tail_messages', 2)  # 80 bytes
         ensure_channel('shaun', 'cli')
         for i in range(6):
             append_to_segment('shaun', 'cli', _msg(f'message number {i} with enough text to exceed the budget'))
@@ -58,6 +59,7 @@ class TestRotationQueuesForSummary:
         from marcel_core.config import settings
 
         monkeypatch.setattr(settings, 'marcel_context_budget_tokens', 20)
+        monkeypatch.setattr(settings, 'marcel_context_tail_messages', 2)
         ensure_channel('shaun', 'cli')
         for i in range(6):
             append_to_segment('shaun', 'cli', _msg(f'msg {i} padded out to force a rotation here'))
@@ -76,6 +78,7 @@ class TestReconcileFoldsIntoContext:
         from marcel_core.memory.summarizer import summarize_pending_segments
 
         monkeypatch.setattr(settings, 'marcel_context_budget_tokens', 20)
+        monkeypatch.setattr(settings, 'marcel_context_tail_messages', 2)
         ensure_channel('shaun', 'cli')
         for i in range(6):
             append_to_segment('shaun', 'cli', _msg(f'dinner plan detail {i} that must not be lost from context'))
@@ -103,6 +106,7 @@ class TestReconcileFoldsIntoContext:
         from marcel_core.config import settings
 
         monkeypatch.setattr(settings, 'marcel_context_budget_tokens', 20)
+        monkeypatch.setattr(settings, 'marcel_context_tail_messages', 2)
         monkeypatch.setattr(settings, 'marcel_idle_summarize_minutes', 9999)  # no idle interference
         ensure_channel('shaun', 'cli')
         for i in range(6):
@@ -145,6 +149,7 @@ class TestSummarizerFailureSafetyValve:
         from marcel_core.memory import summarizer
 
         monkeypatch.setattr(settings, 'marcel_context_budget_tokens', 20)
+        monkeypatch.setattr(settings, 'marcel_context_tail_messages', 2)
         monkeypatch.setattr(settings, 'marcel_idle_summarize_minutes', 9999)
         ensure_channel('shaun', 'cli')
         for i in range(6):
@@ -167,6 +172,7 @@ class TestSummarizerFailureSafetyValve:
         from marcel_core.storage.conversation import MAX_PENDING_SEGMENTS
 
         monkeypatch.setattr(settings, 'marcel_context_budget_tokens', 20)
+        monkeypatch.setattr(settings, 'marcel_context_tail_messages', 2)
         ensure_channel('shaun', 'cli')
         # Force many rotations without any summary folding (nothing drains it).
         for i in range(200):
