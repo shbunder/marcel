@@ -60,4 +60,11 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:${MARCEL_PORT}/health || exit 1
 
 # Run via the watchdog (PID 1) which manages uvicorn and handles rollback
-CMD ["uv", "run", "python", "-m", "marcel_core.watchdog.main"]
+# Runtime flags MUST mirror the build flags above (`uv sync --frozen
+# --all-extras --no-dev`). `uv run` re-resolves the environment at container
+# start and defaults to INCLUDING the dev group — which carries the editable
+# `../odile` path dependency that exists only in a sibling dev checkout, never
+# in the image. Without --no-dev the container crash-loops on
+# "Distribution not found at: file:///odile" (BUG, FEAT-260721 redeploy).
+# --frozen additionally forbids any lockfile mutation at startup.
+CMD ["uv", "run", "--frozen", "--no-dev", "python", "-m", "marcel_core.watchdog.main"]
