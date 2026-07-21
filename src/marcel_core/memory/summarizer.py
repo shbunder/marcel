@@ -64,7 +64,13 @@ Write in past tense, third person ("The user asked...", "Marcel helped...").
 Be concise but complete — this summary replaces the original messages.
 Do not include meta-commentary like "Here is the summary:".
 
-Return ONLY the summary text."""
+After the summary, add a section headed exactly `## Key Facts` with up to ten
+short bullet lines (`- fact`) naming the concrete things a reader might later
+need to look up: people, dates, deadlines, decisions, identifiers, open
+threads. These become the searchable memory of this segment — prefer the
+user's own words for names and topics so keyword search finds them.
+
+Return ONLY the summary text followed by the `## Key Facts` section."""
 
 _CHAINED_PROMPT_PREFIX = """\
 Here is the rolling summary of the conversation BEFORE this segment:
@@ -243,6 +249,7 @@ async def _summarize_segment_file(
 
         previous_summary = load_latest_summary(user_slug, channel)
         summary_text = await _generate_summary(messages, previous_summary)
+        summary_text, key_facts = _split_key_facts(summary_text)
 
         timestamps = [m.timestamp for m in messages if m.timestamp]
         time_from = min(timestamps) if timestamps else datetime.now(tz=timezone.utc)
@@ -259,6 +266,7 @@ async def _summarize_segment_file(
                 time_span_from=time_from,
                 time_span_to=time_to,
                 summary=summary_text,
+                key_facts=key_facts,
                 previous_summary_segment=(previous_summary.segment_id if previous_summary else None),
             ),
         )
@@ -315,6 +323,20 @@ async def summarize_pending_segments(user_slug: str, channel: str) -> int:
         elif not ok:
             break  # circuit-breaker / transient — retry the rest next turn
     return done
+
+
+def _split_key_facts(text: str) -> tuple[str, list[str]]:
+    """Split a ``## Key Facts`` section off a generated summary.
+
+    Returns (summary_without_section, facts). Tolerant of the section being
+    absent (older prompts, scripted test summaries) — then facts is empty.
+    """
+    marker = '## Key Facts'
+    if marker not in text:
+        return text.strip(), []
+    body, _, facts_block = text.partition(marker)
+    facts = [line[2:].strip() for line in facts_block.splitlines() if line.strip().startswith('- ')]
+    return body.strip(), facts
 
 
 async def _generate_summary(

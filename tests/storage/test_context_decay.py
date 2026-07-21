@@ -188,3 +188,74 @@ class TestAgeFolding:
         assert 'Previous conversation summary' in rendered  # gist of the old part
         assert 'message 19' in rendered  # the visible tail, verbatim
         assert 'message 0' not in rendered  # week-stale content left verbatim context
+
+
+class TestKeyFactsLookup:
+    """S3 (STORY-260721-7ae389): summaries carry key facts; the context
+    prefix names them so the model knows a history lookup will pay off."""
+
+    def test_split_key_facts_parses_section(self):
+        from marcel_core.memory.summarizer import _split_key_facts
+
+        text = 'The user planned a trip.\n\n## Key Facts\n- Trip to Rome on 2026-08-01\n- Budget 1200 EUR'
+        summary, facts = _split_key_facts(text)
+        assert summary == 'The user planned a trip.'
+        assert facts == ['Trip to Rome on 2026-08-01', 'Budget 1200 EUR']
+
+    def test_split_tolerates_absent_section(self):
+        from marcel_core.memory.summarizer import _split_key_facts
+
+        summary, facts = _split_key_facts('Just a summary.')
+        assert summary == 'Just a summary.' and facts == []
+
+    @pytest.mark.asyncio
+    async def test_summary_persists_key_facts_round_trip(self, monkeypatch):
+        from marcel_core.memory.summarizer import summarize_active_segment
+
+        monkeypatch.setattr(settings, 'marcel_context_tail_messages', 2)
+        _seed(10)
+        scripted = AsyncMock(
+            return_value='They discussed dinner.\n\n## Key Facts\n- Lasagna planned for Friday\n- Nonna visits Saturday'
+        )
+        with patch('marcel_core.memory.summarizer._generate_summary', scripted):
+            assert await summarize_active_segment('shaun', 'telegram', trigger='idle') is True
+
+        summary = load_latest_summary('shaun', 'telegram')
+        assert summary is not None
+        assert summary.summary == 'They discussed dinner.'  # section split out
+        assert summary.key_facts == ['Lasagna planned for Friday', 'Nonna visits Saturday']
+
+    @pytest.mark.asyncio
+    async def test_context_prefix_names_the_key_facts(self, monkeypatch):
+        from marcel_core.capabilities.persistence.store import MarcelStepStore
+        from marcel_core.memory.summarizer import summarize_active_segment
+
+        monkeypatch.setattr(settings, 'marcel_context_tail_messages', 2)
+        monkeypatch.setattr(settings, 'marcel_idle_summarize_minutes', 999999)
+        _seed(10)
+        scripted = AsyncMock(return_value='Gist.\n\n## Key Facts\n- Dentist appointment 2026-07-30')
+        with patch('marcel_core.memory.summarizer._generate_summary', scripted):
+            await summarize_active_segment('shaun', 'telegram', trigger='idle')
+
+        context = await MarcelStepStore().load_context('shaun', 'telegram')
+        rendered = str(context)
+        assert 'Dentist appointment 2026-07-30' in rendered
+        assert 'search_conversations' in rendered  # the lookup hint
+
+    def test_excerpt_retrieval_around_a_hit(self):
+        """The verbatim-excerpt affordance: a search hit returns surrounding
+        messages, so old details are recoverable word-for-word."""
+        from marcel_core.storage.conversation import search_conversations
+
+        _seed(3)
+        append_to_segment('shaun', 'telegram', _msg('the wifi password is HUNTER2-changed-today'))
+        _seed_more = [_msg(f'later chatter {i}') for i in range(3)]
+        for m in _seed_more:
+            append_to_segment('shaun', 'telegram', m)
+
+        results = search_conversations('shaun', 'telegram', 'wifi password')
+        assert results, 'keyword search must find the old message'
+        _entry, excerpt = results[0]
+        texts = [m.text for m in excerpt]
+        assert any(t and 'HUNTER2-changed-today' in t for t in texts)  # verbatim
+        assert len(excerpt) > 1  # with surrounding context
