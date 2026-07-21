@@ -96,8 +96,6 @@ FILESYSTEM_DENIED_READ_PATTERNS = (
 )
 
 
-# Tool names contributed by the admin-only capabilities — unioned into
-# admin_tool_names() so the event-bus role gate (layer 2) covers them.
 def _read_file_key(call) -> str | None:
     """Dedup key for FileSystem ``read_file`` calls — ``None`` for all others.
 
@@ -114,6 +112,8 @@ def _read_file_key(call) -> str | None:
     return f'{path}#{args.get("offset", 0)}:{args.get("limit")}'
 
 
+# Tool names contributed by the admin-only capabilities — unioned into
+# admin_tool_names() so the event-bus role gate (layer 2) covers them.
 SHELL_TOOL_NAMES = frozenset({'run_command', 'start_command', 'check_command', 'stop_command'})
 FILESYSTEM_TOOL_NAMES = frozenset(
     {
@@ -188,7 +188,7 @@ def build_capabilities(
     from marcel_core.jobs.capability import build_jobs_tool_capability
     from marcel_core.tools.capability import build_utility_tool_capability
 
-    for bundle in (build_utility_tool_capability(tool_filter), build_jobs_tool_capability(tool_filter)):
+    for bundle in (build_utility_tool_capability(role, tool_filter), build_jobs_tool_capability(role, tool_filter)):
         if bundle is not None:
             capabilities.append(bundle)
 
@@ -341,7 +341,10 @@ def build_capabilities(
         from marcel_core.marketplace.capability import build_marketplace_tool_capability
         from marcel_core.tools.capability import build_dev_tool_capability
 
-        for bundle in (build_dev_tool_capability(tool_filter), build_marketplace_tool_capability(tool_filter)):
+        for bundle in (
+            build_dev_tool_capability(role, tool_filter),
+            build_marketplace_tool_capability(role, tool_filter),
+        ):
             if bundle is not None:
                 capabilities.append(bundle)
 

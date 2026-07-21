@@ -44,25 +44,37 @@ def build_tool_bundle(
     bundle_id: str,
     description: str,
     tools: list[tuple[str, Callable, str | None]],
+    role: str,
     tool_filter: set[str] | None,
 ) -> Capability[MarcelDeps] | None:
-    """Package a declared tool list as a ``Capability``, narrowed by filter.
+    """Package a declared tool list as a ``Capability``, gated and narrowed.
 
-    Returns ``None`` when the filter excludes every tool, so composition can
-    skip attaching an empty bundle (the explain tier's empty filter, a
+    The ``role_required`` column of each triple is the layer-1 structural
+    gate (role-gating rule): an ``'admin'``-declared tool is never selected
+    for a non-admin build, even if allowlisted, and even if a future
+    declaration lands in an otherwise all-user list. Composition's admin
+    block placement is defense-in-depth on top, not the gate itself.
+    Returns ``None`` when nothing survives, so composition can skip
+    attaching an empty bundle (the explain tier's empty filter, a
     subagent's narrow allowlist).
     """
-    selected = [fn for name, fn, _role in tools if tool_filter is None or name in tool_filter]
+    selected = [
+        fn
+        for name, fn, required in tools
+        if (required != 'admin' or role == 'admin') and (tool_filter is None or name in tool_filter)
+    ]
     if not selected:
         return None
     return Capability(id=bundle_id, description=description, tools=selected, defer_loading=False)
 
 
-def build_dev_tool_capability(tool_filter: set[str] | None) -> Capability[MarcelDeps] | None:
-    """Admin dev bundle: git_* + claude_code. Attach only for admin builds."""
-    return build_tool_bundle('dev-tools', 'Git and Claude Code developer tools.', DEV_TOOLS, tool_filter)
+def build_dev_tool_capability(role: str, tool_filter: set[str] | None) -> Capability[MarcelDeps] | None:
+    """Admin dev bundle: git_* + claude_code."""
+    return build_tool_bundle('dev-tools', 'Git and Claude Code developer tools.', DEV_TOOLS, role, tool_filter)
 
 
-def build_utility_tool_capability(tool_filter: set[str] | None) -> Capability[MarcelDeps] | None:
+def build_utility_tool_capability(role: str, tool_filter: set[str] | None) -> Capability[MarcelDeps] | None:
     """All-user utility bundle: generate_chart + the marcel dispatcher."""
-    return build_tool_bundle('utility-tools', 'Chart rendering and the marcel utility.', UTILITY_TOOLS, tool_filter)
+    return build_tool_bundle(
+        'utility-tools', 'Chart rendering and the marcel utility.', UTILITY_TOOLS, role, tool_filter
+    )

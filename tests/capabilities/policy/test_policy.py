@@ -140,3 +140,32 @@ def test_first_blocker_wins_in_registration_order():
     assert fired == ['first'], 'later handlers must not run after a deny'
     assert calls == [], 'denied tool must never execute'
     assert 'first says no' in result.output
+
+
+def test_bundle_attached_tool_passes_through_the_gate():
+    """FEAT-260721-51f9e3: registry tools attach as Capability bundles now —
+    MarcelPolicy's wrap_tool_execute must intercept capability-contributed
+    tools exactly like FunctionToolset ones, or layer 2 (role gate, self-mod
+    guard, command policy) silently stops covering git_*/claude_code."""
+    from marcel_core.tools.capability import build_dev_tool_capability
+
+    bus = EventBus()
+    denied: list[str] = []
+
+    def deny(event: ToolCallEvent, ctx):
+        if event.tool_name == 'git_status':
+            denied.append(event.tool_name)
+            event.deny('blocked by policy test')
+
+    bus.on('tool_call', deny)
+
+    bundle = build_dev_tool_capability('admin', {'git_status'})
+    assert bundle is not None
+    agent: Agent[MarcelDeps, str] = Agent(
+        TestModel(),
+        deps_type=MarcelDeps,
+        capabilities=[MarcelPolicy(), bundle],
+    )
+    result = agent.run_sync('go', deps=_deps(bus))
+    assert denied == ['git_status'], 'the bus gate must see the bundle tool call'
+    assert 'blocked by policy test' in result.output, 'the deny reason must become the tool result'

@@ -28,8 +28,8 @@ JOB_TOOLS: list[tuple[str, Callable, str | None]] = [
 ]
 
 
-def build_jobs_tool_capability(tool_filter: set[str] | None) -> Capability[MarcelDeps] | None:
-    """Job scheduling CRUD bundle, narrowed by filter (None when empty)."""
+def build_jobs_tool_capability(role: str, tool_filter: set[str] | None) -> Capability[MarcelDeps] | None:
+    """Job scheduling CRUD bundle, role-gated and narrowed (None when empty)."""
     from marcel_core.tools.capability import build_tool_bundle
 
-    return build_tool_bundle('job-tools', 'Scheduled-job management tools.', JOB_TOOLS, tool_filter)
+    return build_tool_bundle('job-tools', 'Scheduled-job management tools.', JOB_TOOLS, role, tool_filter)

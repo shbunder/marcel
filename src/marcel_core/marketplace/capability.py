@@ -20,8 +20,10 @@ MARKETPLACE_TOOLS: list[tuple[str, Callable, str | None]] = [
 ]
 
 
-def build_marketplace_tool_capability(tool_filter: set[str] | None) -> Capability[MarcelDeps] | None:
-    """Admin marketplace bundle, narrowed by filter (None when empty)."""
+def build_marketplace_tool_capability(role: str, tool_filter: set[str] | None) -> Capability[MarcelDeps] | None:
+    """Admin marketplace bundle, role-gated and narrowed (None when empty)."""
     from marcel_core.tools.capability import build_tool_bundle
 
-    return build_tool_bundle('marketplace-tools', 'Habitat marketplace management.', MARKETPLACE_TOOLS, tool_filter)
+    return build_tool_bundle(
+        'marketplace-tools', 'Habitat marketplace management.', MARKETPLACE_TOOLS, role, tool_filter
+    )

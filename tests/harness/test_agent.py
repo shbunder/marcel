@@ -383,3 +383,53 @@ class TestBundleRegistryParity:
             'job_cache_read',
         ]
         assert len(names) == len(set(names)), 'no duplicate tool names across domains'
+
+
+class TestBundleRoleColumnIsTheGate:
+    """Finding from FEAT-260721-51f9e3 verification: the role_required column
+    itself must be layer 1 — an 'admin'-declared triple in an otherwise
+    all-user list must never attach for a user, regardless of bundle
+    placement in composition."""
+
+    def test_admin_triple_in_all_user_bundle_never_attaches_for_user(self):
+        from marcel_core.tools.capability import build_tool_bundle
+
+        def fake_admin_tool():  # pragma: no cover - never called
+            return 'secret'
+
+        def fake_user_tool():
+            return 'ok'
+
+        mixed = [
+            ('fake_admin_tool', fake_admin_tool, 'admin'),
+            ('fake_user_tool', fake_user_tool, None),
+        ]
+        user_bundle = build_tool_bundle('test-bundle', 'test', mixed, 'user', None)
+        assert user_bundle is not None
+        assert [t.__name__ for t in [fn for fn in _bundle_functions(user_bundle)]] == ['fake_user_tool']
+
+        admin_bundle = build_tool_bundle('test-bundle', 'test', mixed, 'admin', None)
+        assert admin_bundle is not None
+        assert {t.__name__ for t in _bundle_functions(admin_bundle)} == {'fake_admin_tool', 'fake_user_tool'}
+
+    def test_admin_triple_stripped_even_when_allowlisted(self):
+        from marcel_core.tools.capability import build_tool_bundle
+
+        def fake_admin_tool():  # pragma: no cover - never called
+            return 'secret'
+
+        bundle = build_tool_bundle(
+            'test-bundle', 'test', [('fake_admin_tool', fake_admin_tool, 'admin')], 'user', {'fake_admin_tool'}
+        )
+        assert bundle is None, 'role gate must beat the allowlist inside the bundle itself'
+
+
+def _bundle_functions(bundle):
+    """Extract the plain functions a Capability tool bundle carries."""
+    from pydantic_ai.toolsets import FunctionToolset, WrapperToolset
+
+    current = bundle.get_toolset()
+    while isinstance(current, WrapperToolset):
+        current = current.wrapped
+    assert isinstance(current, FunctionToolset)
+    return [tool.function for tool in current.tools.values()]
