@@ -732,8 +732,10 @@ class TestResolveTurnTier:
 
     @pytest.mark.asyncio
     async def test_idle_reset_clears_session_tier(self, tmp_path, monkeypatch):
-        """When ``summarize_if_idle`` fires, ``channel_tiers`` is cleared so
-        the next message re-classifies from scratch."""
+        """Idle is the session boundary: ``channel_tiers`` is cleared so the
+        next message re-classifies from scratch — regardless of whether a
+        fold happened (FEAT-260721-a59c21 decoupled the two: a conversation
+        that fits in the verbatim tail skips the fold but still resets)."""
         from marcel_core.harness.runner import build_context
         from marcel_core.storage.settings import load_channel_tier, save_channel_tier
 
@@ -743,7 +745,33 @@ class TestResolveTurnTier:
         async def _fake_summarize(*args, **kwargs):
             return True  # Pretend the session just rolled over.
 
-        with patch('marcel_core.capabilities.persistence.store.summarize_if_idle', new=_fake_summarize):
+        with (
+            patch('marcel_core.storage.conversation.is_idle', return_value=True),
+            patch('marcel_core.storage.conversation.has_active_content', return_value=True),
+            patch('marcel_core.capabilities.persistence.store.summarize_if_idle', new=_fake_summarize),
+        ):
+            await build_context('shaun', 'telegram')
+
+        assert load_channel_tier('shaun', 'telegram') is None
+
+    @pytest.mark.asyncio
+    async def test_idle_without_fold_still_clears_session_tier(self, tmp_path, monkeypatch):
+        """The new case: an idle conversation whose messages all fit in the
+        tail skips the fold, but the tier must still reset at the boundary."""
+        from marcel_core.harness.runner import build_context
+        from marcel_core.storage.settings import load_channel_tier, save_channel_tier
+
+        monkeypatch.setattr(_root, '_DATA_ROOT', tmp_path)
+        save_channel_tier('shaun', 'telegram', 'fast')
+
+        async def _no_fold(*args, **kwargs):
+            return False  # under-tail: nothing folded
+
+        with (
+            patch('marcel_core.storage.conversation.is_idle', return_value=True),
+            patch('marcel_core.storage.conversation.has_active_content', return_value=True),
+            patch('marcel_core.capabilities.persistence.store.summarize_if_idle', new=_no_fold),
+        ):
             await build_context('shaun', 'telegram')
 
         assert load_channel_tier('shaun', 'telegram') is None

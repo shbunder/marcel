@@ -126,12 +126,26 @@ class MarcelStepStore:
         if folded:
             log.info('%s-%s: folded %d rotated segment(s) into the rolling summary', user_slug, channel, folded)
 
+        # Age fold (FEAT-260721-a59c21): week-stale active content drops to
+        # gist + tail before the idle check even runs.
+        from marcel_core.memory.summarizer import summarize_if_stale
+
+        aged = await summarize_if_stale(user_slug, channel, settings.marcel_context_max_age_days)
+        if aged:
+            log.info('%s-%s: age folding completed before turn', user_slug, channel)
+
         idle_minutes = settings.marcel_idle_summarize_minutes
+        from marcel_core.storage.conversation import has_active_content, is_idle
+
+        # Idle is the session boundary regardless of whether a fold happens —
+        # a short conversation whose messages all fit in the verbatim tail
+        # skips the fold (FEAT-260721-a59c21) but must still re-classify its
+        # tier from scratch (ISSUE-e0db47).
+        was_idle = is_idle(user_slug, channel, idle_minutes) and has_active_content(user_slug, channel)
         summarized = await summarize_if_idle(user_slug, channel, idle_minutes)
         if summarized:
             log.info('%s-%s: idle summarization completed before turn', user_slug, channel)
-            # Session boundary → clear the tier so the next message
-            # re-classifies from scratch (ISSUE-e0db47).
+        if was_idle:
             from marcel_core.storage.settings import clear_channel_tier
 
             clear_channel_tier(user_slug, channel)
