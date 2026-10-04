@@ -211,7 +211,8 @@ approval(id, task_id, request_id, tool, summary, detail?, artifact_id?,
          state[open|approved|denied|expired], answered_via?[app|terminal], answered_at?)
 artifact(id, task_id?, kind[pr|branch|doc|file|dashboard|link], title, url?, content_type?,
          size_bytes?, trusted, self_change, meta_json, created_at)
-schedule(id, agent_id, name, cron, tz, location[nuc|cloud|brain], prompt, paused, last_run_at, deadline_minutes?)
+schedule(id, agent_id, name, cron, tz, location[nuc|cloud|brain], prompt, paused, builtin,
+         deadline_minutes?, last_run_at?, next_run_at?)
 usage_snapshot(id, taken_at, window[five_hour|weekly], used_pct, resets_at, source)
 ```
 

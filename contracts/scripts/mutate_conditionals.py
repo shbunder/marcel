@@ -50,8 +50,15 @@ def main() -> int:
     api = yaml.safe_load((CONTRACTS / 'app-api.yaml').read_text())
     sites = conditionals(api)
     survivors: list[str] = []
+    ignore = shutil.ignore_patterns('.venv', '__pycache__', '.pytest_cache', '.ruff_cache')
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp) / 'contracts'
+        # Baseline: the unmutated copy must pass, or every "caught" below means nothing.
+        shutil.copytree(CONTRACTS, work, ignore=ignore)
+        (work / 'app-api.yaml').write_text(yaml.safe_dump(api, sort_keys=False))
+        if not suite_passes(work):
+            print('The unmutated contract fails in the scratch copy; fix that first.')
+            return 2
         for site in sites:
             mutated = copy.deepcopy(api)
             target = mutated
@@ -59,7 +66,6 @@ def main() -> int:
                 target = target[key]
             del target['if'], target['then']
             shutil.rmtree(work, ignore_errors=True)
-            ignore = shutil.ignore_patterns('.venv', '__pycache__', '.pytest_cache', '.ruff_cache')
             shutil.copytree(CONTRACTS, work, ignore=ignore)
             (work / 'app-api.yaml').write_text(yaml.safe_dump(mutated, sort_keys=False))
             label = '/'.join(map(str, site))

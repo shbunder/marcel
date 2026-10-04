@@ -503,7 +503,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: Already answered (for example in a terminal). The body is the approval as it stands.
+          description: Already answered (for example in a terminal) or expired. The body is the approval as it stands.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Approval' }
