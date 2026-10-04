@@ -11,8 +11,10 @@ info:
     Facts this API rests on (spikes SP1–SP4, SP6, SP7; results in `scratch/spikes/`):
     - Sessions are `claude --bg` background sessions under Claude's own supervisor, which runs in its
       own unit (`marcel-claude-daemon.service`), never inside the runner.
-    - Every spawn and fork passes `--channels plugin:marcel@marcel-local` (unless `channel: false`)
-      and puts the prompt after `--`. The runner checks the session's debug log for
+    - Every spawn, fork and resume passes `--channels plugin:marcel@marcel-local` (unless
+      `channel: false`) and `--allowedTools mcp__plugin_marcel_marcel__reply
+      mcp__plugin_marcel_marcel__report`, and puts the prompt after `--`. A plugin cannot
+      pre-allow its own tools, so without the flag a `manual`-mode session prompts for every reply. The runner checks the session's debug log for
       `Channel notifications registered`, and fails the spawn when it says `skipped`. It waits up
       to 30 s for either line; with neither, it stops the session and fails the spawn
       (`channel_timeout`).
