@@ -111,18 +111,18 @@ export class ChannelServer {
 
   private emit(frame: Deliverable): void {
     switch (frame.type) {
-      case 'user_message':
-        this.mcp.notify('notifications/claude/channel', {
-          content: frame.text,
-          meta: { kind: 'user_message', message_id: frame.message_id, conversation_id: frame.conversation_id },
-        });
+      case 'user_message': {
+        const meta: Record<string, string> = { kind: 'user_message', message_id: frame.message_id, conversation_id: frame.conversation_id };
+        if (frame.quoted_message_id) meta.quoted_message_id = frame.quoted_message_id;
+        this.mcp.notify('notifications/claude/channel', { content: frame.text, meta });
         break;
-      case 'steer':
-        this.mcp.notify('notifications/claude/channel', {
-          content: frame.text,
-          meta: { kind: 'steer', task_id: frame.task_id, note_id: frame.note_id, author: frame.author },
-        });
+      }
+      case 'steer': {
+        const meta: Record<string, string> = { kind: 'steer', task_id: frame.task_id, note_id: frame.note_id, author: frame.author };
+        if (frame.handback) meta.handback = 'true';
+        this.mcp.notify('notifications/claude/channel', { content: frame.text, meta });
         break;
+      }
       case 'system_event': {
         const meta: Record<string, string> = { kind: 'system_event', event: frame.kind };
         if (frame.task_id) meta.task_id = frame.task_id;

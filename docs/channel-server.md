@@ -22,6 +22,7 @@ The server has no runtime dependencies.
 ## What the session gets
 
 - Messages arrive as channel events. `meta.kind` is `user_message`, `steer` or `system_event`.
+  A quoted message adds `meta.quoted_message_id`; a hand-back steer adds `meta.handback` = `"true"`.
 - Tool `reply(text, in_reply_to?)` for the brain and side threads.
 - Tool `report(kind, …)` for workers: `started`, `progress` (needs `text`), `artifact` (needs `artifact`), `done` and `failed` (need `summary`).
   A report that breaks these rules is refused with a plain message before it leaves the session.

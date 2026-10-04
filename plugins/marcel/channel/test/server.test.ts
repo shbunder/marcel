@@ -224,6 +224,18 @@ describe('inbound messages', () => {
     expect(b?.params).toEqual({ content: 'Rolling over.', meta: { kind: 'system_event', event: 'rollover' } });
   });
 
+  it('passes quoted_message_id and handback through when present, and leaves them out otherwise', async () => {
+    const h = await connected();
+    h.hub.push({ type: 'user_message', seq: 1, message_id: 'm2', conversation_id: 'c', text: 'yes', quoted_message_id: 'm1' });
+    h.hub.push({ type: 'steer', seq: 2, task_id: 't', note_id: 'n', author: 'marcel', text: 'wrap up', handback: true });
+    h.hub.push({ type: 'steer', seq: 3, task_id: 't', note_id: 'n2', author: 'user', text: 'x', handback: false });
+    await flush();
+    const [a, b, c] = h.notifications('notifications/claude/channel').map((n) => (n.params as { meta: Record<string, string> }).meta);
+    expect(a).toEqual({ kind: 'user_message', message_id: 'm2', conversation_id: 'c', quoted_message_id: 'm1' });
+    expect(b).toEqual({ kind: 'steer', task_id: 't', note_id: 'n', author: 'marcel', handback: 'true' });
+    expect(c).not.toHaveProperty('handback');
+  });
+
   it('uses meta keys that are identifiers only', async () => {
     const h = await connected();
     h.hub.push({ type: 'steer', seq: 1, task_id: 't', note_id: 'n', author: 'marcel', text: 'x' });
