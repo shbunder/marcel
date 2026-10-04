@@ -1,0 +1,6 @@
+2026-10-04T09:15:53.686Z [DEBUG] MCP server "sp1": Channel notifications registered
+2026-10-04T09:16:08.392Z [DEBUG] MCP server "sp1": notifications/claude/channel: Channel test (interactive). Use the reply tool to answer: what is 6 times 7?
+2026-10-04T09:18:13.039Z [DEBUG] MCP server "sp1": Channel notifications registered
+2026-10-04T09:18:26.064Z [DEBUG] MCP server "sp1": notifications/claude/channel: Please run this Bash command: date > relay-test.txt && cat relay-test.txt — then
+2026-10-04T09:18:28.634Z [DEBUG] MCP server "sp1": notifications/claude/channel/permission: cjtgb → allow (matched pending)
+2026-10-04T09:19:35.861Z [DEBUG] MCP server "sp1": notifications/claude/channel/permission: ztzxk → allow (matched pending)

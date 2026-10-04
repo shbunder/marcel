@@ -1,0 +1,4 @@
+{"t": 1791105394285, "kind": "started", "server": "sp1", "conversation": "main", "pid": 2906724, "port": 8793}
+{"t": 1791105394344, "kind": "initialize", "server": "sp1", "conversation": "main", "pid": 2906724, "client": {"name": "claude-code", "title": "Claude Code", "version": "2.1.289", "description": "Anthropic's agentic coding tool", "websiteUrl": "https://claude.com/claude-code"}, "protocol": "2025-11-25"}
+{"t": 1791105394410, "kind": "notification", "server": "sp1", "conversation": "main", "pid": 2906724, "method": "notifications/initialized", "params": null}
+{"t": 1791105405931, "kind": "message_in", "server": "sp1", "conversation": "main", "pid": 2906724, "message_id": "m1", "text": "bg test: reply with the reply tool: 6*7?"}
