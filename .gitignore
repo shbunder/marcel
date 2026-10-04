@@ -1,68 +1,42 @@
-# Byte-compiled / optimized / DLL files
-## compiled bytecode of a python-module
+# Python
 __pycache__/
-## compiled python-code
 *.py[cod]
-## caches
-.cache/
-.mypy_cache/
-.ruff_cache/
+.venv/
+*.egg-info/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .coverage
+coverage.xml
+htmlcov/
 
-# idea/environment folders
-## local UV environment
-.venv
-## Visual Studio attributes
-.vscode
-*.sln
-## IntelliJ attributes
-.idea
-*.iml
-## MAC OS folder attributes
-*.DS_Store
-## meta data of installed python packages
-*.egg-info
+# Node (plugin channel server)
+node_modules/
+dist/
 
-# env-files
-## local .env-files overwriting env-variables
-.env.local
-
-# Claude Code local state
-## per-machine permission allowlist
-.claude/settings.local.json
-## safety hook unlock flag — temporary; never commit
-.claude/.unlock-safety
-
-# Support folder during dev
-## stored models, artifacs and data
-models/*
-artifacts/*
-data/
-## python notebooks
-notebooks/*.ipynb
-.ipynb_checkpoints/*
-
-# Downloaded installers
-*.deb
-
-# Runtime config lives in ~/.marcel/ (data root), not in the repo.
-# The zoo repo (cloned into ~/.marcel/ on first boot) supplies MARCEL.md,
-# routing.yaml, and every habitat; the kernel itself bundles none of them.
-.marcel/
-
-# Build artifacts
+# iOS / Xcode
+ios/**/xcuserdata/
+ios/**/DerivedData/
+*.xcuserstate
 .build/
 build/
-site/
-src/marcel_cli/target/
-src/web/node_modules/
-src/web/dist/
-.confluence-build/
-tasks/
 
-# Terraform
-infra/.terraform/
-infra/*.auto.tfvars
-infra/.terraform.lock.hcl
+# Editors and OS
+.vscode/
+.idea/
+*.iml
+*.DS_Store
+
+# Secrets and per-machine config: never committed
+.env.local
+deploy/.env.local
+*.p8
 *.pem
+
+# Claude Code local state
+.claude/settings.local.json
+.claude/.unlock-safety
+
+# Runtime data lives on the NUC under ~/marcel/, never in the repo
+data/
+scratch/**/out/

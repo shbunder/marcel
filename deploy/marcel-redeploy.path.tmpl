@@ -1,9 +1,0 @@
-[Unit]
-Description=Watch for Marcel (prod) restart request flag
-
-[Path]
-PathExists=@@DATA_DIR@@/watchdog/restart_requested.prod
-Unit=marcel-redeploy.service
-
-[Install]
-WantedBy=default.target

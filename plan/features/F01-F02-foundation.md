@@ -11,7 +11,8 @@ do:
    recreates them.
 3. Add a README with v3's one-paragraph pitch, the logo, and a link to `plan/`.
 done when:
-- [ ] `git show v2-final:src/marcel_core/main.py` works.
+- [ ] `git show origin/legacy/v2:src/marcel_core/main.py` works. The `v2-final` tag is
+  pushed by the owner, since the cloud session's git proxy refuses tag pushes.
 - [ ] `main` contains only `docs/design/`, `plan/`, `README.md`, `.gitignore`, `LICENSE`.
 not in scope: deleting anything on the NUC (that is F14b).
 
