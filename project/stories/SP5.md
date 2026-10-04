@@ -26,3 +26,7 @@ Blocks: F13
 
 **Pass:** the owner looks at a screenshot next to `docs/design/logo.png` and says "that's Marcel", and it
 runs at a steady 60 fps.
+
+## From the spikes (2026-10-04)
+
+- Built and working in the iPhone 16 Pro simulator (60 fps there). Open until the owner runs it on the iPhone: frame rate in four modes, energy impact, the colour-fix switch, and the "that's Marcel" verdict. Steps: `scratch/spikes/SP5-avatar/RESULT.md` § "To finish on the iPhone".

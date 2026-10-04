@@ -5,7 +5,7 @@ feature: F00
 wave: 0
 runs_on: NUC
 size: S
-status: In Progress
+status: Done
 depends: 
 touches: scratch/spikes/SP4-*
 behaviours: 
@@ -23,3 +23,7 @@ Blocks: F10
    that hitting the limit can be detected.
 
 **Pass:** a reliable source of `used_pct` and `resets_at`, or a documented "detect on hit" fallback.
+
+## Result
+
+PASS. See [`scratch/spikes/SP4-usage/RESULT.md`](../../scratch/spikes/SP4-usage/RESULT.md) and `plan/03-spikes.md` § Results.

@@ -5,7 +5,7 @@ feature: F00
 wave: 0
 runs_on: NUC
 size: S
-status: In Progress
+status: Done
 depends: 
 touches: scratch/spikes/SP2-*
 behaviours: 
@@ -26,3 +26,7 @@ Blocks: F03
 
 **Pass:** a written mapping from `agents --json` and JSONL to `contracts/transcript.schema.json`, plus
 fixtures committed in `runner/tests/fixtures/`.
+
+## Result
+
+PASS. See [`scratch/spikes/SP2-worker-control/RESULT.md`](../../scratch/spikes/SP2-worker-control/RESULT.md) and `plan/03-spikes.md` § Results.
