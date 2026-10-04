@@ -109,3 +109,16 @@ def test_runner_spawn_failure_codes_are_documented():
     ]
     for code in ('not_trusted', 'channel_skipped', 'exited', 'no_supervisor'):
         assert code in text
+
+
+@pytest.mark.parametrize('doc', (*DOCS, 'app-api.yaml'))
+def test_every_operation_with_a_body_says_how_a_bad_body_is_answered(doc: str):
+    missing = [
+        op.get('operationId')
+        for item in load_yaml(doc)['paths'].values()
+        for op in item.values()
+        if isinstance(op, dict)
+        and 'requestBody' in op
+        and not {'400', '422'} & set(op['responses'])
+    ]
+    assert missing == []

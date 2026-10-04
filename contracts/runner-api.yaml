@@ -145,6 +145,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
+        '400':
+          description: 'The body does not match the schema (`code: bad_request`).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: 'Still running (`code: running`; use the channel), or Claude started a copy (`code: resume_copied`).'
