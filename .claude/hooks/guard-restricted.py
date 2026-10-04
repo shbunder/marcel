@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """PreToolUse guard. Blocks edits to Marcel's restricted paths unless an unlock flag exists.
 
-Restricted paths:
-- CLAUDE.md (any directory): project instructions
+Restricted paths, relative to the repo root:
+- CLAUDE.md (the root one only; brain/CLAUDE.md is Marcel's persona and edited by stories)
 - contracts/**: the interfaces every lane builds against; only the lead changes them
-- .env* and deploy/.env*: environment and secret files
+- .env* in any folder (deploy/.env.local holds the secrets)
 
 Unlock: create .claude/.unlock-safety, make the edit, commit, then delete the flag.
 
@@ -20,15 +20,28 @@ import re
 import sys
 from pathlib import Path
 
-# Anchored to the repo, not the working directory, so the flag works from any subfolder.
-UNLOCK_FLAG = Path(__file__).resolve().parent.parent / '.unlock-safety'
+# Anchored to the repo, not the working directory, so both work from any subfolder.
+ROOT = Path(__file__).resolve().parents[2]
+UNLOCK_FLAG = ROOT / '.claude' / '.unlock-safety'
 GUARDED_TOOLS = {'Edit', 'Write', 'NotebookEdit', 'MultiEdit'}
 
 RESTRICTED: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r'(^|/)CLAUDE\.md$'), 'project instructions (CLAUDE.md)'),
-    (re.compile(r'(^|/)contracts/'), 'a contract: implementers file project/contract-requests/'),
+    (re.compile(r'^CLAUDE\.md$'), 'project instructions (CLAUDE.md)'),
+    (re.compile(r'^contracts/'), 'a contract: implementers file project/contract-requests/'),
     (re.compile(r'(^|/)\.env(\.|$)'), 'environment file'),
 ]
+
+
+def repo_relative(file_path: str) -> set[str]:
+    """The path as written and resolved, each relative to the repo root (POSIX separators)."""
+    found: set[str] = set()
+    for raw in {file_path, os.path.realpath(file_path)}:
+        absolute = Path(raw) if os.path.isabs(raw) else Path.cwd() / raw
+        try:
+            found.add(absolute.resolve().relative_to(ROOT).as_posix())
+        except ValueError:
+            found.add(Path(raw).as_posix())  # outside the repo: only the .env rule can match
+    return found
 
 
 def main() -> int:
@@ -45,11 +58,7 @@ def main() -> int:
     if not file_path:
         return 0
 
-    candidates = {file_path}
-    try:
-        candidates.add(os.path.realpath(file_path))
-    except OSError:
-        pass
+    candidates = repo_relative(file_path)
 
     if UNLOCK_FLAG.exists():
         return 0

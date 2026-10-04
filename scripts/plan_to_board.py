@@ -174,6 +174,12 @@ def main(plan: Path, board: Path, statuses: dict[str, str]) -> int:
 
 
 if __name__ == '__main__':
+    if len(sys.argv) != 3:
+        sys.exit(
+            'Usage: plan_to_board.py <plan dir> <board dir>\n'
+            'A one-off: it ran in S-01.3, and plan/features/ was removed after it. Restore a\n'
+            'features page from git history (git show 74220f1~1:plan/features/<page>) to rerun it.'
+        )
     started = {sp: 'In Progress' for sp in ('SP1', 'SP2', 'SP3', 'SP4', 'SP5', 'SP6', 'SP7')}
     done = {s: 'Done' for s in ('S-01.1', 'S-01.2', 'S-01.3')}
     sys.exit(main(Path(sys.argv[1]), Path(sys.argv[2]), {**started, **done}))

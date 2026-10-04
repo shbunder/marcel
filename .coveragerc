@@ -1,0 +1,9 @@
+# Coverage for the root scripts lane (board CLI and guard hook).
+[run]
+branch = true
+source = scripts, .claude/hooks
+omit = scripts/tests/*, scripts/plan_to_board.py
+
+[report]
+fail_under = 90
+show_missing = true

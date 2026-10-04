@@ -83,12 +83,24 @@ def set_frontmatter(text: str, key: str, value: str) -> str:
     return f'---\n{header}{sep}{body}'
 
 
+class BoardError(SystemExit):
+    """A story file the board cannot trust. Raised loudly: a silently skipped story escapes
+    the dependency and overlap checks."""
+
+
 def load(stories_dir: Path = STORIES) -> dict[str, Story]:
     stories: dict[str, Story] = {}
     for path in sorted(stories_dir.glob('*.md')):
         fields = read_frontmatter(path.read_text())
-        if 'id' in fields:
-            stories[fields['id']] = Story(fields['id'], fields.get('title', ''), path, fields)
+        if 'id' not in fields:
+            raise BoardError(f'{path.name} has no frontmatter id; fix or remove it.')
+        if fields.get('status', 'Backlog') not in STATUSES:
+            raise BoardError(
+                f'{path.name} has status "{fields["status"]}"; use one of: {", ".join(STATUSES)}.'
+            )
+        if fields['id'] in stories:
+            raise BoardError(f'{fields["id"]} appears twice ({path.name}).')
+        stories[fields['id']] = Story(fields['id'], fields.get('title', ''), path, fields)
     return stories
 
 

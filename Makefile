@@ -6,9 +6,13 @@ CHANNEL  := plugins/marcel/channel
 
 check: scripts $(PY_LANES) channel
 
-# The board and the guard hook are tested like any lane.
+# The board CLI and the guard hook are a lane like any other: format, lint, types, covered tests.
+SCRIPTS_ENV := uv run --quiet --python 3.12 --with pytest --with pytest-cov --with ruff --with pyright
 scripts:
-	uv run --quiet --python 3.12 --with pytest pytest scripts/tests -q
+	$(SCRIPTS_ENV) ruff format --check scripts .claude/hooks
+	$(SCRIPTS_ENV) ruff check scripts .claude/hooks
+	$(SCRIPTS_ENV) pyright
+	$(SCRIPTS_ENV) pytest scripts/tests -q --cov --cov-config=.coveragerc
 
 $(PY_LANES):
 	$(MAKE) -C $@ check

@@ -16,6 +16,9 @@ Start with [plan/README.md](plan/README.md). What it must do is
   Judgement goes to a `claude` session. See [no-model-calls](.claude/rules/no-model-calls.md).
 - **Lightweight** *(over bloated).* Every dependency earns its place. Claude Code's own features
   (background sessions, channels, plugins, cloud sessions) come before anything we build.
+- **Generic** *(over specific).* A general extension point beats a hard-coded one-off: an agent is
+  a record (name, animal, palette, persona), a capability is a plugin or an MCP server, a worker is
+  a `claude` session wherever it runs.
 - **Human-readable** *(over clever).* Milestones, notifications and errors are read on a phone.
   Lead with the outcome, in short sentences.
 - **Recoverable** *(over fast).* Self-changes go through an approved PR, then a redeploy that
