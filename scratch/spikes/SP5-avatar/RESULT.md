@@ -1,4 +1,37 @@
-# SP5, round 4: Marcel in Clawd style (current, alongside round 3)
+# SP5, round 5: vector giraffe (current proposal)
+
+**Why:** the owner judged the Clawd-style giraffe "doesn't look like a giraffe at all" and asked for a critical,
+creative pass: either drop the giraffe for something simple and fun, or use fluent lines as a homage to pixels.
+
+**Result:** a flat vector giraffe with a big round head, a neck, a round body, short horn knobs, the logo's rounded
+spots, little arms that act, and an optional deep-teal bow tie as its signature. Live preview (private):
+https://claude.ai/artifact/C9R1wHyzqdevt8cHkjg4yu
+
+- [vector-giraffe-states.png](screenshots/vector-giraffe-states.png): idle, thinking (hoof on cheek), working (laptop, glowing spots, code symbols), happy (hop, arms up).
+- [vector-giraffe-icon-sizes.png](screenshots/vector-giraffe-icon-sizes.png): 24, 32, 48, 96 px.
+- [vector-dot-matrix-rejected.png](screenshots/vector-dot-matrix-rejected.png): the same giraffe as LED dots; rejected.
+
+## Judged against current mascots
+
+Duolingo's Duo ([reshaping Duo](https://blog.duolingo.com/reshaping-duo/)), OpenAI's Dots and Clawd share: a silhouette
+you know at icon size, 2–3 colours, a face that carries emotion, one signature detail. This design meets all four;
+it reads as a pink giraffe at 24 px. It is less distinctive than Clawd; the bow tie and the logo's spots carry the identity.
+
+## What was tried and dropped in this round
+
+- First vector version: a bowling-pin silhouette, cow-like white muzzle, antenna horns, gradient. Fixed.
+- Dot-matrix ("pixel homage"): the face falls apart at 40 × 44 dots. Pixels stay a nod only (rounded-square spots, four-point sparkles).
+- Dropping the giraffe: not needed once vector gave enough room for a neck.
+
+## How it is made
+
+`vector/marcel.js` draws the giraffe as SVG from (state, time); `vector/review.js` renders review sheets with
+`rsvg-convert`; `vector/preview.template.html` + `marcel.js` build the live preview page. Not yet in the iOS app:
+it needs a SwiftUI port of the same shapes (or a Rive file) once the design is approved.
+
+---
+
+# SP5, round 4: Marcel in Clawd style (rejected by the owner: not a giraffe)
 
 **Why:** the owner likes Clawd, the Claude Code mascot (simple pixel art, with typing and thinking poses) and asked
 for Marcel in that style: still a rose-pink giraffe, colours aligned with Anthropic's.

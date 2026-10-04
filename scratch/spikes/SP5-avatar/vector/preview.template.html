@@ -1,0 +1,175 @@
+<title>Marcel the Giraffe</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one live stage on the left (the character is the point), controls and the review beside it; stacks on phones. */
+:root {
+  --bg: #faf5f8;          /* Marcel "Snow" */
+  --panel: #f3eaef;
+  --stage: #fbf8fa;
+  --fg: #2a2226;
+  --muted: #76666e;
+  --line: #e6d8df;
+  --rose: #d87990;
+  --rose-deep: #b9506e;
+  --teal: #5e807f;
+  --display: "Fredoka", "Avenir Next Rounded", "Arial Rounded MT Bold", system-ui, sans-serif;
+  --body: "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1c1719; --panel: #261f22; --stage: #141113; --fg: #f3e9ee; --muted: #b3a1aa; --line: #3a2f34;
+    --rose: #e08aa0; --rose-deep: #e3a0b2; --teal: #8fb3b1; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1c1719; --panel: #261f22; --stage: #141113; --fg: #f3e9ee; --muted: #b3a1aa; --line: #3a2f34;
+  --rose: #e08aa0; --rose-deep: #e3a0b2; --teal: #8fb3b1; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.55; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 56px; display: grid; gap: 40px; }
+header h1 { font-family: var(--display); font-weight: 600; font-size: clamp(2rem, 5vw, 3rem); line-height: 1.05; margin: 0; text-wrap: balance; }
+header p { margin: 8px 0 0; color: var(--muted); max-width: 62ch; }
+.studio { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 760px) { .studio { grid-template-columns: 1fr; } }
+.stage { background: var(--stage); border: 1px solid var(--line); border-radius: 22px; aspect-ratio: 1 / 1; max-width: 100%;
+         display: grid; place-items: center; position: relative; overflow: hidden; }
+.stage.dark { background: #141413; }
+.stage svg { width: 78%; height: auto; }
+.stage .tag { position: absolute; left: 16px; bottom: 12px; font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: .04em; }
+.controls { display: grid; gap: 18px; }
+.group { display: grid; gap: 8px; }
+.label { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.seg { display: flex; flex-wrap: wrap; gap: 8px; }
+.seg button { font: 600 15px/1 var(--display); padding: 10px 16px; border-radius: 999px; border: 1.5px solid var(--line);
+              background: var(--panel); color: var(--fg); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--rose); border-color: var(--rose); color: #fff; }
+.seg button:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+.sizes { display: flex; align-items: end; gap: 18px; flex-wrap: wrap; padding: 14px 16px; background: var(--panel); border-radius: 14px; }
+.sizes figure { margin: 0; display: grid; justify-items: center; gap: 4px; }
+.sizes figcaption { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.note { color: var(--muted); font-size: 14px; margin: 0; }
+section h2 { font-family: var(--display); font-weight: 600; font-size: 1.6rem; margin: 0 0 12px; }
+section > p { max-width: 65ch; margin: 0 0 14px; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 15px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 500; }
+td:first-child { font-weight: 700; white-space: nowrap; }
+tr.us td { background: color-mix(in srgb, var(--rose) 12%, transparent); }
+.rounds { display: grid; gap: 10px; padding: 0; margin: 0; list-style: none; }
+.rounds li { display: grid; grid-template-columns: 11ch minmax(0, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.rounds .v { font-family: var(--mono); font-size: 13px; color: var(--rose-deep); }
+.rounds .keep { color: var(--teal); }
+@media (prefers-reduced-motion: reduce) { .stage svg { animation: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Marcel the Giraffe</h1>
+    <p>A redesign of Marcel's avatar: one soft silhouette, flat colours, a face that acts, and a deep-teal bow tie as the signature. Everything below is live, drawn from the same code the app will use.</p>
+  </header>
+
+  <div class="studio">
+    <div>
+      <div class="stage" id="stage"><span class="tag" id="tag">idle</span></div>
+    </div>
+    <div class="controls">
+      <div class="group">
+        <span class="label" id="lbl-state">What Marcel is doing</span>
+        <div class="seg" role="group" aria-labelledby="lbl-state" id="states">
+          <button id="st-idle" data-state="idle" aria-pressed="true">Idle</button>
+          <button id="st-thinking" data-state="thinking" aria-pressed="false">Thinking</button>
+          <button id="st-working" data-state="working" aria-pressed="false">Working</button>
+          <button id="st-happy" data-state="happy" aria-pressed="false">Happy</button>
+        </div>
+      </div>
+      <div class="group">
+        <span class="label" id="lbl-bow">Signature</span>
+        <div class="seg" role="group" aria-labelledby="lbl-bow">
+          <button id="bow-on" aria-pressed="true">Bow tie</button>
+          <button id="bow-off" aria-pressed="false">Plain</button>
+        </div>
+      </div>
+      <div class="group">
+        <span class="label" id="lbl-bg">Background</span>
+        <div class="seg" role="group" aria-labelledby="lbl-bg">
+          <button id="bg-light" aria-pressed="true">Light</button>
+          <button id="bg-dark" aria-pressed="false">Dark</button>
+        </div>
+      </div>
+      <div class="group">
+        <span class="label">At icon sizes</span>
+        <div class="sizes" id="sizes"></div>
+        <p class="note">The test every good mascot passes: still a pink giraffe at 24 pixels.</p>
+      </div>
+    </div>
+  </div>
+
+  <section>
+    <h2>Against the mascots people love</h2>
+    <p>The yardstick: Duolingo's Duo ("a chicken nugget with a face"), OpenAI's Dots, and Clawd from Claude Code. What they share is a silhouette you know at icon size, two or three colours, a face that carries the emotion, and one signature detail.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Silhouette at icon size</th><th>Colours</th><th>Face and acting</th><th>Signature</th></tr></thead>
+        <tbody>
+          <tr><td>Duo</td><td>Round body, big eyes</td><td>One green, one orange</td><td>Huge range of expressions</td><td>The colour itself</td></tr>
+          <tr><td>Dots</td><td>One soft blob each</td><td>One colour per Dot, fuzzy</td><td>Tiny eyes, little acting</td><td>A beret, glasses, a bow tie</td></tr>
+          <tr><td>Clawd</td><td>A block with legs</td><td>Clay orange only</td><td>Eye holes; acting comes from props</td><td>Pixel blocks</td></tr>
+          <tr class="us"><td>Marcel</td><td>Big round head, neck, round body, two horn knobs</td><td>Rose, deep rose, one teal</td><td>Blinks, glances, hoof on cheek, waves, types</td><td>Deep-teal bow tie and the logo's rounded spots</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How we got here</h2>
+    <ul class="rounds">
+      <li><span class="v">Boxes</span><span>A 3D copy of the logo from rounded boxes. Faithful but lifeless.</span></li>
+      <li><span class="v">Plush 3D</span><span>Soft shapes with fur layers. The neck read as a balloon.</span></li>
+      <li><span class="v">Pixel art</span><span>A detailed 48 × 54 sprite. Cute up close, busy and small elsewhere.</span></li>
+      <li><span class="v">Clawd style</span><span>A giraffe in Clawd's tall pixels. Too few pixels: it stopped being a giraffe.</span></li>
+      <li><span class="v">Dot matrix</span><span>This design seen through round LED dots. The face fell apart at that resolution, so pixels stay a nod (rounded-square spots, four-point sparkles), not the medium.</span></li>
+      <li><span class="v keep">This one</span><span>Vector shapes, so it is sharp at any size and every motion is smooth.</span></li>
+    </ul>
+  </section>
+</div>
+
+<script>
+/*MARCEL_JS*/
+</script>
+<script>
+(function () {
+  const stage = document.getElementById("stage"), tag = document.getElementById("tag"), sizes = document.getElementById("sizes");
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let state = "idle", bowtie = true, start = performance.now();
+  const holder = document.createElement("div");
+  holder.style.width = "100%"; holder.style.display = "grid"; holder.style.placeItems = "center";
+  stage.prepend(holder);
+  const minis = [24, 32, 48, 96].map((px) => {
+    const f = document.createElement("figure"), d = document.createElement("div"), c = document.createElement("figcaption");
+    d.style.width = px + "px"; d.style.height = Math.round(px * 1.1) + "px"; c.textContent = px + " px";
+    f.append(d, c); sizes.append(f); return d;
+  });
+  function frame(now) {
+    const t = reduce ? 0.35 : (now - start) / 1000;
+    holder.innerHTML = marcel.bean2(state, t, { bowtie }).replace('width="200" height="220"', 'width="100%" style="max-width:420px"');
+    minis.forEach((d) => { d.innerHTML = marcel.bean2("idle", t, { bowtie }).replace('width="200" height="220"', 'width="100%" height="100%"'); });
+    if (!reduce) requestAnimationFrame(frame);
+  }
+  function press(groupButtons, on) { groupButtons.forEach((b) => b.setAttribute("aria-pressed", String(b === on))); }
+  const stateButtons = [...document.querySelectorAll("#states button")];
+  stateButtons.forEach((b) => b.addEventListener("click", () => {
+    state = b.dataset.state; tag.textContent = state; start = performance.now(); press(stateButtons, b); if (reduce) frame(0);
+  }));
+  const bowOn = document.getElementById("bow-on"), bowOff = document.getElementById("bow-off");
+  bowOn.addEventListener("click", () => { bowtie = true; press([bowOn, bowOff], bowOn); if (reduce) frame(0); });
+  bowOff.addEventListener("click", () => { bowtie = false; press([bowOn, bowOff], bowOff); if (reduce) frame(0); });
+  const bgL = document.getElementById("bg-light"), bgD = document.getElementById("bg-dark");
+  bgL.addEventListener("click", () => { stage.classList.remove("dark"); press([bgL, bgD], bgL); });
+  bgD.addEventListener("click", () => { stage.classList.add("dark"); press([bgL, bgD], bgD); });
+  requestAnimationFrame(frame);
+})();
+</script>
