@@ -164,7 +164,7 @@
           "id": 1294,
           "type": "task.event",
           "at": "2026-10-04T18:06:39Z",
-          "data": { "task_id": "tsk_01J9ZQ6", "seq": 12, "type": "tool_call", "at": "2026-10-04T18:06:39Z", "data": { "tool": "Bash", "summary": "docker system df -v" } }
+          "data": { "task_id": "tsk_01J9ZQ6", "seq": 12, "type": "tool_call", "at": "2026-10-04T18:06:39Z", "data": { "tool_use_id": "toolu_01VQ3n8ZkC2xH7d4Rb5Tq9Lw", "tool": "Bash", "summary": "docker system df -v" } }
         }
       ]
     },

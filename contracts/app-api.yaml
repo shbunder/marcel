@@ -68,7 +68,11 @@ paths:
       responses:
         '101':
           description: Switching protocols; events follow.
-        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: |
+            No device token, or a revoked one. A refused WebSocket upgrade answers 403 with no
+            body (that is what ASGI servers send when the hub closes before accepting), so unlike
+            REST this is not 401. The app treats it as unpaired, like a REST 401.
 
   /pair:
     post:
@@ -394,6 +398,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
@@ -457,6 +462,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -1292,8 +1298,8 @@ components:
       type: string
       description: |
         `text`, `tool_call`, `tool_result`, `diff`, `subagent_start`, `subagent_stop`, `error`
-        and `raw` are normalised from the session's transcript; their `data` shapes are fixed in
-        `transcript.schema.json` (S-02.2). The hub writes the rest itself, with the `data`
+        and `raw` are normalised from the session's transcript; their `data` is the matching
+        `$defs` shape of `transcript.schema.json`, unchanged. The hub writes the rest itself, with the `data`
         shapes below: `state` (every transition), `progress` (a worker's report), `artifact`,
         `note` (a steer message or a hand-back note) and `permission` (from the channel's
         permission request, so it carries the approval id for the inline card).
@@ -1339,12 +1345,28 @@ components:
           then: { properties: { data: { $ref: '#/components/schemas/NoteEventData' } } }
         - if: { properties: { type: { const: permission } } }
           then: { properties: { data: { $ref: '#/components/schemas/PermissionEventData' } } }
+        - if: { properties: { type: { const: text } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/Text' } } }
+        - if: { properties: { type: { const: tool_call } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/ToolCall' } } }
+        - if: { properties: { type: { const: tool_result } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/ToolResult' } } }
+        - if: { properties: { type: { const: diff } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/Diff' } } }
+        - if: { properties: { type: { const: subagent_start } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/SubagentStart' } } }
+        - if: { properties: { type: { const: subagent_stop } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/SubagentStop' } } }
+        - if: { properties: { type: { const: error } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/Error' } } }
+        - if: { properties: { type: { const: raw } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/Raw' } } }
       example:
         task_id: tsk_01J9ZQ6
         seq: 12
         type: tool_call
         at: '2026-10-04T18:06:39Z'
-        data: { tool: Bash, summary: docker system df -v }
+        data: { tool_use_id: toolu_01VQ3n8ZkC2xH7d4Rb5Tq9Lw, tool: Bash, summary: docker system df -v }
 
     StateEventData:
       type: object
@@ -1476,7 +1498,7 @@ components:
           enum: [approve, deny]
         note:
           type: string
-          description: Optional, passed to the session with a denial.
+          description: Optional, with a denial. The hub sends it to the session right after the denial (channel-protocol.md § Delivery guarantees).
       example: { decision: approve }
 
     ArtifactKind:

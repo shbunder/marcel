@@ -1,0 +1,615 @@
+openapi: 3.1.0
+info:
+  title: Marcel runner API
+  version: 0.1.0
+  description: |
+    The runner is the only process that runs `claude` (native on the NUC, a systemd user unit). The
+    hub (in Docker) talks to it over HTTP on a unix socket: `/run/user/<uid>/marcel/runner.sock` on
+    the host, mounted into the hub as `/run/marcel/runner.sock` (SP6). There is no auth beyond the
+    socket's file mode (0660, owner's group).
+
+    Facts this API rests on (spikes SP1–SP4, SP6, SP7; results in `scratch/spikes/`):
+    - Sessions are `claude --bg` background sessions under Claude's own supervisor, which runs in its
+      own unit (`marcel-claude-daemon.service`), never inside the runner.
+    - Every spawn and fork passes `--channels plugin:marcel@marcel-local` (unless `channel: false`)
+      and puts the prompt after `--`. The runner checks the session's debug log for
+      `Channel notifications registered`, and fails the spawn when it says `skipped`. It waits up
+      to 30 s for either line; with neither, it stops the session and fails the spawn
+      (`channel_timeout`).
+    - The runner keeps every session it started (id, role, name, task) in its own state file, so a
+      runner restart keeps roles, and the worker cap still counts the workers that are running.
+    - A live session cannot be sent text through the runner: there is no `claude send`. Live
+      steering goes hub → channel. The runner only offers `resume`, between turns.
+    - Session state comes from `claude agents --json --all`, polled every 2 s, keyed on `id`.
+    - Cloud sessions are created on a pty and steered with `claude -p --cloud`; their state is not
+      observable here (the worker reports to the hub over HTTPS).
+
+    Errors are `Error` with a `message` a person can act on.
+servers:
+  - url: http://runner
+    description: HTTP over the unix socket
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Can the runner start sessions right now?
+      responses:
+        '200':
+          description: Always 200 when the runner answers; read `ok`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+  /sessions:
+    get:
+      operationId: listSessions
+      summary: Background sessions on this machine (from `claude agents --json --all`).
+      parameters:
+        - name: all
+          in: query
+          description: Include sessions whose process has exited (default true).
+          schema: { type: boolean, default: true }
+      responses:
+        '200':
+          description: Sessions, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Session' }
+    post:
+      operationId: spawnSession
+      summary: Start a background session.
+      description: |
+        Workers count toward the concurrency cap; brain and side sessions never do. With `repo`,
+        the runner makes sure `~/marcel/workspaces/<repo>` is cloned and trusted (once per clone),
+        then creates a worktree on branch `marcel/<task_id>-<slug>` and starts the session in it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpawnRequest' }
+      responses:
+        '201':
+          description: Started. The channel is registered (or `channel` was false).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Spawned' }
+        '409':
+          description: 'The worker cap is reached (`code: cap_reached`). Nothing was started.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: |
+            The session did not start properly. `code` is one of `not_trusted`, `channel_skipped`,
+            `channel_timeout`, `exited` (with the session's own `detail`), `no_supervisor`,
+            `clone_failed`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /sessions/{session_id}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      operationId: getSession
+      summary: One session.
+      responses:
+        '200':
+          description: The session.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /sessions/{session_id}/stop:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      operationId: stopSession
+      summary: '`claude stop <id>`. The conversation is kept; resume can wake it later.'
+      responses:
+        '200':
+          description: Stopped (or already not running).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /sessions/{session_id}/resume:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      operationId: resumeSession
+      summary: Wake a stopped session with a new prompt (`claude --bg --resume <id> -- "<prompt>"`).
+      description: |
+        Only for a session that is not running. The runner waits until the id has left Claude's
+        roster before resuming; if Claude still starts a copy, the runner stops the copy and answers
+        409 `resume_copied` rather than hand back a different session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              additionalProperties: false
+              properties:
+                prompt: { type: string, minLength: 1 }
+              example: { prompt: 'Follow-up: also add a test for the empty case.' }
+      responses:
+        '200':
+          description: Woken; the same session id runs the prompt.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 'Still running (`code: running`; use the channel), or Claude started a copy (`code: resume_copied`).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /sessions/{session_id}/fork:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      operationId: forkSession
+      summary: Fork a session into a new background session with its history (side threads, SP7).
+      description: |
+        The fork's role is `side`. It runs with the permission mode the runner recorded for the
+        session it forks from, and that session's model unless `model` is given. Forks never count
+        toward the worker cap.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ForkRequest' }
+      responses:
+        '201':
+          description: The fork, with its own session id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Spawned' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: The fork did not start properly (same codes as spawn).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /sessions/{session_id}/tail:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      operationId: tailSession
+      summary: The session's transcript as normalised events (Server-Sent Events).
+      description: |
+        Each SSE message has `id:` = the JSONL byte offset after the line it came from, `event:
+        transcript`, and `data:` = one `TranscriptEvent` (transcript.schema.json). Reconnect with
+        `Last-Event-ID` (or `offset`) to resume without duplicates. `follow=false` returns what
+        exists and closes. A transcript file that does not exist yet is waited for, not an error.
+
+        One stream reads one file, so one offset is always enough. Without `subagent` it is the
+        session's main transcript; a `subagent_start` event there gives the `agent_id` to tail with
+        `subagent=<agent_id>`, whose events carry `subagent_id` and offsets into that file.
+      parameters:
+        - name: subagent
+          in: query
+          description: A subagent's `agent_id`, to tail its own transcript instead of the main one.
+          schema: { type: string, pattern: '^[0-9a-f]+$' }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: follow
+          in: query
+          schema: { type: boolean, default: true }
+        - name: Last-Event-ID
+          in: header
+          schema: { type: string }
+      responses:
+        '200':
+          description: An event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /events:
+    get:
+      operationId: streamEvents
+      summary: Session state changes and runner warnings (Server-Sent Events).
+      description: |
+        Each SSE message has `id:` = `RunnerEvent.seq` and `data:` = one `RunnerEvent`. Reconnect
+        with `Last-Event-ID` to resume; the runner keeps the last 1000 events in memory. On connect
+        the runner first sends one `session.state` per known session, so a reconnecting hub can
+        always rebuild its view.
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          schema: { type: string }
+      responses:
+        '200':
+          description: An event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+  /cloud/sessions:
+    post:
+      operationId: spawnCloudSession
+      summary: Create a claude.ai/code cloud session (`claude --cloud "<prompt>"` on a pty, SP3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              additionalProperties: false
+              properties:
+                prompt:
+                  type: string
+                  minLength: 1
+                  description: Includes the worker protocol, the hub report URL and the task's own token.
+              example: { prompt: 'You are a Marcel worker for task tsk_01J9ZQ5 …' }
+      responses:
+        '201':
+          description: Created; the cloud box starts within about 20 s.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudSpawned' }
+        '422':
+          description: '`claude --cloud` did not print a session id (`code: cloud_unparsed`; `message` holds its output).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /cloud/sessions/{session_id}/messages:
+    parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema: { type: string, pattern: '^session_[A-Za-z0-9]+$' }
+    post:
+      operationId: sendCloudMessage
+      summary: Queue a follow-up for a cloud session (`claude -p "<text>" --cloud <id> --output-format json`). Returns an ack, not an answer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              additionalProperties: false
+              properties:
+                text: { type: string, minLength: 1 }
+              example: { text: Also add a test for the empty case. }
+      responses:
+        '202':
+          description: Acknowledged by claude.ai.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudAck' }
+        '422':
+          description: 'claude.ai refused or the CLI failed (`code: cloud_send_failed`).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /usage:
+    get:
+      operationId: getUsage
+      summary: The latest plan-usage reading (SP4).
+      description: |
+        Read with `claude -p "/usage" --no-session-persistence` (no model call) every 5 minutes and
+        before each worker spawn; optionally refreshed from status-line `rate_limits` files. When
+        no reading is fresh (older than 15 minutes), `stale` is true and the last values are kept.
+      responses:
+        '200':
+          description: The reading.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UsageReading' }
+        '503':
+          description: |
+            No reading has succeeded since the runner started (`code: no_reading`). The hub treats
+            usage as unknown: it still spawns, and shows usage as unavailable.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+components:
+  parameters:
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      description: The full session UUID (the short id is accepted too).
+      schema: { type: string }
+
+  responses:
+    NotFound:
+      description: No session with that id.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      additionalProperties: false
+      properties:
+        code: { type: string }
+        message: { type: string }
+        detail:
+          type: string
+          description: What Claude Code itself said (its error line or job `detail`), when there is one.
+      example:
+        code: not_trusted
+        message: The workspace ~/marcel/workspaces/marcel is not trusted yet. The runner trusts each clone once; re-clone it to retry.
+
+    Health:
+      type: object
+      required: [ok, version, claude_version, supervisor, cap, active_workers]
+      additionalProperties: false
+      properties:
+        ok: { type: boolean }
+        version: { type: string }
+        claude_version:
+          type: string
+          description: '`claude --version`, or empty when the binary is missing.'
+        supervisor:
+          type: object
+          required: [running, own_unit]
+          additionalProperties: false
+          properties:
+            running: { type: boolean }
+            own_unit:
+              type: boolean
+              description: True when Claude's supervisor runs outside the runner's cgroup (SP6). The runner refuses to spawn otherwise.
+        cap: { type: integer, minimum: 0 }
+        active_workers: { type: integer, minimum: 0 }
+        reason:
+          type: string
+          description: Why `ok` is false, in plain words.
+      example:
+        ok: true
+        version: 0.1.0
+        claude_version: 2.1.289 (Claude Code)
+        supervisor: { running: true, own_unit: true }
+        cap: 4
+        active_workers: 1
+
+    Role:
+      type: string
+      description: '`worker` counts toward the cap; `brain` and `side` never do.'
+      enum: [brain, side, worker, adopted]
+      example: worker
+
+    SessionState:
+      type: string
+      description: Claude Code's own background-session state, as `agents --json` reports it.
+      enum: [working, blocked, done, failed, stopped]
+      example: blocked
+
+    Session:
+      type: object
+      required: [id, short_id, name, state, cwd]
+      additionalProperties: false
+      properties:
+        id: { type: string, description: The full session UUID. }
+        short_id: { type: string, description: The first 8 hex digits. }
+        name: { type: string }
+        role:
+          $ref: '#/components/schemas/Role'
+          description: Present for sessions this runner started, also after a runner restart; absent for others on the machine.
+        state: { $ref: '#/components/schemas/SessionState' }
+        status:
+          type: string
+          enum: [busy, waiting, idle]
+          description: Only while the process is alive.
+        waiting_for:
+          type: string
+          description: |
+            Claude Code's `waitingFor`, e.g. `permission prompt`. `blocked` without it means the
+            model ended its turn asking for input, or a usage/API limit (see `needs`).
+        pid: { type: integer }
+        cwd: { type: string }
+        started_at: { type: string, format: date-time }
+        remote_url:
+          type: string
+          format: uri
+          description: The session's claude.ai page, when Remote Control bridged it.
+        needs:
+          type: string
+          description: |
+            Best effort, from Claude Code's undocumented job state (`~/.claude/jobs/<id>/state.json`):
+            what the session waits for, e.g. `approve Bash: rm README.md && ls` or
+            `usage limit reached — check plan`. May be absent after any Claude Code update.
+        detail:
+          type: string
+          description: Best effort, the one-line current activity.
+        result:
+          type: string
+          description: Best effort, the one-line result once `done`.
+      example:
+        id: 7aa6a32d-dc9c-43e3-b170-ee90995ba343
+        short_id: 7aa6a32d
+        name: t3
+        role: worker
+        state: blocked
+        status: waiting
+        waiting_for: permission prompt
+        pid: 2898331
+        cwd: /home/shbunder/marcel/workspaces/marcel-wt/tsk_01J9ZQ6
+        started_at: '2026-10-04T09:07:50Z'
+        needs: 'approve Bash: rm README.md && ls'
+
+    RepoSpec:
+      type: object
+      required: [url, task_id, slug]
+      additionalProperties: false
+      properties:
+        url: { type: string, description: 'Clone URL, e.g. https://github.com/shbunder/marcel' }
+        base: { type: string, description: Branch to start from (default the repo's default branch). }
+        task_id: { type: string }
+        slug: { type: string, pattern: '^[a-z0-9-]{1,40}$' }
+      example: { url: 'https://github.com/shbunder/marcel', task_id: tsk_01J9ZQ5, slug: fix-flaky-login-test }
+
+    SpawnRequest:
+      type: object
+      required: [role, name, model, prompt]
+      additionalProperties: false
+      properties:
+        role: { $ref: '#/components/schemas/Role' }
+        name: { type: string, pattern: '^[A-Za-z0-9._-]{1,60}$' }
+        model: { type: string, description: 'e.g. `opus`, `sonnet`.' }
+        permission_mode:
+          type: string
+          enum: [auto, acceptEdits, manual, plan]
+          default: auto
+        prompt: { type: string, minLength: 1 }
+        cwd:
+          type: string
+          description: An existing, trusted directory (the brain's workspace). Exactly one of `cwd` and `repo`.
+        repo: { $ref: '#/components/schemas/RepoSpec' }
+        channel:
+          type: boolean
+          default: true
+          description: Start with `--channels plugin:marcel@marcel-local`. False only for tests.
+      oneOf:
+        - required: [cwd]
+          not: { required: [repo] }
+        - required: [repo]
+          not: { required: [cwd] }
+      example:
+        role: worker
+        name: tsk-01J9ZQ6
+        model: sonnet
+        permission_mode: auto
+        prompt: Check disk usage of all Docker volumes and report the five largest.
+        cwd: /home/shbunder/marcel/workspaces/scratch
+
+    ForkRequest:
+      type: object
+      required: [name, prompt]
+      additionalProperties: false
+      properties:
+        name: { type: string, pattern: '^[A-Za-z0-9._-]{1,60}$' }
+        prompt:
+          type: string
+          minLength: 1
+          description: The side thread's opening prompt.
+        model: { type: string }
+      example: { name: side-cnv_side_01J9ZR0, prompt: 'You are now a side thread forked from the main conversation. Wait for channel messages.' }
+
+    Spawned:
+      type: object
+      required: [session_id, short_id, name, cwd, channel_registered]
+      additionalProperties: false
+      properties:
+        session_id: { type: string }
+        short_id: { type: string }
+        name: { type: string }
+        cwd: { type: string }
+        branch: { type: string, description: For a `repo` spawn, the worktree's branch. }
+        channel_registered:
+          type: boolean
+          description: 'True when the debug log said `Channel notifications registered` (always false with `channel: false`).'
+      example:
+        session_id: 3986e1fc-278e-4b56-ba17-ad79a8130252
+        short_id: 3986e1fc
+        name: tsk-01J9ZQ5
+        cwd: /home/shbunder/marcel/workspaces/marcel-wt/tsk_01J9ZQ5
+        branch: marcel/tsk_01J9ZQ5-fix-flaky-login-test
+        channel_registered: true
+
+    RunnerEvent:
+      type: object
+      required: [seq, type, at]
+      additionalProperties: false
+      properties:
+        seq: { type: integer, minimum: 1 }
+        type:
+          type: string
+          enum: [session.state, session.gone, runner.warning]
+          description: |
+            `session.state`: a session appeared or changed (any field of `Session`).
+            `session.gone`: it left `agents --json --all`. `runner.warning`: something a person
+            should hear about (the supervisor went away, a poll failed three times).
+        at: { type: string, format: date-time }
+        session: { $ref: '#/components/schemas/Session' }
+        previous_state: { $ref: '#/components/schemas/SessionState' }
+        message: { type: string, description: For `runner.warning`. }
+      allOf:
+        - if: { properties: { type: { enum: [session.state, session.gone] } } }
+          then: { required: [session] }
+        - if: { properties: { type: { const: runner.warning } } }
+          then: { required: [message] }
+      example:
+        seq: 412
+        type: session.state
+        at: '2026-10-04T09:05:02.205Z'
+        previous_state: working
+        session:
+          id: b18d7c1c-0f0e-4c3a-8a35-3b8d2f1e9a10
+          short_id: b18d7c1c
+          name: t2
+          role: worker
+          state: blocked
+          status: waiting
+          waiting_for: permission prompt
+          cwd: /home/shbunder/marcel/workspaces/scratch
+
+    CloudSpawned:
+      type: object
+      required: [session_id, url, title]
+      additionalProperties: false
+      properties:
+        session_id: { type: string, pattern: '^session_[A-Za-z0-9]+$' }
+        url: { type: string, format: uri }
+        title: { type: string }
+      example:
+        session_id: session_0168oBNCs8Q2BrHDFu6tYUdh
+        url: https://claude.ai/code/session_0168oBNCs8Q2BrHDFu6tYUdh
+        title: SP3 cloud spike
+
+    CloudAck:
+      type: object
+      required: [ok, session_id, url]
+      additionalProperties: false
+      properties:
+        ok: { type: boolean }
+        session_id: { type: string }
+        url: { type: string, format: uri }
+      example: { ok: true, session_id: session_0168oBNCs8Q2BrHDFu6tYUdh, url: 'https://claude.ai/code/session_0168oBNCs8Q2BrHDFu6tYUdh' }
+
+    UsageWindowReading:
+      type: object
+      required: [used_pct, resets_at]
+      additionalProperties: false
+      properties:
+        used_pct: { type: number, minimum: 0, maximum: 100 }
+        resets_at: { type: string, format: date-time }
+      example: { used_pct: 4, resets_at: '2026-10-04T14:29:00Z' }
+
+    UsageReading:
+      type: object
+      required: [five_hour, weekly, source, taken_at, stale]
+      additionalProperties: false
+      properties:
+        five_hour: { $ref: '#/components/schemas/UsageWindowReading' }
+        weekly: { $ref: '#/components/schemas/UsageWindowReading' }
+        source: { type: string, enum: [cli_usage, statusline] }
+        taken_at: { type: string, format: date-time }
+        stale: { type: boolean }
+      example:
+        five_hour: { used_pct: 4, resets_at: '2026-10-04T14:29:00Z' }
+        weekly: { used_pct: 66, resets_at: '2026-10-09T01:59:00Z' }
+        source: cli_usage
+        taken_at: '2026-10-04T10:30:12Z'
+        stale: false

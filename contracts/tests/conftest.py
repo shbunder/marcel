@@ -21,14 +21,23 @@ def load_events() -> dict[str, Any]:
     return json.loads((CONTRACTS / 'events.schema.json').read_text())
 
 
+YAML_DOCS = ('app-api.yaml', 'runner-api.yaml', 'session-api.yaml')
+JSON_DOCS = ('events.schema.json', 'transcript.schema.json', 'channel.schema.json')
+
+
+def load_yaml(name: str) -> dict[str, Any]:
+    return yaml.safe_load((CONTRACTS / name).read_text())
+
+
+def load_json(name: str) -> dict[str, Any]:
+    return json.loads((CONTRACTS / name).read_text())
+
+
 def build_registry() -> Registry:
-    """Both documents under one base URI, so events.schema.json can $ref app-api.yaml."""
-    return Registry().with_resources(
-        [
-            (BASE + 'app-api.yaml', Resource(load_api(), DRAFT202012)),
-            (BASE + 'events.schema.json', Resource.from_contents(load_events())),
-        ]
-    )
+    """Every contract under one base URI, so documents can $ref each other."""
+    resources = [(BASE + n, Resource(load_yaml(n), DRAFT202012)) for n in YAML_DOCS]
+    resources += [(BASE + n, Resource.from_contents(load_json(n))) for n in JSON_DOCS]
+    return Registry().with_resources(resources)
 
 
 @pytest.fixture(scope='session')
