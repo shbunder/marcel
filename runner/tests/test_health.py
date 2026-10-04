@@ -201,3 +201,13 @@ def test_daemon_status_failing_for_another_reason_is_cannot_tell(tmp_path: Path)
     assert h['ok'] is False
     assert 'cannot tell' in h['reason']
     assert 'unknown command' in h['reason']
+
+
+def test_recorded_not_running_output_gives_no_supervisor(tmp_path: Path) -> None:
+    # Recorded on the NUC with Claude Code 2.1.289: exit code 1 and this text.
+    recorded = Path(__file__).parent / 'fixtures' / 'daemon-status-not-running.txt'
+    c = daemon(tmp_path, f'cat {recorded}; exit 1\n')
+    h = collect_health(settings(c), active_workers=lambda: 0, cgroup_of=apart)
+    assert h['ok'] is False
+    assert h['supervisor'] == {'running': False, 'own_unit': False}
+    assert 'no background supervisor' in h['reason']

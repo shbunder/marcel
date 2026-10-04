@@ -41,7 +41,8 @@ def fake_claude(tmp_path: Path) -> Path:
     """A claude whose supervisor runs: `daemon status` exits 0 and names pid 1 (not our cgroup).
 
     The exit codes are documented (`daemon status` exits 1 when the supervisor is not running).
-    The status TEXT here is a guess, not recorded output from a real run.
+    The status TEXT of the running case is a guess, not recorded output. The not-running text is
+    recorded: tests/fixtures/daemon-status-not-running.txt.
     """
     return write_script(
         tmp_path / 'claude',

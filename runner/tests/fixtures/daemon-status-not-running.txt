@@ -1,0 +1,8 @@
+not running
+
+bg sessions:
+  sock dir:     /tmp/cc-daemon-1000/6298d98a
+  control.sock: unreachable (connect ENOENT /tmp/cc-daemon-1000/6298d98a/control.sock)
+  bg workers:   0 in roster.json (control unreachable)
+  roster.json:  updated 34144s ago
+  daemon.log:   9.4KB at /home/shbunder/.claude/daemon.log
