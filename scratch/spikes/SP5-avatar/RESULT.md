@@ -1,4 +1,75 @@
-# SP5 — RealityKit giraffe: result
+# SP5, round 2: plush and pixel-art looks
+
+**Why:** the owner wanted a redesign in the soft, fluffy style of OpenAI's "Dots", still a giraffe,
+animated and alive. Round 1 (below) is a flat copy of the logo. Round 2 builds two new looks into
+the same app, with a switch at the top: **Plush**, **Pixel**, and **Boxes v1** (round 1, kept for comparison).
+
+**Still open:** frame rate and energy on the iPhone (none connected), and the owner's choice between Plush and Pixel.
+
+## Pictures
+
+- [compare-new-looks-idle.png](screenshots/compare-new-looks-idle.png): logo | Pixel | Plush, idle.
+- [compare-new-looks-working3.png](screenshots/compare-new-looks-working3.png): the same with `working(3)`.
+- [filmstrip-plush-idle.png](screenshots/filmstrip-plush-idle.png): seven frames, 1.5 s apart: head nods and turns, ears move, tail swings, one frame mid-blink.
+- [filmstrip-pixel-idle.png](screenshots/filmstrip-pixel-idle.png): the same for Pixel.
+
+## What each look does to feel alive
+
+| | Plush (3D, RealityKit) | Pixel (SwiftUI, drawn pixel by pixel) |
+|---|---|---|
+| Breathing | body swells and relaxes, slow weight shift | chest rises one pixel |
+| Blinking | every 3.6 s, plus a longer gap one | same |
+| Head | gentle sway, nods, and every 9 s looks ahead for a moment; eyes shift with it | nod, and a glance that moves the eye a pixel |
+| Ears | floppy, flick every 5 s (new: the logo has none) | flick every 5 s |
+| Horns | sway a moment behind the head | trail the head by a beat |
+| Tail | three segments swing one after the other (new) | swishes (new) |
+| `working(3)` | head dips, eyes narrow, spots 1, 3, 5 glow orange in turn | head dips, eyes narrow, same spots glow in a chase, small sparkles |
+| Fuzz | 5 thin see-through fur layers over body, neck, head, legs; felt-patch spots | not applicable; two extra shades give soft edges |
+| Turn 25° | yes, real 3D | no (flat by nature) |
+
+## How they were checked (iPhone 16 Pro simulator, iOS 18.5, on an M1 Pro Mac)
+
+| Look and state | Average fps | Slowest 1% of frames |
+|---|---|---|
+| Pixel, working, 45 s | 60 | 60 |
+| Plush, idle, 45 s | 59 | 60 |
+| Plush, working + turned, 45 s | 59 | 60 |
+
+- One long frame (130–400 ms) at app start-up in every run. It is the first frame, not a stutter.
+- **Problem found and fixed:** the plush first showed a 1%-low of 30 fps in working mode. Cause: the
+  spot glow built a new material on every frame. Now nine glow steps are made once and swapped. Idle was never affected.
+- **Motion from a 14 s video of the plush:** legs unchanged in 129 of 130 sampled frames; head,
+  eyes, ears, horns and tail moved in 126–130. Blinking was measured in round 1 (eye closes for about 0.14 s every 4.2 s) and uses the same idea here.
+- Simulator numbers only. The iPhone is the real test, and plush is the one more likely to show a difference.
+
+## Honest weak spots
+
+**Plush**
+- The neck looks like a balloon. A real plush giraffe has a slight taper and a mane. The head is a flattened oval.
+- Colour is dustier than the brand rose (a flat-front area reads about `#c37182`, brand is `#cc5e76`) because lighting and fur layers lighten and grey it. Lighting numbers are in `PlushLook` at the top of `PlushGiraffeView.swift`.
+- The fur is five see-through layers, not real hair. It looks good at this size. Close up or on a big screen the edge shows as a dotted halo.
+- About 90 objects in the scene. Fine in the simulator; the phone has to confirm.
+
+**Pixel**
+- Chunkier than the logo (36 × 78 pixel grid). The ear and tail are new additions.
+- Two extra shades of rose (light edge, dark edge) beyond the palette file.
+
+## What I take from this
+
+- **Plush** is the closer match to "fluffy Dots", and its depth and head movement make it look more alive. It costs more to draw.
+- **Pixel** is cheap (steady 60 fps, tiny), and the recipe-in-code approach makes other animals easy: one new part list per animal, same painter and same animations.
+- **Recommendation: Plush as the main avatar, Pixel for small sizes** (notification icons, menu bar) if the phone confirms plush runs smoothly. If the phone struggles, drop the fur layers first (set `furLayers` to 2 or 3), then fall back to Pixel.
+- **Other animals** (the "animal pics" idea): both looks are driven by a list of parts, so an animal is a new list, not new code. Not built yet.
+- Plush needed no custom shader (no special graphics program). Real hair-style fur or a soft glowing rim would need one, and I have not tried that.
+
+## To check on the iPhone (add to the list in round 1)
+
+Run the app, switch **Look** between Plush and Pixel, leave each in Idle and Working(3) for a minute, and
+write down the top line. Then tell me which you want, and whether the plush stutters.
+
+---
+
+# SP5, round 1 — RealityKit giraffe from boxes: result
 
 **Status: built and working in the simulator. Two things are still open and need the owner:
 the frame rate on the iPhone (no phone was connected) and the "that's Marcel" verdict.**

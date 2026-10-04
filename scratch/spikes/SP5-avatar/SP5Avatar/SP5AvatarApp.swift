@@ -7,6 +7,8 @@ struct SP5AvatarApp: App {
         AvatarPartComponent.registerComponent()
         BreathComponent.registerComponent()
         AvatarSystem.registerSystem()
+        PlushMotion.registerComponent()
+        PlushSystem.registerSystem()
     }
 
     var body: some SwiftUI.Scene {
