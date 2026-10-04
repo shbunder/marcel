@@ -1,0 +1,81 @@
+{
+  "t": 1791108311409,
+  "input": {
+    "session_id": "5a3743ca-ba21-4f89-9440-ce6b2c7170cf",
+    "transcript_path": "/home/shbunder/.claude/projects/-home-shbunder-projects-marcel-src-scratch-spikes-SP2-worker-control-sandbox-repo/5a3743ca-ba21-4f89-9440-ce6b2c7170cf.jsonl",
+    "cwd": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/repo",
+    "scratchpad_dir": "/tmp/claude-1000/-home-shbunder-projects-marcel-src-scratch-spikes-SP2-worker-control-sandbox-repo/5a3743ca-ba21-4f89-9440-ce6b2c7170cf/scratchpad",
+    "prompt_id": "c37e39e2-95ec-4daa-86e7-2014b5d14ebb",
+    "session_name": "sp4-sl",
+    "model": {
+      "id": "claude-haiku-4-5-20251001",
+      "display_name": "Haiku 4.5"
+    },
+    "workspace": {
+      "current_dir": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/repo",
+      "project_dir": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/repo",
+      "added_dirs": [
+        "/tmp",
+        "/home/shbunder/projects/marcel/.claude/skills",
+        "/home/shbunder/projects/marcel/.claude",
+        "/home/shbunder/projects/marcel-zoo",
+        "/home/shbunder/.cache/uv/interpreter-v4"
+      ]
+    },
+    "version": "2.1.289",
+    "output_style": {
+      "name": "default"
+    },
+    "cost": {
+      "total_cost_usd": 0.0324525,
+      "total_duration_ms": 2583,
+      "total_api_duration_ms": 1270,
+      "total_lines_added": 0,
+      "total_lines_removed": 0
+    },
+    "context_window": {
+      "total_input_tokens": 41256,
+      "total_output_tokens": 43,
+      "context_window_size": 200000,
+      "current_usage": {
+        "input_tokens": 10,
+        "output_tokens": 43,
+        "cache_creation_input_tokens": 14791,
+        "cache_read_input_tokens": 26455
+      },
+      "used_percentage": 21,
+      "remaining_percentage": 79
+    },
+    "exceeds_200k_tokens": false,
+    "prompt_cache": {
+      "warm": true,
+      "caching_observed": true,
+      "ttl": "1h",
+      "expires_at": 1791111910,
+      "requests": 1,
+      "misses": 0,
+      "expected_rebuilds": 0,
+      "hit_ratio": 0.6412400620515804,
+      "cache_write_tokens": 14791,
+      "miss_recache_tokens": 0,
+      "last_miss_at": null,
+      "last_miss_cause": null,
+      "miss_causes": {},
+      "recache_tokens_if_cold": 41256
+    },
+    "fast_mode": false,
+    "thinking": {
+      "enabled": true
+    },
+    "rate_limits": {
+      "five_hour": {
+        "used_percentage": 3,
+        "resets_at": 1791124200
+      },
+      "seven_day": {
+        "used_percentage": 66,
+        "resets_at": 1791511200
+      }
+    }
+  }
+}
