@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Walk the whole scenario against a running mock hub (`make mock-hub`, or `make mock-hub`):
+# Walk the whole scenario against a running mock hub (start it with `make mock-hub`):
 # pair, send a message, watch the events, approve the card, watch the task finish.
 set -euo pipefail
 
