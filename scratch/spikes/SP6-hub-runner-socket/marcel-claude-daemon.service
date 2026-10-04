@@ -1,0 +1,15 @@
+# ~/.config/systemd/user/marcel-claude-daemon.service
+# Claude Code's background-session supervisor in its own cgroup. `claude --bg` connects to it instead of
+# starting a transient one inside whoever called it (2.1.289: "Service install is disabled in this version",
+# so we provide the unit ourselves; `claude daemon run` stays up when idle).
+[Unit]
+Description=Claude Code background service (supervisor for claude --bg sessions)
+
+[Service]
+ExecStart=%h/.local/bin/claude daemon run
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Stopping this unit stops every background session (brain + workers). Restart it only on purpose.
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
