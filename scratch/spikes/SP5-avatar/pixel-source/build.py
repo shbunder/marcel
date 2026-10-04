@@ -349,18 +349,19 @@ def write_png(path, pixels, w, h):
         f.write(png)
 
 
-def frames_to_png(path, frames, scale, backdrop=None, gap=0):
+def frames_to_png(path, frames, scale, backdrop=None, gap=0, fw=None, fh=None):
+    fw, fh = fw or W, fh or H
     n = len(frames)
-    w = n * W * scale + (n - 1) * gap * scale
-    h = H * scale
+    w = n * fw * scale + (n - 1) * gap * scale
+    h = fh * scale
     buf = bytearray(w * h * 4)
     bg = hex_rgb(backdrop) + (255,) if backdrop else (0, 0, 0, 0)
     for i in range(0, len(buf), 4):
         buf[i:i + 4] = bytes(bg)
     for fi, canvas in enumerate(frames):
-        ox = fi * (W + gap) * scale
+        ox = fi * (fw + gap) * scale
         for (x, y), col in canvas.items():
-            if not (0 <= x < W and 0 <= y < H):
+            if not (0 <= x < fw and 0 <= y < fh):
                 continue
             r, g, b = hex_rgb(col)
             for yy in range(y * scale, (y + 1) * scale):
@@ -429,14 +430,15 @@ def key(p):
 
 
 # ---------------------------------------------------------------- GIF (for showing the animation to people)
-def write_gif(path, frames, delays_cs, scale, backdrop):
+def write_gif(path, frames, delays_cs, scale, backdrop, fw=None, fh=None):
+    fw, fh = fw or W, fh or H
     colours = {hex_rgb(backdrop): 0}
     for f in frames:
         for c in f.values():
             colours.setdefault(hex_rgb(c), len(colours))
     assert len(colours) <= 256, len(colours)
     table = sorted(colours, key=colours.get) + [(0, 0, 0)] * (256 - len(colours))
-    w, h = W * scale, H * scale
+    w, h = fw * scale, fh * scale
 
     def lzw(data):
         clear, eoi = 256, 257
@@ -480,7 +482,7 @@ def write_gif(path, frames, delays_cs, scale, backdrop):
     for f, d in zip(frames, delays_cs):
         idx = bytearray(w * h)
         for (x, y), c in f.items():
-            if 0 <= x < W and 0 <= y < H:
+            if 0 <= x < fw and 0 <= y < fh:
                 ci = colours[hex_rgb(c)]
                 for yy in range(y * scale, (y + 1) * scale):
                     idx[yy * w + x * scale: yy * w + (x + 1) * scale] = bytes([ci]) * scale

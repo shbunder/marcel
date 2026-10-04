@@ -1,4 +1,61 @@
-# SP5, round 3: cute pink pixel-art giraffe (current)
+# SP5, round 4: Marcel in Clawd style (current, alongside round 3)
+
+**Why:** the owner likes Clawd, the Claude Code mascot (simple pixel art, with typing and thinking poses) and asked
+for Marcel in that style: still a rose-pink giraffe, colours aligned with Anthropic's.
+
+**Status:** done in the simulator. The app now has a style switch (Clawd style / Detailed) and four modes.
+
+![All four loops on dark](screenshots/marcel-clawd-all-dark.gif)
+
+- [marcel-clawd-all-dark.gif](screenshots/marcel-clawd-all-dark.gif), [marcel-clawd-all-ivory.gif](screenshots/marcel-clawd-all-ivory.gif): idle, thinking, working, happy (19 s).
+- [marcel-clawd-keyframes.png](screenshots/marcel-clawd-keyframes.png): idle, ear flick, thinking, typing (two frames), hop.
+- [app-clawd-working.png](screenshots/app-clawd-working.png): in the app.
+
+## What Clawd is, exactly
+
+Decoded from the Claude Code logo, which is drawn with terminal block characters (`▐▛███▜▌` / `▝▜█████▛▘` / `▘▘ ▝▝`):
+every pixel is twice as tall as it is wide; one flat colour (Claude clay `#d97757`); no outline or shading;
+a 12×4 body; single-pixel eye holes; 2-pixel claws on the sides; four 1-pixel legs. Community versions
+([clawd-spinner](https://github.com/zhanbodev/clawd-spinner)) show the poses: side-on at a grey laptop with code
+symbols floating up, thought dots, a page, a magnifying glass.
+
+## How Marcel maps onto it
+
+- **Body:** Clawd's wide, low block, in profile, with four 1-pixel legs and a tail.
+- **Neck at the back, head on top:** the layout of Marcel's logo.
+- **Head:** a small Clawd facing you: two eye holes, and Clawd's side claws become the giraffe's ears.
+- **Giraffe signs:** two horn stubs with dark tips and three darker spots. Nothing else.
+- **Colours:** rose `#d87990` (hue 345°, at the softness of Claude clay), spots `#c3416a`. Props use Anthropic's
+  palette: cloud grey `#b0aea5` laptop and thought dots, dusty blue `#6a9bcc`, sage `#788c5d` and clay `#d97757` for
+  code symbols and sparkles. Eye holes show the background, like Clawd's.
+- Two earlier sketch rounds were dropped: the front-facing versions were too tall and read as a robot or totem, and the first side view was muddled.
+
+## Loops (100 ms steps)
+
+| Loop | Length | What happens |
+|---|---|---|
+| Idle | 4.8 s | head bobs down over the neck, blinks (one, then a double), each ear flicks, glances both ways |
+| Thinking | 2.4 s | eyes glance up toward three grey thought dots that appear one by one |
+| Working | 3.2 s | at a side-on grey laptop, front hoof taps in bursts, one code symbol at a time (`<` `>` `/` `;` `{`) floats up in blue, green or clay |
+| Happy | 1.6 s | hops, ears out, coloured sparkles pop |
+
+43 unique frames, 32 × 36 pixels each. Source: `pixel-source/clawd_style.py` (run it, copy `out/marcel-clawd-sheet.*` into `SP5Avatar/`).
+
+## Checked (iPhone 16 Pro simulator, iOS 18.5)
+
+- Working loop, 40 s: 60 fps average, 60 for the slowest 1%, worst frame 20 ms.
+- The 19 s GIF decodes in Apple's image decoder: 192 frames.
+- Not run on a real iPhone.
+
+## Weak spots
+
+- The thinking dots are tall pixels, so up close they look like short dashes, not round dots (true of Clawd's too).
+- The typing hoof is two pixels; it reads as "reaching" more than "typing" unless you watch the taps.
+- Loops repeat exactly. Several short idles picked at random would hide that.
+
+---
+
+# SP5, round 3: cute pink pixel-art giraffe (current, "Detailed" style in the app)
 
 **Why:** the owner judged rounds 1 and 2 (boxes, plush, first pixel try) as not good enough, and
 asked for a cute pink giraffe in pixel-art style, free to depart from the logo, built from proper source material.
