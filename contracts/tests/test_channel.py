@@ -62,6 +62,8 @@ BAD = [
         'text': 't',
         'role': 'x',
     },
+    {'type': 'call_ack'},
+    {'type': 'call_ack', 'call_id': 'c', 'seq': 3},
 ]
 
 
@@ -79,3 +81,12 @@ def test_request_ids_follow_claude_codes_alphabet():
         == FRAMES['PermissionDecision']['properties']['request_id']['pattern']
         == '^[a-km-z]{5}$'
     )
+
+
+def test_every_tool_call_frame_gets_an_ack_back():
+    """`reply` and `report` return when the hub acks their call_id, so the ack must exist."""
+    to_session = {r['$ref'].rsplit('/', 1)[1] for r in SCHEMA['$defs']['ToSession']['oneOf']}
+    assert 'CallAck' in to_session
+    assert 'call_id' in FRAMES['CallAck']['required']
+    for name in ('Reply', 'Report'):
+        assert 'call_id' in FRAMES[name]['required']

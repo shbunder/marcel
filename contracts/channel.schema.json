@@ -23,6 +23,7 @@
         { "$ref": "#/$defs/Steer" },
         { "$ref": "#/$defs/SystemEvent" },
         { "$ref": "#/$defs/PermissionDecision" },
+        { "$ref": "#/$defs/CallAck" },
         { "$ref": "#/$defs/Pong" }
       ]
     },
@@ -60,7 +61,7 @@
       "examples": [{ "type": "welcome", "role": "worker", "agent_id": "agt_marcel", "task_id": "tsk_01J9ZQ6" }]
     },
     "Rejected": {
-      "description": "Unknown session id (not started by the runner and not adopted) or a wrong secret. The server logs `reason` and retries every 5 s for 2 minutes, because the runner may not have reported the spawn yet.",
+      "description": "The hub refuses the hello. `unknown_session` (not started by the runner and not adopted): the server logs it and retries every 5 s for 2 minutes, because the runner may not have reported the spawn yet. `bad_secret` and `plugin_too_old`: the server logs it and does not retry, since only a redeploy fixes either; its tools then answer that Marcel is unreachable.",
       "type": "object",
       "required": ["type", "reason"],
       "additionalProperties": false,
@@ -130,6 +131,18 @@
       },
       "examples": [{ "type": "permission_decision", "seq": 44, "request_id": "qiwxo", "behavior": "allow" }]
     },
+    "CallAck": {
+      "description": "The hub stored the `reply` or `report` with this `call_id`. The channel server's tool call returns when this arrives. The hub answers a repeated `call_id` with the same ack, so a server that reconnects re-sends every call it has no ack for. Not sequenced and never acked back.",
+      "type": "object",
+      "required": ["type", "call_id"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "call_ack" },
+        "call_id": { "type": "string" },
+        "duplicate": { "type": "boolean", "description": "True when the hub had already stored this `call_id`." }
+      },
+      "examples": [{ "type": "call_ack", "call_id": "c_01J9ZQZ3" }]
+    },
     "Reply": {
       "description": "The brain or a side thread called the `reply` tool. The hub stores it as an agent message in the session's conversation.",
       "type": "object",
@@ -180,7 +193,7 @@
       ]
     },
     "PermissionRequest": {
-      "description": "Claude Code relayed a permission prompt (`notifications/claude/channel/permission_request`, SP1). The hub opens an approval card. Answering in a terminal also works; the hub learns it when the runner reports the session left the prompt, and expires the card.",
+      "description": "Claude Code relayed a permission prompt (`notifications/claude/channel/permission_request`, SP1). The hub opens an approval card. Answering in a terminal also works: the runner reports the session left the prompt, and the hub resolves the card as `approved` or `denied` with `answered_via: terminal`, from the transcript (a `tool_result` with `denied: true` means denied). The card is `expired` only when the prompt vanished because the session stopped or failed.",
       "type": "object",
       "required": ["type", "request_id", "tool_name", "description"],
       "additionalProperties": false,

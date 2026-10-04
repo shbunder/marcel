@@ -13,7 +13,11 @@ info:
       own unit (`marcel-claude-daemon.service`), never inside the runner.
     - Every spawn and fork passes `--channels plugin:marcel@marcel-local` (unless `channel: false`)
       and puts the prompt after `--`. The runner checks the session's debug log for
-      `Channel notifications registered`, and fails the spawn when it says `skipped`.
+      `Channel notifications registered`, and fails the spawn when it says `skipped`. It waits up
+      to 30 s for either line; with neither, it stops the session and fails the spawn
+      (`channel_timeout`).
+    - The runner keeps every session it started (id, role, name, task) in its own state file, so a
+      runner restart keeps roles, and the worker cap still counts the workers that are running.
     - A live session cannot be sent text through the runner: there is no `claude send`. Live
       steering goes hub → channel. The runner only offers `resume`, between turns.
     - Session state comes from `claude agents --json --all`, polled every 2 s, keyed on `id`.
@@ -80,7 +84,8 @@ paths:
         '422':
           description: |
             The session did not start properly. `code` is one of `not_trusted`, `channel_skipped`,
-            `exited` (with the session's own `detail`), `no_supervisor`, `clone_failed`.
+            `channel_timeout`, `exited` (with the session's own `detail`), `no_supervisor`,
+            `clone_failed`.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -153,6 +158,10 @@ paths:
     post:
       operationId: forkSession
       summary: Fork a session into a new background session with its history (side threads, SP7).
+      description: |
+        The fork's role is `side`. It runs with the permission mode the runner recorded for the
+        session it forks from, and that session's model unless `model` is given. Forks never count
+        toward the worker cap.
       requestBody:
         required: true
         content:
@@ -182,7 +191,15 @@ paths:
         transcript`, and `data:` = one `TranscriptEvent` (transcript.schema.json). Reconnect with
         `Last-Event-ID` (or `offset`) to resume without duplicates. `follow=false` returns what
         exists and closes. A transcript file that does not exist yet is waited for, not an error.
+
+        One stream reads one file, so one offset is always enough. Without `subagent` it is the
+        session's main transcript; a `subagent_start` event there gives the `agent_id` to tail with
+        `subagent=<agent_id>`, whose events carry `subagent_id` and offsets into that file.
       parameters:
+        - name: subagent
+          in: query
+          description: A subagent's `agent_id`, to tail its own transcript instead of the main one.
+          schema: { type: string, pattern: '^[0-9a-f]+$' }
         - name: offset
           in: query
           schema: { type: integer, minimum: 0, default: 0 }
@@ -296,6 +313,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UsageReading' }
+        '503':
+          description: |
+            No reading has succeeded since the runner started (`code: no_reading`). The hub treats
+            usage as unknown: it still spawns, and shows usage as unavailable.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
 components:
   parameters:
@@ -382,7 +406,7 @@ components:
         name: { type: string }
         role:
           $ref: '#/components/schemas/Role'
-          description: Present for sessions this runner started; absent for others on the machine.
+          description: Present for sessions this runner started, also after a runner restart; absent for others on the machine.
         state: { $ref: '#/components/schemas/SessionState' }
         status:
           type: string

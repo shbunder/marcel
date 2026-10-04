@@ -21,7 +21,7 @@
           "minimum": 0,
           "description": "Position of this event among those from the same line, starting at 0."
         },
-        "subagent_id": { "type": "string", "description": "Set when the line came from a subagent's own transcript." },
+        "subagent_id": { "type": "string", "description": "Set on every event of a subagent's own transcript (runner-api.yaml `tail?subagent=`); `offset` is then into that file." },
         "at": { "type": "string", "format": "date-time" },
         "type": {
           "enum": ["text", "thinking", "tool_call", "tool_result", "diff", "subagent_start", "subagent_stop", "turn_end", "error", "raw"]
@@ -126,8 +126,8 @@
       "additionalProperties": false,
       "properties": {
         "tool_use_id": { "type": "string" },
-        "agent_id": { "type": "string", "description": "Known once the launch result arrives; absent on the call itself." },
-        "description": { "type": "string" },
+        "agent_id": { "type": "string", "description": "From the `Agent` call's launch result, which is where this event is emitted; absent only when that result did not name it." },
+        "description": { "type": "string", "description": "The `Agent` call's own `description`, or `subagent` when it had none." },
         "subagent_type": { "type": "string" }
       },
       "examples": [{ "tool_use_id": "toolu_01S8KjA6XyNXa1ku18fcsiHj", "agent_id": "a918dd7c41e7ee8b8", "description": "Find buggy function", "subagent_type": "general-purpose" }]

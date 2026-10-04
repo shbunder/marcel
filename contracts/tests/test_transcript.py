@@ -81,6 +81,12 @@ def test_the_fix_is_a_diff():
     assert '+    return a - b' in lines and '-    return a + b' in lines
 
 
+def test_subagent_start_names_what_the_agent_call_asked_for():
+    [start] = [e['data'] for e in events_of('t1-happy-path.jsonl') if e['type'] == 'subagent_start']
+    assert start['description'] == 'Find buggy function'
+    assert start['subagent_type'] == 'general-purpose'
+
+
 def test_denied_tool_use_is_marked():
     results = [
         e['data'] for e in events_of('t3-permission-denied.jsonl') if e['type'] == 'tool_result'
@@ -101,15 +107,20 @@ def test_unknown_line_type_becomes_raw(registry: Registry):
     event_validator(registry).validate(events[0])
 
 
-def test_usage_limit_error_is_flagged():
+@pytest.mark.parametrize(
+    'text',
+    [
+        "You've hit your session limit · resets 2:29pm",
+        'Fable 5 requires usage credits. Turn them on in your settings.',
+    ],
+)
+def test_usage_limit_error_is_flagged(text: str):
     line = {
         'type': 'assistant',
         'isApiErrorMessage': True,
         'api_error_status': 429,
         'timestamp': '2026-10-04T12:00:00Z',
-        'message': {
-            'content': [{'type': 'text', 'text': "You've hit your session limit · resets 2:29pm"}]
-        },
+        'message': {'content': [{'type': 'text', 'text': text}]},
     }
     [event] = normalize(line, session_id='s', offset=1)
     assert event['type'] == 'error' and event['data']['usage_limit'] is True
