@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marcel.invalid/contracts/events.schema.json",
+  "title": "Marcel hub — app WebSocket events",
+  "description": "Every frame the hub sends on GET /ws is one Event. `id` increases by one per user across all event types; reconnect with `?since=<last id>` to replay what you missed. If `since` is older than the hub keeps, the first frame is `resync.required` and the app re-fetches over REST. Payloads reuse the app API's schemas (app-api.yaml). The app sends nothing except WebSocket pings.",
+  "$ref": "#/$defs/Event",
+  "$defs": {
+    "Event": {
+      "oneOf": [
+        { "$ref": "#/$defs/Hello" },
+        { "$ref": "#/$defs/ResyncRequired" },
+        { "$ref": "#/$defs/MessageCreated" },
+        { "$ref": "#/$defs/ConversationCreated" },
+        { "$ref": "#/$defs/TaskCreated" },
+        { "$ref": "#/$defs/TaskUpdated" },
+        { "$ref": "#/$defs/TaskEventAppended" },
+        { "$ref": "#/$defs/ApprovalCreated" },
+        { "$ref": "#/$defs/ApprovalResolved" },
+        { "$ref": "#/$defs/ArtifactCreated" },
+        { "$ref": "#/$defs/AgentStateChanged" },
+        { "$ref": "#/$defs/UsageUpdated" }
+      ]
+    },
+    "Envelope": {
+      "type": "object",
+      "required": ["id", "type", "at", "data"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 0 },
+        "type": { "type": "string" },
+        "at": { "type": "string", "format": "date-time" },
+        "data": {}
+      }
+    },
+    "Hello": {
+      "description": "First frame after connecting. `last_event_id` is where replay ended. Its own `id` is 0 and is not part of the event sequence.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "hello" },
+        "data": {
+          "type": "object",
+          "required": ["last_event_id", "replayed"],
+          "additionalProperties": false,
+          "properties": {
+            "last_event_id": { "type": "integer", "minimum": 0 },
+            "replayed": { "type": "integer", "minimum": 0 }
+          }
+        }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        { "id": 0, "type": "hello", "at": "2026-10-04T18:40:00Z", "data": { "last_event_id": 1288, "replayed": 3 } }
+      ]
+    },
+    "ResyncRequired": {
+      "description": "The requested `since` is older than the hub keeps. Re-fetch over REST, then reconnect with `since = last_event_id`. Its own `id` is 0 and is not part of the event sequence.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "resync.required" },
+        "data": {
+          "type": "object",
+          "required": ["last_event_id"],
+          "additionalProperties": false,
+          "properties": { "last_event_id": { "type": "integer", "minimum": 0 } }
+        }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        { "id": 0, "type": "resync.required", "at": "2026-10-04T18:40:00Z", "data": { "last_event_id": 1288 } }
+      ]
+    },
+    "MessageCreated": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "message.created" },
+        "data": { "$ref": "app-api.yaml#/components/schemas/Message" }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 1289,
+          "type": "message.created",
+          "at": "2026-10-04T18:05:02Z",
+          "data": {
+            "id": "msg_01J9ZQZ8",
+            "conversation_id": "cnv_main_marcel",
+            "role": "agent",
+            "kind": "milestone",
+            "milestone": { "task_id": "tsk_01J9ZQ5", "task_title": "Fix the flaky login test", "event": "started", "location": "cloud" },
+            "task_id": "tsk_01J9ZQ5",
+            "created_at": "2026-10-04T18:05:02Z"
+          }
+        }
+      ]
+    },
+    "ConversationCreated": {
+      "description": "A side thread was opened, possibly from another device.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "conversation.created" },
+        "data": { "$ref": "app-api.yaml#/components/schemas/Conversation" }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 1290,
+          "type": "conversation.created",
+          "at": "2026-10-04T18:10:00Z",
+          "data": { "id": "cnv_side_01J9ZR0", "agent_id": "agt_marcel", "kind": "side", "parent_message_id": "msg_01J9ZQZ8", "created_at": "2026-10-04T18:10:00Z" }
+        }
+      ]
+    },
+    "TaskCreated": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "task.created" },
+        "data": { "$ref": "app-api.yaml#/components/schemas/Task" }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 1291,
+          "type": "task.created",
+          "at": "2026-10-04T18:06:00Z",
+          "data": {
+            "id": "tsk_01J9ZQ6", "agent_id": "agt_marcel", "title": "Check disk usage of all Docker volumes",
+            "location": "nuc", "state": "starting", "model": "sonnet", "origin": "marcel",
+            "created_at": "2026-10-04T18:06:00Z", "updated_at": "2026-10-04T18:06:00Z"
+          }
+        }
+      ]
+    },
+    "TaskUpdated": {
+      "description": "Any change to a task: state, summary, waiting_for, artifact_count. Carries the whole task.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "task.updated" },
+        "data": { "$ref": "app-api.yaml#/components/schemas/Task" }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 1295,
+          "type": "task.updated",
+          "at": "2026-10-04T18:06:40Z",
+          "data": {
+            "id": "tsk_01J9ZQ6", "agent_id": "agt_marcel", "title": "Check disk usage of all Docker volumes",
+            "location": "nuc", "state": "needs_you", "model": "sonnet", "origin": "marcel",
+            "waiting_for": "Permission to run `docker system df -v`.", "approval_ids": ["apr_01J9ZR2"],
+            "created_at": "2026-10-04T18:06:00Z", "updated_at": "2026-10-04T18:06:40Z"
+          }
+        }
+      ]
+    },
+    "TaskEventAppended": {
+      "description": "One new transcript or hub event on a task. Every device gets it; the app may ignore tasks it is not showing.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "task.event" },
+        "data": { "$ref": "app-api.yaml#/components/schemas/TaskEvent" }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 1294,
+          "type": "task.event",
+          "at": "2026-10-04T18:06:39Z",
+          "data": { "task_id": "tsk_01J9ZQ6", "seq": 12, "type": "tool_call", "at": "2026-10-04T18:06:39Z", "data": { "tool": "Bash", "summary": "docker system df -v" } }
+        }
+      ]
+    },
+    "ApprovalCreated": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "approval.created" },
+        "data": { "$ref": "app-api.yaml#/components/schemas/Approval" }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 1296,
+          "type": "approval.created",
+          "at": "2026-10-04T18:06:40Z",
+          "data": { "id": "apr_01J9ZR2", "task_id": "tsk_01J9ZQ6", "tool": "Bash", "summary": "Run `docker system df -v`", "state": "open", "created_at": "2026-10-04T18:06:40Z" }
+        }
+      ]
+    },
+    "ApprovalResolved": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "approval.resolved" },
+        "data": { "$ref": "app-api.yaml#/components/schemas/Approval" }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 1297,
+          "type": "approval.resolved",
+          "at": "2026-10-04T18:07:05Z",
+          "data": {
+            "id": "apr_01J9ZR2", "task_id": "tsk_01J9ZQ6", "tool": "Bash", "summary": "Run `docker system df -v`",
+            "state": "approved", "answered_via": "app", "created_at": "2026-10-04T18:06:40Z", "answered_at": "2026-10-04T18:07:05Z"
+          }
+        }
+      ]
+    },
+    "ArtifactCreated": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "artifact.created" },
+        "data": { "$ref": "app-api.yaml#/components/schemas/Artifact" }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 1310,
+          "type": "artifact.created",
+          "at": "2026-10-04T18:31:00Z",
+          "data": {
+            "id": "art_01J9ZT1", "task_id": "tsk_01J9ZQ5", "kind": "pr", "title": "Fix flaky login test: wait on the session cookie",
+            "url": "https://github.com/shbunder/marcel/pull/14", "pr": { "number": 14, "state": "open", "checks": "pending" },
+            "created_at": "2026-10-04T18:31:00Z"
+          }
+        }
+      ]
+    },
+    "AgentStateChanged": {
+      "description": "What the avatar should show (B-28). Sent on change only.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "agent.state" },
+        "data": {
+          "type": "object",
+          "required": ["agent_id", "state"],
+          "additionalProperties": false,
+          "properties": {
+            "agent_id": { "type": "string" },
+            "state": { "$ref": "app-api.yaml#/components/schemas/AgentState" }
+          }
+        }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        { "id": 1298, "type": "agent.state", "at": "2026-10-04T18:07:05Z", "data": { "agent_id": "agt_marcel", "state": { "kind": "working", "active_tasks": 2 } } }
+      ]
+    },
+    "UsageUpdated": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "usage.updated" },
+        "data": { "$ref": "app-api.yaml#/components/schemas/Usage" }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 1300,
+          "type": "usage.updated",
+          "at": "2026-10-04T18:40:00Z",
+          "data": {
+            "five_hour": { "used_pct": 91.0, "resets_at": "2026-10-04T21:00:00Z" },
+            "weekly": { "used_pct": 48.2, "resets_at": "2026-10-07T09:00:00Z" },
+            "source": "statusline", "stale": false,
+            "guard": { "active": true, "reason": "Plan usage is at 91 %. New tasks wait until 23:00.", "queued": 2 }
+          }
+        }
+      ]
+    }
+  }
+}

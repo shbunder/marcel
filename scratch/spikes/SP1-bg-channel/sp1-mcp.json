@@ -1,0 +1,1 @@
+{"mcpServers": {"sp1": {"command": "python3", "args": ["/home/shbunder/projects/marcel-src/scratch/spikes/SP1-bg-channel/sp1_channel.py"], "env": {"SP1_PORT": "8791", "SP1_NAME": "sp1", "SP1_LOG": "/home/shbunder/projects/marcel-src/scratch/spikes/SP1-bg-channel/sandbox/sp1-events.jsonl", "MARCEL_CONVERSATION_ID": "main"}}}}

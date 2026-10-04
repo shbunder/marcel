@@ -1,0 +1,19 @@
+{
+  "parentUuid": "70222e08-0e59-495d-b984-88baa7384ef7",
+  "isSidechain": false,
+  "type": "system",
+  "subtype": "turn_duration",
+  "durationMs": 5299,
+  "messageCount": 23,
+  "pendingBackgroundAgentCount": 1,
+  "timestamp": "2026-10-04T09:04:15.492Z",
+  "uuid": "e723bc50-49bf-42d9-8694-87181c106574",
+  "isMeta": false,
+  "sessionKind": "bg",
+  "userType": "external",
+  "entrypoint": "cli",
+  "cwd": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/wt-t1",
+  "sessionId": "bf4bd301-d2e6-4d07-aaaf-a5926cd40ca8",
+  "version": "2.1.289",
+  "gitBranch": "t1"
+}

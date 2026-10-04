@@ -1,0 +1,4 @@
+{"t": 1791105198537, "kind": "started", "server": "sp1", "conversation": "main", "pid": 2903917, "port": 8791}
+{"t": 1791105198656, "kind": "initialize", "server": "sp1", "conversation": "main", "pid": 2903917, "client": {"name": "claude-code", "title": "Claude Code", "version": "2.1.289", "description": "Anthropic's agentic coding tool", "websiteUrl": "https://claude.com/claude-code"}, "protocol": "2025-11-25"}
+{"t": 1791105198698, "kind": "notification", "server": "sp1", "conversation": "main", "pid": 2903917, "method": "notifications/initialized", "params": null}
+{"t": 1791105221310, "kind": "message_in", "server": "sp1", "conversation": "main", "pid": 2903917, "message_id": "m1", "text": "Hi Marcel, this is a channel test. Please answer with the reply tool: what is 6 times 7?"}

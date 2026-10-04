@@ -1,0 +1,144 @@
+{
+  "tool_use": {
+    "parentUuid": "14de0a9c-7cff-415c-9818-d6063d554e08",
+    "isSidechain": false,
+    "message": {
+      "model": "claude-sonnet-5-5",
+      "id": "msg_011Cfgw5x94PbqjAYoqZdRGW",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01FWFGUUtWmKo8jgmgeaYf2U",
+          "name": "Bash",
+          "input": {
+            "command": "rm README.md && ls",
+            "description": "Remove README.md and list directory"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      "container": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "stop_details": null,
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 18674,
+        "cache_read_input_tokens": 27224,
+        "output_tokens": 252,
+        "output_tokens_details": {
+          "thinking_tokens": 167
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 18674,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 252,
+            "cache_read_input_tokens": 27224,
+            "cache_creation_input_tokens": 18674,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 18674
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "input_transformations": [],
+      "diagnostics": null,
+      "context_management": null
+    },
+    "wireToolInputs": {
+      "toolu_01FWFGUUtWmKo8jgmgeaYf2U": {
+        "command": "rm README.md && ls",
+        "description": "Remove README.md and list directory"
+      }
+    },
+    "apiBlockIndex": 1,
+    "requestId": "req_011Cfgw5wqD1UaX7ToUjNikX",
+    "type": "assistant",
+    "uuid": "50b683a9-73cd-4f95-8790-06df1fccb9d0",
+    "timestamp": "2026-10-04T09:07:53.261Z",
+    "advisorModel": "claude-opus-5-5",
+    "effort": "medium",
+    "perTurnEffort": "medium",
+    "session_id": "7aa6a32d-dc9c-43e3-b170-ee90995ba343",
+    "sessionKind": "bg",
+    "userType": "external",
+    "entrypoint": "cli",
+    "cwd": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/wt-t3",
+    "sessionId": "7aa6a32d-dc9c-43e3-b170-ee90995ba343",
+    "version": "2.1.289",
+    "gitBranch": "t3"
+  },
+  "tool_result": {
+    "parentUuid": "50b683a9-73cd-4f95-8790-06df1fccb9d0",
+    "isSidechain": false,
+    "promptId": "e6f27ceb-0af6-44dc-8ca6-2dfa4718148f",
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "content": "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.",
+          "is_error": true,
+          "tool_use_id": "toolu_01FWFGUUtWmKo8jgmgeaYf2U"
+        }
+      ]
+    },
+    "uuid": "e7e01f6d-a144-4cb0-876b-8ca31ae3c565",
+    "timestamp": "2026-10-04T09:07:54.231Z",
+    "toolUseResult": "User rejected tool use",
+    "toolDenialKind": "user-rejected",
+    "sourceToolAssistantUUID": "50b683a9-73cd-4f95-8790-06df1fccb9d0",
+    "session_id": "7aa6a32d-dc9c-43e3-b170-ee90995ba343",
+    "sessionKind": "bg",
+    "userType": "external",
+    "entrypoint": "cli",
+    "cwd": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/wt-t3",
+    "sessionId": "7aa6a32d-dc9c-43e3-b170-ee90995ba343",
+    "version": "2.1.289",
+    "gitBranch": "t3"
+  },
+  "interrupt": {
+    "parentUuid": "cc2a9f81-9b78-4320-a99f-ea6154e26cfa",
+    "isSidechain": false,
+    "promptId": "e6f27ceb-0af6-44dc-8ca6-2dfa4718148f",
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "[Request interrupted by user for tool use]"
+        }
+      ]
+    },
+    "uuid": "fdf1ab0a-1119-4fef-9d0b-7e923707215c",
+    "timestamp": "2026-10-04T09:07:54.233Z",
+    "session_id": "7aa6a32d-dc9c-43e3-b170-ee90995ba343",
+    "sessionKind": "bg",
+    "userType": "external",
+    "entrypoint": "cli",
+    "cwd": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/wt-t3",
+    "sessionId": "7aa6a32d-dc9c-43e3-b170-ee90995ba343",
+    "version": "2.1.289",
+    "gitBranch": "t3"
+  }
+}

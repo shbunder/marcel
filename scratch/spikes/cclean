@@ -1,0 +1,7 @@
+#!/bin/sh
+# Run `claude` with a clean environment, the way the runner (a systemd user service) will.
+# Spikes are driven from inside a Claude Code session, whose env (CLAUDE_CODE_CHILD_SESSION,
+# CLAUDECODE, CLAUDE_CODE_SESSION_ID, ...) would otherwise leak into the child — and
+# CLAUDE_CODE_CHILD_SESSION alone turns transcript saving off.
+exec env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" PATH="$PATH" LANG="${LANG:-C.UTF-8}" \
+  XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" TERM="${TERM:-xterm-256color}" claude "$@"

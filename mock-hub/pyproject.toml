@@ -1,0 +1,55 @@
+[project]
+name = "marcel-mock-hub"
+version = "0.1.0"
+description = "A stand-in for the Marcel hub that serves the app API contract with scripted data, so the iOS app can be built without the real hub."
+requires-python = ">=3.12"
+dependencies = ["fastapi>=0.115", "uvicorn>=0.30", "websockets>=13", "pyyaml>=6"]
+
+[dependency-groups]
+dev = [
+  "ruff>=0.6",
+  "pyright>=1.1.380",
+  "pytest>=8",
+  "pytest-cov>=5",
+  "httpx>=0.27",
+  "jsonschema[format]>=4.23",
+  "referencing>=0.35",
+  "types-pyyaml",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/marcel_mock_hub"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.pyright]
+pythonVersion = "3.12"
+include = ["src", "tests"]
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["marcel_mock_hub"]
+branch = true
+omit = ["*/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true

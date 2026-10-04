@@ -5,7 +5,7 @@ feature: F00
 wave: 0
 runs_on: NUC
 size: S
-status: In Progress
+status: Done
 depends: 
 touches: scratch/spikes/SP7-*
 behaviours: 
@@ -23,3 +23,7 @@ Blocks: F06 (side threads)
 
 **Pass:** two independent background sessions that share history up to the fork.
 **Fallback:** start a fresh side session seeded with a hub-generated summary of the main thread.
+
+## Result
+
+PASS. See [`scratch/spikes/SP7-fork-brain/RESULT.md`](../../scratch/spikes/SP7-fork-brain/RESULT.md) and `plan/03-spikes.md` § Results.

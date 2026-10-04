@@ -5,7 +5,7 @@ feature: F00
 wave: 0
 runs_on: NUC
 size: S
-status: In Progress
+status: Done
 depends: 
 touches: scratch/spikes/SP6-*
 behaviours: 
@@ -22,3 +22,7 @@ Blocks: F03, F04, F14
 4. Confirm the runner survives `docker compose down` and that its sessions survive a runner restart.
 
 **Pass:** a hello-world round trip, plus a documented compose and systemd snippet.
+
+## Result
+
+PASS. See [`scratch/spikes/SP6-hub-runner-socket/RESULT.md`](../../scratch/spikes/SP6-hub-runner-socket/RESULT.md) and `plan/03-spikes.md` § Results.
