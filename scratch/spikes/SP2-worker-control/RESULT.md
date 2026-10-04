@@ -61,6 +61,10 @@ python3 build_fixtures.py     # copies + sanitises everything into fixtures/
 | `idle` | `done` | ✓ | — | turn finished, process alive | `done-idle.json` |
 | — | `done` | — | — | stopped (`claude stop`); conversation kept | `done-stopped.json` |
 | `idle` | **`working`** | ✓ | — | **after a denial**: turn interrupted, waiting for direction | `jobs/t3-denied/` |
+| `idle` | `blocked` | ✓ | — | **model ended its turn asking for input**; `jobs/<id>/state.json` `needs` holds its ask (seen in SP1) | — |
+| — | `stopped` | — | — | stopped **mid-turn** (t3 after the denial); a finished session that gets stopped stays `done` | — |
+
+The daemon state is partly model-narrated. `waitingFor` is the only reliable discriminator for "permission prompt".
 
 - Interactive sessions appear in the list too (`kind: "interactive"`, no `state`). The runner filters `kind == "background"`.
 - `startedAt` changes when the process (re)starts, and `pid` changes on respawn/resume. **Key on `id`, never on
@@ -169,7 +173,8 @@ replaced by `"<elided: N chars>"`, and the owner's email and account/org UUIDs a
   - The runner scrubs `CLAUDE*` env vars from every `claude` it launches.
   - Watching stays `agents --json --all` every 2 s, keyed on `id` and `kind=="background"`.
   - Add an optional enrichment read of `~/.claude/jobs/<id>/{state,timeline}` (`needs`, `detail`, `output.result`), version-gated.
-- **Task state machine (F04):** map `idle+working` (post-denial, or an interrupted turn) to **`needs_you`**, the
+- **Task state machine (F04):** map `idle+working` (post-denial, or an interrupted turn) and `idle+blocked` without
+  `waitingFor` (the model asked a question) to **`needs_you`**, the
   same as `blocked`. `done-stopped` is `stopped` when the hub asked for the stop, otherwise `done`.
 - **S-02.2 transcript schema:**
   - use the mapping table above;
