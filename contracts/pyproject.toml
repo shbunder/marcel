@@ -1,0 +1,41 @@
+[project]
+name = "marcel-contracts"
+version = "0.1.0"
+description = "Contract tests: the specs validate, and every example matches its schema."
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "ruff>=0.6",
+  "pyright>=1.1.380",
+  "pytest>=8",
+  "pyyaml>=6",
+  "jsonschema[format]>=4.23",
+  "referencing>=0.35",
+  "openapi-spec-validator>=0.7",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.pyright]
+pythonVersion = "3.12"
+include = ["tests"]
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
