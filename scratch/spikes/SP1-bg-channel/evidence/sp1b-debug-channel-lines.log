@@ -1,0 +1,2 @@
+2026-10-04T09:16:33.375Z [WARN] [jobs] stripped non-allowlisted respawnFlags token(s) from persisted job state: --dangerously-load-development-channels server:sp1
+2026-10-04T09:16:34.434Z [DEBUG] MCP server "sp1": Channel notifications skipped: server sp1 not in --channels list for this session

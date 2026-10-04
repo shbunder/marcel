@@ -1,0 +1,76 @@
+{
+  "parentUuid": "12b5d231-749c-499f-bf92-f1dfbc761719",
+  "isSidechain": false,
+  "message": {
+    "model": "claude-sonnet-5-5",
+    "id": "msg_011Cfgvov4qemNcdhNRAAGQf",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "",
+        "signature": "CAQS7AUKEAgSGAI4AUIIdGhpbmtpbmcSDG7ZbR/ViwP2ApDPaBoMA5edKBD/vwVYBjQoIjCg8fsduQyC5kYXeblNYGmIcSBZqgl0/vE1lCWou6xZ90BG5EflZxrNuMVEjjHpBtYqiQVNUFZLEOlJ7BZrPZFjIabFp4eKbWAAHU3vNoIdjrhoSXSd6rg5CN2ufne5obNFKexiWbvcuV9A3ErYUeTOZdus28NHbjjBFwlLAHFw2T5LK2hLwuDZfLIuYonQmWv0UvriNfca+bCeGRPI8CpfF1W6CjNpaxaBxZAqQLvx340H6PeDv0CC1dO+olZKBIsdoxVAprer6PAYcdEi58dYVnomx7LFtAs8izdHFERAmGPbVTBONGAtfZmKY/z5nR3i3GvsI9gi4KmxOCnYePmmxoC0ZhjUnA/TvyK6wChbYPmidy7JDS+6mxhs8I5AhKhpIzCpkxTxCxLgoAhlJzISAtT1bffWHroujdyaa8M8oPg91jSPR1uNIORDoQvYP2aAhSqHKzp31p6FPkd3uvSBtrXfWviF/2IoC7g8PrvY4SGaZDWPRzE/hVDz47PdeICmlRRVcS9KD9xje7IDJGOrOVXY7Y5z0ksXS4F1uMz3DUN/qH55Jkpq1JZtgedMVNHUUh4lNpJaqFHPGflsciA0kFlClionLJ33gabTuTtbugnfeTHRVJRNjex1cBwHPE3H7OTZW86oTHDbeJXOybMzd3ktlrHp0hudjuXG59ge2UGSHhjdAYo3pZPjP1zfqy/X/3PlvCFygHxC/WcgXQUWLYpgKDJX8f/IXo9RZETw1AWXNY0DLguJI75crl8d+tsWID9WYhyaEvmDW5eJxXbgMsjsRGifbOAaYhm68NB+T0C27q/+Qlxs23qEUQi68i/rhVxX+ndl7CJX2ZYCmZaYwTnoNIpIDo5Rdd3AiEuIRPIlEh7Dtz/0/2KkJc8g8/o3mcIfFMAyIg+sPUeeBIv1pTKsJxtismluqvEaGAE="
+      }
+    ],
+    "container": null,
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3735,
+      "cache_read_input_tokens": 46033,
+      "output_tokens": 107,
+      "output_tokens_details": {
+        "thinking_tokens": 68
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 3735,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 107,
+          "cache_read_input_tokens": 46033,
+          "cache_creation_input_tokens": 3735,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 3735
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard",
+      "fallback_credit": null
+    },
+    "input_transformations": [],
+    "diagnostics": null,
+    "context_management": null
+  },
+  "thinkingDurationMs": 1167,
+  "serverClassifierRequest": "827949d8-f3e7-471b-a291-cb10343a54fe",
+  "apiBlockIndex": 0,
+  "requestId": "req_011CfgvougmZP6E2U9GZ86t6",
+  "type": "assistant",
+  "uuid": "0612e5f3-bfd0-43d0-bd39-014337d16cb6",
+  "timestamp": "2026-10-04T09:04:15.463Z",
+  "advisorModel": "claude-opus-5-5",
+  "effort": "medium",
+  "perTurnEffort": "medium",
+  "session_id": "bf4bd301-d2e6-4d07-aaaf-a5926cd40ca8",
+  "sessionKind": "bg",
+  "userType": "external",
+  "entrypoint": "cli",
+  "cwd": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/wt-t1",
+  "sessionId": "bf4bd301-d2e6-4d07-aaaf-a5926cd40ca8",
+  "version": "2.1.289",
+  "gitBranch": "t1"
+}

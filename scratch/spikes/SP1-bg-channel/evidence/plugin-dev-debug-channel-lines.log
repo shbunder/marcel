@@ -1,0 +1,2 @@
+2026-10-04T09:19:50.343Z [WARN] [jobs] stripped non-allowlisted respawnFlags token(s) from persisted job state: --dangerously-load-development-channels plugin:marcel@marcel-local
+2026-10-04T09:19:51.497Z [DEBUG] MCP server "plugin:marcel:marcel": Channel notifications skipped: server plugin:marcel:marcel not in --channels list for this session

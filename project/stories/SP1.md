@@ -5,7 +5,7 @@ feature: F00
 wave: 0
 runs_on: NUC
 size: S
-status: In Progress
+status: Done
 depends: 
 touches: scratch/spikes/SP1-*
 behaviours: 
@@ -37,3 +37,7 @@ through `--dangerously-load-development-channels`, with no human at a terminal?
 2. Use a `PermissionRequest` hook that calls the hub and blocks until the app answers (approvals),
    plus cross-session messaging (`crossSessionInbound: accept`) for steering.
 3. Use the official Telegram channel as the transport for the brain only.
+
+## Result
+
+PASS. See [`scratch/spikes/SP1-bg-channel/RESULT.md`](../../scratch/spikes/SP1-bg-channel/RESULT.md) and `plan/03-spikes.md` § Results.

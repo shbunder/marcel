@@ -1,0 +1,7 @@
+# throwaway state produced while running spikes — never committed
+node_modules/
+sandbox/
+worktrees/
+*.sock
+__pycache__/
+.venv/

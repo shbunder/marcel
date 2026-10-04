@@ -49,9 +49,9 @@ unmodified `claude` CLI on the owner's Max subscription. Marcel's own code does 
 │      │  • MCP tools        (brain: tasks/memory/schedule…)  │               │
 │      │  • /marcel-adopt, skills, hooks                      │               │
 │      └──────────────────────────────────────────────────────┘               │
-│   brain:  claude --bg --name marcel --model opus   (workspace ~/marcel/brain)│
+│   brain:  claude --bg --name marcel --model opus --channels plugin:marcel@marcel-local │
 │   side:   forks of the brain session               (one per side thread)     │
-│   workers: claude --bg --model sonnet --permission-mode auto (worktrees)     │
+│   workers: claude --bg --model sonnet --permission-mode auto --channels … (worktrees)│
 └──────────────────────────────────────────────────────────────────────────────┘
         cloud workers: claude --cloud "…"  (claude.ai/code sessions)
         Harry (separate service, MCP on :7430) — a connector, later
@@ -67,7 +67,7 @@ The source of truth. It holds:
 | App API | REST + one WebSocket per device (`contracts/app-api.yaml`, `contracts/events.schema.json`) |
 | Channel gateway | One WebSocket endpoint, `/channel`, that every session's channel server connects to. Messages for a session are pushed down it; replies, progress, artifacts and permission requests come up it. |
 | Brain lifecycle | Asks the runner to keep exactly one brain session alive per agent, restarts it, and triggers rollovers (F06). |
-| Task state machine | `queued → starting → working ⇄ needs_you → done / failed / stopped`, driven by runner events and channel events. |
+| Task state machine | Nine states (`queued`, `starting`, `working`, `needs_you`, `done`, `failed`, `stopped`, `silent`, `unknown`), every transition listed in `contracts/task-states.md`, driven by runner and channel events. |
 | Scheduler | APScheduler with a SQLite job store; digests, user schedules, watchdogs. |
 | Push | Notifier interface with APNs and ntfy backends. |
 | Memory | A git working copy at `~/marcel/memory`. The app edits through the API; the hub commits. |
@@ -80,10 +80,14 @@ boundary is deliberate. The runner is small and has no business logic.
 
 | Area | What the runner does |
 |---|---|
-| API | Speaks only on a unix socket that is mounted into the hub container. Operations: `spawn`, `list`, `get`, `send`, `stop`, `fork`, `tail`, `cloud_spawn`, `cloud_send`, `usage`, `health` (`contracts/runner-api.yaml`). |
-| Watching | Polls `claude agents --json --all` every 2 s and emits state-change events to the hub. |
-| Transcripts | Tails session transcripts (`~/.claude/projects/**/<session-id>.jsonl`) and streams normalised transcript events (`contracts/transcript.schema.json`). |
-| Workspaces | Manages worktrees under `~/marcel/workspaces/<repo>`. |
+| Supervisor | Claude's own background supervisor runs in **its own** user unit, `marcel-claude-daemon.service` (`claude daemon run`), never inside the runner's cgroup, so restarting the runner never kills a session (SP6). The runner refuses to start if no supervisor is running outside its cgroup. |
+| Launching | Every `claude` it starts gets a scrubbed environment (no inherited `CLAUDE*` variables), an absolute path to the binary, and the prompt after `--` (the `--channels` flag is variadic). It checks the session's debug log for `Channel notifications registered` and fails the spawn loudly on `skipped` (SP1, SP2). |
+| API | Speaks only on a unix socket, `/run/user/<uid>/marcel/runner.sock` on the host (systemd `RuntimeDirectory=marcel`, `RuntimeDirectoryPreserve=yes`, mode 0660), mounted into the hub container as `/run/marcel` (SP6). Operations: `spawn`, `list`, `get`, `send`, `stop`, `fork`, `tail`, `cloud_spawn`, `cloud_send`, `usage`, `health` (`contracts/runner-api.yaml`). |
+| Watching | Polls `claude agents --json --all` every 2 s (≈0.12 s per call), keyed on the session `id` and `kind == background`, and emits state-change events to the hub. It may enrich them, best effort and version-gated, from the undocumented `~/.claude/jobs/<id>/state.json` (`needs`, `detail`, `output.result`), which gives approval-card text and one-line summaries for free (SP2). |
+| Transcripts | Tails session transcripts (`~/.claude/projects/<cwd with / → ->/<session-id>.jsonl`, plus `subagents/`) and streams normalised transcript events (`contracts/transcript.schema.json`, mapped as in SP2's table), resumable by byte offset. The hub never mounts `~/.claude` (SP6). |
+| Workspaces | Manages worktrees under `~/marcel/workspaces/<repo>`. Workspace trust is per git root and worktrees inherit it, so the runner accepts the trust prompt once per clone (SP2). |
+| Cloud | `cloud_spawn` runs `claude --cloud "<prompt>"` under a pty (it refuses without a terminal) and parses the session id and URL; `cloud_send` runs `claude -p "<msg>" --cloud <id> --output-format json`, which returns an ack. Nothing can poll a cloud session's state: cloud workers report to the hub over HTTPS (SP3). |
+| Usage | `claude -p "/usage" --no-session-persistence` (no model call, 2–3 s) parsed from its text, every 5 minutes and before each spawn. A status-line command may also publish `rate_limits` from live sessions (SP4). |
 | Limits | Enforces the NUC concurrency cap. |
 | Testing | Never calls a model directly. Tests use a **fake `claude` shim** (`runner/tests/fake_claude/`) that replays recorded `agents --json` and JSONL fixtures. |
 
@@ -91,9 +95,19 @@ boundary is deliberate. The runner is small and has no business logic.
 
 Loaded by the brain, its side threads and every NUC worker.
 
+- **How it loads (SP1, option A; ADR-001):** the plugin is installed from a local marketplace,
+  `marcel-local`, that points at a deployed copy of `plugins/marcel/` (never a working tree, because a
+  directory-source plugin runs in place). `/etc/claude-code/managed-settings.json` turns channels on and
+  allowlists `marcel@marcel-local`, so a `--bg` session started with `--channels plugin:marcel@marcel-local`
+  registers the channel with no terminal. The development-channels flag silently does nothing in `--bg`.
 - **Channel server** (`marcel-channel`): a TypeScript MCP stdio server. It declares
-  `claude/channel` and `claude/channel/permission` and connects to the hub's `/channel` WS with
-  `MARCEL_SESSION_ROLE` (brain|side|worker) and `MARCEL_TASK_ID`.
+  `claude/channel` and `claude/channel/permission` and connects to the hub's `/channel` WS. It
+  **identifies itself by `CLAUDE_CODE_SESSION_ID`**, which Claude Code gives every plugin server: env set
+  on the `claude --bg` command line never reaches it (SP1, SP7). The hub maps that session id to brain,
+  side thread or task, because the runner reported the id at spawn. It authenticates with a hub secret
+  in the plugin's data folder (`CLAUDE_PLUGIN_DATA`); the hub only accepts session ids the runner started.
+  The plugin's settings pre-allow its own tools (`mcp__plugin_marcel_marcel__reply`, `…__report`) so
+  replies never prompt.
   - It pushes inbound user and steering messages as `<channel source="marcel" …>` events.
   - It exposes `reply` (brain and side) and `report` (workers: progress, artifact, done) tools.
   - It relays permission prompts as approval cards.
@@ -103,7 +117,8 @@ Loaded by the brain, its side threads and every NUC worker.
   - schedules: `schedule_create`, `schedule_list`, `schedule_delete`;
   - other: `notify`, `usage_get`.
 - **`/marcel-adopt` command**: registers the current session (id, cwd, cloud or local) with the hub through
-  `marcel-bot.com` with the device token. The session becomes a tracked task (B-14).
+  `marcel-bot.com/api/session/adopt` with an adopt token (not a device token; see
+  `contracts/session-api.yaml`). The session becomes a tracked task (B-14).
 - **Skills**:
   - `orchestrate` (the brain's playbook: routing, where to run, milestone style);
   - `worker-protocol` (how a worker reports progress, artifacts and completion);
@@ -130,7 +145,7 @@ Loaded by the brain, its side threads and every NUC worker.
 
 ## Key flows
 
-**1. A message in the main chat.** App → `POST /conversations/main/messages` → hub stores it → the channel
+**1. A message in the main chat.** App → `POST /api/conversations/{main_conversation_id}/messages` → hub stores it → the channel
 gateway pushes it to the brain session → the brain either answers through `reply` (hub stores it, WS
 to the app) or calls `tasks_spawn` → the hub creates the task and the runner spawns the worker → a
 "started" milestone is posted.
@@ -139,7 +154,7 @@ to the app) or calls `tasks_spawn` → the hub creates the task and the runner s
 Code → hub → task becomes `needs_you`, approval card plus push → I tap Approve → hub → channel server → Claude Code
 continues. Answering in a terminal also works; the first answer wins.
 
-**3. Steering.** I type in the thread view → `POST /tasks/{id}/messages` → hub → that worker's channel
+**3. Steering.** I type in the thread view → `POST /api/tasks/{id}/messages` → hub → that worker's channel
 server pushes it into the session.
 
 **4. Completion.** The worker calls `report(done, summary, artifacts)`, or the runner sees
@@ -192,19 +207,26 @@ Other levers:
 The hub has a `Triage` seam with a rules implementation, so a decision model can be added later
 without touching the brain.
 
-## Data model (summary — the full schema is part of F02)
+## Data model (summary; where it and `contracts/` disagree, the contract wins)
 
 ```
-agent(id, owner_user_id, name, animal, palette, seed, persona_path, model_brain, model_worker)
+agent(id, owner_user_id, name, animal, palette, seed, persona_path, model_brain, model_worker,
+      main_conversation_id)
 device(id, user_id, name, token_hash, apns_token?, ntfy_topic?, created_at, last_seen)
-conversation(id, agent_id, kind[main|side], parent_message_id?, brain_session_id?)
-message(id, conversation_id, role[user|agent|system], kind[text|milestone|approval|card], body_json, task_id?, created_at)
-task(id, agent_id, title, location[nuc|cloud], state, model, session_id?, cloud_url?, repo?, worktree?,
-     origin[marcel|adopted|schedule], parent_message_id?, created_at, updated_at, last_activity_at, expected_by?)
-task_event(id, task_id, type, payload_json, created_at)          -- normalised transcript + state changes
-approval(id, task_id, request_id, tool, summary, state[open|approved|denied|expired], answered_at)
-artifact(id, task_id, kind[pr|doc|file|dashboard|link], title, uri, meta_json, created_at)
-schedule(id, agent_id, name, cron, tz, location[nuc|cloud|brain], prompt, paused, last_run_at, deadline_minutes?)
+conversation(id, agent_id, kind[main|side], parent_message_id?, task_id?, brain_session_id?)
+message(id, conversation_id, role[user|agent|system], kind[text|milestone|approval|quote], body_json,
+        task_id?, client_id?, created_at)
+task(id, agent_id, title, location[nuc|cloud], state, queued_reason?[cap|usage], model,
+     session_id?, cloud_url?, remote_url?, repo?, branch?, worktree?,
+     origin[marcel|adopted|schedule], parent_message_id?, schedule_id?, summary?, waiting_for?,
+     created_at, updated_at, last_activity_at, expected_by?, archived_at?)
+task_event(task_id, seq, type, data_json, at)                    -- normalised transcript + hub events
+approval(id, task_id, request_id, tool, summary, detail?, artifact_id?,
+         state[open|approved|denied|expired], answered_via?[app|terminal], answered_at?)
+artifact(id, task_id?, kind[pr|branch|doc|file|dashboard|link], title, url?, content_type?,
+         size_bytes?, trusted, self_change, meta_json, created_at)
+schedule(id, agent_id, name, cron, tz, location[nuc|cloud|brain], prompt, paused, builtin,
+         deadline_minutes?, last_run_at?, next_run_at?)
 usage_snapshot(id, taken_at, window[five_hour|weekly], used_pct, resets_at, source)
 ```
 
@@ -217,7 +239,8 @@ plugins/marcel/   Claude Code plugin (channel server TS, tools py, skills, comma
 brain/        brain workspace template (CLAUDE.md persona, settings)
 ios/          Xcode project `Marcel` (app + MarcelKit + AvatarKit packages)
 shared/avatar/    recipes/*.json, palettes.json  (consumed by iOS; validated by a py test)
-contracts/    app-api.yaml, runner-api.yaml, events.schema.json, transcript.schema.json, channel-protocol.md
+contracts/    app-api.yaml, events.schema.json, task-states.md, dashboard.schema.json (S-02.1);
+              runner-api.yaml, transcript.schema.json, channel-protocol.md, session-api.yaml (S-02.2)
 deploy/       docker-compose.yml, systemd units, cloudflared ingress, redeploy.sh, watchdog
 project/      board: features/, stories/, decisions/, lessons/, contract-requests/
 docs/         operator + developer docs
@@ -235,13 +258,18 @@ plan/         this plan: spec, architecture, spikes, playbook
 | Auth | Device tokens (random 32 bytes, stored hashed); QR pairing; Cloudflare tunnel | B-27 |
 | Deploy | Hub in Docker Compose; runner and claude native; flag-file redeploy + health watchdog + git revert | B-24 |
 
-## Known risks (each has a de-risking experiment in `03-spikes.md`)
+## Risks (after the spikes, 2026-10-04)
 
-1. Custom channels need `--dangerously-load-development-channels` during the research preview, and it
-   asks for confirmation at startup. That may block unattended background starts.
-2. There is no public API to observe cloud sessions.
-3. There is no documented programmatic read of plan usage.
-4. Steering a background session from outside, other than through a channel.
-5. Hub in Docker ↔ native runner: socket and file permissions, plus `~/.claude` read access.
-6. Forking a background brain session for side threads.
-7. RealityKit avatar quality and performance on iPhone.
+The seven risks the plan started with were all tested on the NUC and the Mac (`03-spikes.md`, results in
+`scratch/spikes/`). What is left:
+
+| Risk | Status | Mitigation |
+|---|---|---|
+| 1. Custom channel in `--bg` | **Resolved** with a managed-settings allowlist (SP1, ADR-001) | The policy file applies to every `claude` on the NUC and replaces the default channel allowlist (Telegram and iMessage are re-listed). Fallback: a runner-owned pty session for the brain |
+| 2. Observing cloud sessions | **Resolved by design**: workers report over HTTPS with a per-task token (SP3) | No polling path exists; a silent cloud task becomes `silent` and then needs you |
+| 3. Reading plan usage | **Resolved**: `claude -p /usage` text, plus the status-line `rate_limits` (SP4) | `/usage` is presentation text: one regex, with a contract test on recorded output |
+| 4. Steering a live session | **Resolved**: only through the channel; stop then `--resume` between turns, guarding the copy race (SP2) | — |
+| 5. Hub ↔ runner socket | **Resolved** (SP6) | Separate claude supervisor unit; `RuntimeDirectoryPreserve`; linger on |
+| 6. Forking the brain | **Resolved**: `--resume <brain> --fork-session` (SP7) | A fork reloads the brain's whole context once: keep the brain small (S-06.2) |
+| 7. Avatar on iPhone | **Open** (SP5): works in the simulator; iPhone frame rate, colours and the owner's verdict pending | Boxes cannot make the logo's neck curve; one custom mesh may be needed |
+| New: undocumented internals | `~/.claude/jobs/*` and `/usage` wording may change with any Claude Code update | Used best effort only, behind a version check; `agents --json` stays the source of truth |
