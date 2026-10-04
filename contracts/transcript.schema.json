@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marcel.invalid/contracts/transcript.schema.json",
+  "title": "Normalised transcript event",
+  "description": "What the runner makes of one line of a Claude Code session transcript (`~/.claude/projects/<cwd>/<session-id>.jsonl`), streamed to the hub on `GET /sessions/{id}/tail`. The mapping from the raw JSONL is SP2's table (scratch/spikes/SP2-worker-control/RESULT.md); `contracts/tests/reference_normalizer.py` is a reference implementation the runner may port. One JSONL line can give zero, one or several events (an assistant line with text and two tool calls gives three). The hub stores the ones the app shows as task events with the same `type` and `data` (app-api.yaml `TaskEvent`); it drops `thinking` and `turn_end`. A pending permission is NOT here: it is not in the JSONL while the prompt is open; it comes from the runner's state stream (runner-api.yaml) and the channel.",
+  "$ref": "#/$defs/TranscriptEvent",
+  "$defs": {
+    "TranscriptEvent": {
+      "type": "object",
+      "required": ["session_id", "offset", "at", "type", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "session_id": { "type": "string", "description": "The full session UUID." },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Byte offset just after the JSONL line this event came from (the same number as the SSE `id:`). Resume a tail from the last offset you processed; several events from one line share it."
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of this event among those from the same line, starting at 0."
+        },
+        "subagent_id": { "type": "string", "description": "Set when the line came from a subagent's own transcript." },
+        "at": { "type": "string", "format": "date-time" },
+        "type": {
+          "enum": ["text", "thinking", "tool_call", "tool_result", "diff", "subagent_start", "subagent_stop", "turn_end", "error", "raw"]
+        },
+        "data": { "type": "object" }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "text" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/Text" } } } },
+        { "if": { "properties": { "type": { "const": "thinking" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/Thinking" } } } },
+        { "if": { "properties": { "type": { "const": "tool_call" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/ToolCall" } } } },
+        { "if": { "properties": { "type": { "const": "tool_result" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/ToolResult" } } } },
+        { "if": { "properties": { "type": { "const": "diff" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/Diff" } } } },
+        { "if": { "properties": { "type": { "const": "subagent_start" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/SubagentStart" } } } },
+        { "if": { "properties": { "type": { "const": "subagent_stop" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/SubagentStop" } } } },
+        { "if": { "properties": { "type": { "const": "turn_end" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/TurnEnd" } } } },
+        { "if": { "properties": { "type": { "const": "error" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/Error" } } } },
+        { "if": { "properties": { "type": { "const": "raw" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/Raw" } } } }
+      ]
+    },
+    "Text": {
+      "type": "object",
+      "required": ["role", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "role": { "enum": ["user", "assistant"] },
+        "text": { "type": "string" },
+        "source": {
+          "type": "string",
+          "description": "For user text: where it came from when Claude Code says (`promptSource`), e.g. a channel message or a subagent hand-back."
+        }
+      },
+      "examples": [{ "role": "assistant", "text": "The bug is in `sub()`: it adds instead of subtracting. Fixing it now." }]
+    },
+    "Thinking": {
+      "type": "object",
+      "required": ["duration_ms"],
+      "additionalProperties": false,
+      "properties": { "duration_ms": { "type": "integer", "minimum": 0 } },
+      "examples": [{ "duration_ms": 1840 }]
+    },
+    "ToolCall": {
+      "type": "object",
+      "required": ["tool_use_id", "tool", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "tool_use_id": { "type": "string" },
+        "tool": { "type": "string" },
+        "summary": {
+          "type": "string",
+          "description": "One line for the collapsed row: the Bash command, the file path, the agent description, else the tool name."
+        },
+        "input": { "type": "object", "description": "The tool's input, truncated by the runner to 8 KB per string field." }
+      },
+      "examples": [{ "tool_use_id": "toolu_011aJMiPoA6q4kFZJK8v13B5", "tool": "Bash", "summary": "python3 -m pytest -q", "input": { "command": "python3 -m pytest -q" } }]
+    },
+    "ToolResult": {
+      "type": "object",
+      "required": ["tool_use_id", "is_error", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "tool_use_id": { "type": "string" },
+        "is_error": { "type": "boolean" },
+        "denied": { "type": "boolean", "description": "True when the user (or the relay) rejected the tool use (`toolDenialKind: user-rejected`)." },
+        "text": { "type": "string", "description": "The result as text, truncated to 8 KB." },
+        "truncated": { "type": "boolean" }
+      },
+      "examples": [{ "tool_use_id": "toolu_011aJMiPoA6q4kFZJK8v13B5", "is_error": false, "text": "ok" }]
+    },
+    "Diff": {
+      "type": "object",
+      "description": "From a tool result whose `toolUseResult` has a `structuredPatch` (Edit, Write, MultiEdit). Emitted after that tool's `tool_result`.",
+      "required": ["tool_use_id", "file_path", "hunks"],
+      "additionalProperties": false,
+      "properties": {
+        "tool_use_id": { "type": "string" },
+        "file_path": { "type": "string" },
+        "hunks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["old_start", "old_lines", "new_start", "new_lines", "lines"],
+            "additionalProperties": false,
+            "properties": {
+              "old_start": { "type": "integer" },
+              "old_lines": { "type": "integer" },
+              "new_start": { "type": "integer" },
+              "new_lines": { "type": "integer" },
+              "lines": { "type": "array", "items": { "type": "string" }, "description": "Unified-diff lines, each starting with ' ', '+' or '-'." }
+            }
+          }
+        }
+      },
+      "examples": [{
+        "tool_use_id": "toolu_01HTDC3sW6eHYf4KXw9mhrHf",
+        "file_path": "calc.py",
+        "hunks": [{ "old_start": 4, "old_lines": 2, "new_start": 4, "new_lines": 2, "lines": [" def sub(a, b):", "-    return a + b", "+    return a - b"] }]
+      }]
+    },
+    "SubagentStart": {
+      "type": "object",
+      "required": ["tool_use_id", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "tool_use_id": { "type": "string" },
+        "agent_id": { "type": "string", "description": "Known once the launch result arrives; absent on the call itself." },
+        "description": { "type": "string" },
+        "subagent_type": { "type": "string" }
+      },
+      "examples": [{ "tool_use_id": "toolu_01S8KjA6XyNXa1ku18fcsiHj", "agent_id": "a918dd7c41e7ee8b8", "description": "Find buggy function", "subagent_type": "general-purpose" }]
+    },
+    "SubagentStop": {
+      "type": "object",
+      "required": ["agent_id", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": { "type": "string" },
+        "status": { "enum": ["completed", "failed", "stopped", "unknown"] },
+        "summary": { "type": "string", "description": "The start of its hand-back report, truncated to 2 KB." }
+      },
+      "examples": [{ "agent_id": "a918dd7c41e7ee8b8", "status": "completed", "summary": "The buggy function is sub(): it returns a + b." }]
+    },
+    "TurnEnd": {
+      "type": "object",
+      "required": ["duration_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "message_count": { "type": "integer", "minimum": 0 },
+        "pending_background_agents": { "type": "integer", "minimum": 0 }
+      },
+      "examples": [{ "duration_ms": 5299, "message_count": 23, "pending_background_agents": 1 }]
+    },
+    "Error": {
+      "type": "object",
+      "required": ["message"],
+      "additionalProperties": false,
+      "properties": {
+        "message": { "type": "string" },
+        "api_error_status": { "type": "integer" },
+        "usage_limit": {
+          "type": "boolean",
+          "description": "True when the text starts with one of Claude Code's usage-limit prefixes (\"You've hit your\", \"You've reached your\", \"You're out of usage credits\", …; SP4)."
+        }
+      },
+      "examples": [{ "message": "You've hit your session limit · resets 2:29pm (UTC)", "api_error_status": 429, "usage_limit": true }]
+    },
+    "Raw": {
+      "type": "object",
+      "required": ["entry_type"],
+      "additionalProperties": false,
+      "properties": {
+        "entry_type": { "type": "string", "description": "The JSONL line's `type` (or `subtype`)." },
+        "entry": { "type": "object", "description": "The line itself, truncated to 8 KB. Only for types the runner does not know and does not drop." }
+      },
+      "examples": [{ "entry_type": "unknown-future-type", "entry": { "type": "unknown-future-type" } }]
+    }
+  },
+  "examples": [
+    { "session_id": "bf4bd301-d2e6-4d07-aaaf-a5926cd40ca8", "offset": 18234, "index": 1, "at": "2026-10-04T09:04:02.118Z", "type": "tool_call", "data": { "tool_use_id": "toolu_011aJMiPoA6q4kFZJK8v13B5", "tool": "Bash", "summary": "python3 -m pytest -q", "input": { "command": "python3 -m pytest -q" } } }
+  ]
+}
