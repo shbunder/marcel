@@ -271,3 +271,34 @@ def test_two_phones_see_the_same_frames(client: TestClient):
         a = frames_until(one, ('agent.state', 'needs_you'))
         b = frames_until(two, ('agent.state', 'needs_you'))
     assert a == b
+
+
+def test_every_task_event_matches_the_contract_shape(client: TestClient):
+    """Task events are checked against TaskEvent, which pins `data` for each type to
+    transcript.schema.json. A guessed shape fails here."""
+    with client.websocket_connect('/api/ws', headers=AUTH) as ws:
+        ws.receive_json()
+        send(client)
+        frames_until(ws, ('agent.state', 'needs_you'))
+        approval = client.get('/api/approvals').json()[-1]
+        client.post(f'/api/approvals/{approval["id"]}', json={'decision': 'approve'})
+        frames_until(ws, ('agent.state', 'idle'))
+    check = contract.validator('app-api.yaml#/components/schemas/TaskEvent')
+    logged = client.get(f'/api/tasks/{approval["task_id"]}/events').json()['items']
+    assert {e['type'] for e in logged} >= {'text', 'tool_call', 'diff', 'state', 'permission'}
+    for event in logged:
+        check.validate(event)
+
+
+@pytest.mark.parametrize(
+    'event',
+    [
+        {'type': 'text', 'data': {'text': 'no role'}},
+        {'type': 'tool_call', 'data': {'tool': 'Bash', 'summary': 'no tool_use_id'}},
+        {'type': 'diff', 'data': {'path': 'a.py', 'additions': 1, 'deletions': 0}},
+    ],
+)
+def test_the_old_guessed_shapes_are_rejected(event: dict[str, Any]):
+    full = {'task_id': 'tsk_x', 'seq': 1, 'at': '2026-10-04T18:06:39Z', **event}
+    with pytest.raises(Exception, match='required|Additional'):
+        contract.validator('app-api.yaml#/components/schemas/TaskEvent').validate(full)

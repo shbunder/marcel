@@ -33,12 +33,18 @@ def load_events() -> dict[str, Any]:
 
 
 @cache
+def load_transcript() -> dict[str, Any]:
+    return json.loads((contracts_dir() / 'transcript.schema.json').read_text())
+
+
+@cache
 def registry() -> Registry:
-    """Both documents under one base URI, as the contract tests do, so events can $ref the API."""
+    """The documents under one base URI, as the contract tests do, so they can $ref each other."""
     return Registry().with_resources(
         [
             (BASE + 'app-api.yaml', Resource(load_api(), DRAFT202012)),
             (BASE + 'events.schema.json', Resource.from_contents(load_events())),
+            (BASE + 'transcript.schema.json', Resource.from_contents(load_transcript())),
         ]
     )
 

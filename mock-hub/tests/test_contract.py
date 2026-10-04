@@ -20,6 +20,8 @@ PATH_PARAMS = {
     'schedule_id': 'sch_digest_morning',
     'path': 'MEMORY.md',
 }
+# Takes a body but the contract lists no 400 (reported to the lead); the mock sends one anyway.
+NO_400_LISTED = {'answerApproval'}
 OPERATIONS = [(m, p, op) for m, p, op in contract.operations() if p != '/ws']
 IDS = [op['operationId'] for _, _, op in OPERATIONS]
 
@@ -91,9 +93,10 @@ def test_a_bad_body_is_a_400_in_the_error_shape(
 ):
     resp = call(client, method, path, json={'nonsense': True})
     assert resp.status_code == 400
-    # steerTask and handBackTask take a body but the contract lists no 400 for them (reported in
-    # the PR); the generic BadRequest shape still applies.
-    contract.validator('app-api.yaml#/components/schemas/Error').validate(resp.json())
+    if op['operationId'] in NO_400_LISTED:
+        contract.validator('app-api.yaml#/components/schemas/Error').validate(resp.json())
+    else:
+        assert_documented(resp, path, method)
     assert 'not valid' in resp.json()['message']
 
 
@@ -154,3 +157,18 @@ def test_step_delay_comes_from_the_environment(monkeypatch: pytest.MonkeyPatch):
     assert create_app().state.hub.step_delay == 0.25
     monkeypatch.delenv('MOCK_DELAY')
     assert create_app().state.hub.step_delay == 1.0
+
+
+def test_the_contract_lists_a_400_for_every_operation_that_takes_a_body():
+    missing = [
+        op['operationId']
+        for m, p, op in OPERATIONS
+        if contract.request_pointer(p, m)
+        and '400' not in op['responses']
+        and op['operationId'] not in NO_400_LISTED
+    ]
+    assert missing == []
+
+
+def test_a_refused_websocket_is_a_403_in_the_contract():
+    assert '403' in contract.load_api()['paths']['/ws']['get']['responses']

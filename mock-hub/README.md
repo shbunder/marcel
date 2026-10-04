@@ -52,11 +52,8 @@ a number, closes the socket before it opens (the client sees an HTTP 403).
 There is nothing to be down: no runner, no database. If the mock itself is not running, the app cannot
 connect and shows its own offline state. Start it with `make mock-hub`.
 
-## Gaps in the contract this mock had to guess around
+## Contract notes
 
-- The `data` of `text`, `tool_call` and `diff` task events is defined by `transcript.schema.json`
-  (S-02.2), which does not exist yet. The mock sends `{text}`, `{tool, summary}` and
-  `{path, additions, deletions, patch}`.
-- `steerTask` and `handBackTask` take a body but list no `400`. The mock sends one anyway.
-- A rejected WebSocket answers 403, not the 401 the contract lists, because a socket that is closed
-  before it opens cannot carry a status of its choosing.
+- Task events carry the shapes in `contracts/transcript.schema.json`; a test validates every event the
+  mock logs against `TaskEvent`, so a shape the contract does not allow fails.
+- A rejected WebSocket answers 403, which the contract lists for `/ws`.

@@ -228,24 +228,36 @@ class Hub:
         await self._pause()
 
         self.add_task_event(
-            task_id, 'text', {'text': 'Looking at the login test and its fixtures.'}
+            task_id,
+            'text',
+            {'role': 'assistant', 'text': 'Looking at the login test and its fixtures.'},
         )
         await self._pause()
         self.add_task_event(
-            task_id, 'tool_call', {'tool': 'Bash', 'summary': 'pytest tests/test_login.py -x'}
+            task_id,
+            'tool_call',
+            {
+                'tool_use_id': 'toolu_mock_pytest',
+                'tool': 'Bash',
+                'summary': 'pytest tests/test_login.py -x',
+            },
         )
         await self._pause()
         self.add_task_event(
             task_id,
             'diff',
             {
-                'path': 'tests/test_login.py',
-                'additions': 6,
-                'deletions': 1,
-                'patch': (
-                    '@@ -12,1 +12,6 @@\n-    assert page.logged_in\n'
-                    '+    page.wait_for_cookie()\n+    assert page.logged_in\n'
-                ),
+                'tool_use_id': 'toolu_mock_edit',
+                'file_path': 'tests/test_login.py',
+                'hunks': [
+                    {
+                        'old_start': 12,
+                        'old_lines': 1,
+                        'new_start': 12,
+                        'new_lines': 2,
+                        'lines': ['+    page.wait_for_cookie()', '     assert page.logged_in'],
+                    }
+                ],
             },
         )
         await self._pause()
