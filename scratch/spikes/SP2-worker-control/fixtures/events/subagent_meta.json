@@ -1,0 +1,8 @@
+{
+  "agentType": "general-purpose",
+  "description": "Find buggy function",
+  "toolUseId": "toolu_01S8KjA6XyNXa1ku18fcsiHj",
+  "spawnDepth": 1,
+  "requestShape": "background",
+  "requestNonInteractive": true
+}

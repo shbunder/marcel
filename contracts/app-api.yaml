@@ -1,0 +1,1823 @@
+openapi: 3.1.0
+info:
+  title: Marcel hub — app API
+  version: 0.1.0
+  description: |
+    The API the iPhone app uses to talk to the hub on the NUC. **Every path, including `/health`,
+    `/pair` and `/ws`, sits under the server URL** (`https://marcel-bot.com/api/...`); the tunnel
+    exposes `/api/*` and nothing else of the app's. Every route needs a device token
+    (`Authorization: Bearer <token>`), except `/health` and `/pair`.
+
+    Live updates arrive over one WebSocket per device, `GET /ws?since=<event id>` (see that path).
+    Its frames are defined in `events.schema.json`; their payloads reuse the schemas below. Code
+    generators do not read that file, so the app writes the event types by hand from it.
+
+    Push notifications carry a `PushNotification` payload, and the pairing QR code encodes a
+    `PairingCode` URL; both are defined below as schemas.
+
+    Errors always have the `Error` shape, with a `message` written for the person holding the phone.
+    Lists are paginated by cursor: pass `cursor` from the previous page's `next_cursor`.
+servers:
+  - url: https://marcel-bot.com/api
+    description: Production, through the Cloudflare tunnel
+  - url: http://127.0.0.1:7420/api
+    description: On the NUC
+security:
+  - device: []
+
+tags:
+  - name: access
+  - name: agents
+  - name: conversations
+  - name: tasks
+  - name: approvals
+  - name: artifacts
+  - name: memory
+  - name: schedules
+  - name: usage
+
+paths:
+  /health:
+    get:
+      tags: [access]
+      operationId: getHealth
+      summary: Is the hub up, and can it reach the runner?
+      security: []
+      responses:
+        '200':
+          description: The hub answered.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+  /ws:
+    get:
+      tags: [access]
+      operationId: openEventStream
+      summary: The live event stream (WebSocket upgrade). Frames are defined in events.schema.json.
+      description: |
+        Authenticate with the same `Authorization: Bearer` header as REST. The first frame is
+        `hello` (or `resync.required` if `since` is older than the hub keeps). After that, every
+        frame is an event with an `id` one higher than the last; `hello` and `resync.required`
+        use `id: 0` and are not part of that sequence.
+      parameters:
+        - name: since
+          in: query
+          description: The last event id you processed. Omit on first connect.
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '101':
+          description: Switching protocols; events follow.
+        '403':
+          description: |
+            No device token, or a revoked one. A refused WebSocket upgrade answers 403 with no
+            body (that is what ASGI servers send when the hub closes before accepting), so unlike
+            REST this is not 401. The app treats it as unpaired, like a REST 401.
+
+  /pair:
+    post:
+      tags: [access]
+      operationId: pairDevice
+      summary: Exchange a one-time pairing code (from the QR code) for a device token.
+      description: |
+        `marcel-hub pair` prints a QR code holding a `PairingCode` URL. The app reads `hub` from it
+        as its server URL and sends `code` here. A code works once, for 10 minutes.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PairRequest' }
+      responses:
+        '201':
+          description: Paired. The token is shown once; the hub stores only its hash.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PairResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /me:
+    get:
+      tags: [access]
+      operationId: getMe
+      summary: Who this device belongs to, and that person's agents.
+      responses:
+        '200':
+          description: The signed-in user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /devices:
+    get:
+      tags: [access]
+      operationId: listDevices
+      summary: Devices paired to this user.
+      responses:
+        '200':
+          description: All devices, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Device' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /devices/{device_id}:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    delete:
+      tags: [access]
+      operationId: revokeDevice
+      summary: Revoke a device. Its token stops working at once.
+      responses:
+        '204': { description: Revoked. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /devices/{device_id}/push:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    put:
+      tags: [access]
+      operationId: setDevicePush
+      summary: Register where this device receives notifications (APNs token or ntfy topic).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PushTarget' }
+      responses:
+        '200':
+          description: Saved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /agents/{agent_id}:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    get:
+      tags: [agents]
+      operationId: getAgent
+      summary: One agent, with its current state for the avatar.
+      responses:
+        '200':
+          description: The agent.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Agent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [agents]
+      operationId: updateAgent
+      summary: Rename an agent or change its palette.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AgentUpdate' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Agent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /conversations:
+    get:
+      tags: [conversations]
+      operationId: listConversations
+      summary: The main conversation and every side thread of an agent.
+      parameters:
+        - name: agent_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Main first, then side threads, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Conversation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /conversations/{conversation_id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      tags: [conversations]
+      operationId: listMessages
+      summary: Messages, newest first. Page backwards with `cursor`.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessagePage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [conversations]
+      operationId: sendMessage
+      summary: Send a message. It never blocks on Marcel being busy (B-02).
+      description: |
+        Returns as soon as the message is stored. Marcel's answer arrives later as a
+        `message.created` event. `client_id` makes retries safe: the same `client_id` returns the
+        same message instead of a duplicate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewMessage' }
+      responses:
+        '201':
+          description: Stored.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: A task thread whose task is `stopped` or `failed` (code `task_finished`). See `Conversation.task_id`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /messages/{message_id}/thread:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    post:
+      tags: [conversations]
+      operationId: openSideThread
+      summary: Reply in thread — open (or reopen) the side thread on a message (B-08).
+      description: |
+        Idempotent: a message has at most one side thread, and calling this again returns it.
+        If the message is a milestone or approval about a task, replies go straight to that task
+        instead (see `Conversation.task_id`).
+      responses:
+        '200':
+          description: The side thread that already existed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Conversation' }
+        '201':
+          description: A new side thread.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Conversation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /conversations/{conversation_id}/send-to-main:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    post:
+      tags: [conversations]
+      operationId: sendToMain
+      summary: Bring a result from a side thread back into the main conversation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SendToMain' }
+      responses:
+        '201':
+          description: The message as posted in the main conversation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks:
+    get:
+      tags: [tasks]
+      operationId: listTasks
+      summary: Tasks (threads) for the Activity tab.
+      parameters:
+        - name: agent_id
+          in: query
+          required: true
+          schema: { type: string }
+        - name: state
+          in: query
+          description: Repeat to ask for several states.
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/TaskState' }
+          style: form
+          explode: true
+        - name: archived
+          in: query
+          description: List archived tasks instead of live ones.
+          schema: { type: boolean, default: false }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page, most recent activity first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /tasks/{task_id}:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      tags: [tasks]
+      operationId: getTask
+      summary: One task.
+      responses:
+        '200':
+          description: The task.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{task_id}/events:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      tags: [tasks]
+      operationId: listTaskEvents
+      summary: The live transcript of a task, oldest first (B-11).
+      parameters:
+        - name: after
+          in: query
+          description: Return events with a `seq` greater than this. Omit to start at the beginning.
+          schema: { type: integer, minimum: 0 }
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page. Keep calling with `after = last seq` until `has_more` is false.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskEventPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{task_id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      tags: [tasks]
+      operationId: steerTask
+      summary: Type into a task directly (B-11). No brain turn is spent.
+      description: |
+        The text is delivered into the session and recorded as a `note` task event
+        (`author: user`). A `queued` or `starting` task gets it as soon as its session is up;
+        a `done` task takes it as a follow-up and goes back to `working`. A `stopped` or `failed`
+        task answers 409 `task_finished`: ask Marcel to retry instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewMessage' }
+      responses:
+        '202':
+          description: Queued for the session. Delivered as soon as it is connected.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /tasks/{task_id}/stop:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      tags: [tasks]
+      operationId: stopTask
+      summary: Stop a task. A queued task is removed from the queue.
+      responses:
+        '200':
+          description: The task, now `stopped` (or already finished).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{task_id}/archive:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      tags: [tasks]
+      operationId: archiveTask
+      summary: Archive a finished task, so it leaves the Activity tab (B-17). Its artifacts stay.
+      description: Only for `done`, `failed` or `stopped` tasks; anything else answers 409. Archived tasks are listed with `archived=true`.
+      responses:
+        '200':
+          description: Archived.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /tasks/{task_id}/handback:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      tags: [tasks]
+      operationId: handBackTask
+      summary: Hand a task back to Marcel, who decides what happens next.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+                  description: What you want Marcel to know.
+              additionalProperties: false
+              example: { note: 'Looks stuck on the flaky test, try another approach.' }
+      responses:
+        '202':
+          description: Marcel has been told.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /approvals:
+    get:
+      tags: [approvals]
+      operationId: listApprovals
+      summary: Approval cards, open ones first.
+      parameters:
+        - name: state
+          in: query
+          schema: { $ref: '#/components/schemas/ApprovalState' }
+      responses:
+        '200':
+          description: Approvals.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Approval' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /approvals/{approval_id}:
+    parameters:
+      - name: approval_id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [approvals]
+      operationId: answerApproval
+      summary: Approve or deny (B-12). The first answer wins, from the app or a terminal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovalAnswer' }
+      responses:
+        '200':
+          description: Answered.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Approval' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Already answered (for example in a terminal) or expired. The body is the approval as it stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Approval' }
+
+  /artifacts:
+    get:
+      tags: [artifacts]
+      operationId: listArtifacts
+      summary: The Library (B-21).
+      parameters:
+        - name: task_id
+          in: query
+          schema: { type: string }
+        - name: kind
+          in: query
+          schema: { $ref: '#/components/schemas/ArtifactKind' }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page, newest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArtifactPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /artifacts/{artifact_id}:
+    parameters:
+      - $ref: '#/components/parameters/ArtifactId'
+    get:
+      tags: [artifacts]
+      operationId: getArtifact
+      summary: One artifact's metadata.
+      responses:
+        '200':
+          description: The artifact.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Artifact' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /artifacts/{artifact_id}/content:
+    parameters:
+      - $ref: '#/components/parameters/ArtifactId'
+    get:
+      tags: [artifacts]
+      operationId: getArtifactContent
+      summary: The artifact's bytes, with its own content type. Not available for `pr` and `link`.
+      responses:
+        '200':
+          description: The content.
+          content:
+            '*/*':
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /memory:
+    get:
+      tags: [memory]
+      operationId: getMemoryTree
+      summary: Every memory file (B-20).
+      responses:
+        '200':
+          description: The tree.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemoryTree' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /memory/files/{path}:
+    parameters:
+      - name: path
+        in: path
+        required: true
+        description: |
+          A Markdown file's path inside the memory repo, with `/` encoded as `%2F` so it is one
+          path segment (e.g. `MEMORY.md`, `memory%2F2026-10-04.md`). After decoding it must match
+          the pattern: letters, digits, `.`, `_`, `-` and `/`, ending in `.md`, never `..`, never
+          starting with `/`, and no part starting with `.` (so `.git/` is unreachable). Anything
+          else answers 400 `invalid_memory_path`.
+        schema:
+          type: string
+          pattern: '^(?!/)(?!.*\.\.)(?!(.*/)?\.)[A-Za-z0-9._/-]+\.md$'
+          example: MEMORY.md
+    get:
+      tags: [memory]
+      operationId: getMemoryFile
+      summary: One memory file. The `ETag` header equals the body's `etag`.
+      responses:
+        '200':
+          description: The file.
+          headers:
+            ETag:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemoryFile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [memory]
+      operationId: putMemoryFile
+      summary: Save a memory file. Send `If-Match` with the etag you read; omit it to create a new file.
+      description: |
+        With `If-Match`: saved only if the file's current etag matches, else 409 with the current
+        version. Without `If-Match`: creates the file; if it already exists, 409 with the current
+        version, never a silent overwrite. Every save is one git commit.
+      parameters:
+        - name: If-Match
+          in: header
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MemoryWrite' }
+      responses:
+        '200':
+          description: Saved and committed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemoryFile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: Changed elsewhere since you read it. The body is the current version.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemoryFile' }
+
+  /schedules:
+    get:
+      tags: [schedules]
+      operationId: listSchedules
+      summary: Every schedule, including the built-in digests (B-22).
+      parameters:
+        - name: agent_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Schedules, by next run.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Schedule' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [schedules]
+      operationId: createSchedule
+      summary: Create a schedule. (Usually Marcel does this from the conversation.)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewSchedule' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Schedule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /schedules/{schedule_id}:
+    parameters:
+      - name: schedule_id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [schedules]
+      operationId: updateSchedule
+      summary: Pause, resume or change a schedule.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScheduleUpdate' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Schedule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [schedules]
+      operationId: deleteSchedule
+      summary: Delete a schedule. Built-in digests can be paused but not deleted.
+      responses:
+        '204': { description: Deleted. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /usage:
+    get:
+      tags: [usage]
+      operationId: getUsage
+      summary: Plan usage and whether the usage guard is holding work back (B-19).
+      responses:
+        '200':
+          description: The latest reading.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Usage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    device:
+      type: http
+      scheme: bearer
+      description: The device token from `POST /pair`.
+
+  parameters:
+    AgentId:
+      name: agent_id
+      in: path
+      required: true
+      schema: { type: string }
+    DeviceId:
+      name: device_id
+      in: path
+      required: true
+      schema: { type: string }
+    ConversationId:
+      name: conversation_id
+      in: path
+      required: true
+      schema: { type: string }
+    MessageId:
+      name: message_id
+      in: path
+      required: true
+      schema: { type: string }
+    TaskId:
+      name: task_id
+      in: path
+      required: true
+      schema: { type: string }
+    ArtifactId:
+      name: artifact_id
+      in: path
+      required: true
+      schema: { type: string }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque. Pass `next_cursor` from the previous page.
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+
+  responses:
+    BadRequest:
+      description: The request was not valid. `message` says what to change.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: No device token, or a revoked one.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Nothing with that id.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: The thing is not in a state that allows this.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          description: Stable, for code (e.g. `pairing_code_expired`).
+        message:
+          type: string
+          description: For people. Short, says what happened and what to do.
+      example:
+        code: pairing_code_expired
+        message: That pairing code has expired. Run `marcel-hub pair` again for a new one.
+
+    Health:
+      type: object
+      required: [ok, version, runner]
+      additionalProperties: false
+      properties:
+        ok: { type: boolean }
+        version: { type: string }
+        runner:
+          type: object
+          required: [reachable]
+          additionalProperties: false
+          properties:
+            reachable: { type: boolean }
+            reason:
+              type: string
+              description: Why not, when `reachable` is false.
+        brain_alive: { type: boolean }
+      example:
+        ok: true
+        version: 0.1.0
+        runner: { reachable: true }
+        brain_alive: true
+
+    PairRequest:
+      type: object
+      required: [code, device_name]
+      additionalProperties: false
+      properties:
+        code: { type: string, minLength: 6, maxLength: 12 }
+        device_name: { type: string, minLength: 1, maxLength: 80 }
+      example: { code: K7Q2M9, device_name: Shaun's iPhone }
+
+    PairResponse:
+      type: object
+      required: [device_id, token, user_id]
+      additionalProperties: false
+      properties:
+        device_id: { type: string }
+        user_id: { type: string }
+        token:
+          type: string
+          description: Store it in the Keychain. It is never shown again.
+      example:
+        device_id: dev_01J9ZQ4K2B
+        user_id: usr_owner
+        token: mrc_4f8e0c1d9a7b46e2b3c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b
+
+    Me:
+      type: object
+      required: [user_id, name, device_id, agents, push]
+      additionalProperties: false
+      properties:
+        user_id: { type: string }
+        name: { type: string }
+        device_id: { type: string }
+        agents:
+          type: array
+          items: { $ref: '#/components/schemas/Agent' }
+        push:
+          type: object
+          description: |
+            Which push backends the hub can use. Register APNs only when `apns` is true;
+            otherwise subscribe to an ntfy topic on `ntfy_server` and register that (B-18).
+          required: [apns, ntfy]
+          additionalProperties: false
+          properties:
+            apns: { type: boolean }
+            ntfy: { type: boolean }
+            ntfy_server: { type: string, format: uri }
+          if: { properties: { ntfy: { const: true } } }
+          then: { required: [ntfy_server] }
+      example:
+        user_id: usr_owner
+        name: Shaun
+        device_id: dev_01J9ZQ4K2B
+        push: { apns: false, ntfy: true, ntfy_server: 'https://ntfy.sh' }
+        agents:
+          - id: agt_marcel
+            name: Marcel
+            animal: giraffe
+            palette: marcel
+            seed: Marcel
+            main_conversation_id: cnv_main_marcel
+            state: { kind: working, active_tasks: 2 }
+            model_brain: opus
+            model_worker: sonnet
+
+    PushTarget:
+      type: object
+      required: [kind]
+      additionalProperties: false
+      properties:
+        kind: { type: string, enum: [apns, ntfy] }
+        apns_token:
+          type: string
+          description: Required when `kind` is `apns`.
+        ntfy_topic:
+          type: string
+          description: Required when `kind` is `ntfy`.
+      allOf:
+        - if: { properties: { kind: { const: apns } } }
+          then: { required: [apns_token] }
+        - if: { properties: { kind: { const: ntfy } } }
+          then: { required: [ntfy_topic] }
+      example: { kind: ntfy, ntfy_topic: marcel-shaun-7f3a }
+
+    Device:
+      type: object
+      required: [id, name, created_at, push]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        name: { type: string }
+        created_at: { type: string, format: date-time }
+        last_seen_at: { type: string, format: date-time }
+        push:
+          type: string
+          enum: [apns, ntfy, none]
+        current:
+          type: boolean
+          description: True for the device making this request.
+      example:
+        id: dev_01J9ZQ4K2B
+        name: Shaun's iPhone
+        created_at: '2026-10-04T18:02:11Z'
+        last_seen_at: '2026-10-04T18:40:00Z'
+        push: ntfy
+        current: true
+
+    AgentState:
+      type: object
+      description: |
+        What the avatar shows (B-28), in precedence order: `needs_you` if any task is
+        `needs_you` (an approval, a question, a login); else `working` with n = tasks `working`;
+        else `thinking` while the brain runs a turn; else `done` for 5 s after a completion;
+        else `idle`.
+      required: [kind]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [idle, thinking, working, needs_you, done]
+        active_tasks:
+          type: integer
+          minimum: 0
+          description: Number of working tasks. Required when `kind` is `working`.
+      if: { properties: { kind: { const: working } } }
+      then: { required: [active_tasks] }
+      example: { kind: working, active_tasks: 3 }
+
+    Agent:
+      type: object
+      required: [id, name, animal, palette, seed, main_conversation_id, state, model_brain, model_worker]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        name: { type: string }
+        animal:
+          type: string
+          description: A recipe in `shared/avatar/recipes/`.
+        palette:
+          type: string
+          description: A palette id from `shared/avatar/palettes.json`.
+        seed:
+          type: string
+          description: Feeds the avatar's deterministic details (spots, blink timing).
+        main_conversation_id:
+          type: string
+          description: Where to send messages to this agent's main conversation.
+        state: { $ref: '#/components/schemas/AgentState' }
+        model_brain: { type: string }
+        model_worker: { type: string }
+      example:
+        id: agt_marcel
+        name: Marcel
+        animal: giraffe
+        palette: marcel
+        seed: Marcel
+        main_conversation_id: cnv_main_marcel
+        state: { kind: idle }
+        model_brain: opus
+        model_worker: sonnet
+
+    AgentUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        palette: { type: string }
+      example: { palette: dusk }
+
+    Conversation:
+      type: object
+      required: [id, agent_id, kind, created_at]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        agent_id: { type: string }
+        kind:
+          type: string
+          enum: [main, side]
+        parent_message_id:
+          type: string
+          description: For a side thread, the message it was opened on.
+        task_id:
+          type: string
+          description: |
+            Set when the side thread was opened on a task's milestone or approval. Such a thread
+            is the task's own: a message posted there steers the task (no brain turn, like
+            `POST /tasks/{id}/messages`), and the hub mirrors that task's later milestones into
+            it. The full transcript stays in the thread view. Posting to a thread whose task is
+            `stopped` or `failed` returns 409 `task_finished`; a `done` task takes the message as
+            a follow-up and goes back to `working`.
+        title: { type: string }
+        reply_count: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+        last_message_at: { type: string, format: date-time }
+      example:
+        id: cnv_side_01J9ZR0
+        agent_id: agt_marcel
+        kind: side
+        parent_message_id: msg_01J9ZQZ8
+        title: Which ORM should we move to?
+        reply_count: 4
+        created_at: '2026-10-04T18:10:00Z'
+        last_message_at: '2026-10-04T18:14:30Z'
+
+    NewMessage:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text: { type: string, minLength: 1, maxLength: 20000 }
+        client_id:
+          type: string
+          description: Chosen by the app; makes retries safe.
+      example: { text: Also add a test for the empty case., client_id: 7d2c9a40-1f7b-4e55-9e1a-2c3b4d5e6f70 }
+
+    SendToMain:
+      type: object
+      minProperties: 1
+      maxProperties: 1
+      additionalProperties: false
+      properties:
+        message_id:
+          type: string
+          description: Quote this side-thread message into the main conversation.
+        text:
+          type: string
+          description: Or send this text, written by you.
+      example: { message_id: msg_01J9ZS3T }
+
+    MessageRole:
+      type: string
+      enum: [user, agent, system]
+      example: agent
+
+    MessageKind:
+      type: string
+      description: |
+        `text`: a normal chat bubble. `milestone`: a task started, needs you, finished or failed
+        (B-06). `approval`: an approval card (B-12). `quote`: a side-thread result brought into the
+        main conversation.
+      enum: [text, milestone, approval, quote]
+      example: milestone
+
+    Milestone:
+      type: object
+      required: [task_id, task_title, event, location]
+      additionalProperties: false
+      properties:
+        task_id: { type: string }
+        task_title: { type: string }
+        event:
+          type: string
+          enum: [started, queued, needs_you, done, failed, stopped, silent, adopted]
+        location: { $ref: '#/components/schemas/TaskLocation' }
+        summary:
+          type: string
+          description: One or two sentences, from the worker's own report.
+        artifact_ids:
+          type: array
+          items: { type: string }
+      example:
+        task_id: tsk_01J9ZQ5
+        task_title: Fix the flaky login test
+        event: done
+        location: cloud
+        summary: The test raced the session cookie. Added a wait on the cookie and a regression test.
+        artifact_ids: [art_01J9ZT1]
+
+    Message:
+      type: object
+      required: [id, conversation_id, role, kind, created_at]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        conversation_id: { type: string }
+        role: { $ref: '#/components/schemas/MessageRole' }
+        kind: { $ref: '#/components/schemas/MessageKind' }
+        text:
+          type: string
+          description: Markdown. Present for `text` and `quote`; optional otherwise.
+        milestone: { $ref: '#/components/schemas/Milestone' }
+        approval_id:
+          type: string
+          description: Present for `approval`. Fetch or watch the approval for its state.
+        quoted_message_id:
+          type: string
+          description: Present for `quote`.
+        task_id: { type: string }
+        client_id: { type: string }
+        thread:
+          type: object
+          description: Present when this message has a side thread.
+          required: [conversation_id, reply_count]
+          additionalProperties: false
+          properties:
+            conversation_id: { type: string }
+            reply_count: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+      allOf:
+        - if: { properties: { kind: { const: text } } }
+          then: { required: [text] }
+        - if: { properties: { kind: { const: milestone } } }
+          then: { required: [milestone, task_id] }
+        - if: { properties: { kind: { const: approval } } }
+          then: { required: [approval_id, task_id] }
+        - if: { properties: { kind: { const: quote } } }
+          then: { required: [text, quoted_message_id] }
+      example:
+        id: msg_01J9ZQZ8
+        conversation_id: cnv_main_marcel
+        role: agent
+        kind: milestone
+        milestone:
+          task_id: tsk_01J9ZQ5
+          task_title: Fix the flaky login test
+          event: started
+          location: cloud
+        task_id: tsk_01J9ZQ5
+        created_at: '2026-10-04T18:05:02Z'
+
+    MessagePage:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Message' }
+        next_cursor:
+          type: string
+          description: Absent on the last page.
+      example:
+        items:
+          - id: msg_01J9ZQZ1
+            conversation_id: cnv_main_marcel
+            role: user
+            kind: text
+            text: Can you fix the flaky login test in shbunder/marcel?
+            client_id: 0b6f7c1e-0000-4000-8000-000000000001
+            created_at: '2026-10-04T18:05:00Z'
+        next_cursor: c_msg_01J9ZQZ1
+
+    TaskState:
+      type: string
+      description: See `task-states.md` for every transition and who triggers it.
+      enum: [queued, starting, working, needs_you, done, failed, stopped, silent, unknown]
+      example: working
+
+    TaskLocation:
+      type: string
+      enum: [nuc, cloud]
+      example: nuc
+
+    QueuedReason:
+      type: string
+      description: 'Why a task is `queued`. `cap`: the NUC concurrency cap (B-15). `usage`: the usage guard (B-19).'
+      enum: [cap, usage]
+      example: cap
+
+    Task:
+      type: object
+      required: [id, agent_id, title, location, state, model, origin, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        agent_id: { type: string }
+        title: { type: string }
+        location: { $ref: '#/components/schemas/TaskLocation' }
+        state: { $ref: '#/components/schemas/TaskState' }
+        queued_reason: { $ref: '#/components/schemas/QueuedReason' }
+        model:
+          type: string
+          description: The worker's model, e.g. `sonnet` or `opus`.
+        origin:
+          type: string
+          enum: [marcel, adopted, schedule]
+        repo:
+          type: string
+          description: '`owner/name` when the task works on a repository.'
+        branch: { type: string }
+        session_id:
+          type: string
+          description: The Claude Code session id.
+        cloud_url:
+          type: string
+          format: uri
+          description: For a cloud task, its claude.ai/code page.
+        remote_url:
+          type: string
+          format: uri
+          description: |
+            For a NUC task whose session is connected to Remote Control, its claude.ai/code page.
+            Absent otherwise; the app then offers only the thread view.
+        archived_at: { type: string, format: date-time }
+        parent_message_id:
+          type: string
+          description: The main-conversation message that started it.
+        schedule_id: { type: string }
+        summary:
+          type: string
+          description: The worker's latest summary, once it has reported one.
+        waiting_for:
+          type: string
+          description: For `needs_you`, what it is waiting on, in plain words.
+        approval_ids:
+          type: array
+          items: { type: string }
+          description: Open approvals on this task.
+        artifact_count: { type: integer, minimum: 0 }
+        expected_by:
+          type: string
+          format: date-time
+          description: After this, silence makes the task `silent` (B-23).
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        last_activity_at: { type: string, format: date-time }
+      example:
+        id: tsk_01J9ZQ6
+        agent_id: agt_marcel
+        title: Check disk usage of all Docker volumes
+        location: nuc
+        state: needs_you
+        model: sonnet
+        origin: marcel
+        session_id: 6f1c2a9e-8b7d-4c3a-9e2f-0a1b2c3d4e5f
+        parent_message_id: msg_01J9ZQZ9
+        waiting_for: Permission to run `docker system df -v`.
+        approval_ids: [apr_01J9ZR2]
+        artifact_count: 0
+        created_at: '2026-10-04T18:06:00Z'
+        updated_at: '2026-10-04T18:06:40Z'
+        last_activity_at: '2026-10-04T18:06:40Z'
+
+    TaskPage:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Task' }
+        next_cursor: { type: string }
+      example:
+        items:
+          - id: tsk_01J9ZQ5
+            agent_id: agt_marcel
+            title: Fix the flaky login test
+            location: cloud
+            state: working
+            model: sonnet
+            origin: marcel
+            repo: shbunder/marcel
+            cloud_url: https://claude.ai/code/session_01ABCDEF
+            created_at: '2026-10-04T18:05:02Z'
+            updated_at: '2026-10-04T18:20:00Z'
+
+    TaskEventType:
+      type: string
+      description: |
+        `text`, `tool_call`, `tool_result`, `diff`, `subagent_start`, `subagent_stop`, `error`
+        and `raw` are normalised from the session's transcript; their `data` is the matching
+        `$defs` shape of `transcript.schema.json`, unchanged. The hub writes the rest itself, with the `data`
+        shapes below: `state` (every transition), `progress` (a worker's report), `artifact`,
+        `note` (a steer message or a hand-back note) and `permission` (from the channel's
+        permission request, so it carries the approval id for the inline card).
+      enum:
+        - text
+        - tool_call
+        - tool_result
+        - diff
+        - permission
+        - subagent_start
+        - subagent_stop
+        - error
+        - raw
+        - state
+        - progress
+        - artifact
+        - note
+      example: tool_call
+
+    TaskEvent:
+      type: object
+      required: [task_id, seq, type, at, data]
+      additionalProperties: false
+      properties:
+        task_id: { type: string }
+        seq:
+          type: integer
+          minimum: 1
+          description: Increases by one per event within a task. Use it to resume.
+        type: { $ref: '#/components/schemas/TaskEventType' }
+        at: { type: string, format: date-time }
+        data:
+          type: object
+          description: Shape depends on `type`; see `TaskEventType`.
+      allOf:
+        - if: { properties: { type: { const: state } } }
+          then: { properties: { data: { $ref: '#/components/schemas/StateEventData' } } }
+        - if: { properties: { type: { const: progress } } }
+          then: { properties: { data: { $ref: '#/components/schemas/ProgressEventData' } } }
+        - if: { properties: { type: { const: artifact } } }
+          then: { properties: { data: { $ref: '#/components/schemas/ArtifactEventData' } } }
+        - if: { properties: { type: { const: note } } }
+          then: { properties: { data: { $ref: '#/components/schemas/NoteEventData' } } }
+        - if: { properties: { type: { const: permission } } }
+          then: { properties: { data: { $ref: '#/components/schemas/PermissionEventData' } } }
+        - if: { properties: { type: { const: text } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/Text' } } }
+        - if: { properties: { type: { const: tool_call } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/ToolCall' } } }
+        - if: { properties: { type: { const: tool_result } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/ToolResult' } } }
+        - if: { properties: { type: { const: diff } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/Diff' } } }
+        - if: { properties: { type: { const: subagent_start } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/SubagentStart' } } }
+        - if: { properties: { type: { const: subagent_stop } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/SubagentStop' } } }
+        - if: { properties: { type: { const: error } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/Error' } } }
+        - if: { properties: { type: { const: raw } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/Raw' } } }
+      example:
+        task_id: tsk_01J9ZQ6
+        seq: 12
+        type: tool_call
+        at: '2026-10-04T18:06:39Z'
+        data: { tool_use_id: toolu_01VQ3n8ZkC2xH7d4Rb5Tq9Lw, tool: Bash, summary: docker system df -v }
+
+    StateEventData:
+      type: object
+      required: [to, reason]
+      additionalProperties: false
+      properties:
+        from:
+          description: Absent for a new task.
+          $ref: '#/components/schemas/TaskState'
+        to: { $ref: '#/components/schemas/TaskState' }
+        reason:
+          type: string
+          description: The trigger from task-states.md, in plain words.
+      example: { from: working, to: needs_you, reason: 'Permission request: Bash' }
+
+    ProgressEventData:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text: { type: string }
+      example: { text: Found the race; writing the regression test now. }
+
+    ArtifactEventData:
+      type: object
+      required: [artifact_id, kind, title]
+      additionalProperties: false
+      properties:
+        artifact_id: { type: string }
+        kind: { $ref: '#/components/schemas/ArtifactKind' }
+        title: { type: string }
+      example: { artifact_id: art_01J9ZT1, kind: pr, title: 'Fix flaky login test: wait on the session cookie' }
+
+    NoteEventData:
+      type: object
+      required: [author, text]
+      additionalProperties: false
+      properties:
+        author:
+          type: string
+          enum: [user, marcel]
+          description: '`user`: typed in the thread view or a task thread. `marcel`: sent by the brain (`tasks_send`).'
+        text: { type: string }
+        handback:
+          type: boolean
+          description: True when the note came with a hand-back.
+      example: { author: user, text: Also add a test for the empty case. }
+
+    PermissionEventData:
+      type: object
+      required: [approval_id, tool, summary]
+      additionalProperties: false
+      properties:
+        approval_id: { type: string }
+        tool: { type: string }
+        summary: { type: string }
+      example: { approval_id: apr_01J9ZR2, tool: Bash, summary: Run `docker system df -v` }
+
+    TaskEventPage:
+      type: object
+      required: [items, has_more]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TaskEvent' }
+        has_more: { type: boolean }
+      example:
+        items:
+          - task_id: tsk_01J9ZQ6
+            seq: 1
+            type: state
+            at: '2026-10-04T18:06:00Z'
+            data: { from: starting, to: working, reason: The runner reports the session is working }
+        has_more: false
+
+    ApprovalState:
+      type: string
+      description: |
+        `expired`: the question went away without any answer: the session stopped, failed or
+        moved past it. An answer given anywhere else (another device, or a terminal) is recorded
+        as `approved` or `denied`, with `answered_via` saying where.
+      enum: [open, approved, denied, expired]
+      example: open
+
+    Approval:
+      type: object
+      required: [id, task_id, tool, summary, state, created_at]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        task_id: { type: string }
+        tool:
+          type: string
+          description: The Claude Code tool asking, e.g. `Bash`, `Write`, or `self_change` for a self-modification PR (B-24).
+        artifact_id:
+          type: string
+          description: For `self_change`, the PR artifact that approving will merge.
+        summary:
+          type: string
+          description: What it wants to do, in one line.
+        detail:
+          type: string
+          description: The full command or diff stats, for the expanded card.
+        state: { $ref: '#/components/schemas/ApprovalState' }
+        answered_via:
+          type: string
+          enum: [app, terminal]
+        created_at: { type: string, format: date-time }
+        answered_at: { type: string, format: date-time }
+      if: { properties: { tool: { const: self_change } } }
+      then: { required: [artifact_id] }
+      example:
+        id: apr_01J9ZR2
+        task_id: tsk_01J9ZQ6
+        tool: Bash
+        summary: Run `docker system df -v`
+        detail: docker system df -v
+        state: open
+        created_at: '2026-10-04T18:06:40Z'
+
+    ApprovalAnswer:
+      type: object
+      required: [decision]
+      additionalProperties: false
+      properties:
+        decision:
+          type: string
+          enum: [approve, deny]
+        note:
+          type: string
+          description: Optional, with a denial. The hub sends it to the session right after the denial (channel-protocol.md § Delivery guarantees).
+      example: { decision: approve }
+
+    ArtifactKind:
+      type: string
+      description: |
+        `pr`: a pull request. `branch`: a pushed branch with no PR yet (`url` is its compare
+        page). `doc`: Markdown or HTML. `file`: anything else with bytes. `dashboard`: JSON
+        matching `dashboard.schema.json`, drawn natively. `link`: any other URL.
+      enum: [pr, branch, doc, file, dashboard, link]
+      example: pr
+
+    Artifact:
+      type: object
+      required: [id, kind, title, created_at]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        task_id: { type: string }
+        kind: { $ref: '#/components/schemas/ArtifactKind' }
+        title: { type: string }
+        url:
+          type: string
+          format: uri
+          description: For `pr`, `branch` and `link`.
+        content_type:
+          type: string
+          description: For `doc`, `file` and `dashboard`; fetch the bytes from `/artifacts/{id}/content`.
+        size_bytes: { type: integer, minimum: 0 }
+        trusted:
+          type: boolean
+          default: false
+          description: |
+            For HTML docs: true only when the hub produced the HTML itself. The app runs
+            JavaScript in a doc only when this is true.
+        self_change:
+          type: boolean
+          default: false
+          description: For `pr`, true when the PR changes Marcel itself (B-24).
+        pr:
+          type: object
+          description: For `pr`, refreshed by the hub.
+          required: [number, state]
+          additionalProperties: false
+          properties:
+            number: { type: integer }
+            state:
+              type: string
+              enum: [open, draft, merged, closed]
+            checks:
+              type: string
+              enum: [pending, passing, failing, none]
+            review:
+              type: string
+              enum: [none, requested, approved, changes_requested]
+        created_at: { type: string, format: date-time }
+      allOf:
+        - if: { properties: { kind: { enum: [pr, branch, link] } } }
+          then: { required: [url] }
+        - if: { properties: { kind: { const: pr } } }
+          then: { required: [pr] }
+        - if: { properties: { kind: { enum: [doc, file, dashboard] } } }
+          then: { required: [content_type] }
+      example:
+        id: art_01J9ZT1
+        task_id: tsk_01J9ZQ5
+        kind: pr
+        title: 'Fix flaky login test: wait on the session cookie'
+        url: https://github.com/shbunder/marcel/pull/14
+        pr: { number: 14, state: open, checks: passing, review: requested }
+        created_at: '2026-10-04T18:31:00Z'
+
+    ArtifactPage:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Artifact' }
+        next_cursor: { type: string }
+      example:
+        items:
+          - id: art_01J9ZT2
+            task_id: tsk_01J9ZQ7
+            kind: doc
+            title: Weekly review — week 40
+            content_type: text/markdown
+            size_bytes: 2048
+            created_at: '2026-10-04T18:00:00Z'
+
+    MemoryTree:
+      type: object
+      required: [files]
+      additionalProperties: false
+      properties:
+        files:
+          type: array
+          items:
+            type: object
+            required: [path, size_bytes, updated_at]
+            additionalProperties: false
+            properties:
+              path: { type: string }
+              size_bytes: { type: integer, minimum: 0 }
+              updated_at: { type: string, format: date-time }
+      example:
+        files:
+          - { path: MEMORY.md, size_bytes: 1834, updated_at: '2026-10-04T07:00:00Z' }
+          - { path: memory/2026-10-04.md, size_bytes: 412, updated_at: '2026-10-04T18:12:00Z' }
+
+    MemoryFile:
+      type: object
+      required: [path, content, etag, updated_at]
+      additionalProperties: false
+      properties:
+        path: { type: string }
+        content:
+          type: string
+          description: Markdown.
+        etag:
+          type: string
+          description: The git blob id of this version.
+        updated_at: { type: string, format: date-time }
+        updated_by:
+          type: string
+          enum: [app, agent]
+      example:
+        path: MEMORY.md
+        content: "# Memory\n\n- Prefers PRs against `main`, squash-merged.\n"
+        etag: 3b18e512dba79e4c8300dd08aeb37f8e728b8dad
+        updated_at: '2026-10-04T07:00:00Z'
+        updated_by: agent
+
+    MemoryWrite:
+      type: object
+      required: [content]
+      additionalProperties: false
+      properties:
+        content: { type: string }
+      example:
+        content: "# Memory\n\n- Prefers PRs against `main`, squash-merged.\n- Family dinner is at 18:30.\n"
+
+    ScheduleLocation:
+      type: string
+      description: '`brain`: Marcel itself runs it (digests). `nuc` / `cloud`: a worker task is started at fire time.'
+      enum: [brain, nuc, cloud]
+      example: brain
+
+    Schedule:
+      type: object
+      required: [id, agent_id, name, cron, tz, location, prompt, paused, builtin]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        agent_id: { type: string }
+        name: { type: string }
+        cron:
+          type: string
+          description: Five-field cron, in `tz`.
+        tz:
+          type: string
+          description: IANA time zone.
+        location: { $ref: '#/components/schemas/ScheduleLocation' }
+        prompt: { type: string }
+        paused: { type: boolean }
+        builtin:
+          type: boolean
+          description: True for the four digests; they can be paused, not deleted.
+        deadline_minutes:
+          type: integer
+          minimum: 1
+          description: Say so if no run has started this long after the fire time (B-23).
+        last_run_at: { type: string, format: date-time }
+        next_run_at: { type: string, format: date-time }
+      example:
+        id: sch_digest_morning
+        agent_id: agt_marcel
+        name: Morning digest
+        cron: '0 7 * * *'
+        tz: Europe/Brussels
+        location: brain
+        prompt: Write the morning digest from the facts bundle.
+        paused: false
+        builtin: true
+        deadline_minutes: 30
+        next_run_at: '2026-10-05T05:00:00Z'
+
+    NewSchedule:
+      type: object
+      required: [agent_id, name, cron, tz, location, prompt]
+      additionalProperties: false
+      properties:
+        agent_id: { type: string }
+        name: { type: string, minLength: 1 }
+        cron: { type: string }
+        tz: { type: string }
+        location: { $ref: '#/components/schemas/ScheduleLocation' }
+        prompt: { type: string, minLength: 1 }
+        deadline_minutes: { type: integer, minimum: 1 }
+      example:
+        agent_id: agt_marcel
+        name: Monday dependency report
+        cron: '0 8 * * 1'
+        tz: Europe/Brussels
+        location: cloud
+        prompt: List outdated dependencies in shbunder/marcel and shbunder/harry, and open one PR per repo.
+        deadline_minutes: 120
+
+    ScheduleUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1 }
+        cron: { type: string }
+        tz: { type: string }
+        prompt: { type: string, minLength: 1 }
+        paused: { type: boolean }
+        deadline_minutes: { type: integer, minimum: 1 }
+      example: { paused: true }
+
+    PairingCode:
+      type: string
+      description: |
+        What the pairing QR code encodes: a URL `marcel://pair?hub=<server URL, URL-encoded>&code=<code>`.
+        The app keeps `hub` as its server URL and posts `code` to `/pair` on it.
+      pattern: '^marcel://pair\?hub=[^&]+&code=[A-Z0-9]{6,12}$'
+      example: marcel://pair?hub=https%3A%2F%2Fmarcel-bot.com%2Fapi&code=K7Q2M9
+
+    PushNotification:
+      type: object
+      description: |
+        The payload of every push, the same for APNs and ntfy (B-16, B-18). On APNs, `title` and
+        `body` go in `aps.alert`, `category` is the APNs category, `collapse_key` is
+        `apns-collapse-id`, and the rest sits beside `aps`. On ntfy they map to Title, the message,
+        Tags and a Click action set to `deep_link`.
+
+        Deep links: `marcel://task/<task id>`, `marcel://message/<message id>`,
+        `marcel://approval/<approval id>`. An `approval` push on APNs has Approve and Deny actions;
+        the app answers them with `POST /approvals/{id}` using its own token. ntfy pushes only open
+        the deep link, so no token ever passes through the ntfy server.
+      required: [title, body, category, deep_link, level]
+      additionalProperties: false
+      properties:
+        title: { type: string, maxLength: 80 }
+        body: { type: string, maxLength: 300 }
+        category:
+          type: string
+          enum: [approval, task, broke, digest]
+        level:
+          type: string
+          enum: [normal, urgent]
+          description: '`urgent` for approvals and broken things; `normal` for done and digests.'
+        deep_link:
+          type: string
+          pattern: '^marcel://(task|message|approval)/[A-Za-z0-9_-]+$'
+        collapse_key:
+          type: string
+          description: A newer push with the same key replaces the older one (one per task or cause).
+        task_id: { type: string }
+        approval_id: { type: string }
+      if: { properties: { category: { const: approval } } }
+      then: { required: [approval_id, task_id] }
+      example:
+        title: Marcel needs you
+        body: 'Check disk usage: allow `docker system df -v`?'
+        category: approval
+        level: urgent
+        deep_link: marcel://approval/apr_01J9ZR2
+        collapse_key: tsk_01J9ZQ6
+        task_id: tsk_01J9ZQ6
+        approval_id: apr_01J9ZR2
+
+    UsageWindow:
+      type: object
+      required: [used_pct]
+      additionalProperties: false
+      properties:
+        used_pct: { type: number, minimum: 0, maximum: 100 }
+        resets_at: { type: string, format: date-time }
+      example: { used_pct: 62.5, resets_at: '2026-10-04T21:00:00Z' }
+
+    Usage:
+      type: object
+      required: [five_hour, weekly, source, stale, guard]
+      additionalProperties: false
+      properties:
+        five_hour: { $ref: '#/components/schemas/UsageWindow' }
+        weekly: { $ref: '#/components/schemas/UsageWindow' }
+        source:
+          type: string
+          description: Where the reading came from (decided by spike SP4).
+        stale:
+          type: boolean
+          description: True when the latest reading is too old to trust.
+        taken_at: { type: string, format: date-time }
+        guard:
+          type: object
+          required: [active, queued]
+          additionalProperties: false
+          properties:
+            active:
+              type: boolean
+              description: True while new work is being held back.
+            reason:
+              type: string
+              description: In plain words, with the reset time.
+            queued:
+              type: integer
+              minimum: 0
+              description: Tasks waiting for the reset.
+      example:
+        five_hour: { used_pct: 91.0, resets_at: '2026-10-04T21:00:00Z' }
+        weekly: { used_pct: 48.2, resets_at: '2026-10-07T09:00:00Z' }
+        source: statusline
+        stale: false
+        taken_at: '2026-10-04T18:40:00Z'
+        guard:
+          active: true
+          reason: Plan usage is at 91 %. New tasks wait until 23:00.
+          queued: 2

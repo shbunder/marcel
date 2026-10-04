@@ -1,0 +1,16 @@
+{"t": 1791120518062, "kind": "started", "server": "marcel", "conversation": "main", "pid": 3033038, "port": 8794}
+{"t": 1791120518114, "kind": "initialize", "server": "marcel", "conversation": "main", "pid": 3033038, "client": {"name": "claude-code", "title": "Claude Code", "version": "2.1.289", "description": "Anthropic's agentic coding tool", "websiteUrl": "https://claude.com/claude-code"}, "protocol": "2025-11-25"}
+{"t": 1791120518153, "kind": "notification", "server": "marcel", "conversation": "main", "pid": 3033038, "method": "notifications/initialized", "params": null}
+{"t": 1791120538074, "kind": "message_in", "server": "marcel", "conversation": "main", "pid": 3033038, "message_id": "m1", "text": "Background channel test: run the Bash command  date -u > bg-relay.txt && cat bg-relay.txt  and send me its output with the reply tool."}
+{"t": 1791120540519, "kind": "permission_request", "server": "marcel", "conversation": "main", "pid": 3033038, "request_id": "qiwxo", "tool_name": "Bash", "description": "Write and print UTC date", "input_preview": "{ \"command\": \"date -u > bg-relay.txt && cat bg-relay.txt\", \"description\": \"Write and print UTC date\" }"}
+{"t": 1791120540807, "kind": "permission_answer", "server": "marcel", "conversation": "main", "pid": 3033038, "request_id": "qiwxo", "behavior": "allow"}
+{"t": 1791120542170, "kind": "permission_request", "server": "marcel", "conversation": "main", "pid": 3033038, "request_id": "jjdss", "tool_name": "mcp__plugin_marcel_marcel__reply", "description": "Send a message to the Marcel app user.", "input_preview": "{ \"text\": \"Sun Oct 4 01:29:00 PM UTC 2026\" }"}
+{"t": 1791120542522, "kind": "permission_answer", "server": "marcel", "conversation": "main", "pid": 3033038, "request_id": "jjdss", "behavior": "allow"}
+{"t": 1791120542532, "kind": "reply", "server": "marcel", "conversation": "main", "pid": 3033038, "text": "Sun Oct  4 01:29:00 PM UTC 2026"}
+{"t": 1791120552317, "kind": "started", "server": "marcel", "conversation": "main", "pid": 3033918, "port": 8794}
+{"t": 1791120552375, "kind": "initialize", "server": "marcel", "conversation": "main", "pid": 3033918, "client": {"name": "claude-code", "title": "Claude Code", "version": "2.1.289", "description": "Anthropic's agentic coding tool", "websiteUrl": "https://claude.com/claude-code"}, "protocol": "2025-11-25"}
+{"t": 1791120552407, "kind": "notification", "server": "marcel", "conversation": "main", "pid": 3033918, "method": "notifications/initialized", "params": null}
+{"t": 1791120563888, "kind": "message_in", "server": "marcel", "conversation": "main", "pid": 3033918, "message_id": "m1", "text": "After respawn: reply with the word BACK."}
+{"t": 1791120565351, "kind": "permission_request", "server": "marcel", "conversation": "main", "pid": 3033918, "request_id": "hzwxq", "tool_name": "mcp__plugin_marcel_marcel__reply", "description": "Send a message to the Marcel app user.", "input_preview": "{ \"text\": \"BACK\" }"}
+{"t": 1791120571399, "kind": "permission_answer", "server": "marcel", "conversation": "main", "pid": 3033918, "request_id": "hzwxq", "behavior": "allow"}
+{"t": 1791120571408, "kind": "reply", "server": "marcel", "conversation": "main", "pid": 3033918, "text": "BACK"}

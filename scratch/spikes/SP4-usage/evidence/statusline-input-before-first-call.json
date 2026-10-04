@@ -1,0 +1,48 @@
+{
+  "t": 1791108256649,
+  "input": {
+    "session_id": "985e784d-deb1-4c54-bc2e-29c25c55cfff",
+    "transcript_path": "/home/shbunder/.claude/projects/-home-shbunder-projects-marcel-src-scratch-spikes-SP2-worker-control-sandbox-repo/985e784d-deb1-4c54-bc2e-29c25c55cfff.jsonl",
+    "cwd": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/repo",
+    "scratchpad_dir": "/tmp/claude-1000/-home-shbunder-projects-marcel-src-scratch-spikes-SP2-worker-control-sandbox-repo/985e784d-deb1-4c54-bc2e-29c25c55cfff/scratchpad",
+    "model": {
+      "id": "claude-haiku-4-5-20251001",
+      "display_name": "Haiku 4.5"
+    },
+    "workspace": {
+      "current_dir": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/repo",
+      "project_dir": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/repo",
+      "added_dirs": [
+        "/tmp",
+        "/home/shbunder/projects/marcel/.claude/skills",
+        "/home/shbunder/projects/marcel/.claude",
+        "/home/shbunder/projects/marcel-zoo",
+        "/home/shbunder/.cache/uv/interpreter-v4"
+      ]
+    },
+    "version": "2.1.289",
+    "output_style": {
+      "name": "default"
+    },
+    "cost": {
+      "total_cost_usd": 0,
+      "total_duration_ms": 1244,
+      "total_api_duration_ms": 0,
+      "total_lines_added": 0,
+      "total_lines_removed": 0
+    },
+    "context_window": {
+      "total_input_tokens": 0,
+      "total_output_tokens": 0,
+      "context_window_size": 200000,
+      "current_usage": null,
+      "used_percentage": null,
+      "remaining_percentage": null
+    },
+    "exceeds_200k_tokens": false,
+    "fast_mode": false,
+    "thinking": {
+      "enabled": true
+    }
+  }
+}

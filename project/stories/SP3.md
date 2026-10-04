@@ -5,7 +5,7 @@ feature: F00
 wave: 0
 runs_on: NUC
 size: S
-status: In Progress
+status: Done
 depends: 
 touches: scratch/spikes/SP3-*
 behaviours: 
@@ -27,3 +27,7 @@ Blocks: F07
 
 **Pass:** a defined way to learn a cloud task's state and get its result, even if that way is
 "the worker reports over HTTPS".
+
+## Result
+
+PASS. See [`scratch/spikes/SP3-cloud/RESULT.md`](../../scratch/spikes/SP3-cloud/RESULT.md) and `plan/03-spikes.md` § Results.

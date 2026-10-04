@@ -1,0 +1,191 @@
+openapi: 3.1.0
+info:
+  title: Marcel hub — session API
+  version: 0.1.0
+  description: |
+    The two hub endpoints that Claude Code sessions call themselves, over HTTPS through the tunnel.
+    They sit under the same `/api` server as the app API but use their own tokens, never a device
+    token:
+
+    - **adopt** (`/marcel-adopt`, B-14): any session the owner hands over. Token: the adopt token in
+      `~/.marcel/adopt-token` on the owner's machines.
+    - **report** (cloud workers, B-10, SP3): a cloud worker cannot reach the channel, so it reports its
+      progress and result here. Token: a per-task token minted when the hub spawned the task, put in
+      the worker's prompt, valid for that one task, for 48 hours, and refused after `done`/`failed`.
+
+    Scanners probed the tunnel within minutes during SP3: anything without a valid token gets 404,
+    not 401, and both routes are rate-limited (429).
+servers:
+  - url: https://marcel-bot.com/api
+
+paths:
+  /session/adopt:
+    post:
+      operationId: adoptSession
+      summary: Hand the calling Claude Code session to Marcel.
+      security:
+        - adopt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdoptRequest' }
+      responses:
+        '201':
+          description: Adopted; Marcel posts "Adopted <title>" in the main conversation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Adopted' }
+        '200':
+          description: This session was already adopted; the existing task.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Adopted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/Hidden' }
+        '429': { $ref: '#/components/responses/TooMany' }
+
+  /session/report:
+    post:
+      operationId: reportProgress
+      summary: A cloud worker reports progress, an artifact, or its end.
+      security:
+        - task: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Report' }
+      responses:
+        '202':
+          description: Recorded on the task named by the token.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [task_id]
+                additionalProperties: false
+                properties:
+                  task_id: { type: string }
+                example: { task_id: tsk_01J9ZQ5 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/Hidden' }
+        '429': { $ref: '#/components/responses/TooMany' }
+
+components:
+  securitySchemes:
+    adopt:
+      type: http
+      scheme: bearer
+      description: The owner's adopt token.
+    task:
+      type: http
+      scheme: bearer
+      description: The per-task token from the worker's prompt.
+
+  responses:
+    BadRequest:
+      description: The body is not valid; `message` says what to change.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Hidden:
+      description: Missing, wrong, expired or spent token — deliberately indistinguishable from "no such route".
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooMany:
+      description: Rate limited.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      additionalProperties: false
+      properties:
+        code: { type: string }
+        message: { type: string }
+      example: { code: not_found, message: Not found. }
+
+    AdoptRequest:
+      type: object
+      required: [session_id, kind, title]
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+          description: '`CLAUDE_CODE_SESSION_ID` for a local session; `session_…` for a cloud one.'
+        kind: { type: string, enum: [local, cloud] }
+        title: { type: string, minLength: 1, maxLength: 120 }
+        cwd: { type: string, description: For a local session. }
+        machine: { type: string, description: Hostname, for a local session. }
+        url: { type: string, format: uri, description: The session's claude.ai page, when known. }
+      example:
+        session_id: 6f1c2a9e-8b7d-4c3a-9e2f-0a1b2c3d4e5f
+        kind: local
+        title: Refactor the Harry digest renderer
+        cwd: /home/shbunder/projects/harry
+        machine: bunderserver
+
+    Adopted:
+      type: object
+      required: [task_id, tracked]
+      additionalProperties: false
+      properties:
+        task_id: { type: string }
+        tracked:
+          type: string
+          enum: [live, links_only]
+          description: |
+            `live`: the session is on the NUC, so the runner tails it and its state is followed.
+            `links_only`: it runs elsewhere (another machine or the cloud); Marcel keeps the link
+            and its reports, nothing more.
+      example: { task_id: tsk_01J9ZT9, tracked: live }
+
+    Report:
+      type: object
+      required: [kind]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [started, progress, artifact, done, failed]
+        text:
+          type: string
+          description: For `progress`, one line. Reports are milestones, not a running commentary.
+        summary:
+          type: string
+          description: For `done` and `failed`, one or two sentences for the milestone.
+        artifact: { $ref: '#/components/schemas/ReportedArtifact' }
+        artifacts:
+          type: array
+          description: For `done`, everything worth keeping.
+          items: { $ref: '#/components/schemas/ReportedArtifact' }
+      allOf:
+        - if: { properties: { kind: { const: progress } } }
+          then: { required: [text] }
+        - if: { properties: { kind: { const: artifact } } }
+          then: { required: [artifact] }
+        - if: { properties: { kind: { enum: [done, failed] } } }
+          then: { required: [summary] }
+      example:
+        kind: done
+        summary: The test raced the session cookie. Added a wait on the cookie and a regression test.
+        artifacts:
+          - { kind: pr, title: 'Fix flaky login test: wait on the session cookie', url: 'https://github.com/shbunder/marcel/pull/14' }
+
+    ReportedArtifact:
+      type: object
+      required: [kind, title, url]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [pr, branch, link]
+          description: A cloud worker can only hand over things that live at a URL.
+        title: { type: string }
+        url: { type: string, format: uri }
+      example: { kind: branch, title: claude/fix-flaky-login, url: 'https://github.com/shbunder/marcel/compare/claude/fix-flaky-login' }

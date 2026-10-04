@@ -1,0 +1,125 @@
+{
+  "tool_use": {
+    "parentUuid": "a2f3a273-7706-437d-a78f-966899c4c1da",
+    "isSidechain": false,
+    "message": {
+      "model": "claude-sonnet-5-5",
+      "id": "msg_011CfgvsKMte3rHj8msjUn3C",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01Jh5Kowqe6KocUkKaHSHA3J",
+          "name": "Bash",
+          "input": {
+            "command": "touch made-by-t2.txt && ls",
+            "description": "Create file and list directory"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      "container": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "stop_details": null,
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 18680,
+        "cache_read_input_tokens": 27224,
+        "output_tokens": 87,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 18680,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 87,
+            "cache_read_input_tokens": 27224,
+            "cache_creation_input_tokens": 18680,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 18680
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "input_transformations": [],
+      "diagnostics": null,
+      "context_management": null
+    },
+    "wireToolInputs": {
+      "toolu_01Jh5Kowqe6KocUkKaHSHA3J": {
+        "command": "touch made-by-t2.txt && ls",
+        "description": "Create file and list directory"
+      }
+    },
+    "apiBlockIndex": 0,
+    "requestId": "req_011CfgvsK33gJv4dBGo1jtfg",
+    "type": "assistant",
+    "uuid": "769f91b0-db82-47b1-b9a1-5dc9809b7e7a",
+    "timestamp": "2026-10-04T09:05:02.118Z",
+    "advisorModel": "claude-opus-5-5",
+    "effort": "medium",
+    "perTurnEffort": "medium",
+    "session_id": "b18d7c1c-1008-4ee3-8dbf-1d988f51b36b",
+    "sessionKind": "bg",
+    "userType": "external",
+    "entrypoint": "cli",
+    "cwd": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/wt-t2",
+    "sessionId": "b18d7c1c-1008-4ee3-8dbf-1d988f51b36b",
+    "version": "2.1.289",
+    "gitBranch": "t2"
+  },
+  "tool_result": {
+    "parentUuid": "769f91b0-db82-47b1-b9a1-5dc9809b7e7a",
+    "isSidechain": false,
+    "promptId": "339ce17f-ba3d-43fd-96c3-a1a0e927e7b4",
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "tool_use_id": "toolu_01Jh5Kowqe6KocUkKaHSHA3J",
+          "type": "tool_result",
+          "content": "calc.py\nmade-by-t2.txt\nREADME.md",
+          "is_error": false
+        }
+      ]
+    },
+    "uuid": "ae0d4bdd-af67-4528-90a0-12927dd38cfe",
+    "timestamp": "2026-10-04T09:05:24.447Z",
+    "toolUseResult": {
+      "stdout": "calc.py\nmade-by-t2.txt\nREADME.md",
+      "stderr": "",
+      "interrupted": false,
+      "isImage": false,
+      "noOutputExpected": false
+    },
+    "sourceToolAssistantUUID": "769f91b0-db82-47b1-b9a1-5dc9809b7e7a",
+    "session_id": "b18d7c1c-1008-4ee3-8dbf-1d988f51b36b",
+    "sessionKind": "bg",
+    "userType": "external",
+    "entrypoint": "cli",
+    "cwd": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/wt-t2",
+    "sessionId": "b18d7c1c-1008-4ee3-8dbf-1d988f51b36b",
+    "version": "2.1.289",
+    "gitBranch": "t2"
+  },
+  "note": "No explicit approval record; only the tool_use→tool_result timestamp gap."
+}

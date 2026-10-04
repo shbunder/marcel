@@ -1,5 +1,5 @@
 # Marcel v3 — one gate per lane. `make check` runs every lane that builds off a Mac.
-PY_LANES := hub runner plugins/marcel/tools
+PY_LANES := contracts hub runner plugins/marcel/tools
 CHANNEL  := plugins/marcel/channel
 
 .PHONY: check test ios-check board lanes start scripts $(PY_LANES) channel

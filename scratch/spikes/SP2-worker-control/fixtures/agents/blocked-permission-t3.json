@@ -1,0 +1,12 @@
+{
+  "pid": 2898331,
+  "id": "7aa6a32d",
+  "cwd": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/wt-t3",
+  "kind": "background",
+  "startedAt": 1791104870797,
+  "sessionId": "7aa6a32d-dc9c-43e3-b170-ee90995ba343",
+  "name": "t3",
+  "status": "waiting",
+  "waitingFor": "permission prompt",
+  "state": "blocked"
+}
