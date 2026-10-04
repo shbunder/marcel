@@ -1,0 +1,17 @@
+# SP6: hub in Docker ↔ native runner over a unix socket.
+# The runner (systemd user unit, see marcel-runner.service) owns $XDG_RUNTIME_DIR/marcel/runner.sock.
+# HOST_RUNNER_DIR defaults to /run/user/1000/marcel — set it for another uid.
+services:
+  hub:
+    image: python:3.12-slim
+    container_name: sp6-hub
+    # Run as the host user that owns the socket (no userns-remap on this Docker), or as any uid that is
+    # in the socket's group — see RESULT.md for the matrix.
+    user: "${HUB_UID:-1000}:${HUB_GID:-1000}"
+    volumes:
+      # Mount the DIRECTORY, not the socket file: the runner recreates the socket on restart.
+      - ${HOST_RUNNER_DIR:-/run/user/1000/marcel}:/run/marcel
+      - ./hub.py:/app/hub.py:ro
+    environment:
+      RUNNER_SOCK: /run/marcel/runner.sock
+    command: ["sleep", "infinity"]

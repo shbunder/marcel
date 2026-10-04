@@ -1,0 +1,1 @@
+{"mcpServers": {"marcel": {"command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/sp1_channel.py"], "env": {"SP1_PORT": "8794", "SP1_NAME": "marcel", "SP1_LOG": "/home/shbunder/projects/marcel-src/scratch/spikes/SP1-bg-channel/sandbox/plugin-events.jsonl"}}}}

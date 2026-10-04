@@ -1,0 +1,58 @@
+{
+  "agents_json_row": {
+    "pid": 2898331,
+    "id": "7aa6a32d",
+    "cwd": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/wt-t3",
+    "kind": "background",
+    "startedAt": 1791104870797,
+    "sessionId": "7aa6a32d-dc9c-43e3-b170-ee90995ba343",
+    "name": "t3",
+    "status": "waiting",
+    "waitingFor": "permission prompt",
+    "state": "blocked"
+  },
+  "jobs_state_json": {
+    "state": "working",
+    "detail": "Removing README.md and listing directory",
+    "tempo": "blocked",
+    "inFlight": {
+      "tasks": 0,
+      "queued": 0,
+      "kinds": [],
+      "drainableMonitors": 0
+    },
+    "tokens": 252,
+    "needs": "approve Bash: rm README.md && ls",
+    "output": null,
+    "children": null,
+    "linkScanOffset": 107020,
+    "linkScanPath": "/home/shbunder/.claude/projects/-home-shbunder-projects-marcel-src-scratch-spikes-SP2-worker-control-sandbox-wt-t3/7aa6a32d-dc9c-43e3-b170-ee90995ba343.jsonl",
+    "template": "bg",
+    "respawnFlags": [
+      "--name",
+      "t3",
+      "--permission-mode",
+      "manual",
+      "--model",
+      "sonnet"
+    ],
+    "intent": "Run this exact Bash command and report its output: rm README.md && ls",
+    "name": "t3",
+    "nameSource": "user",
+    "sessionId": "7aa6a32d-dc9c-43e3-b170-ee90995ba343",
+    "resumeSessionId": "7aa6a32d-dc9c-43e3-b170-ee90995ba343",
+    "daemonShort": "7aa6a32d",
+    "cliVersion": "2.1.289",
+    "cwd": "/home/shbunder/projects/marcel-src/scratch/spikes/SP2-worker-control/sandbox/wt-t3",
+    "bridgeSessionId": "cse_01CVDyc2LADLa9EsNxiJHpig",
+    "bridgeOutboundOnly": false,
+    "bridgeOwnerAccountUuid": "00000000-0000-4000-8000-00000000acc7",
+    "bridgeOwnerOrganizationUuid": "00000000-0000-4000-8000-0000000000e9",
+    "providerEnv": {},
+    "backend": "daemon",
+    "createdAt": "2026-10-04T09:07:49.885Z",
+    "updatedAt": "2026-10-04T09:07:53.306Z",
+    "firstTerminalAt": null
+  },
+  "note": "While a prompt is open the transcript has NO entry for it (the tool_use is not even flushed yet)."
+}

@@ -1,0 +1,24 @@
+# ~/.config/systemd/user/marcel-runner.service
+# SP6-verified properties (the spike ran them via `systemd-run --user -p …` to stay inside scratch/).
+[Unit]
+Description=Marcel runner (spawns and watches claude sessions)
+# The runner only *talks to* claude's background service; it must never be the one that starts it,
+# or every session lands in this unit's cgroup and dies when the runner restarts.
+Requires=marcel-claude-daemon.service
+After=marcel-claude-daemon.service
+
+[Service]
+ExecStart=/usr/bin/python3 %h/marcel/runner/runner.py
+# systemd's user PATH has no ~/.local/bin, where the native `claude` lives → FileNotFoundError without this.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=RUNNER_SOCK=%t/marcel/runner.sock
+Environment=RUNNER_SOCK_MODE=0660
+# %t = $XDG_RUNTIME_DIR = /run/user/<uid>.  Preserve the directory across restarts: the hub bind-mounts it,
+# and a deleted-then-recreated directory leaves the running container staring at the old (deleted) inode.
+RuntimeDirectory=marcel
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
