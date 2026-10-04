@@ -150,13 +150,30 @@ def test_unknown_group_refuses_to_start(sock_path: Path) -> None:
     assert not sock_path.exists()
 
 
-def test_known_group_is_applied(sock_path: Path) -> None:
+def test_known_group_is_applied(sock_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import grp
 
-    name = grp.getgrgid(os.getgid()).gr_name
+    gid = os.getgid()
+    name = grp.getgrgid(gid).gr_name
+    calls: list[tuple[Path, int, int]] = []
+    real = os.chown
+
+    def chown(path, uid, g):
+        calls.append((Path(path), uid, g))
+        real(path, uid, g)
+
+    monkeypatch.setattr(os, 'chown', chown)
     s = bind_socket(sock_path, group=name)
     s.close()
-    assert sock_path.stat().st_gid == os.getgid()
+    assert calls == [(sock_path, -1, gid)]
+
+
+def test_no_group_means_no_chown(sock_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*a):
+        raise AssertionError('chown called')
+
+    monkeypatch.setattr(os, 'chown', boom)
+    bind_socket(sock_path).close()
 
 
 def test_start_is_refused_without_a_supervisor_outside_our_cgroup(
@@ -172,7 +189,7 @@ def test_start_is_refused_when_no_supervisor_runs(sock_path: Path, tmp_path: Pat
     c = write_script(
         tmp_path / 'c2',
         'if [ "$1" = "--version" ]; then echo "2.1.289 (Claude Code)"; exit 0; fi\n'
-        'echo "not running"\n',
+        'echo "not running"; exit 1\n',
     )
     with pytest.raises(StartupError, match='marcel-claude-daemon.service'):
         serve(sock_path, Settings(claude=c, cap=4), cgroup_of=apart, active_workers=lambda: 0)
@@ -228,3 +245,24 @@ def test_bad_worker_cap_is_refused_in_words(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv('MARCEL_WORKER_CAP', 'lots')
     with pytest.raises(StartupError, match='MARCEL_WORKER_CAP'):
         server.settings_from_env()
+
+
+def test_relative_claude_path_is_refused_in_words(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('MARCEL_CLAUDE', 'claude')
+    with pytest.raises(StartupError, match='MARCEL_CLAUDE must be an absolute path'):
+        server.settings_from_env()
+
+
+def test_start_refused_with_cannot_tell_when_the_supervisor_pid_is_unknown(
+    sock_path: Path, tmp_path: Path
+) -> None:
+    c = write_script(
+        tmp_path / 'c3',
+        'if [ "$1" = "--version" ]; then echo "2.1.289 (Claude Code)"; exit 0; fi\n'
+        'echo "running"; exit 0\n',
+    )
+    with pytest.raises(StartupError) as e:
+        serve(sock_path, Settings(claude=c, cap=4), cgroup_of=apart, active_workers=lambda: 0)
+    assert 'could not tell' in str(e.value)
+    assert 'stop' not in str(e.value).lower()
+    assert not sock_path.exists()

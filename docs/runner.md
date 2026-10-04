@@ -35,8 +35,14 @@ plain words. The fields are in `contracts/runner-api.yaml` (`Health`).
 `ok` is `false` when:
 
 - `claude` is missing, not executable, or does not answer `--version`;
-- no supervisor is running (`claude daemon status` says "not running");
-- the supervisor runs in the runner's own cgroup.
+- no supervisor is running (`claude daemon status` exits 1);
+- `claude daemon status` hangs or fails, and the reason says so;
+- the supervisor runs in the runner's own cgroup;
+- the runner cannot tell where the supervisor runs (no process id in the status, or a cgroup it cannot
+  read). It then says it could not tell, and never tells you to stop the supervisor.
+
+The runner decides "running or not" from the exit code of `claude daemon status`, and reads
+only the process id from its text.
 
 Anything else on the socket gets a JSON `Error` (404 for another path, 405 for another method).
 
@@ -45,7 +51,7 @@ Anything else on the socket gets a JSON `Error` (404 for another path, 405 for a
 | What | What the runner does | What you see |
 |---|---|---|
 | `claude` missing | Starts anyway. | `/health` says `ok: false`, and names the path to fix. |
-| No supervisor, or one inside the runner's cgroup | Refuses to start, exit code 1. | The log says to start `marcel-claude-daemon.service`. |
+| No supervisor, one inside the runner's cgroup, or the runner cannot tell | Refuses to start, exit code 1. | The log says what it found, and to start or check `marcel-claude-daemon.service`. |
 | Another runner holds the socket | Refuses to start. | The log says a runner is already running. |
 | A dead socket file is left from a crash | Deletes it and starts. | Nothing. |
 | A file that is not a socket is at the path | Refuses to start and leaves the file. | The log names the path. |

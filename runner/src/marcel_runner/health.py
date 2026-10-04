@@ -15,18 +15,15 @@ SUPERVISOR_UNIT = 'marcel-claude-daemon.service'
 
 @dataclass(frozen=True)
 class Settings:
-    claude: Path  # absolute: systemd's user PATH has no ~/.local/bin (SP6)
+    claude: Path  # absolute: systemd's user PATH has no ~/.local/bin
     cap: int
     timeout: float = 10.0
 
 
-def parse_supervisor(status: str) -> tuple[bool, int | None]:
-    """Read `claude daemon status`: (running, pid). The pid is None when the text has none."""
-    lines = status.strip().splitlines()
-    if not lines or not lines[0].lower().startswith('running'):
-        return False, None
-    m = re.search(r'\bpid\b[^\d\n]{0,20}(\d+)', status)
-    return True, int(m.group(1)) if m else None
+def parse_pid(status: str) -> int | None:
+    """The supervisor's pid from `claude daemon status` text, or None. Lenient on purpose."""
+    m = re.search(r'\bpid\b[ \t]*[:=]?[ \t]*(\d+)', status, re.IGNORECASE)
+    return int(m.group(1)) if m else None
 
 
 def cgroup_of(pid: int) -> str:
@@ -64,20 +61,46 @@ def _claude_version(settings: Settings) -> tuple[str, str | None]:
     return p.stdout.strip(), None
 
 
-def _supervisor(settings: Settings, own_cgroup: str, read_cgroup: Callable[[int], str]) -> dict:
+def _supervisor(
+    settings: Settings, own_cgroup: str | None, read_cgroup: Callable[[int], str]
+) -> tuple[dict, str | None]:
+    """(supervisor object, reason). The reason is None only when it runs in its own unit."""
+    cmd = f'`{settings.claude} daemon status`'
+    down = {'running': False, 'own_unit': False}
+    unsure = {'running': True, 'own_unit': False}
     try:
-        running, pid = parse_supervisor(_run(settings, 'daemon', 'status').stdout)
-    except (OSError, subprocess.SubprocessError):
-        return {'running': False, 'own_unit': False}
-    if not running:
-        return {'running': False, 'own_unit': False}
+        p = _run(settings, 'daemon', 'status')
+    except subprocess.TimeoutExpired:
+        return down, f'Claude did not answer {cmd} within {settings.timeout:g} s.'
+    except OSError as e:
+        return down, f'The runner could not run {cmd}: {e.strerror or e}.'
+    if p.returncode == 1:  # documented: exit 1 means the supervisor is not running
+        return down, (
+            f'Claude has no background supervisor running. '
+            f'Start {SUPERVISOR_UNIT} (`systemctl --user start {SUPERVISOR_UNIT}`).'
+        )
+    if p.returncode != 0:
+        said = (p.stderr or p.stdout).strip() or f'exit code {p.returncode}'
+        return down, f'{cmd} failed, so the runner cannot tell if a supervisor runs: {said}'
+    unknown = (
+        f"The runner could not tell where Claude's supervisor runs, so it will not start "
+        f'sessions. Check that it runs in {SUPERVISOR_UNIT}.'
+    )
+    pid = parse_pid(p.stdout)
     if pid is None:
-        return {'running': True, 'own_unit': False}
+        return unsure, f'{unknown} {cmd} gave no process id.'
+    if own_cgroup is None:
+        return unsure, f'{unknown} The runner could not read its own cgroup.'
     try:
-        own_unit = read_cgroup(pid) != own_cgroup
+        theirs = read_cgroup(pid)
     except OSError:
-        own_unit = False
-    return {'running': True, 'own_unit': own_unit}
+        return unsure, f'{unknown} The runner could not read the cgroup of process {pid}.'
+    if theirs == own_cgroup:
+        return unsure, (
+            f"Claude's supervisor runs inside the runner, so a runner restart would kill "
+            f'every session. Stop it, start {SUPERVISOR_UNIT}, then restart the runner.'
+        )
+    return {'running': True, 'own_unit': True}, None
 
 
 def collect_health(
@@ -90,20 +113,10 @@ def collect_health(
     supervisor = {'running': False, 'own_unit': False}
     if reason is None:
         try:
-            own = cgroup_of(os.getpid())
+            own: str | None = cgroup_of(os.getpid())
         except OSError:
-            own = ''
-        supervisor = _supervisor(settings, own, cgroup_of)
-        if not supervisor['running']:
-            reason = (
-                f'Claude has no background supervisor running. '
-                f'Start {SUPERVISOR_UNIT} (`systemctl --user start {SUPERVISOR_UNIT}`).'
-            )
-        elif not supervisor['own_unit']:
-            reason = (
-                f"Claude's supervisor runs inside the runner, so a runner restart would kill "
-                f'every session. Stop it, start {SUPERVISOR_UNIT}, then restart the runner.'
-            )
+            own = None
+        supervisor, reason = _supervisor(settings, own, cgroup_of)
     health: dict[str, Any] = {
         'ok': reason is None,
         'version': __version__,

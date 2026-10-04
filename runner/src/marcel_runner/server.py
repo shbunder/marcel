@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from marcel_runner.health import SUPERVISOR_UNIT, Settings, cgroup_of, collect_health
+from marcel_runner.health import Settings, cgroup_of, collect_health
 
 SOCKET_MODE = 0o660
 DIR_MODE = 0o750
@@ -134,7 +134,7 @@ def serve(
     if first['claude_version'] and not (
         first['supervisor']['running'] and first['supervisor']['own_unit']
     ):
-        raise StartupError(first['reason'] + f' The runner did not start. ({SUPERVISOR_UNIT})')
+        raise StartupError(f'{first["reason"]} The runner did not start.')
     return UnixHTTPServer(bind_socket(path, group), health)
 
 
@@ -145,6 +145,11 @@ def settings_from_env() -> tuple[Settings, Path, str | None]:
     except ValueError:
         raise StartupError('MARCEL_WORKER_CAP must be a whole number, like 4.') from None
     claude = Path(env.get('MARCEL_CLAUDE') or Path.home() / '.local' / 'bin' / 'claude')
+    if not claude.is_absolute():
+        raise StartupError(
+            f'MARCEL_CLAUDE must be an absolute path, not "{claude}". '
+            "systemd's user PATH has no ~/.local/bin, so a bare name would not be found."
+        )
     runtime = env.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}'
     sock = Path(env.get('MARCEL_RUNNER_SOCK') or Path(runtime) / 'marcel' / 'runner.sock')
     return Settings(claude=claude, cap=cap), sock, env.get('MARCEL_RUNNER_GROUP') or None

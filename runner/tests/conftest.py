@@ -38,7 +38,11 @@ def write_script(path: Path, body: str) -> Path:
 
 @pytest.fixture
 def fake_claude(tmp_path: Path) -> Path:
-    """A claude whose supervisor runs: `daemon status` reports pid 1, which is not our cgroup."""
+    """A claude whose supervisor runs: `daemon status` exits 0 and names pid 1 (not our cgroup).
+
+    The exit codes are documented (`daemon status` exits 1 when the supervisor is not running).
+    The status TEXT here is a guess, not recorded output from a real run.
+    """
     return write_script(
         tmp_path / 'claude',
         'if [ "$1" = "--version" ]; then echo "2.1.289 (Claude Code)"; exit 0; fi\n'
