@@ -2,9 +2,13 @@
 PY_LANES := hub runner plugins/marcel/tools
 CHANNEL  := plugins/marcel/channel
 
-.PHONY: check test ios-check $(PY_LANES) channel
+.PHONY: check test ios-check board lanes start scripts $(PY_LANES) channel
 
-check: $(PY_LANES) channel
+check: scripts $(PY_LANES) channel
+
+# The board and the guard hook are tested like any lane.
+scripts:
+	uv run --quiet --python 3.12 --with pytest pytest scripts/tests -q
 
 $(PY_LANES):
 	$(MAKE) -C $@ check
@@ -20,3 +24,14 @@ test:
 ios-check:
 	@command -v xcodebuild >/dev/null || { echo "ios-check needs Xcode: run it on the Mac."; exit 1; }
 	cd ios && xcodebuild test -scheme Marcel -destination 'platform=iOS Simulator,name=iPhone 16'
+
+# The board (project/). See project/README.md.
+board:
+	@python3 scripts/board.py list
+
+lanes:
+	@python3 scripts/board.py lanes
+
+start:
+	@test -n "$(S)" || { echo "Usage: make start S=S-03.2"; exit 1; }
+	@python3 scripts/board.py start $(S)

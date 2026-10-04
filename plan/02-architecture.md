@@ -219,9 +219,9 @@ ios/          Xcode project `Marcel` (app + MarcelKit + AvatarKit packages)
 shared/avatar/    recipes/*.json, palettes.json  (consumed by iOS; validated by a py test)
 contracts/    app-api.yaml, runner-api.yaml, events.schema.json, transcript.schema.json, channel-protocol.md
 deploy/       docker-compose.yml, systemd units, cloudflared ingress, redeploy.sh, watchdog
-project/      board: features/, stories/, decisions/, lessons/ (Harry-style)
+project/      board: features/, stories/, decisions/, lessons/, contract-requests/
 docs/         operator + developer docs
-plan/         this plan (moves into project/ in F01)
+plan/         this plan: spec, architecture, spikes, playbook
 ```
 
 ## Tech choices (fixed; change only by an ADR)

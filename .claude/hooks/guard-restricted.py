@@ -2,15 +2,14 @@
 """PreToolUse guard. Blocks edits to Marcel's restricted paths unless an unlock flag exists.
 
 Restricted paths:
-- CLAUDE.md (any directory) — project instructions
-- src/marcel_core/auth/** — auth module
-- src/marcel_core/config.py — core config
-- .env* — environment files
+- CLAUDE.md (any directory): project instructions
+- contracts/**: the interfaces every lane builds against; only the lead changes them
+- .env* and deploy/.env*: environment and secret files
 
-Unlock: create .claude/.unlock-safety, make the edit, commit, delete the flag.
+Unlock: create .claude/.unlock-safety, make the edit, commit, then delete the flag.
 
 Stdin: JSON hook payload (tool_name, tool_input, ...).
-Exit 0 allows the tool call; exit 2 blocks it with the stderr message shown to Claude.
+Exit 0 allows the tool call; exit 2 blocks it and shows the stderr message to Claude.
 """
 
 from __future__ import annotations
@@ -19,14 +18,15 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 
-UNLOCK_FLAG = '.claude/.unlock-safety'
+# Anchored to the repo, not the working directory, so the flag works from any subfolder.
+UNLOCK_FLAG = Path(__file__).resolve().parent.parent / '.unlock-safety'
 GUARDED_TOOLS = {'Edit', 'Write', 'NotebookEdit', 'MultiEdit'}
 
 RESTRICTED: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r'(^|/)CLAUDE\.md$'), 'project instructions (CLAUDE.md)'),
-    (re.compile(r'(^|/)src/marcel_core/auth/'), 'auth module'),
-    (re.compile(r'(^|/)src/marcel_core/config\.py$'), 'core config'),
+    (re.compile(r'(^|/)contracts/'), 'a contract: implementers file project/contract-requests/'),
     (re.compile(r'(^|/)\.env(\.|$)'), 'environment file'),
 ]
 
@@ -51,19 +51,18 @@ def main() -> int:
     except OSError:
         pass
 
-    if os.path.exists(UNLOCK_FLAG):
+    if UNLOCK_FLAG.exists():
         return 0
 
     for pattern, label in RESTRICTED:
         if any(pattern.search(c) for c in candidates):
             sys.stderr.write(
                 f'\n🛑 Blocked edit to restricted path: {file_path}\n'
-                f'   Reason: {label} — Marcel self-modification safety rule.\n'
-                f'   To unlock, run:\n'
+                f'   Reason: {label}.\n'
+                f'   If this edit is yours to make, unlock, edit, commit, and lock again:\n'
                 f'     touch {UNLOCK_FLAG}\n'
-                f'   then retry the edit, commit, and:\n'
+                f'     … edit and commit …\n'
                 f'     rm {UNLOCK_FLAG}\n'
-                f'   See docs/claude-code-setup.md for the full workflow.\n'
             )
             return 2
 

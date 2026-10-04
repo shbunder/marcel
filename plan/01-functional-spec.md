@@ -1,7 +1,7 @@
 # Marcel v3 — functional specification
 
 This is the record of what Marcel v3 must do, written from the interview of 2026-10-03.
-Every story in `features/` traces back to a numbered behaviour here (`B-…`). When a story
+Every story on the board (`project/stories/`) traces back to a numbered behaviour here (`B-…`). When a story
 and this page disagree, this page wins until the owner changes it.
 
 ## In one sentence

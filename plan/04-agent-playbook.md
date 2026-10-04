@@ -47,13 +47,13 @@ Wave 3
 ```
 
 A story may start once every story in its `depends:` list is merged to `main`. The lead keeps
-`project/lanes.md` up to date; it lists what is in flight and what each story touches.
+the board honest: `make lanes` shows what is in flight, what each story touches, and what is ready.
 **At most 6 implementers run at once.** Past that, merge conflicts on shared files cost more than
 the parallelism saves.
 
 ## The story contract
 
-Every story file in `features/` follows this shape. An implementer must be able to finish using
+Every story file in `project/stories/` follows this shape. An implementer must be able to finish using
 nothing but the story, the files it links to, and the code.
 
 ```
@@ -77,7 +77,8 @@ Size guide:
 
 ## The implementer loop
 
-1. `git fetch && git worktree add ../marcel-S-NN.M -b story/S-NN.M origin/main`
+1. `make start S=S-NN.M` (the board refuses if it is blocked), then
+   `git fetch && git worktree add ../marcel-S-NN.M -b story/S-NN.M origin/main`
 2. Read the story, its `read first` files, and the relevant `project/lessons/`.
 3. **Write the failing tests first** from the "done when" list, then implement.
 4. Run the lane gate:
@@ -118,11 +119,13 @@ Size guide:
 
 F01 creates `project/` with:
 
-- `features/`, `stories/` (one file each, generated from these plan files);
+- `features/` and `stories/`: one file each, generated from the plan by `scripts/plan_to_board.py`;
 - `decisions/` (ADRs);
 - `lessons/`;
-- `lanes.md`;
 - `contract-requests/`.
 
-A story's status comes from git: it is **Done** when its branch is merged with `--no-ff`. There
-is no separate status flip.
+A story's status lives in its frontmatter: `Backlog`, `In Progress` or `Done`.
+- `make start S=…` moves it to In Progress, and refuses when a dependency is not Done, when
+  `touches:` overlaps a story in progress, or when 6 stories are already running.
+- After merging a story, the lead marks it Done in a separate board commit:
+  `python3 scripts/board.py set S-… status Done`, committed as `board: S-… done`.
