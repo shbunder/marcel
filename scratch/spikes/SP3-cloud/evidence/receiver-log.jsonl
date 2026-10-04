@@ -1,0 +1,7 @@
+{"t": 1791107788074, "method": "GET", "path": "/health", "ua": "curl/8.5.0", "cf_ip": "<nuc-home-ipv6>"}
+{"t": 1791107788206, "method": "POST", "path": "/sp3/report", "status": 401, "authorized": false, "body": {"x": 1}, "ua": "curl/8.5.0", "cf_ip": "<nuc-home-ipv6>"}
+{"t": 1791107788365, "method": "POST", "path": "/sp3/report", "status": 200, "authorized": true, "body": {"from": "nuc-selftest"}, "ua": "curl/8.5.0", "cf_ip": "<nuc-home-ipv6>"}
+{"t": 1791107821596, "method": "GET", "path": "/health", "ua": "curl/8.5.0", "cf_ip": "160.79.106.135"}
+{"t": 1791107822289, "method": "POST", "path": "/sp3/report", "status": 200, "authorized": true, "body": {"from": "cloud", "step": "report"}, "ua": "curl/8.5.0", "cf_ip": "160.79.106.133"}
+{"t": 1791107840466, "method": "GET", "path": "/.git/config", "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36", "cf_ip": "35.185.19.70"}
+{"t": 1791107996860, "method": "POST", "path": "/sp3/report", "status": 200, "authorized": true, "body": {"from": "cloud", "step": "cli-followup"}, "ua": "curl/8.5.0", "cf_ip": "160.79.106.143"}
