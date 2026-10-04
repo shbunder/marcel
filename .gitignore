@@ -8,6 +8,7 @@ __pycache__/
 .mypy_cache/
 .coverage
 coverage.xml
+coverage/
 htmlcov/
 
 # Node (plugin channel server)
