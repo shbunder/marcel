@@ -1,4 +1,60 @@
-# SP5, round 2: plush and pixel-art looks
+# SP5, round 3: cute pink pixel-art giraffe (current)
+
+**Why:** the owner judged rounds 1 and 2 (boxes, plush, first pixel try) as not good enough, and
+asked for a cute pink giraffe in pixel-art style, free to depart from the logo, built from proper source material.
+
+**Status:** done in the simulator. **Open:** run on the iPhone, and the owner's verdict.
+
+![Idle](screenshots/giraffe-idle.gif) ![Working](screenshots/giraffe-working.gif)
+
+- [giraffe-idle.gif](screenshots/giraffe-idle.gif): idle loop, 6.4 s.
+- [giraffe-working.gif](screenshots/giraffe-working.gif): working loop, 3.2 s.
+- [pixel-giraffe-keyframes.png](screenshots/pixel-giraffe-keyframes.png): neutral, blink, ear flick, glance, two working frames.
+- [app-idle.png](screenshots/app-idle.png), [app-working.png](screenshots/app-working.png): in the app.
+
+## What the research said, and what was applied
+
+| Source said | Applied |
+|---|---|
+| Claude's pixel art fails when it never looks at its own output ([Trochim](https://piotrtrochim.substack.com/p/teaching-claude-to-create-pixel-art)); good results came from references and checking ([The A.I. Beat](https://www.the-ai-beat.com/blog/2026-09-27-coding-claude-opus-5-5-is-making-pixel-art-animations-now)) | Every version rendered to a picture and reviewed before the next change (seven review passes) |
+| Chibi: 2–3 heads tall, big eyes, tiny nose and mouth ([Clip Studio chibi guides](https://tips.clip-studio.com/en-us/articles/4897)) | Front-facing, sitting, head about 40% of the height, 5×6 eyes with two shines and lashes, blush, small smile |
+| Colour ramps that shift hue: shadows towards purple, highlights towards peach; few colours ([SLYNYRD](https://www.slynyrd.com/blog/2018/1/10/pixelblog-1-color-palettes), [Lospec](https://lospec.com/palette-list/tag/pink)) | Five-step ramps per material (pink, cream, spots, plum, ear, teal, glow), 34 colours in all |
+| Idle: 1 px of up-and-down, 300–500 ms per step, uneven timing, secondary motion lags a frame ([sprite-ai animation principles](https://www.sprite-ai.art/guides/animation-principles)) | Body sinks 1 px for 600 ms; head follows 100 ms later, horns 100 ms after that; blinks and ear flicks at irregular times |
+
+## How it is made
+
+- `pixel-source/build.py` (Python, no extra packages) draws the giraffe from parts on a 48×54 grid.
+  Each part is shaded as one rounded form, light from the top left. A dark line goes where a part overlaps
+  another, and a plum outline goes round the outside (lighter on the lit side). Face details go on last.
+- It exports a **sprite sheet** (55 frames, 5 KB) plus a timeline (`giraffe-sheet.json`), and the two GIFs.
+- The app just plays the sheet at a whole-number zoom, so pixels stay sharp. The 3D code from rounds 1–2 is
+  removed from the app; it is in git history (commit `a478eef`).
+- To change the giraffe: edit `build.py`, run `python3 build.py anim`, copy `out/giraffe-sheet.*` into `SP5Avatar/`.
+
+## Animation
+
+- **Idle (6.4 s loop):** breathing with follow-through, one blink then a double blink, left ear flick, right ear flick,
+  a glance to the side, tail swaying.
+- **Working (3.2 s loop):** a small teal laptop with a heart on the lid. Eyes look down at the screen, hooves tap
+  in bursts, and spots on the neck and shoulder glow orange one after another with a warm halo and a sparkle (the old `working(3)` idea).
+
+## Checked (iPhone 16 Pro simulator, iOS 18.5)
+
+- Idle and working, 40 s each: **60 fps average, 60 for the slowest 1%**, worst frame 29–33 ms.
+- GIFs open in Apple's own image decoder: idle 40 frames / 6.4 s, working 31 frames / 3.2 s.
+- Not run on a real iPhone. It is a 5 KB image swapped a few times a second, so I expect no trouble, but that is not measured.
+
+## Weak spots
+
+- Front view only. No side view, walk or turn yet; each new pose is more drawing.
+- The typing hooves read as a dark line over the laptop at small sizes.
+- The loops are fixed, so a watcher will notice the 6.4 s repeat. Fix: several short idle loops picked at random.
+- The body pink is lighter and cuter than the brand rose (`#f08aa0`); brand rose `#cc5e76` is now the shadow tone.
+- The glow halo and sparkles are 1–2 pixels; at icon size they mostly disappear.
+
+---
+
+# SP5, round 2: plush and pixel-art looks (superseded; code removed from the app)
 
 **Why:** the owner wanted a redesign in the soft, fluffy style of OpenAI's "Dots", still a giraffe,
 animated and alive. Round 1 (below) is a flat copy of the logo. Round 2 builds two new looks into
