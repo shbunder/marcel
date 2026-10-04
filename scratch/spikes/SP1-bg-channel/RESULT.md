@@ -1,9 +1,14 @@
 # SP1 — A custom channel in an unattended background session — RESULT
 
-**Verdict: FAIL as specified. Decision needed (see the end).** The channel protocol and the permission relay work end
-to end, but only when the session shows the development-channels dialog and someone accepts it. A `claude --bg`
-session never shows that dialog. It silently drops every dev-channel entry, and the daemon strips the flag
-from its respawn flags. Accepting the dialog persists nothing, so the plan's **fallback 1 is ruled out**.
+**Verdict: FAIL as specified → PASS with option A (owner's decision, 2026-10-04).**
+
+- **As specified:** the `--dangerously-load-development-channels` route cannot work unattended. A `claude --bg` session never
+  shows the development-channels dialog. It silently drops every dev-channel entry, and the daemon strips the flag
+  from its respawn flags. Accepting the dialog persists nothing, so the plan's fallback 1 is ruled out.
+- **Option A (chosen):** the marcel plugin, installed from a local marketplace, is allowlisted in
+  `/etc/claude-code/managed-settings.json` and started with `--channels plugin:marcel@marcel-local`. This **passes
+  in a `--bg` session with no terminal**: message in, relayed Bash approval, relayed `reply` approval, reply out in
+  4.5 s. It also survives `claude respawn`. See ["Option A — result"](#option-a--result).
 
 ## Question
 
@@ -116,7 +121,7 @@ dialogs, so in `--bg` there are exactly two ways to register a channel:
    then `claude --bg --channels plugin:marcel@marcel-local -- "<prompt>"`. Setting the list *replaces* the default
    allowlist, which is why Telegram is re-listed. This is an Anthropic-documented admin control (the settings schema
    describes `allowedChannelPlugins` as "Managed-org allowlist of channel plugins … Requires channelsEnabled: true").
-   **Not tested**: it needs root and writes outside `scratch/`.
+   Tested after the owner installed the file. See ["Option A — result"](#option-a--result).
 
 ### Other findings
 
@@ -129,23 +134,75 @@ dialogs, so in `--bg` there are exactly two ways to register a channel:
 - Every MCP server gets one log line, either `Channel notifications registered` or `… skipped: <reason>`. The runner
   can check that line (with `--debug-file`, or `--debug mcp`) to fail loudly instead of silently.
 
-## Options (needs the owner's decision)
+## Option A — result
+
+Setup:
+- The owner installed [`managed-settings.json`](managed-settings.json) at `/etc/claude-code/` (root, 0644): `channelsEnabled: true`,
+  `allowedChannelPlugins` = marcel@marcel-local, telegram and imessage @claude-plugins-official.
+- The plugin was installed **project-scoped** into the brain workspace, so its MCP server doesn't start in every
+  Claude session on the machine:
+  `claude plugin marketplace add marketplace --scope project && claude plugin install marcel@marcel-local --scope project`.
+  That wrote `sandbox/brain/.claude/settings.json` (`extraKnownMarketplaces` + `enabledPlugins`).
+- Pre-check before the policy file: the skip reason was exactly `plugin marcel@marcel-local is not on the approved
+  channels allowlist`, so the allowlist was the only gate left.
+
+```bash
+cd sandbox/brain && cclean --bg --name sp1-brain --model sonnet --permission-mode manual \
+  --channels plugin:marcel@marcel-local -- "You are a test brain. Wait for channel messages and answer them with the reply tool."
+```
+
+| Check | Result |
+|---|---|
+| Registration in `--bg` | `MCP server "plugin:marcel:marcel": Channel notifications registered` |
+| Message in → Bash prompt relayed | `permission_request qiwxo Bash "Write and print UTC date"`; `agents --json`: `blocked / waiting / permission prompt` |
+| Approve via relay | `qiwxo → allow (matched pending)`, and `bg-relay.txt` was written |
+| `reply` prompt relayed + approved | `jjdss mcp__plugin_marcel_marcel__reply` → allow |
+| Reply out | `"Sun Oct  4 01:29:00 PM UTC 2026"`, **4.5 s** after the message |
+| `--channels` kept in daemon `respawnFlags` | yes (the dev flag was stripped; this one is allowlisted) |
+| `claude respawn` | channel re-registered (new server pid). "After respawn: reply BACK" → `BACK` |
+
+Evidence: [`evidence/optionA-bg-events.jsonl`](evidence/optionA-bg-events.jsonl),
+[`evidence/optionA-bg-debug-channel-lines.log`](evidence/optionA-bg-debug-channel-lines.log).
+
+Also learned while running option A and SP7:
+- A **directory-source** marketplace plugin runs **in place** from the marketplace directory
+  (`CLAUDE_PLUGIN_ROOT` = the source dir). Editing the source changes every new session immediately. In deploy, the
+  marketplace should point at a released copy, not at a working tree.
+- The plugin's MCP tool is named `mcp__plugin_marcel_marcel__reply` (`mcp__plugin_<plugin>_<server>__<tool>`), which is
+  what the allow rule in the brain/worker settings must name.
+- **Session identity:** custom env (`MARCEL_CONVERSATION_ID=…` on the `claude --bg` command line) does **not** reach the
+  plugin's MCP server, because the daemon spawns workers with its own env. The server **does** get its own session's
+  `CLAUDE_CODE_SESSION_ID`, plus `CLAUDE_JOB_DIR`, `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA`. So the
+  channel's hello to the hub carries the **session id**, and the hub maps it to brain / side / worker and its
+  conversation or task (the runner learned the id at spawn). See SP7.
+
+## Options considered (decision: A)
 
 | Option | What it takes | Pros | Cons |
 |---|---|---|---|
-| **A. Managed-settings allowlist** (new, not in the plan) | One-time root write of `/etc/claude-code/managed-settings.json` on the NUC; install the marcel plugin from a local marketplace; brain and workers start with `--channels plugin:marcel@marcel-local` | Keeps the architecture unchanged: real `--bg` sessions, two-way channel, permission relay. Supported admin knob, no screen-scraping | Policy file applies to every `claude` on the NUC and replaces the default channel allowlist. Still untested (next step: test it) |
+| **A. Managed-settings allowlist** (new, not in the plan) | One-time root write of `/etc/claude-code/managed-settings.json` on the NUC; install the marcel plugin from a local marketplace; brain and workers start with `--channels plugin:marcel@marcel-local` | Keeps the architecture unchanged: real `--bg` sessions, two-way channel, permission relay. Supported admin knob, no screen-scraping | Policy file applies to every `claude` on the NUC and replaces the default channel allowlist. **Chosen and verified.** |
 | **B. Runner-owned pty instead of `--bg`** (new) | Runner launches an interactive `claude` on a pty/tmux and presses Enter on the dev-channel dialog (proven above) | Works today, no root, no policy change | Leaves the daemon: `kind: interactive` in `agents --json`, so no `claude stop/respawn/attach`; the runner supervises and restarts it. Relies on matching a warning dialog meant for humans |
 | **C. Plan fallback 2** | `PermissionRequest` hook → hub (blocking) for approvals; `crossSessionInbound: accept` + `SendMessage` for steering | Works in `--bg` without channels | Loses the push channel for user messages (the hub must inject into sessions another way). Untested; more moving parts |
 | **D. Plan fallback 3** | Official Telegram channel as the brain's transport | On the default allowlist, works in `--bg` today | Brain I/O goes through Telegram, not the app. Workers still need A, B or C |
 
-Recommendation: **A**, then fall back to **B** for the brain if the policy file turns out to have side effects. SP7 (fork the
-brain) waits on this, because it needs a running channel brain.
+The owner chose **A**. **B** stays the fallback for the brain if the policy file ever causes trouble.
 
-## What the plan changes (whichever option)
+## What the plan changes
 
 - Fix the command line in 03-spikes / F05 / F06: prompt after `--`.
 - The channel server must allow its own tools (`reply`, `report`) in the plugin's settings, or `manual`-mode
   sessions prompt for every reply.
 - Runner: check the `Channel notifications registered|skipped` debug line at startup and fail the spawn loudly
   (Core principle: Human-readable — "the brain can't hear you" must never be silent).
-- 02-architecture "Known risks" #1: the confirmation does not block. It silently disables the channel in `--bg`.
+- 02-architecture "Known risks" #1: the confirmation does not block. It silently disables the channel in `--bg`. It is
+  resolved by the managed-settings allowlist. The channel is launched with `--channels plugin:marcel@marcel-local`, never the dev flag.
+- **F14 deploy:**
+  - install `/etc/claude-code/managed-settings.json` (root, once);
+  - register the `marcel-local` marketplace pointing at a deployed copy of `plugins/marcel/`;
+  - install the plugin project-scoped in `~/marcel/brain` and in each worker workspace (or user-scoped if every session on
+    the NUC should load it).
+- **F05 plugin:**
+  - the hello carries `CLAUDE_CODE_SESSION_ID`, not `MARCEL_SESSION_ROLE`/`MARCEL_TASK_ID` env, because those cannot be
+    injected through `claude --bg`;
+  - pre-allow `mcp__plugin_marcel_marcel__reply` / `__report`.
+- **F04 hub:** the channel gateway resolves a session id → (role, conversation | task).

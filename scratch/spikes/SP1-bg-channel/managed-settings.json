@@ -1,0 +1,8 @@
+{
+  "channelsEnabled": true,
+  "allowedChannelPlugins": [
+    {"plugin": "marcel", "marketplace": "marcel-local"},
+    {"plugin": "telegram", "marketplace": "claude-plugins-official"},
+    {"plugin": "imessage", "marketplace": "claude-plugins-official"}
+  ]
+}

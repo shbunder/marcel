@@ -21,9 +21,14 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-PORT = int(os.environ.get('SP1_PORT', '8791'))
 NAME = os.environ.get('SP1_NAME', 'sp1')
-CONV = os.environ.get('MARCEL_CONVERSATION_ID', 'main')
+# Identity: Claude Code gives every MCP server its session's id; custom env (MARCEL_*) does not survive `claude --bg`
+# (SP7). The hub maps session id → conversation, so the server just reports the session id.
+SESSION = os.environ.get('CLAUDE_CODE_SESSION_ID', '?')
+CONV = os.environ.get('MARCEL_CONVERSATION_ID', 'session:' + SESSION[:8])
+# Preferred fixed port; a second session (e.g. an SP7 fork) falls back to an ephemeral one and reports it in `started`.
+# (The real channel server dials out to the hub and listens on nothing.)
+PORT = int(os.environ.get('SP1_PORT', '8791'))
 LOG = os.environ.get('SP1_LOG', os.path.join(os.path.dirname(os.path.abspath(__file__)), f'{NAME}-events.jsonl'))
 
 out_lock = threading.Lock()
@@ -32,7 +37,8 @@ seq = 0
 
 
 def record(kind: str, **data) -> dict:
-    ev = {'t': int(time.time() * 1000), 'kind': kind, 'server': NAME, 'conversation': CONV, 'pid': os.getpid(), **data}
+    ev = {'t': int(time.time() * 1000), 'kind': kind, 'server': NAME, 'conversation': CONV, 'session': SESSION,
+          'pid': os.getpid(), **data}
     events.append(ev)
     with open(LOG, 'a') as f:
         f.write(json.dumps(ev) + '\n')
@@ -129,11 +135,14 @@ def main() -> None:
     try:
         srv = ThreadingHTTPServer(('127.0.0.1', PORT), Http)
     except OSError as e:
-        record('http_bind_failed', port=PORT, error=str(e))
-        srv = None
+        record('http_port_taken', port=PORT, error=str(e))
+        srv = ThreadingHTTPServer(('127.0.0.1', 0), Http)
     if srv:
         threading.Thread(target=srv.serve_forever, daemon=True).start()
-        record('started', port=PORT)
+        # SP7: which identity does the server get from its session? (keys only, plus the session id)
+        env = {k: (os.environ[k] if k in ('CLAUDE_CODE_SESSION_ID', 'MARCEL_CONVERSATION_ID') else '…')
+               for k in os.environ if k.startswith(('CLAUDE', 'MARCEL'))}
+        record('started', port=srv.server_address[1], ppid=os.getppid(), env=env)
     for line in sys.stdin:
         line = line.strip()
         if line:
