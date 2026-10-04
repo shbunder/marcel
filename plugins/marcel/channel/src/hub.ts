@@ -27,6 +27,7 @@ export interface HubOptions {
   unknownWindowMs?: number;
   pingMs?: number;
   ackTimeoutMs?: number;
+  helloTimeoutMs?: number;
 }
 
 export interface CallOutcome {
@@ -63,6 +64,8 @@ export class HubClient {
   private unknownSince: number | undefined;
   private rejectedThisSocket = false;
   private ended = false;
+  private everReady = false;
+  private helloTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly calls = new Map<string, PendingCall>();
   private readonly permissions = new Map<string, PermissionRequest>();
 
@@ -74,6 +77,7 @@ export class HubClient {
       unknownWindowMs: 120_000,
       pingMs: 20_000,
       ackTimeoutMs: 10_000,
+      helloTimeoutMs: 15_000,
       ...opts,
     };
   }
@@ -104,7 +108,7 @@ export class HubClient {
         }, this.o.ackTimeoutMs);
         this.send(frame);
       } else {
-        this.settle(call, { status: 'queued', text: 'Queued: Marcel is reconnecting. It will be sent when the connection is back.' });
+        this.settle(call, { status: 'queued', text: `Queued: Marcel is ${this.everReady ? 'reconnecting' : 'connecting'}. It will be sent when the connection is up.` });
       }
     });
   }
@@ -160,6 +164,7 @@ export class HubClient {
       };
       if (this.lastSeq > 0) hello.resume_after = this.lastSeq;
       socket.send(JSON.stringify(hello));
+      this.helloTimer = setTimeout(() => this.onHelloTimeout(socket), this.o.helloTimeoutMs);
     };
     socket.onmessage = (ev) => {
       if (this.socket === socket) this.onData(ev.data);
@@ -171,6 +176,7 @@ export class HubClient {
       if (this.socket !== socket) return;
       this.socket = undefined;
       this.clearPing();
+      this.clearHelloTimer();
       if (this.rejectedThisSocket || this.ended) return;
       if (this.state === 'ready') this.o.log('Lost the hub connection. Reconnecting.');
       this.scheduleReconnect();
@@ -192,6 +198,12 @@ export class HubClient {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
     this.clearPing();
+    this.clearHelloTimer();
+    this.abandon();
+  }
+
+  /** Let go of the current socket without waiting for it to say goodbye. */
+  private abandon(): void {
     const socket = this.socket;
     this.socket = undefined;
     if (socket) {
@@ -202,6 +214,19 @@ export class HubClient {
         // already closed
       }
     }
+  }
+
+  private clearHelloTimer(): void {
+    if (this.helloTimer) clearTimeout(this.helloTimer);
+    this.helloTimer = undefined;
+  }
+
+  private onHelloTimeout(socket: SocketLike): void {
+    this.helloTimer = undefined;
+    if (this.socket !== socket) return;
+    this.o.log(`The hub took the connection but did not answer hello in ${Math.round(this.o.helloTimeoutMs / 1000)} s. Reconnecting.`);
+    this.abandon();
+    this.scheduleReconnect();
   }
 
   private clearPing(): void {
@@ -260,7 +285,9 @@ export class HubClient {
   }
 
   private onWelcome(welcome: Welcome): void {
+    this.clearHelloTimer();
     this.state = 'ready';
+    this.everReady = true;
     this.welcome = welcome;
     this.failures = 0;
     this.unknownSince = undefined;
@@ -269,16 +296,12 @@ export class HubClient {
     this.o.log(`Connected to the hub as ${welcome.role}.`);
     this.o.onWelcome?.(welcome);
     // Anything the hub may not have stored goes again; the hub acks a repeated call_id with `duplicate`.
-    for (const call of this.calls.values()) {
-      this.send(call.frame);
-      if (!call.settled && !call.timer) {
-        call.timer = setTimeout(() => this.settle(call, { status: 'queued', text: 'Queued: the hub has not confirmed it yet. Marcel will keep trying.' }), this.o.ackTimeoutMs);
-      }
-    }
+    for (const call of this.calls.values()) this.send(call.frame);
     for (const request of this.permissions.values()) this.send(request);
   }
 
   private onRejected(reason: RejectReason, message: string | undefined): void {
+    this.clearHelloTimer();
     this.rejectedThisSocket = true;
     const detail = message ? ` ${message}` : '';
     if (reason === 'unknown_session') {
@@ -300,25 +323,20 @@ export class HubClient {
   }
 
   private halt(reason: RejectReason): void {
+    const calls = this.calls.size;
+    const prompts = this.permissions.size;
+    this.o.log(`Gave up on the hub (${reason}). Dropped ${calls} queued ${calls === 1 ? 'call' : 'calls'} and ${prompts} pending permission ${prompts === 1 ? 'prompt' : 'prompts'}.`);
     this.state = 'stopped';
     this.stopReason = reason;
+    this.permissions.clear();
     this.failAllCalls(this.unreachableText());
   }
 
   private onPingTick(): void {
     if (Date.now() - this.lastReceived > this.o.pingMs * 3) {
       this.o.log('The hub went quiet. Reconnecting.');
-      const socket = this.socket;
-      this.socket = undefined;
       this.clearPing();
-      if (socket) {
-        socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
-        try {
-          socket.close();
-        } catch {
-          // already closed
-        }
-      }
+      this.abandon();
       this.scheduleReconnect();
       return;
     }

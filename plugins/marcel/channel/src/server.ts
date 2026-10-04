@@ -17,6 +17,8 @@ export const INSTRUCTIONS = [
   'Your opening prompt says which role you have.',
 ].join(' ');
 
+const DEFAULT_SETTLE_MS = 500;
+
 export interface ServerDeps {
   config: Config | undefined;
   /** Why there is no config, when there is none. Tools then say Marcel is unreachable. */
@@ -24,6 +26,8 @@ export interface ServerDeps {
   write: (line: string) => void;
   log: (line: string) => void;
   createSocket: (url: string) => SocketLike;
+  /** Wait this long after `notifications/initialized` before the first frame goes in. */
+  settleMs?: number;
   hubTiming?: Partial<ConstructorParameters<typeof HubClient>[0]>;
 }
 
@@ -32,6 +36,8 @@ export class ChannelServer {
   readonly mcp: McpServer;
   readonly hub: HubClient | undefined;
   private readonly held = new Map<number, Deliverable>();
+  private open = false;
+  private settleTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly deps: ServerDeps) {
     this.mcp = new McpServer(
@@ -40,7 +46,7 @@ export class ChannelServer {
         tools: TOOLS,
         instructions: INSTRUCTIONS,
         callTool: (name, args) => this.callTool(name, args),
-        onInitialized: () => this.flushHeld(),
+        onInitialized: () => this.onInitialized(),
         onNotification: (method, params) => this.onClaudeNotification(method, params),
         log: deps.log,
       },
@@ -67,14 +73,30 @@ export class ChannelServer {
   }
 
   stop(): void {
+    if (this.settleTimer) clearTimeout(this.settleTimer);
     this.hub?.stop();
   }
 
   // --- hub → Claude Code ------------------------------------------------------------------------------------
 
+  /**
+   * Claude Code registers the channel a moment after `initialized` (about 60 ms in SP1). A frame that goes in
+   * before that can be dropped and still acked, so frames wait for a settle delay first.
+   */
+  private onInitialized(): void {
+    const settleMs = this.deps.settleMs ?? DEFAULT_SETTLE_MS;
+    if (settleMs <= 0) return this.openGate();
+    this.settleTimer = setTimeout(() => this.openGate(), settleMs);
+  }
+
+  private openGate(): void {
+    this.open = true;
+    this.flushHeld();
+  }
+
   private deliver(frame: Deliverable): void {
-    if (!this.mcp.initialized) {
-      // Claude Code has not finished its handshake: hold the frame, unacked, so nothing is lost.
+    if (!this.open) {
+      // Claude Code is not ready for channel events yet: hold the frame, unacked, so nothing is lost.
       this.held.set(frame.seq, frame);
       return;
     }

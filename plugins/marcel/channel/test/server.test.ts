@@ -319,7 +319,7 @@ describe('reply', () => {
     await h.handshake();
     await flush();
     const res = await h.callTool('reply', { text: 'anyone there?' });
-    expect(text(res)).toMatch(/^Queued: Marcel is reconnecting/);
+    expect(text(res)).toMatch(/^Queued: Marcel is connecting/);
     expect(res.result?.isError).toBeUndefined();
     h.hub.down = false;
     await vi.advanceTimersByTimeAsync(5000);
@@ -581,5 +581,134 @@ describe('rejections', () => {
     expect((await p).result?.isError).toBe(true);
     expect(text(await h.callTool('reply', { text: 'again' }))).toMatch(/shutting down/);
     h.server.stop(); // twice is fine
+  });
+});
+
+describe('queued wording', () => {
+  it('says "reconnecting" once the hub has been reached before', async () => {
+    const h = await connected();
+    h.hub.down = true;
+    h.hub.drop();
+    await flush();
+    expect(text(await h.callTool('reply', { text: 'later' }))).toMatch(/^Queued: Marcel is reconnecting/);
+  });
+});
+
+describe('hello timeout', () => {
+  it('closes a connection the hub accepts but never answers, logs it, and reconnects with backoff', async () => {
+    const h = new Harness();
+    h.hub.helloReply = 'silent';
+    h.server.start();
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(h.hub.attempts).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.hub.sockets[0]?.closedByClient).toBe(true);
+    expect(h.logs.some((l) => l.includes('did not answer hello'))).toBe(true);
+    expect(h.server.hub?.state).toBe('reconnecting');
+    await vi.advanceTimersByTimeAsync(1000); // backoff 1 s
+    expect(h.hub.attempts).toBe(2);
+    // the second silence waits 2 s before the next try
+    await vi.advanceTimersByTimeAsync(15_000 + 1999);
+    expect(h.hub.attempts).toBe(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.hub.attempts).toBe(3);
+  });
+
+  it('does not fire once the hub answers', async () => {
+    const h = await connected();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.logs.some((l) => l.includes('did not answer hello'))).toBe(false);
+    expect(h.hub.attempts).toBe(1);
+  });
+
+  it('does not fire after a rejection or a close', async () => {
+    const h = new Harness();
+    h.hub.helloReply = { type: 'rejected', reason: 'bad_secret' };
+    h.server.start();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.logs.some((l) => l.includes('did not answer hello'))).toBe(false);
+    const g = new Harness();
+    g.hub.helloReply = 'silent';
+    g.server.start();
+    await flush();
+    g.hub.drop();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(g.logs.some((l) => l.includes('did not answer hello'))).toBe(false);
+  });
+});
+
+describe('settle delay after initialized', () => {
+  it('holds a frame queued at hello for 500 ms after notifications/initialized, then delivers and acks it', async () => {
+    const h = new Harness({ settleMs: 500 });
+    h.server.start();
+    h.hub.push({ type: 'user_message', seq: 1, message_id: 'm', conversation_id: 'c', text: 'queued at hello' }, undefined);
+    await h.handshake();
+    await flush();
+    await vi.advanceTimersByTimeAsync(499);
+    expect(h.notifications()).toHaveLength(0);
+    expect(h.hub.of('ack')).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.notifications('notifications/claude/channel')).toHaveLength(1);
+    expect(h.hub.of('ack')).toEqual([{ type: 'ack', seq: 1 }]);
+  });
+
+  it('uses 500 ms by default, and delivers at once afterwards', async () => {
+    const h = new Harness();
+    (h.server as unknown as { deps: { settleMs?: number } }).deps.settleMs = undefined;
+    h.server.start();
+    await h.handshake();
+    await flush();
+    h.hub.push({ type: 'user_message', seq: 1, message_id: 'm', conversation_id: 'c', text: 'early' });
+    await vi.advanceTimersByTimeAsync(499);
+    expect(h.notifications()).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.notifications()).toHaveLength(1);
+    h.hub.push({ type: 'user_message', seq: 2, message_id: 'm2', conversation_id: 'c', text: 'later' });
+    await flush();
+    expect(h.notifications()).toHaveLength(2);
+  });
+
+  it('does not deliver after the server is stopped during the settle delay', async () => {
+    const h = new Harness({ settleMs: 500 });
+    h.server.start();
+    await h.handshake();
+    await flush();
+    h.hub.push({ type: 'user_message', seq: 1, message_id: 'm', conversation_id: 'c', text: 'x' });
+    await flush();
+    h.server.stop();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.notifications()).toHaveLength(0);
+  });
+});
+
+describe('giving up says what was dropped', () => {
+  it('bad_secret: counts queued calls and pending prompts', async () => {
+    const h = await connected();
+    void h.callTool('reply', { text: 'one' });
+    void h.callTool('reply', { text: 'two' });
+    await h.claudeNotifies('notifications/claude/channel/permission_request', { request_id: 'abcde', tool_name: 'Bash', description: 'x' });
+    await flush();
+    h.hub.helloReply = { type: 'rejected', reason: 'bad_secret' };
+    h.hub.drop();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.logs).toContain('Gave up on the hub (bad_secret). Dropped 2 queued calls and 1 pending permission prompt.');
+  });
+
+  it('plugin_too_old with nothing queued says zero, singular where it should', async () => {
+    const h = new Harness();
+    h.hub.helloReply = { type: 'rejected', reason: 'plugin_too_old' };
+    h.server.start();
+    await flush();
+    expect(h.logs).toContain('Gave up on the hub (plugin_too_old). Dropped 0 queued calls and 0 pending permission prompts.');
+  });
+
+  it('unknown_session: says it at the end of the window, with one call', async () => {
+    const h = new Harness();
+    h.hub.helloReply = { type: 'rejected', reason: 'unknown_session' };
+    h.server.start();
+    await h.handshake();
+    void h.callTool('reply', { text: 'waiting' });
+    await vi.advanceTimersByTimeAsync(121_000);
+    expect(h.logs).toContain('Gave up on the hub (unknown_session). Dropped 1 queued call and 0 pending permission prompts.');
   });
 });

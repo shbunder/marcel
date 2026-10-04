@@ -120,7 +120,7 @@ export class Harness {
   private nextId = 1;
   private readonly waiters = new Map<number, (msg: Rpc) => void>();
 
-  constructor(opts: { config?: Config | undefined; configProblem?: string; timing?: Record<string, number> } = {}) {
+  constructor(opts: { config?: Config | undefined; configProblem?: string; timing?: Record<string, number>; settleMs?: number } = {}) {
     this.server = new ChannelServer({
       config: 'config' in opts ? opts.config : CONFIG,
       configProblem: opts.configProblem,
@@ -132,6 +132,7 @@ export class Harness {
       log: (line) => this.logs.push(line),
       createSocket: this.hub.createSocket,
       hubTiming: opts.timing,
+      settleMs: opts.settleMs ?? 0,
     });
   }
 
