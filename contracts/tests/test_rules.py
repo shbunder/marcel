@@ -74,6 +74,61 @@ BAD = [
         },
     ),
     ('PairingCode', 'https://marcel-bot.com/pair?code=K7Q2M9'),
+    (
+        'Message',
+        {
+            'id': 'm',
+            'conversation_id': 'c',
+            'role': 'agent',
+            'kind': 'approval',
+            'task_id': 't',
+            'created_at': '2026-10-04T18:00:00Z',
+        },
+    ),
+    (
+        'Message',
+        {
+            'id': 'm',
+            'conversation_id': 'c',
+            'role': 'user',
+            'kind': 'quote',
+            'text': 'quoted',
+            'created_at': '2026-10-04T18:00:00Z',
+        },
+    ),
+    ('Artifact', {k: v for k, v in example('Artifact').items() if k != 'pr'}),
+    (
+        'TaskEvent',
+        {
+            'task_id': 't',
+            'seq': 1,
+            'type': 'progress',
+            'at': '2026-10-04T18:00:00Z',
+            'data': {'message': 'not the field name'},
+        },
+    ),
+    (
+        'TaskEvent',
+        {
+            'task_id': 't',
+            'seq': 1,
+            'type': 'artifact',
+            'at': '2026-10-04T18:00:00Z',
+            'data': {'kind': 'pr', 'title': 'no artifact id'},
+        },
+    ),
+    (
+        'TaskEvent',
+        {
+            'task_id': 't',
+            'seq': 1,
+            'type': 'note',
+            'at': '2026-10-04T18:00:00Z',
+            'data': {'text': 'no author'},
+        },
+    ),
+    ('Me', {**example('Me'), 'push': {'apns': False, 'ntfy': True}}),
+    ('Agent', {k: v for k, v in example('Agent').items() if k != 'main_conversation_id'}),
 ]
 
 
@@ -102,16 +157,41 @@ def test_memory_path_accepts(path: str):
 
 
 @pytest.mark.parametrize(
-    'path', ['../secrets.md', 'memory/../../x.md', '/etc/passwd.md', 'notes.txt', 'a b.md', '']
+    'path',
+    [
+        '../secrets.md',
+        'memory/../../x.md',
+        '/etc/passwd.md',
+        'notes.txt',
+        'a b.md',
+        '',
+        '.git/config.md',
+        'memory/.hidden.md',
+    ],
 )
 def test_memory_path_rejects(path: str):
     with pytest.raises(ValidationError):
         Draft202012Validator(MEMORY_PATH).validate(path)
 
 
-def test_a_session_stuck_starting_can_go_silent():
-    """B-23: a session hung at startup must not stay `starting` forever."""
-    assert any('starting' in src and 'silent' in dst for src, dst in transitions())
+@pytest.mark.parametrize(
+    ('source', 'target', 'why'),
+    [
+        ('starting', 'silent', 'B-23: a session hung at startup must not stay starting forever'),
+        ('starting', 'needs_you', 'a permission or login can come before the first step'),
+        ('starting', 'done', 'a short task can finish between two runner polls'),
+        ('unknown', 'starting', 'the runner can come back while a session is still starting'),
+        ('done', 'working', 'B-05: a follow-up goes to the same session'),
+    ],
+)
+def test_required_transition_exists(source: str, target: str, why: str):
+    assert any(source in src and target in dst for src, dst in transitions()), why
+
+
+def test_server_url_is_under_api():
+    """Every app path (/health, /pair and /ws too) lives under /api, the tunnel's only prefix."""
+    servers = [s['url'] for s in load_api()['servers']]
+    assert servers and all(url.endswith('/api') for url in servers)
 
 
 def dashboard_validator() -> Draft202012Validator:

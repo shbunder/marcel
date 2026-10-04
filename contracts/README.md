@@ -17,3 +17,7 @@ and that the state table matches the API's `TaskState` enum.
 
 The WebSocket events live in a JSON Schema, which OpenAPI code generators do not read, so the iOS
 app writes those Swift types by hand from `events.schema.json`.
+
+After changing a contract, the lead also runs `make -C contracts mutants`. It deletes each
+`if`/`then` rule in `app-api.yaml` in turn and fails if any deletion leaves the tests green, which
+would mean that rule has no test that can fail.

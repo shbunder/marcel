@@ -248,6 +248,11 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: A task thread whose task is `stopped` or `failed` (code `task_finished`). See `Conversation.task_id`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /messages/{message_id}/thread:
     parameters:
@@ -579,10 +584,11 @@ paths:
           A Markdown file's path inside the memory repo, with `/` encoded as `%2F` so it is one
           path segment (e.g. `MEMORY.md`, `memory%2F2026-10-04.md`). After decoding it must match
           the pattern: letters, digits, `.`, `_`, `-` and `/`, ending in `.md`, never `..`, never
-          starting with `/`. Anything else answers 400 `invalid_memory_path`.
+          starting with `/`, and no part starting with `.` (so `.git/` is unreachable). Anything
+          else answers 400 `invalid_memory_path`.
         schema:
           type: string
-          pattern: '^(?!/)(?!.*\.\.)[A-Za-z0-9._/-]+\.md$'
+          pattern: '^(?!/)(?!.*\.\.)(?!(.*/)?\.)[A-Za-z0-9._/-]+\.md$'
           example: MEMORY.md
     get:
       tags: [memory]
@@ -597,6 +603,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MemoryFile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
     put:
@@ -870,6 +877,8 @@ components:
             apns: { type: boolean }
             ntfy: { type: boolean }
             ntfy_server: { type: string, format: uri }
+          if: { properties: { ntfy: { const: true } } }
+          then: { required: [ntfy_server] }
       example:
         user_id: usr_owner
         name: Shaun
@@ -1415,8 +1424,9 @@ components:
     ApprovalState:
       type: string
       description: |
-        `expired`: the question went away without an answer from you: the session stopped,
-        failed or moved on, or another device answered first.
+        `expired`: the question went away without any answer: the session stopped, failed or
+        moved past it. An answer given anywhere else (another device, or a terminal) is recorded
+        as `approved` or `denied`, with `answered_via` saying where.
       enum: [open, approved, denied, expired]
       example: open
 

@@ -31,7 +31,7 @@ quote-style = "single"
 
 [tool.pyright]
 pythonVersion = "3.12"
-include = ["tests"]
+include = ["tests", "scripts"]
 typeCheckingMode = "standard"
 venvPath = "."
 venv = ".venv"

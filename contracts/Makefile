@@ -1,4 +1,4 @@
-.PHONY: check test sync
+.PHONY: check test sync mutants
 
 sync:
 	uv sync --quiet
@@ -11,3 +11,7 @@ check: sync
 
 test: sync
 	uv run pytest
+
+# Not part of the gate: deletes each if/then rule in turn and checks a test catches it.
+mutants: sync
+	uv run python scripts/mutate_conditionals.py

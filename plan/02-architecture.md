@@ -103,7 +103,8 @@ Loaded by the brain, its side threads and every NUC worker.
   - schedules: `schedule_create`, `schedule_list`, `schedule_delete`;
   - other: `notify`, `usage_get`.
 - **`/marcel-adopt` command**: registers the current session (id, cwd, cloud or local) with the hub through
-  `marcel-bot.com` with the device token. The session becomes a tracked task (B-14).
+  `marcel-bot.com/api/session/adopt` with an adopt token (not a device token; see
+  `contracts/session-api.yaml`). The session becomes a tracked task (B-14).
 - **Skills**:
   - `orchestrate` (the brain's playbook: routing, where to run, milestone style);
   - `worker-protocol` (how a worker reports progress, artifacts and completion);
@@ -139,7 +140,7 @@ to the app) or calls `tasks_spawn` → the hub creates the task and the runner s
 Code → hub → task becomes `needs_you`, approval card plus push → I tap Approve → hub → channel server → Claude Code
 continues. Answering in a terminal also works; the first answer wins.
 
-**3. Steering.** I type in the thread view → `POST /tasks/{id}/messages` → hub → that worker's channel
+**3. Steering.** I type in the thread view → `POST /api/tasks/{id}/messages` → hub → that worker's channel
 server pushes it into the session.
 
 **4. Completion.** The worker calls `report(done, summary, artifacts)`, or the runner sees
@@ -192,18 +193,24 @@ Other levers:
 The hub has a `Triage` seam with a rules implementation, so a decision model can be added later
 without touching the brain.
 
-## Data model (summary — the full schema is part of F02)
+## Data model (summary; where it and `contracts/` disagree, the contract wins)
 
 ```
-agent(id, owner_user_id, name, animal, palette, seed, persona_path, model_brain, model_worker)
+agent(id, owner_user_id, name, animal, palette, seed, persona_path, model_brain, model_worker,
+      main_conversation_id)
 device(id, user_id, name, token_hash, apns_token?, ntfy_topic?, created_at, last_seen)
-conversation(id, agent_id, kind[main|side], parent_message_id?, brain_session_id?)
-message(id, conversation_id, role[user|agent|system], kind[text|milestone|approval|quote], body_json, task_id?, created_at)
-task(id, agent_id, title, location[nuc|cloud], state, model, session_id?, cloud_url?, repo?, worktree?,
-     origin[marcel|adopted|schedule], parent_message_id?, created_at, updated_at, last_activity_at, expected_by?)
-task_event(id, task_id, type, payload_json, created_at)          -- normalised transcript + state changes
-approval(id, task_id, request_id, tool, summary, state[open|approved|denied|expired], answered_at)
-artifact(id, task_id, kind[pr|doc|file|dashboard|link], title, uri, meta_json, created_at)
+conversation(id, agent_id, kind[main|side], parent_message_id?, task_id?, brain_session_id?)
+message(id, conversation_id, role[user|agent|system], kind[text|milestone|approval|quote], body_json,
+        task_id?, client_id?, created_at)
+task(id, agent_id, title, location[nuc|cloud], state, queued_reason?[cap|usage], model,
+     session_id?, cloud_url?, remote_url?, repo?, branch?, worktree?,
+     origin[marcel|adopted|schedule], parent_message_id?, schedule_id?, summary?, waiting_for?,
+     created_at, updated_at, last_activity_at, expected_by?, archived_at?)
+task_event(task_id, seq, type, data_json, at)                    -- normalised transcript + hub events
+approval(id, task_id, request_id, tool, summary, detail?, artifact_id?,
+         state[open|approved|denied|expired], answered_via?[app|terminal], answered_at?)
+artifact(id, task_id?, kind[pr|branch|doc|file|dashboard|link], title, url?, content_type?,
+         size_bytes?, trusted, self_change, meta_json, created_at)
 schedule(id, agent_id, name, cron, tz, location[nuc|cloud|brain], prompt, paused, last_run_at, deadline_minutes?)
 usage_snapshot(id, taken_at, window[five_hour|weekly], used_pct, resets_at, source)
 ```
@@ -217,7 +224,8 @@ plugins/marcel/   Claude Code plugin (channel server TS, tools py, skills, comma
 brain/        brain workspace template (CLAUDE.md persona, settings)
 ios/          Xcode project `Marcel` (app + MarcelKit + AvatarKit packages)
 shared/avatar/    recipes/*.json, palettes.json  (consumed by iOS; validated by a py test)
-contracts/    app-api.yaml, runner-api.yaml, events.schema.json, transcript.schema.json, channel-protocol.md
+contracts/    app-api.yaml, events.schema.json, task-states.md, dashboard.schema.json (S-02.1);
+              runner-api.yaml, transcript.schema.json, channel-protocol.md, session-api.yaml (S-02.2)
 deploy/       docker-compose.yml, systemd units, cloudflared ingress, redeploy.sh, watchdog
 project/      board: features/, stories/, decisions/, lessons/, contract-requests/
 docs/         operator + developer docs
