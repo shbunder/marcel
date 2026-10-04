@@ -4,6 +4,21 @@ Seven unknowns could each reshape the architecture. Each one is a small, throwaw
 that answers a single question. They all run **before** feature work fans out. Spike code goes in
 `scratch/spikes/SPx-*/` and is never imported by product code.
 
+## Results (2026-10-04)
+
+| Spike | Verdict | What changed in the plan |
+|---|---|---|
+| [SP1](../scratch/spikes/SP1-bg-channel/RESULT.md) channel in `--bg` | **PASS with option A** (the dev flag fails silently) | Plugin via local marketplace + managed-settings allowlist ([ADR-001](../project/decisions/ADR-001-channel-via-managed-settings-allowlist.md)); prompt after `--`; identity by `CLAUDE_CODE_SESSION_ID` |
+| [SP2](../scratch/spikes/SP2-worker-control/RESULT.md) worker control | **PASS** | Trust once per clone; scrub `CLAUDE*` env; state-to-task mapping; transcript mapping and fixtures; no live steering without the channel |
+| [SP3](../scratch/spikes/SP3-cloud/RESULT.md) cloud sessions | **PASS** | `--cloud` on a pty; `-p --cloud <id>` acks; state only from the worker's HTTPS reports |
+| [SP4](../scratch/spikes/SP4-usage/RESULT.md) plan usage | **PASS** | `claude -p /usage` polled by the runner; status-line `rate_limits`; limit hit = `blocked` with `needs` |
+| [SP5](../scratch/spikes/SP5-avatar/RESULT.md) RealityKit giraffe | **Open**: simulator only | Owner runs it on the iPhone (frame rate, colours, verdict); neck curve and maroon to decide |
+| [SP6](../scratch/spikes/SP6-hub-runner-socket/RESULT.md) hub ↔ runner | **PASS** | Socket under `/run/user/<uid>/marcel`; separate claude supervisor unit; linger; no `~/.claude` in the hub |
+| [SP7](../scratch/spikes/SP7-fork-brain/RESULT.md) fork the brain | **PASS** | `--resume <brain> --fork-session` for side threads |
+
+The steps below are the original questions, kept as written. Where a command was wrong (SP1 step 2
+needs the prompt after `--`), the result file says so.
+
 Every spike ends with a short `RESULT.md` in its folder:
 
 - the question;

@@ -49,9 +49,9 @@ unmodified `claude` CLI on the owner's Max subscription. Marcel's own code does 
 │      │  • MCP tools        (brain: tasks/memory/schedule…)  │               │
 │      │  • /marcel-adopt, skills, hooks                      │               │
 │      └──────────────────────────────────────────────────────┘               │
-│   brain:  claude --bg --name marcel --model opus   (workspace ~/marcel/brain)│
+│   brain:  claude --bg --name marcel --model opus --channels plugin:marcel@marcel-local │
 │   side:   forks of the brain session               (one per side thread)     │
-│   workers: claude --bg --model sonnet --permission-mode auto (worktrees)     │
+│   workers: claude --bg --model sonnet --permission-mode auto --channels … (worktrees)│
 └──────────────────────────────────────────────────────────────────────────────┘
         cloud workers: claude --cloud "…"  (claude.ai/code sessions)
         Harry (separate service, MCP on :7430) — a connector, later
@@ -80,10 +80,14 @@ boundary is deliberate. The runner is small and has no business logic.
 
 | Area | What the runner does |
 |---|---|
-| API | Speaks only on a unix socket that is mounted into the hub container. Operations: `spawn`, `list`, `get`, `send`, `stop`, `fork`, `tail`, `cloud_spawn`, `cloud_send`, `usage`, `health` (`contracts/runner-api.yaml`). |
-| Watching | Polls `claude agents --json --all` every 2 s and emits state-change events to the hub. |
-| Transcripts | Tails session transcripts (`~/.claude/projects/**/<session-id>.jsonl`) and streams normalised transcript events (`contracts/transcript.schema.json`). |
-| Workspaces | Manages worktrees under `~/marcel/workspaces/<repo>`. |
+| Supervisor | Claude's own background supervisor runs in **its own** user unit, `marcel-claude-daemon.service` (`claude daemon run`), never inside the runner's cgroup, so restarting the runner never kills a session (SP6). The runner refuses to start if no supervisor is running outside its cgroup. |
+| Launching | Every `claude` it starts gets a scrubbed environment (no inherited `CLAUDE*` variables), an absolute path to the binary, and the prompt after `--` (the `--channels` flag is variadic). It checks the session's debug log for `Channel notifications registered` and fails the spawn loudly on `skipped` (SP1, SP2). |
+| API | Speaks only on a unix socket, `/run/user/<uid>/marcel/runner.sock` on the host (systemd `RuntimeDirectory=marcel`, `RuntimeDirectoryPreserve=yes`, mode 0660), mounted into the hub container as `/run/marcel` (SP6). Operations: `spawn`, `list`, `get`, `send`, `stop`, `fork`, `tail`, `cloud_spawn`, `cloud_send`, `usage`, `health` (`contracts/runner-api.yaml`). |
+| Watching | Polls `claude agents --json --all` every 2 s (≈0.12 s per call), keyed on the session `id` and `kind == background`, and emits state-change events to the hub. It may enrich them, best effort and version-gated, from the undocumented `~/.claude/jobs/<id>/state.json` (`needs`, `detail`, `output.result`), which gives approval-card text and one-line summaries for free (SP2). |
+| Transcripts | Tails session transcripts (`~/.claude/projects/<cwd with / → ->/<session-id>.jsonl`, plus `subagents/`) and streams normalised transcript events (`contracts/transcript.schema.json`, mapped as in SP2's table), resumable by byte offset. The hub never mounts `~/.claude` (SP6). |
+| Workspaces | Manages worktrees under `~/marcel/workspaces/<repo>`. Workspace trust is per git root and worktrees inherit it, so the runner accepts the trust prompt once per clone (SP2). |
+| Cloud | `cloud_spawn` runs `claude --cloud "<prompt>"` under a pty (it refuses without a terminal) and parses the session id and URL; `cloud_send` runs `claude -p "<msg>" --cloud <id> --output-format json`, which returns an ack. Nothing can poll a cloud session's state: cloud workers report to the hub over HTTPS (SP3). |
+| Usage | `claude -p "/usage" --no-session-persistence` (no model call, 2–3 s) parsed from its text, every 5 minutes and before each spawn. A status-line command may also publish `rate_limits` from live sessions (SP4). |
 | Limits | Enforces the NUC concurrency cap. |
 | Testing | Never calls a model directly. Tests use a **fake `claude` shim** (`runner/tests/fake_claude/`) that replays recorded `agents --json` and JSONL fixtures. |
 
@@ -91,9 +95,19 @@ boundary is deliberate. The runner is small and has no business logic.
 
 Loaded by the brain, its side threads and every NUC worker.
 
+- **How it loads (SP1, option A; ADR-001):** the plugin is installed from a local marketplace,
+  `marcel-local`, that points at a deployed copy of `plugins/marcel/` (never a working tree, because a
+  directory-source plugin runs in place). `/etc/claude-code/managed-settings.json` turns channels on and
+  allowlists `marcel@marcel-local`, so a `--bg` session started with `--channels plugin:marcel@marcel-local`
+  registers the channel with no terminal. The development-channels flag silently does nothing in `--bg`.
 - **Channel server** (`marcel-channel`): a TypeScript MCP stdio server. It declares
-  `claude/channel` and `claude/channel/permission` and connects to the hub's `/channel` WS with
-  `MARCEL_SESSION_ROLE` (brain|side|worker) and `MARCEL_TASK_ID`.
+  `claude/channel` and `claude/channel/permission` and connects to the hub's `/channel` WS. It
+  **identifies itself by `CLAUDE_CODE_SESSION_ID`**, which Claude Code gives every plugin server: env set
+  on the `claude --bg` command line never reaches it (SP1, SP7). The hub maps that session id to brain,
+  side thread or task, because the runner reported the id at spawn. It authenticates with a hub secret
+  in the plugin's data folder (`CLAUDE_PLUGIN_DATA`); the hub only accepts session ids the runner started.
+  The plugin's settings pre-allow its own tools (`mcp__plugin_marcel_marcel__reply`, `…__report`) so
+  replies never prompt.
   - It pushes inbound user and steering messages as `<channel source="marcel" …>` events.
   - It exposes `reply` (brain and side) and `report` (workers: progress, artifact, done) tools.
   - It relays permission prompts as approval cards.
@@ -244,13 +258,18 @@ plan/         this plan: spec, architecture, spikes, playbook
 | Auth | Device tokens (random 32 bytes, stored hashed); QR pairing; Cloudflare tunnel | B-27 |
 | Deploy | Hub in Docker Compose; runner and claude native; flag-file redeploy + health watchdog + git revert | B-24 |
 
-## Known risks (each has a de-risking experiment in `03-spikes.md`)
+## Risks (after the spikes, 2026-10-04)
 
-1. Custom channels need `--dangerously-load-development-channels` during the research preview, and it
-   asks for confirmation at startup. That may block unattended background starts.
-2. There is no public API to observe cloud sessions.
-3. There is no documented programmatic read of plan usage.
-4. Steering a background session from outside, other than through a channel.
-5. Hub in Docker ↔ native runner: socket and file permissions, plus `~/.claude` read access.
-6. Forking a background brain session for side threads.
-7. RealityKit avatar quality and performance on iPhone.
+The seven risks the plan started with were all tested on the NUC and the Mac (`03-spikes.md`, results in
+`scratch/spikes/`). What is left:
+
+| Risk | Status | Mitigation |
+|---|---|---|
+| 1. Custom channel in `--bg` | **Resolved** with a managed-settings allowlist (SP1, ADR-001) | The policy file applies to every `claude` on the NUC and replaces the default channel allowlist (Telegram and iMessage are re-listed). Fallback: a runner-owned pty session for the brain |
+| 2. Observing cloud sessions | **Resolved by design**: workers report over HTTPS with a per-task token (SP3) | No polling path exists; a silent cloud task becomes `silent` and then needs you |
+| 3. Reading plan usage | **Resolved**: `claude -p /usage` text, plus the status-line `rate_limits` (SP4) | `/usage` is presentation text: one regex, with a contract test on recorded output |
+| 4. Steering a live session | **Resolved**: only through the channel; stop then `--resume` between turns, guarding the copy race (SP2) | — |
+| 5. Hub ↔ runner socket | **Resolved** (SP6) | Separate claude supervisor unit; `RuntimeDirectoryPreserve`; linger on |
+| 6. Forking the brain | **Resolved**: `--resume <brain> --fork-session` (SP7) | A fork reloads the brain's whole context once: keep the brain small (S-06.2) |
+| 7. Avatar on iPhone | **Open** (SP5): works in the simulator; iPhone frame rate, colours and the owner's verdict pending | Boxes cannot make the logo's neck curve; one custom mesh may be needed |
+| New: undocumented internals | `~/.claude/jobs/*` and `/usage` wording may change with any Claude Code update | Used best effort only, behind a version check; `agents --json` stays the source of truth |
