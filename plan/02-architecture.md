@@ -67,7 +67,7 @@ The source of truth. It holds:
 | App API | REST + one WebSocket per device (`contracts/app-api.yaml`, `contracts/events.schema.json`) |
 | Channel gateway | One WebSocket endpoint, `/channel`, that every session's channel server connects to. Messages for a session are pushed down it; replies, progress, artifacts and permission requests come up it. |
 | Brain lifecycle | Asks the runner to keep exactly one brain session alive per agent, restarts it, and triggers rollovers (F06). |
-| Task state machine | `queued → starting → working ⇄ needs_you → done / failed / stopped`, driven by runner events and channel events. |
+| Task state machine | Nine states (`queued`, `starting`, `working`, `needs_you`, `done`, `failed`, `stopped`, `silent`, `unknown`), every transition listed in `contracts/task-states.md`, driven by runner and channel events. |
 | Scheduler | APScheduler with a SQLite job store; digests, user schedules, watchdogs. |
 | Push | Notifier interface with APNs and ntfy backends. |
 | Memory | A git working copy at `~/marcel/memory`. The app edits through the API; the hub commits. |
@@ -130,7 +130,7 @@ Loaded by the brain, its side threads and every NUC worker.
 
 ## Key flows
 
-**1. A message in the main chat.** App → `POST /conversations/main/messages` → hub stores it → the channel
+**1. A message in the main chat.** App → `POST /api/conversations/{main_conversation_id}/messages` → hub stores it → the channel
 gateway pushes it to the brain session → the brain either answers through `reply` (hub stores it, WS
 to the app) or calls `tasks_spawn` → the hub creates the task and the runner spawns the worker → a
 "started" milestone is posted.
@@ -198,7 +198,7 @@ without touching the brain.
 agent(id, owner_user_id, name, animal, palette, seed, persona_path, model_brain, model_worker)
 device(id, user_id, name, token_hash, apns_token?, ntfy_topic?, created_at, last_seen)
 conversation(id, agent_id, kind[main|side], parent_message_id?, brain_session_id?)
-message(id, conversation_id, role[user|agent|system], kind[text|milestone|approval|card], body_json, task_id?, created_at)
+message(id, conversation_id, role[user|agent|system], kind[text|milestone|approval|quote], body_json, task_id?, created_at)
 task(id, agent_id, title, location[nuc|cloud], state, model, session_id?, cloud_url?, repo?, worktree?,
      origin[marcel|adopted|schedule], parent_message_id?, created_at, updated_at, last_activity_at, expected_by?)
 task_event(id, task_id, type, payload_json, created_at)          -- normalised transcript + state changes

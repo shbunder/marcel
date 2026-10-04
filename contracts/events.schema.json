@@ -32,7 +32,7 @@
       }
     },
     "Hello": {
-      "description": "First frame after connecting. `last_event_id` is where replay ended.",
+      "description": "First frame after connecting. `last_event_id` is where replay ended. Its own `id` is 0 and is not part of the event sequence.",
       "allOf": [{ "$ref": "#/$defs/Envelope" }],
       "properties": {
         "type": { "const": "hello" },
@@ -52,7 +52,7 @@
       ]
     },
     "ResyncRequired": {
-      "description": "The requested `since` is older than the hub keeps. Re-fetch over REST, then reconnect with `since = last_event_id`.",
+      "description": "The requested `since` is older than the hub keeps. Re-fetch over REST, then reconnect with `since = last_event_id`. Its own `id` is 0 and is not part of the event sequence.",
       "allOf": [{ "$ref": "#/$defs/Envelope" }],
       "properties": {
         "type": { "const": "resync.required" },

@@ -3,11 +3,17 @@ info:
   title: Marcel hub — app API
   version: 0.1.0
   description: |
-    The API the iPhone app uses to talk to the hub on the NUC. Every route needs a device token
+    The API the iPhone app uses to talk to the hub on the NUC. **Every path, including `/health`,
+    `/pair` and `/ws`, sits under the server URL** (`https://marcel-bot.com/api/...`); the tunnel
+    exposes `/api/*` and nothing else of the app's. Every route needs a device token
     (`Authorization: Bearer <token>`), except `/health` and `/pair`.
 
-    Live updates arrive over one WebSocket per device, `GET /ws?since=<event id>`. Its events are
-    defined in `events.schema.json`; their payloads reuse the schemas below.
+    Live updates arrive over one WebSocket per device, `GET /ws?since=<event id>` (see that path).
+    Its frames are defined in `events.schema.json`; their payloads reuse the schemas below. Code
+    generators do not read that file, so the app writes the event types by hand from it.
+
+    Push notifications carry a `PushNotification` payload, and the pairing QR code encodes a
+    `PairingCode` URL; both are defined below as schemas.
 
     Errors always have the `Error` shape, with a `message` written for the person holding the phone.
     Lists are paginated by cursor: pass `cursor` from the previous page's `next_cursor`.
@@ -44,11 +50,34 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Health' }
 
+  /ws:
+    get:
+      tags: [access]
+      operationId: openEventStream
+      summary: The live event stream (WebSocket upgrade). Frames are defined in events.schema.json.
+      description: |
+        Authenticate with the same `Authorization: Bearer` header as REST. The first frame is
+        `hello` (or `resync.required` if `since` is older than the hub keeps). After that, every
+        frame is an event with an `id` one higher than the last; `hello` and `resync.required`
+        use `id: 0` and are not part of that sequence.
+      parameters:
+        - name: since
+          in: query
+          description: The last event id you processed. Omit on first connect.
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '101':
+          description: Switching protocols; events follow.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /pair:
     post:
       tags: [access]
       operationId: pairDevice
       summary: Exchange a one-time pairing code (from the QR code) for a device token.
+      description: |
+        `marcel-hub pair` prints a QR code holding a `PairingCode` URL. The app reads `hub` from it
+        as its server URL and sends `code` here. A code works once, for 10 minutes.
       security: []
       requestBody:
         required: true
@@ -285,6 +314,10 @@ paths:
             items: { $ref: '#/components/schemas/TaskState' }
           style: form
           explode: true
+        - name: archived
+          in: query
+          description: List archived tasks instead of live ones.
+          schema: { type: boolean, default: false }
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -340,6 +373,11 @@ paths:
       tags: [tasks]
       operationId: steerTask
       summary: Type into a task directly (B-11). No brain turn is spent.
+      description: |
+        The text is delivered into the session and recorded as a `note` task event
+        (`author: user`). A `queued` or `starting` task gets it as soon as its session is up;
+        a `done` task takes it as a follow-up and goes back to `working`. A `stopped` or `failed`
+        task answers 409 `task_finished`: ask Marcel to retry instead.
       requestBody:
         required: true
         content:
@@ -370,6 +408,24 @@ paths:
               schema: { $ref: '#/components/schemas/Task' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{task_id}/archive:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      tags: [tasks]
+      operationId: archiveTask
+      summary: Archive a finished task, so it leaves the Activity tab (B-17). Its artifacts stay.
+      description: Only for `done`, `failed` or `stopped` tasks; anything else answers 409. Archived tasks are listed with `archived=true`.
+      responses:
+        '200':
+          description: Archived.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /tasks/{task_id}/handback:
     parameters:
@@ -519,8 +575,15 @@ paths:
       - name: path
         in: path
         required: true
-        description: Relative path inside the memory repo, URL-encoded (e.g. `MEMORY.md`, `memory%2F2026-10-04.md`).
-        schema: { type: string }
+        description: |
+          A Markdown file's path inside the memory repo, with `/` encoded as `%2F` so it is one
+          path segment (e.g. `MEMORY.md`, `memory%2F2026-10-04.md`). After decoding it must match
+          the pattern: letters, digits, `.`, `_`, `-` and `/`, ending in `.md`, never `..`, never
+          starting with `/`. Anything else answers 400 `invalid_memory_path`.
+        schema:
+          type: string
+          pattern: '^(?!/)(?!.*\.\.)[A-Za-z0-9._/-]+\.md$'
+          example: MEMORY.md
     get:
       tags: [memory]
       operationId: getMemoryFile
@@ -540,6 +603,10 @@ paths:
       tags: [memory]
       operationId: putMemoryFile
       summary: Save a memory file. Send `If-Match` with the etag you read; omit it to create a new file.
+      description: |
+        With `If-Match`: saved only if the file's current etag matches, else 409 with the current
+        version. Without `If-Match`: creates the file; if it already exists, 409 with the current
+        version, never a silent overwrite. Every save is one git commit.
       parameters:
         - name: If-Match
           in: header
@@ -783,7 +850,7 @@ components:
 
     Me:
       type: object
-      required: [user_id, name, device_id, agents]
+      required: [user_id, name, device_id, agents, push]
       additionalProperties: false
       properties:
         user_id: { type: string }
@@ -792,16 +859,29 @@ components:
         agents:
           type: array
           items: { $ref: '#/components/schemas/Agent' }
+        push:
+          type: object
+          description: |
+            Which push backends the hub can use. Register APNs only when `apns` is true;
+            otherwise subscribe to an ntfy topic on `ntfy_server` and register that (B-18).
+          required: [apns, ntfy]
+          additionalProperties: false
+          properties:
+            apns: { type: boolean }
+            ntfy: { type: boolean }
+            ntfy_server: { type: string, format: uri }
       example:
         user_id: usr_owner
         name: Shaun
         device_id: dev_01J9ZQ4K2B
+        push: { apns: false, ntfy: true, ntfy_server: 'https://ntfy.sh' }
         agents:
           - id: agt_marcel
             name: Marcel
             animal: giraffe
             palette: marcel
             seed: Marcel
+            main_conversation_id: cnv_main_marcel
             state: { kind: working, active_tasks: 2 }
             model_brain: opus
             model_worker: sonnet
@@ -818,6 +898,11 @@ components:
         ntfy_topic:
           type: string
           description: Required when `kind` is `ntfy`.
+      allOf:
+        - if: { properties: { kind: { const: apns } } }
+          then: { required: [apns_token] }
+        - if: { properties: { kind: { const: ntfy } } }
+          then: { required: [ntfy_topic] }
       example: { kind: ntfy, ntfy_topic: marcel-shaun-7f3a }
 
     Device:
@@ -845,7 +930,11 @@ components:
 
     AgentState:
       type: object
-      description: What the avatar shows (B-28). `active_tasks` is n in `working(n)`.
+      description: |
+        What the avatar shows (B-28), in precedence order: `needs_you` if any task is
+        `needs_you` (an approval, a question, a login); else `working` with n = tasks `working`;
+        else `thinking` while the brain runs a turn; else `done` for 5 s after a completion;
+        else `idle`.
       required: [kind]
       additionalProperties: false
       properties:
@@ -855,12 +944,14 @@ components:
         active_tasks:
           type: integer
           minimum: 0
-          description: Number of working tasks. Present when `kind` is `working`.
+          description: Number of working tasks. Required when `kind` is `working`.
+      if: { properties: { kind: { const: working } } }
+      then: { required: [active_tasks] }
       example: { kind: working, active_tasks: 3 }
 
     Agent:
       type: object
-      required: [id, name, animal, palette, seed, state, model_brain, model_worker]
+      required: [id, name, animal, palette, seed, main_conversation_id, state, model_brain, model_worker]
       additionalProperties: false
       properties:
         id: { type: string }
@@ -874,6 +965,9 @@ components:
         seed:
           type: string
           description: Feeds the avatar's deterministic details (spots, blink timing).
+        main_conversation_id:
+          type: string
+          description: Where to send messages to this agent's main conversation.
         state: { $ref: '#/components/schemas/AgentState' }
         model_brain: { type: string }
         model_worker: { type: string }
@@ -883,6 +977,7 @@ components:
         animal: giraffe
         palette: marcel
         seed: Marcel
+        main_conversation_id: cnv_main_marcel
         state: { kind: idle }
         model_brain: opus
         model_worker: sonnet
@@ -912,8 +1007,12 @@ components:
         task_id:
           type: string
           description: |
-            Set when the side thread was opened on a task's milestone or approval: replies there
-            steer that task directly instead of going to a fork of the brain.
+            Set when the side thread was opened on a task's milestone or approval. Such a thread
+            is the task's own: a message posted there steers the task (no brain turn, like
+            `POST /tasks/{id}/messages`), and the hub mirrors that task's later milestones into
+            it. The full transcript stays in the thread view. Posting to a thread whose task is
+            `stopped` or `failed` returns 409 `task_finished`; a `done` task takes the message as
+            a follow-up and goes back to `working`.
         title: { type: string }
         reply_count: { type: integer, minimum: 0 }
         created_at: { type: string, format: date-time }
@@ -1022,6 +1121,15 @@ components:
             conversation_id: { type: string }
             reply_count: { type: integer, minimum: 0 }
         created_at: { type: string, format: date-time }
+      allOf:
+        - if: { properties: { kind: { const: text } } }
+          then: { required: [text] }
+        - if: { properties: { kind: { const: milestone } } }
+          then: { required: [milestone, task_id] }
+        - if: { properties: { kind: { const: approval } } }
+          then: { required: [approval_id, task_id] }
+        - if: { properties: { kind: { const: quote } } }
+          then: { required: [text, quoted_message_id] }
       example:
         id: msg_01J9ZQZ8
         conversation_id: cnv_main_marcel
@@ -1102,6 +1210,13 @@ components:
           type: string
           format: uri
           description: For a cloud task, its claude.ai/code page.
+        remote_url:
+          type: string
+          format: uri
+          description: |
+            For a NUC task whose session is connected to Remote Control, its claude.ai/code page.
+            Absent otherwise; the app then offers only the thread view.
+        archived_at: { type: string, format: date-time }
         parent_message_id:
           type: string
           description: The main-conversation message that started it.
@@ -1167,9 +1282,12 @@ components:
     TaskEventType:
       type: string
       description: |
-        Transcript events (`text` … `raw`) are normalised from the session's transcript; their
-        `data` shapes are fixed in `transcript.schema.json` (S-02.2). `state`, `progress`,
-        `artifact` and `note` come from the hub.
+        `text`, `tool_call`, `tool_result`, `diff`, `subagent_start`, `subagent_stop`, `error`
+        and `raw` are normalised from the session's transcript; their `data` shapes are fixed in
+        `transcript.schema.json` (S-02.2). The hub writes the rest itself, with the `data`
+        shapes below: `state` (every transition), `progress` (a worker's report), `artifact`,
+        `note` (a steer message or a hand-back note) and `permission` (from the channel's
+        permission request, so it carries the approval id for the inline card).
       enum:
         - text
         - tool_call
@@ -1200,13 +1318,81 @@ components:
         at: { type: string, format: date-time }
         data:
           type: object
-          description: Shape depends on `type`.
+          description: Shape depends on `type`; see `TaskEventType`.
+      allOf:
+        - if: { properties: { type: { const: state } } }
+          then: { properties: { data: { $ref: '#/components/schemas/StateEventData' } } }
+        - if: { properties: { type: { const: progress } } }
+          then: { properties: { data: { $ref: '#/components/schemas/ProgressEventData' } } }
+        - if: { properties: { type: { const: artifact } } }
+          then: { properties: { data: { $ref: '#/components/schemas/ArtifactEventData' } } }
+        - if: { properties: { type: { const: note } } }
+          then: { properties: { data: { $ref: '#/components/schemas/NoteEventData' } } }
+        - if: { properties: { type: { const: permission } } }
+          then: { properties: { data: { $ref: '#/components/schemas/PermissionEventData' } } }
       example:
         task_id: tsk_01J9ZQ6
         seq: 12
         type: tool_call
         at: '2026-10-04T18:06:39Z'
         data: { tool: Bash, summary: docker system df -v }
+
+    StateEventData:
+      type: object
+      required: [to, reason]
+      additionalProperties: false
+      properties:
+        from:
+          description: Absent for a new task.
+          $ref: '#/components/schemas/TaskState'
+        to: { $ref: '#/components/schemas/TaskState' }
+        reason:
+          type: string
+          description: The trigger from task-states.md, in plain words.
+      example: { from: working, to: needs_you, reason: 'Permission request: Bash' }
+
+    ProgressEventData:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text: { type: string }
+      example: { text: Found the race; writing the regression test now. }
+
+    ArtifactEventData:
+      type: object
+      required: [artifact_id, kind, title]
+      additionalProperties: false
+      properties:
+        artifact_id: { type: string }
+        kind: { $ref: '#/components/schemas/ArtifactKind' }
+        title: { type: string }
+      example: { artifact_id: art_01J9ZT1, kind: pr, title: 'Fix flaky login test: wait on the session cookie' }
+
+    NoteEventData:
+      type: object
+      required: [author, text]
+      additionalProperties: false
+      properties:
+        author:
+          type: string
+          enum: [user, marcel]
+          description: '`user`: typed in the thread view or a task thread. `marcel`: sent by the brain (`tasks_send`).'
+        text: { type: string }
+        handback:
+          type: boolean
+          description: True when the note came with a hand-back.
+      example: { author: user, text: Also add a test for the empty case. }
+
+    PermissionEventData:
+      type: object
+      required: [approval_id, tool, summary]
+      additionalProperties: false
+      properties:
+        approval_id: { type: string }
+        tool: { type: string }
+        summary: { type: string }
+      example: { approval_id: apr_01J9ZR2, tool: Bash, summary: Run `docker system df -v` }
 
     TaskEventPage:
       type: object
@@ -1223,11 +1409,14 @@ components:
             seq: 1
             type: state
             at: '2026-10-04T18:06:00Z'
-            data: { from: starting, to: working }
+            data: { from: starting, to: working, reason: The runner reports the session is working }
         has_more: false
 
     ApprovalState:
       type: string
+      description: |
+        `expired`: the question went away without an answer from you: the session stopped,
+        failed or moved on, or another device answered first.
       enum: [open, approved, denied, expired]
       example: open
 
@@ -1241,6 +1430,9 @@ components:
         tool:
           type: string
           description: The Claude Code tool asking, e.g. `Bash`, `Write`, or `self_change` for a self-modification PR (B-24).
+        artifact_id:
+          type: string
+          description: For `self_change`, the PR artifact that approving will merge.
         summary:
           type: string
           description: What it wants to do, in one line.
@@ -1253,6 +1445,8 @@ components:
           enum: [app, terminal]
         created_at: { type: string, format: date-time }
         answered_at: { type: string, format: date-time }
+      if: { properties: { tool: { const: self_change } } }
+      then: { required: [artifact_id] }
       example:
         id: apr_01J9ZR2
         task_id: tsk_01J9ZQ6
@@ -1277,7 +1471,11 @@ components:
 
     ArtifactKind:
       type: string
-      enum: [pr, doc, file, dashboard, link]
+      description: |
+        `pr`: a pull request. `branch`: a pushed branch with no PR yet (`url` is its compare
+        page). `doc`: Markdown or HTML. `file`: anything else with bytes. `dashboard`: JSON
+        matching `dashboard.schema.json`, drawn natively. `link`: any other URL.
+      enum: [pr, branch, doc, file, dashboard, link]
       example: pr
 
     Artifact:
@@ -1292,11 +1490,21 @@ components:
         url:
           type: string
           format: uri
-          description: For `pr` and `link`.
+          description: For `pr`, `branch` and `link`.
         content_type:
           type: string
           description: For `doc`, `file` and `dashboard`; fetch the bytes from `/artifacts/{id}/content`.
         size_bytes: { type: integer, minimum: 0 }
+        trusted:
+          type: boolean
+          default: false
+          description: |
+            For HTML docs: true only when the hub produced the HTML itself. The app runs
+            JavaScript in a doc only when this is true.
+        self_change:
+          type: boolean
+          default: false
+          description: For `pr`, true when the PR changes Marcel itself (B-24).
         pr:
           type: object
           description: For `pr`, refreshed by the hub.
@@ -1314,6 +1522,13 @@ components:
               type: string
               enum: [none, requested, approved, changes_requested]
         created_at: { type: string, format: date-time }
+      allOf:
+        - if: { properties: { kind: { enum: [pr, branch, link] } } }
+          then: { required: [url] }
+        - if: { properties: { kind: { const: pr } } }
+          then: { required: [pr] }
+        - if: { properties: { kind: { enum: [doc, file, dashboard] } } }
+          then: { required: [content_type] }
       example:
         id: art_01J9ZT1
         task_id: tsk_01J9ZQ5
@@ -1472,6 +1687,58 @@ components:
         paused: { type: boolean }
         deadline_minutes: { type: integer, minimum: 1 }
       example: { paused: true }
+
+    PairingCode:
+      type: string
+      description: |
+        What the pairing QR code encodes: a URL `marcel://pair?hub=<server URL, URL-encoded>&code=<code>`.
+        The app keeps `hub` as its server URL and posts `code` to `/pair` on it.
+      pattern: '^marcel://pair\?hub=[^&]+&code=[A-Z0-9]{6,12}$'
+      example: marcel://pair?hub=https%3A%2F%2Fmarcel-bot.com%2Fapi&code=K7Q2M9
+
+    PushNotification:
+      type: object
+      description: |
+        The payload of every push, the same for APNs and ntfy (B-16, B-18). On APNs, `title` and
+        `body` go in `aps.alert`, `category` is the APNs category, `collapse_key` is
+        `apns-collapse-id`, and the rest sits beside `aps`. On ntfy they map to Title, the message,
+        Tags and a Click action set to `deep_link`.
+
+        Deep links: `marcel://task/<task id>`, `marcel://message/<message id>`,
+        `marcel://approval/<approval id>`. An `approval` push on APNs has Approve and Deny actions;
+        the app answers them with `POST /approvals/{id}` using its own token. ntfy pushes only open
+        the deep link, so no token ever passes through the ntfy server.
+      required: [title, body, category, deep_link, level]
+      additionalProperties: false
+      properties:
+        title: { type: string, maxLength: 80 }
+        body: { type: string, maxLength: 300 }
+        category:
+          type: string
+          enum: [approval, task, broke, digest]
+        level:
+          type: string
+          enum: [normal, urgent]
+          description: '`urgent` for approvals and broken things; `normal` for done and digests.'
+        deep_link:
+          type: string
+          pattern: '^marcel://(task|message|approval)/[A-Za-z0-9_-]+$'
+        collapse_key:
+          type: string
+          description: A newer push with the same key replaces the older one (one per task or cause).
+        task_id: { type: string }
+        approval_id: { type: string }
+      if: { properties: { category: { const: approval } } }
+      then: { required: [approval_id, task_id] }
+      example:
+        title: Marcel needs you
+        body: 'Check disk usage: allow `docker system df -v`?'
+        category: approval
+        level: urgent
+        deep_link: marcel://approval/apr_01J9ZR2
+        collapse_key: tsk_01J9ZQ6
+        task_id: tsk_01J9ZQ6
+        approval_id: apr_01J9ZR2
 
     UsageWindow:
       type: object
