@@ -1,0 +1,6 @@
+2026-10-04T13:30:30.693Z [DEBUG] MCP server "plugin:marcel:marcel": Channel notifications registered
+2026-10-04T13:31:22.791Z [DEBUG] MCP server "plugin:marcel:marcel": Channel notifications registered
+2026-10-04T13:31:42.140Z [DEBUG] MCP server "plugin:marcel:marcel": notifications/claude/channel: Side thread question: what code word were you asked to remember earlier in this
+2026-10-04T13:31:46.148Z [DEBUG] MCP server "plugin:marcel:marcel": notifications/claude/channel/permission: zwkam → allow (matched pending)
+2026-10-04T13:31:46.709Z [DEBUG] MCP server "plugin:marcel:marcel": notifications/claude/channel: Side-thread-only fact: remember ZEBRA-7. Acknowledge with the reply tool in one
+2026-10-04T13:31:50.217Z [DEBUG] MCP server "plugin:marcel:marcel": notifications/claude/channel/permission: gppug → allow (matched pending)
