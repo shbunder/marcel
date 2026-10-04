@@ -1,0 +1,6 @@
+{
+  "name": "marcel",
+  "version": "0.1.0",
+  "description": "Marcel: connects Claude Code sessions to the Marcel hub (channel, brain tools, /marcel-adopt).",
+  "author": { "name": "shbunder" }
+}

@@ -1,46 +1,15 @@
-# Rule — git staging
-
-Every commit stages files **by name**. Never use broad-add commands.
+# Rule — every file in a commit is there because you named it
 
 ## Never
-
-- `git add .`
-- `git add -A`
-- `git add --all`
-- `git commit -a`
+- `git add .`, `git add -A`, `git add --all`, `git add -u`, `git commit -a`
+- One commit that mixes `project/**` (the board) with source code
+- A fast-forward merge of a story branch: the lead merges with `--no-ff`
 
 ## Always
-
-```bash
-git add path/to/file1.py path/to/file2.py docs/page.md
-git commit -m "..."
-```
+- `git status`, then `git add <path> <path> …`, then `git diff --cached --stat` before committing
+- Commit format: `[S-NN.M] impl: <what changed>`. Board commits: `board: <what changed>`
+- After committing, read `git show --stat HEAD`. A successful commit is not proof of its content
 
 ## Why
-
-Broad staging has shipped (in other projects, and narrowly avoided here):
-
-- `.env.local` with API keys — prevented only if the `.gitignore` entry is exactly correct
-- Editor scratch files, swap files, coverage reports
-- Half-finished work from a different issue the agent forgot was in the tree
-- Build artifacts that should have been in `.gitignore` but weren't yet
-
-Named staging is slightly slower but makes every commit **intentional**. Every file in the diff is a file the writer decided to include.
-
-## Exceptions
-
-None. If you catch yourself thinking *"but it's just these three files, `git add .` is fine"*, that is exactly the situation this rule prevents — you will be right ninety-nine times and wrong the hundredth, and the hundredth will be the one that leaks a secret.
-
-Use `git status` first to see the complete picture, then `git add` each file you want by name. The extra ten seconds is cheap insurance.
-
-## Common rationalizations
-
-| Excuse | Reality |
-|--------|---------|
-| "I already ran `git status` and the tree is clean — `git add .` is safe here" | "Clean" means clean-to-you. Swap files, coverage artifacts, and a half-finished file from a different issue all show up in `git status`; you will miss one. Name every file. |
-| "There are ten files — typing them all is tedious" | Ten files is exactly when broad-add feels justified and exactly when a stray file slips in. If the list is long, paste it from `git status` and delete what doesn't belong. |
-| "`git add -u` is fine, it only stages tracked files" | `-u` still sweeps every modified tracked file, including unrelated work in the same tree. The rule is *by name*, not *tracked vs. untracked*. |
-
-## Enforcement
-
-[.claude/agents/pre-close-verifier.md](../agents/pre-close-verifier.md) scans the branch's commits for broad-staging patterns and flags them. The `/new-feature` and `/finish-feature` skills repeat the rule inline for the same reason — and it applies in **both** repos (code and the marcel-admin board).
+Broad staging is how a `.env.local`, an APNs `.p8` key, a coverage report or half of another
+story ends up in history. Naming files makes every commit a decision.

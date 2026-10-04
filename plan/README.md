@@ -10,13 +10,13 @@ It is built as a shell around the unmodified `claude` CLI, on a Claude Max subsc
 | [02-architecture.md](02-architecture.md) | **How**: hub, runner, plugin, brain and iOS app; the key flows; the token economy; the data model; the repo layout |
 | [03-spikes.md](03-spikes.md) | Phase 0: seven risky unknowns to settle before fan-out |
 | [04-agent-playbook.md](04-agent-playbook.md) | How the Opus lead and the Sonnet implementers work: lanes, waves, the story contract, the gates |
-| [features/](features/) | Every feature and its stories, each sized for one Sonnet session |
+| [../project/](../project/) | The board: every feature and story (one file each, sized for one Sonnet session) and the spikes |
 
 ## Features at a glance
 
 | Feature | Wave | Lane | Runs on |
 |---|---|---|---|
-| F01 Repo reset and skeleton | 0 | lead | cloud |
+| F01 Repo reset, skeleton, board | 0 | lead | cloud |
 | F02 Contracts, fake `claude`, mock hub | 0 | lead | cloud |
 | SP1–SP7 spikes | 0 | lead + owner | NUC / Mac |
 | F03 Runner (host process control) | 1 | runner | cloud + NUC |

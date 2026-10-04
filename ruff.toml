@@ -1,0 +1,10 @@
+# Root config for scripts/ and .claude/hooks/. Each lane (hub/, runner/, plugins/marcel/tools/)
+# has its own [tool.ruff] in pyproject.toml, which takes precedence inside that lane.
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[format]
+quote-style = "single"

@@ -1,0 +1,5 @@
+{
+  "include": ["scripts", ".claude/hooks"],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "standard"
+}

@@ -1,57 +1,63 @@
-# Marcel — Developer Guide
+# Marcel v3 — working in this repo
 
-You are in **developer mode**: modifying Marcel's codebase. (Personal-assistant mode, where Marcel helps a family, is governed by `MARCEL.md` files under `~/.marcel/` and never reaches this file.)
+Marcel is one continuous conversation on an iPhone with an agent on a home server (the NUC). The
+agent starts and steers Claude Code sessions to do the work, and a 3D giraffe shows what it is doing.
+**Marcel is a shell around Claude Code**: every model token is spent by the unmodified `claude` CLI on
+the owner's subscription. Marcel's code keeps state, moves messages, supervises sessions and draws the app.
 
-Marcel is a self-adapting personal agent built on Claude Code — it can observe itself, identify gaps, and rewrite the code and configuration that governs how it works. A PreToolUse hook ([`.claude/hooks/guard-restricted.py`](.claude/hooks/guard-restricted.py)) enforces the restricted-path rule automatically — you do not need to memorize which paths are off-limits, the hook will tell you and give you the unlock procedure. See [docs/claude-code-setup.md](docs/claude-code-setup.md) for the setup overview.
+Start with [plan/README.md](plan/README.md). What it must do is
+[plan/01-functional-spec.md](plan/01-functional-spec.md); how is
+[plan/02-architecture.md](plan/02-architecture.md); how work is split is
+[plan/04-agent-playbook.md](plan/04-agent-playbook.md).
+
+## Core principles
+
+- **Claude Code thinks, Marcel carries.** No model SDK, no API key, no model call in Marcel's own code.
+  Judgement goes to a `claude` session. See [no-model-calls](.claude/rules/no-model-calls.md).
+- **Lightweight** *(over bloated).* Every dependency earns its place. Claude Code's own features
+  (background sessions, channels, plugins, cloud sessions) come before anything we build.
+- **Generic** *(over specific).* A general extension point beats a hard-coded one-off: an agent is
+  a record (name, animal, palette, persona), a capability is a plugin or an MCP server, a worker is
+  a `claude` session wherever it runs.
+- **Human-readable** *(over clever).* Milestones, notifications and errors are read on a phone.
+  Lead with the outcome, in short sentences.
+- **Recoverable** *(over fast).* Self-changes go through an approved PR, then a redeploy that
+  rolls back on a failed health check. See [self-modification](.claude/rules/self-modification.md).
+- **Degrading, and loud about it.** One dead session, a down runner or a failed push never takes
+  the rest down, and never fails silently.
+
+## Lanes
+
+| Lane | Path | Gate | Runs on |
+|---|---|---|---|
+| hub | `hub/` | `make -C hub check` | cloud |
+| runner | `runner/` | `make -C runner check` | cloud; NUC for `live` tests |
+| plugin tools | `plugins/marcel/tools/` | `make -C plugins/marcel/tools check` | cloud |
+| plugin channel | `plugins/marcel/channel/` | `npm run check` | cloud; NUC for `live` tests |
+| contracts | `contracts/` | contract tests (F02) | cloud, **lead only** |
+| brain | `brain/` | template tests | NUC |
+| iOS + avatar | `ios/`, `shared/avatar/` | `make ios-check` | **Mac only** |
+| deploy | `deploy/` | drills on the NUC | NUC |
 
 ## Commands
 
 ```bash
-make serve          # dev container (Docker, uvicorn --reload on :7421, separate from prod :7420)
-make serve-logs     # tail the dev container logs
-make serve-down     # stop the dev container
-make check          # format + lint + typecheck + tests with 95% coverage (also runs as pre-commit hook)
-make test           # tests only
-make cli-dev        # build + run the Rust CLI in debug mode
-make docker-logs    # tail the prod container logs
+make check            # every lane that builds off a Mac, plus the board and hook tests
+make lanes            # what is in progress, what it touches, what is ready to start
+make start S=S-03.2   # start a story; refused if blocked, overlapping or over the cap
+make board            # every story with its status, wave, place and size
+make ios-check        # on the Mac only
 ```
 
-Dev and prod both run as Docker containers on different ports: `make serve` brings up `marcel-dev` on `:7421` via `docker-compose.dev.yml`; `make docker-up` brings up `marcel` on `:7420` via `docker-compose.yml`. Both can run simultaneously and share one restart mechanism (env-aware flag files — see [docs/self-modification.md](docs/self-modification.md)).
+## Working on a story
 
-**Prefer `make` targets over bare commands** (`uv sync`, `pytest`, `docker …`) whenever a target exists — the targets encode the full environment contract. Concretely: a bare `uv sync` leaves zoo park dep-venvs stale or missing; `make env-install` / `make env-sync` provision them too (`make zoo-deps` on its own re-provisions). The same applies in marcel-zoo (`make test`, `make deps`) and odile (`make check`).
+Follow [plan/04-agent-playbook.md](plan/04-agent-playbook.md) § The implementer loop:
 
-## Core principles
+1. `make start`.
+2. Write the failing tests from the story's "done when" first.
+3. Implement, then run the lane gate.
+4. Update docs in the same commit.
+5. `[S-NN.M] impl: …`, staged by name.
 
-These four are Marcel's constitution — the standard every change is held to and the name every review cites. Refer to one by its **handle** (e.g. "Core principle: Recoverable"); the [`plan-verifier`](.claude/agents/plan-verifier.md) and [`pre-close-verifier`](.claude/agents/pre-close-verifier.md) name the relevant handle in their findings, and the [rules](.claude/rules/) enforce them mechanically.
-
-- **Lightweight** *(over bloated).* Marcel has no unnecessary dependencies. Every skill and integration must be self-contained and removable — the [connector-skill-pairs](.claude/rules/connector-skill-pairs.md) rule keeps each habitat shipping complete, never half.
-- **Generic** *(over specific).* A general extension point beats a hardcoded one-off. Prefer strong primitives.
-- **Human-readable** *(over clever).* Error messages, logs, and responses are read by non-technical family members as often as by developers.
-- **Recoverable** *(over fast).* Before any self-modification, commit current state to git. No change is worth an unrecoverable break — enforced by [self-modification](.claude/rules/self-modification.md) (the one legal restart path) and [debugging](.claude/rules/debugging.md) (a regression test ships with every fix).
-
-## Habitat taxonomy (summary)
-
-The kernel ships no behaviour. Everything Marcel can *do* lives in one of five kinds of habitat under `$MARCEL_ZOO_DIR`:
-
-| Kind | Directory | Shape | Teaches / runs |
-|---|---|---|---|
-| **Skill** | `skills/<name>/` | `SKILL.md` (+ `SETUP.md`) | *When* to reach for a connector's tools |
-| **Connector** | `connectors/<name>/` | `connector.yaml` (+ `SETUP.md`) | An MCP server + per-user auth; connector code is **trusted code** — see [docs/connectors.md](docs/connectors.md) |
-| **Subagent** | `agents/<name>.md` | single Markdown | Scoped sub-pass the main agent can `delegate()` to |
-| **Channel** | `channels/<name>/` | router + `channel.yaml` | Inbound webhooks + outbound push (Telegram, …) |
-| **Job** | `jobs/<name>/template.yaml` | YAML template | Scheduled work; `dispatch_type` picks tool / subagent / agent shape |
-
-Full taxonomy + decision flowchart + minimal examples: [docs/habitats.md](docs/habitats.md).
-
-## When performing code changes
-
-- Feature workflow, coding standards, and versioning live on the **marcel-admin board** under `$MARCEL_ADMIN_DIR/WIKI/docs/` (`feature-workflow.md`, `coding-standards.md`, `versioning.md`). The enforceable single-concept rules live in [.claude/rules/](.claude/rules/) and auto-load each session.
-- Work tracking + knowledge: the **marcel-admin board** — a separate OKF-bundle repo at `$MARCEL_ADMIN_DIR` (default `~/projects/marcel-admin`). Conventions live in `$MARCEL_ADMIN_DIR/JIRA/CLAUDE.md`. Work is **Feature → Story → Subtask**; each feature links to a requirements page and ADRs. (The retired in-repo `project/issues/` is archived read-only at `$MARCEL_ADMIN_DIR/JIRA/archive/`.)
-- Documentation: [docs/CLAUDE.md](docs/CLAUDE.md) — the developer/SDK reference (mkdocs); docs ship in the same change as the code. Working docs (requirements, ADRs) live on the board, not here.
-
-## Subagents and skills
-
-- **Workflow skills** in [.claude/skills/](.claude/skills/): `/new-feature`, `/new-story`, `/new-adr`, `/finish-feature`, `/parallel-feature` — cross-repo wrappers around the marcel-admin board.
-- **Subagents** in [.claude/agents/](.claude/agents/): `pre-close-verifier` (invoked by `/finish-feature` before merge), `plan-verifier` (invoked by `/new-feature` to check the requirements + ADR + story breakdown are concrete), `code-reviewer` (5-axis review with Marcel context), `security-auditor` (scoped to Marcel's real attack surface). Delegate file-heavy investigation to these rather than reading in the main context.
-
-Runtime skills (what Marcel can *do* as an assistant — calendar, banking, news, …) live under `~/.marcel/skills/` and are unrelated to developer-mode work. See [docs/skills.md](docs/skills.md) if you need to touch them.
+The rules in [.claude/rules/](.claude/rules/) apply to every change. A guard hook blocks edits to
+`CLAUDE.md`, `contracts/**` and env files; its message says how to unlock when the edit is yours to make.
