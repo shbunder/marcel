@@ -119,3 +119,14 @@ def test_create_app_reads_settings_from_the_environment(
     app = create_app()
     assert app.state.settings.db_path == tmp_path / 'marcel.db'
     json.dumps(app.openapi())  # the schema builds
+
+
+def test_a_failing_migration_stops_the_hub_at_start(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(_engine: object) -> None:
+        raise RuntimeError('migration 0002 failed')
+
+    monkeypatch.setattr('marcel_hub.db.upgrade', boom)
+    with pytest.raises(RuntimeError, match='0002'), TestClient(create_app(settings)):
+        pass

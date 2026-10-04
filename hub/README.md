@@ -10,7 +10,7 @@ uv run uvicorn --factory marcel_hub.app:create_app --port 7420
 ```
 
 On start the hub applies every pending database migration. If a migration fails, the hub does not
-start and the error says which revision failed.
+start and the error is printed in the log.
 
 ## Settings
 
