@@ -6,10 +6,10 @@ const { execFileSync } = require("child_process");
 const marcel = require("./marcel.js");
 
 const [concept, variant] = (process.argv[2] || "bean").split(":");
-const opts = variant === "bowtie" ? { bowtie: true } : {};
+const opts = variant === "bowtie" ? { bowtie: true } : (variant === "bust" ? { frame: "bust" } : {});
 const states = (process.argv[3] || "idle,thinking,working,happy").split(",");
 const times = (process.argv[4] || "0,0.65,1.2,2.0,4.3").split(",").map(Number);
-const size = 220, scale = 2;
+const size = 240, scale = 2;
 const out = path.join(__dirname, "out");
 fs.mkdirSync(out, { recursive: true });
 

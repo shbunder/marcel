@@ -235,6 +235,114 @@ function bean2(state = "idle", t = 0, opts = {}) {
     `</g>` + props + `</svg>`;
 }
 
+// ------------------------------------------------------------------ concept P: the professional giraffe
+// Same character, grown up: smaller head, longer neck, calm small eyes, no blush, tidy spots, crisp bow tie,
+// restrained motion. opts.frame = "full" (default) or "bust" (head and shoulders, for chat and profile pictures).
+const P = { rose: "#cc6a80", deep: "#9c3e5a", muzzle: "#e4a3b3", inner: "#e7aebb", ink: "#1d1a1c",
+            teal: "#3f6b6a", tealDark: "#2f5251", laptop: "#2b2a28", laptopEdge: "#454340", amber: "#f2a33a", cloud: "#b0aea5" };
+
+function pro(state = "idle", t = 0, opts = {}) {
+  const s = state, bust = opts.frame === "bust";
+  const breathe = Math.sin(TAU * t / 4);
+  const sy = 1 + 0.009 * breathe, sx = 1 - 0.006 * breathe;
+  const blink = Math.max(pulse(t, 4.1, 0.8, 0.15), pulse(t, 12.7, 6.3, 0.15));
+
+  // head: a gentle tilt, a nod when done, a dip while working, a thoughtful tilt while thinking
+  let tilt = 0, nodY = 0, lookX = 0, lookY = 0;
+  if (s === "idle") { tilt = 2.5 * Math.sin(TAU * t / 9) + 3 * pulse(t, 9, 5, 1.8); lookX = 1.6 * pulse(t, 9, 5, 1.8) - 1.2 * pulse(t, 13, 2, 1.2); }
+  if (s === "thinking") { tilt = -8 + 1.2 * Math.sin(TAU * t / 3); lookX = 1.8; lookY = -2.2; }
+  if (s === "working") { tilt = 4; lookY = 2; lookX = -0.6 + 1.2 * Math.sin(TAU * t / 2.2); }
+  if (s === "happy") { const n = pulse(t, 1.6, 0, 0.9); nodY = 4 * n; tilt = 1.5 * n; }
+
+  const eye = (cx) => {
+    if (s === "happy") return `<path d="M${cx - 4.2} 75 Q ${cx} 70 ${cx + 4.2} 75" stroke="${P.ink}" stroke-width="2.6" fill="none" stroke-linecap="round"/>`;
+    const ry = 4.8 * (1 - 0.9 * blink);
+    return `<ellipse cx="${cx + lookX}" cy="${73 + lookY}" rx="3.5" ry="${ry}" fill="${P.ink}"/>` +
+      (ry > 2.5 ? `<circle cx="${cx + lookX - 1.1}" cy="${71.2 + lookY}" r="1.15" fill="#fff"/>` : "");
+  };
+  const ear = (side) => {
+    const flick = 14 * pulse(t, 6.1, side > 0 ? 3.4 : 0.9, 0.3);
+    const x = side < 0 ? 72 : 128, a = side * (20 + flick);
+    return `<g transform="rotate(${a} ${x} 60)"><ellipse cx="${x + side * 11}" cy="60" rx="12" ry="5.2" fill="${P.rose}"/>` +
+      `<ellipse cx="${x + side * 12}" cy="60" rx="7" ry="2.4" fill="${P.inner}"/></g>`;
+  };
+  const horn = (x, i) => {
+    const a = (i ? 7 : -7) + 1.6 * Math.sin(TAU * t / 3.1 + i);
+    return `<g transform="rotate(${a} ${x} 46)"><rect x="${x - 3}" y="28" width="6" height="20" rx="3" fill="${P.rose}"/>` +
+      `<circle cx="${x}" cy="27" r="6.2" fill="${P.deep}"/></g>`;
+  };
+  const headPath = "M100 40 C 117 40 130 52 130 68 C 130 80 126 86 123 92 C 125 98 124 108 116 112 " +
+                   "C 110 116 90 116 84 112 C 76 108 75 98 77 92 C 74 86 70 80 70 68 C 70 52 83 40 100 40 Z";
+  const head = `<g transform="translate(0 ${nodY}) rotate(${tilt.toFixed(2)} 100 106)">` +
+    horn(91, 0) + horn(109, 1) + ear(-1) + ear(1) +
+    `<path d="${headPath}" fill="${P.rose}"/>` +
+    patch(100, 50, 8, 6, 0, P.deep) +
+    `<ellipse cx="100" cy="100" rx="20" ry="11.5" fill="${P.muzzle}"/>` +
+    `<ellipse cx="94" cy="98" rx="1.5" ry="2" fill="${P.deep}"/><ellipse cx="106" cy="98" rx="1.5" ry="2" fill="${P.deep}"/>` +
+    `<path d="M96.5 105.5 Q 100 ${s === "happy" ? 109 : 107.2} 103.5 105.5" stroke="${P.ink}" stroke-width="1.7" fill="none" stroke-linecap="round"/>` +
+    eye(89) + eye(111) + `</g>`;
+
+  // spots: tidy rounded rectangles, all the same corner radius; three glow amber in turn while working
+  const spots = [[106, 124, 9, 11, 6], [94, 142, 8, 9, -4], [78, 178, 15, 11, -6], [118, 186, 14, 10, 5], [100, 170, 8, 7, 0]];
+  const spotSvg = spots.map(([x, y, w, h, r], i) => {
+    let fill = P.deep;
+    if (s === "working" && (i === 0 || i === 1 || i === 3)) {
+      const g = pulse(t, 2.4, -[0, 0.8, 1.6][[0, 1, 3].indexOf(i)], 1.2);
+      fill = mix(P.deep, P.amber, 0.85 * g);
+    }
+    return patch(x, y, w, h, r, fill);
+  }).join("");
+
+  const arm = (side) => {
+    const sx0 = side < 0 ? 64 : 136, sy0 = 168;
+    let a = -side * (8 + 2 * Math.sin(TAU * t / 4 + side)), len = 22;
+    if (s === "working") { const tap = Math.max(0, Math.sin(TAU * t * 2.2 + (side > 0 ? Math.PI : 0))); a = side * (30 - 6 * tap); len = 24; }
+    if (s === "happy" && side > 0) a = 150 + 10 * Math.sin(TAU * t / 0.8);                    // a small wave
+    return `<g transform="rotate(${a.toFixed(1)} ${sx0} ${sy0})"><rect x="${sx0 - 6.5}" y="${sy0 - 5}" width="13" height="${len + 5}" rx="6.5" ` +
+      `fill="${P.rose}" stroke="${P.deep}" stroke-opacity="0.35" stroke-width="1.5"/>` +
+      `<circle cx="${sx0}" cy="${sy0 + len - 3}" r="5.6" fill="${P.deep}"/></g>`;
+  };
+
+  let front = "", over = "";
+  if (s === "working") {
+    front = `<rect x="68" y="176" width="64" height="38" rx="5" fill="${P.laptop}"/>` +
+            `<rect x="68" y="176" width="64" height="38" rx="5" fill="none" stroke="${P.laptopEdge}" stroke-width="1.5"/>` +
+            `<circle cx="100" cy="195" r="3" fill="${P.rose}"/>` +
+            `<rect x="60" y="212" width="80" height="4.5" rx="2.25" fill="${P.laptopEdge}"/>`;
+  }
+  // a chat-style bubble with three dots: thinking (slow) and working (typing rhythm)
+  if (s === "thinking" || s === "working") {
+    const bx = bust ? 132 : 138, by = bust ? 20 : 34, speed = s === "working" ? 1.6 : 0.9;
+    over += `<rect x="${bx}" y="${by}" width="38" height="20" rx="10" fill="#fff" stroke="#e3dbe0" stroke-width="1.2"/>` +
+      `<circle cx="${bx + 4}" cy="${by + 22}" r="3" fill="#fff" stroke="#e3dbe0" stroke-width="1.2"/>`;
+    [0, 1, 2].forEach((i) => {
+      const k = 0.5 + 0.5 * Math.sin(TAU * (t * speed - i * 0.18));
+      over += `<circle cx="${bx + 10 + i * 9}" cy="${by + 10 - 1.5 * k}" r="2.4" fill="${P.ink}" opacity="${(0.3 + 0.6 * k).toFixed(2)}"/>`;
+    });
+  }
+  if (s === "happy") {    // a calm "done": a teal check badge
+    const g = Math.min(1, (t % 3.2) / 0.35), fade = (t % 3.2) > 2.6 ? 1 - ((t % 3.2) - 2.6) / 0.6 : 1;
+    over += `<g opacity="${(g * fade).toFixed(2)}" transform="translate(${bust ? 154 : 152} ${bust ? 40 : 52}) scale(${(0.7 + 0.3 * g).toFixed(2)})">` +
+      `<circle r="13" fill="${P.teal}"/><path d="M-5.5 0.5 L -1.5 4.5 L 6 -4" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>`;
+  }
+
+  const bow = opts.bowtie === false ? "" :
+    `<g><path d="M100 154 L 88 147.5 Q 85.5 154 88 160.5 Z" fill="${P.teal}"/><path d="M100 154 L 112 147.5 Q 114.5 154 112 160.5 Z" fill="${P.teal}"/>` +
+    `<rect x="96.5" y="150" width="7" height="8" rx="2.5" fill="${P.tealDark}"/></g>`;
+
+  const base = 206;
+  const body = `<g transform="translate(100 ${base}) scale(${sx.toFixed(4)} ${sy.toFixed(4)}) translate(-100 ${-base})">` +
+    `<path d="M86 104 L 114 104 L 120 160 L 80 160 Z" fill="${P.rose}"/>` +          // neck
+    `<ellipse cx="100" cy="180" rx="44" ry="27" fill="${P.rose}"/>` +                 // body
+    `<rect x="72" y="198" width="18" height="10" rx="5" fill="${P.deep}"/><rect x="110" y="198" width="18" height="10" rx="5" fill="${P.deep}"/>` +
+    spotSvg + bow + head + front + arm(-1) + arm(1) + `</g>`;
+
+  const vb = bust ? "26 16 148 148" : "0 -10 200 230";
+  const size = bust ? 'width="200" height="200"' : 'width="200" height="230"';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}" ${size}>` +
+    (bust ? "" : `<ellipse cx="100" cy="210" rx="46" ry="4" fill="${P.ink}" opacity="0.07"/>`) + body + over + `</svg>`;
+}
+
 function bowtie(x, y, s, t) {               // Marcel's signature: a little deep-teal bow tie
   const wig = s === "happy" ? 8 * Math.sin(TAU * t / 0.45) : 0;
   return `<g transform="rotate(${wig} ${x} ${y})"><path d="M${x} ${y} L ${x - 15} ${y - 8} Q ${x - 18} ${y} ${x - 15} ${y + 8} Z" fill="#5e807f"/>` +
@@ -262,6 +370,6 @@ function mix(a, b, k) {
   return "#" + pa.map((v, i) => Math.round(v + (pb[i] - v) * k).toString(16).padStart(2, "0")).join("");
 }
 
-const marcel = { bean, bean2, colours: C };
+const marcel = { bean, bean2, pro, colours: C, proColours: P };
 if (typeof module !== "undefined") module.exports = marcel;
 if (typeof window !== "undefined") window.marcel = marcel;

@@ -1,4 +1,18 @@
-# SP5, round 5: vector giraffe (current proposal)
+# SP5, round 5b: the professional giraffe (current proposal)
+
+The owner liked round 5 but asked for something more business-like, keeping a little of the Dots-style cuteness.
+Same character, grown up: smaller head on a longer neck, small calm eyes, no blush, Marcel's deeper rose, tidy spots,
+a crisper deep-teal bow tie, calmer motion (head tilt, nod, small wave instead of hops), chat-style "..." bubbles
+instead of floating code, a teal check badge for "done", and a profile-picture crop for chat and accounts.
+The live preview has a switch between Professional and the friendly round-5 version.
+
+- [vector-pro-states.png](screenshots/vector-pro-states.png): idle, thinking, working, happy.
+- [vector-pro-profile-pictures.png](screenshots/vector-pro-profile-pictures.png): the profile-picture crop in all four states.
+- Dropped in this pass: the "hoof to chin" thinking pose (a long arm across the body looked awkward).
+
+---
+
+# SP5, round 5: vector giraffe (friendly version, kept for comparison)
 
 **Why:** the owner judged the Clawd-style giraffe "doesn't look like a giraffe at all" and asked for a critical,
 creative pass: either drop the giraffe for something simple and fun, or use fluent lines as a homage to pixels.

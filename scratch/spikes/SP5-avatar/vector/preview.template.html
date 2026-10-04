@@ -69,7 +69,7 @@ tr.us td { background: color-mix(in srgb, var(--rose) 12%, transparent); }
 <div class="wrap">
   <header>
     <h1>Marcel the Giraffe</h1>
-    <p>A redesign of Marcel's avatar: one soft silhouette, flat colours, a face that acts, and a deep-teal bow tie as the signature. Everything below is live, drawn from the same code the app will use.</p>
+    <p>Marcel's avatar, grown up: a smaller head on a longer neck, calm eyes, tidy spots, a crisp deep-teal bow tie and restrained motion. The friendly first version is one tap away for comparison. Everything below is live, drawn from the same code the app will use.</p>
   </header>
 
   <div class="studio">
@@ -84,6 +84,20 @@ tr.us td { background: color-mix(in srgb, var(--rose) 12%, transparent); }
           <button id="st-thinking" data-state="thinking" aria-pressed="false">Thinking</button>
           <button id="st-working" data-state="working" aria-pressed="false">Working</button>
           <button id="st-happy" data-state="happy" aria-pressed="false">Happy</button>
+        </div>
+      </div>
+      <div class="group">
+        <span class="label" id="lbl-style">Version</span>
+        <div class="seg" role="group" aria-labelledby="lbl-style">
+          <button id="v-pro" aria-pressed="true">Professional</button>
+          <button id="v-friendly" aria-pressed="false">Friendly</button>
+        </div>
+      </div>
+      <div class="group">
+        <span class="label" id="lbl-frame">Framing</span>
+        <div class="seg" role="group" aria-labelledby="lbl-frame">
+          <button id="f-full" aria-pressed="true">Full body</button>
+          <button id="f-bust" aria-pressed="false">Profile picture</button>
         </div>
       </div>
       <div class="group">
@@ -103,7 +117,7 @@ tr.us td { background: color-mix(in srgb, var(--rose) 12%, transparent); }
       <div class="group">
         <span class="label">At icon sizes</span>
         <div class="sizes" id="sizes"></div>
-        <p class="note">The test every good mascot passes: still a pink giraffe at 24 pixels.</p>
+        <p class="note">The test every good mascot passes: still a pink giraffe at 24 pixels. Shown as profile pictures.</p>
       </div>
     </div>
   </div>
@@ -118,7 +132,7 @@ tr.us td { background: color-mix(in srgb, var(--rose) 12%, transparent); }
           <tr><td>Duo</td><td>Round body, big eyes</td><td>One green, one orange</td><td>Huge range of expressions</td><td>The colour itself</td></tr>
           <tr><td>Dots</td><td>One soft blob each</td><td>One colour per Dot, fuzzy</td><td>Tiny eyes, little acting</td><td>A beret, glasses, a bow tie</td></tr>
           <tr><td>Clawd</td><td>A block with legs</td><td>Clay orange only</td><td>Eye holes; acting comes from props</td><td>Pixel blocks</td></tr>
-          <tr class="us"><td>Marcel</td><td>Big round head, neck, round body, two horn knobs</td><td>Rose, deep rose, one teal</td><td>Blinks, glances, hoof on cheek, waves, types</td><td>Deep-teal bow tie and the logo's rounded spots</td></tr>
+          <tr class="us"><td>Marcel</td><td>Head, long neck, round body, two horn knobs</td><td>Rose, deep rose, one teal</td><td>Calm eyes; tilts, nods, waves, types; a chat bubble while it thinks</td><td>Deep-teal bow tie and the logo's rounded spots</td></tr>
         </tbody>
       </table>
     </div>
@@ -132,7 +146,8 @@ tr.us td { background: color-mix(in srgb, var(--rose) 12%, transparent); }
       <li><span class="v">Pixel art</span><span>A detailed 48 × 54 sprite. Cute up close, busy and small elsewhere.</span></li>
       <li><span class="v">Clawd style</span><span>A giraffe in Clawd's tall pixels. Too few pixels: it stopped being a giraffe.</span></li>
       <li><span class="v">Dot matrix</span><span>This design seen through round LED dots. The face fell apart at that resolution, so pixels stay a nod (rounded-square spots, four-point sparkles), not the medium.</span></li>
-      <li><span class="v keep">This one</span><span>Vector shapes, so it is sharp at any size and every motion is smooth.</span></li>
+      <li><span class="v">Friendly</span><span>Vector shapes: sharp at any size, smooth motion. Liked, but too childish for a family's assistant.</span></li>
+      <li><span class="v keep">Professional</span><span>The same giraffe, grown up: longer neck, calm eyes, no blush, tidy spots, a nod and a small wave instead of hops, chat-style bubbles instead of floating code.</span></li>
     </ul>
   </section>
 </div>
@@ -144,32 +159,41 @@ tr.us td { background: color-mix(in srgb, var(--rose) 12%, transparent); }
 (function () {
   const stage = document.getElementById("stage"), tag = document.getElementById("tag"), sizes = document.getElementById("sizes");
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let state = "idle", bowtie = true, start = performance.now();
+  let state = "idle", bowtie = true, version = "pro", frame = "full", start = performance.now();
+  const draw = (st, tt, fr) => version === "pro" ? marcel.pro(st, tt, { bowtie, frame: fr })
+                                                 : marcel.bean2(st, tt, { bowtie });
   const holder = document.createElement("div");
   holder.style.width = "100%"; holder.style.display = "grid"; holder.style.placeItems = "center";
   stage.prepend(holder);
   const minis = [24, 32, 48, 96].map((px) => {
     const f = document.createElement("figure"), d = document.createElement("div"), c = document.createElement("figcaption");
-    d.style.width = px + "px"; d.style.height = Math.round(px * 1.1) + "px"; c.textContent = px + " px";
+    d.style.width = px + "px"; d.style.height = px + "px"; d.style.borderRadius = "50%"; d.style.overflow = "hidden";
+    d.style.background = "var(--stage)"; d.style.border = "1px solid var(--line)"; c.textContent = px + " px";
     f.append(d, c); sizes.append(f); return d;
   });
-  function frame(now) {
+  function render(now) {
     const t = reduce ? 0.35 : (now - start) / 1000;
-    holder.innerHTML = marcel.bean2(state, t, { bowtie }).replace('width="200" height="220"', 'width="100%" style="max-width:420px"');
-    minis.forEach((d) => { d.innerHTML = marcel.bean2("idle", t, { bowtie }).replace('width="200" height="220"', 'width="100%" height="100%"'); });
-    if (!reduce) requestAnimationFrame(frame);
+    holder.innerHTML = draw(state, t, frame).replace(/width="200" height="\d+"/, 'width="100%" style="max-width:420px"');
+    minis.forEach((d) => { d.innerHTML = draw("idle", t, "bust").replace(/width="200" height="\d+"/, 'width="100%" height="100%"'); });
+    if (!reduce) requestAnimationFrame(render);
   }
   function press(groupButtons, on) { groupButtons.forEach((b) => b.setAttribute("aria-pressed", String(b === on))); }
   const stateButtons = [...document.querySelectorAll("#states button")];
   stateButtons.forEach((b) => b.addEventListener("click", () => {
-    state = b.dataset.state; tag.textContent = state; start = performance.now(); press(stateButtons, b); if (reduce) frame(0);
+    state = b.dataset.state; tag.textContent = state; start = performance.now(); press(stateButtons, b); if (reduce) render(0);
   }));
   const bowOn = document.getElementById("bow-on"), bowOff = document.getElementById("bow-off");
-  bowOn.addEventListener("click", () => { bowtie = true; press([bowOn, bowOff], bowOn); if (reduce) frame(0); });
-  bowOff.addEventListener("click", () => { bowtie = false; press([bowOn, bowOff], bowOff); if (reduce) frame(0); });
+  bowOn.addEventListener("click", () => { bowtie = true; press([bowOn, bowOff], bowOn); if (reduce) render(0); });
+  bowOff.addEventListener("click", () => { bowtie = false; press([bowOn, bowOff], bowOff); if (reduce) render(0); });
+  const vPro = document.getElementById("v-pro"), vFr = document.getElementById("v-friendly");
+  vPro.addEventListener("click", () => { version = "pro"; press([vPro, vFr], vPro); if (reduce) render(0); });
+  vFr.addEventListener("click", () => { version = "friendly"; press([vPro, vFr], vFr); if (reduce) render(0); });
+  const fFull = document.getElementById("f-full"), fBust = document.getElementById("f-bust");
+  fFull.addEventListener("click", () => { frame = "full"; press([fFull, fBust], fFull); if (reduce) render(0); });
+  fBust.addEventListener("click", () => { frame = "bust"; press([fFull, fBust], fBust); if (reduce) render(0); });
   const bgL = document.getElementById("bg-light"), bgD = document.getElementById("bg-dark");
   bgL.addEventListener("click", () => { stage.classList.remove("dark"); press([bgL, bgD], bgL); });
   bgD.addEventListener("click", () => { stage.classList.add("dark"); press([bgL, bgD], bgD); });
-  requestAnimationFrame(frame);
+  requestAnimationFrame(render);
 })();
 </script>
