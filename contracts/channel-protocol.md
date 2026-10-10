@@ -43,8 +43,8 @@ channel server                                   hub
 
 | Frame | What the channel server does in the session |
 |---|---|
-| `user_message` | `notifications/claude/channel` with `content` = text, `meta` = `{kind: "user_message", message_id, conversation_id}` |
-| `steer` | the same, `meta` = `{kind: "steer", task_id, note_id, author}` |
+| `user_message` | `notifications/claude/channel` with `content` = text, `meta` = `{kind: "user_message", message_id, conversation_id, quoted_message_id?}` |
+| `steer` | the same, `meta` = `{kind: "steer", task_id, note_id, author, handback?}` (`handback` as `"true"` when set) |
 | `system_event` | the same, `meta` = `{kind: "system_event", event: <kind>, task_id?}`; `data` goes in the content as a fenced JSON block |
 | `permission_decision` | `notifications/claude/channel/permission` `{request_id, behavior}` |
 | Claude Code's `notifications/claude/channel/permission_request` | → `permission_request` frame, fields unchanged |
@@ -53,14 +53,26 @@ channel server                                   hub
 
 `meta` keys must be identifiers (letters, digits, underscores): Claude Code silently drops other keys.
 
-The plugin's settings pre-allow its own tools (`mcp__plugin_marcel_marcel__reply` and
-`mcp__plugin_marcel_marcel__report`), or a session in `manual` mode prompts for every reply (SP1).
+The runner pre-allows the plugin's own tools on every spawn, fork and resume
+(`--allowedTools mcp__plugin_marcel_marcel__reply mcp__plugin_marcel_marcel__report`, runner-api.yaml),
+or a session in `manual` mode prompts for every reply (SP1). A plugin cannot do this itself: Claude
+Code keeps only `agent` and `subagentStatusLine` from a plugin's settings.
+
+The channel server holds hub frames, unacked, until Claude Code has sent `notifications/initialized`
+and a short settle delay has passed: the session registers its channel handler a little after
+`initialized` (SP1), and a notification sent before that is lost.
 
 ## Delivery guarantees
 
-- **Hub → session:** every frame carries `seq` (per session, increasing). The hub keeps frames until
-  they are acked, and re-sends everything after `resume_after` when the server says hello again. The
-  server ignores a `seq` it has already delivered.
+- **Hub → session:** every frame carries `seq` (per session, increasing), and the hub sends them in
+  `seq` order, re-sends included. The hub keeps frames until they are acked, and re-sends everything
+  after `resume_after` when the server says hello again. The server ignores any `seq` at or below the
+  highest it has delivered.
+- **Permission prompts:** Claude Code relays a prompt once. The server keeps each
+  `permission_request` until its `permission_decision` arrives and re-sends it after every welcome.
+  The hub treats a `request_id` it already holds, in any card state, as a repeat and opens no second
+  card. The server is never told about a prompt answered in a terminal, so it may keep re-sending
+  that one; the hub ignores it.
 - **Session → hub:** `reply` and `report` carry a `call_id`, and the hub answers each with
   `call_ack {call_id}` once it is stored. The server keeps every call without an ack and re-sends
   it after a reconnect. The hub stores each `call_id` once and acks a repeat again (`duplicate:
@@ -82,7 +94,9 @@ The plugin's settings pre-allow its own tools (`mcp__plugin_marcel_marcel__reply
 
 | Failure | Behaviour |
 |---|---|
-| Hub down | The server retries the WebSocket with backoff (1 s → 30 s). `reply` and `report` return "queued, Marcel is reconnecting" to Claude Code, which carries on. |
+| Hub down | The server retries the WebSocket with backoff (1 s → 30 s). While it is not connected, `reply` and `report` return at once with "queued, Marcel is reconnecting" (or "connecting" before the first welcome), and the call goes out after the next welcome. While connected, they wait up to 10 s for `call_ack`, then return "queued". |
+| Hub silent | The hub accepts the socket but answers no hello within 15 s, or sends nothing for 60 s after welcome: the server closes the socket and reconnects with backoff. |
+| Server gives up | After a rejection it does not retry, or the end of the `unknown_session` window: tools return an error, "Marcel is unreachable", and the server logs how many queued calls it dropped. |
 | Unknown session id | `rejected unknown_session`; retried every 5 s for 2 minutes, then the server logs it and stops. The runner's spawn check (`channel_registered`) and the hub's watchdog surface it as a task that never said hello. |
 | Wrong secret | `rejected bad_secret`; no retry. The hub raises one "something broke" alert: a deploy wrote a different secret. |
 | Plugin too old | `rejected plugin_too_old`; no retry. The hub raises one "something broke" alert naming the plugin version it needs: the plugin was not updated with the hub. |
