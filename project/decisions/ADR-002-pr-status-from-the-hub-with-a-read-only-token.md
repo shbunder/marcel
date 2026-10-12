@@ -27,8 +27,12 @@ recorded a decision. S-04.7 shipped the interface and a tested translator for Gi
 
 Option A. The token lives in `deploy/.env.local` as `MARCEL_GITHUB_TOKEN` (never in git, never logged, never sent to
 the app). Without it, PR cards say plainly that the hub cannot ask GitHub, as they do today. Refresh: when a PR
-artifact is created, then every 5 minutes while the PR is open, and once when it closes; at most one request per PR
+artifact is created, then every 5 minutes while the PR is open, and once when it closes; one round of requests per PR
 per refresh, with backoff on GitHub's rate-limit answers.
+
+*Amended 2026-10-14 (S-04.12 review):* a round is three REST calls (the PR, its checks, its reviews), as S-04.12
+asks for the REST API. That is about 36 calls an hour per open PR, inside GitHub's 5,000 an hour up to about 130 open
+PRs, which is far beyond a home setup. One GraphQL query could replace the three if that ever matters.
 
 ## Consequences
 
