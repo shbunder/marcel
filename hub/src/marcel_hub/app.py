@@ -5,6 +5,7 @@ environment, which wins. A missing file is fine: defaults apply. A broken file s
 start with a message that names the file.
 """
 
+import logging
 import os
 import sys
 import tomllib
@@ -43,6 +44,8 @@ from marcel_hub.runner_client import DEFAULT_SOCKET, OffsetStore, RunnerClient, 
 
 DEFAULT_CONFIG_PATH = Path('/data/marcel.toml')
 
+log = logging.getLogger(__name__)
+
 
 class SettingsError(Exception):
     """The settings cannot be read. The message says which file or variable and what to do."""
@@ -64,6 +67,8 @@ class Settings:
     ntfy_server: str | None = None
     # None: PR cards say the hub cannot ask GitHub. A read-only token (ADR-002); never shown.
     github_token: str | None = field(default=None, repr=False)
+    # The owner's time zone: the built-in digests fire in it (S-09.2).
+    tz: str = 'Europe/Brussels'
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -93,6 +98,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         'brain_cwd',
         'ntfy_server',
         'github_token',
+        'tz',
     }
     unknown = set(values) - known
     if unknown:
@@ -112,6 +118,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             github_token=str(values['github_token']).strip() or None
             if values.get('github_token')
             else None,
+            tz=_tz(values.get('tz', 'Europe/Brussels')),
         )
     except ValueError as exc:
         raise SettingsError(f'The port must be a number: {exc}.') from exc
@@ -132,6 +139,14 @@ def _ntfy_server(value: Any) -> str | None:
     return server
 
 
+def _tz(value: Any) -> str:
+    try:
+        schedule.cron.zone(str(value))
+    except schedule.CronError as exc:
+        raise SettingsError(f'tz: {exc}') from exc
+    return str(value)
+
+
 def _is_setting(name: str) -> bool:
     return name in {
         'MARCEL_DATA_DIR',
@@ -144,6 +159,7 @@ def _is_setting(name: str) -> bool:
         'MARCEL_BRAIN_CWD',
         'MARCEL_NTFY_SERVER',
         'MARCEL_GITHUB_TOKEN',
+        'MARCEL_TZ',
     }
 
 
@@ -290,13 +306,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             events=app.state.events,
             alerts=pusher,
             memory=repo,
+            tz=schedule.cron.zone(settings.tz),  # 04:00 in the owner's time zone
         )
         if settings.brain_cwd
         else None
     )
     app.state.brain = keeper_of_brains
-    if keeper_of_brains is not None:
+    if keeper_of_brains is None:
+        log.warning(
+            'MARCEL_BRAIN_CWD is not set, so the hub starts no brain and Marcel will not answer '
+            'messages. Set it to the brain workspace on the NUC, e.g. /home/<you>/marcel/brain.'
+        )
+    else:
         gateway.brains = keeper_of_brains  # a new brain's hello is the hand-over
+        keeper_of_brains.turn_open = avatars.turn_open  # never hand over mid-turn
+        keeper_of_brains.hand_over = gateway.hand_over  # what the seed could not hold
         if watch is not None:
             watch.pokes.append(keeper_of_brains.poke)
     return app

@@ -145,6 +145,9 @@ async def channel(ws: WebSocket) -> None:
     if old is not None:
         old.replaced.set()
     gateway.outbox.attach(peer.target, link.wake)
+    if gateway.brains is not None and peer.role == 'brain':
+        # After the attach, so what a rollover hands over never reaches the replaced brain.
+        gateway.brains.welcomed(peer.session_id)
     sending = asyncio.ensure_future(link.pump())
     replaced = asyncio.ensure_future(link.replaced.wait())
     incoming: asyncio.Future[str | None] = asyncio.ensure_future(_receive(ws))

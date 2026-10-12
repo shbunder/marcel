@@ -644,7 +644,8 @@ def test_the_seed_is_built_from_the_hubs_own_records(
     assert 'Too old to keep' not in prompt
     assert '- 10:00 Owner: What is for dinner?' in prompt  # 08:00 UTC is 10:00 in Brussels
     assert 'Marcel: Pasta. With peas.' in prompt
-    assert '[thread "Fix the tests" done] Green.' in prompt
+    assert 'Report from thread "Fix the tests": [done] Green.' in prompt
+    assert 'Marcel hub: [done]' not in prompt and 'Marcel: [done]' not in prompt
     assert '[an approval card]' in prompt and '[an item arrived: art_1]' in prompt
     assert 'Marcel hub: ' + 'x' * 399 + '…' in prompt
     assert '- Back up the NAS — working, on nuc, project house (task ' in prompt
@@ -689,3 +690,99 @@ def test_a_missing_or_unreadable_memory_leaves_the_notes_out(
     monkeypatch.setattr(memory, 'read_slice', broken)
     prompt, kept = keeper.seed(agent_id, 'crashed')
     assert '## Your notes' not in prompt and kept.startswith('The last 0 messages')
+
+
+# A busy old brain (review fix 2) and the hub's own turn tracking (review fix 1) -------------------
+
+
+def test_a_busy_old_brain_puts_the_rollover_off_then_skips_it_without_an_alert(
+    keeper: BrainKeeper,
+    fake: FakeBrains,
+    engine: Engine,
+    agent_id: str,
+    clock: Clock,
+    alerts: RecordingAlerts,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    old = started(keeper, engine, agent_id)
+    fake.busy(old)  # a turn that does not end
+    keeper.roll_over(agent_id, 'daily')
+    for attempt in range(brain.BUSY_TRIES):
+        run(keeper.check())
+        assert len(fake.spawned) == 2 + attempt
+        new = fake.spawned and next(s for s in fake.by_id if s not in (old, *fake.stopped))
+        assert keeper.said_hello(new) is None
+        clock.advance(HELLO_WAIT_S + 1)
+        run(keeper.check())
+        assert new in fake.stopped and current(engine, agent_id) == old
+        run(keeper.check())
+        assert len(fake.spawned) == 2 + attempt, 'no new brain straight away'
+        clock.advance(brain.BUSY_RETRY_S)
+    for _ in range(5):
+        clock.advance(brain.BUSY_RETRY_S)
+        run(keeper.check())
+    assert len(fake.spawned) == 1 + brain.BUSY_TRIES, 'skipped after the last try'
+    assert alerts.raised == [], 'a busy brain is not a failed start'
+    assert 'Skipped the daily rollover' in caplog.text
+
+
+def test_the_hubs_turn_tracking_holds_the_hand_over(
+    keeper: BrainKeeper, fake: FakeBrains, engine: Engine, agent_id: str
+) -> None:
+    old = started(keeper, engine, agent_id)
+    keeper.roll_over(agent_id)
+    run(keeper.check())
+    new = next(sid for sid in fake.by_id if sid != old)
+    asked: list[tuple[str, str]] = []
+    open_turn = True
+
+    def turn_open(agent: str, conversation: str) -> bool:
+        asked.append((agent, conversation))
+        return open_turn
+
+    keeper.turn_open = turn_open
+    assert keeper.said_hello(new) is None, 'the runner says idle, but a turn is open'
+    assert asked and asked[0][0] == agent_id
+    open_turn = False
+    assert keeper.said_hello(new) is not None
+
+
+def test_the_hand_over_is_sent_once_the_new_brain_holds_the_conversation(
+    keeper: BrainKeeper, fake: FakeBrains, engine: Engine, agent_id: str, clock: Clock
+) -> None:
+    old = started(keeper, engine, agent_id)
+    keeper.roll_over(agent_id)
+    seeded = clock.now
+    run(keeper.check())
+    new = next(sid for sid in fake.by_id if sid != old)
+    handed: list[tuple[str, datetime]] = []
+    keeper.welcomed(new)  # no hand-over set up: nothing happens
+    keeper.hand_over = lambda conversation, since: handed.append((conversation, since))
+    conversation = keeper.said_hello(new)
+    assert conversation is not None and handed == []  # not before its socket is attached
+    keeper.welcomed(old)  # someone else
+    keeper.welcomed(new)
+    keeper.welcomed(new)  # once
+    assert handed == [(conversation[1], seeded)]
+
+
+def test_a_failing_hand_over_is_logged(
+    keeper: BrainKeeper,
+    fake: FakeBrains,
+    engine: Engine,
+    agent_id: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    old = started(keeper, engine, agent_id)
+    keeper.roll_over(agent_id)
+    run(keeper.check())
+    new = next(sid for sid in fake.by_id if sid != old)
+
+    def broken(conversation: str, since: datetime) -> None:
+        raise RuntimeError('outbox on fire')
+
+    keeper.hand_over = broken
+    assert keeper.said_hello(new) is not None
+    keeper.welcomed(new)
+    assert 'Could not send the new main session the latest messages.' in caplog.text
+    assert current(engine, agent_id) == new

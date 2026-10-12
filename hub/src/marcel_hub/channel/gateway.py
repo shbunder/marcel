@@ -18,6 +18,7 @@ import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +29,7 @@ from marcel_hub.channel.approvals import ApprovalBook
 from marcel_hub.channel.frames import next_steps_problem, version_tuple
 from marcel_hub.channel.outbox import ChannelOutbox, conversation_target, task_target
 from marcel_hub.channel.ports import Artifacts, Brains, LogPush, Push
-from marcel_hub.conversations import ensure_main_conversation, post_message
+from marcel_hub.conversations import ensure_main_conversation, message_json, post_message
 from marcel_hub.models import (
     Agent,
     AnsweredVia,
@@ -37,6 +38,7 @@ from marcel_hub.models import (
     ChannelCall,
     Conversation,
     ConversationKind,
+    Message,
     MessageKind,
     MessageRole,
     Task,
@@ -556,21 +558,87 @@ class Gateway:
                 # that starts for it reads the conversation, not a backlog of frames.
                 log.info('Message %s has no session to go to yet.', data['id'])
                 return
-            frame: dict[str, Any] = {
-                'type': 'user_message',
-                'message_id': data['id'],
-                'conversation_id': conv.id,
-                'text': data.get('text', ''),
-            }
-            if 'quoted_message_id' in data:
-                frame['quoted_message_id'] = data['quoted_message_id']
-            if data.get('project_id'):  # sent from a project room (B-32)
-                frame['project_id'] = data['project_id']
-            if data.get('artifact_id'):  # "Ask about this" on an item (B-21)
-                frame['artifact_id'] = data['artifact_id']
+            frame = user_frame(conv.id, data)
             self.outbox.to_conversation(conv.id, frame)
         except Exception:  # the message is stored; it must not fail because of the channel
             log.exception('Could not queue message %s for its session.', data.get('id'))
+
+    # Brain rollover (S-06.2) -----------------------------------------------------------------
+
+    def hand_over(self, conversation_id: str, since: datetime) -> None:
+        """A new brain just took the conversation over; its seed was written at `since`. Messages
+        after that are not in it. Those up to the old brain's last reply reach it as one
+        `rollover` system event (context, already answered); the owner's messages after that
+        reply are sent again as `user_message`, unless they still wait unacked in the Outbox, so
+        none is left unanswered."""
+        with Session(self.engine) as s:
+            msgs = list(
+                s.exec(
+                    select(Message)
+                    .where(Message.conversation_id == conversation_id)
+                    .where(Message.created_at >= since)
+                    .order_by(col(Message.created_at))
+                )
+            )
+        answered = max(
+            (
+                i
+                for i, m in enumerate(msgs)
+                if m.role == MessageRole.agent and m.kind == MessageKind.text
+            ),
+            default=-1,
+        )
+        target = conversation_target(conversation_id)
+        if answered >= 0:
+            lines = [
+                {'role': m.role.value, 'kind': m.kind.value, 'text': _said(m)}
+                for m in msgs[: answered + 1]
+            ]
+            self.outbox.put(
+                target,
+                {
+                    'type': 'system_event',
+                    'kind': 'rollover',
+                    'text': 'You took over from the previous main session. These messages came '
+                    'after your notes were written and are answered already.',
+                    'data': {'messages': lines},
+                },
+            )
+        waiting = {f.get('message_id') for f in self.outbox.pending(target)}
+        for m in msgs[answered + 1 :]:
+            asks = m.kind in (MessageKind.text, MessageKind.quote)
+            if m.role == MessageRole.user and asks and m.id not in waiting:
+                self.outbox.put(target, user_frame(conversation_id, message_json(m)))
+                log.info('Sent message %s again to the new main session.', m.id)
+
+
+def _said(m: Message) -> str:
+    body = m.body_json or {}
+    if 'text' in body:
+        return str(body['text'])
+    milestone = body.get('milestone')
+    if isinstance(milestone, dict):
+        return f'Thread "{milestone.get("task_title", "?")}" {milestone.get("event", "?")}: ' + str(
+            milestone.get('summary', '')
+        )
+    return f'[{m.kind.value}]'
+
+
+def user_frame(conversation_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    """The `user_message` frame for a stored owner message (`message_json`)."""
+    frame: dict[str, Any] = {
+        'type': 'user_message',
+        'message_id': data['id'],
+        'conversation_id': conversation_id,
+        'text': data.get('text', ''),
+    }
+    if 'quoted_message_id' in data:
+        frame['quoted_message_id'] = data['quoted_message_id']
+    if data.get('project_id'):  # sent from a project room (B-32)
+        frame['project_id'] = data['project_id']
+    if data.get('artifact_id'):  # "Ask about this" on an item (B-21)
+        frame['artifact_id'] = data['artifact_id']
+    return frame
 
 
 class _TaskWatch:

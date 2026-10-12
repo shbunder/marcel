@@ -50,3 +50,7 @@ class Brains(Protocol):
         (agent id, main conversation id); otherwise None (the hello is refused, and the channel
         server tries again in a few seconds)."""
         ...
+
+    def welcomed(self, session_id: str) -> None:
+        """The session's socket now holds its conversation (the old brain's is replaced)."""
+        ...

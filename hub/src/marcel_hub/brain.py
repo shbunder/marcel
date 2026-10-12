@@ -16,7 +16,7 @@ the brain workspace, `~/marcel/brain` on the NUC). `BrainKeeper` keeps one runni
 - **Backoff.** A spawn that fails is retried after 5 s, then 15 s, 30 s, 1 min, 2 min, then every
   5 min. After `ALERT_AFTER` failures in a row the owner gets one "something broke" alert; it is
   cleared when a brain starts again.
-- **Rollover.** Nightly at 04:00 in the hub's time zone (set `TZ` on the container), or on request
+- **Rollover.** Nightly at 04:00 in the owner's time zone (the `tz` setting), or on request
   (`roll_over`), the keeper starts a new brain next to the old one, seeded with what the hub kept
   (`seed`). The old brain keeps answering until the new one says hello on the channel; the hello
   is the hand-over (`said_hello`, called by the channel gateway), and only once the old brain is
@@ -68,6 +68,8 @@ SPAWN_GRACE_S = 60.0  # a session the runner just started may not be in its list
 HELLO_WAIT_S = 150.0  # the channel server retries an unknown session for 2 minutes
 BACKOFF_S = (5.0, 15.0, 30.0, 60.0, 120.0, 300.0)
 ALERT_AFTER = 3
+BUSY_TRIES = 2  # a rollover put off this often because Marcel was busy is skipped
+BUSY_RETRY_S = 300.0
 ALERT = 'brain_down'
 ROLLOVER_AT = wall_time(4, 0)
 
@@ -141,7 +143,9 @@ class _Pending:
     session_id: str
     reason: str
     kept: str
-    since: float
+    since: float  # monotonic, when it was started
+    seeded_at: datetime  # the hub's clock when its seed was written
+    refused_busy: bool = False  # its hello came while the old brain was in a turn
 
 
 @dataclass
@@ -151,6 +155,7 @@ class _AgentBrain:
     retiring: set[str] = field(default_factory=set)
     spawned_at: dict[str, float] = field(default_factory=dict)
     failures: int = 0
+    busy_tries: int = 0
     next_try: float = 0.0
     alerted: bool = False
 
@@ -177,7 +182,7 @@ class BrainKeeper:
         self.memory = memory
         self.clock = clock
         self.monotonic = monotonic
-        self.tz = tz  # None: the hub's local time zone (set TZ on the container)
+        self.tz = tz  # the app passes the `tz` setting; None: the process's local zone
         self._lock = asyncio.Lock()  # one check at a time
         self._mutex = threading.Lock()  # the per-agent state, shared with `said_hello`
         self._agents: dict[str, _AgentBrain] = {}
@@ -186,6 +191,11 @@ class BrainKeeper:
         self._wake: asyncio.Event | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._job: asyncio.Task[None] | None = None
+        # Set by the app: the avatar's turn tracking (S-04.8), and the gateway's hand-over that
+        # sends the new brain what its seed could not hold.
+        self.turn_open: Callable[[str, str], bool] | None = None
+        self.hand_over: Callable[[str, datetime], None] | None = None
+        self._handed: dict[str, tuple[str, datetime]] = {}  # new brain → (conversation, seed)
 
     # Lifecycle --------------------------------------------------------------------------------
 
@@ -280,7 +290,9 @@ class BrainKeeper:
         if pending is not None:
             gone = not self._is_alive(pending.session_id, st)
             late = self.monotonic() - pending.since > HELLO_WAIT_S
-            if gone or late:
+            if late and not gone and pending.refused_busy:
+                await self._put_off(agent_id, pending)
+            elif gone or late:
                 why = 'stopped before it said hello' if gone else 'never said hello'
                 log.warning(
                     'The new main session %s %s; the old one carries on and the hub tries again.',
@@ -317,6 +329,30 @@ class BrainKeeper:
                 log.warning('Stopping an extra main session %s: only one may run.', sid[:8])
                 await self._stop(sid, 'another main session is running')
 
+    async def _put_off(self, agent_id: str, pending: _Pending) -> None:
+        """The new brain waited out its time because the old one stayed in a turn. That is not a
+        failed start: no alert, no backoff count. Try later, and after `BUSY_TRIES` skip it."""
+        st = self._state(agent_id)
+        with self._mutex:
+            if st.pending is not pending:
+                return
+            st.pending = None
+            st.busy_tries += 1
+            if st.busy_tries >= BUSY_TRIES:
+                st.busy_tries = 0
+                st.wanted = None
+                log.warning(
+                    'Skipped the %s rollover: Marcel stayed in a turn the whole time. The current '
+                    'main session carries on.',
+                    pending.reason,
+                )
+            else:
+                st.wanted = pending.reason
+                st.next_try = self.monotonic() + BUSY_RETRY_S
+                log.info('Put off the %s rollover: Marcel is in a turn. Trying again in %.0f s.',
+                         pending.reason, BUSY_RETRY_S)  # fmt: skip
+        await self._stop(pending.session_id, 'Marcel was busy; the rollover waits')
+
     async def _stop(self, session_id: str, why: str) -> bool:
         assert self.runner is not None
         try:
@@ -335,12 +371,14 @@ class BrainKeeper:
 
     # Starting a brain -------------------------------------------------------------------------
 
-    async def _spawn(self, agent_id: str, reason: str | None) -> tuple[str, str] | None:
-        """Start a brain with its seed: (session id, what it kept), or None (backing off)."""
+    async def _spawn(self, agent_id: str, reason: str | None) -> tuple[str, str, datetime] | None:
+        """Start a brain with its seed: (session id, what it kept, when the seed was written),
+        or None (backing off)."""
         assert self.runner is not None
         st = self._state(agent_id)
         if self.monotonic() < st.next_try:
             return None
+        seeded_at = self.clock()
         prompt, kept = self.seed(agent_id, reason)
         with Session(self.engine) as s:
             agent = s.get(Agent, agent_id)
@@ -358,7 +396,7 @@ class BrainKeeper:
         if st.alerted:
             st.alerted = False
             self.alerts.resolved(ALERT)
-        return sid, kept
+        return sid, kept, seeded_at
 
     def _failed(self, agent_id: str, why: str) -> None:
         st = self._state(agent_id)
@@ -386,7 +424,7 @@ class BrainKeeper:
         started = await self._spawn(agent_id, reason)
         if started is None:
             return
-        sid, kept = started
+        sid, kept, _ = started
         with self._mutex:
             self._set_brain(agent_id, sid)
             self._state(agent_id).wanted = None  # it is a fresh start already
@@ -400,10 +438,10 @@ class BrainKeeper:
         started = await self._spawn(agent_id, reason)
         if started is None:
             return
-        sid, kept = started
+        sid, kept, seeded_at = started
         with self._mutex:
             st = self._state(agent_id)
-            st.pending = _Pending(sid, reason, kept, self.monotonic())
+            st.pending = _Pending(sid, reason, kept, self.monotonic(), seeded_at)
             st.wanted = None
         log.info('Started main session %s (%s); it takes over at its hello.', sid[:8], reason)
 
@@ -443,18 +481,47 @@ class BrainKeeper:
             assert pending is not None
             old = self._current(agent_id)
             seen = self._seen.get(old) if old is not None else None
-            if seen is not None and _alive(seen) and _busy(seen):
+            old_alive = seen is not None and _alive(seen)
+            if old_alive and self._in_turn(agent_id, seen):
                 # Refused for now; the channel server says hello again in 5 s.
+                pending.refused_busy = True
                 log.info('New main session %s waits for the old one to finish its turn.',
                          session_id[:8])  # fmt: skip
                 return None
             conversation_id = self._set_brain(agent_id, session_id)
             st.pending = None
+            st.busy_tries = 0
             if old is not None:
                 st.retiring.add(old)
+            self._handed[session_id] = (conversation_id, pending.seeded_at)
         self._published(agent_id, pending.reason, pending.kept)
         self.poke()  # stop the old one now
         return agent_id, conversation_id
+
+    def welcomed(self, session_id: str) -> None:
+        """The new brain's socket holds the conversation now: send it what its seed could not
+        hold (the gateway's `hand_over`). Any other session: nothing to do."""
+        with self._mutex:
+            handed = self._handed.pop(session_id, None)
+        if handed is None or self.hand_over is None:
+            return
+        try:
+            self.hand_over(*handed)
+        except Exception:  # the hand-over itself has happened; say what is missing
+            log.exception('Could not send the new main session the latest messages.')
+
+    def _in_turn(self, agent_id: str, seen: dict[str, Any] | None) -> bool:
+        """The old brain is answering: the runner shows it working (as of its last listing), or
+        the hub's own turn tracking has an owner message it has not replied to yet."""
+        if seen is not None and _busy(seen):
+            return True
+        if self.turn_open is None:
+            return False
+        with Session(self.engine) as s:
+            agent = s.get(Agent, agent_id)
+            assert agent is not None
+            main_id = ensure_main_conversation(s, agent).id
+        return self.turn_open(agent_id, main_id)
 
     # The seed ---------------------------------------------------------------------------------
 
@@ -533,7 +600,8 @@ class BrainKeeper:
         body = msg.body_json or {}
         if msg.kind == MessageKind.milestone:
             m = body.get('milestone', {})
-            text = f'[thread "{m.get("task_title", "?")}" {m.get("event", "?")}]'
+            who = f'Report from thread "{m.get("task_title", "?")}"'
+            text = f'[{m.get("event", "?")}]'
             if m.get('summary'):
                 text += f' {m["summary"]}'
         elif msg.kind == MessageKind.approval:

@@ -35,6 +35,7 @@ names the file.
 | `brain_cwd` | `MARCEL_BRAIN_CWD` | unset: the hub starts no brain. The brain workspace on the NUC, e.g. `/home/<you>/marcel/brain` (`brain/README.md`). Set: the hub keeps one brain running (see "The brain: keep-alive and rollover") |
 | `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no pushes. The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
 | `github_token` | `MARCEL_GITHUB_TOKEN` | unset: PR cards are not refreshed and say the token is missing. A fine-grained, **read-only** GitHub token (Pull requests: read, Checks and Commit statuses: read) on the owner's repos (ADR-002). Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown |
+| `tz` | `MARCEL_TZ` | `Europe/Brussels`. The owner's time zone (IANA name): the built-in digests are made in it, and their facts show times in it. A name that is not a time zone stops the hub at start |
 
 `MARCEL_CONFIG` moves the config file itself (tests use it).
 
@@ -664,8 +665,9 @@ is set and the hub has a runner.
 - **Backoff and one alert.** A spawn that fails is tried again after 5 s, 15 s, 30 s, 1 min, 2 min,
   then every 5 min. After 3 failures in a row you get one "Marcel cannot start" push with the
   runner's reason; it clears when a brain starts.
-- **Rollover.** Every night at 04:00 in the hub's time zone (set `TZ` on the container; the time
-  is worked out from the calendar day, so clock changes do not move it), the hub starts a fresh
+- **Rollover.** Every night at 04:00 in the owner's time zone (the `tz` setting, `MARCEL_TZ`,
+  default `Europe/Brussels`; the time is worked out from the calendar day, so clock changes do not
+  move it), the hub starts a fresh
   brain next to the old one. `BrainKeeper.roll_over(agent_id)` asks for one at any time; there is
   no app route for it yet. The old brain keeps answering until the new one says hello on the
   channel, and only once the old one is between turns (a hello while it is mid-turn is refused,
