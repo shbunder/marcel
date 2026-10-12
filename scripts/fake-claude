@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Run a shell (or one command) with the fake `claude` first on PATH, in a scratch HOME, so
+# nothing reaches the real ~/.claude, Claude or the network. `make fake-claude` calls this.
+#
+#   scripts/fake-claude                         # a shell, scenario worker-happy-path
+#   scripts/fake-claude worker-needs-approval   # a shell, another scenario
+#   scripts/fake-claude limit-reached claude agents --json --all
+#
+# Scenarios: runner/tests/fake_claude/scenarios/ (a name), or a path to a .yaml file.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+shim="$root/runner/tests/fake_claude"
+scenario="${1:-worker-happy-path}"
+[ $# -gt 0 ] && shift
+
+case "$scenario" in
+  */* | *.yaml | *.yml) file="$scenario" ;;
+  *) file="$shim/scenarios/$scenario.yaml" ;;
+esac
+if [ ! -f "$file" ]; then
+  echo "fake-claude: no scenario '$scenario'. Pick one of:" >&2
+  ls "$shim/scenarios" | sed 's/\.yaml$//; s/^/  /' >&2
+  exit 1
+fi
+
+home="${FAKE_CLAUDE_HOME:-$(mktemp -d "${TMPDIR:-/tmp}/fake-claude.XXXXXX")}"
+mkdir -p "$home/.claude/fake-claude"
+touch "$home/.claude/.fake-claude"
+echo "$scenario" >"$home/.claude/fake-claude/scenario"
+
+export HOME="$home"
+export PATH="$shim/bin:$PATH"
+
+if [ $# -gt 0 ]; then
+  exec "$@"
+fi
+echo "Fake claude is first on PATH. Scenario: $scenario. HOME=$home" >&2
+echo "Try: claude --bg --name t1 -- \"fix it\"; claude agents --json --all. Exit to leave." >&2
+exec "${SHELL:-/bin/bash}" -i
