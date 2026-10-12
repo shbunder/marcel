@@ -9,7 +9,6 @@ branch and commit, then prints the SP3 create line.
 """
 
 import json
-import subprocess
 import threading
 import time
 from pathlib import Path
@@ -237,7 +236,7 @@ def test_a_base_that_does_not_exist_is_clone_failed(cw: CloudWs) -> None:
     with pytest.raises(SessionError) as e:
         cw.create({'url': URL, 'base': 'nope'})
     assert (e.value.status, e.value.code) == (422, 'clone_failed')
-    assert 'nope' in (e.value.detail or '')
+    assert 'nope' in e.value.message
     assert cw.sightings() == []
     assert not cw.folder.exists()
 
@@ -350,11 +349,90 @@ def test_a_repo_spawn_of_the_same_repo_waits_until_claude_cloud_is_done(cw: Clou
     assert marks.read_text().split() == ['cloud-start', 'cloud-end', 'worktree-added']
 
 
-def test_the_clone_lets_go_of_the_base_branch_without_changing_a_file(cw: CloudWs) -> None:
+def push(cw: CloudWs, branch: str, name: str) -> str:
+    """A new commit on origin's `branch` (someone else pushed). Returns its sha."""
+    pusher = cw.tmp / f'pusher-{name}'
+    git(None, 'clone', '-q', '-b', branch, str(cw.bare), str(pusher))
+    (pusher / f'{name}.txt').write_text(f'{name}\n')
+    git(pusher, 'add', f'{name}.txt')
+    git(pusher, 'commit', '-qm', name)
+    git(pusher, 'push', '-q', 'origin', branch)
+    return git(pusher, 'rev-parse', 'HEAD').strip()
+
+
+def test_the_clone_stays_on_its_branch_and_follows_origin(cw: CloudWs) -> None:
+    """Review fix: the clone's own checkout is never detached; on the base it is fast-forwarded."""
     clone = cw.ws.ensure(parse_cloud_repo({'url': URL}))
-    before = git(clone, 'rev-parse', 'HEAD')
-    cw.create({'url': URL, 'base': 'main'})
-    assert git(clone, 'rev-parse', 'HEAD') == before
+    new = push(cw, 'main', 'later')
+    cw.create({'url': URL})  # the default branch, which the clone itself sits on
+    assert cw.sightings()[-1]['head'] == new
+    assert git(clone, 'symbolic-ref', 'HEAD').strip() == 'refs/heads/main'
+    assert git(clone, 'rev-parse', 'HEAD').strip() == new
     assert git(clone, 'status', '--porcelain') == ''
-    detached = subprocess.run(['git', 'symbolic-ref', '-q', 'HEAD'], cwd=clone, check=False)
-    assert detached.returncode == 1
+
+
+def task_with_unpushed_work(cw: CloudWs) -> tuple[Any, Path, str]:
+    """A task worktree whose branch has a commit that was never pushed."""
+    task = parse_repo({'url': URL, 'task_id': 'tsk_1', 'slug': 'work'})
+    folder, _ = cw.ws.add_worktree(task)
+    (folder / 'work.txt').write_text('not pushed\n')
+    git(folder, 'add', 'work.txt')
+    git(folder, 'commit', '-qm', 'unpushed')
+    git(folder, 'push', '-q', 'origin', f'HEAD~1:refs/heads/{task.branch}')  # origin is behind
+    git(cw.root / 'marcel', 'fetch', '-q', 'origin')
+    return task, folder, git(folder, 'rev-parse', 'HEAD').strip()
+
+
+def test_a_branch_a_task_has_checked_out_is_refused_in_plain_words(cw: CloudWs) -> None:
+    task, folder, tip = task_with_unpushed_work(cw)
+    with pytest.raises(SessionError) as e:
+        cw.create({'url': URL, 'base': task.branch})
+    assert (e.value.status, e.value.code) == (422, 'clone_failed')
+    assert e.value.message == (
+        f'{task.branch} is checked out in the task folder {folder.resolve()}, so a cloud session '
+        'cannot start on it. Pick another branch, or wait until that task is done.'
+    )
+    assert git(folder, 'rev-parse', 'HEAD').strip() == tip
+    assert cw.sightings() == []
+
+
+def test_unpushed_commits_on_the_base_are_never_reset(cw: CloudWs) -> None:
+    """Review fix (control): a local branch ahead of origin is refused, never reset to it."""
+    task, _, tip = task_with_unpushed_work(cw)
+    cw.ws.remove_worktree(task)  # the task is done; its branch, with the commit, stays
+    clone = cw.root / 'marcel'
+    with pytest.raises(SessionError) as e:
+        cw.create({'url': URL, 'base': task.branch})
+    assert (e.value.status, e.value.code) == (422, 'clone_failed')
+    assert e.value.message == (
+        f'{task.branch} has commits that were never pushed; push them or pick another branch.'
+    )
+    assert git(clone, 'rev-parse', task.branch).strip() == tip
+    assert cw.sightings() == []
+
+
+def test_a_base_that_diverged_from_origin_is_never_reset(cw: CloudWs) -> None:
+    task, _, tip = task_with_unpushed_work(cw)
+    cw.ws.remove_worktree(task)
+    push(cw, task.branch, 'elsewhere')  # origin moved on too
+    git(cw.root / 'marcel', 'fetch', '-q', 'origin')
+    with pytest.raises(SessionError) as e:
+        cw.create({'url': URL, 'base': task.branch})
+    assert e.value.message.endswith('never pushed; push them or pick another branch.')
+    assert git(cw.root / 'marcel', 'rev-parse', task.branch).strip() == tip
+
+
+def test_a_local_base_behind_origin_is_fast_forwarded(cw: CloudWs) -> None:
+    clone = cw.ws.ensure(parse_cloud_repo({'url': URL}))
+    git(clone, 'branch', '--track', 'dev', 'origin/dev')
+    new = push(cw, 'dev', 'later')
+    cw.create({'url': URL, 'base': 'dev'})
+    assert cw.sightings()[-1]['head'] == new
+    assert git(clone, 'rev-parse', 'dev').strip() == new
+
+
+def test_a_base_origin_does_not_have_is_refused_plainly(cw: CloudWs) -> None:
+    with pytest.raises(SessionError) as e:
+        cw.create({'url': URL, 'base': 'gone'})
+    assert (e.value.status, e.value.code) == (422, 'clone_failed')
+    assert e.value.message == 'gone is not a branch of marcel on origin.'

@@ -30,3 +30,12 @@
   4. Whether the trust dialog appears in the worktree (SP2 says worktrees inherit trust from the
      clone). If it does, the create hangs to its 60 s limit and answers `claude_timeout`; the
      pty output in `detail` would show the dialog.
+  5. Do the repo's own `.claude/settings.json` hooks run on the NUC when `claude --cloud` starts in
+     the `.cloud` checkout? (The runner disables git hooks, not Claude Code hooks.) If they do, a
+     repo can run code on the NUC through a cloud create; note it here and decide before F07.
+- **A cloud create holds the repo's lock, and that can outlast the hub's 120 s `repo` spawn
+  timeout.** A task spawn of the same repo waits while a create runs: usually a fetch and up to
+  60 s of `claude --cloud`, but on a repo's first use a clone, the trust dialog (40 s) and the plugin
+  install come first, and each git step may take up to 600 s. The hub then gives up on a spawn the
+  runner still finishes. S-06.7 / S-07.1: allow for it (a longer timeout for `repo` spawns, or treat
+  a timed-out spawn as possibly started and look for it in the roster).

@@ -122,8 +122,9 @@ The rest of the body is checked as an ordinary spawn before any git work. Git ru
 `-c core.hooksPath=/dev/null -c core.fsmonitor=false -c protocol.ext.allow=never` on every call:
 workers share the clone's `.git`, and the runner never runs a hook or command one planted there.
 Each repo has its own lock, so a slow clone of one repo never holds up another. A cloud create
-holds its repo's lock while `claude --cloud` runs (at most 60 s), so a task spawn on the same repo
-waits that long at most.
+holds its repo's lock from the clone check to the end of `claude --cloud`, so a task spawn on the
+same repo waits for it: usually a fetch and up to 60 s, at worst a first clone and setup plus git
+steps of up to 600 s each.
 
 ## Errors
 

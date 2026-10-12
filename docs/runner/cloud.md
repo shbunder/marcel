@@ -36,10 +36,16 @@ runner's home folder, so the session has no repo. With `repo: {url, base?}` (run
    `repo` spawn (see [workspaces](workspaces.md)); this reuses that code.
 2. `git fetch --prune origin`.
 3. The branch is `base`, or the repo's default branch (`origin/HEAD`) without it.
-4. If the clone's own checkout is on that branch, it is detached at the same commit (no file
-   changes), so a worktree can have the branch.
-5. `git worktree add -B <base> -- ~/marcel/workspaces/<repo>-wt/.cloud origin/<base>`: a worktree on
-   a local branch named like the base, at what origin has now, tracking `origin/<base>`.
+4. The local branch `<base>` is brought to `origin/<base>` without ever losing a commit:
+   - not there yet: made from `origin/<base>`, tracking it;
+   - equal to origin: used as it is;
+   - behind origin: fast-forwarded (when the clone's own checkout is on it, with
+     `git merge --ff-only` there, so the clone stays on its branch and its files follow);
+   - ahead of or diverged from origin: refused, `422 clone_failed`, "<base> has commits that were
+     never pushed; push them or pick another branch.";
+   - checked out in a task's worktree: refused, `422 clone_failed`, naming the task folder.
+5. `git worktree add -- ~/marcel/workspaces/<repo>-wt/.cloud <base>` (with `--force` when the clone's
+   own checkout is on the same branch: both are then at the same commit).
 6. `claude --cloud -- "<prompt>"` runs there.
 7. The worktree is removed (`git worktree remove --force`, then `prune`), whether claude succeeded,
    failed or ran out of time.
@@ -49,10 +55,13 @@ cloud box clones the repo from GitHub itself; nothing is pushed from the NUC and
 its own branch. The folder only has to exist while claude reads it. Its name, `.cloud`, can never be
 a task id (those never start with a dot). A folder left there by a crash is removed before the next
 create. The whole create holds the repo's lock, so two creates on one repo, or a create and a task
-spawn, never run git in it at the same time; a task spawn waits at most the create's 60 s.
+spawn, never run git in it at the same time. A task spawn of that repo waits for it: usually a fetch
+plus the claude run (at most 60 s), but on a repo's first use a clone, the trust dialog and the
+plugin install come first, and each git step may take up to 600 s.
 
-The local branch `<base>` in the clone is reset to `origin/<base>` each time. Nobody works on it
-there: task branches are `marcel/<task-id>-<slug>`.
+Why a named branch and not a detached checkout at `origin/<base>` (which would touch no branch at
+all): `claude --cloud` takes the branch from the folder, and a detached folder has none; what it
+then does is unknown. A named branch that is never reset gives it the branch and loses nothing.
 
 ## Send
 
