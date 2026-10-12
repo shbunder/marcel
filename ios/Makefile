@@ -16,11 +16,12 @@ SDK_VER := $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun --sdk iphonesimulator --
 PLAT    := $(DEVELOPER_DIR)/Platforms/iPhoneSimulator.platform/Developer
 TRIPLE  := $(ARCH)-apple-ios18.0-simulator
 TESTS   := $(BUILD)/spm-sim/$(ARCH)-apple-ios-simulator/debug/MarcelKitPackageTests.xctest
+AVATAR_TESTS := $(BUILD)/spm-avatar/$(ARCH)-apple-ios-simulator/debug/AvatarKitPackageTests.xctest
 RUNNER  := $(BUILD)/runner/SimTestRunner
 SIM     ?= $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun simctl list devices available -j | python3 scripts/pick-simulator.py $(SDK_VER))
 MOCK_HUB ?= http://127.0.0.1:7499/api
 
-.PHONY: check app test tests-bundle integration generate boot clean
+.PHONY: check app test tests-bundle avatar-tests-bundle integration generate boot clean
 
 check: app test
 
@@ -44,13 +45,20 @@ tests-bundle:
 	  --triple $(TRIPLE) --sdk $(SDK) -Xswiftc -F -Xswiftc $(PLAT)/Library/Frameworks \
 	  -Xlinker -F -Xlinker $(PLAT)/Library/Frameworks
 
+# AvatarKit's tests (sprite timing + SwiftUI snapshots), built the same way in their own scratch path.
+avatar-tests-bundle:
+	swift build --quiet --package-path AvatarKit --scratch-path $(BUILD)/spm-avatar --build-tests \
+	  --triple $(TRIPLE) --sdk $(SDK) -Xswiftc -F -Xswiftc $(PLAT)/Library/Frameworks \
+	  -Xlinker -F -Xlinker $(PLAT)/Library/Frameworks
+
 boot:
 	@echo "Simulator: $(SIM)"
 	@xcrun simctl bootstatus $(SIM) -b >/dev/null
 
-# MarcelKit's unit tests on the simulator. They use stubs; nothing reaches the network.
-test: tests-bundle $(RUNNER) boot
+# MarcelKit's and AvatarKit's unit tests on the simulator. They use stubs; nothing reaches the network.
+test: tests-bundle avatar-tests-bundle $(RUNNER) boot
 	xcrun simctl spawn $(SIM) $(RUNNER) $(TESTS)
+	xcrun simctl spawn $(SIM) $(RUNNER) $(AVATAR_TESTS)
 
 # Against the mock hub (start it first with `make mock-hub` from the repo root). Not part of the gate.
 integration: tests-bundle $(RUNNER) boot
