@@ -84,7 +84,7 @@ Size guide:
 4. Run the lane gate:
    - hub, runner, plugin-py: `make -C <lane> check` (ruff, pyright, pytest, coverage ≥ 90 %);
    - plugin-ts: `npm run check`;
-   - iOS: `make ios-check` (`xcodebuild test`).
+   - iOS: `make ios-check` (= `make -C ios check`; see `ios/README.md` for how it runs the tests on the simulator).
 5. Update the docs the story names, in the same commit.
 6. `/finish-story` — gate, `story-verifier`, commit `[S-NN.M] impl: <what>` staged by name (never
    `git add .` or `-A`), PR, card → Review. Fix what the verifier finds.
