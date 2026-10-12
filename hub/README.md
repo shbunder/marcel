@@ -3,7 +3,7 @@
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, the task
 routes, conversations and task threads, the live event stream, artifacts and their versions, memory, projects and
-their boards, the avatar's state, push notifications, the usage guard, the channel gateway and approvals, and the brain tools' routes.
+their boards, the avatar's state, push notifications, the usage guard, the channel gateway and approvals, the brain tools' routes, and keeping the brain alive.
 
 ## Run
 
@@ -32,8 +32,10 @@ names the file.
 | `owner_name` | `MARCEL_OWNER_NAME` | `Owner` (shown by `GET /api/me`) |
 | `runner_sock` | `MARCEL_RUNNER_SOCK` | `/run/marcel/runner.sock` (the runner's socket, mounted into the container) |
 | `worker_cwd` | `MARCEL_WORKER_CWD` | unset. Where workers without a repository run, e.g. `/home/<you>/marcel/workspaces/scratch` (a path on the NUC). Unset: such tasks fail with a reason |
+| `brain_cwd` | `MARCEL_BRAIN_CWD` | unset: the hub starts no brain. The brain workspace on the NUC, e.g. `/home/<you>/marcel/brain` (`brain/README.md`). Set: the hub keeps one brain running (see "The brain: keep-alive and rollover") |
 | `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no pushes. The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
 | `github_token` | `MARCEL_GITHUB_TOKEN` | unset: PR cards are not refreshed and say the token is missing. A fine-grained, **read-only** GitHub token (Pull requests: read, Checks and Commit statuses: read) on the owner's repos (ADR-002). Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown |
+| `tz` | `MARCEL_TZ` | `Europe/Brussels`. The owner's time zone (IANA name), and the only one the hub uses: the built-in digests run in it (ones the owner has not edited move when it changes), their facts and the usage guard's pushes show times in it, and the brain's nightly rollover runs at 04:00 in it. The process's own `TZ` is never used. A name that is not a time zone stops the hub at start |
 
 `MARCEL_CONFIG` moves the config file itself (tests use it).
 
@@ -516,6 +518,54 @@ app's `/api/schedules` and the brain's `schedule_*` tools reach the same `Schedu
 - **Shutdown.** Stopping the hub lets a look in progress finish (a spawn is never cut in half),
   then ends the loop.
 
+## Digests
+
+`src/marcel_hub/digest.py` (S-09.2, B-17). The hub gathers the facts; the brain writes the digest
+with the plugin's `digest` skill. The hub never writes a digest itself.
+
+- **Four built-in schedules** per agent, in the `tz` setting, made at start (and within 30 seconds
+  for an agent made later): *Morning digest* 07:00, *Evening digest* 21:00, *Weekly review*
+  Sunday 18:00, *Usage report* 21:00. They run in the brain, can be paused or changed in the app,
+  and cannot be deleted. Their ids are `sch_digest_<digest>_<agent id>`. When `tz` changes, the
+  ones the owner has not edited (cron and time zone still as the hub set them) move to it at start.
+- **The usage report rides with the evening digest** while both run at the same time and neither
+  is paused: the evening bundle carries `usage` and the usage report sends nothing of its own.
+  Moved to another time it is sent on its own (`digest: usage`); paused, the evening digest leaves
+  usage out.
+- **The facts bundle**, read when a digest fires: `approvals` (open cards), `questions` (threads
+  waiting for an answer), `in_flight`, `done`, `failures`, `prs_ready` (open, checks passing, no
+  changes asked; an approving review is not needed, as the owner reviews by merging),
+  `prs_merged`, `artifacts` (new items), `stale` (no activity for 3 days), `schedules_today` (the
+  other schedules' fires until midnight) and, in the evening digest, the weekly review and a lone
+  usage report, `usage` (the plan's windows and usage by task since the last report). Today means
+  since local midnight; the weekly review covers the last 7 days. Every list keeps its first 10,
+  with `count` and `more`; every text is one line of at most 160 characters. Times are ISO in the
+  owner's time zone. No settings, no approval details (the command an approval would run), and in
+  titles and summaries token-shaped words (`ghp_…`, `sk-…`, `Bearer …`, device tokens `mrc_…`, any
+  run of 32+ hex characters such as the hub secret) become `[hidden]`, as does the value of
+  `NAME=value` when NAME ends in secret, token, key or password (`MARCEL_HUB_SECRET=[hidden]`).
+- **Delivery.** The bundle goes as a `digest_due` system event (`data: {digest, title, facts,
+  artifact_id?}`) through the channel outbox, so it waits there while the brain restarts.
+- **The digest board.** The brain publishes with the event's `title` ("Evening digest — Monday 12
+  October"). The hub takes as the digest a new version of the board, or a doc by Marcel in the
+  inbox with exactly that title; any other doc published meanwhile is ignored. The first one
+  becomes the agent's digest board; later events name it (`artifact_id`), so each digest is a new
+  version.
+  When it gets a new version, the hub posts it as a card in the main conversation and pushes it
+  (category `digest`, the version's summary as the text). The brain adds its one-line headline.
+- **When the brain does not publish within 30 minutes** (down, busy or failed), the hub logs a
+  warning and posts one plain line of its own, with a push, made from the bundle's numbers: "The
+  evening digest was not written: Marcel did not publish it within 30 minutes. In short: 2 things
+  wait for you; 3 threads are working." The owner is never left guessing, and nothing waits on the
+  brain. A digest published later (until the next digest of its kind) is still recognised: it
+  becomes the board and gets its card, without a second push.
+- **Restart.** The board ids, the digests waiting to be published and the usage baselines are kept
+  in `<data_dir>/digests.json`; an unreadable file is logged and digests start afresh.
+- **Live test** (`tests/test_digest_live.py`, marked `live`, never in a gate): on the NUC, with
+  `MARCEL_LIVE_URL`, `MARCEL_LIVE_TOKEN` (a paired device's token) and `MARCEL_LIVE_AGENT`, it moves
+  the morning digest to the next minute, waits for its card in the main conversation, and puts
+  the time back: `make -C hub test-live`.
+
 ## Usage guard
 
 `src/marcel_hub/usage.py` keeps Marcel inside the Claude Max plan (B-19). It reads the runner's
@@ -529,8 +579,8 @@ app's `/api/schedules` and the brain's `schedule_*` tools reach the same `Schedu
 - **One push per crossing.** When a hold starts, one push: "Marcel is pausing new work until 14:00:
   the subscription is at 91 %." Nothing for further polls, for queued spawns, or for a hold that
   ends and starts again for the same reset time. A hold whose reset is unknown (it lasts 30
-  minutes) pushes at most once per 5 hours, or again after a fresh reading. Times are in the hub's
-  time zone (set `TZ` on the container).
+  minutes) pushes at most once per 5 hours, or again after a fresh reading. Times are in the `tz`
+  setting's time zone (`MARCEL_TZ`), never the container's.
 - **When it lets go.** At the window's reset time, or when a fresh reading shows every window
   below its limit (not after a limit hit: that waits for the reset). The queue then starts oldest
   first through the task registry, so the worker cap still applies; a task that now waits for a
@@ -574,7 +624,10 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
 - **Who a session is.** Only a session id the runner reported: a NUC task's `session_id` (role
   `worker`, or `adopted`) or a conversation's `brain_session_id` (`brain` for the main
   conversation, `side` for a side thread). Anything else is rejected `unknown_session`; the
-  server retries for two minutes. A plugin older than 0.1.0 is rejected `plugin_too_old`.
+  server retries for two minutes. One exception: a new brain started by a rollover is not the
+  conversation's brain yet, and its hello is the hand-over (see "The brain: keep-alive and
+  rollover"). A `reply` from a session that is no longer its conversation's (the brain a rollover
+  replaced) is refused with `call_ack.error` (`replaced`), so only one brain ever answers. A plugin older than 0.1.0 is rejected `plugin_too_old`.
 - **A session acts only for itself.** A worker's `report` lands on its own task; a brain's or side
   thread's `reply` in its own conversation. A worker's `reply` and a brain's `report` are stored
   nowhere, logged, and answered `call_ack` with `error` (`not_allowed`), so the session drops the
@@ -639,6 +692,52 @@ second card, whatever state the card is in.
   resolved from the transcript if it can be, and otherwise becomes `expired`. At start the hub does
   the same for cards left open while it was down.
 - Every change to a card sends `approval.resolved`.
+
+## The brain: keep-alive and rollover
+
+`brain.py` keeps exactly one brain session per agent (S-06.2, B-01). It runs only when `brain_cwd`
+is set and the hub has a runner.
+
+- **When it checks.** At start, after every runner event and every runner (re)connect, and every
+  2 seconds. It lists the runner's sessions and looks at each agent's brain, the
+  `brain_session_id` on the main conversation. Checks run one at a time, so a burst of runner
+  events starts one brain, not several.
+- **A dead brain is replaced at once.** Gone from the runner's list, `failed`, `stopped`, or
+  `done` with no process left. The new session id is stored on the main conversation right away.
+  Messages you send while no brain runs wait in the Outbox and reach the new brain when its
+  channel says hello. A replacement shows in Marcel's notebook as a `brain.rollover` with reason
+  `crashed`.
+- **Nothing is started on a guess.** A runner that cannot be reached, a state the hub does not
+  know, or a session the runner started less than a minute ago but does not list yet all count as
+  "still running".
+- **Backoff and one alert.** A spawn that fails is tried again after 5 s, 15 s, 30 s, 1 min, 2 min,
+  then every 5 min. After 3 failures in a row you get one "Marcel cannot start" push with the
+  runner's reason; it clears when a brain starts.
+- **Rollover.** Every night at 04:00 in the owner's time zone (the `tz` setting, `MARCEL_TZ`,
+  default `Europe/Brussels`; the time is worked out from the calendar day, so clock changes do not
+  move it), the hub starts a fresh
+  brain next to the old one. `BrainKeeper.roll_over(agent_id)` asks for one at any time; there is
+  no app route for it yet. The old brain keeps answering until the new one says hello on the
+  channel, and only once the old one is between turns (a hello while it is mid-turn is refused,
+  and the channel server tries again 5 s later). At the hello the new id goes on the conversation,
+  the old brain's socket is closed and its session stopped, and `brain.rollover` (time, reason,
+  what was kept) is stored and sent to the app. A new brain that dies or does not say hello within
+  150 s is stopped, the old one stays, and the rollover is tried again after the backoff. So there
+  is never no brain, and never two answering.
+- **What a new brain starts with.** Its first prompt is written by the hub from its own records,
+  with no model call: `MEMORY.md` (the first 8 KB), the open threads (title, state, where, project),
+  and the main chat of the last 24 hours (up to 60 messages, milestones included, each line cut at
+  400 characters). `kept` says the same in one line, e.g. "Your notes, the last 40 messages of the
+  past day and 3 open threads."
+- **Left-over brains.** Any other live session the runner lists as this agent's brain (named
+  `brain-<agent id>`), for example one a hub restart cut off in the middle of a rollover, is
+  stopped.
+- **Never held back.** The brain is started through the runner directly, not through the task
+  registry, so the worker cap and the usage guard never queue it.
+- **Not yet.** The hub cannot see how full the brain's context is (no transcript event carries
+  token counts), so there is no context-threshold rollover; and the rollover log lives only in the
+  app event stream, which keeps the latest 2000 events (`project/contract-requests/S-06.2.md`).
+  The 04:00 timer is the keeper's own; it can move onto the scheduler (S-09.1) later.
 
 ## Brain tools: `/brain`
 

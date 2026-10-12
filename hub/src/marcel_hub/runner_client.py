@@ -159,6 +159,32 @@ class RunnerClient:
         if res.status_code != 200:
             raise RunnerUnavailable(f'The runner could not stop the session: {_message(res)}')
 
+    # The brain (S-06.2: `brain.BrainKeeper`) -----------------------------------------------
+
+    async def spawn_brain(self, *, name: str, model: str, cwd: str, prompt: str) -> str:
+        """Start a brain session in its workspace; returns its session id. The brain never counts
+        toward the worker cap and never goes through the usage guard: it must always answer."""
+        body = {
+            'role': 'brain',
+            'name': name,
+            'model': model,
+            'permission_mode': 'auto',
+            'cwd': cwd,
+            'prompt': prompt,
+        }
+        res = await self._call('POST', '/sessions', json=body, timeout=SPAWN_TIMEOUT)
+        if res.status_code == 201:
+            return res.json()['session_id']
+        raise StartFailed(_message(res))
+
+    async def sessions(self) -> list[dict[str, Any]]:
+        """Every background session the runner sees, newest first. A runner that cannot list
+        them right now (503) counts as unavailable: nothing can be concluded from it."""
+        res = await self._call('GET', '/sessions')
+        if res.status_code != 200:
+            raise RunnerUnavailable(_message(res))
+        return res.json()
+
     # Reads -----------------------------------------------------------------------------------
 
     async def health(self) -> dict[str, Any]:
@@ -664,6 +690,9 @@ class RunnerWatch:
         self._tails: dict[str, _Tail] = {}
         self._job: asyncio.Task[None] | None = None
         self.listeners: list[SessionListener] = []
+        # Called after every runner event and every (re)connect, whatever the session: the brain
+        # keeper (S-06.2) checks its brain then, as brain sessions are not tasks.
+        self.pokes: list[Callable[[], None]] = []
 
     # Lifecycle --------------------------------------------------------------------------------
 
@@ -729,6 +758,14 @@ class RunnerWatch:
         if was is False:
             log.info('The runner answers again.')
             self.alerts.resolved(UNREACHABLE)
+        self._poke()
+
+    def _poke(self) -> None:
+        for poke in self.pokes:
+            try:
+                poke()
+            except Exception:  # a listener's bug must not stop the runner feed
+                log.exception('A runner-event listener failed.')
 
     async def _down(self, why: str) -> None:
         if self.reachable is False:
@@ -769,6 +806,7 @@ class RunnerWatch:
             log.warning('Ignored a bad runner event: %s.', exc)
             return
         self.last_seq = event['seq']
+        self._poke()
         if event['type'] == 'runner.warning':
             log.warning('The runner warns: %s', event['message'])
             self.alerts.broke(WARNING, 'The NUC has a problem', event['message'])

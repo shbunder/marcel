@@ -68,3 +68,7 @@ def test_hard_rules(rule: str) -> None:
 def test_the_voice() -> None:
     for words in ('giraffe', 'Lead with the outcome', 'plain words', 'phone'):
         assert words in PERSONA
+
+
+def test_points_at_the_digest_skill_for_a_digest_event() -> None:
+    assert '`digest` skill' in PERSONA, 'a digest_due event must lead to the digest skill (S-09.2)'
