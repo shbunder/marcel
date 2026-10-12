@@ -1,5 +1,6 @@
 import MarcelItems
 import MarcelKit
+import MarcelQuest
 import PixelKit
 import SwiftData
 import SwiftUI
@@ -24,7 +25,7 @@ public struct ChatScreen: View {
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: ChatRoute.self) { route in
                     switch route {
-                    case .quest(let line): QuestPlaceholder(line: line)
+                    case .quest(let line): QuestView(taskId: line.taskId)
                     case .item(let line): ArtifactViewer(artifactId: line.artifactId, conversationId: model.conversationId)
                     }
                 }

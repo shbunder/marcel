@@ -9,7 +9,8 @@ ios/
                         Chat tab, its own package: see Marcel/Chat/README.md), Quests/ (the Quests tab, its own
                         package: see Marcel/Quests/README.md), Map/ (the Map tab and project rooms, its own
                         package: see Marcel/Map/README.md), Items/ (the Items tab and the artifact viewer, its own
-                        package: see Marcel/Items/README.md)
+                        package: see Marcel/Items/README.md), Quest/ (inside one quest, opened from the Chat
+                        and Quests tabs, its own package: see Marcel/Quest/README.md)
   Config/               the app's Info.plist additions (local-network HTTP for the mock hub)
   MarcelKit/            Swift package: API client, pairing, Keychain, WebSocket stream, SwiftData cache
   PixelKit/             Swift package: the pixel-classic design system (tokens, fonts, components; see its README)
@@ -35,6 +36,8 @@ make -C ios map-test        # the Map tab's tiles, rooms, moves, room messages a
 make -C ios map-record      # re-record the Map snapshots after a deliberate change
 make -C ios items-test      # the Items tab and the artifact viewer: every kind, versions, the web view's rules, snapshots
 make -C ios items-record    # re-record the Items snapshots after a deliberate change
+make -C ios quest-test      # the quest view: steps, transcript merge, steer and approve, 5k events, snapshots
+make -C ios quest-record    # re-record the quest view's snapshots after a deliberate change
 make -C ios integration     # one test against the mock hub; start it first with `make mock-hub`
 make -C ios generate        # regenerate the API client after contracts/app-api.yaml changes
 SIM=<udid> make -C ios test # pick the simulator yourself (default: an iPhone on the newest iOS runtime)
@@ -52,7 +55,7 @@ though the iOS 18 and 26.x simulators work. `xcodebuild test` and `-destination`
 
 1. **App:** `xcodebuild -target Marcel -sdk iphonesimulator` with `SWIFT_ENABLE_EXPLICIT_MODULES=NO`
    (target builds otherwise fail to order the package modules: "unable to resolve module dependency").
-2. **Tests:** SwiftPM builds `MarcelKitTests`, `AvatarKitTests`, `PixelKitTests`, `MarcelChatTests`, `MarcelQuestsTests`, `MarcelMapTests` and `MarcelItemsTests` for the simulator (`--triple arm64-apple-ios18.0-simulator`).
+2. **Tests:** SwiftPM builds `MarcelKitTests`, `AvatarKitTests`, `PixelKitTests`, `MarcelChatTests`, `MarcelQuestsTests`, `MarcelMapTests`, `MarcelItemsTests` and `MarcelQuestTests` for the simulator (`--triple arm64-apple-ios18.0-simulator`).
 3. **Run:** `simctl spawn` runs the bundle in a booted simulator through `Tools/SimTestRunner`. Apple's own
    `xctest` agent has no Keychain entitlement (every Keychain call fails with -34018), and the simulator
    refuses one added to a code signature, so the runner carries it the way simulator apps do: in a
@@ -84,7 +87,8 @@ The shared `Marcel` scheme lists `MarcelKitTests` for Xcode's Test action. That 
   token (403) unpairs the phone.
 - **Cache** — SwiftData rows for messages, tasks, projects and artifacts, plus the last event id, so a cold
   start resumes with `since`. Tasks and artifacts are filed by `project_id`; `task.moved` refiles a task and
-  `artifact.updated` replaces the artifact with its new current version.
+  `artifact.updated` replaces the artifact with its new current version. Screens that need events the cache
+  does not store (a quest's `task.event` and approval frames) listen with `observeFrames`.
 
 ## Talking to the mock hub
 

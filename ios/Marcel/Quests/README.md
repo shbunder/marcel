@@ -21,6 +21,7 @@ out of the app target's own sources by itself.
   reads the whole card as one sentence in full words. Project colours use the same hash as the Chat tab's cards.
 - **The filter** at the top picks one project, or all, and switches to *Archived quests*. Archived quests are not on
   the live stream, so turning it on fetches `GET /tasks?archived=true` into the cache.
+- **Tap** a card to open the quest (`QuestView` from `../Quest`, wireframe 2A).
 - **Swipe** a running or queued quest to stop it (after a confirmation), a finished one to archive it. The hub's
   answer goes into the cache at once; `task.updated` confirms it later. A stop the NUC did not answer (503) leaves the
   quest running and says so.

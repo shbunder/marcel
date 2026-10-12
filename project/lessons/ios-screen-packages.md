@@ -29,3 +29,10 @@
   configuration. Swift Charts also draws under `ImageRenderer`; a web view and QuickLook do not.
 - **The item viewer lives in MarcelItems, which depends only on MarcelKit and PixelKit**, so Chat and Map can depend on
   it and open `ArtifactViewer(artifactId:)` (no cycle). Keep it that way: Items must not import Chat or Map.
+- **Live-only events reach a screen through the cache** (S-12.6): the cache drops `task.event` and approval frames,
+  and every screen makes its own `MarcelCache(container:)`, so a screen cannot hook the stream itself. The app's one
+  cache (`connection.cache`) is put in the environment as `liveEvents` (MarcelQuest) and the screen calls
+  `observeFrames` on it. A test does the same with an in-memory cache and `cache.apply(frame)`.
+- **Measure a lazy list in a real window** (S-12.6): a `UIHostingController` in a `UIWindow` in the SimTestRunner lays
+  out a `ScrollView { LazyVStack }` of 5,000 rows in well under a second, so a performance test can include layout,
+  not just the model.
