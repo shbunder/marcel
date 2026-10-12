@@ -14,7 +14,17 @@ extension Components {
     public enum Schemas {
         /// - Remark: Generated from `#/components/schemas/Error`.
         public struct _Error: Codable, Hashable, Sendable {
-            /// Stable, for code (e.g. `pairing_code_expired`).
+            /// Stable, for code; the app may match on it. The hub uses: `unauthorized` (401),
+            /// `bad_request` (400), `not_found` (404), `method_not_allowed` (405), `internal_error` (500);
+            /// pairing: `pairing_code_invalid`, `pairing_code_used`, `pairing_code_expired`,
+            /// `too_many_tries` (429); devices: `device_not_found`; conversations:
+            /// `conversation_not_found`, `message_not_found`, `bad_cursor`, `already_main`; tasks:
+            /// `task_not_found`, `task_not_finished`, `task_finished`, `runner_unreachable` (503);
+            /// projects: `slug_taken`, `project_archived`, `project_is_inbox`, `project_busy`,
+            /// `agent_not_found`; artifacts and memory: `artifact_not_found`, `invalid_memory_path`,
+            /// `memory_file_not_found`, `memory_file_too_big`, `memory_unavailable` (503). New codes may be added; treat an unknown code
+            /// by its HTTP status.
+            ///
             ///
             /// - Remark: Generated from `#/components/schemas/Error/code`.
             public var code: Swift.String
@@ -25,7 +35,7 @@ extension Components {
             /// Creates a new `_Error`.
             ///
             /// - Parameters:
-            ///   - code: Stable, for code (e.g. `pairing_code_expired`).
+            ///   - code: Stable, for code; the app may match on it. The hub uses: `unauthorized` (401),
             ///   - message: For people. Short, says what happened and what to do.
             public init(
                 code: Swift.String,
@@ -763,10 +773,14 @@ extension Components {
             public var taskId: Swift.String?
             /// - Remark: Generated from `#/components/schemas/Conversation/title`.
             public var title: Swift.String?
+            /// Side threads only (0 when empty); absent on the main conversation.
+            ///
             /// - Remark: Generated from `#/components/schemas/Conversation/reply_count`.
             public var replyCount: Swift.Int?
             /// - Remark: Generated from `#/components/schemas/Conversation/created_at`.
             public var createdAt: Foundation.Date
+            /// Present once the conversation has a message.
+            ///
             /// - Remark: Generated from `#/components/schemas/Conversation/last_message_at`.
             public var lastMessageAt: Foundation.Date?
             /// Creates a new `Conversation`.
@@ -778,9 +792,9 @@ extension Components {
             ///   - parentMessageId: For a side thread, the message it was opened on.
             ///   - taskId: Set when the side thread was opened on a task's milestone or approval. Such a thread
             ///   - title:
-            ///   - replyCount:
+            ///   - replyCount: Side threads only (0 when empty); absent on the main conversation.
             ///   - createdAt:
-            ///   - lastMessageAt:
+            ///   - lastMessageAt: Present once the conversation has a message.
             public init(
                 id: Swift.String,
                 agentId: Swift.String,
@@ -1951,14 +1965,14 @@ extension Components {
         }
         /// - Remark: Generated from `#/components/schemas/NoteEventData`.
         public struct NoteEventData: Codable, Hashable, Sendable {
-            /// `user`: typed in the thread view or a task thread. `marcel`: sent by the brain (`tasks_send`).
+            /// `user`: typed in the thread view or a task thread. `marcel`: sent by the brain (`tasks_send`), or the task's opening prompt.
             ///
             /// - Remark: Generated from `#/components/schemas/NoteEventData/author`.
             @frozen public enum AuthorPayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case user = "user"
                 case marcel = "marcel"
             }
-            /// `user`: typed in the thread view or a task thread. `marcel`: sent by the brain (`tasks_send`).
+            /// `user`: typed in the thread view or a task thread. `marcel`: sent by the brain (`tasks_send`), or the task's opening prompt.
             ///
             /// - Remark: Generated from `#/components/schemas/NoteEventData/author`.
             public var author: Components.Schemas.NoteEventData.AuthorPayload
@@ -1968,25 +1982,33 @@ extension Components {
             ///
             /// - Remark: Generated from `#/components/schemas/NoteEventData/handback`.
             public var handback: Swift.Bool?
+            /// True for the task's opening prompt, the first note of every task.
+            ///
+            /// - Remark: Generated from `#/components/schemas/NoteEventData/prompt`.
+            public var prompt: Swift.Bool?
             /// Creates a new `NoteEventData`.
             ///
             /// - Parameters:
-            ///   - author: `user`: typed in the thread view or a task thread. `marcel`: sent by the brain (`tasks_send`).
+            ///   - author: `user`: typed in the thread view or a task thread. `marcel`: sent by the brain (`tasks_send`), or the task's opening prompt.
             ///   - text:
             ///   - handback: True when the note came with a hand-back.
+            ///   - prompt: True for the task's opening prompt, the first note of every task.
             public init(
                 author: Components.Schemas.NoteEventData.AuthorPayload,
                 text: Swift.String,
-                handback: Swift.Bool? = nil
+                handback: Swift.Bool? = nil,
+                prompt: Swift.Bool? = nil
             ) {
                 self.author = author
                 self.text = text
                 self.handback = handback
+                self.prompt = prompt
             }
             public enum CodingKeys: String, CodingKey {
                 case author
                 case text
                 case handback
+                case prompt
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -2002,10 +2024,15 @@ extension Components {
                     Swift.Bool.self,
                     forKey: .handback
                 )
+                self.prompt = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .prompt
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "author",
                     "text",
-                    "handback"
+                    "handback",
+                    "prompt"
                 ])
             }
         }
@@ -3729,7 +3756,8 @@ extension Components {
         /// Tags and a Click action set to `deep_link`.
         ///
         /// Deep links: `marcel://task/<task id>`, `marcel://message/<message id>`,
-        /// `marcel://approval/<approval id>`. An `approval` push on APNs has Approve and Deny actions;
+        /// `marcel://approval/<approval id>`, and `marcel://status` (the app's system status screen,
+        /// showing `GET /health`) for a `broke` push about no one task. An `approval` push on APNs has Approve and Deny actions;
         /// the app answers them with `POST /approvals/{id}` using its own token. ntfy pushes only open
         /// the deep link, so no token ever passes through the ntfy server.
         ///
