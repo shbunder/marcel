@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "harry": {
+      "type": "http",
+      "url": "http://localhost:7430/mcp",
+      "headers": { "Authorization": "Bearer ${MARCEL_HARRY_TOKEN}" }
+    }
+  }
+}
