@@ -3,10 +3,12 @@
 Every state change goes through `TaskRegistry.transition`, which refuses anything not in
 `contracts/task-states.md`, writes a `state` task event and publishes `task.updated`.
 
-The queue is the set of `queued` tasks with `queued_reason: cap`, oldest first. It lives in the
-database, so it survives a restart. A task's opening prompt is its first `note` event
-(`author: marcel`), which is how a queued task can still be started later. The queue is drained
-whenever a task leaves a slot (it finishes, fails or is stopped), and on `drain()`.
+The queue is the set of `queued` tasks, oldest first: `queued_reason: cap` waits for a worker
+slot, `usage` for the usage guard (S-10.1) to let new work start. It lives in the database, so it
+survives a restart. A task's opening prompt is its first `note` event (`author: marcel`), which is
+how a queued task can still be started later. The queue is drained whenever a task leaves a slot
+(it finishes, fails or is stopped), and on `drain()`. While `hold_new_work()` gives a reason,
+nothing new starts: a spawn is queued with reason `usage` and a drain starts nothing.
 """
 
 import asyncio
@@ -95,6 +97,8 @@ class TaskRegistry:
         # What a worker reads before its prompt (its project's instructions and notes); set by
         # `projects.install`. The stored opening note stays the prompt alone.
         self.briefing: Callable[[Task], str] = lambda _task: ''
+        # Why new work may not start now, or None when it may; set by `usage.install` (S-10.1).
+        self.hold_new_work: Callable[[], str | None] = lambda: None
         self._lock = asyncio.Lock()
 
     # Reading ---------------------------------------------------------------------------------
@@ -130,13 +134,12 @@ class TaskRegistry:
         return rows[:limit], (offset + limit if more else None)
 
     def queue(self) -> list[Task]:
-        """Tasks waiting for a worker slot, oldest first."""
+        """Tasks waiting to start (for a worker slot or for the usage guard), oldest first."""
         with Session(self.engine) as s:
             return list(
                 s.exec(
                     select(Task)
                     .where(Task.state == TaskState.queued)
-                    .where(Task.queued_reason == QueuedReason.cap)
                     .order_by(col(Task.created_at), col(Task.id))
                 )
             )
@@ -198,7 +201,8 @@ class TaskRegistry:
         origin: TaskOrigin = TaskOrigin.marcel,
         **fields: Any,
     ) -> Task:
-        """Start a task, or queue it when the worker cap is full (or others are already waiting).
+        """Start a task, or queue it when the worker cap is full (or others are already waiting),
+        or while the usage guard holds new work back.
 
         Without `project_id` in `fields` the task is filed in the agent's inbox."""
         task = Task(
@@ -211,6 +215,10 @@ class TaskRegistry:
             **fields,
         )
         async with self._lock:
+            # The usage guard: the plan is shared, so NUC and cloud tasks both wait.
+            held = self.hold_new_work()
+            if held:
+                return self.create(task, prompt, TaskState.queued, held, QueuedReason.usage)
             # The worker cap is the NUC's; cloud tasks never wait behind it.
             if location == TaskLocation.nuc and self.queue():
                 self.create(task, prompt, TaskState.queued, 'Others are waiting first')
@@ -231,11 +239,18 @@ class TaskRegistry:
         task.branch = started.branch or task.branch
         return self.create(task, prompt, TaskState.starting, 'Spawn accepted')
 
-    def create(self, task: Task, prompt: str, state: TaskState, reason: str) -> Task:
+    def create(
+        self,
+        task: Task,
+        prompt: str,
+        state: TaskState,
+        reason: str,
+        queued_reason: QueuedReason = QueuedReason.cap,
+    ) -> Task:
         """Store a new task in `starting` or `queued`, with its opening prompt as a note."""
         check(task.id, None, state, reason)
         task.state = state
-        task.queued_reason = QueuedReason.cap if state == TaskState.queued else None
+        task.queued_reason = queued_reason if state == TaskState.queued else None
         with Session(self.engine) as s:
             s.add(task)
             s.commit()
@@ -288,26 +303,59 @@ class TaskRegistry:
         return self.get(task_id)
 
     async def drain(self) -> None:
-        """Start queued tasks, oldest first, until the runner says the cap is full again."""
+        """Start queued tasks, oldest first, until the runner says the cap is full again.
+
+        Nothing starts while the usage guard holds new work. Once the NUC's cap is full, cloud
+        tasks further down the queue still start (the cap is the NUC's); a NUC task the guard had
+        held now waits for a slot, so its reason becomes `cap`."""
         async with self._lock:
+            if self.hold_new_work():
+                return
+            full = False
             for task in self.queue():
+                nuc = task.location == TaskLocation.nuc
+                if full and nuc:
+                    self._wait_for_slot(task)
+                    continue
+                why = (
+                    'Plan usage allows new work again'
+                    if task.queued_reason == QueuedReason.usage
+                    else 'A worker slot freed'
+                )
                 try:
                     started = await self.runner.start(
                         task, self._briefed(task, self._prompt(task.id))
                     )
-                except (CapReached, RunnerUnavailable):
+                except CapReached:
+                    full = True
+                    self._wait_for_slot(task)
+                    continue
+                except RunnerUnavailable:
                     return
                 except StartFailed as exc:
-                    self._transition(task.id, TaskState.starting, 'A worker slot freed')
+                    self._transition(task.id, TaskState.starting, why)
                     self._transition(task.id, TaskState.failed, f'Could not start: {exc}')
                     continue
                 self._transition(
                     task.id,
                     TaskState.starting,
-                    'A worker slot freed',
+                    why,
                     session_id=started.session_id,
                     branch=started.branch or task.branch,
                 )
+
+    def _wait_for_slot(self, task: Task) -> None:
+        """A task the usage guard held now waits for a worker slot instead: say so."""
+        if task.queued_reason != QueuedReason.usage:
+            return
+        with Session(self.engine) as s:
+            row = s.get(Task, task.id)
+            assert row is not None
+            row.queued_reason = QueuedReason.cap
+            row.updated_at = utcnow()
+            s.add(row)
+            s.commit()
+        self._publish_task(task.id)
 
     def _briefed(self, task: Task, prompt: str) -> str:
         """The prompt with the project briefing in front. The briefing is extra context: if it

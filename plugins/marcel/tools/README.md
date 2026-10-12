@@ -41,7 +41,8 @@ no request body past 64 KB (a memory write: 2 MB).
 Each sits behind a small interface on the hub's `app.state.brain_ports` that its story replaces:
 
 - `schedule_*` — the scheduler (S-09.1).
-- `usage_get` — the usage guard (S-10.1).
+- `usage_get` — only on a hub without a runner. With one, the usage guard (S-10.1) answers; before
+  its first reading it says so (`not_set_up`).
 
 ## How it is let in
 

@@ -3,7 +3,7 @@
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, the task
 routes, conversations and task threads, the live event stream, artifacts and their versions, memory, projects and
-their boards, the avatar's state, push notifications, the channel gateway and approvals, and the brain tools' routes.
+their boards, the avatar's state, push notifications, the usage guard, the channel gateway and approvals, and the brain tools' routes.
 
 ## Run
 
@@ -169,9 +169,10 @@ hands back tasks (see `contracts/app-api.yaml`). The code is in `src/marcel_hub/
 
 - **State machine.** Every state change follows `contracts/task-states.md`. Anything else is refused
   and logged as `Refused a task transition: …`. Each change writes a `state` task event.
-- **Queue.** When the runner says its worker cap is full, a new task waits as `queued`. When a task
-  finishes, fails or is stopped, the oldest waiting task starts. A new task never skips the queue.
-  The queue is read from the database, so a restart keeps it.
+- **Queue.** When the runner says its worker cap is full, a new task waits as `queued`
+  (`queued_reason: cap`); while the usage guard holds new work, it waits with `queued_reason: usage`
+  (see Usage guard). When a task finishes, fails or is stopped, the oldest waiting task starts. A
+  new task never skips the queue. The queue is read from the database, so a restart keeps it.
 - **Steer** (`POST /tasks/{id}/messages`) records a `note` and hands the text to the outbox. A `done`
   task goes back to `working`. A `stopped` or `failed` task answers 409 `task_finished`.
 - **Stop** asks the runner to stop the session. A queued task just leaves the queue. If the runner
@@ -401,6 +402,7 @@ them on; the app then registers an ntfy topic with `PUT /api/devices/{id}/push`.
 | The runner is unreachable / warns | broke, urgent: "Marcel cannot reach the NUC" / "The NUC has a problem" | the status screen (`marcel://status`) |
 | The runner answers again / recovers | broke, normal: "The NUC is back" / "The NUC is fine again" | the same |
 | Marcel's own notice (the brain's `notify` tool) | note, normal or urgent | its message |
+| The usage guard starts holding new work | note, normal: "Marcel is pausing new work" | the status screen |
 | An urgent push could not be delivered | broke, urgent: "A notification did not arrive" | what it was about |
 | A digest (`pusher.digest(...)`) | digest, normal | the digest's message |
 
@@ -424,6 +426,43 @@ Nothing else pushes: no progress, no `working`, `queued`, `unknown` or `stopped`
 - **Secrets.** An ntfy topic lets anyone read the pushes. Logs name the device id, never the topic.
 - **APNs** (S-08.2) is a second backend with `kind = 'apns'`; devices that registered an APNs token
   get nothing until it exists, and the log says so.
+
+## Usage guard
+
+`src/marcel_hub/usage.py` keeps Marcel inside the Claude Max plan (B-19). It reads the runner's
+`GET /usage` every 5 minutes, and every minute once a window is at 70 % or more or while it holds.
+
+- **When it holds.** A fresh reading at or above 90 % of the five-hour window, or 95 % of the week
+  (for a window that has not reset yet), or a usage-limit hit. A stale reading never starts a hold.
+- **What holding does.** Every new spawn (NUC or cloud: the plan is shared) waits as `queued` with
+  `queued_reason: usage`, and the queue is not drained. Running tasks carry on.
+- **One push per crossing.** When a hold starts, one push: "Marcel is pausing new work until 14:00:
+  the subscription is at 91 %." Nothing for further polls, for queued spawns, or for a hold that
+  ends and starts again for the same reset time. Times are in the hub's time zone (set `TZ` on the
+  container).
+- **When it lets go.** At the window's reset time, or when a fresh reading shows every window
+  below its limit (not after a limit hit: that waits for the reset). The queue then starts oldest
+  first through the task registry, so the worker cap still applies; a task that now waits for a
+  slot says `queued_reason: cap`.
+- **Fail-open.** After 30 minutes without a fresh reading while it holds, it lets go and logs a
+  warning (`The usage guard lets new work start again: it has had no fresh usage reading…`). The
+  phone is not pushed: the owner already knows work paused, the tasks that start show it resumed,
+  and a runner that cannot be reached raises its own push.
+- **Limit hits** (SP4). A transcript `error` with `usage_limit`, or a task going to `needs_you`
+  because "The usage limit is reached" (a session `blocked` on the limit), starts a hold whatever the
+  reading says: until the reset of the window over its limit, or of the soonest window when none
+  is; for 30 minutes when no reset is known. A task's session counts once until the task moves on.
+  The first raw row of a hit is logged at WARNING, as no live hit has been recorded yet.
+- **Records.** Fresh readings are stored as `usage_snapshot` rows when they change. Each rise of the
+  five-hour window is split evenly over the tasks then running (`other` when none ran), as the
+  transcripts carry no token counts; `guard.usage_by_task()` gives it for a later usage report.
+- **Restart.** The hold, the last push and the attribution live in `<data_dir>/usage-guard.json`,
+  so a restart keeps holding and does not push again; the queue is in the database. An unreadable
+  file is logged and the guard starts without a hold.
+- **`GET /api/usage`** answers the contract's `Usage` (the readings, `stale`, and `guard`: `active`,
+  `reason`, `queued`), and `usage.updated` goes to the app when it changes. Before the first reading
+  (or with no runner) it answers 503 `no_reading`. The brain's `usage_get` gets the same, once a
+  runner is set up.
 
 ## Channel gateway: `/channel` and approvals
 
@@ -526,5 +565,7 @@ tool and its route). The brain's MCP server calls these routes over plain HTTP o
   message is still posted, the push is dropped and logged, and the answer says `pushed: false`.
   `broke` stays for the hub's own system faults.
 - Parts built by other stories sit behind `app.state.brain_ports` (`boards`, `schedules`,
-  `usage`, `artifacts`). `boards` is plugged in (`boards.BrainBoards`, S-04.11); until a story plugs its own in, the default answers 503 `not_set_up` with
+  `usage`, `artifacts`). `boards` is plugged in (`boards.BrainBoards`, S-04.11), and `usage` is
+  the usage guard when a runner is set up (S-10.1; before its first reading it answers 503
+  `not_set_up`); until a story plugs its own in, the default answers 503 `not_set_up` with
   what is missing, and stores nothing.
