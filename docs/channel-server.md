@@ -15,7 +15,7 @@ The frames are defined in `contracts/channel.schema.json`; the flow is in `contr
 | Build | `npm ci && npm run build` in the **deployed copy** of `plugins/marcel/channel/` makes `dist/main.js`, which `plugin.json` starts with `node`. `dist/` is gitignored, so a fresh checkout has none |
 | Node | `node` 22 or newer on the PATH of the claude daemon, not just of a login shell |
 | Start flag | `claude --bg --channels plugin:marcel@marcel-local` (ADR-001) |
-| Pre-allowed tools | The runner pre-allows `mcp__plugin_marcel_marcel__reply` and `__report` at spawn (`--allowedTools`), so a session in `manual` mode does not ask before every reply. A plugin's own `settings.json` cannot do this |
+| Pre-allowed tools | The session must be started with `--allowedTools mcp__plugin_marcel_marcel__reply mcp__plugin_marcel_marcel__report`, or a session in `manual` mode asks before every reply. A plugin's own `settings.json` cannot do this: Claude Code keeps only `agent` and `subagentStatusLine` from it. Who passes the flag is an open contract request (`project/contract-requests/S-05.1.md`) |
 
 The server has no runtime dependencies.
 
