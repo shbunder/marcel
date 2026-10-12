@@ -10,6 +10,10 @@ public struct ChatActions {
     public var answer: (_ approvalId: String, _ approve: Bool) -> Void = { _, _ in }
     public var toggleDetails: (_ approvalId: String) -> Void = { _ in }
     public var retry: (_ clientId: String) -> Void = { _ in }
+    /// "Reply in thread" (long-press, or the VoiceOver action) on a stored message; nil where there are no threads.
+    public var reply: ((FeedItem) -> Void)?
+    /// "n replies" under each message that has a side thread, by message id (`SideChats.summaries`).
+    public var threads: [String: ThreadSummary] = [:]
 
     public init() {}
 }
@@ -22,9 +26,46 @@ struct FeedStack: View {
 
     var body: some View {
         ForEach(items) { item in
-            FeedRow(item: item, actions: actions)
+            ThreadedRow(item: item, actions: actions)
                 .id(item.id)
         }
+    }
+}
+
+/// A row, with "Reply in thread" on a long-press (and as a VoiceOver action) and "n replies" under it once its side
+/// chat has replies (B-08). Your messages still on their way have no thread yet.
+struct ThreadedRow: View {
+    var item: FeedItem
+    var actions: ChatActions
+
+    @Environment(\.dynamicTypeSize) private var dynamicType
+
+    private var isStored: Bool {
+        if case .user(let line) = item { line.clientId == nil } else { true }
+    }
+
+    var body: some View {
+        if let reply = actions.reply, isStored {
+            VStack(alignment: isMine ? .trailing : .leading, spacing: PixelMetrics.steps(1)) {
+                FeedRow(item: item, actions: actions)
+                    .contextMenu {
+                        Button("Reply in thread") { reply(item) }
+                    }
+                    .accessibilityAction(named: "Reply in thread") { reply(item) }
+                if let summary = actions.threads[item.id] {
+                    RepliesButton(summary: summary) { reply(item) }
+                        .padding(.leading, isMine || dynamicType.isAccessibilitySize ? 0
+                                 : MarcelSays<EmptyView>.indent)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: isMine ? .trailing : .leading)
+        } else {
+            FeedRow(item: item, actions: actions)
+        }
+    }
+
+    private var isMine: Bool {
+        if case .user = item { true } else { false }
     }
 }
 

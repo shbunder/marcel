@@ -30,8 +30,14 @@ public final class ChatModel {
     /// A message to bring into view (a `marcel://message/<id>` link). The feed scrolls to it, loading older pages
     /// from the cache if needed, then clears it.
     public var focus: String?
+    /// The side chat open over the feed (B-08), if any.
+    public var sideChat: SideChatModel?
+    /// Threads and drafts of every side chat, kept while the app runs.
+    public let sideChats = SideChats()
 
     @ObservationIgnored private var refreshing = false
+    /// Every side chat opened while the app runs, by the message it is on.
+    @ObservationIgnored private var sideChatModels: [String: SideChatModel] = [:]
     @ObservationIgnored private var lastAsked: Set<String> = []
     @ObservationIgnored private var previewsAsked: Set<String> = []
 
@@ -148,6 +154,26 @@ public final class ChatModel {
         if let index = local.pending.firstIndex(where: { $0.clientId == clientId }) {
             local.pending[index].failed = failed
         }
+    }
+
+    // MARK: Side chats
+
+    /// True when the hub can open side chats (the service does them): long-press then offers "Reply in thread".
+    public var canReplyInThread: Bool { service is any SideChatService }
+
+    /// "Reply in thread" on a message, or a tap on its "n replies": opens its side chat. The sheet opens the thread
+    /// on the hub; your draft for it is still there.
+    public func openSideChat(_ parent: SideChatParent) {
+        guard let service = service as? any SideChatService else { return }
+        // One model per message: a second tap (or reopening) shows the same side chat, with its replies on their way,
+        // and the sheet's open runs against it.
+        if let existing = sideChatModels[parent.id] {
+            if sideChat !== existing { sideChat = existing }
+            return
+        }
+        let model = SideChatModel(parent: parent, service: service, chats: sideChats)
+        sideChatModels[parent.id] = model
+        sideChat = model
     }
 
     // MARK: Approvals
