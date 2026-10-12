@@ -36,7 +36,7 @@ test:
 # iOS builds need Xcode: run this on the Mac only.
 ios-check:
 	@command -v xcodebuild >/dev/null || { echo "ios-check needs Xcode: run it on the Mac."; exit 1; }
-	cd ios && xcodebuild test -scheme Marcel -destination 'platform=iOS Simulator,name=iPhone 16'
+	$(MAKE) -C ios check
 
 # The board (project/). See project/README.md.
 board:
