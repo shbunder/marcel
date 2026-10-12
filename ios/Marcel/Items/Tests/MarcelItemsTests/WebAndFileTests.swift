@@ -17,6 +17,7 @@ final class WebAndFileTests: XCTestCase {
         XCTAssertFalse(configuration.preferences.javaScriptCanOpenWindowsAutomatically)
         XCTAssertFalse(configuration.websiteDataStore.isPersistent, "nothing is kept between pages")
         XCTAssertEqual(configuration.dataDetectorTypes, [])
+        XCTAssertEqual(configuration.mediaTypesRequiringUserActionForPlayback, .all, "sound and video need a tap")
     }
 
     func testOnlyHTMLTheHubMadeItselfRunsJavaScript() {
@@ -45,6 +46,64 @@ final class WebAndFileTests: XCTestCase {
             XCTAssertEqual(WebPolicy.decide(url: URL(string: url), linkActivated: true), .cancel, url)
         }
         XCTAssertEqual(WebPolicy.decide(url: nil, linkActivated: true), .cancel)
+    }
+
+    // MARK: The navigation delegate
+
+    /// A navigation as WebKit hands it to the delegate.
+    final class FakeAction: WKNavigationAction {
+        let url: URL
+        let type: WKNavigationType
+        init(_ url: String, _ type: WKNavigationType) {
+            self.url = URL(string: url)!
+            self.type = type
+            super.init()
+        }
+        override var request: URLRequest { URLRequest(url: url) }
+        override var navigationType: WKNavigationType { type }
+    }
+
+    private func decide(_ coordinator: HTMLView.Coordinator, _ action: WKNavigationAction) -> WKNavigationActionPolicy? {
+        var policy: WKNavigationActionPolicy?
+        coordinator.webView(WKWebView(), decidePolicyFor: action) { policy = $0 }
+        return policy
+    }
+
+    func testTheDelegateCancelsNavigationsAndSendsTappedLinksToSafari() {
+        let coordinator = HTMLView.Coordinator()
+        var opened: [URL] = []
+        coordinator.open = { opened.append($0) }
+
+        XCTAssertEqual(decide(coordinator, FakeAction("about:blank", .other)), .allow, "the item itself loads")
+        XCTAssertEqual(decide(coordinator, FakeAction("https://evil.example/", .other)), .cancel, "a redirect")
+        XCTAssertEqual(decide(coordinator, FakeAction("https://evil.example/", .formSubmitted)), .cancel, "a form")
+        XCTAssertEqual(decide(coordinator, FakeAction("tel:123", .linkActivated)), .cancel)
+        XCTAssertEqual(opened, [], "nothing opened without a tapped web link")
+
+        XCTAssertEqual(decide(coordinator, FakeAction("https://www.luminus.be/offer", .linkActivated)), .cancel,
+                       "the web view stays on the item")
+        XCTAssertEqual(opened, [URL(string: "https://www.luminus.be/offer")!], "Safari opens the tapped link")
+
+        // target="_blank": never a second web view.
+        XCTAssertNil(coordinator.webView(WKWebView(), createWebViewWith: WKWebViewConfiguration(),
+                                         for: FakeAction("https://example.com/", .linkActivated),
+                                         windowFeatures: WKWindowFeatures()))
+        XCTAssertEqual(opened.last, URL(string: "https://example.com/")!)
+    }
+
+    func testAPageCannotNavigateItselfAwayInARealWebView() async throws {
+        let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 600),
+                             configuration: WebPolicy.configuration(trusted: false))
+        let coordinator = HTMLView.Coordinator()
+        var opened: [URL] = []
+        coordinator.open = { opened.append($0) }
+        view.loadHTMLString("<p>Item</p>", baseURL: nil)
+        try await Task.sleep(for: .milliseconds(500))
+        view.navigationDelegate = coordinator
+        _ = try? await view.evaluateJavaScript("window.location.href = 'https://example.com/'; 1")
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(view.url?.scheme, "about", "the page navigated away: \(view.url?.absoluteString ?? "")")
+        XCTAssertEqual(opened, [], "a navigation nobody tapped does not open Safari")
     }
 
     // MARK: A real web view

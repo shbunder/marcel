@@ -215,3 +215,95 @@ public enum DashboardWidget: Equatable, Sendable, Decodable {
         }
     }
 }
+
+/// How much of a dashboard the phone draws. The hub checks dashboards against the schema (at most 30 widgets), but
+/// the app never trusts that: a huge table or chart would freeze the screen, so each is cut short with an
+/// "…and N more" line.
+public enum DashboardLimits {
+    public static let widgets = 100
+    public static let rows = 200
+    public static let chartLabels = 500
+    /// Values beyond this cannot be drawn on a chart's axis (Swift Charts turns them into whole numbers and stops the
+    /// app on 1e308); they are left out and the chart says so.
+    public static let largestValue = 1e15
+}
+
+/// The first `limit` things, and how many more there were.
+public struct Capped<Element> {
+    public var shown: [Element]
+    public var more: Int
+
+    public init(_ all: [Element], limit: Int) {
+        shown = Array(all.prefix(limit))
+        more = max(0, all.count - limit)
+    }
+
+    /// "…and 2,800 more rows."; nil when nothing was cut.
+    public func moreLine(_ singular: String, _ plural: String) -> String? {
+        guard more > 0 else { return nil }
+        let count = more.formatted(.number.locale(Locale(identifier: "en_GB")))
+        return "…and \(count) more \(more == 1 ? singular : plural)."
+    }
+}
+
+/// A chart as it is drawn: at most `DashboardLimits.chartLabels` labels, only values that can be drawn, and an axis
+/// range worked out here rather than by Swift Charts.
+public struct DrawnChart: Equatable, Sendable {
+    public struct Point: Identifiable, Equatable, Sendable {
+        public var id: String { "\(series)|\(index)" }
+        public var series: String
+        public var index: Int
+        public var label: String
+        public var value: Double
+    }
+
+    public var points: [Point]
+    /// Values left out: not a number, infinite, or too large to draw.
+    public var leftOut: Int
+    /// Labels past the limit.
+    public var moreLabels: Int
+    public var domain: ClosedRange<Double>
+
+    public init(_ chart: DashboardWidget.Chart) {
+        let labels = Capped(chart.labels, limit: DashboardLimits.chartLabels)
+        var points: [Point] = []
+        var leftOut = 0
+        for series in chart.series {
+            for (index, label) in labels.shown.enumerated() where index < series.values.count {
+                guard let value = series.values[index] else { continue }
+                guard value.isFinite, abs(value) <= DashboardLimits.largestValue else {
+                    leftOut += 1
+                    continue
+                }
+                points.append(Point(series: series.name, index: index, label: label, value: value))
+            }
+        }
+        self.points = points
+        self.leftOut = leftOut
+        moreLabels = labels.more
+        let low = min(0, points.map(\.value).min() ?? 0)
+        let high = max(0, points.map(\.value).max() ?? 0)
+        domain = low == high ? low...(low + 1) : Self.round(low, down: true)...Self.round(high, down: false)
+    }
+
+    /// Rounds an axis end outward to a whole step of its own size (38.2 → 40, −3 → −3, 1,284 → 2,000), as an axis
+    /// would.
+    static func round(_ value: Double, down: Bool) -> Double {
+        guard value != 0 else { return 0 }
+        let step = pow(10, floor(log10(abs(value))))
+        return (down ? floor(value / step) : ceil(value / step)) * step
+    }
+
+    /// The plain-words line under the chart, when something was left out.
+    public var note: String? {
+        var parts: [String] = []
+        if leftOut > 0 {
+            parts.append(leftOut == 1 ? "1 value was left out: it is too large to draw."
+                         : "\(leftOut) values were left out: they are too large to draw.")
+        }
+        if moreLabels > 0 {
+            parts.append("Only the first \(DashboardLimits.chartLabels) points are drawn.")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+}

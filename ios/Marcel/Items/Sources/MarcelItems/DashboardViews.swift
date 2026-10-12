@@ -29,11 +29,27 @@ struct DashboardView: View {
                     }
                 }
             }
-            ForEach(Array(dashboard.widgets.enumerated()), id: \.offset) { _, widget in
+            let widgets = Capped(dashboard.widgets, limit: DashboardLimits.widgets)
+            ForEach(Array(widgets.shown.enumerated()), id: \.offset) { _, widget in
                 WidgetView(widget: widget)
             }
+            MoreLine(text: widgets.moreLine("part", "parts"))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// "…and 2,800 more rows.", under anything the phone cut short.
+struct MoreLine: View {
+    var text: String?
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        if let text {
+            PixelText(text, role: .detail)
+                .foregroundStyle(PixelTheme(scheme).muted.color)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
@@ -90,9 +106,11 @@ struct SectionView: View {
                     .foregroundStyle(theme.muted.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            ForEach(Array(section.widgets.enumerated()), id: \.offset) { _, widget in
+            let widgets = Capped(section.widgets, limit: DashboardLimits.widgets)
+            ForEach(Array(widgets.shown.enumerated()), id: \.offset) { _, widget in
                 WidgetView(widget: widget)
             }
+            MoreLine(text: widgets.moreLine("part", "parts"))
         }
         .padding(.top, PixelMetrics.steps(2))
     }
@@ -151,7 +169,8 @@ struct ListWidgetView: View {
         let theme = PixelTheme(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
             if let title = list.title { WidgetTitle(text: title) }
-            ForEach(Array(list.items.enumerated()), id: \.offset) { _, item in
+            let items = Capped(list.items, limit: DashboardLimits.rows)
+            ForEach(Array(items.shown.enumerated()), id: \.offset) { _, item in
                 let link = item.url.flatMap(URL.init(string:)).flatMap(ItemMarkdown.webLink)
                 HStack(alignment: .firstTextBaseline, spacing: PixelMetrics.steps(3)) {
                     PixelText("•", role: .body).foregroundStyle(theme.muted.color)
@@ -177,6 +196,7 @@ struct ListWidgetView: View {
                 .accessibilityElement(children: link == nil ? .ignore : .contain)
                 .accessibilityLabel([item.text, item.detail].compactMap { $0 }.joined(separator: ", "))
             }
+            MoreLine(text: items.moreLine("line", "lines"))
         }
     }
 }
@@ -189,7 +209,8 @@ struct ChecklistView: View {
         let theme = PixelTheme(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
             if let title = checklist.title { WidgetTitle(text: title) }
-            ForEach(Array(checklist.items.enumerated()), id: \.offset) { _, item in
+            let items = Capped(checklist.items, limit: DashboardLimits.rows)
+            ForEach(Array(items.shown.enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .firstTextBaseline, spacing: PixelMetrics.steps(4)) {
                     ZStack {
                         Rectangle().strokeBorder(theme.line.color, lineWidth: PixelMetrics.thinBorder)
@@ -207,6 +228,7 @@ struct ChecklistView: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(item.done ? "Done" : "To do"): \(item.text)")
             }
+            MoreLine(text: items.moreLine("line", "lines"))
         }
     }
 }
@@ -226,8 +248,12 @@ struct TableView: View {
         column < row.count ? row[column] : ""
     }
 
+    /// The rows drawn: at most `DashboardLimits.rows`.
+    var capped: Capped<[String]> { Capped(rows, limit: DashboardLimits.rows) }
+
     var body: some View {
         let theme = PixelTheme(scheme)
+        let rows = capped.shown
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
             if let title { WidgetTitle(text: title) }
             if dynamicType.isAccessibilitySize {
@@ -275,6 +301,7 @@ struct TableView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .pixelBox(fill: theme.card, line: theme.line, shadow: nil, border: PixelMetrics.thinBorder)
             }
+            MoreLine(text: capped.moreLine("row", "rows"))
         }
     }
 
@@ -292,32 +319,21 @@ struct ChartView: View {
 
     @Environment(\.colorScheme) private var scheme
 
-    struct Point: Identifiable {
-        var id: String { "\(series)|\(label)" }
-        var series: String
-        var label: String
-        var value: Double
-    }
-
-    var points: [Point] {
-        chart.series.flatMap { series in
-            zip(chart.labels, series.values).compactMap { label, value in
-                value.map { Point(series: series.name, label: label, value: $0) }
-            }
-        }
-    }
+    /// What is drawn: capped, only drawable values, and the axis range.
+    var drawn: DrawnChart { DrawnChart(chart) }
 
     /// "Bar chart, Growth per week, in GB. plex_media_cache: w37 30.1, w38 33.4, w39 35.9, w40 38.2."
     var spoken: String {
         let kind = chart.kind == .bar ? "Bar chart" : "Line chart"
         let head = [kind, chart.title, chart.unit.map { "in \($0)" }].compactMap { $0 }.joined(separator: ", ")
+        let drawn = drawn
         let lines = chart.series.map { series in
-            let values = zip(chart.labels, series.values).map { label, value in
-                "\(label) \(value.map(DashboardWidget.Chart.format) ?? "no value")"
-            }
-            return "\(series.name): \(values.joined(separator: ", "))"
+            let values = drawn.points.filter { $0.series == series.name }
+                .map { "\($0.label) \(DashboardWidget.Chart.format($0.value))" }
+            return "\(series.name): \(values.isEmpty ? "no values" : values.joined(separator: ", "))"
         }
-        return ([head] + lines).joined(separator: ". ") + "."
+        let note = drawn.note.map { String($0.dropLast()) }
+        return ([head] + lines + [note].compactMap { $0 }).joined(separator: ". ") + "."
     }
 
     static func palette(_ theme: PixelTheme) -> [Color] {
@@ -328,11 +344,12 @@ struct ChartView: View {
         let theme = PixelTheme(scheme)
         let colors = Self.palette(theme)
         let names = chart.series.map(\.name)
+        let drawn = drawn
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
             if let title = chart.title {
                 WidgetTitle(text: [title, chart.unit.map { "(\($0))" }].compactMap { $0 }.joined(separator: " "))
             }
-            Chart(points) { point in
+            Chart(drawn.points) { point in
                 switch chart.kind {
                 case .bar:
                     BarMark(x: .value("Label", point.label), y: .value("Value", point.value))
@@ -347,6 +364,8 @@ struct ChartView: View {
                         .symbolSize(30)
                 }
             }
+            // The axis range is worked out here: Swift Charts' own stops the app on values like 1e308.
+            .chartYScale(domain: drawn.domain)
             .chartForegroundStyleScale(domain: names, range: Array(colors.prefix(max(1, names.count))))
             .chartLegend(names.count > 1 ? .visible : .hidden)
             .chartXAxis {
@@ -365,6 +384,8 @@ struct ChartView: View {
             .pixelBox(fill: theme.card, line: theme.line, shadow: nil, border: PixelMetrics.thinBorder)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(spoken)
+            MoreLine(text: drawn.note)
+                .accessibilityHidden(true)
         }
         .onAppear { PixelFonts.register() }
     }

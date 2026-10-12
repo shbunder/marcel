@@ -34,6 +34,10 @@ package's only screens. It depends on MarcelKit and PixelKit only, so Chat and M
   - `dashboard` and `board`: drawn from the JSON (`contracts/dashboard.schema.json`): stat, list, checklist, table,
     chart (Swift Charts, bar or line), note and section. JSON that does not fit the schema (unknown widget, missing
     field, nested section, a chart with too few values, …) is one plain sentence, never a crash.
+    The phone never trusts a dashboard's size: at most 100 widgets, 200 table rows or list lines and 500 chart
+    points are drawn, with "…and N more" under the rest (`DashboardLimits`). Chart values that are not finite or
+    beyond ±1e15 are left out with a line saying so, and the axis range is worked out by the app (Swift Charts' own
+    stops the app on 1e308).
 - **Version line**: "Updated 2 min ago by Energy contracts · v3" (VoiceOver: "…, version 3"). **History**
   (`GET /artifacts/{id}/versions`, fetched again for each new current version) opens from the "History · 3" chip;
   an older version opens read-only ("v2 of 3 · read only · on 9 Oct") with "Back to the latest".
@@ -54,7 +58,9 @@ package's only screens. It depends on MarcelKit and PixelKit only, so Chat and M
   ../../README.md): an in-memory cache fed with event frames, the viewer's model with a fake hub. An
   `artifact.updated` refreshes an open document and a board and bumps the version; the history and read-only old
   versions; "Ask about this"; failures in plain words.
-- `WebAndFileTests` — the web view's configuration (JavaScript off unless trusted), the navigation rules, and a real
+- `DashboardLimitTests` — huge, infinite and missing chart values (no crash, a note), a 3,000-row table and 5,000
+  widgets drawn quickly with "…and N more", charts cut at 500 points.
+- `WebAndFileTests` — the web view's configuration (JavaScript off unless trusted), the navigation rules and the delegate that applies them, and a real
   `WKWebView` in the simulator: an untrusted page's `<script>` does not run, a trusted one's does, and the content
   security policy alone also stops it. QuickLook can preview the written file.
 - `LiveItemsServiceTests` — the generated client with a stubbed transport: paths, `?version=`, the cursor, the
