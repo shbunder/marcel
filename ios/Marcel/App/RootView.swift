@@ -2,6 +2,7 @@ import MarcelChat
 import MarcelItems
 import MarcelKit
 import MarcelMap
+import MarcelNotebook
 import MarcelQuest
 import MarcelQuests
 import MarcelSettings
@@ -33,9 +34,10 @@ struct RootView: View {
     }
 }
 
-/// What opens over the tabs: Settings, or where a link leads.
+/// What opens over the tabs: Settings, Marcel's notebook, or where a link leads.
 enum OverTabs: Identifiable, Hashable {
     case settings
+    case notebook
     case quest(String)
     case artifact(String)
     case status(PushAlert?)
@@ -49,6 +51,9 @@ struct MainTabs: View {
     let hub: PairedHub
     let router: LinkRouter
     private let settings: LiveSettingsService
+    private let notebook: LiveNotebookService
+    /// "What Marcel carries": the brain's rollovers, followed from the moment the tabs are up.
+    @State private var rollovers = RolloverLog()
     @State private var chat: ChatModel
     @State private var tab: PixelTabBar.Tab.ID = "chat"
     @State private var over: OverTabs?
@@ -63,6 +68,7 @@ struct MainTabs: View {
         self.router = router
         let client = HubClient.make(serverURL: hub.serverURL, tokenStore: connection.tokenStore)
         settings = LiveSettingsService(client: client)
+        notebook = LiveNotebookService(client: client)
         _chat = State(initialValue: ChatModel(
             service: LiveChatService(client: client),
             conversationId: UserDefaults.standard.string(forKey: Self.conversationKey),
@@ -82,8 +88,9 @@ struct MainTabs: View {
                     }
                 case "items": ItemsView(conversationId: chat.conversationId)
                 default:
-                    // Settings open from the avatar header.
-                    ChatScreen(model: chat, offline: offlineText, openSettings: { over = .settings })
+                    // Marcel's notebook and Settings open from the avatar header (it asks which).
+                    ChatScreen(model: chat, offline: offlineText, openSettings: { over = .settings },
+                               openNotebook: { over = .notebook })
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -108,6 +115,8 @@ struct MainTabs: View {
             router.consume()
         }
         .task {
+            // Also forgets the log and the notebook's drafts when the phone is unpaired.
+            rollovers.attach(to: connection)
             APNsRegistrar.shared.onToken = { [settings, hub] token in
                 Task { _ = try? await settings.setPush(deviceId: hub.deviceId, target: .init(kind: .apns, apnsToken: token)) }
             }
@@ -144,6 +153,11 @@ struct MainTabs: View {
             SettingsView(model: SettingsModel(service: settings, tokens: APNsRegistrar.shared, thisDevice: hub.deviceId),
                          status: { StatusModel(service: settings) },
                          unpair: unpair)
+        case .notebook:
+            NotebookView(model: NotebookModel(service: notebook, rollovers: rollovers, projectNames: { [connection] in
+                Dictionary((try? connection.cache.projects())?.map { ($0.slug, $0.name) } ?? [],
+                           uniquingKeysWith: { first, _ in first })
+            }))
         case .quest(let taskId): QuestView(taskId: taskId)
         case .artifact(let id): ArtifactViewer(artifactId: id, conversationId: chat.conversationId)
         case .status(let alert): StatusView(model: StatusModel(service: settings, alert: alert))

@@ -111,7 +111,12 @@ anyone else gets a 404 `conversation_not_found`.
   and sends no new event, so a retry never makes a duplicate. A `project_id` (sent from a project
   room, B-32) must be one of the agent's projects (400 otherwise) and is stored on the message;
   the message still goes to the main conversation, and `message.project_id` tells Marcel which
-  project it is about.
+  project it is about. An `artifact_id` ("Ask about this" on an item, B-21) must be one of the
+  agent's items (404 `artifact_not_found` otherwise, and nothing is stored); it is stored on the
+  message and passed to the brain on its `user_message`.
+- `GET /api/messages/{id}`: one message in any of your conversations, for a
+  `marcel://message/<id>` deep link (`conversation_id` says main or side thread). Someone else's
+  message answers 404 `message_not_found`, like one that does not exist.
 - `POST /api/messages/{id}/thread`: opens the side thread on a message (201), or returns the one it
   already has (200). A thread on a milestone or approval gets that message's `task_id`, and
   belongs to that task (see "Task threads" below).
@@ -135,7 +140,8 @@ task's own thread (`task_threads.py`, S-04.9).
   A `done` task takes the message as a follow-up and goes back to `working`. A thread whose task is
   not on the hub answers 404 `task_not_found`.
 - **The task's later milestones and approval cards show in the thread too.** They are still posted
-  in the main conversation; a copy goes into each thread of the task, with `client_id`
+  in the main conversation; an approval card's copy names the same `approval_id`, so answering
+  either answers both; a copy goes into each thread of the task, with `client_id`
   `mirror_<original message id>`. One original makes one copy per thread: copying again returns the
   stored copy, a copy is never copied again, and a phone that reconnects with `?since=` gets each
   copy once. A copy that cannot be made is logged; the original is never lost.
@@ -261,10 +267,20 @@ code is in `src/marcel_hub/artifacts/` (`store.py`, `routes.py`). Boards are lis
 - **Project.** An item belongs to its task's project, and moves with the task (the app gets
   `artifact.updated` for each, with its current version). One with no task goes to the inbox of
   the hub's first agent.
+- **Pinning an item** (B-21, B-31). `POST /api/artifacts/{id}/move` with `{"project_id"}` files one
+  item under another live project of the same agent; its `project_id` changes (it keeps its task
+  and versions) and it is marked `pinned`. **An item follows its task only until it is pinned:** a
+  task move takes along the items never moved on their own and leaves pinned ones where they are. The app gets `artifact.moved`, `artifact.updated`, then `project.updated` for
+  the new and the old project, and both boards are rebuilt. Moving it to the project it is in
+  answers 200 and sends nothing. A board stays with its project (409 `artifact_is_board`), an
+  archived project takes nothing (409 `project_archived`), another agent's or a missing project is
+  404 `project_not_found`, and someone else's item is 404 `artifact_not_found`. No brain turn.
 - **Migration 0006** added `artifact_version` (version 1 for every existing artifact), the current
   version on `artifact`, `artifact_id` on `message`, and a board for every project. Its downgrade
   drops boards and `artifact` messages and keeps every other row. Older code reads only `<id>`, so
   after a downgrade an item that had reached version 2 or later shows its version 1 bytes.
+- **Migration 0007** added `artifact.pinned` (false for every existing item). Its downgrade drops
+  the column, so pinned items follow their task again.
 
 ## PR status refresh
 
@@ -288,8 +304,9 @@ only ever sends `GET` requests to `https://api.github.com`.
 - **When it fails** the last known status stays and the reason, in plain words, is kept on the
   artifact as `meta_json.pr_note` and logged once: no token, a revoked token (`401`), a token not
   allowed there (`403`), a private or missing PR (`404`), GitHub in trouble (`5xx`), or GitHub out
-  of reach (network down or a timeout). The contract has no field to send it to the app yet
-  (`project/contract-requests/S-04.12.md`). It clears on the next good refresh.
+  of reach (network down or a timeout). The card shows it as `pr.note` (cut at 200 characters), and
+  the app gets `artifact.updated` when the note appears, changes or clears. It clears (`pr.note`
+  null) on the next good refresh.
 - **The token** is sent only in the `Authorization` header, never in a URL (httpx logs URLs), an
   error message, an artifact or a `repr`. An httpx error (which holds the request, and so the
   header) is dropped: the hub raises its own error outside the `except`, with no `__context__` or
@@ -305,7 +322,9 @@ content itself, with no brain turn. The code is `src/marcel_hub/boards.py`.
 - **What it shows.** A dashboard (`contracts/dashboard.schema.json`, checked before it is stored)
   with four sections: *Waiting on you* (open approvals, and tasks that need you without a card),
   *In flight* (each running task with its state and the last step it reported), *Recent results*
-  (the newest 5 tasks done in the past 7 days, each with its summary and items at their version),
+  (the newest 5 tasks done in the past 7 days, each with its summary and those of its items filed
+  in this project, at their version, then *Pinned here*: items pinned to this project that no
+  result above lists, newest change first),
   *Upcoming* (empty until schedules exist), then Marcel's notes, the newest 5.
 - **When.** `BoardKeeper` watches the app event log. Any task, approval or artifact change in a
   project (and a project created, renamed or moved into), and any step a worker reports with
@@ -407,9 +426,10 @@ on first use. The code is `src/marcel_hub/memory.py`.
 - **Archive** refuses the inbox (409 `project_is_inbox`) and a project with any task that is not
   done, failed or stopped (409 `project_busy`).
 - **Move.** Only into a live project of the same agent (409 `project_archived`, 404
-  `project_not_found`). The task's items move with it. The app gets `task.moved`, `task.updated`,
-  then `project.updated` for the new and the old project, then `artifact.updated` for each item
-  (now in the new project). Both boards are rebuilt. Moving into the same project sends
+  `project_not_found`). The task's items move with it, except those the owner pinned to a project
+  of their own (see *Pinning an item*). The app gets `task.moved`, `task.updated`, then
+  `project.updated` for the new and the old project, then `artifact.updated` for each item that
+  moved (now in the new project). Both boards are rebuilt. Moving into the same project sends
   nothing. No brain turn.
 - **Counts** on each project: `working` (queued, starting, working, silent, unknown), `needs_you`,
   and `done_7d` (done, last changed in the past 7 days). `updated_at` is the latest change to the
@@ -531,8 +551,13 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
   nothing of it is stored or recorded. A call the hub fails to store is not acked, so
   the server sends it again after a reconnect.
 - **Reports.** `started` and `progress` become `progress` task events (and move the task to
-  `working`); artifacts go to the artifact store (files are copied from the workers' folder) and
-  get an `artifact` event; one the store refuses becomes an `error` event saying why, and the rest
+  `working`); a `progress` report's `next` (the steps the worker still plans) is copied into its
+  event as `next`. A `next` past the contract (more than 20 steps, an empty step, one over 200
+  characters, or not a list of text) refuses the whole report with `call_ack.error` (`bad_next`)
+  saying what to fix: it is never cut short, and nothing of the report is stored. `next` on any
+  other kind of report is ignored, unread (the contract gives it meaning only for `progress`).
+  Artifacts go to the artifact store (files are copied from the workers' folder) and get an
+  `artifact` event; one the store refuses becomes an `error` event saying why, and the rest
   of the report still counts; `done` and `failed` set the summary and the state. `started`, `done` and `failed` post a
   milestone in the main conversation. A report the state machine does not allow (for a task you
   stopped) is stored but changes no state.
@@ -547,7 +572,8 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
 - **Owner messages.** A message you send in the main conversation, or in a side thread, goes to
   that conversation's session. Only your own messages go: Marcel's replies are never sent back to
   it. A message sent from a project room carries its `project_id` on the `user_message`, so the
-  brain knows which project it is about. A conversation with no session yet (`brain_session_id` unset) gets nothing queued: the
+  brain knows which project it is about; one sent with "Ask about this" carries the item's
+  `artifact_id`, so the brain can read it. A conversation with no session yet (`brain_session_id` unset) gets nothing queued: the
   session that starts for it reads the conversation. A thread that belongs to a task never goes to
   a session: it steers its task (see "Task threads").
 
@@ -559,6 +585,8 @@ the phone, and an approval push. The same `request_id` on the same task never op
 second card, whatever state the card is in.
 
 - `GET /api/approvals?state=` lists your cards, open ones first.
+- `GET /api/approvals/{id}` reads one card in any state, for a `marcel://approval/<id>` deep link
+  (404 `approval_not_found` for a missing card or someone else's).
 - `POST /api/approvals/{id}` with `{"decision": "approve" | "deny", "note"?}` answers a card and
   sends the session its `permission_decision`. A denial's note follows as a `steer`. Only the
   owner of the task's agent sees or answers a card (404 for anyone else). A card that is no

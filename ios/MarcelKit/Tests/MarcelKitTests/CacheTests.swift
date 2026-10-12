@@ -56,6 +56,26 @@ final class CacheTests: XCTestCase {
         XCTAssertEqual(try cache.tasks().first?.projectId, "prj_01JA0A1")
     }
 
+    /// `artifact.moved` (app API 0.5.0): the cached item changes project; one the cache never saw is left alone.
+    func testAMovedArtifactChangesProject() throws {
+        let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
+        var created = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Frames.contractExample("ArtifactCreated")) as? [String: Any])
+        var artifact = try XCTUnwrap(created["data"] as? [String: Any])
+        artifact["id"] = "art_01JA0B1"
+        artifact["project_id"] = "prj_inbox"
+        created["data"] = artifact
+        try cache.apply(try EventFrame.decode(try JSONSerialization.data(withJSONObject: created)))
+        XCTAssertEqual(try cache.artifacts(inProject: "prj_inbox").map(\.id), ["art_01JA0B1"])
+
+        try cache.apply(try EventFrame.decode(try Frames.contractExample("ArtifactMoved")))
+
+        XCTAssertEqual(try cache.artifacts(inProject: "prj_01JA0A1").map(\.id), ["art_01JA0B1"])
+        XCTAssertEqual(try cache.artifacts(inProject: "prj_inbox"), [])
+        XCTAssertEqual(try cache.artifacts().first?.projectId, "prj_01JA0A1", "the stored item says so too")
+        XCTAssertEqual(cache.lastEventId, 2002)
+    }
+
     func testANewArtifactVersionReplacesTheCachedArtifact() throws {
         let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
         try cache.apply(try EventFrame.decode(try Frames.contractExample("ArtifactUpdated")))

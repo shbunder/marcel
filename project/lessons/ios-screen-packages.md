@@ -47,3 +47,7 @@
 - **Notification actions can run with no screen** (S-12.10 review): iOS starts the app in the background for a
   lock-screen action, so anything the action needs (here the hub address and token) must be built at launch from the
   stores, never from a view's `.task`.
+- **The generated client URI-encodes header values and path parameters** (S-12.9): a path parameter goes through
+  `renderedPath`, which percent-encodes everything but `A-Z a-z 0-9 - . _ ~`, so `memory/x.md` arrives as one segment
+  `memory%2Fx.md` — pass the raw value, never a pre-encoded one (it would become `%252F`). A header such as `If-Match`
+  is encoded the same way, so a quoted etag would arrive as `%22…%22`: send it bare (the memory routes accept that).

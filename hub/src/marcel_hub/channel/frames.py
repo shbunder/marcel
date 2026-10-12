@@ -14,13 +14,16 @@ REPORT_KINDS = frozenset({'started', 'progress', 'artifact', 'done', 'failed'})
 ARTIFACT_KINDS = frozenset({'pr', 'branch', 'doc', 'file', 'dashboard', 'link'})
 URL_KINDS = frozenset({'pr', 'branch', 'link'})
 PATH_KINDS = frozenset({'doc', 'file', 'dashboard'})
+# A progress report's `next` steps (channel.schema.json `Report.next`).
+MAX_NEXT_STEPS = 20
+MAX_NEXT_STEP_CHARS = 200
 
 # Every field each `ToHub` frame may carry, and whether it is required. `type` is implied.
 FIELDS: dict[str, dict[str, bool]] = {
     'hello': {'session_id': True, 'secret': True, 'plugin_version': True, 'resume_after': False},
     'reply': {'call_id': True, 'text': True, 'in_reply_to': False},
-    'report': {'call_id': True, 'kind': True, 'text': False, 'summary': False, 'artifact': False,
-               'artifacts': False},
+    'report': {'call_id': True, 'kind': True, 'text': False, 'next': False, 'summary': False,
+               'artifact': False, 'artifacts': False},
     'permission_request': {'request_id': True, 'tool_name': True, 'description': True,
                            'input_preview': False},
     'ack': {'seq': True},
@@ -71,6 +74,26 @@ def check_artifact(artifact: Any) -> dict[str, Any]:
     if len(artifact.get('summary', '')) > 200:
         raise BadFrame('an artifact summary is longer than 200 characters')
     return artifact
+
+
+def next_steps_problem(steps: Any) -> str | None:
+    """Why a report's `next` breaks the contract, in plain words for the worker; None when it is
+    fine. The gateway refuses such a report with an error ack rather than cutting it short."""
+    if not isinstance(steps, list) or not all(isinstance(step, str) for step in steps):
+        return 'next must be a list of steps, each one a piece of text'
+    if len(steps) > MAX_NEXT_STEPS:
+        return f'next has {len(steps)} steps; send at most {MAX_NEXT_STEPS}'
+    if any(not step for step in steps):
+        return 'a step in next is empty'
+    long = [i + 1 for i, step in enumerate(steps) if len(step) > MAX_NEXT_STEP_CHARS]
+    if long:
+        which = ', '.join(map(str, long))
+        one = len(long) == 1
+        return (
+            f'{"step" if one else "steps"} {which} of next {"is" if one else "are"} longer than '
+            f'{MAX_NEXT_STEP_CHARS} characters; shorten {"it" if one else "them"}'
+        )
+    return None
 
 
 def _check_report(frame: dict[str, Any]) -> None:

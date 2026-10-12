@@ -1,0 +1,174 @@
+import Foundation
+import MarcelKit
+import OpenAPIRuntime
+
+public typealias MemoryFile = Components.Schemas.MemoryFile
+
+/// One file in `GET /memory`, its path already checked.
+public struct MemoryEntry: Equatable, Sendable {
+    public var path: MemoryPath
+    public var size: Int
+    public var updatedAt: Date
+
+    public init(path: MemoryPath, size: Int, updatedAt: Date) {
+        self.path = path
+        self.size = size
+        self.updatedAt = updatedAt
+    }
+}
+
+/// The memory tree: the files the app will open, and how many the hub listed under a name the app refuses.
+public struct MemoryListing: Equatable, Sendable {
+    public var files: [MemoryEntry]
+    public var refused: Int
+}
+
+/// What a save came back with.
+public enum SaveOutcome: Equatable, Sendable {
+    /// Saved and committed; the file as it now stands.
+    case saved(MemoryFile)
+    /// 409: changed elsewhere since it was read (or created elsewhere). The hub's current version; nothing was saved.
+    case changedElsewhere(MemoryFile)
+}
+
+/// What the notebook asks of the hub. The live one talks to `contracts/app-api.yaml`; the tests use a fake hub.
+@MainActor
+public protocol NotebookService {
+    /// `GET /memory`.
+    func listing() async throws -> MemoryListing
+    /// `GET /memory/files/{path}`.
+    func file(_ path: MemoryPath) async throws -> MemoryFile
+    /// `PUT /memory/files/{path}` with `If-Match: <etag>`, or with no `If-Match` to create a new file. The etag goes
+    /// bare (the contract allows it): the generated client writes header values URI-encoded, so quotes would arrive
+    /// as `%22`.
+    func save(_ path: MemoryPath, content: String, ifMatch etag: String?) async throws -> SaveOutcome
+}
+
+/// Why something in the notebook did not work, in words a family member reads on a phone.
+public enum NotebookError: Error, Equatable, LocalizedError {
+    /// A bare 404, 405 or 501: the contract has the route, this hub has not built it yet.
+    case notAvailableYet
+    /// 404 `memory_file_not_found` on a save with `If-Match`: the file was removed since it was opened.
+    case removed
+    /// 404 on reading a file.
+    case notFound
+    /// 400 `memory_file_too_big`.
+    case tooBig
+    /// 400 for another reason; the hub says what.
+    case refused(String)
+    /// The path from the hub is not one the app will use (see `MemoryPath`).
+    case badPath
+    case unauthorized
+    /// 503 `memory_unavailable`: the hub is up, its memory store is not. The hub's own words follow.
+    case storeDown(String?)
+    /// Any other 5xx.
+    case hubProblem
+    case offline
+    case unexpected(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .notAvailableYet: "Not available yet: the hub can't show Marcel's notebook yet."
+        case .removed: "This note was removed since you opened it. Your text is still here: save again to create it."
+        case .notFound: "That note is gone. Pull down to refresh."
+        case .tooBig: "This note is over 1 MB, too big to open or save on the phone."
+        case .refused(let message): message
+        case .badPath: "The hub named a note the app won't open."
+        case .unauthorized: "The hub no longer accepts this phone. Pair it again."
+        case .storeDown(let why): "Marcel's notebook can't be reached on the hub right now. Nothing was changed."
+            + (why.map { " (\($0))" } ?? "")
+        case .hubProblem: "The hub had a problem. Try again in a minute."
+        case .offline: "Couldn't reach the hub. Check the connection and try again."
+        case .unexpected(let what): "The hub sent something the app doesn't understand (\(what))."
+        }
+    }
+
+    static func words(for error: any Error) -> String {
+        (error as? NotebookError)?.errorDescription ?? "Something went wrong talking to the hub. Try again in a moment."
+    }
+
+    static func undocumented(_ status: Int, _ what: String) -> NotebookError {
+        if [404, 405, 501].contains(status) { return .notAvailableYet }
+        if (500...599).contains(status) { return .hubProblem }
+        return .unexpected("\(what), HTTP \(status)")
+    }
+
+    static func bad(_ error: HubError?, fallback: String) -> NotebookError {
+        if error?.code == "memory_file_too_big" { return .tooBig }
+        if error?.code == "invalid_memory_path" { return .badPath }
+        return .refused(error?.message ?? fallback)
+    }
+}
+
+/// The hub's REST API, signed with this phone's device token.
+public struct LiveNotebookService: NotebookService {
+    let client: Client
+
+    public init(client: Client) {
+        self.client = client
+    }
+
+    public func listing() async throws -> MemoryListing {
+        switch try await call({ try await client.getMemoryTree() }) {
+        case .ok(let ok):
+            let files = try ok.body.json.files
+            let entries = files.compactMap { file in
+                MemoryPath(file.path).map { MemoryEntry(path: $0, size: file.sizeBytes, updatedAt: file.updatedAt) }
+            }
+            return MemoryListing(files: entries, refused: files.count - entries.count)
+        case .unauthorized: throw NotebookError.unauthorized
+        case .serviceUnavailable(let down): throw NotebookError.storeDown(try? down.body.json.message)
+        case .undocumented(let status, _): throw NotebookError.undocumented(status, "the notebook")
+        }
+    }
+
+    public func file(_ path: MemoryPath) async throws -> MemoryFile {
+        // The generated client percent-encodes the whole path as one segment (`/` becomes `%2F`).
+        switch try await call({ try await client.getMemoryFile(path: .init(path: path.raw)) }) {
+        case .ok(let ok): return try checked(ok.body.json, path)
+        case .badRequest(let bad): throw NotebookError.bad(try? bad.body.json, fallback: "The hub won't open that note.")
+        case .unauthorized: throw NotebookError.unauthorized
+        case .notFound: throw NotebookError.notFound
+        case .serviceUnavailable(let down): throw NotebookError.storeDown(try? down.body.json.message)
+        case .undocumented(let status, _): throw NotebookError.undocumented(status, "a note")
+        }
+    }
+
+    public func save(_ path: MemoryPath, content: String, ifMatch etag: String?) async throws -> SaveOutcome {
+        let answer = try await call {
+            try await client.putMemoryFile(path: .init(path: path.raw), headers: .init(ifMatch: etag),
+                                           body: .json(.init(content: content)))
+        }
+        switch answer {
+        case .ok(let ok): return .saved(try checked(ok.body.json, path))
+        case .conflict(let conflict): return .changedElsewhere(try checked(conflict.body.json, path))
+        case .badRequest(let bad): throw NotebookError.bad(try? bad.body.json, fallback: "The hub didn't save that.")
+        case .unauthorized: throw NotebookError.unauthorized
+        case .notFound: throw NotebookError.removed
+        case .serviceUnavailable(let down): throw NotebookError.storeDown(try? down.body.json.message)
+        case .undocumented(let status, _): throw NotebookError.undocumented(status, "saving a note")
+        }
+    }
+
+    /// The hub's answer must be about the file that was asked for.
+    private func checked(_ file: MemoryFile, _ path: MemoryPath) throws -> MemoryFile {
+        guard file.path == path.raw else { throw NotebookError.unexpected("a different note came back") }
+        return file
+    }
+
+    /// Runs a request; a transport failure becomes `.offline`. A hub that has not built a route answers a bare 404 /
+    /// 405 (`{"detail": "Not Found"}`, not the contract's `Error`), which fails to decode: "not available yet".
+    private func call<T>(_ request: () async throws -> T) async throws -> T {
+        do {
+            return try await request()
+        } catch let error as ClientError where [404, 405, 501].contains(error.response?.status.code ?? 0) {
+            throw NotebookError.notAvailableYet
+        } catch let error as ClientError where (500...599).contains(error.response?.status.code ?? 0) {
+            throw NotebookError.hubProblem
+        } catch let error as ClientError where error.underlyingError is URLError {
+            throw NotebookError.offline
+        } catch is URLError {
+            throw NotebookError.offline
+        }
+    }
+}
