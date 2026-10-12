@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from conftest import write_script
 
-from marcel_runner import usage
+from marcel_runner import server, usage
 from marcel_runner.usage import UsageProbe, UsageUnreadable, parse_usage
 
 # The /usage text recorded on the NUC with Claude Code 2.1.289 (SP4). The contract test below reads
@@ -251,14 +251,29 @@ def test_changed_wording_in_live_output_is_stale_not_a_crash(tmp_path: Path) -> 
     [
         ('exit 3\n', 'exit code 3'),
         ('echo "boom" >&2; exit 1\n', 'boom'),
-        ('sleep 5\n', 'did not answer'),
     ],
 )
 def test_every_failure_has_a_plain_reason(tmp_path: Path, body: str, expect: str) -> None:
-    probe = UsageProbe(script(tmp_path, body), timeout=0.5, clock=Clock())
+    probe = UsageProbe(script(tmp_path, body), clock=Clock())
     probe.refresh()
     assert expect in (probe.last_error or '')
     assert probe.reading()[0] == 503
+
+
+def test_a_hanging_claude_times_out_with_a_plain_reason(tmp_path: Path) -> None:
+    # `exec` so the timeout kills the sleep itself, not a shell that leaves it holding the pipe.
+    probe = UsageProbe(script(tmp_path, 'exec sleep 30\n'), timeout=1, clock=Clock())
+    probe.refresh()
+    assert 'did not answer within 1 s' in (probe.last_error or '')
+    assert probe.reading()[0] == 503
+
+
+def test_claude_is_run_with_tz_utc_so_reset_zones_are_one_word(tmp_path: Path) -> None:
+    claude = script(tmp_path, f'[ "$TZ" = "UTC" ] || exit 1\ncat "{RECORDED}"\n')
+    for env in (None, {'TZ': 'Europe/Brussels', 'PATH': '/usr/bin:/bin'}):
+        probe = UsageProbe(claude, env=env, clock=Clock())
+        probe.refresh()
+        assert probe.reading()[0] == 200, probe.last_error
 
 
 def test_missing_claude_has_a_plain_reason(tmp_path: Path) -> None:
@@ -318,3 +333,26 @@ def test_the_poll_interval_and_staleness_match_the_contract() -> None:
     # contracts/runner-api.yaml getUsage: poll every 5 minutes, stale after 15.
     assert usage.POLL_EVERY == 300
     assert timedelta(minutes=15) == usage.STALE_AFTER
+
+
+def test_main_starts_the_usage_poll(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    started: list[bool] = []
+
+    class Probe:
+        def start(self) -> None:
+            started.append(True)
+
+    class Srv:
+        usage = Probe()
+
+        def serve_forever(self) -> None:
+            raise KeyboardInterrupt
+
+        def server_close(self) -> None:
+            pass
+
+    monkeypatch.setenv('MARCEL_RUNNER_SOCK', str(tmp_path / 'runner.sock'))
+    monkeypatch.setenv('MARCEL_CLAUDE', str(tmp_path / 'claude'))
+    monkeypatch.setattr(server, 'serve', lambda *a, **kw: Srv())
+    assert server.main() == 0
+    assert started == [True]

@@ -6,6 +6,7 @@ and a contract test runs it on the recorded output. When the wording changes, th
 line it could not find, keeps the last values and marks them stale. It never crashes.
 """
 
+import os
 import re
 import subprocess
 import sys
@@ -96,7 +97,8 @@ class UsageProbe:
     ) -> None:
         self.claude = claude
         self.timeout = timeout
-        self.env = dict(env) if env is not None else None
+        # TZ=UTC: reset times then always print as a one-word zone, `(UTC)`, which USAGE_LINE reads.
+        self.env = {**(os.environ if env is None else env), 'TZ': 'UTC'}
         self.clock = clock
         self.last_error: str | None = None
         self._detail = ''

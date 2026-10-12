@@ -7,7 +7,7 @@ spawns a worker.
 ## Where the numbers come from
 
 The runner runs `claude -p "/usage" --no-session-persistence`. This makes no model call and costs
-no tokens (SP4). It takes 2–3 seconds. The runner does it once at start, then every 5 minutes.
+no tokens (SP4). It takes 2–3 seconds. It runs with `TZ=UTC`, so reset times always end in `(UTC)`. The runner does it once at start, then every 5 minutes.
 
 `/usage` prints text meant for people:
 
