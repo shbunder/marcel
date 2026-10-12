@@ -40,6 +40,7 @@ class MessageKind(StrEnum):
     milestone = 'milestone'
     approval = 'approval'
     quote = 'quote'
+    artifact = 'artifact'
 
 
 class TaskState(StrEnum):
@@ -105,6 +106,7 @@ class ArtifactKind(StrEnum):
     file = 'file'
     dashboard = 'dashboard'
     link = 'link'
+    board = 'board'
 
 
 class ScheduleLocation(StrEnum):
@@ -167,8 +169,8 @@ class Project(SQLModel, table=True):
     (see `_file_new_agents` below). A slug is unique among an agent's live projects; an archived
     project's slug can be used again.
 
-    `board_artifact_id` is reserved when the project is made; the board artifact itself is built
-    under that id by S-04.11."""
+    Its board (B-35) is an artifact of kind `board` with the id `board_artifact_id`, made with the
+    project (`_make_board` below); the hub fills and rebuilds its content (`boards.py`)."""
 
     __table_args__ = (
         Index(
@@ -215,6 +217,8 @@ class Message(SQLModel, table=True):
     task_id: str | None = Field(default=None, index=True)
     # The project a user message was sent from (B-32); the message stays in the main conversation.
     project_id: str | None = Field(default=None, foreign_key='project.id')
+    # For `artifact`: the item that arrived (B-36).
+    artifact_id: str | None = None
     client_id: str | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utcnow, index=True)
 
@@ -327,6 +331,27 @@ class Artifact(SQLModel, table=True):
     self_change: bool = False
     meta_json: dict[str, Any] = _json()
     created_at: datetime = Field(default_factory=utcnow)
+    # Living artifacts (B-34): the fields above describe the current version.
+    current_version: int = 1
+    updated_by: str | None = None  # in plain words: a task's title, "Marcel" or "the hub"
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class ArtifactVersion(SQLModel, table=True):
+    """One version of an artifact (B-34). Version 1 is made with the artifact. A file's bytes for
+    each version are kept by the artifact store (`artifacts.store.blob_name`)."""
+
+    __tablename__ = 'artifact_version'  # type: ignore[assignment]
+
+    artifact_id: str = Field(foreign_key='artifact.id', primary_key=True)
+    version: int = Field(primary_key=True)
+    url: str | None = None
+    content_type: str | None = None
+    size_bytes: int | None = None
+    summary: str | None = None
+    author: str | None = None
+    task_id: str | None = None
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class Schedule(SQLModel, table=True):
@@ -370,24 +395,58 @@ def inbox_id(connection: Connection, agent_id: str) -> str:
         return found[0]
     now = utcnow()
     project_id = new_id('prj')
+    board_id = new_id('art')
     connection.execute(
         insert(table).values(
             id=project_id,
             agent_id=agent_id,
             slug=INBOX_SLUG,
             name='Inbox',
-            board_artifact_id=new_id('art'),
+            board_artifact_id=board_id,
             archived=False,
             created_at=now,
             updated_at=now,
         )
     )
+    make_board(connection, project_id, board_id, 'Inbox')
     return project_id
+
+
+BOARD_AUTHOR = 'the hub'
+
+
+def board_title(project_name: str) -> str:
+    return f'{project_name} — board'
+
+
+def make_board(connection: Connection, project_id: str, board_id: str, name: str) -> None:
+    """The project's board artifact at version 1, with no content yet: the hub's board keeper
+    writes it (`boards.BoardKeeper`). Also used by migration 0006 for projects made before."""
+    now = utcnow()
+    connection.execute(
+        insert(Artifact.__table__).values(  # type: ignore[attr-defined]
+            id=board_id, project_id=project_id, kind=ArtifactKind.board.value,
+            title=board_title(name), content_type='application/json', trusted=False,
+            self_change=False, meta_json={}, created_at=now, current_version=1,
+            updated_by=BOARD_AUTHOR, updated_at=now,
+        )
+    )  # fmt: skip
+    connection.execute(
+        insert(ArtifactVersion.__table__).values(  # type: ignore[attr-defined]
+            artifact_id=board_id, version=1, content_type='application/json',
+            author=BOARD_AUTHOR, created_at=now,
+        )
+    )  # fmt: skip
 
 
 @event.listens_for(Agent, 'after_insert')
 def _file_new_agents(_mapper: Any, connection: Connection, agent: Agent) -> None:
     inbox_id(connection, agent.id)
+
+
+@event.listens_for(Project, 'after_insert')
+def _make_board(_mapper: Any, connection: Connection, project: Project) -> None:
+    make_board(connection, project.id, project.board_artifact_id, project.name)
 
 
 @event.listens_for(Task, 'before_insert')
@@ -399,16 +458,33 @@ def _file_in_inbox(_mapper: Any, connection: Connection, task: Task) -> None:
 @event.listens_for(Artifact, 'before_insert')
 def _file_artifact(_mapper: Any, connection: Connection, art: Artifact) -> None:
     """An artifact belongs to its task's project. One with no task goes to the inbox of the
-    hub's first agent (v1 has one owner); with no agent at all it stays unfiled."""
-    if art.project_id is not None:
-        return
-    if art.task_id is not None:
-        tasks = Task.__table__  # type: ignore[attr-defined]
-        art.project_id = connection.execute(
-            select(tasks.c.project_id).where(tasks.c.id == art.task_id)
-        ).scalar()
+    hub's first agent (v1 has one owner); with no agent at all it stays unfiled. Its author
+    (`updated_by`) is its task's title unless the caller named one."""
+    if art.current_version == 1:
+        art.updated_at = art.created_at
+    tasks = Task.__table__  # type: ignore[attr-defined]
+    if art.task_id is not None and (art.project_id is None or art.updated_by is None):
+        row = connection.execute(
+            select(tasks.c.project_id, tasks.c.title).where(tasks.c.id == art.task_id)
+        ).first()
+        if row is not None:
+            art.project_id = art.project_id or row[0]
+            art.updated_by = art.updated_by or row[1]
+    if art.project_id is not None or art.task_id is not None:
         return
     agents = Agent.__table__  # type: ignore[attr-defined]
     first = connection.execute(select(agents.c.id).order_by(agents.c.id).limit(1)).scalar()
     if first is not None:
         art.project_id = inbox_id(connection, first)
+
+
+@event.listens_for(Artifact, 'after_insert')
+def _first_version(_mapper: Any, connection: Connection, art: Artifact) -> None:
+    """Every artifact has its version 1, whatever code inserts it."""
+    connection.execute(
+        insert(ArtifactVersion.__table__).values(  # type: ignore[attr-defined]
+            artifact_id=art.id, version=art.current_version, url=art.url,
+            content_type=art.content_type, size_bytes=art.size_bytes, author=art.updated_by,
+            task_id=art.task_id, created_at=art.updated_at,
+        )
+    )  # fmt: skip

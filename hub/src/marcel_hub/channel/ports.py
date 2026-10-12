@@ -34,3 +34,8 @@ class Artifacts(Protocol):
         """Store one reported artifact (channel.schema.json `Artifact`) for the task, and record
         it on the task. Raises `ArtifactRefused` with a readable reason."""
         ...
+
+    def version_target(self, artifact_id: str, task_id: str | None) -> Artifact:
+        """The artifact a task may hand a new version of (B-34). Raises `UnknownArtifact` for an
+        unknown id, one from another project, or a board."""
+        ...

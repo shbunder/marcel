@@ -100,7 +100,11 @@ def events(client: TestClient) -> list[AppEvent]:
 @pytest.fixture
 def client(tmp_path: Path) -> Iterator[TestClient]:
     settings = Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db')
-    with TestClient(create_app(settings)) as c:
+    app = create_app(settings)
+    # These tests count the events a message makes; a message to the brain also sends
+    # `agent.state` (thinking), which test_agent_state covers.
+    app.state.events.observers.remove(app.state.agent_states.observe)
+    with TestClient(app) as c:
         yield c
 
 

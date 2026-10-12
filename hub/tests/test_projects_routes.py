@@ -260,12 +260,22 @@ def test_moving_a_task_files_it_and_tells_the_app(api: Api, client: TestClient, 
     TASK.validate(res.json())
     assert res.json()['project_id'] == energy['id']
     sent = frames(client, before)
+    # The avatar hears of the working task too (S-04.8; test_agent_state covers it).
+    assert [f['type'] for f in sent].count('agent.state') == 1
+    sent = [f for f in sent if f['type'] != 'agent.state']
     assert [f['type'] for f in sent] == [
         'task.moved',
         'task.updated',
         'project.updated',
         'project.updated',
+        'artifact.updated',  # its item moved with it (S-04.11)
     ]
+    moved = sent[4]['data']
+    assert moved['artifact']['project_id'] == energy['id']
+    assert moved['version'] == {**moved['version'], 'artifact_id': moved['artifact']['id'],
+                                'version': 1}  # fmt: skip
+    # Both projects' boards are marked for a rebuild.
+    assert {inbox['id'], energy['id']} <= set(client.app.state.boards.due())  # type: ignore[attr-defined]  # app is typed as ASGI
     assert sent[0]['data'] == {
         'task_id': task_id,
         'from_project_id': inbox['id'],

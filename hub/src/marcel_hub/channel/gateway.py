@@ -17,7 +17,7 @@ from typing import Any
 
 from sqlmodel import Session, col, select
 
-from marcel_hub.artifacts import ArtifactRefused
+from marcel_hub.artifacts import ArtifactRefused, UnknownArtifact
 from marcel_hub.channel.approvals import ApprovalBook
 from marcel_hub.channel.frames import version_tuple
 from marcel_hub.channel.outbox import ChannelOutbox, conversation_target, task_target
@@ -91,6 +91,15 @@ class Rejection:
 
     def frame(self) -> dict[str, Any]:
         return {'type': 'rejected', 'reason': self.reason, 'message': self.message}
+
+
+class CallRefused(Exception):
+    """The hub stores nothing of this call and answers with `call_ack.error`."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
 class Gateway:
@@ -244,7 +253,8 @@ class Gateway:
     async def _once(
         self, peer: Peer, frame: dict[str, Any], store: Callable[..., Any]
     ) -> list[dict[str, Any]]:
-        """Store a `reply` or `report` once per `call_id`; ack it every time."""
+        """Store a `reply` or `report` once per `call_id`; ack it every time. A call the hub
+        refuses (`CallRefused`) is not recorded and is answered with an error ack."""
         call_id = frame['call_id']
         seen = False
         with self._calls_lock:
@@ -263,6 +273,10 @@ class Gateway:
             with Session(self.engine) as s:
                 s.add(ChannelCall(call_id=call_id, target=peer.target))
                 s.commit()
+        except CallRefused as exc:
+            log.warning('Refused call %s from session %s: %s', call_id, peer.session_id[:8], exc)
+            error = {'code': exc.code, 'message': exc.message}
+            return [{'type': 'call_ack', 'call_id': call_id, 'error': error}]
         finally:
             with self._calls_lock:
                 self._in_flight.discard(call_id)
@@ -289,6 +303,17 @@ class Gateway:
         task_id, kind = peer.task_id, frame['kind']
         reported = [frame['artifact']] if 'artifact' in frame else []
         reported += frame.get('artifacts', [])
+        # A new version of an artifact the task may not update refuses the whole report, before
+        # anything is stored: the worker learns at once, and nothing half-lands.
+        for artifact in reported:
+            if artifact.get('artifact_id') is None:
+                continue
+            try:
+                if self.artifacts is None:
+                    raise UnknownArtifact('The artifact was not saved: this hub has no store.')
+                self.artifacts.version_target(artifact['artifact_id'], task_id)
+            except UnknownArtifact as exc:
+                raise CallRefused('unknown_artifact', str(exc)) from exc
         artifact_ids = []
         for artifact in reported:
             try:

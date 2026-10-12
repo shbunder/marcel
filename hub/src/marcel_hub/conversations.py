@@ -34,7 +34,7 @@ router = APIRouter(prefix='/api', tags=['conversations'], dependencies=[Depends(
 CURSOR_PREFIX = 'c_'
 TITLE_LENGTH = 80
 # Message kinds about a task: a thread opened on one belongs to that task (Conversation.task_id).
-TASK_KINDS = {MessageKind.milestone, MessageKind.approval}
+TASK_KINDS = {MessageKind.milestone, MessageKind.approval, MessageKind.artifact}
 
 
 class NewMessage(BaseModel):
@@ -76,6 +76,8 @@ def message_json(msg: Message, thread: dict[str, Any] | None = None) -> dict[str
         body['task_id'] = msg.task_id
     if msg.project_id is not None:
         body['project_id'] = msg.project_id
+    if msg.artifact_id is not None:
+        body['artifact_id'] = msg.artifact_id
     if msg.client_id is not None:
         body['client_id'] = msg.client_id
     if thread is not None:
@@ -156,6 +158,7 @@ def post_message(
     task_id: str | None = None,
     project_id: str | None = None,
     client_id: str | None = None,
+    artifact_id: str | None = None,
 ) -> Message:
     """Store a message and send `message.created` to every device of the owner.
 
@@ -180,6 +183,7 @@ def post_message(
             task_id=task_id,
             project_id=project_id,
             client_id=client_id,
+            artifact_id=artifact_id,
         )
         session.add(msg)
         session.flush()

@@ -357,10 +357,15 @@ def test_a_downgrade_with_data_keeps_every_row_and_upgrades_again(
             s.add(Artifact(kind=ArtifactKind.link, title='L', url='https://a.b', task_id=task_id))
         s.commit()
     tables = ('agent', 'task', 'task_event', 'approval', 'artifact', 'message', 'conversation')
+    # Boards came after projects (0006): a downgrade removes them, an upgrade makes them again.
+    only = {'artifact': " WHERE kind != 'board'"}
 
     def counts() -> dict[str, int]:
         with engine.connect() as conn:
-            return {t: conn.execute(text(f'SELECT count(*) FROM {t}')).scalar_one() for t in tables}
+            return {
+                t: conn.execute(text(f'SELECT count(*) FROM {t}{only.get(t, "")}')).scalar_one()
+                for t in tables
+            }
 
     before = counts()
     db.upgrade(engine)  # already at head: nothing to do

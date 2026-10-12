@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 from test_channel_fakes import (
     MESSAGE,
     SECRET,
@@ -15,7 +15,7 @@ from test_channel_fakes import (
     session_id,
 )
 
-from marcel_hub.models import Artifact, ChannelCall, TaskOrigin, TaskState
+from marcel_hub.models import Artifact, ArtifactKind, ChannelCall, TaskOrigin, TaskState
 
 
 @pytest.fixture
@@ -177,8 +177,9 @@ def test_the_channel_is_outside_api_so_the_tunnel_never_forwards_it(hub: Channel
     }
     assert '/channel' in paths
     assert not any(p.startswith('/api') and 'channel' in p for p in paths)
-    # Everything else the hub serves is under /api, the only prefix the tunnel forwards.
-    assert {p for p in paths if not p.startswith('/api/')} == {'/channel'}
+    # Everything else the hub serves is under /api, the only prefix the tunnel forwards, except the
+    # brain tools' routes (S-05.3), which are for the NUC alone too.
+    assert {p for p in paths if not p.startswith(('/api/', '/brain/'))} == {'/channel'}
 
 
 # Approvals ----------------------------------------------------------------------------------------
@@ -571,7 +572,11 @@ def test_reports_become_task_events_artifacts_and_milestones(hub: ChannelHub) ->
         'Five volumes found.',
     ]
     with Session(hub.engine) as s:
-        artifacts = s.exec(select(Artifact).order_by(Artifact.created_at)).all()  # pyright: ignore[reportArgumentType]
+        artifacts = s.exec(
+            select(Artifact)
+            .where(Artifact.kind != ArtifactKind.board)  # the inbox's board is not a report's
+            .order_by(col(Artifact.created_at))
+        ).all()
     assert [(a.kind.value, a.title, a.task_id) for a in artifacts] == [
         ('link', 'Docker docs', task_id),
         ('file', 'Docker volumes', task_id),
@@ -583,8 +588,11 @@ def test_reports_become_task_events_artifacts_and_milestones(hub: ChannelHub) ->
         'Docker docs',
         'Docker volumes',
     ]
-    milestones = [m.body_json['milestone'] for m in hub.messages()]
+    milestones = [m.body_json['milestone'] for m in hub.messages() if m.kind.value == 'milestone']
     assert [m['event'] for m in milestones] == ['started', 'done']
+    # Each new item also arrived as an item-get message (B-36).
+    items = [m for m in hub.messages() if m.kind.value == 'artifact']
+    assert [(m.artifact_id, m.task_id) for m in items] == [(a.id, task_id) for a in artifacts]
     assert milestones[1] == {
         'task_id': task_id,
         'task_title': 'Check disk usage',
@@ -614,7 +622,7 @@ def test_a_refused_artifact_is_shown_in_the_thread_and_the_report_still_counts(
     [error] = hub.task_events(task_id, 'error')
     assert 'outside the workers' in error.data_json['message']
     with Session(hub.engine) as s:
-        assert s.exec(select(Artifact)).all() == []
+        assert s.exec(select(Artifact).where(Artifact.kind != ArtifactKind.board)).all() == []
 
 
 def test_a_report_after_the_owner_stopped_the_task_keeps_it_stopped(hub: ChannelHub) -> None:

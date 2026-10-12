@@ -3,10 +3,18 @@ name = "marcel-tools"
 version = "0.1.0"
 description = "Marcel brain tools: an MCP server the brain session uses to drive the hub."
 requires-python = ">=3.12"
+# Standard library only: the server runs with the NUC's python3, no install.
 dependencies = []
 
+[project.scripts]
+marcel-tools = "marcel_tools.server:main"
+
 [dependency-groups]
-dev = ["ruff>=0.6", "pyright>=1.1.380", "pytest>=8", "pytest-cov>=5"]
+# The hub is a dev dependency only: the tests drive every tool against the real hub app in-process.
+dev = ["ruff>=0.6", "pyright>=1.1.380", "pytest>=8", "pytest-cov>=5", "jsonschema>=4.23", "pyyaml>=6", "marcel-hub"]
+
+[tool.uv.sources]
+marcel-hub = { path = "../../../hub", editable = true }
 
 [build-system]
 requires = ["hatchling"]

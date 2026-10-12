@@ -69,7 +69,7 @@ def test_a_call_ack_can_carry_a_refusal(registry: Registry) -> None:
 
 def test_the_versions_were_bumped() -> None:
     assert load_yaml('app-api.yaml')['info']['version'] == '0.4.1'
-    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.3'
+    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.4'
     assert json.loads((CONTRACTS / 'channel.schema.json').read_text())
 
 
@@ -85,3 +85,11 @@ def test_brain_tools_are_allowed_by_name_not_by_wildcard() -> None:
     text = (CONTRACTS / 'runner-api.yaml').read_text()
     assert 'mcp__plugin_marcel_tools__tasks_spawn' in text
     assert 'mcp__plugin_marcel_tools__*' not in text
+
+
+def test_a_recovered_event_needs_its_message(registry: Registry) -> None:
+    check = validator('runner-api.yaml', '/components/schemas/RunnerEvent', registry)
+    event = {'seq': 1760000000000, 'type': 'runner.recovered', 'at': '2026-10-13T17:00:00Z'}
+    with pytest.raises(ValidationError):
+        check.validate(event)
+    check.validate({**event, 'message': 'The NUC can list its sessions again.'})

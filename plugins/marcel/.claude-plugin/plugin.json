@@ -4,6 +4,11 @@
   "description": "Marcel: connects Claude Code sessions to the Marcel hub (channel, brain tools, /marcel-adopt).",
   "author": { "name": "shbunder" },
   "mcpServers": {
-    "marcel": { "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/channel/dist/main.js"] }
+    "marcel": { "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/channel/dist/main.js"] },
+    "tools": {
+      "command": "python3",
+      "args": ["-m", "marcel_tools"],
+      "env": { "PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}/tools/src" }
+    }
   }
 }

@@ -2,8 +2,8 @@
 
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, the task
-routes, conversations, the live event stream, artifacts, memory, projects, push notifications,
-the channel gateway and approvals.
+routes, conversations, the live event stream, artifacts and their versions, memory, projects and
+their boards, the avatar's state, push notifications, the channel gateway and approvals, and the brain tools' routes.
 
 ## Run
 
@@ -73,7 +73,7 @@ for **10 minutes**. The app sends it to `POST /api/pair` and gets a device token
 - `GET /api/devices` lists your devices; `DELETE /api/devices/{id}` revokes one, and its token
   stops working at once. `PUT /api/devices/{id}/push` stores an APNs token or ntfy topic.
 - `GET /api/me` reports `push.ntfy` (and `push.ntfy_server`) when `ntfy_server` is set, `push.apns`
-  as off until S-08.2, and every agent as `idle` until S-04.8.
+  as off until S-08.2, and each agent's live `state` (see "The avatar's state" below).
 - After 10 unknown codes in a minute, `POST /api/pair` refuses every code (429,
   `too_many_tries`) until the minute is over. Expired or already-used codes do not count.
 - Every error has the contract's `Error` shape: a stable `code` and a `message` for people. A bad
@@ -189,8 +189,10 @@ background watcher follows the runner's streams:
 
 ## Artifacts
 
-`/api/artifacts` lists items newest first (filters `task_id`, `project_id`, `kind`), reads one, and serves its
-content. The code is `src/marcel_hub/artifacts.py`.
+`/api/artifacts` lists items, newest change first (filters `task_id`, `project_id`, `kind`), reads
+one, lists its versions (`/versions`), and serves its content, by version with `?version=`. The
+code is in `src/marcel_hub/artifacts/` (`store.py`, `routes.py`). Boards are listed only with
+`kind=board`; the Items tab shows what tasks made.
 
 - **Handing one in.** A worker's `report` artifact (`channel.schema.json` `Artifact`) goes to
   `ArtifactStore.publish_reported`. `pr`, `branch` and `link` need an `http(s)` URL; a `pr` URL must
@@ -206,15 +208,75 @@ content. The code is `src/marcel_hub/artifacts.py`.
   their own content type, `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`
   (`sandbox allow-scripts` for trusted HTML).
 - **Recorded** on the task as an `artifact` event, and announced to the app as `artifact.created`.
+- **Item get** (B-36). A new artifact a task made also posts an `artifact` message (with
+  `artifact_id` and `project_id`) in the agent's main conversation. Later versions never post
+  another. If the message cannot be posted, the artifact is still stored and the log says so.
+- **Versions** (B-34). A `report` artifact with `artifact_id` adds the next version instead of a new
+  item: `current_version`, `updated_by` (the task's title, "Marcel" or "the hub") and `updated_at`
+  move on, its row in `artifact_version` keeps the URL, type, size, author and one-line `summary`,
+  and the app gets `artifact.updated` with the artifact and the version. Each version's bytes are
+  kept in their own file (`<id>` for version 1, `<id>.v<n>` after), so older versions stay
+  readable. Any task in the same project may add a version; the kind cannot change. An id the hub
+  does not have, one from another project, or a board is refused (`UnknownArtifact`): the channel
+  answers the whole report with `call_ack.error` (`unknown_artifact`) and stores none of it.
 - **PR status.** `refresh_pr` asks a `PrStatusSource` for the PR's state, checks and review;
   `pr_status_from_gh` maps GitHub's REST answers to them. The hub reads GitHub itself with a
   read-only token (ADR-002); that client comes with S-04.12. Until then a refresh answers that the
   hub cannot ask GitHub. A PR starts as `open`.
-- **Project.** An item belongs to its task's project, and moves with the task. One with no task
-  goes to the inbox of the hub's first agent.
-- Not yet: versions (every item is at version 1). They come with S-04.11.
+- **Project.** An item belongs to its task's project, and moves with the task (the app gets
+  `artifact.updated` for each, with its current version). One with no task goes to the inbox of
+  the hub's first agent.
+- **Migration 0006** added `artifact_version` (version 1 for every existing artifact), the current
+  version on `artifact`, `artifact_id` on `message`, and a board for every project. Its downgrade
+  drops boards and `artifact` messages and keeps every other row. Older code reads only `<id>`, so
+  after a downgrade an item that had reached version 2 or later shows its version 1 bytes.
+
+## Project boards
+
+Every project has a board (B-35): an artifact of kind `board` under the project's
+`board_artifact_id`, made in the same write as the project (`models.make_board`). The hub builds its
+content itself, with no brain turn. The code is `src/marcel_hub/boards.py`.
+
+- **What it shows.** A dashboard (`contracts/dashboard.schema.json`, checked before it is stored)
+  with four sections: *Waiting on you* (open approvals, and tasks that need you without a card),
+  *In flight* (each running task with its state and the last step it reported), *Recent results*
+  (the newest 5 tasks done in the past 7 days, each with its summary and items at their version),
+  *Upcoming* (empty until schedules exist), then Marcel's notes, the newest 5.
+- **When.** `BoardKeeper` watches the app event log. Any task, approval or artifact change in a
+  project (and a project created, renamed or moved into), and any step a worker reports with
+  `report(progress)`, marks its board. A marked board is rebuilt
+  10 s after the first mark, and never sooner than 10 s after its last rebuild, so a burst of
+  changes makes one rebuild. Events about boards are ignored, so a rebuild never marks itself. A
+  loop on the hub's event loop rebuilds what is due once a second; at start every board is marked.
+- **Versions.** A rebuild stores a new version (`artifact.updated`, author "the hub") only when
+  the content or title changed. A board's first content sends `artifact.created`. A board read
+  before its first build is built on the spot.
+- **Marcel's notes.** `BoardKeeper.board_note(project_id, text)` adds a "what this means" line
+  (cut at 400 characters) and marks the board. The brain's `board_note` tool
+  (`POST /brain/projects/{project}/notes`) reaches it through `boards.BrainBoards`.
+- **A failed rebuild** is logged and tried once more on the next tick; if it fails again, the board
+  waits for the project's next change.
 
 Needs `jsonschema` at run time and `contracts/dashboard.schema.json` next to `hub/`.
+
+## The avatar's state
+
+What each agent's avatar shows (B-28), as the contract's `AgentState`. It is derived, never stored;
+the code is `src/marcel_hub/agent_state.py`.
+
+- **Order.** `needs_you` if any of the agent's tasks needs you; else `working` with
+  `active_tasks` = its tasks in `working` (the real number; the app shows at most 3 spots); else
+  `thinking` while a brain turn runs; else `done` for 5 s after one of its tasks reached `done`
+  (not `failed` or `stopped`); else `idle`.
+- **A brain turn** starts when the owner writes in the main conversation or a side thread (not a
+  task's thread), and ends at the agent's next text message there (the brain's `reply`). A turn
+  with no reply stops counting after 180 s, so the avatar never thinks forever.
+- **Sent on change only.** `agent.state` goes through the app event log, so phones get it on
+  `/api/ws` like any other event. `GET /api/me` shows the same state.
+- **Timers.** A loop on the hub's event loop ends done and thinking windows (once a second). At
+  start the hub compares each agent's state with the last `agent.state` in the event log and sends
+  the new one if it changed while the hub was down. Tests hold the loop back (`conftest.py`), set a
+  fake clock and call `AgentStates.tick()`.
 
 ## Memory
 
@@ -281,7 +343,8 @@ on first use. The code is `src/marcel_hub/memory.py`.
   done, failed or stopped (409 `project_busy`).
 - **Move.** Only into a live project of the same agent (409 `project_archived`, 404
   `project_not_found`). The task's items move with it. The app gets `task.moved`, `task.updated`,
-  then `project.updated` for the new and the old project. Moving into the same project sends
+  then `project.updated` for the new and the old project, then `artifact.updated` for each item
+  (now in the new project). Both boards are rebuilt. Moving into the same project sends
   nothing. No brain turn.
 - **Counts** on each project: `working` (queued, starting, working, silent, unknown), `needs_you`,
   and `done_7d` (done, last changed in the past 7 days). `updated_at` is the latest change to the
@@ -289,8 +352,7 @@ on first use. The code is `src/marcel_hub/memory.py`.
   for that task's project.
 - **Owner only.** Someone else's project answers 404 `project_not_found`, someone else's agent
   404 `agent_not_found`, and listing it gives `[]`.
-- **Board.** `board_artifact_id` is reserved when the project is made; the board itself is built
-  under that id by S-04.11.
+- **Board.** Made with the project under `board_artifact_id`; see *Project boards*.
 
 ## Push notifications
 
@@ -353,7 +415,9 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
   prompt for ever, the session gets `permission_decision deny` at once, and the log says which
   tool it asked for. A re-sent prompt is denied again.
 - **Calls.** Each stored `reply` or `report` is answered `call_ack`; a repeated `call_id` is not
-  stored again and is acked with `duplicate: true`. A call the hub fails to store is not acked, so
+  stored again and is acked with `duplicate: true`. A report that asks for a new version of an
+  artifact it may not update is refused whole: `call_ack` with `error` (`unknown_artifact`), and
+  nothing of it is stored or recorded. A call the hub fails to store is not acked, so
   the server sends it again after a reconnect.
 - **Reports.** `started` and `progress` become `progress` task events (and move the task to
   `working`); artifacts go to the artifact store (files are copied from the workers' folder) and
@@ -397,3 +461,31 @@ second card, whatever state the card is in.
   resolved from the transcript if it can be, and otherwise becomes `expired`. At start the hub does
   the same for cards left open while it was down.
 - Every change to a card sends `approval.resolved`.
+
+## Brain tools: `/brain`
+
+`brain_api.py` is the hub side of Marcel's brain tools (`plugins/marcel/tools`, which lists every
+tool and its route). The brain's MCP server calls these routes over plain HTTP on the NUC.
+
+- **Outside `/api`.** The tunnel forwards only `/api/*`; a request with `cf-connecting-ip` answers
+  404 anyway.
+- **No device token.** A call carries the hub secret (`X-Marcel-Secret`, the channel's
+  `hub-secret`) and its session id (`X-Marcel-Session`). Only a session that is a conversation's
+  `brain_session_id` (the brain or a side thread) gets in; a worker gets 403, anything else 401.
+  `tests/test_auth_routes.py` checks these routes refuse a caller without them, like every other.
+- **One agent.** Tasks and projects are looked up within the brain's agent; another agent's
+  answer 404 as if they did not exist.
+- `tasks_spawn` refuses `location: auto` with a hint: the brain decides where work runs. `repo` is
+  `owner/name` (no leading `-`, no `..`); `message_id` must be in the brain's own conversation.
+- Bodies are read no further than 64 KB (a memory write: 2 MB), answered 413 `too_large`; every
+  text field has a maximum length.
+- Marcel's own artifacts are filed under the project the brain names, its agent's Inbox by default,
+  by "Marcel". With `artifact_id` the brain adds a new version of one of that project's items; an
+  item of another project, or a board, is refused (400).
+- Memory writes go through `MemoryRepo.write` (one commit, `memory: <path> (agent)`, paths that
+  cannot leave the memory folder, etag conflicts answered with the current etag).
+- `notify` posts the text in the main conversation and pushes it (`urgent` → category `broke`,
+  `normal` → `digest`), linking to that message.
+- Parts built by other stories sit behind `app.state.brain_ports` (`boards`, `schedules`,
+  `usage`, `artifacts`). `boards` is plugged in (`boards.BrainBoards`, S-04.11); until a story plugs its own in, the default answers 503 `not_set_up` with
+  what is missing, and stores nothing.
