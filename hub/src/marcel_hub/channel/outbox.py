@@ -8,10 +8,17 @@ channel server ignores any `seq` at or below the highest it has delivered.
 Nothing is held in memory per connection but a wake-up flag: a connected session's sender reads
 the frames after the last one it sent straight from the database, a page at a time. A session
 that stops reading cannot make the hub buffer frames for it.
+
+**Waking the brain (S-06.5).** Whether an event is worth a brain turn is decided by the hub's
+`Triage` (`marcel_hub.triage`), here: `decide` asks it and logs the decision, and every
+`system_event` written for a conversation — by the gateway, the task registry (handback), the
+scheduler or the digests — passes through `put`, which queues it only if the decision is a brain
+turn for that conversation. Anything else is logged and not sent (`put` returns 0).
 """
 
 import asyncio
 import contextlib
+import logging
 import threading
 from dataclasses import dataclass, field
 from typing import Any
@@ -22,6 +29,9 @@ from sqlmodel import Session, col, select
 
 from marcel_hub.conversations import ensure_main_conversation
 from marcel_hub.models import Agent, ChannelFrame
+from marcel_hub.triage import BrainTurn, Decision, Event, Kind, RulesTriage, Triage, record
+
+log = logging.getLogger(__name__)
 
 PAGE = 100
 
@@ -32,6 +42,19 @@ def task_target(task_id: str) -> str:
 
 def conversation_target(conversation_id: str) -> str:
     return f'conversation:{conversation_id}'
+
+
+CONVERSATION = 'conversation:'
+# channel.schema.json SystemEvent.kind → the triage event it is.
+SYSTEM_EVENTS = {
+    'task_failed': Kind.worker_failed,
+    'task_silent': Kind.worker_silent,
+    'task_question': Kind.worker_question,
+    'handback': Kind.handback,
+    'digest_due': Kind.digest_due,
+    'schedule_fired': Kind.schedule_fired,
+    'rollover': Kind.rollover,
+}
 
 
 @dataclass(eq=False)
@@ -54,11 +77,36 @@ class ChannelOutbox:
         # One lock for numbering, storing and waking, so seq N+1 is never stored before seq N.
         self._lock = threading.Lock()
         self._wakes: dict[str, Wake] = {}
+        self.triage: Triage = RulesTriage()
+
+    # Waking the brain -------------------------------------------------------------------------
+
+    def decide(self, event: Event) -> Decision:
+        """Whether `event` is worth a brain turn: the triage decides, and the decision is logged."""
+        return record(self.triage, event)
+
+    def _system_event_wakes(self, target: str, frame: dict[str, Any]) -> bool:
+        conversation_id = target.removeprefix(CONVERSATION)
+        event = Event(
+            SYSTEM_EVENTS[frame['kind']],
+            conversation_id=conversation_id,
+            task_id=frame.get('task_id'),
+        )
+        decision = self.decide(event)
+        if isinstance(decision, BrainTurn) and decision.conversation_id in (None, conversation_id):
+            return True
+        log.info('Did not send the %s event to %s: no brain turn for it.', frame['kind'], target)
+        return False
 
     # Writing ----------------------------------------------------------------------------------
 
     def put(self, target: str, frame: dict[str, Any]) -> int:
-        """Number `frame`, store it, and wake the target's connection if it has one."""
+        """Number `frame`, store it, and wake the target's connection if it has one. A
+        `system_event` for a conversation is queued only if the triage wakes the brain for it;
+        otherwise nothing is stored and 0 is returned."""
+        is_event = frame.get('type') == 'system_event' and target.startswith(CONVERSATION)
+        if is_event and not self._system_event_wakes(target, frame):
+            return 0
         with self._lock, Session(self.engine) as s:
             last = s.exec(select(func.max(ChannelFrame.seq)).where(ChannelFrame.target == target))
             seq = (last.one() or 0) + 1

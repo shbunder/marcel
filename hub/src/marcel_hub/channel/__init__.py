@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from marcel_hub import triage
 from marcel_hub.channel.gateway import SECRET_FILE, Gateway, Peer, Rejection
 from marcel_hub.channel.ports import Push
 from marcel_hub.channel.routes import router as approvals_router
@@ -15,6 +16,8 @@ from marcel_hub.channel.socket import MAX_FRAME
 from marcel_hub.channel.socket import router as socket_router
 from marcel_hub.runner_client import Alerts, RunnerWatch
 from marcel_hub.tasks.registry import TaskRegistry
+
+TRIAGE_LOG = 'triage.log'
 
 __all__ = ['MAX_FRAME', 'SECRET_FILE', 'Gateway', 'Peer', 'Rejection', 'create', 'install']
 
@@ -24,6 +27,7 @@ def create(
 ) -> Gateway:
     """The gateway, before the registry exists: its Outbox is handed to `tasks.install`."""
     gateway = Gateway(app.state.engine, data_dir / SECRET_FILE, push=push, alerts=alerts)
+    triage.keep_log(data_dir / TRIAGE_LOG)  # S-06.5: the wake decisions, for S-16.2
     app.state.channel = gateway
     return gateway
 
