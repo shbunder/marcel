@@ -59,6 +59,9 @@ SLOW_POLL = 300.0  # seconds
 FAST_POLL = 60.0
 FAST_FROM = 70.0  # % of a window from which the guard reads every minute
 FAIL_OPEN = timedelta(minutes=30)
+# After a push for a hold whose reset is unknown, later such holds stay quiet this long (or until
+# a fresh reading): each of them ends after 30 minutes, so each would otherwise push again.
+QUIET_UNKNOWN = timedelta(hours=5)
 STALE_AFTER = timedelta(minutes=15)  # runner-api.yaml: a reading older than this is stale
 STATE_FILE = 'usage-guard.json'
 
@@ -145,15 +148,19 @@ class UsageGuard:
         self.reading: dict[str, Any] | None = None
         self._job: asyncio.Task[None] | None = None
         self._published: dict[str, Any] | None = None
-        # Kept across restarts (`save` / `_load`).
+        self._clean()
+        self._load()
+
+    def _clean(self) -> None:
+        """The state kept across restarts (`save` / `_load`), as on a first start."""
         self.hold: Hold | None = None
         self.notified_until: str | None = None
+        self.quiet_until: str | None = None  # no push for an unknown reset before this time
         self.last_fresh_at: str | None = None
         self.raw_logged: set[str] = set()  # kinds of limit-hit rows already logged
         self.limited: set[str] = set()  # tasks whose limit hit counted and that have not moved on
         self.by_task: dict[str, float] = {}  # percentage points of the five-hour window
         self.previous: tuple[str, float] | None = None  # five-hour (resets_at, used_pct)
-        self._load()
 
     # The registry's hook ----------------------------------------------------------------------
 
@@ -225,6 +232,7 @@ class UsageGuard:
 
     def _fresh(self, reading: dict[str, Any], now: datetime) -> None:
         self.last_fresh_at = iso(now)
+        self.quiet_until = None  # a fresh reading: a later unknown reset is news again
         self._snapshot(reading)
         self._attribute(reading)
         over = [
@@ -324,6 +332,13 @@ class UsageGuard:
         log.info('The usage guard holds new work: %s', new.reason)
         if self.notified_until == new.until:
             return  # this reset was already announced (a hold that ended early started again)
+        now = self.clock()
+        if not new.window:  # the reset is unknown: the hold ends in 30 minutes
+            quiet = _time(self.quiet_until)
+            if quiet is not None and now < quiet:
+                log.info('No push: a hold with an unknown reset was announced less than 5 h ago.')
+                return
+            self.quiet_until = iso(now + QUIET_UNKNOWN)
         self.notified_until = new.until
         if self.pusher is None:
             return
@@ -459,6 +474,7 @@ class UsageGuard:
         data = {
             'hold': asdict(self.hold) if self.hold else None,
             'notified_until': self.notified_until,
+            'quiet_until': self.quiet_until,
             'last_fresh_at': self.last_fresh_at,
             'raw_logged': sorted(self.raw_logged),
             'limited': sorted(self.limited),
@@ -474,23 +490,26 @@ class UsageGuard:
             return
         try:
             data = json.loads(self.state_path.read_text())
+            if not isinstance(data, dict):
+                raise ValueError('it does not hold a JSON object')
             self.hold = Hold(**data['hold']) if data.get('hold') else None
             if self.hold is not None and None in (_time(self.hold.until), _time(self.hold.since)):
                 raise ValueError('the hold has no readable times')
             self.notified_until = data.get('notified_until')
+            self.quiet_until = data.get('quiet_until')
             self.last_fresh_at = data.get('last_fresh_at')
             self.raw_logged = set(data.get('raw_logged') or [])
             self.limited = set(data.get('limited') or [])
             self.by_task = {str(k): float(v) for k, v in (data.get('by_task') or {}).items()}
             previous = data.get('previous')
             self.previous = (str(previous[0]), float(previous[1])) if previous else None
-        except (ValueError, TypeError, KeyError, IndexError) as exc:
+        except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError) as exc:
             log.warning(
                 'Could not read %s (%s). The usage guard starts without a hold.',
                 self.state_path,
                 exc,
             )
-            self.hold = None
+            self._clean()
 
 
 def _until(hold: Hold) -> datetime:

@@ -435,11 +435,13 @@ Nothing else pushes: no progress, no `working`, `queued`, `unknown` or `stopped`
 - **When it holds.** A fresh reading at or above 90 % of the five-hour window, or 95 % of the week
   (for a window that has not reset yet), or a usage-limit hit. A stale reading never starts a hold.
 - **What holding does.** Every new spawn (NUC or cloud: the plan is shared) waits as `queued` with
-  `queued_reason: usage`, and the queue is not drained. Running tasks carry on.
+  `queued_reason: usage`, and the queue is not drained. Running tasks carry on, and so does a
+  follow-up sent to a task that is already done: it goes back to `working` and spends usage.
 - **One push per crossing.** When a hold starts, one push: "Marcel is pausing new work until 14:00:
   the subscription is at 91 %." Nothing for further polls, for queued spawns, or for a hold that
-  ends and starts again for the same reset time. Times are in the hub's time zone (set `TZ` on the
-  container).
+  ends and starts again for the same reset time. A hold whose reset is unknown (it lasts 30
+  minutes) pushes at most once per 5 hours, or again after a fresh reading. Times are in the hub's
+  time zone (set `TZ` on the container).
 - **When it lets go.** At the window's reset time, or when a fresh reading shows every window
   below its limit (not after a limit hit: that waits for the reset). The queue then starts oldest
   first through the task registry, so the worker cap still applies; a task that now waits for a
@@ -451,14 +453,17 @@ Nothing else pushes: no progress, no `working`, `queued`, `unknown` or `stopped`
 - **Limit hits** (SP4). A transcript `error` with `usage_limit`, or a task going to `needs_you`
   because "The usage limit is reached" (a session `blocked` on the limit), starts a hold whatever the
   reading says: until the reset of the window over its limit, or of the soonest window when none
-  is; for 30 minutes when no reset is known. A task's session counts once until the task moves on.
+  is; for 30 minutes when no reset is known. A session blocked as "rate limited" counts as a hit
+  too (SP4 cannot tell it from the plan limit), so even a passing rate limit holds new work until
+  that reset, usually the five-hour window's. A task's session counts once until the task moves on.
   The first raw row of a hit is logged at WARNING, as no live hit has been recorded yet.
-- **Records.** Fresh readings are stored as `usage_snapshot` rows when they change. Each rise of the
-  five-hour window is split evenly over the tasks then running (`other` when none ran), as the
-  transcripts carry no token counts; `guard.usage_by_task()` gives it for a later usage report.
+- **Records.** Fresh readings are stored as `usage_snapshot` rows when they change. Per-task usage
+  is an **estimate**: the transcripts carry no token counts, so each rise of the five-hour window
+  is split evenly over the tasks then running (`other` when none ran); `guard.usage_by_task()`
+  gives it for a later usage report.
 - **Restart.** The hold, the last push and the attribution live in `<data_dir>/usage-guard.json`,
-  so a restart keeps holding and does not push again; the queue is in the database. An unreadable
-  file is logged and the guard starts without a hold.
+  so a restart keeps holding and does not push again; the queue is in the database. A file that
+  cannot be read or is not a JSON object is logged and the guard starts clean, without a hold.
 - **`GET /api/usage`** answers the contract's `Usage` (the readings, `stale`, and `guard`: `active`,
   `reason`, `queued`), and `usage.updated` goes to the app when it changes. Before the first reading
   (or with no runner) it answers 503 `no_reading`. The brain's `usage_get` gets the same, once a

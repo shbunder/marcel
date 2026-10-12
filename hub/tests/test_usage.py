@@ -389,6 +389,31 @@ def test_a_hit_during_a_hold_extends_it_without_a_push(world: World) -> None:
     assert len(world.pushes.sent) == 1
 
 
+def test_repeated_limit_hits_with_an_unknown_reset_push_once(world: World) -> None:
+    world.poll(None)  # no reading: every hit holds for 30 minutes
+    task = world.spawn('one')
+    for _ in range(10):
+        transcript_hit(world, task)
+        assert world.guard.holding() is not None
+        world.clock.advance(minutes=31)
+        world.poll(None)  # fail-open, then the next hit holds again
+        assert world.guard.holding() is None
+    assert len(world.pushes.sent) == 1
+    world.clock.advance(hours=1)  # five hours after that push: news again
+    transcript_hit(world, task)
+    assert len(world.pushes.sent) == 2
+
+
+def test_a_fresh_reading_ends_the_quiet_after_an_unknown_reset(world: World) -> None:
+    task = world.spawn('one')
+    transcript_hit(world, task)
+    world.clock.advance(minutes=31)
+    world.poll(reading(five=50, resets=world.clock.now - timedelta(minutes=1)))
+    world.poll(None)
+    transcript_hit(world, task)
+    assert len(world.pushes.sent) == 2
+
+
 # Restart ----------------------------------------------------------------------------------------
 
 
@@ -419,6 +444,33 @@ def test_a_broken_state_file_starts_without_a_hold(
         guard = world.new_guard()
     assert guard.hold is None
     assert 'starts without a hold' in caplog.text
+
+
+@pytest.mark.parametrize('content', ['[]', '"x"', '3'])
+def test_a_state_file_that_is_not_an_object_starts_clean(
+    world: World, content: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    world.state.write_text(content)
+    with caplog.at_level(logging.WARNING, logger='marcel_hub.usage'):
+        guard = world.new_guard()
+    assert guard.hold is None and guard.by_task == {}
+    assert 'does not hold a JSON object' in caplog.text
+
+
+def test_an_unreadable_state_file_starts_clean(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    world.state.mkdir()  # reading a folder raises an OSError
+    with caplog.at_level(logging.WARNING, logger='marcel_hub.usage'):
+        guard = world.new_guard()
+    assert guard.hold is None
+    assert 'starts without a hold' in caplog.text
+
+
+def test_a_half_read_state_file_keeps_nothing(world: World) -> None:
+    world.state.write_text('{"notified_until": "x", "previous": [1]}')
+    guard = world.new_guard()
+    assert guard.notified_until is None and guard.previous is None
 
 
 # What the app sees ------------------------------------------------------------------------------
