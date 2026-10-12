@@ -29,6 +29,7 @@ tags:
   - name: access
   - name: agents
   - name: conversations
+  - name: projects
   - name: tasks
   - name: approvals
   - name: artifacts
@@ -309,7 +310,7 @@ paths:
     get:
       tags: [tasks]
       operationId: listTasks
-      summary: Tasks (threads) for the Activity tab.
+      summary: Tasks (threads) for the Quests tab, optionally for one project.
       parameters:
         - name: agent_id
           in: query
@@ -327,6 +328,10 @@ paths:
           in: query
           description: List archived tasks instead of live ones.
           schema: { type: boolean, default: false }
+        - name: project_id
+          in: query
+          description: Only this project's tasks (B-30).
+          schema: { type: string }
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -425,7 +430,7 @@ paths:
     post:
       tags: [tasks]
       operationId: archiveTask
-      summary: Archive a finished task, so it leaves the Activity tab (B-17). Its artifacts stay.
+      summary: Archive a finished task, so it leaves the Quests tab (B-17). Its artifacts stay.
       description: Only for `done`, `failed` or `stopped` tasks; anything else answers 409. Archived tasks are listed with `archived=true`.
       responses:
         '200':
@@ -436,6 +441,33 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  /tasks/{task_id}/move:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      tags: [tasks, projects]
+      operationId: moveTask
+      summary: File a task under another project (B-31). A hub-only change; Marcel is not woken.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskMove' }
+      responses:
+        '200':
+          description: Moved. A `task.moved` event follows, and both projects' boards are rebuilt.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The target project is archived (code `project_archived`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /tasks/{task_id}/handback:
     parameters:
@@ -519,9 +551,12 @@ paths:
     get:
       tags: [artifacts]
       operationId: listArtifacts
-      summary: The Library (B-21).
+      summary: The Items tab (B-21), newest change first; optionally for one project or task.
       parameters:
         - name: task_id
+          in: query
+          schema: { type: string }
+        - name: project_id
           in: query
           schema: { type: string }
         - name: kind
@@ -560,6 +595,11 @@ paths:
       tags: [artifacts]
       operationId: getArtifactContent
       summary: The artifact's bytes, with its own content type. Not available for `pr` and `link`.
+      parameters:
+        - name: version
+          in: query
+          description: An older version (B-34). Absent means the current one.
+          schema: { type: integer, minimum: 1 }
       responses:
         '200':
           description: The content.
@@ -568,6 +608,122 @@ paths:
               schema: { type: string, format: binary }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /artifacts/{artifact_id}/versions:
+    parameters:
+      - $ref: '#/components/parameters/ArtifactId'
+    get:
+      tags: [artifacts]
+      operationId: listArtifactVersions
+      summary: Every version of a living artifact, newest first (B-34).
+      responses:
+        '200':
+          description: All versions; there are few, so there is no paging.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ArtifactVersion' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /projects:
+    get:
+      tags: [projects]
+      operationId: listProjects
+      summary: The Map (B-30). The `inbox` project always exists.
+      parameters:
+        - name: agent_id
+          in: query
+          required: true
+          schema: { type: string }
+        - name: archived
+          in: query
+          description: List archived projects instead of live ones.
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Live projects, the one with the most recent activity first; `inbox` last.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [projects]
+      operationId: createProject
+      summary: Create a project. Its notes file and its board are created with it (B-33, B-35).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewProject' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: A live project with this slug exists (code `slug_taken`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /projects/{project_id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [projects]
+      operationId: getProject
+      summary: One project, for its room.
+      responses:
+        '200':
+          description: The project.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [projects]
+      operationId: updateProject
+      summary: Rename it, change its goal, repo, folder, standing instructions or Claude Code link.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectUpdate' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /projects/{project_id}/archive:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [projects]
+      operationId: archiveProject
+      summary: Archive a project with no live tasks. Its items and notes stay readable.
+      description: '`inbox` cannot be archived, and neither can a project with tasks that are not done, failed or stopped; both answer 409.'
+      responses:
+        '200':
+          description: Archived.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /memory:
     get:
@@ -764,6 +920,11 @@ components:
       schema: { type: string }
     ArtifactId:
       name: artifact_id
+      in: path
+      required: true
+      schema: { type: string }
+    ProjectId:
+      name: project_id
       in: path
       required: true
       schema: { type: string }
@@ -1052,6 +1213,11 @@ components:
         client_id:
           type: string
           description: Chosen by the app; makes retries safe.
+        project_id:
+          type: string
+          description: |
+            Sent from a project room (B-32). The message still goes to the main conversation; the tag
+            tells Marcel which project it is about.
       example: { text: Also add a test for the empty case., client_id: 7d2c9a40-1f7b-4e55-9e1a-2c3b4d5e6f70 }
 
     SendToMain:
@@ -1078,8 +1244,9 @@ components:
       description: |
         `text`: a normal chat bubble. `milestone`: a task started, needs you, finished or failed
         (B-06). `approval`: an approval card (B-12). `quote`: a side-thread result brought into the
-        main conversation.
-      enum: [text, milestone, approval, quote]
+        main conversation. `artifact`: an item arrived — the first version of an artifact a task made
+        (B-36); later versions only update the cards already shown.
+      enum: [text, milestone, approval, quote, artifact]
       example: milestone
 
     Milestone:
@@ -1126,7 +1293,13 @@ components:
         quoted_message_id:
           type: string
           description: Present for `quote`.
+        artifact_id:
+          type: string
+          description: Present for `artifact`.
         task_id: { type: string }
+        project_id:
+          type: string
+          description: The project a user message was sent from (B-32), or the project of an `artifact` message.
         client_id: { type: string }
         thread:
           type: object
@@ -1146,6 +1319,8 @@ components:
           then: { required: [approval_id, task_id] }
         - if: { properties: { kind: { const: quote } } }
           then: { required: [text, quoted_message_id] }
+        - if: { properties: { kind: { const: artifact } } }
+          then: { required: [artifact_id, project_id] }
       example:
         id: msg_01J9ZQZ8
         conversation_id: cnv_main_marcel
@@ -1200,11 +1375,14 @@ components:
 
     Task:
       type: object
-      required: [id, agent_id, title, location, state, model, origin, created_at, updated_at]
+      required: [id, agent_id, project_id, title, location, state, model, origin, created_at, updated_at]
       additionalProperties: false
       properties:
         id: { type: string }
         agent_id: { type: string }
+        project_id:
+          type: string
+          description: Every task belongs to exactly one project; `inbox` when nothing fits (B-30).
         title: { type: string }
         location: { $ref: '#/components/schemas/TaskLocation' }
         state: { $ref: '#/components/schemas/TaskState' }
@@ -1258,6 +1436,7 @@ components:
       example:
         id: tsk_01J9ZQ6
         agent_id: agt_marcel
+        project_id: prj_inbox
         title: Check disk usage of all Docker volumes
         location: nuc
         state: needs_you
@@ -1285,6 +1464,7 @@ components:
         items:
           - id: tsk_01J9ZQ5
             agent_id: agt_marcel
+            project_id: prj_01J9ZM1
             title: Fix the flaky login test
             location: cloud
             state: working
@@ -1507,18 +1687,27 @@ components:
       description: |
         `pr`: a pull request. `branch`: a pushed branch with no PR yet (`url` is its compare
         page). `doc`: Markdown or HTML. `file`: anything else with bytes. `dashboard`: JSON
-        matching `dashboard.schema.json`, drawn natively. `link`: any other URL.
-      enum: [pr, branch, doc, file, dashboard, link]
+        matching `dashboard.schema.json`, drawn natively. `link`: any other URL. `board`: a project's
+        board (B-35), a dashboard the hub keeps current; one per project.
+      enum: [pr, branch, doc, file, dashboard, link, board]
       example: pr
 
     Artifact:
       type: object
-      required: [id, kind, title, created_at]
+      required: [id, project_id, kind, title, current_version, created_at, updated_at]
       additionalProperties: false
       properties:
         id: { type: string }
         task_id: { type: string }
+        project_id: { type: string }
         kind: { $ref: '#/components/schemas/ArtifactKind' }
+        current_version:
+          type: integer
+          minimum: 1
+          description: Living artifacts gain versions (B-34); the fields here describe the current one.
+        updated_by:
+          type: string
+          description: Who made the current version, in plain words (a task's title, "Marcel" or "the hub").
         title: { type: string }
         url:
           type: string
@@ -1555,21 +1744,28 @@ components:
               type: string
               enum: [none, requested, approved, changes_requested]
         created_at: { type: string, format: date-time }
+        updated_at:
+          type: string
+          format: date-time
+          description: When the current version was made.
       allOf:
         - if: { properties: { kind: { enum: [pr, branch, link] } } }
           then: { required: [url] }
         - if: { properties: { kind: { const: pr } } }
           then: { required: [pr] }
-        - if: { properties: { kind: { enum: [doc, file, dashboard] } } }
+        - if: { properties: { kind: { enum: [doc, file, dashboard, board] } } }
           then: { required: [content_type] }
       example:
         id: art_01J9ZT1
         task_id: tsk_01J9ZQ5
+        project_id: prj_01J9ZM1
         kind: pr
         title: 'Fix flaky login test: wait on the session cookie'
+        current_version: 1
         url: https://github.com/shbunder/marcel/pull/14
         pr: { number: 14, state: open, checks: passing, review: requested }
         created_at: '2026-10-04T18:31:00Z'
+        updated_at: '2026-10-04T18:31:00Z'
 
     ArtifactPage:
       type: object
@@ -1582,13 +1778,153 @@ components:
         next_cursor: { type: string }
       example:
         items:
-          - id: art_01J9ZT2
-            task_id: tsk_01J9ZQ7
+          - id: art_01JA0B1
+            task_id: tsk_01JA0A9
+            project_id: prj_01JA0A1
             kind: doc
-            title: Weekly review — week 40
+            title: Energy offers compared
+            current_version: 3
+            updated_by: Energy contracts
             content_type: text/markdown
-            size_bytes: 2048
-            created_at: '2026-10-04T18:00:00Z'
+            size_bytes: 3120
+            created_at: '2026-10-09T20:00:00Z'
+            updated_at: '2026-10-12T08:14:00Z'
+          - id: art_01JA0A2
+            project_id: prj_01JA0A1
+            kind: board
+            title: Energy contracts — board
+            current_version: 7
+            updated_by: the hub
+            content_type: application/json
+            created_at: '2026-10-08T19:00:00Z'
+            updated_at: '2026-10-12T08:14:05Z'
+
+    ArtifactVersion:
+      type: object
+      required: [artifact_id, version, created_at]
+      additionalProperties: false
+      properties:
+        artifact_id: { type: string }
+        version: { type: integer, minimum: 1 }
+        summary:
+          type: string
+          description: What changed in this version, in one line.
+        author:
+          type: string
+          description: Who made it, in plain words (a task's title, "Marcel" or "the hub").
+        task_id: { type: string }
+        url: { type: string, format: uri }
+        content_type: { type: string }
+        size_bytes: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+      example:
+        artifact_id: art_01JA0B1
+        version: 3
+        summary: Added the Engie offer; Luminus is still the cheapest.
+        author: Energy contracts
+        task_id: tsk_01JA0A9
+        content_type: text/markdown
+        size_bytes: 3120
+        created_at: '2026-10-12T08:14:00Z'
+
+    Project:
+      type: object
+      required: [id, agent_id, slug, name, board_artifact_id, archived, counts, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        agent_id: { type: string }
+        slug:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{0,39}$'
+          description: Used in `marcel://project/<slug>` and for the notes file `memory/projects/<slug>.md`.
+        name: { type: string, minLength: 1, maxLength: 60 }
+        goal:
+          type: string
+          description: One line on what the project is for.
+        repo:
+          type: string
+          description: '`owner/name` when its coding threads work on one repository.'
+        folder:
+          type: string
+          description: A folder on the NUC its threads work in.
+        instructions:
+          type: string
+          description: Standing instructions every thread in the project starts with (Markdown).
+        claude_project_url:
+          type: string
+          format: uri
+          description: A linked Claude Code Project (B-33a); informational in v1.
+        board_artifact_id:
+          type: string
+          description: The project's board (B-35), an artifact of kind `board`.
+        archived: { type: boolean }
+        counts:
+          type: object
+          required: [working, needs_you, done_7d]
+          additionalProperties: false
+          properties:
+            working: { type: integer, minimum: 0 }
+            needs_you: { type: integer, minimum: 0 }
+            done_7d:
+              type: integer
+              minimum: 0
+              description: Tasks finished in the last 7 days.
+        created_at: { type: string, format: date-time }
+        updated_at:
+          type: string
+          format: date-time
+          description: The last change to the project or anything in it.
+      example:
+        id: prj_01JA0A1
+        agent_id: agt_marcel
+        slug: energy
+        name: Energy contracts
+        goal: Find a cheaper gas and electricity contract before the renewal on 1 December.
+        board_artifact_id: art_01JA0A2
+        archived: false
+        counts: { working: 1, needs_you: 1, done_7d: 2 }
+        created_at: '2026-10-08T19:00:00Z'
+        updated_at: '2026-10-12T08:14:00Z'
+
+    NewProject:
+      type: object
+      required: [agent_id, name]
+      additionalProperties: false
+      properties:
+        agent_id: { type: string }
+        name: { type: string, minLength: 1, maxLength: 60 }
+        slug:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{0,39}$'
+          description: Derived from the name when absent.
+        goal: { type: string }
+        repo: { type: string }
+        folder: { type: string }
+        instructions: { type: string }
+        claude_project_url: { type: string, format: uri }
+      example: { agent_id: agt_marcel, name: Garden, goal: Plan the spring planting and order the seeds. }
+
+    ProjectUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        goal: { type: string }
+        repo: { type: string }
+        folder: { type: string }
+        instructions: { type: string }
+        claude_project_url: { type: string, format: uri }
+      example: { instructions: 'Always compare against the current Engie contract, and show yearly totals.' }
+
+    TaskMove:
+      type: object
+      required: [project_id]
+      additionalProperties: false
+      properties:
+        project_id: { type: string }
+      example: { project_id: prj_01JA0A1 }
 
     MemoryTree:
       type: object
