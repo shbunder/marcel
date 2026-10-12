@@ -3,15 +3,16 @@
 sync:
 	uv sync --quiet
 
+# ../scripts: the plugin's standalone scripts (/marcel-adopt), tested here (tests/test_adopt_script.py).
 check: sync
-	uv run ruff format --check .
-	uv run ruff check .
+	uv run ruff format --check . ../scripts
+	uv run ruff check . ../scripts
 	uv run pyright
 	uv run pytest --cov --cov-report=term-missing
 
 fmt: sync
-	uv run ruff format .
-	uv run ruff check --fix .
+	uv run ruff format . ../scripts
+	uv run ruff check --fix . ../scripts
 
 test: sync
 	uv run pytest

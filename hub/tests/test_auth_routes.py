@@ -28,6 +28,11 @@ SESSION_SOCKETS = {'/channel'}
 # secret and its session id (tests/test_brain_api.py). Without them they answer 401, which this
 # test checks like any other route. They are outside /api too.
 HUB_SECRET = 'hs_' + 'a1b2c3d4' * 6
+# The session API's routes (contracts/session-api.yaml) take their own tokens, never a device token,
+# and answer a missing or wrong one with a 404 a scanner cannot tell from "no such route". This
+# test holds them to that 404 instead of 401 (S-05.4: tests/test_adopt.py).
+HIDDEN = {('POST', '/api/session/adopt')}
+HIDDEN_ANSWER = {'code': 'not_found', 'message': 'There is nothing at that address.'}
 
 
 def unprotected_routes(app: FastAPI) -> list[str]:
@@ -50,10 +55,16 @@ def unprotected_routes(app: FastAPI) -> list[str]:
             for method in sorted(route.methods or ()):
                 if (method, path) in PUBLIC:
                     continue
+                hidden = (method, path) in HIDDEN
                 for headers in ({}, {'Authorization': f'Bearer {tokens.new_token()}'}):
-                    status = client.request(method, url, headers=headers, json={}).status_code
-                    if status != 401:
-                        leaks.append(f'{method} {path} -> {status}')
+                    res = client.request(method, url, headers=headers, json={})
+                    refused = (
+                        res.status_code == 404 and res.json() == HIDDEN_ANSWER
+                        if hidden
+                        else res.status_code == 401
+                    )
+                    if not refused:
+                        leaks.append(f'{method} {path} -> {res.status_code}')
                         break
     return leaks
 

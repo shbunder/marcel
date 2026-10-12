@@ -911,6 +911,11 @@ class RunnerWatch:
 
     # Transcript tails -------------------------------------------------------------------------
 
+    def follow(self, task_id: str, session_id: str) -> None:
+        """Start reading a live session's transcript now, before its first runner event: an
+        adopted session (S-05.4) the runner did not start."""
+        self._tail(task_id, session_id, follow=True)
+
     def _tail(self, task_id: str, session_id: str, follow: bool) -> None:
         """Make sure the session's transcript is read: followed while live, read to the end once
         it has finished."""
