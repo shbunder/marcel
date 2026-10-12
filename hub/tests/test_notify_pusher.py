@@ -21,7 +21,13 @@ from test_tasks_fakes import add_agent, put_task, run
 from marcel_hub.models import TaskState
 from marcel_hub.notify import Pusher, PushFailed
 from marcel_hub.notify.backends import Kind
-from marcel_hub.notify.pusher import BROKE_SECONDS, COLLAPSE_SECONDS, RETRY_DELAYS
+from marcel_hub.notify.pusher import (
+    BROKE_SECONDS,
+    COLLAPSE_SECONDS,
+    NOTE_LIMIT,
+    NOTE_SECONDS,
+    RETRY_DELAYS,
+)
 
 
 def drive(pusher: Pusher, action: Callable[[], object]) -> None:
@@ -253,9 +259,64 @@ def test_a_second_outage_after_the_all_clear_is_pushed_again(engine: Engine, tas
 def test_a_cause_without_an_all_clear_is_quiet(engine: Engine, task: str) -> None:
     notifier = RecordingNotifier()
     pusher = pusher_for(engine, notifier)
-    drive(pusher, lambda: pusher.broke('runner_warning', 'The NUC has a problem', 'Disk full.'))
-    drive(pusher, lambda: pusher.resolved('runner_warning'))
+    bad = ('channel_bad_secret', 'Marcel cannot talk to its sessions', 'Redeploy to fix it.')
+    drive(pusher, lambda: pusher.broke(*bad))
+    drive(pusher, lambda: pusher.resolved('channel_bad_secret'))
     assert len(notifier.sent) == 1
+
+
+def test_the_runner_recovering_from_a_warning_replaces_the_alert(engine: Engine, task: str) -> None:
+    notifier = RecordingNotifier()
+    clock = Clock()
+    pusher = pusher_for(engine, notifier, clock=clock)
+    warning = ('runner_warning', 'The NUC has a problem', 'Disk full.')
+    drive(pusher, lambda: pusher.broke(*warning))
+    drive(pusher, lambda: pusher.resolved('runner_warning'))
+    clock.now += 60  # a new warning within the hour is pushed again: the last one was cleared
+    drive(pusher, lambda: pusher.broke(*warning))
+    got = [(n.level, n.title, n.collapse_key, n.deep_link) for _, n in notifier.sent]
+    assert got == [
+        ('urgent', 'The NUC has a problem', 'runner_warning', 'marcel://status'),
+        ('normal', 'The NUC is fine again', 'runner_warning', 'marcel://status'),
+        ('urgent', 'The NUC has a problem', 'runner_warning', 'marcel://status'),
+    ]
+
+
+# Marcel's own notices --------------------------------------------------------------------------
+
+
+def test_notices_are_capped_at_six_an_hour_per_agent(
+    engine: Engine, task: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    notifier = RecordingNotifier()
+    clock = Clock()
+    pusher = pusher_for(engine, notifier, clock=clock)
+    results: list[bool] = []
+
+    def notices(agent: str, count: int) -> None:
+        for i in range(count):
+            results.append(pusher.note(agent, f'msg_{agent}_{i}', 'Marcel', f'Notice {i}.'))
+            clock.now += 60
+
+    drive(pusher, lambda: notices('agt_marcel', NOTE_LIMIT + 2))
+    assert results == [True] * NOTE_LIMIT + [False, False]
+    assert len(notifier.sent) == NOTE_LIMIT
+    assert all(n.category == 'note' for _, n in notifier.sent)
+    assert 'was posted in the chat but not pushed' in caplog.text
+    drive(pusher, lambda: notices('agt_other', 1))  # another agent has its own budget
+    assert results[-1] is True
+    clock.now += NOTE_SECONDS  # an hour after the first, the oldest have aged out
+    drive(pusher, lambda: notices('agt_marcel', 1))
+    assert results[-1] is True and len(notifier.sent) == NOTE_LIMIT + 2
+
+
+def test_a_notice_that_cannot_be_built_is_logged_not_raised(
+    engine: Engine, task: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    notifier = RecordingNotifier()
+    pusher = pusher_for(engine, notifier)
+    drive(pusher, lambda: pusher.note('agt_marcel', 'not a valid id!', 'Marcel', 'Hi.'))
+    assert notifier.sent == [] and 'Could not build the push' in caplog.text
 
 
 # Who receives what -----------------------------------------------------------------------------
@@ -338,9 +399,9 @@ def test_failures_inside_the_event_hooks_are_logged(
     pusher = pusher_for(engine, RecordingNotifier())
     pusher.engine = None  # type: ignore[assignment]  # every database read now fails
     drive(pusher, lambda: pusher.approval_opened('apr_1'))
+    pusher._open['runner_unreachable'] = 'marcel://status'
+    pusher.push = None  # type: ignore[assignment]  # and every push now fails
     drive(pusher, lambda: pusher.broke('c', 'Title', 'Body'))
-    pusher._open['runner_unreachable'] = 'marcel://task/x'
-    pusher.push = None  # type: ignore[assignment]
     drive(pusher, lambda: pusher.resolved('runner_unreachable'))
     assert 'Could not push approval apr_1' in caplog.text
     assert 'Could not push "Title"' in caplog.text

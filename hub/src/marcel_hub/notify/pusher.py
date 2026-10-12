@@ -3,10 +3,13 @@
 - **Where events come from.** Task state changes arrive through `TaskPushes`, the task registry's
   publisher: every `state` task event is one push at most. The runner watcher raises and clears
   "something broke" alerts through `broke` / `resolved` (the `Alerts` interface). The channel
-  gateway can call `approval_opened`; a scheduler calls `digest`.
+  gateway can call `approval_opened`; a scheduler calls `digest`; the brain's `notify` tool calls
+  `note`. A push about no one task (the runner) opens the app's status screen, `marcel://status`.
 - **Quiet duplicates.** Every push about a task carries the task id as its collapse key, and the
   same push for the same task is not sent twice within `COLLAPSE_SECONDS`. An urgent "broke" push
-  goes out once per cause per `BROKE_SECONDS` (an hour), however often the cause repeats.
+  goes out once per cause per `BROKE_SECONDS` (an hour), however often the cause repeats. Marcel's
+  own notices (`note`) go out at most `NOTE_LIMIT` per agent per `NOTE_SECONDS`; the rest are
+  dropped and logged, so a looping brain cannot flood the phone (the message is still posted).
 - **Never breaking the hub.** Sending happens in the background. A push that fails is retried after
   `RETRY_DELAYS` and then given up and logged; nothing is ever raised into the caller. When an
   urgent push could not be delivered, one "a notification did not arrive" push goes to every
@@ -17,16 +20,17 @@
 import asyncio
 import logging
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from typing import Any
 
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, col, or_, select
 
-from marcel_hub.models import Agent, Approval, ApprovalState, Device, Message, Task, TaskState
+from marcel_hub.models import Agent, Approval, ApprovalState, Device, Task, TaskState
 from marcel_hub.notify import routing
 from marcel_hub.notify.backends import Notifier, PushFailed, target_kind
-from marcel_hub.notify.message import PushNotification, message_link, task_link
+from marcel_hub.notify.message import STATUS_LINK, PushNotification, clip, task_link
 from marcel_hub.tasks.ports import NullPublisher, Publisher
 
 log = logging.getLogger(__name__)
@@ -34,6 +38,8 @@ log = logging.getLogger(__name__)
 COLLAPSE_SECONDS = 600.0
 BROKE_SECONDS = 3600.0
 RETRY_DELAYS = (2.0, 10.0)  # three tries in all, about 12 s
+NOTE_LIMIT = 6  # Marcel's own notices per agent per NOTE_SECONDS (app-api.yaml PushNotification)
+NOTE_SECONDS = 3600.0
 REMEMBER_TASKS = 1000  # how many tasks' last push are kept for collapsing repeats
 
 # The all-clear for a cause, when there is one to give.
@@ -41,6 +47,10 @@ FIXED = {
     'runner_unreachable': (
         'The NUC is back',
         'Marcel reaches the NUC again. Its tasks show their real state.',
+    ),
+    'runner_warning': (
+        'The NUC is fine again',
+        'The problem the NUC reported is gone.',
     ),
 }
 
@@ -66,6 +76,7 @@ class Pusher:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._last_task_push: dict[str, tuple[tuple[str, str, str], float]] = {}
         self._broke_sent: dict[str, float] = {}
+        self._notes_sent: dict[str, deque[float]] = {}  # agent id → times of its recent notes
         self._open: dict[str, str] = {}  # cause → deep link of the "broke" push that went out
 
     def capabilities(self) -> dict[str, Any]:
@@ -129,15 +140,7 @@ class Pusher:
     def broke(self, cause: str, title: str, body: str, task_id: str | None = None) -> None:
         """Something broke (`Alerts.broke`): one urgent push per cause per hour."""
         try:
-            link = task_link(task_id) if task_id else self._stand_in_link()
-            if link is None:
-                log.warning(
-                    'Something broke, but no push went out: there is no task or message '
-                    'to link it to yet. %s. %s',
-                    title,
-                    body,
-                )
-                return
+            link = task_link(task_id) if task_id else STATUS_LINK
             if self.push(routing.for_broke(cause, title, body, link, task_id), None):
                 self._open[cause] = link
         except Exception:
@@ -155,6 +158,40 @@ class Pusher:
             self._broke_sent.pop(cause, None)
         except Exception:
             log.exception('Could not push the all-clear for %s.', cause)
+
+    def note(
+        self,
+        agent_id: str,
+        message_id: str,
+        title: str,
+        body: str,
+        level: str = 'normal',
+        user_id: str | None = None,
+    ) -> bool:
+        """Marcel's own notice, posted as message `message_id` (the brain's `notify` tool).
+
+        At most `NOTE_LIMIT` per agent per `NOTE_SECONDS`; False when this one was dropped.
+        """
+        now = self.clock()
+        sent = self._notes_sent.setdefault(agent_id, deque())
+        while sent and now - sent[0] >= NOTE_SECONDS:
+            sent.popleft()
+        if len(sent) >= NOTE_LIMIT:
+            log.warning(
+                'Marcel (agent %s) tried to send more than %d notices this hour. "%s" was posted '
+                'in the chat but not pushed to the phone.',
+                agent_id,
+                NOTE_LIMIT,
+                clip(body, 60),
+            )
+            return False
+        try:
+            n = routing.for_note(message_id, title, body, level)
+        except Exception:
+            log.exception('Could not build the push for notice %s. Nothing was sent.', message_id)
+            return False
+        sent.append(now)
+        return self.push(n, user_id)
 
     def digest(self, message_id: str, title: str, body: str, user_id: str | None = None) -> None:
         """A scheduled digest was posted as message `message_id`."""
@@ -248,23 +285,6 @@ class Pusher:
             query = query.where(Device.user_id == user_id)
         with Session(self.engine) as s:
             return list(s.exec(query.order_by(col(Device.id))))
-
-    def _stand_in_link(self) -> str | None:
-        """A link for a push that is about no one task: the task that changed last (the runner
-        watcher has just marked the affected ones `unknown`), else the newest message.
-
-        The contract has no link for "the system"; see project/contract-requests/S-08.1.md.
-        """
-        with Session(self.engine) as s:
-            task_id = s.exec(
-                select(Task.id).order_by(col(Task.updated_at).desc(), col(Task.id).desc())
-            ).first()
-            if task_id:
-                return task_link(task_id)
-            message_id = s.exec(
-                select(Message.id).order_by(col(Message.created_at).desc(), col(Message.id).desc())
-            ).first()
-        return message_link(message_id) if message_id else None
 
     # Background jobs --------------------------------------------------------------------------
 
