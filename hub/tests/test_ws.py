@@ -501,4 +501,5 @@ def test_task_events_reach_the_phone(client: TestClient, phone: Phone) -> None:
 
 def test_the_task_registry_and_the_socket_share_one_event_log(client: TestClient) -> None:
     registry = client.app.state.tasks  # type: ignore[attr-defined]
-    assert registry.publisher.events is log(client)
+    # The pusher (S-08.1) wraps the event log's publisher and passes every event on to it.
+    assert registry.publisher.inner.events is log(client)

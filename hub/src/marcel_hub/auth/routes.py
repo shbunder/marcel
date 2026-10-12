@@ -97,8 +97,7 @@ def me(request: Request, session: DbSession) -> dict[str, Any]:
         'name': request.app.state.settings.owner_name,
         'device_id': device.id,
         'agents': [agent_json(a) for a in agents],
-        # No push backend is configured yet (S-08.1 ntfy, S-08.2 APNs).
-        'push': {'apns': False, 'ntfy': False},
+        'push': request.app.state.pusher.capabilities(),  # notify/ (S-08.1)
     }
 
 
