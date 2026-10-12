@@ -1,0 +1,454 @@
+<title>Marcel, Ten Ways</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&family=Silkscreen&family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Nunito:wght@600;800&family=Manrope:wght@500;700&display=swap">
+<style>
+/* Layout: a sticky state bar, then ten proposals; each pairs a live avatar stage with a phone showing the app around it. */
+:root {
+  --bg: #faf5f8; --panel: #f2e8ed; --fg: #2a2226; --muted: #75656d; --line: #e4d5dc;
+  --rose: #d87990; --deep: #9c3e5a; --teal: #3f6b6a; --clay: #d97757;
+  --display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --body: "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #1b1618; --panel: #251e21; --fg: #f2e8ed; --muted: #b19fa8; --line: #3a2f34; --rose: #e08aa0; --deep: #e3a0b2; --teal: #8fb3b1; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #1b1618; --panel: #251e21; --fg: #f2e8ed; --muted: #b19fa8; --line: #3a2f34; --rose: #e08aa0; --deep: #e3a0b2; --teal: #8fb3b1; color-scheme: dark; }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.5; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; display: grid; gap: 56px; }
+header.top h1 { font-family: var(--display); font-weight: 700; font-size: clamp(2.2rem, 6vw, 3.6rem); line-height: 1; margin: 0; letter-spacing: -0.02em; text-wrap: balance; }
+header.top p { color: var(--muted); max-width: 64ch; margin: 12px 0 0; }
+.scale { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.scale a { color: inherit; text-decoration: none; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; }
+.scale a:hover { border-color: var(--rose); color: var(--fg); }
+.statebar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px 12px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border: 1px solid var(--line); border-radius: 16px; }
+.statebar span { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-right: 4px; }
+.statebar button { font: 600 14px/1 var(--body); padding: 9px 14px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+.statebar button[aria-pressed="true"] { background: var(--rose); border-color: var(--rose); color: #fff; }
+.statebar button:focus-visible, .scale a:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+.prop { display: grid; gap: 18px; scroll-margin-top: 80px; }
+.prop-head { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 16px; align-items: baseline; }
+.num { font-family: var(--display); font-weight: 700; font-size: 3rem; line-height: 1; color: var(--rose); grid-row: span 2; }
+.prop-head h2 { font-family: var(--display); font-weight: 700; font-size: 1.75rem; margin: 0; }
+.prop-head p { margin: 0; color: var(--muted); }
+.prop-body { display: grid; grid-template-columns: minmax(0, 380px) 300px minmax(0, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 1020px) { .prop-body { grid-template-columns: minmax(0, 1fr) 300px; } .prop-body .verdict { grid-column: span 2; } }
+@media (max-width: 700px) { .prop-body { grid-template-columns: 1fr; justify-items: center; } .prop-body .verdict { grid-column: auto; } }
+.stage { width: 100%; max-width: 100%; aspect-ratio: 1 / 1; border-radius: 24px; display: grid; place-items: center; position: relative; overflow: hidden; border: 1px solid var(--line); }
+.stage > .av { width: 78%; height: 78%; display: grid; place-items: center; }
+.stage canvas, .av > canvas { width: 100%; height: 100%; display: block; }
+.stage img.r3d { width: 92%; height: 92%; object-fit: contain; position: relative; z-index: 1; }
+.stage:has(img.r3d)::after { content: ""; position: absolute; left: 30%; right: 30%; bottom: 16%; height: 6%; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(40, 15, 25, .28), rgba(40, 15, 25, 0)); }
+.r3d-slot { overflow: hidden; position: relative; }
+.r3d-slot img { position: absolute; display: block; }
+.r3d-slot.full img { inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.r3d-slot.head img { width: 330%; left: -115%; top: -50%; }
+.stage .av svg { width: 100%; height: 100%; }
+.verdict { display: grid; gap: 14px; font-size: 15px; align-content: start; }
+.verdict b { display: block; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+.verdict div { min-width: 0; }
+
+/* phone frame */
+.phone { width: 300px; height: 620px; border-radius: 44px; padding: 10px; background: #121012; box-shadow: 0 20px 50px rgba(40, 10, 25, .18); flex: none; }
+.screen { width: 100%; height: 100%; border-radius: 35px; overflow: hidden; position: relative; display: flex; flex-direction: column; }
+.island { position: absolute; top: 9px; left: 50%; transform: translateX(-50%); width: 92px; height: 26px; background: #000; border-radius: 20px; z-index: 3; }
+.sb { height: 44px; flex: none; display: flex; justify-content: space-between; align-items: center; padding: 0 26px; font: 600 13px/1 -apple-system, system-ui, sans-serif; }
+.slot { display: grid; place-items: center; flex: none; }
+.slot svg, .slot canvas { width: 100%; height: 100%; display: block; }
+
+/* 1 retro */
+.m1 { background: #f6efe4; color: #2a1d24; font-family: "Silkscreen", monospace; }
+.m1 .title { text-align: center; font-size: 18px; letter-spacing: 2px; margin: 4px 0 6px; }
+.m1 .bars { display: flex; justify-content: center; gap: 10px; font-size: 10px; }
+.m1 .bar { display: inline-block; width: 46px; height: 8px; border: 2px solid #2a1d24; vertical-align: middle; background: linear-gradient(90deg, #d87990 60%, transparent 0); }
+.m1 .floor { margin: 8px 16px 0; height: 196px; border: 3px solid #2a1d24; background: repeating-conic-gradient(#f0e2d6 0 25%, #f9f2ea 0 50%) 0 0 / 24px 24px; display: grid; place-items: center; }
+.m1 .dialog { margin: 10px 16px; border: 3px solid #2a1d24; background: #fff; padding: 10px 12px; font-family: "Silkscreen", monospace; font-size: 11px; line-height: 1.55; box-shadow: 4px 4px 0 #2a1d24; }
+.m1 .dialog .who { color: #9c3e5a; }
+.m1 .choices { display: flex; gap: 14px; margin-top: 6px; }
+.m1 .menu { margin: 4px 22px; font-size: 12px; line-height: 2; }
+.m1 .blink { animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* 2 terminal */
+.m2 { background: #141413; color: #e8e4dc; font-family: var(--mono); font-size: 11.5px; }
+.m2 .hdr { display: flex; gap: 10px; align-items: center; padding: 6px 16px 12px; border-bottom: 1px solid #2a2927; }
+.m2 .hdr small { color: #8d8b84; display: block; }
+.m2 .log { padding: 12px 16px; display: grid; gap: 10px; flex: 1; align-content: start; }
+.m2 .you { color: #8d8b84; }
+.m2 .dot { color: #d87990; }
+.m2 .ok { color: #788c5d; }
+.m2 .status { margin: 0 12px; padding: 8px 10px; color: #d97757; border-top: 1px solid #2a2927; }
+.m2 .input { margin: 6px 12px 22px; padding: 10px; border: 1px solid #3a3936; border-radius: 8px; color: #8d8b84; }
+
+/* 3 bento */
+.m3 { background: #faf5f8; color: #2a2226; font-family: "Manrope", sans-serif; }
+.m3 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 6px 12px; }
+.m3 .tile { background: #fff; border-radius: 18px; padding: 12px; min-height: 92px; display: grid; align-content: space-between; border: 1px solid #efe3e9; }
+.m3 .tile.wide { grid-column: span 2; }
+.m3 .hero { grid-template-columns: 96px 1fr; align-items: center; gap: 8px; background: #f3e1e8; border: 0; }
+.m3 .k { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: #8a7480; font-weight: 700; }
+.m3 .v { font-size: 17px; font-weight: 700; line-height: 1.2; }
+.m3 .pips { display: flex; gap: 4px; margin-top: 6px; }
+.m3 .pips i { width: 14px; height: 14px; border-radius: 4px; background: #ead7df; }
+.m3 .pips i.on { background: #d87990; }
+
+/* 4 editorial */
+.m4 { background: #faf9f5; color: #1d1a1c; font-family: "Newsreader", Georgia, serif; }
+.m4 .bar { display: flex; align-items: center; gap: 8px; padding: 2px 20px 0; font: 600 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: #9c3e5a; }
+.m4 h3 { font-weight: 600; font-size: 30px; line-height: 1.05; margin: 14px 20px 6px; letter-spacing: -0.01em; }
+.m4 .lede { margin: 0 20px; font-size: 15px; color: #4a4246; }
+.m4 .sec { margin: 16px 20px 0; border-top: 1px solid #d9d2cc; padding-top: 8px; }
+.m4 .sec b { font: 600 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: #75656d; }
+.m4 .row { display: grid; grid-template-columns: 46px 1fr; font-size: 14px; padding: 5px 0; }
+.m4 .row span:first-child { font-family: var(--mono); font-size: 11px; color: #75656d; padding-top: 2px; }
+.m4 .act { color: #3f6b6a; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+
+/* 5 friendly chat */
+.m5 { background: #fff7fa; color: #2a2226; font-family: "Nunito", sans-serif; }
+.m5 .hdr { display: flex; align-items: center; gap: 10px; padding: 4px 16px 10px; border-bottom: 1px solid #f3dbe4; }
+.m5 .hdr b { font-weight: 800; }
+.m5 .hdr small { color: #3f6b6a; font-weight: 700; }
+.m5 .thread { flex: 1; padding: 12px; display: grid; align-content: end; gap: 8px; font-size: 13.5px; font-weight: 600; }
+.m5 .b { max-width: 80%; padding: 9px 12px; border-radius: 18px; }
+.m5 .them { background: #fde4ec; border-bottom-left-radius: 6px; justify-self: start; }
+.m5 .me { background: #3f6b6a; color: #fff; border-bottom-right-radius: 6px; justify-self: end; }
+.m5 .typing { display: flex; align-items: end; gap: 6px; }
+.m5 .chips { display: flex; gap: 6px; padding: 0 12px 8px; flex-wrap: wrap; }
+.m5 .chips span { border: 1.5px solid #d87990; color: #9c3e5a; border-radius: 999px; padding: 5px 10px; font-size: 12px; font-weight: 800; }
+.m5 .input { margin: 0 12px 22px; background: #fff; border: 1px solid #f3dbe4; border-radius: 999px; padding: 10px 14px; color: #a0909a; font-size: 13px; }
+
+/* 6 pro home */
+.m6 { background: #f7f3f5; color: #1d1a1c; font-family: "Manrope", sans-serif; }
+.m6 .greet { display: flex; align-items: center; gap: 12px; padding: 6px 18px 12px; }
+.m6 .greet .slot { border-radius: 50%; background: #efe2e8; overflow: hidden; }
+.m6 .greet b { font-size: 18px; display: block; }
+.m6 .greet small { color: #75656d; }
+.m6 .card { margin: 0 14px 10px; background: #fff; border-radius: 18px; padding: 12px 14px; box-shadow: 0 1px 0 #ebe2e6; }
+.m6 .card h4 { margin: 0 0 6px; font-size: 12px; color: #75656d; text-transform: uppercase; letter-spacing: .07em; }
+.m6 .task { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 7px 0; border-top: 1px solid #f1eaed; font-size: 13.5px; }
+.m6 .task:first-of-type { border-top: 0; }
+.m6 .task small { color: #75656d; grid-column: span 2; }
+.m6 .prog { grid-column: span 2; height: 4px; background: #f0e6ea; border-radius: 4px; overflow: hidden; }
+.m6 .prog i { display: block; height: 100%; background: #cc6a80; border-radius: 4px; }
+.m6 .done { display: flex; gap: 8px; align-items: center; font-size: 13.5px; padding: 4px 0; }
+.m6 .done i { width: 18px; height: 18px; border-radius: 50%; background: #3f6b6a; display: grid; place-items: center; color: #fff; font-style: normal; font-size: 11px; }
+.m6 .tabs { margin-top: auto; display: flex; justify-content: space-around; padding: 10px 0 22px; border-top: 1px solid #ebe2e6; background: #fff; font-size: 11px; color: #75656d; font-weight: 700; }
+.m6 .tabs .on { color: #9c3e5a; }
+
+/* 7 voxel room */
+.m7 { background: #2a2330; color: #f5eef2; font-family: "Silkscreen", monospace; }
+.m7 .room { margin: 0 14px; height: 250px; border-radius: 18px; background: linear-gradient(#3b3142, #4a3d52); overflow: hidden; }
+.m7 h4 { margin: 14px 18px 6px; font-size: 13px; letter-spacing: 1px; color: #f2a33a; font-weight: 400; }
+.m7 .quest { margin: 0 14px 8px; background: #3b3142; border-radius: 10px; padding: 10px 12px; font-size: 11px; display: grid; grid-template-columns: 1fr auto; gap: 4px; }
+.m7 .quest small { color: #b0a3ba; grid-column: span 2; font-family: var(--mono); }
+.m7 .xp { color: #788c5d; }
+
+/* 8 muse-like chat with live browser */
+.m8b { background: #fbf6f8; color: #2a2226; font-family: "Nunito", sans-serif; }
+.m8b .status { display: flex; align-items: center; gap: 8px; margin: 0 12px; padding: 4px 10px 4px 4px; background: #fff; border-radius: 999px; box-shadow: 0 1px 0 #efdfe6; font-size: 12.5px; font-weight: 800; }
+.m8b .status .r3d-slot { width: 46px; height: 46px; border-radius: 50%; background: #ffe8ee; }
+.m8b .status em { margin-left: auto; font-style: normal; color: #9c3e5a; font-size: 11px; }
+.m8b .thread { padding: 10px 12px 0; display: grid; gap: 8px; font-size: 13px; font-weight: 600; }
+.m8b .b { max-width: 82%; padding: 8px 12px; border-radius: 16px; }
+.m8b .me { background: #2a2226; color: #fff; justify-self: end; border-bottom-right-radius: 5px; }
+.m8b .them { background: #fff; justify-self: start; border-bottom-left-radius: 5px; box-shadow: 0 1px 0 #efdfe6; }
+.m8b .browser { margin: 10px 12px 0; background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 0 #efdfe6, 0 6px 18px rgba(80, 20, 40, .06); }
+.m8b .browser .url { font: 600 10px/1 var(--mono); color: #75656d; padding: 7px 10px; background: #f6eef2; display: flex; gap: 6px; }
+.m8b .browser .page { padding: 10px; display: grid; gap: 6px; position: relative; font-size: 11.5px; }
+.m8b .slotrow { display: flex; gap: 5px; }
+.m8b .slotrow span { border: 1.5px solid #e2d3da; border-radius: 8px; padding: 4px 7px; font-weight: 800; }
+.m8b .slotrow span.pick { border-color: #3f6b6a; background: #e5efee; color: #2f5251; }
+.m8b .cursor { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: rgba(216, 121, 144, .5); border: 2px solid #9c3e5a; animation: cur 2.4s ease-in-out infinite; }
+@keyframes cur { 0% { left: 20px; top: 34px; } 45% { left: 112px; top: 34px; } 60%, 100% { left: 112px; top: 36px; transform: scale(.8); } }
+.m8b .sugg { display: flex; gap: 6px; padding: 10px 12px 0; flex-wrap: wrap; }
+.m8b .sugg span { background: #fff; border: 1.5px solid #ead9e0; border-radius: 999px; padding: 5px 10px; font-size: 11.5px; font-weight: 800; }
+.m8b .input { margin: auto 12px 22px; background: #fff; border-radius: 999px; padding: 10px 14px; color: #a0909a; font-size: 13px; display: flex; justify-content: space-between; box-shadow: 0 1px 0 #efdfe6; }
+/* 8 toon voice (unused) */
+.m8 { background: radial-gradient(120% 70% at 50% 30%, #ffe3ea 0%, #f6b9c8 55%, #e8899f 100%); color: #3a1526; font-family: "Nunito", sans-serif; }
+.m8 .chip { margin: 4px auto 0; background: rgba(255, 255, 255, .7); border-radius: 999px; padding: 5px 12px; font-size: 12px; font-weight: 800; }
+.m8 .caption { margin: 6px 22px 0; text-align: center; font-size: 17px; font-weight: 800; line-height: 1.3; }
+.m8 .wave { display: flex; gap: 4px; justify-content: center; align-items: center; height: 40px; margin-top: auto; }
+.m8 .wave i { width: 5px; border-radius: 3px; background: #3a1526; opacity: .7; animation: wave 1s ease-in-out infinite; }
+@keyframes wave { 0%, 100% { height: 8px; } 50% { height: 30px; } }
+.m8 .mic { width: 64px; height: 64px; border-radius: 50%; background: #3a1526; margin: 12px auto 30px; display: grid; place-items: center; }
+.m8 .mic::after { content: ""; width: 14px; height: 24px; border-radius: 8px; border: 3px solid #ffe3ea; }
+
+/* 9 clay lock screen */
+.m9 { background: linear-gradient(160deg, #3f2a3a 0%, #7a3e5a 45%, #d87990 100%); color: #fff; font-family: -apple-system, "SF Pro Display", system-ui, sans-serif; }
+.m9 .di { position: absolute; top: 9px; left: 50%; transform: translateX(-50%); height: 30px; min-width: 196px; background: #000; border-radius: 20px; z-index: 4; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 4px; font-size: 11px; font-weight: 600; }
+.m9 .di .slot { border-radius: 50%; overflow: hidden; }
+.m9 .di em { margin-left: auto; color: #f2a33a; font-style: normal; }
+.m9 .date { text-align: center; margin-top: 30px; font-size: 15px; font-weight: 600; opacity: .9; }
+.m9 .time { text-align: center; font-size: 78px; font-weight: 700; line-height: 1; letter-spacing: -2px; }
+.m9 .widget { margin: 22px 18px 0; background: rgba(255, 255, 255, .18); backdrop-filter: blur(14px); border-radius: 22px; padding: 12px; display: grid; grid-template-columns: 76px 1fr; gap: 10px; align-items: center; }
+.m9 .widget b { font-size: 15px; display: block; }
+.m9 .widget small { opacity: .85; font-size: 12px; }
+.m9 .note { margin: 10px 18px 0; background: rgba(255, 255, 255, .88); color: #1d1a1c; border-radius: 18px; padding: 10px 12px; font-size: 12.5px; }
+.m9 .note b { display: block; font-size: 12px; }
+
+/* 10 dots-like agent profile */
+.m10b { background: #1c1518; color: #f5edf0; font-family: "Manrope", sans-serif; }
+.m10b .hero { margin: 0 12px; border-radius: 26px; background: radial-gradient(90% 80% at 50% 30%, #4a2b38, #26191f); text-align: center; padding: 0 12px 12px; }
+.m10b .hero .r3d-slot { width: 170px; height: 170px; margin: 0 auto; }
+.m10b .hero b { font-size: 19px; display: block; }
+.m10b .hero small { color: #cbb5be; font-size: 12px; }
+.m10b .seg { display: flex; margin: 12px 12px 8px; background: #2a1f25; border-radius: 12px; padding: 3px; font-size: 11.5px; font-weight: 700; }
+.m10b .seg span { flex: 1; text-align: center; padding: 6px 0; border-radius: 9px; color: #a8939c; }
+.m10b .seg span.on { background: #3d2c34; color: #fff; }
+.m10b .job { margin: 0 12px 7px; background: #2a1f25; border-radius: 14px; padding: 9px 12px; font-size: 12.5px; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; }
+.m10b .job small { color: #a8939c; }
+.m10b .live { width: 8px; height: 8px; border-radius: 50%; background: #f2a33a; align-self: center; grid-row: span 2; box-shadow: 0 0 0 4px rgba(242, 163, 58, .18); }
+.m10b .judge { margin: 4px 12px 0; background: #f6e7ec; color: #2a1d23; border-radius: 16px; padding: 10px 12px; font-size: 12.5px; }
+.m10b .judge b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #9c3e5a; }
+.m10b .judge .btns { display: flex; gap: 6px; margin-top: 7px; }
+.m10b .judge .btns span { padding: 5px 11px; border-radius: 999px; font-weight: 800; font-size: 11.5px; background: #2a1d23; color: #fff; }
+.m10b .judge .btns span + span { background: transparent; color: #2a1d23; border: 1.5px solid #c9b3bc; }
+.m10b .comp { margin: auto 12px 22px; border: 1.5px solid #3d2c34; border-radius: 999px; padding: 10px; text-align: center; font-size: 12.5px; font-weight: 700; color: #e8d6de; }
+/* 10 plush hub (unused) */
+.m10 { background: #1f171b; color: #f5edf0; font-family: "Manrope", sans-serif; }
+.m10 .card { margin: 4px 12px 0; border-radius: 26px; background: radial-gradient(90% 80% at 50% 35%, #4a2b38, #2a1d23); padding: 10px 14px 14px; text-align: center; }
+.m10 .card b { font-size: 20px; display: block; }
+.m10 .card small { color: #cbb5be; }
+.m10 h4 { margin: 14px 18px 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #a8939c; }
+.m10 .job { margin: 0 12px 8px; background: #2a1f25; border-radius: 16px; padding: 10px 12px; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; font-size: 13px; }
+.m10 .job small { color: #a8939c; grid-column: 1; }
+.m10 .tag { font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 999px; align-self: center; grid-row: span 2; grid-column: 2; }
+.m10 .run { background: #3a2a31; color: #f2a33a; } .m10 .wait { background: #f2a33a; color: #2a1d23; } .m10 .fin { background: #2f4a49; color: #bfe0dd; }
+.m10 .ask { margin: auto 12px 22px; background: #2a1f25; border-radius: 999px; padding: 11px 16px; color: #a8939c; font-size: 13px; }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Marcel, Ten Ways</h1>
+    <p>Ten directions for Marcel's avatar, from pixel art to high-quality 3D, each shown inside the kind of app it suits. The 2D ones are drawn live in code; the 3D ones are modelled and rendered in Blender (Cycles, real fur) and played as animation. Use the bar below to switch what Marcel is doing in all of them at once.</p>
+    <nav class="scale" aria-label="Jump to a proposal">
+      <a href="#p1">1 Pixel</a><a href="#p2">2 Blocks</a><a href="#p3">3 Tiles</a><a href="#p4">4 One line</a><a href="#p5">5 Friendly</a>
+      <a href="#p6">6 Professional</a><a href="#p7">7 Voxel</a><a href="#p8">8 Cartoon 3D</a><a href="#p9">9 Clay 3D</a><a href="#p10">10 Plush 3D</a>
+    </nav>
+  </header>
+
+  <div class="statebar" role="group" aria-label="What Marcel is doing">
+    <span>Marcel is</span>
+    <button id="s-idle" data-state="idle" aria-pressed="true">Idle</button>
+    <button id="s-thinking" data-state="thinking" aria-pressed="false">Thinking</button>
+    <button id="s-working" data-state="working" aria-pressed="false">Working</button>
+    <button id="s-happy" data-state="happy" aria-pressed="false">Done</button>
+  </div>
+
+  <!-- 1 -->
+  <section class="prop" id="p1">
+    <div class="prop-head"><span class="num">1</span><h2>Pixel classic</h2><p>A detailed 48 × 54 sprite with shaded colour ramps, played frame by frame. The app is a little game: Marcel speaks in a dialogue box.</p></div>
+    <div class="prop-body">
+      <div class="stage" style="background:#f6efe4"><div class="av" data-av="sprite"></div></div>
+      <div class="phone"><div class="screen m1"><div class="island"></div>
+        <div class="sb"><span>9:41</span><span>▮▮▮</span></div>
+        <div class="title">MARCEL</div>
+        <div class="bars"><span>LIST <i class="bar"></i></span><span>DAY <i class="bar" style="background:linear-gradient(90deg,#788c5d 35%,transparent 0)"></i></span></div>
+        <div class="floor"><div class="slot" data-av="sprite" style="width:150px;height:170px"></div></div>
+        <div class="dialog"><span class="who">MARCEL:</span> Swim class at 16:30. Shall I remind the kids at 16:00?<div class="choices"><span>▶ YES</span><span>NO</span><span class="blink" style="margin-left:auto">▼</span></div></div>
+        <div class="menu">▶ TODAY<br>&nbsp;&nbsp;GROCERIES (7)<br>&nbsp;&nbsp;CALENDAR</div>
+      </div></div>
+      <div class="verdict"><div><b>Like</b>Stardew Valley, Game Boy sprites</div><div><b>Good at</b>Warm and nostalgic; tiny file; every frame is drawn on purpose.</div><div><b>Watch out</b>Busy at icon size; a whole app in game style tires quickly for daily use.</div></div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="prop" id="p2">
+    <div class="prop-head"><span class="num">2</span><h2>Blocks, Clawd's cousin</h2><p>Flat rose blocks, eye holes and ear stubs where Clawd has claws. A bust this time, so there are enough pixels for a giraffe. The app reads like Claude Code.</p></div>
+    <div class="prop-body">
+      <div class="stage" style="background:#141413;--hole:#141413"><div class="av" data-av="block" data-hole="#141413"></div></div>
+      <div class="phone"><div class="screen m2"><div class="island"></div>
+        <div class="sb"><span>9:41</span><span>●●●</span></div>
+        <div class="hdr"><div class="slot" data-av="block" data-hole="#141413" style="width:46px;height:44px"></div><div><b>marcel</b><small>family assistant · v3.2</small></div></div>
+        <div class="log">
+          <div class="you">&gt; what's for dinner tonight?</div>
+          <div><span class="dot">⏺</span> Pasta pesto. Basil and pine nuts are in; I put parmesan on the list.</div>
+          <div><span class="dot">⏺</span> Reminder set: swim class 16:30, leave at 16:05.</div>
+          <div class="you">&gt; and the dentist?</div>
+          <div><span class="ok">✓</span> Two slots found. Checking the third.</div>
+          <div class="you">&gt; energy contract?</div>
+          <div><span class="dot">⏺</span> Compared 4 offers. Cheapest saves €212 a year; switching takes 10 minutes of your time. Want the details?</div>
+          <div class="you" style="color:#5e5c57">  ⎿ /approve  /details  /later</div>
+        </div>
+        <div class="status">✻ Booking the dentist… (2 of 3 checked)</div>
+        <div class="input">&gt; _</div>
+      </div></div>
+      <div class="verdict"><div><b>Like</b>Clawd from Claude Code</div><div><b>Good at</b>Instantly reads as "made for Claude"; honest, simple, no fake gloss.</div><div><b>Watch out</b>The weakest giraffe of the ten: with this few pixels it reads as a robot. The terminal look will feel cold to the family.</div></div>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="prop" id="p3">
+    <div class="prop-head"><span class="num">3</span><h2>Rounded tiles</h2><p>Pixel art drawn with soft rounded tiles: a nod to pixels that still feels modern. The tile becomes the app's building block.</p></div>
+    <div class="prop-body">
+      <div class="stage" style="background:#fff"><div class="av" data-av="tiles"></div></div>
+      <div class="phone"><div class="screen m3"><div class="island"></div>
+        <div class="sb"><span>9:41</span><span>100%</span></div>
+        <div class="grid">
+          <div class="tile wide hero"><div class="slot" data-av="tiles" style="width:96px;height:110px"></div><div><div class="k">Thursday</div><div class="v">Morning, Shaun. Three things today.</div></div></div>
+          <div class="tile"><div class="k">Next up</div><div class="v">16:30<br>Swim class</div></div>
+          <div class="tile"><div class="k">Groceries</div><div class="v">7 items</div></div>
+          <div class="tile"><div class="k">Weather</div><div class="v">14° light rain</div></div>
+          <div class="tile"><div class="k">Bins</div><div class="v">Paper, tonight</div></div>
+          <div class="tile wide"><div class="k">Marcel is working on</div><div class="v">Comparing energy contracts</div><div class="pips"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div></div>
+        </div>
+      </div></div>
+      <div class="verdict"><div><b>Like</b>Dot-matrix and tile displays</div><div><b>Good at</b>Distinctive and system-like: the same tile makes the avatar, progress and widgets.</div><div><b>Watch out</b>Expressions are limited to what a 22 × 26 grid can show.</div></div>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="prop" id="p4">
+    <div class="prop-head"><span class="num">4</span><h2>One line</h2><p>A single-weight line drawing in deep rose, with a teal bow tie. Calm and editorial; the app is a daily briefing you read.</p></div>
+    <div class="prop-body">
+      <div class="stage" style="background:#faf9f5"><div class="av" data-av="line"></div></div>
+      <div class="phone"><div class="screen m4"><div class="island"></div>
+        <div class="sb"><span>9:41</span><span>100%</span></div>
+        <div class="bar"><div class="slot" data-av="line" style="width:30px;height:34px"></div>Marcel · Briefing</div>
+        <h3>Thursday,<br>12 October</h3>
+        <p class="lede">A calm day: one appointment, one decision, and rain after lunch.</p>
+        <div class="sec"><b>Today</b>
+          <div class="row"><span>08:15</span><span>School run, carpool day</span></div>
+          <div class="row"><span>16:30</span><span>Swim class, bags are packed</span></div>
+          <div class="row"><span>19:00</span><span>Pasta pesto</span></div></div>
+        <div class="sec"><b>Waiting on you</b>
+          <div class="row"><span>1</span><span>Dentist, Tuesday 9:10. <span class="act">Book it</span></span></div>
+          <div class="row"><span>2</span><span>Energy: switch and save €212 a year. <span class="act">Read the comparison</span></span></div></div>
+        <div class="sec"><b>Later this week</b>
+          <div class="row"><span>Sat</span><span>Plants, and paper recycling out</span></div>
+          <div class="row"><span>Sun</span><span>Lunch for five, two options ready</span></div></div>
+      </div></div>
+      <div class="verdict"><div><b>Like</b>Notion and Headspace line drawings</div><div><b>Good at</b>The most grown-up option; works at any size and in print.</div><div><b>Watch out</b>Least playful; little room for big emotions.</div></div>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="prop" id="p5">
+    <div class="prop-head"><span class="num">5</span><h2>Friendly flat</h2><p>The round, chibi version from before: big eyes, blush, waving arms. The app is a family chat.</p></div>
+    <div class="prop-body">
+      <div class="stage" style="background:#fff7fa"><div class="av" data-av="friendly"></div></div>
+      <div class="phone"><div class="screen m5"><div class="island"></div>
+        <div class="sb"><span>9:41</span><span>100%</span></div>
+        <div class="hdr"><div class="slot" data-av="friendly" style="width:42px;height:46px"></div><div><b>Marcel</b><br><small>here for the family</small></div></div>
+        <div class="thread">
+          <div class="b them">Morning! Swim class is at 16:30 today 🏊</div>
+          <div class="b me">Can you remind the kids at 4?</div>
+          <div class="b them">Done. I'll also check the towels are in the bag.</div>
+          <div class="typing"><div class="slot" data-av="friendly" style="width:30px;height:33px"></div><div class="b them" style="padding:9px 14px">•••</div></div>
+        </div>
+        <div class="chips"><span>What's for dinner?</span><span>Groceries</span></div>
+        <div class="input">Message Marcel</div>
+      </div></div>
+      <div class="verdict"><div><b>Like</b>Duolingo's Duo</div><div><b>Good at</b>Warm and approachable; kids will love it.</div><div><b>Watch out</b>Reads young; you asked for something more serious.</div></div>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section class="prop" id="p6">
+    <div class="prop-head"><span class="num">6</span><h2>Professional flat</h2><p>The approved direction: longer neck, calm eyes, tidy spots, crisp bow tie. The app is an assistant home that shows what Marcel is doing.</p></div>
+    <div class="prop-body">
+      <div class="stage" style="background:#f7f3f5"><div class="av" data-av="pro"></div></div>
+      <div class="phone"><div class="screen m6"><div class="island"></div>
+        <div class="sb"><span>9:41</span><span>100%</span></div>
+        <div class="greet"><div class="slot" data-av="pro" data-frame="bust" style="width:54px;height:54px"></div><div><b>Good morning, Shaun</b><small>Marcel has 3 things in hand</small></div></div>
+        <div class="card"><h4>Working on</h4>
+          <div class="task"><span>Booking the dentist</span><span>2 of 3</span><div class="prog"><i style="width:66%"></i></div></div>
+          <div class="task"><span>Comparing energy contracts</span><span>Today</span><div class="prog"><i style="width:40%"></i></div></div>
+          <div class="task"><span>Sunday lunch plan</span><small>Needs your OK</small></div></div>
+        <div class="card"><h4>Done today</h4>
+          <div class="done"><i>✓</i>Swim bags packed reminder</div>
+          <div class="done"><i>✓</i>Groceries ordered, arrive 18:00</div></div>
+        <div class="tabs"><span class="on">Home</span><span>Chat</span><span>Family</span><span>Settings</span></div>
+      </div></div>
+      <div class="verdict"><div><b>Like</b>Mailchimp's and Slack's grown-up mascots</div><div><b>Good at</b>Serious without being cold; the bust works as a profile picture.</div><div><b>Watch out</b>Less distinctive than Clawd; identity rests on the bow tie and spots.</div></div>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section class="prop" id="p7">
+    <div class="prop-head"><span class="num">7</span><h2>Voxel</h2><p>Pixels in 3D: Marcel sampled into even little cubes, rendered in Blender. The app is Marcel's room, and the to-do list becomes quests.</p></div>
+    <div class="prop-body">
+      <div class="stage" style="background:#3b3142"><img class="r3d" data-r3d="voxel" alt="Voxel Marcel"></div>
+      <div class="phone"><div class="screen m7"><div class="island"></div>
+        <div class="sb" style="color:#f5eef2"><span>9:41</span><span>100%</span></div>
+        <div class="room"><div class="r3d-slot full" data-r3d="voxel" style="width:100%;height:100%"></div></div>
+        <h4>TODAY'S QUESTS</h4>
+        <div class="quest"><span>PACK SWIM BAGS</span><span class="xp">DONE</span><small>Towels, goggles, snacks</small></div>
+        <div class="quest"><span>BOOK THE DENTIST</span><span style="color:#f2a33a">2/3</span><small>Marcel is checking slots</small></div>
+        <div class="quest"><span>WATER THE PLANTS</span><span>—</span><small>Before Saturday</small></div>
+      </div></div>
+      <div class="verdict"><div><b>Like</b>Crossy Road, Minecraft</div><div><b>Good at</b>Bridges pixel art and 3D; playful and readable.</div><div><b>Watch out</b>Game-like; cubes feel blunt in a serious context.</div></div>
+    </div>
+  </section>
+
+  <!-- 8 -->
+  <section class="prop" id="p8">
+    <div class="prop-head"><span class="num">8</span><h2>Cartoon 3D</h2><p>Smooth shapes, flat cartoon shading and an outline, rendered in Blender. The app follows Meta's Muse: a chat, the character up top as the status light, and a live view of the website Marcel is working on.</p></div>
+    <div class="prop-body">
+      <div class="stage" style="background:#ffeef2"><img class="r3d" data-r3d="toon" alt="Cartoon Marcel"></div>
+      <div class="phone"><div class="screen m8b"><div class="island"></div>
+        <div class="sb"><span>9:41</span><span>100%</span></div>
+        <div class="status"><div class="r3d-slot head" data-r3d="toon"></div><span>Marcel is booking the dentist</span><em>live</em></div>
+        <div class="thread">
+          <div class="b me">Book the dentist for the kids, any morning next week</div>
+          <div class="b them">On it. Tuesday 9:10 or Thursday 8:30?</div>
+        </div>
+        <div class="browser"><div class="url">🔒 dentist.example/booking</div>
+          <div class="page"><b>Mornings, week 43</b><div class="slotrow"><span>Mon 9:40</span><span class="pick">Tue 9:10</span><span>Thu 8:30</span></div><small style="color:#75656d">Marcel is filling in the form</small><i class="cursor"></i></div></div>
+        <div class="sugg"><span>Add to calendar</span><span>Remind me Monday</span></div>
+        <div class="input"><span>Message Marcel</span><span>🎙</span></div>
+      </div></div>
+      <div class="verdict"><div><b>Like</b>Meta Muse (Jolly)</div><div><b>Good at</b>Expressive and friendly; the live browser makes Marcel's work visible and trustworthy.</div><div><b>Watch out</b>The cartoon style is the least premium of the 3D options.</div></div>
+    </div>
+  </section>
+
+  <!-- 9 -->
+  <section class="prop" id="p9">
+    <div class="prop-head"><span class="num">9</span><h2>Glossy clay 3D</h2><p>A soft vinyl toy with a light coat of gloss, rendered in Blender. Marcel lives where you already look: the lock screen, a widget and the Dynamic Island, the way Muse puts Jolly on its Charm.</p></div>
+    <div class="prop-body">
+      <div class="stage" style="background:linear-gradient(160deg,#fbeef2,#f3d5de)"><img class="r3d" data-r3d="clay" alt="Clay Marcel"></div>
+      <div class="phone"><div class="screen m9">
+        <div class="di"><div class="r3d-slot head" data-r3d="clay" style="width:24px;height:24px;border-radius:50%"></div>Booking dentist<em>2/3</em></div>
+        <div class="date">Thursday 12 October</div>
+        <div class="time">9:41</div>
+        <div class="widget"><div class="r3d-slot head" data-r3d="clay" style="width:76px;height:76px;border-radius:18px;background:rgba(255,255,255,.25)"></div><div><b>Leave in 12 min</b><small>Swim class 16:30 · bags are packed</small></div></div>
+        <div class="note"><b>Marcel</b>Groceries ordered. They arrive at 18:00.</div>
+      </div></div>
+      <div class="verdict"><div><b>Like</b>Apple's 3D emoji, Muse's Charm</div><div><b>Good at</b>Premium, iOS-native; reads well on any wallpaper.</div><div><b>Watch out</b>Close to a generic 3D-emoji look; identity rests on colour and bow tie.</div></div>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section class="prop" id="p10">
+    <div class="prop-head"><span class="num">10</span><h2>Plush 3D</h2><p>A soft toy with real fur (thousands of strands), felt spots and a felt bow tie, rendered in Blender. The app follows OpenAI's Dots: an agent profile with its work in progress, its schedule, and a card when it needs your judgement.</p></div>
+    <div class="prop-body">
+      <div class="stage" style="background:radial-gradient(90% 80% at 50% 40%,#4a2b38,#1f171b)"><img class="r3d" data-r3d="plush" alt="Plush Marcel"></div>
+      <div class="phone"><div class="screen m10b"><div class="island"></div>
+        <div class="sb"><span>9:41</span><span>100%</span></div>
+        <div class="hero"><div class="r3d-slot full" data-r3d="plush"></div><b>Marcel</b><small>Always on · has its own computer</small></div>
+        <div class="seg"><span class="on">In progress</span><span>Scheduled</span><span>Completed</span></div>
+        <div class="job"><span>Watching energy prices</span><i class="live"></i><small>Next check 14:00</small></div>
+        <div class="job"><span>Booking the dentist</span><i class="live"></i><small>2 of 3 slots checked</small></div>
+        <div class="judge"><b>Needs your judgement</b>Sunday lunch: book the bistro for 5 at 12:30?<div class="btns"><span>Approve</span><span>Not now</span></div></div>
+        <div class="comp">Open Marcel's computer</div>
+      </div></div>
+      <div class="verdict"><div><b>Like</b>OpenAI Dots, Meta's Jolly</div><div><b>Good at</b>The most tactile and alive; right on the current wave of agent mascots.</div><div><b>Watch out</b>Fur is the most expensive to render; frames are pre-rendered, so every new pose is a new render.</div></div>
+    </div>
+  </section>
+</div>
+
+<script>
+/*SPRITE_DATA*/
+</script>
+<script>
+/*MARCEL_JS*/
+</script>
+<script>
+/*AVATARS2D_JS*/
+</script>
+<script>
+/*CONTROLLER_JS*/
+</script>
