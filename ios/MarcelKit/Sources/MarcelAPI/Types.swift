@@ -19,7 +19,9 @@ public protocol APIProtocol: Sendable {
     /// The live event stream (WebSocket upgrade). Frames are defined in events.schema.json.
     ///
     /// Authenticate with the same `Authorization: Bearer` header as REST. The first frame is
-    /// `hello` (or `resync.required` if `since` is older than the hub keeps). After that, every
+    /// `hello` (or `resync.required` if `since` is older than the hub keeps, higher than any id it
+    /// sent, or not a number; the socket is not refused, because a refused socket reads as
+    /// "unpaired" on the phone). After that, every
     /// frame is an event with an `id` one higher than the last; `hello` and `resync.required`
     /// use `id: 0` and are not part of that sequence.
     ///
@@ -67,6 +69,8 @@ public protocol APIProtocol: Sendable {
     /// - Remark: Generated from `#/paths//agents/{agent_id}/patch(updateAgent)`.
     func updateAgent(_ input: Operations.UpdateAgent.Input) async throws -> Operations.UpdateAgent.Output
     /// The main conversation and every side thread of an agent.
+    ///
+    /// An agent that does not exist or is not yours gives an empty list, so the answer does not reveal which agents exist.
     ///
     /// - Remark: HTTP `GET /conversations`.
     /// - Remark: Generated from `#/paths//conversations/get(listConversations)`.
@@ -216,7 +220,10 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /memory`.
     /// - Remark: Generated from `#/paths//memory/get(getMemoryTree)`.
     func getMemoryTree(_ input: Operations.GetMemoryTree.Input) async throws -> Operations.GetMemoryTree.Output
-    /// One memory file. The `ETag` header equals the body's `etag`.
+    /// One memory file. The `ETag` header is the body's `etag` in quotes, as HTTP wants.
+    ///
+    /// A file over 1 MB (written straight to disk) is not read: 400 `memory_file_too_big`.
+    ///
     ///
     /// - Remark: HTTP `GET /memory/files/{path}`.
     /// - Remark: Generated from `#/paths//memory/files/{path}/get(getMemoryFile)`.
@@ -225,7 +232,8 @@ public protocol APIProtocol: Sendable {
     ///
     /// With `If-Match`: saved only if the file's current etag matches, else 409 with the current
     /// version. Without `If-Match`: creates the file; if it already exists, 409 with the current
-    /// version, never a silent overwrite. Every save is one git commit.
+    /// version, never a silent overwrite. Every save is one git commit. `If-Match` may be the bare
+    /// etag, quoted, or `W/`-prefixed. A file over 1 MB is refused: 400 `memory_file_too_big`.
     ///
     ///
     /// - Remark: HTTP `PUT /memory/files/{path}`.
@@ -270,7 +278,9 @@ extension APIProtocol {
     /// The live event stream (WebSocket upgrade). Frames are defined in events.schema.json.
     ///
     /// Authenticate with the same `Authorization: Bearer` header as REST. The first frame is
-    /// `hello` (or `resync.required` if `since` is older than the hub keeps). After that, every
+    /// `hello` (or `resync.required` if `since` is older than the hub keeps, higher than any id it
+    /// sent, or not a number; the socket is not refused, because a refused socket reads as
+    /// "unpaired" on the phone). After that, every
     /// frame is an event with an `id` one higher than the last; `hello` and `resync.required`
     /// use `id: 0` and are not part of that sequence.
     ///
@@ -368,6 +378,8 @@ extension APIProtocol {
         ))
     }
     /// The main conversation and every side thread of an agent.
+    ///
+    /// An agent that does not exist or is not yours gives an empty list, so the answer does not reveal which agents exist.
     ///
     /// - Remark: HTTP `GET /conversations`.
     /// - Remark: Generated from `#/paths//conversations/get(listConversations)`.
@@ -731,7 +743,10 @@ extension APIProtocol {
     public func getMemoryTree(headers: Operations.GetMemoryTree.Input.Headers = .init()) async throws -> Operations.GetMemoryTree.Output {
         try await getMemoryTree(Operations.GetMemoryTree.Input(headers: headers))
     }
-    /// One memory file. The `ETag` header equals the body's `etag`.
+    /// One memory file. The `ETag` header is the body's `etag` in quotes, as HTTP wants.
+    ///
+    /// A file over 1 MB (written straight to disk) is not read: 400 `memory_file_too_big`.
+    ///
     ///
     /// - Remark: HTTP `GET /memory/files/{path}`.
     /// - Remark: Generated from `#/paths//memory/files/{path}/get(getMemoryFile)`.
@@ -748,7 +763,8 @@ extension APIProtocol {
     ///
     /// With `If-Match`: saved only if the file's current etag matches, else 409 with the current
     /// version. Without `If-Match`: creates the file; if it already exists, 409 with the current
-    /// version, never a silent overwrite. Every save is one git commit.
+    /// version, never a silent overwrite. Every save is one git commit. `If-Match` may be the bare
+    /// etag, quoted, or `W/`-prefixed. A file over 1 MB is refused: 400 `memory_file_too_big`.
     ///
     ///
     /// - Remark: HTTP `PUT /memory/files/{path}`.

@@ -115,7 +115,9 @@ public struct Client: APIProtocol {
     /// The live event stream (WebSocket upgrade). Frames are defined in events.schema.json.
     ///
     /// Authenticate with the same `Authorization: Bearer` header as REST. The first frame is
-    /// `hello` (or `resync.required` if `since` is older than the hub keeps). After that, every
+    /// `hello` (or `resync.required` if `since` is older than the hub keeps, higher than any id it
+    /// sent, or not a number; the socket is not refused, because a refused socket reads as
+    /// "unpaired" on the phone). After that, every
     /// frame is an event with an `id` one higher than the last; `hello` and `resync.required`
     /// use `id: 0` and are not part of that sequence.
     ///
@@ -911,6 +913,8 @@ public struct Client: APIProtocol {
         )
     }
     /// The main conversation and every side thread of an agent.
+    ///
+    /// An agent that does not exist or is not yours gives an empty list, so the answer does not reveal which agents exist.
     ///
     /// - Remark: HTTP `GET /conversations`.
     /// - Remark: Generated from `#/paths//conversations/get(listConversations)`.
@@ -2228,6 +2232,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .notFound(.init(body: body))
+                case 503:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.StopTask.Output.ServiceUnavailable.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas._Error.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .serviceUnavailable(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -4081,6 +4107,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .unauthorized(.init(body: body))
+                case 503:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.GetMemoryTree.Output.ServiceUnavailable.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas._Error.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .serviceUnavailable(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -4093,7 +4141,10 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// One memory file. The `ETag` header equals the body's `etag`.
+    /// One memory file. The `ETag` header is the body's `etag` in quotes, as HTTP wants.
+    ///
+    /// A file over 1 MB (written straight to disk) is not read: 400 `memory_file_too_big`.
+    ///
     ///
     /// - Remark: HTTP `GET /memory/files/{path}`.
     /// - Remark: Generated from `#/paths//memory/files/{path}/get(getMemoryFile)`.
@@ -4217,6 +4268,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .notFound(.init(body: body))
+                case 503:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.GetMemoryFile.Output.ServiceUnavailable.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas._Error.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .serviceUnavailable(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -4233,7 +4306,8 @@ public struct Client: APIProtocol {
     ///
     /// With `If-Match`: saved only if the file's current etag matches, else 409 with the current
     /// version. Without `If-Match`: creates the file; if it already exists, 409 with the current
-    /// version, never a silent overwrite. Every save is one git commit.
+    /// version, never a silent overwrite. Every save is one git commit. `If-Match` may be the bare
+    /// etag, quoted, or `W/`-prefixed. A file over 1 MB is refused: 400 `memory_file_too_big`.
     ///
     ///
     /// - Remark: HTTP `PUT /memory/files/{path}`.
@@ -4364,6 +4438,50 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .conflict(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.PutMemoryFile.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas._Error.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                case 503:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.PutMemoryFile.Output.ServiceUnavailable.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas._Error.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .serviceUnavailable(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
