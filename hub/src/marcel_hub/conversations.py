@@ -272,18 +272,24 @@ def list_messages(
 
 
 @router.post('/conversations/{conversation_id}/messages', status_code=201)
-def send_message(
+async def send_message(
     conversation_id: str, body: NewMessage, request: Request, session: DbSession
 ) -> dict[str, Any]:
     """Store and return at once: never waits for Marcel (B-02).
 
     A `project_id` (sent from a project room, B-32) is stored on the message; whatever hands user
-    messages to the brain passes `message.project_id` along with the text."""
+    messages to the brain passes `message.project_id` along with the text. In a task's own thread
+    the message steers that task instead (`task_threads`, S-04.9)."""
     conv = own_conversation(session, conversation_id, current_device(request))
     if body.project_id is not None:
         project = session.get(Project, body.project_id)
         if project is None or project.agent_id != conv.agent_id:
             raise ApiError(400, 'bad_request', 'project_id: that project is not this agent’s.')
+    if conv.task_id is not None:
+        msg = await request.app.state.task_threads.send(
+            session, conv, body.text, client_id=body.client_id, project_id=body.project_id
+        )
+        return message_json(msg, threads_of(session, [msg.id]).get(msg.id))
     msg = post_message(
         session,
         events_of(request),
