@@ -3,11 +3,20 @@ import SwiftUI
 
 /// Where you talk to Marcel: a pixel box with the text field and a ▶ send button. It is never disabled; only an
 /// empty message cannot be sent. While a question waits for you it says "Or say something…" (wireframe 3B).
-struct Composer: View {
+public struct Composer: View {
     @Binding var text: String
     var placeholder: String
     var focused: FocusState<Bool>.Binding?
     var send: () -> Void
+
+    /// Also used by a project room (MarcelMap), whose messages go to the same conversation.
+    public init(text: Binding<String>, placeholder: String, focused: FocusState<Bool>.Binding? = nil,
+                send: @escaping () -> Void) {
+        _text = text
+        self.placeholder = placeholder
+        self.focused = focused
+        self.send = send
+    }
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.chatStillAvatars) private var still
@@ -18,7 +27,7 @@ struct Composer: View {
 
     private var canSend: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
-    var body: some View {
+    public var body: some View {
         let theme = PixelTheme(scheme)
         HStack(alignment: .center, spacing: PixelMetrics.steps(3)) {
             field(theme)

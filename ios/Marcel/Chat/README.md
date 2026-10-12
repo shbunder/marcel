@@ -21,6 +21,9 @@ and shows `ChatScreen(model:offline:)`; the Xcode project keeps this folder out 
 - **Items**: "You got: …!" on an item's first message only; a new version changes the card's badge
   ("Updated · v2"). The morning board (an artifact of kind `board`) shows as a card with its first entries.
   Previews (a document's first lines, a board's entries) are fetched once per version.
+- **A message sent from a project room** (`project_id`, B-32; the Map tab) shows that project's chip under it, and
+  VoiceOver says "You said, about Home energy: …". The Map package reuses the chat's `Composer` and
+  `ArtifactPreview.dashboardRows`, so both are public.
 - **Sending** never waits on Marcel: the message shows at once ("Sending…"), and if the hub cannot be reached it
   stays, marked "Not sent · tap to try again". A retry reuses the `client_id`, so the hub keeps one copy.
 - **Scrolling**: the newest 50 messages; reaching the top loads 50 more from the cache. "Latest ▼" jumps back.

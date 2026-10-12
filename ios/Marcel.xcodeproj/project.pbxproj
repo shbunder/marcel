@@ -11,6 +11,8 @@
 		4DE100000000000000000002 /* PixelKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000002 /* PixelKit */; };
 		4DE100000000000000000003 /* AvatarKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000003 /* AvatarKit */; };
 		4DE100000000000000000004 /* MarcelChat in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000004 /* MarcelChat */; };
+		4DE100000000000000000005 /* MarcelQuests in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000005 /* MarcelQuests */; };
+		4DE100000000000000000006 /* MarcelMap in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000006 /* MarcelMap */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -51,6 +53,8 @@
 				4DE100000000000000000002 /* PixelKit in Frameworks */,
 				4DE100000000000000000003 /* AvatarKit in Frameworks */,
 				4DE100000000000000000004 /* MarcelChat in Frameworks */,
+				4DE100000000000000000005 /* MarcelQuests in Frameworks */,
+				4DE100000000000000000006 /* MarcelMap in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -109,6 +113,8 @@
 				4DE200000000000000000002 /* PixelKit */,
 				4DE200000000000000000003 /* AvatarKit */,
 				4DE200000000000000000004 /* MarcelChat */,
+				4DE200000000000000000005 /* MarcelQuests */,
+				4DE200000000000000000006 /* MarcelMap */,
 			);
 			productName = Marcel;
 			productReference = 4DA100000000000000000001 /* Marcel.app */;
@@ -143,6 +149,8 @@
 				4DE400000000000000000002 /* XCLocalSwiftPackageReference "PixelKit" */,
 				4DE400000000000000000003 /* XCLocalSwiftPackageReference "AvatarKit" */,
 				4DE400000000000000000004 /* XCLocalSwiftPackageReference "Marcel/Chat" */,
+				4DE400000000000000000005 /* XCLocalSwiftPackageReference "Marcel/Quests" */,
+				4DE400000000000000000006 /* XCLocalSwiftPackageReference "Marcel/Map" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4DA400000000000000000002 /* Products */;
@@ -320,6 +328,14 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Marcel/Chat;
 		};
+		4DE400000000000000000005 /* XCLocalSwiftPackageReference "Marcel/Quests" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Marcel/Quests;
+		};
+		4DE400000000000000000006 /* XCLocalSwiftPackageReference "Marcel/Map" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Marcel/Map;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -342,6 +358,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4DE400000000000000000004 /* XCLocalSwiftPackageReference "Marcel/Chat" */;
 			productName = MarcelChat;
+		};
+		4DE200000000000000000005 /* MarcelQuests */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4DE400000000000000000005 /* XCLocalSwiftPackageReference "Marcel/Quests" */;
+			productName = MarcelQuests;
+		};
+		4DE200000000000000000006 /* MarcelMap */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4DE400000000000000000006 /* XCLocalSwiftPackageReference "Marcel/Map" */;
+			productName = MarcelMap;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -23,6 +23,7 @@ from marcel_hub import (
     artifacts,
     auth,
     boards,
+    brain_api,
     channel,
     conversations,
     db,
@@ -231,6 +232,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     projects.install(app, ws.OwnerPublisher(app.state.events), registry, repo)
     # S-04.11: every project's board follows its tasks, approvals and items.
     keeper = boards.install(app)
+    # S-05.3: the brain's tools, outside /api (the tunnel never forwards them); last, as they use
+    # the gateway, tasks, artifacts, memory and projects.
+    brain_api.install(app)
+    app.state.brain_ports.boards = boards.BrainBoards(keeper)  # the brain's board_note
     return app
 
 

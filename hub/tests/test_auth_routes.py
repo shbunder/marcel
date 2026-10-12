@@ -24,6 +24,10 @@ PUBLIC = {('GET', '/api/health'), ('POST', '/api/pair')}
 # secret in its hello (tests/test_channel_gateway.py). It is outside /api, so the tunnel never
 # forwards it.
 SESSION_SOCKETS = {'/channel'}
+# The brain tools' routes (S-05.3) take no device token either: the brain proves itself with the hub
+# secret and its session id (tests/test_brain_api.py). Without them they answer 401, which this
+# test checks like any other route. They are outside /api too.
+HUB_SECRET = 'hs_' + 'a1b2c3d4' * 6
 
 
 def unprotected_routes(app: FastAPI) -> list[str]:
@@ -70,6 +74,7 @@ def socket_leaks(client: TestClient, path: str, url: str) -> list[str]:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
+    (tmp_path / 'hub-secret').write_text(HUB_SECRET)
     return Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db')
 
 

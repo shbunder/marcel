@@ -3,7 +3,7 @@
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, the task
 routes, conversations, the live event stream, artifacts and their versions, memory, projects and
-their boards, push notifications, the channel gateway and approvals.
+their boards, push notifications, the channel gateway and approvals, and the brain tools' routes.
 
 ## Run
 
@@ -243,7 +243,8 @@ content itself, with no brain turn. The code is `src/marcel_hub/boards.py`.
   (the newest 5 tasks done in the past 7 days, each with its summary and items at their version),
   *Upcoming* (empty until schedules exist), then Marcel's notes, the newest 5.
 - **When.** `BoardKeeper` watches the app event log. Any task, approval or artifact change in a
-  project (and a project created, renamed or moved into) marks its board. A marked board is rebuilt
+  project (and a project created, renamed or moved into), and any step a worker reports with
+  `report(progress)`, marks its board. A marked board is rebuilt
   10 s after the first mark, and never sooner than 10 s after its last rebuild, so a burst of
   changes makes one rebuild. Events about boards are ignored, so a rebuild never marks itself. A
   loop on the hub's event loop rebuilds what is due once a second; at start every board is marked.
@@ -251,7 +252,10 @@ content itself, with no brain turn. The code is `src/marcel_hub/boards.py`.
   the content or title changed. A board's first content sends `artifact.created`. A board read
   before its first build is built on the spot.
 - **Marcel's notes.** `BoardKeeper.board_note(project_id, text)` adds a "what this means" line
-  (cut at 400 characters) and marks the board. The brain's `board_note` tool (S-06.6) calls it.
+  (cut at 400 characters) and marks the board. The brain's `board_note` tool
+  (`POST /brain/projects/{project}/notes`) reaches it through `boards.BrainBoards`.
+- **A failed rebuild** is logged and tried once more on the next tick; if it fails again, the board
+  waits for the project's next change.
 
 Needs `jsonschema` at run time and `contracts/dashboard.schema.json` next to `hub/`.
 
@@ -438,3 +442,31 @@ second card, whatever state the card is in.
   resolved from the transcript if it can be, and otherwise becomes `expired`. At start the hub does
   the same for cards left open while it was down.
 - Every change to a card sends `approval.resolved`.
+
+## Brain tools: `/brain`
+
+`brain_api.py` is the hub side of Marcel's brain tools (`plugins/marcel/tools`, which lists every
+tool and its route). The brain's MCP server calls these routes over plain HTTP on the NUC.
+
+- **Outside `/api`.** The tunnel forwards only `/api/*`; a request with `cf-connecting-ip` answers
+  404 anyway.
+- **No device token.** A call carries the hub secret (`X-Marcel-Secret`, the channel's
+  `hub-secret`) and its session id (`X-Marcel-Session`). Only a session that is a conversation's
+  `brain_session_id` (the brain or a side thread) gets in; a worker gets 403, anything else 401.
+  `tests/test_auth_routes.py` checks these routes refuse a caller without them, like every other.
+- **One agent.** Tasks and projects are looked up within the brain's agent; another agent's
+  answer 404 as if they did not exist.
+- `tasks_spawn` refuses `location: auto` with a hint: the brain decides where work runs. `repo` is
+  `owner/name` (no leading `-`, no `..`); `message_id` must be in the brain's own conversation.
+- Bodies are read no further than 64 KB (a memory write: 2 MB), answered 413 `too_large`; every
+  text field has a maximum length.
+- Marcel's own artifacts are filed under the project the brain names, its agent's Inbox by default,
+  by "Marcel". With `artifact_id` the brain adds a new version of one of that project's items; an
+  item of another project, or a board, is refused (400).
+- Memory writes go through `MemoryRepo.write` (one commit, `memory: <path> (agent)`, paths that
+  cannot leave the memory folder, etag conflicts answered with the current etag).
+- `notify` posts the text in the main conversation and pushes it (`urgent` → category `broke`,
+  `normal` → `digest`), linking to that message.
+- Parts built by other stories sit behind `app.state.brain_ports` (`boards`, `schedules`,
+  `usage`, `artifacts`). `boards` is plugged in (`boards.BrainBoards`, S-04.11); until a story plugs its own in, the default answers 503 `not_set_up` with
+  what is missing, and stores nothing.

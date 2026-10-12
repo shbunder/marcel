@@ -89,6 +89,9 @@ struct UserBubble: View {
                     .pixelBox(fill: .teal, line: theme.line, shadow: theme.shadow, border: PixelMetrics.thinBorder,
                               offset: PixelMetrics.smallShadow)
             }
+            if let project = line.project {
+                ProjectChip(project, tone: line.tone)
+            }
             switch line.status {
             case .sent: EmptyView()
             case .sending:

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — app API
-  version: 0.4.0
+  version: 0.4.1
   description: |
     The API the iPhone app uses to talk to the hub on the NUC. **Every path, including `/health`,
     `/pair` and `/ws`, sits under the server URL** (`https://marcel-bot.com/api/...`); the tunnel
@@ -2185,7 +2185,11 @@ components:
         body: { type: string, maxLength: 300 }
         category:
           type: string
-          enum: [approval, task, broke, digest]
+          enum: [approval, task, broke, digest, note]
+          description: |
+            `note` is Marcel's own notice (the brain's `notify` tool): at most 6 per hour per agent,
+            the rest are dropped and logged, so a looping brain cannot flood the phone. `broke` is only
+            for system faults (one per cause per hour).
         level:
           type: string
           enum: [normal, urgent]

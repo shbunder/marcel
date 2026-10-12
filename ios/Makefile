@@ -19,16 +19,19 @@ TESTS   := $(BUILD)/spm-sim/$(ARCH)-apple-ios-simulator/debug/MarcelKitPackageTe
 AVATAR_TESTS := $(BUILD)/spm-avatar/$(ARCH)-apple-ios-simulator/debug/AvatarKitPackageTests.xctest
 PIXEL_TESTS := $(BUILD)/pixelkit-sim/$(ARCH)-apple-ios-simulator/debug/PixelKitPackageTests.xctest
 CHAT_TESTS := $(BUILD)/chat-sim/$(ARCH)-apple-ios-simulator/debug/MarcelChatPackageTests.xctest
+QUESTS_TESTS := $(BUILD)/quests-sim/$(ARCH)-apple-ios-simulator/debug/MarcelQuestsPackageTests.xctest
+MAP_TESTS := $(BUILD)/map-sim/$(ARCH)-apple-ios-simulator/debug/MarcelMapPackageTests.xctest
 RUNNER  := $(BUILD)/runner/SimTestRunner
 SIM     ?= $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun simctl list devices available -j | python3 scripts/pick-simulator.py $(SDK_VER))
 MOCK_HUB ?= http://127.0.0.1:7499/api
 
 .PHONY: check app test tests-bundle avatar-tests-bundle pixelkit-test pixelkit-bundle pixelkit-record integration \
-  chat-test chat-bundle chat-record chat-integration generate boot clean
+  chat-test chat-bundle chat-record chat-integration quests-test quests-bundle quests-record quests-integration \
+  map-test map-bundle map-record map-integration generate boot clean
 
-check: app test pixelkit-test chat-test
+check: app test pixelkit-test chat-test quests-test map-test
 
-# The app and its three packages, for the simulator.
+# The app and its packages, for the simulator.
 app:
 	xcodebuild build -quiet -project Marcel.xcodeproj -target Marcel -sdk iphonesimulator -configuration Debug \
 	  SYMROOT=$(BUILD)/xcode ARCHS=$(ARCH) SWIFT_ENABLE_EXPLICIT_MODULES=NO
@@ -101,6 +104,44 @@ chat-integration: chat-bundle $(RUNNER) boot
 # Against the mock hub (start it first with `make mock-hub` from the repo root). Not part of the gate.
 integration: tests-bundle $(RUNNER) boot
 	SIMCTL_CHILD_MARCEL_MOCK_HUB=$(MOCK_HUB) xcrun simctl spawn $(SIM) $(RUNNER) $(TESTS) MockHubIntegrationTests
+
+# The Quests tab's tests (Marcel/Quests, the MarcelQuests package): the grouping and ordering of the quest log, stop
+# and archive, the live stream moving cards, and snapshots compared with Marcel/Quests/Tests/MarcelQuestsTests/__Snapshots__.
+quests-bundle:
+	swift build --quiet --package-path Marcel/Quests --scratch-path $(BUILD)/quests-sim --build-tests \
+	  --triple $(TRIPLE) --sdk $(SDK) -Xswiftc -F -Xswiftc $(PLAT)/Library/Frameworks \
+	  -Xlinker -F -Xlinker $(PLAT)/Library/Frameworks
+
+quests-test: quests-bundle $(RUNNER) boot
+	xcrun simctl spawn $(SIM) $(RUNNER) $(QUESTS_TESTS)
+
+# Re-record the Quests snapshots after a deliberate change (the recording run fails by design), then check them.
+quests-record: quests-bundle $(RUNNER) boot
+	-SIMCTL_CHILD_MARCELQUESTS_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(QUESTS_TESTS) QuestSnapshotTests
+	xcrun simctl spawn $(SIM) $(RUNNER) $(QUESTS_TESTS)
+
+# The quest log against the mock hub (start it first: MOCK_HUB_PORT=7488 make mock-hub). Not part of the gate.
+quests-integration: quests-bundle $(RUNNER) boot
+	SIMCTL_CHILD_MARCEL_MOCK_HUB=$(MOCK_HUB) xcrun simctl spawn $(SIM) $(RUNNER) $(QUESTS_TESTS) QuestsMockHubTests
+
+# The Map tab's tests (Marcel/Map, the MarcelMap package): the tiles and rooms, moving a quest, a room's messages,
+# the hub's answers in plain words, and snapshots compared with Marcel/Map/Tests/MarcelMapTests/__Snapshots__.
+map-bundle:
+	swift build --quiet --package-path Marcel/Map --scratch-path $(BUILD)/map-sim --build-tests \
+	  --triple $(TRIPLE) --sdk $(SDK) -Xswiftc -F -Xswiftc $(PLAT)/Library/Frameworks \
+	  -Xlinker -F -Xlinker $(PLAT)/Library/Frameworks
+
+map-test: map-bundle $(RUNNER) boot
+	xcrun simctl spawn $(SIM) $(RUNNER) $(MAP_TESTS)
+
+# Re-record the Map snapshots after a deliberate change (the recording run fails by design), then check them.
+map-record: map-bundle $(RUNNER) boot
+	-SIMCTL_CHILD_MARCELMAP_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(MAP_TESTS) MapSnapshotTests
+	xcrun simctl spawn $(SIM) $(RUNNER) $(MAP_TESTS)
+
+# The map and a room against the mock hub (start it first: MOCK_HUB_PORT=7488 make mock-hub). Not part of the gate.
+map-integration: map-bundle $(RUNNER) boot
+	SIMCTL_CHILD_MARCEL_MOCK_HUB=$(MOCK_HUB) xcrun simctl spawn $(SIM) $(RUNNER) $(MAP_TESTS) MapMockHubTests
 
 # Regenerate MarcelKit/Sources/MarcelAPI from contracts/app-api.yaml after the contract changes.
 generate:
