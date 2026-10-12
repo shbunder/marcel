@@ -36,3 +36,14 @@
 - **Measure a lazy list in a real window** (S-12.6): a `UIHostingController` in a `UIWindow` in the SimTestRunner lays
   out a `ScrollView { LazyVStack }` of 5,000 rows in well under a second, so a performance test can include layout,
   not just the model.
+- **App wiring that must be tested goes in a package** (S-12.10): the app target has no test bundle, so the link
+  router, the push handler and the push categories live in MarcelSettings, and `AppDelegate` / `RootView` only create
+  and connect them. "Cold start" is tested there: deliver the link before `attach`, then attach as the tabs do.
+- **A hub route that is not built yet answers a bare 404** (`{"detail": "Not Found"}`): for an operation whose contract
+  lists a 404, the generated client tries to decode it as `Error`, fails, and throws a `ClientError` whose `response`
+  holds the status. Catch that (`LiveSettingsService.call`) to say "not available yet" instead of "something went wrong".
+- **Silkscreen (the label face) has capitals only**: anything case-sensitive (an ntfy topic, an id) goes in the body
+  face (`PixelText(role: .body)`), or it reads wrong.
+- **Notification actions can run with no screen** (S-12.10 review): iOS starts the app in the background for a
+  lock-screen action, so anything the action needs (here the hub address and token) must be built at launch from the
+  stores, never from a view's `.task`.

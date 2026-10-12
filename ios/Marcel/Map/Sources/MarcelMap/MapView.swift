@@ -21,14 +21,18 @@ public struct MapView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var scheme
     private let newProject: (String) -> Void
+    /// A project room to open (a `marcel://project/<slug>` link); cleared once it is open.
+    @Binding private var opening: String?
 
     /// - Parameters:
     ///   - service: the hub; nil reads the paired hub from pairing's stores (address and Keychain token).
     ///   - conversationId: the main conversation, when the chat already knows it.
+    ///   - opening: a project id whose room to open now (a link); the map sets it back to nil.
     ///   - newProject: "+ new" — opens the chat with this request in its composer.
     public init(service: (any ProjectService)? = nil, conversationId: String? = nil,
-                newProject: @escaping (String) -> Void = { _ in }) {
+                opening: Binding<String?> = .constant(nil), newProject: @escaping (String) -> Void = { _ in }) {
         _model = State(initialValue: MapModel(service: service, conversationId: conversationId))
+        _opening = opening
         self.newProject = newProject
     }
 
@@ -51,6 +55,11 @@ public struct MapView: View {
             if model.service == nil { model.service = LiveProjectService.paired() }
         }
         .task { await model.refreshProjects() }
+        .onChange(of: opening, initial: true) { _, projectId in
+            guard let projectId else { return }
+            path = [projectId]
+            opening = nil
+        }
     }
 
     private func map(_ map: ProjectMap) -> some View {
