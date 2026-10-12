@@ -17,7 +17,13 @@ and `contracts/transcript.schema.json`.
 The runner looks the session up in `claude agents --json --all` (full or short id) to get its cwd.
 Only the `/` → `-` part of the folder name is recorded (SP2). If that folder has no such file, the
 runner looks for `<session-id>.jsonl` in every project folder, so a cwd with `_` or `.`, or a path
-Claude Code shortens, is still found.
+Claude Code shortens, is still found. While a tail waits for a file that does not exist yet, the
+expected folder is looked at on every poll (4 times a second), but the search through every folder
+runs at most once every 5 seconds (`Locator`, `SEARCH_EVERY`).
+
+A tail that found its file by that search stays on it, even if a file with the same name later
+appears in the expected folder. A session id names one transcript, so in practice the two cannot
+both be written; see `project/lessons/runner-transcripts.md` for why the runner does not switch.
 
 ## The request
 
@@ -47,6 +53,8 @@ A quiet stream gets a `: still here` comment every 15 seconds, so a client that 
 - An offset in the middle of a line starts at the beginning of that line, never mid-line. (The hub
   resumes from the start of the last line it saw and skips the events it already stored.)
 - An offset past the end of the file means the file was rewritten: the stream starts again at 0.
+  Offsets then go backwards; the client resets its position (the hub does, and skips the events
+  it already stored).
 
 ## One tail per file
 
