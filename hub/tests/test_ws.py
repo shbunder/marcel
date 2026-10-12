@@ -477,3 +477,28 @@ def test_a_phone_that_stops_reading_is_closed_and_catches_up_with_since(
     with connect(client, phone, since=0) as ws:
         assert receive(ws)['data'] == {'last_event_id': 10, 'replayed': 10}
         assert [receive(ws)['id'] for _ in range(10)] == list(range(1, 11))
+
+
+# ---- wiring: the task registry's events reach the phone --------------------------------------
+
+
+def test_task_events_reach_the_phone(client: TestClient, phone: Phone) -> None:
+    """The registry publishes `task.created`/`task.updated`; unwired, they went nowhere."""
+    agent_id, _ = add_agent(client)
+    registry = client.app.state.tasks  # type: ignore[attr-defined]
+    with connect(client, phone) as socket:
+        assert frame(socket)['type'] == 'hello'
+        client.portal.call(registry.spawn, agent_id, 'Check the disk', 'df -h')  # type: ignore[union-attr]
+        # Frames are not checked against the contract here: Task.project_id is still pending
+        # (S-04.10, see test_contract.py), so these events lack it until projects exist.
+        types = [receive(socket)['type']]
+        while 'task.updated' not in types and len(types) < 10:
+            types.append(receive(socket)['type'])
+    assert types[0] == 'task.created'
+    assert 'task.event' in types  # the opening prompt
+    assert types[-1] == 'task.updated'  # NoRunner: the start fails and the task says so
+
+
+def test_the_task_registry_and_the_socket_share_one_event_log(client: TestClient) -> None:
+    registry = client.app.state.tasks  # type: ignore[attr-defined]
+    assert registry.publisher.events is log(client)
