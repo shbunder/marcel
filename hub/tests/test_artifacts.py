@@ -227,7 +227,7 @@ def test_a_pr_gets_its_number_and_an_open_state(hub: Hub) -> None:
         {'kind': 'pr', 'title': 'Fix', 'url': 'https://github.com/shbunder/marcel/pull/14'}
     )
     ARTIFACT.validate(art)
-    assert art['pr'] == {'number': 14, 'state': 'open'}
+    assert art['pr'] == {'number': 14, 'state': 'open', 'note': None}
     assert art['url'] == 'https://github.com/shbunder/marcel/pull/14'
     assert 'content_type' not in art
 
@@ -456,7 +456,13 @@ def test_refreshing_a_pr_stores_its_checks_and_review(hub: Hub) -> None:
 
     got = hub.get(f'/artifacts/{art["id"]}').json()
     ARTIFACT.validate(got)
-    assert got['pr'] == {'number': 14, 'state': 'open', 'checks': 'passing', 'review': 'approved'}
+    assert got['pr'] == {
+        'number': 14,
+        'state': 'open',
+        'checks': 'passing',
+        'review': 'approved',
+        'note': None,
+    }
     assert github.asked == [url]
 
 
@@ -465,7 +471,11 @@ def test_a_failed_refresh_keeps_the_last_status(hub: Hub) -> None:
     hub.store.pr_source = FakeGitHub(None)
     with pytest.raises(PrStatusUnavailable):
         run(hub.store.refresh_pr(art['id']))
-    assert hub.get(f'/artifacts/{art["id"]}').json()['pr'] == {'number': 2, 'state': 'open'}
+    assert hub.get(f'/artifacts/{art["id"]}').json()['pr'] == {
+        'number': 2,
+        'state': 'open',
+        'note': None,
+    }
 
 
 def test_without_a_github_source_refresh_says_why(hub: Hub) -> None:
