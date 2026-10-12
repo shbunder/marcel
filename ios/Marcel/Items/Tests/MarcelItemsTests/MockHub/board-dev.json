@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "title": "Marcel dev",
+  "widgets": [
+    {
+      "type": "section",
+      "title": "Waiting on you",
+      "empty_text": "Nothing waiting on you.",
+      "widgets": []
+    },
+    {
+      "type": "section",
+      "title": "In flight",
+      "empty_text": "No threads running.",
+      "widgets": [
+        {
+          "type": "list",
+          "items": [
+            {
+              "text": "Fix the flaky login test",
+              "detail": "cloud \u00b7 sonnet"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Recent results",
+      "empty_text": "No items yet.",
+      "widgets": [
+        {
+          "type": "list",
+          "items": [
+            {
+              "text": "Fix flaky login test: wait on the session cookie \u00b7 v1",
+              "detail": "pr"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Upcoming",
+      "empty_text": "Nothing scheduled.",
+      "widgets": []
+    }
+  ],
+  "subtitle": "Build and look after Marcel itself."
+}

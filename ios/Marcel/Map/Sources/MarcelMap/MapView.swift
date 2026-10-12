@@ -1,5 +1,6 @@
 import Foundation
 import MarcelChat
+import MarcelItems
 import MarcelKit
 import MarcelQuests
 import PixelKit
@@ -85,15 +86,22 @@ struct ProjectRoomView: View {
     @FocusState private var typing: Bool
     @Environment(\.colorScheme) private var scheme
 
-    /// What a tap on the board or an item opens until the real viewers exist.
+    /// What a tap on the board or an item opens: the artifact viewer.
     enum Sheet: Identifiable {
         case board(BoardCard)
         case item(RoomItem)
 
         var id: String {
             switch self {
-            case .board(let board): "board-\(board.key)"
+            case .board(let board): "board-\(board.artifactId)"
             case .item(let item): "item-\(item.id)"
+            }
+        }
+
+        var artifactId: String {
+            switch self {
+            case .board(let board): board.artifactId
+            case .item(let item): item.id
             }
         }
     }
@@ -113,16 +121,7 @@ struct ProjectRoomView: View {
         .background(PixelTheme(scheme).background.color)
         .toolbar(.hidden, for: .navigationBar)
         .sheet(item: $showing) { sheet in
-            switch sheet {
-            case .board(let board):
-                ViewerPlaceholder(title: board.title, badge: board.badge, rows: BoardView(board: board,
-                                  state: model.boards[board.key]).rows, url: nil,
-                                  coming: "The full board, with every section, comes in a later update.")
-            case .item(let item):
-                ViewerPlaceholder(title: item.title, badge: nil, rows: ArtifactPreview.summaryRows(item.artifact),
-                                  url: item.artifact.url.flatMap(URL.init(string:)),
-                                  coming: "The full item viewer comes in a later update.")
-            }
+            ArtifactViewer(artifactId: sheet.artifactId, conversationId: model.conversationId)
         }
     }
 
@@ -182,40 +181,6 @@ struct ProjectRoomView: View {
             Button("Back to the map", action: back)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-/// Where the board or an item leads until the viewers exist (S-12.8): its rows, and its link when it has one.
-struct ViewerPlaceholder: View {
-    var title: String
-    var badge: String?
-    var rows: [PreviewRow]
-    var url: URL?
-    var coming: String
-
-    @Environment(\.colorScheme) private var scheme
-    @Environment(\.openURL) private var openURL
-
-    var body: some View {
-        let theme = PixelTheme(scheme)
-        ScrollView {
-            VStack(alignment: .leading, spacing: PixelMetrics.steps(6)) {
-                ArtifactCard(title: title, badge: badge) {
-                    ForEach(rows, id: \.self) { ArtifactRow($0.label, value: $0.value, emphasised: $0.emphasised) }
-                }
-                if let url = url.flatMap(ChatMarkdown.webLink) {
-                    Button("Open \(title)") { openURL(url) }
-                        .pixelText(.label)
-                        .frame(minHeight: PixelMetrics.minTapTarget)
-                }
-                PixelText(coming, role: .body)
-                    .foregroundStyle(theme.muted.color)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(MapMetrics.inset)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(theme.background.color)
     }
 }
 

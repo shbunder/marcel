@@ -12,6 +12,8 @@ let package = Package(
         .package(path: "../../MarcelKit"),
         .package(path: "../../PixelKit"),
         .package(path: "../../AvatarKit"),
+        // A tapped item card opens the artifact viewer.
+        .package(path: "../Items"),
     ],
     targets: [
         .target(
@@ -20,6 +22,7 @@ let package = Package(
                 .product(name: "MarcelKit", package: "MarcelKit"),
                 .product(name: "PixelKit", package: "PixelKit"),
                 .product(name: "AvatarKit", package: "AvatarKit"),
+                .product(name: "MarcelItems", package: "Items"),
             ]
         ),
         .testTarget(name: "MarcelChatTests", dependencies: ["MarcelChat"], exclude: ["__Snapshots__"]),

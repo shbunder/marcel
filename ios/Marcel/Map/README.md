@@ -22,8 +22,8 @@ the app target's own sources by itself.
 - **"+ New"** opens the chat with "Start a new project: " in the composer: Marcel makes projects.
 - **A room** has the pinned board (an `ArtifactCard` with up to eight entries from `GET /artifacts/{id}/content`,
   fetched once per version), the project's quests grouped like the quest log (waiting on you first), its items as
-  chips, and its notes (`memory/projects/<slug>.md`, read-only here). Tapping the board or an item opens a
-  placeholder until the viewers exist (S-12.8).
+  chips, and its notes (`memory/projects/<slug>.md`, read-only here). Tapping the board or an item opens
+  the artifact viewer (`ArtifactViewer` from MarcelItems, S-12.8).
 - **The composer** sends to the main conversation with `project_id` set (B-32): one conversation, tagged. The hub's
   answer goes into the cache at once, so the Chat tab shows the message straight away with the project's chip.
   A message that does not get through stays in the box.
