@@ -4,9 +4,11 @@ SP7: `claude --bg --resume <uuid> --fork-session --name <name> --channels … --
 an independent session that shares the history up to the fork, gets its own channel connection and
 never writes into the original. It works on a live session too, and prints no `note:` line.
 
-The fork's role is `side`, so it never counts toward the worker cap. It runs with the permission
-mode the runner recorded for the session it forks from (`manual`, the strictest, when the runner
-did not start that session), and that session's model unless the request names one.
+The fork's role is `side`, so it never counts toward the worker cap. A worker is never forked
+(409 `not_forkable`): its fork would be an uncounted session with the brain tools. It runs with
+the permission mode the runner recorded for the session it forks from (`manual`, the strictest,
+when the runner did not start that session), and that session's model unless the request names
+one.
 """
 
 import time
@@ -14,12 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from marcel_runner.resume import (
-    allowed_tools,
-    check_supervisor,
-    parse_body,
-    session_cwd,
-)
+from marcel_runner.resume import check_supervisor, parse_body, session_cwd
 from marcel_runner.sessions import (
     BACKGROUNDED,
     CHANNEL,
@@ -29,6 +26,7 @@ from marcel_runner.sessions import (
     SessionError,
     Sessions,
     SpawnRequest,
+    allowed_tools,
 )
 
 ROLE = 'side'
@@ -87,8 +85,17 @@ def fork(sessions: Sessions, ref: str, raw: bytes) -> dict[str, Any]:
     """Fork session `ref`. Returns the contract's `Spawned` for the new session."""
     row = sessions._find(ref)
     body = parse_fork(raw)
-    check_supervisor(sessions)
     source = sessions._record_for(row) or {}
+    if source.get('role') == 'worker':
+        # A fork is a side session: uncounted, with the brain tools. A worker's fork would be
+        # an uncapped worker with powers the worker itself never had.
+        raise SessionError(
+            409,
+            'not_forkable',
+            f'Session {row.get("id")} is a worker, and a worker cannot be forked. '
+            'Start a new task instead.',
+        )
+    check_supervisor(sessions)
     mode = source.get('permission_mode')
     req = SpawnRequest(
         role=ROLE,

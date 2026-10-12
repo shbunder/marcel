@@ -19,46 +19,17 @@ from pathlib import Path
 from typing import Any
 
 from marcel_runner.sessions import (
-    ALLOWED_TOOLS,
     BACKGROUNDED,
     CHANNEL,
+    PERMISSION_MODES,
     SessionError,
     Sessions,
+    allowed_tools,
     running,
 )
 
-# Brain and side sessions also get Marcel's brain tools, by name, never a wildcard
-# (contracts/runner-api.yaml). Workers never do.
-BRAIN_TOOLS = tuple(
-    f'mcp__plugin_marcel_tools__{name}'
-    for name in (
-        'artifacts_publish',
-        'board_note',
-        'memory_read',
-        'memory_write',
-        'notify',
-        'projects_create',
-        'projects_list',
-        'projects_update',
-        'schedule_create',
-        'schedule_delete',
-        'schedule_list',
-        'tasks_get',
-        'tasks_list',
-        'tasks_move',
-        'tasks_send',
-        'tasks_spawn',
-        'tasks_stop',
-        'usage_get',
-    )
-)
 ROSTER_WAIT = 10.0  # SP2: the id was gone from roster.json 3 s after `claude stop`
 COPY = re.compile(r'started a copy as ([0-9a-f]{8})')
-
-
-def allowed_tools(role: str | None) -> tuple[str, ...]:
-    """What `--allowedTools` lists for a session with this role."""
-    return ALLOWED_TOOLS + (BRAIN_TOOLS if role in ('brain', 'side') else ())
 
 
 def resume_argv(
@@ -69,10 +40,14 @@ def resume_argv(
     debug_file: Path,
     channel: bool,
     tools: tuple[str, ...],
+    permission_mode: str | None,
 ) -> list[str]:
-    """`claude --bg --resume <uuid>`, with the same `--channels` and `--allowedTools` as spawn.
-    The prompt goes after `--` (SP1)."""
+    """`claude --bg --resume <uuid>`, with the recorded permission mode (left out when the runner
+    did not start the session) and the same `--channels` and `--allowedTools` as spawn. The
+    prompt goes after `--` (SP1)."""
     argv = [str(claude), '--bg', '--resume', session_id]
+    if permission_mode:
+        argv += ['--permission-mode', permission_mode]
     if channel:
         argv += ['--channels', CHANNEL]
     return argv + ['--allowedTools', *tools, '--debug-file', str(debug_file), '--', prompt]
@@ -178,6 +153,7 @@ def resume(sessions: Sessions, ref: str, raw: bytes) -> dict[str, Any]:
     check_supervisor(sessions)
     record = sessions._record_for(row)
     role = (record or {}).get('role')
+    mode = (record or {}).get('permission_mode')
     channel = (record or {}).get('channel', True) is not False
     cwd = session_cwd(row, record)
     with worker_slot(sessions, role == 'worker'):
@@ -191,6 +167,7 @@ def resume(sessions: Sessions, ref: str, raw: bytes) -> dict[str, Any]:
             debug_file=debug_file,
             channel=channel,
             tools=allowed_tools(role),
+            permission_mode=mode if mode in PERMISSION_MODES else None,
         )
         p = sessions._claude(*argv[1:], cwd=cwd, timeout=sessions.spawn_timeout)
         said = (p.stderr or p.stdout).strip()

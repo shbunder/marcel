@@ -14,7 +14,7 @@ import pytest
 from test_sessions import Rig
 
 from marcel_runner import resume
-from marcel_runner.sessions import SessionError
+from marcel_runner.sessions import ALLOWED_TOOLS, BRAIN_TOOLS, SessionError, allowed_tools
 
 GOLDEN = Path(__file__).parent / 'test_resume_golden'
 FOLLOW_UP = 'Follow-up: also add a test for the empty case.'
@@ -294,7 +294,25 @@ def test_resume_only_answers_post(up: Rig) -> None:
 
 
 def test_allowed_tools_by_role() -> None:
-    assert resume.allowed_tools('worker') == resume.ALLOWED_TOOLS
-    assert resume.allowed_tools(None) == resume.ALLOWED_TOOLS
-    assert resume.allowed_tools('side')[2:] == resume.BRAIN_TOOLS
-    assert all('*' not in t for t in resume.BRAIN_TOOLS)  # by name, never a wildcard
+    assert allowed_tools('worker') == ALLOWED_TOOLS
+    assert allowed_tools('adopted') == ALLOWED_TOOLS
+    assert allowed_tools('side')[2:] == allowed_tools('brain')[2:] == BRAIN_TOOLS
+    assert all('*' not in t for t in BRAIN_TOOLS)  # by name, never a wildcard
+
+
+def test_resume_passes_the_recorded_permission_mode(up: Rig) -> None:
+    spawned = stopped(up, permission_mode='plan')
+    assert up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})[0] == 200
+    (call,) = resume_calls(up)
+    argv = call['argv']
+    assert argv[argv.index('--permission-mode') + 1] == 'plan'
+
+
+def test_resume_of_a_session_the_runner_did_not_start_leaves_its_mode_alone(up: Rig) -> None:
+    spawned = stopped(up)
+    up.stop_runner()
+    up.state.joinpath('sessions.json').unlink()  # the runner forgets it started it
+    up.start()
+    assert up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})[0] == 200
+    (call,) = resume_calls(up)
+    assert '--permission-mode' not in call['argv']

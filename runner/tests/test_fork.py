@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from test_sessions import Rig
 
-from marcel_runner.resume import BRAIN_TOOLS
+from marcel_runner.sessions import BRAIN_TOOLS
 
 GOLDEN = Path(__file__).parent / 'test_fork_golden'
 SIDE = 'side-cnv_side_01J9ZR0'
@@ -124,9 +124,9 @@ def test_a_fork_of_a_session_the_runner_did_not_start_is_manual_with_claudes_mod
 
 def test_forks_never_count_toward_the_worker_cap(up: Rig) -> None:
     up.fake.use('worker-needs-approval')
-    first = up.spawn(name='w1')
-    assert first[0] == up.spawn(name='w2')[0] == 201  # the cap (2) is reached
-    status, body = fork(up, first[1]['session_id'])
+    source = brain(up)
+    assert up.spawn(name='w1')[0] == up.spawn(name='w2')[0] == 201  # the cap (2) is reached
+    status, body = fork(up, source['session_id'])
     assert status == 201, body
     assert up.call('GET', '/health')[1]['active_workers'] == 2
 
@@ -236,3 +236,15 @@ def test_bad_fork_bodies_are_400_in_words(up: Rig, body: dict[str, Any], words: 
 def test_fork_of_an_unknown_session_is_404(up: Rig) -> None:
     status, body = fork(up, 'nope')
     assert (status, body['code']) == (404, 'not_found')
+
+
+def test_a_worker_is_never_forked(up: Rig) -> None:
+    """A fork is an uncounted side session with the brain tools; a worker's fork would be an
+    uncapped worker with powers it never had. Delete the role check and this goes red."""
+    up.fake.use('worker-needs-approval')
+    _, worker = up.spawn(name='w1')
+    up.log.unlink()
+    status, body = fork(up, worker['session_id'])
+    assert (status, body['code']) == (409, 'not_forkable')
+    assert 'cannot be forked' in body['message']
+    assert up.calls_with('--fork-session') == []

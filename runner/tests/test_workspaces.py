@@ -5,8 +5,10 @@ Everything runs against a local bare repo in a temp folder. Git rewrites
 so the runner's https-only check is the real one and nothing reaches the network.
 
 `claude` for the trust prompt and `plugin install` is a small script of this file's own (the fake
-shim fakes neither): it shows the trust dialog with "No, exit" first, and records "trusted" only
-when it gets a down arrow before Enter, as the real dialog would choose "Yes".
+shim fakes neither). Interactive, it draws the trust dialog in raw mode ("No, exit" highlighted
+first, unless a mode says otherwise), moves with the arrow keys, and on "Yes" saves the folder as
+trusted in `$HOME/.claude.json`, as Claude Code does. It can follow with a "use this repo's MCP
+servers?" dialog that Enter would accept.
 """
 
 import functools
@@ -55,18 +57,62 @@ if args[:2] == ['plugin', 'install']:
     if 'install-fails' in mode:
         print('marketplace marcel-local not found', file=sys.stderr); sys.exit(1)
     sys.exit(0)
-if not args:
+if not args:  # interactive: a raw-mode screen, like Claude Code's own
+    import tty
+    tty.setraw(0)
+    def out(text):
+        sys.stdout.write(text.replace('\\n', '\\r\\n')); sys.stdout.flush()
+    def key():
+        b = os.read(0, 1)
+        return b + os.read(0, 2) if b == b'\\x1b' else b
     if 'no-dialog' in mode:
-        print('Welcome to Claude Code'); sys.stdin.readline(); sys.exit(0)
-    print(' Do you trust the files in this folder?')
-    print(' > 1. No, exit')
-    print('   2. Yes, I trust this folder', flush=True)
-    answer = sys.stdin.readline()
-    if '\\x1b[B' not in answer:
+        out('Welcome to Claude Code\\n'); key(); sys.exit(0)
+    yes, no = 'Yes, I trust this folder', 'No, exit'
+    options = [yes, no] if 'yes-first' in mode else [no, yes]
+    cursor = options.index(yes if 'cursor-on-yes' in mode else no)
+    def draw():
+        out('\\x1b[2J\\x1b[H Do you trust the files in this folder?\\n\\n')
+        for i, o in enumerate(options):
+            mark = ' ' if 'no-marker' in mode or i != cursor else '\\u276f'
+            out(f' {{mark}} {{i + 1}}. {{o}}\\n')
+    draw()
+    while True:
+        k = key()
+        if k == b'\\x03':
+            sys.exit(130)
+        if k in (b'\\x1b[A', b'\\x1b[B'):
+            if 'stuck' not in mode:
+                cursor = max(0, min(len(options) - 1, cursor + (1 if k == b'\\x1b[B' else -1)))
+            draw()
+        elif k == b'\\r':
+            break
+    if options[cursor] != yes:
         sys.exit(0)  # "No, exit"
     open({trusted!r}, 'a').write(os.getcwd() + '\\n')
-    sys.stdin.readline()  # /exit
-    sys.exit(0)
+    path = os.path.join(os.environ['HOME'], '.claude.json')
+    data = json.load(open(path)) if os.path.exists(path) else {{'projects': {{}}}}
+    entry = data['projects'].setdefault(os.getcwd(), {{}})
+    if 'not-saved' not in mode:
+        entry['hasTrustDialogAccepted'] = True
+    if 'mcp-preenabled' in mode:
+        entry['enableAllProjectMcpServers'] = True
+    json.dump(data, open(path, 'w'))
+    if 'mcp-prompt' in mode:  # a repo with .mcp.json: Enter here would enable its servers
+        out('\\x1b[2J\\x1b[H New MCP server found in .mcp.json: evil\\n\\n')
+        out(' \\u276f 1. Use this and all future MCP servers in this project\\n')
+        out('   2. Continue without using this MCP server\\n')
+        while True:
+            k = key()
+            if k == b'\\x03':
+                sys.exit(130)
+            if k == b'\\r':
+                entry['enabledMcpjsonServers'] = ['evil']
+                json.dump(data, open(path, 'w'))
+                sys.exit(0)
+    out('\\x1b[2J\\x1b[H> \\n')
+    while key() != b'\\x03':
+        pass
+    sys.exit(130)
 print('not faked here: ' + ' '.join(args), file=sys.stderr); sys.exit(2)
 """
 
@@ -237,6 +283,60 @@ def test_a_failed_clone_leaves_nothing_half_made(ws: Ws) -> None:
 
 
 # --- trust ---------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize('layout', ['', 'yes-first', 'cursor-on-yes'])
+def test_trust_picks_yes_wherever_it_is_and_claude_saves_it(ws: Ws, layout: str) -> None:
+    ws.mode(layout)
+    clone = ws.ws.ensure(spec())
+    saved = json.loads((ws.home / '.claude.json').read_text())['projects']
+    assert saved[str(clone.resolve())] == {'hasTrustDialogAccepted': True}
+    assert (clone / '.git' / READY).exists()
+
+
+def test_trust_never_answers_the_repos_mcp_servers_dialog(ws: Ws) -> None:
+    """A repo with `.mcp.json` gets an "use these MCP servers?" dialog right after trust. The
+    runner leaves with Ctrl-C; an Enter there (the old `/exit` + Enter) would enable them."""
+    ws.mode('mcp-prompt')
+    clone = ws.ws.ensure(spec())
+    entry = json.loads((ws.home / '.claude.json').read_text())['projects'][str(clone.resolve())]
+    assert entry == {'hasTrustDialogAccepted': True}
+    assert (clone / '.git' / READY).exists()
+
+
+@pytest.mark.parametrize(
+    ('mode', 'words'),
+    [
+        ('stuck', 'could not move to "Yes'),
+        ('no-marker', 'never showed its trust dialog'),
+        ('not-saved', 'did not save the folder as trusted'),
+        ('mcp-preenabled', "repo's own MCP servers were enabled"),
+    ],
+)
+def test_a_trust_that_is_not_certain_fails_the_clone_and_is_never_marked_ready(
+    ws: Ws, mode: str, words: str
+) -> None:
+    ws.mode(mode)
+    trust = functools.partial(accept_trust, timeout=3.0, settle=0.2)
+    with pytest.raises(SessionError) as e:
+        Workspaces(ws.root, ws.claude, ws.home, trust=trust).ensure(spec())
+    assert (e.value.status, e.value.code) == (422, 'not_trusted')
+    assert words in e.value.message
+    assert not (ws.root / 'marcel' / '.git' / READY).exists()
+    assert ws.calls('plugin') == []
+    if mode in ('stuck', 'no-marker'):
+        assert not ws.trusted.exists()  # Enter was never pressed on "No, exit"
+
+
+def test_trust_menu_reading() -> None:
+    from marcel_runner.workspaces import trust_menu
+
+    dialog = ' Do you trust this folder?\n\n ❯ 1. No, exit\n   2. Yes, I trust this folder\n'
+    assert trust_menu(dialog) == (1, 2)
+    assert trust_menu(dialog.replace('❯', ' ')) is None  # nothing highlighted
+    assert trust_menu(dialog.replace(' 1. No, exit', ' 1. Maybe')) is None  # no "No" option
+    assert trust_menu(' ❯ 1. Use this MCP server\n   2. Skip\n') is None
+    assert trust_menu('old\n ❯ 1. Yes, I trust this folder\n   2. No\nx\n' + dialog) == (1, 2)
 
 
 def test_trust_fails_in_words_when_claude_never_asks(ws: Ws) -> None:
@@ -495,3 +595,66 @@ def test_without_workspaces_a_repo_spawn_is_still_501(tmp_path: Path) -> None:
         assert (status, body['code']) == (501, 'not_supported')
     finally:
         rig.close()
+
+
+# --- review fixes: hooks, timeouts, locks ------------------------------------------------------
+
+
+def test_the_runner_never_runs_hooks_or_an_fsmonitor_planted_in_the_shared_git(ws: Ws) -> None:
+    """A worker shares the clone's .git and could plant a hook or an fsmonitor command there.
+    Delete `GIT_SAFE` from the runner's git calls and this goes red."""
+    clone = ws.ws.ensure(spec())
+    ran = ws.tmp / 'planted-ran'
+    planted = ws.tmp / 'planted.sh'
+    planted.write_text(f'#!/bin/sh\necho "$0 $*" >> {ran}\n')
+    planted.chmod(0o755)
+    hooks = clone / '.git' / 'hooks'
+    for hook in ('post-checkout', 'reference-transaction', 'post-index-change'):
+        (hooks / hook).write_text(planted.read_text())
+        (hooks / hook).chmod(0o755)
+    git(clone, 'config', 'core.fsmonitor', str(planted))
+    s = spec(task_id='tsk_hook')
+    ws.ws.add_worktree(s)
+    ws.ws.remove_worktree(s, delete_branch=True)
+    assert not ran.exists(), ran.read_text()
+
+
+def test_a_git_timeout_looking_up_a_branch_is_a_plain_503(
+    ws: Ws, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ws.ws.ensure(spec())
+    real = subprocess.run
+
+    def slow(argv: list[str], *args: Any, **kwargs: Any) -> Any:
+        if 'show-ref' in argv:
+            raise subprocess.TimeoutExpired(argv, 1)
+        return real(argv, *args, **kwargs)
+
+    monkeypatch.setattr('marcel_runner.workspaces.subprocess.run', slow)
+    with pytest.raises(SessionError) as e:
+        ws.ws.add_worktree(spec())
+    assert (e.value.status, e.value.code) == (503, 'git_timeout')
+    assert 'took too long' in e.value.message
+
+
+def test_a_slow_repo_never_holds_up_another_repo(ws: Ws) -> None:
+    git(None, 'clone', '-q', '--bare', str(ws.bare), str(ws.bare.parent / 'other'))
+    other = parse_repo(
+        {'url': 'https://git.example.test/shbunder/other', 'task_id': 't', 'slug': 's'}
+    )
+    done: dict[str, bool] = {}
+
+    def run(name: str, s: RepoSpec) -> None:
+        ws.ws.ensure(s)
+        done[name] = True
+
+    with ws.ws._lock_for(spec()):  # marcel is busy
+        a = threading.Thread(target=run, args=('other', other))
+        b = threading.Thread(target=run, args=('marcel', spec()))
+        a.start()
+        b.start()
+        a.join(30)
+        assert done.get('other')  # another repo went ahead
+        assert not done.get('marcel')  # the same repo waits
+    b.join(30)
+    assert done.get('marcel')

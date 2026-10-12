@@ -29,6 +29,31 @@ from marcel_runner.health import Settings, cgroup_of, collect_health
 CHANNEL = 'plugin:marcel@marcel-local'
 CHANNEL_SERVER = 'plugin:marcel:marcel'  # how the debug log names the plugin's MCP server (SP1)
 ALLOWED_TOOLS = ('mcp__plugin_marcel_marcel__reply', 'mcp__plugin_marcel_marcel__report')
+# Brain and side sessions also get Marcel's brain tools, by name, never a wildcard
+# (contracts/runner-api.yaml). Workers never do.
+BRAIN_TOOLS = tuple(
+    f'mcp__plugin_marcel_tools__{name}'
+    for name in (
+        'artifacts_publish',
+        'board_note',
+        'memory_read',
+        'memory_write',
+        'notify',
+        'projects_create',
+        'projects_list',
+        'projects_update',
+        'schedule_create',
+        'schedule_delete',
+        'schedule_list',
+        'tasks_get',
+        'tasks_list',
+        'tasks_move',
+        'tasks_send',
+        'tasks_spawn',
+        'tasks_stop',
+        'usage_get',
+    )
+)
 REGISTERED = 'Channel notifications registered'
 SKIPPED = 'Channel notifications skipped'
 CHANNEL_WAIT = 30.0
@@ -72,6 +97,11 @@ def state_dir_from_env(env: Mapping[str, str] | None = None) -> Path:
     return Path(base) / 'marcel' / 'runner'
 
 
+def allowed_tools(role: str | None) -> tuple[str, ...]:
+    """What `--allowedTools` lists for a session with this role."""
+    return ALLOWED_TOOLS + (BRAIN_TOOLS if role in ('brain', 'side') else ())
+
+
 def spawn_argv(
     claude: Path,
     *,
@@ -81,6 +111,7 @@ def spawn_argv(
     prompt: str,
     debug_file: Path,
     channel: bool,
+    role: str,
 ) -> list[str]:
     """The `claude --bg` command line. The prompt goes after `--`: `--channels` and
     `--allowedTools` take several values and would swallow it (SP1)."""
@@ -96,7 +127,7 @@ def spawn_argv(
     ]
     if channel:
         argv += ['--channels', CHANNEL]
-    argv += ['--allowedTools', *ALLOWED_TOOLS, '--debug-file', str(debug_file), '--', prompt]
+    argv += ['--allowedTools', *allowed_tools(role), '--debug-file', str(debug_file), '--', prompt]
     return argv
 
 
@@ -396,6 +427,7 @@ class Sessions:
             prompt=req.prompt,
             debug_file=debug_file,
             channel=req.channel,
+            role=req.role,
         )
         since = time.time() * 1000 - 1000  # rows started from here on may be this spawn's
         try:

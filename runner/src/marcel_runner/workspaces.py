@@ -34,6 +34,16 @@ PLUGIN = 'marcel@marcel-local'
 LOCAL_SETTINGS = '/.claude/settings.local.json'  # where `--scope local` writes, never tracked
 READY = 'marcel-ready'  # in the clone's .git folder: trusted and plugin installed
 GIT_TIMEOUT = 600.0
+# On every git call: a worker could plant a hook or an fsmonitor command in the shared .git, and
+# the runner must never run it.
+GIT_SAFE = (
+    '-c',
+    'core.hooksPath=/dev/null',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'protocol.ext.allow=never',
+)
 
 REPO_KEYS = {'url', 'base', 'task_id', 'slug'}
 HOST = re.compile(r'[A-Za-z0-9](?:[A-Za-z0-9.-]{0,252}[A-Za-z0-9])?(?::[0-9]{1,5})?')
@@ -42,9 +52,12 @@ REPO_NAME = re.compile(r'[A-Za-z0-9_][A-Za-z0-9._-]{0,99}')
 TASK_ID = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_-]{0,59}')
 SLUG = re.compile(r'[a-z0-9-]{1,40}')  # contracts/runner-api.yaml `RepoSpec.slug`
 BASE = re.compile(r'[A-Za-z0-9_][A-Za-z0-9._/-]{0,99}')
-TRUST_DIALOG = re.compile(r'I\s*trust\s*this\s*folder')
+OPTION = re.compile(r'^\s*(?P<mark>[❯›>])?\s*(?P<num>[1-9])\.\s+(?P<text>\S.*?)\s*$')
+YES = re.compile(r'Yes,?\s+I\s+trust\s+this\s+folder', re.I)
+NO = re.compile(r'No\b', re.I)
 ANSI = re.compile(rb'\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07')
-DOWN, ENTER = b'\x1b[B', b'\r'
+MOVE = re.compile(rb'\x1b\[[0-9;]*[HfBEd]')  # cursor moves start a new screen line
+DOWN, UP, ENTER, CTRL_C = b'\x1b[B', b'\x1b[A', b'\r', b'\x03'
 
 
 def root_from_env(env: Mapping[str, str] | None = None) -> Path:
@@ -133,13 +146,66 @@ def inside(root: Path, path: Path) -> bool:
     return real != real_root and real.is_relative_to(real_root)
 
 
+def trust_menu(screen: str) -> tuple[int, int] | None:
+    """(the highlighted option, the "Yes, I trust this folder" option) of the last trust dialog
+    on `screen`. None until the dialog is fully drawn with exactly one highlighted option and both
+    a "Yes, I trust this folder" and a "No" option, so the runner never presses a key blind."""
+    groups: list[list[re.Match[str]]] = []
+    last = -2
+    lines = [line for line in screen.splitlines() if line.strip()]
+    for i, line in enumerate(lines):
+        m = OPTION.match(line)
+        if m is None:
+            continue
+        if i != last + 1:
+            groups.append([])
+        groups[-1].append(m)
+        last = i
+    for group in reversed(groups):
+        yes = [m for m in group if YES.match(m['text'])]
+        if not yes:
+            continue
+        marked = [m for m in group if m['mark']]
+        if len(yes) != 1 or len(marked) != 1 or not any(NO.match(m['text']) for m in group):
+            return None
+        return int(marked[0]['num']), int(yes[0]['num'])
+    return None
+
+
+def trust_problem(home: Path, cwd: Path) -> str | None:
+    """Why `~/.claude.json` does not show `cwd` trusted with no MCP server of its own enabled.
+    None when it does."""
+    try:
+        data = json.loads((home / '.claude.json').read_text('utf-8'))
+    except (OSError, ValueError):
+        return f'{home / ".claude.json"} could not be read.'
+    projects = data.get('projects') if isinstance(data, dict) else None
+    projects = projects if isinstance(projects, dict) else {}
+    entry = projects.get(str(cwd)) or projects.get(str(cwd.resolve()))
+    if not isinstance(entry, dict) or entry.get('hasTrustDialogAccepted') is not True:
+        return 'Claude did not save the folder as trusted.'
+    if entry.get('enabledMcpjsonServers') or entry.get('enableAllProjectMcpServers'):
+        return "The repo's own MCP servers were enabled, which the runner never allows."
+    return None
+
+
+def _screen(buf: bytes) -> str:
+    return ANSI.sub(b'', MOVE.sub(b'\n', buf.replace(b'\r\n', b'\n').replace(b'\r', b'\n'))).decode(
+        'utf-8', 'replace'
+    )
+
+
 def accept_trust(
     claude: Path, cwd: Path, env: dict[str, str], *, timeout: float = 40.0, settle: float = 4.0
 ) -> None:
     """Accept Claude Code's trust prompt for `cwd` headlessly (SP2,
-    `scratch/spikes/SP2-worker-control/accept_trust.py`). Runs an interactive `claude` on a pty
-    and picks "Yes, I trust this folder". The dialog's default is "No, exit", so it must move down
-    to "Yes" first. Raises `SessionError` (`not_trusted`) when the dialog never shows."""
+    `scratch/spikes/SP2-worker-control/accept_trust.py`). Runs an interactive `claude` on a pty.
+
+    It reads the screen and presses keys only for the trust dialog: arrows to "Yes, I trust this
+    folder" (the default is "No, exit"), then Enter once the screen shows Yes highlighted. It never
+    answers anything else (a repo's `.mcp.json` brings an "use these MCP servers?" dialog next) and
+    leaves with Ctrl-C. Then `~/.claude.json` must show the folder trusted and none of the repo's
+    MCP servers enabled. Anything else raises `SessionError` (`not_trusted`)."""
     master, slave = pty.openpty()
     proc = subprocess.Popen(
         [str(claude)],
@@ -152,15 +218,15 @@ def accept_trust(
     )
     os.close(slave)
     buf = b''
-    answered_at: float | None = None
+    seen = 0  # where the screen after the last key press starts
+    moved = answered = False
+    answered_at = 0.0
+    problem = 'Claude never showed its trust dialog.'
     end = time.monotonic() + timeout
     try:
         while time.monotonic() < end:
-            if answered_at is not None and time.monotonic() - answered_at > settle:
-                os.write(master, b'/exit\r')
-                with contextlib.suppress(subprocess.TimeoutExpired):
-                    proc.wait(timeout=2)
-                return
+            if answered and time.monotonic() - answered_at > settle:
+                break
             ready, _, _ = select.select([master], [], [], 0.1)
             if ready:
                 try:
@@ -170,36 +236,48 @@ def accept_trust(
                 if not chunk:
                     break
                 buf += chunk
-            if answered_at is None and TRUST_DIALOG.search(
-                ANSI.sub(b'', buf).decode('utf-8', 'replace')
-            ):
-                time.sleep(0.3)
-                os.write(master, DOWN)  # "No, exit" → "Yes, I trust this folder"
-                time.sleep(0.3)
+            if answered:
+                continue
+            menu = trust_menu(_screen(buf[seen:]))
+            if menu is None:
+                continue
+            selected, yes = menu
+            if selected == yes:
                 os.write(master, ENTER)
-                answered_at = time.monotonic()
-        if answered_at is not None:
-            return
-        screen = ANSI.sub(b'', buf).decode('utf-8', 'replace').strip()[-500:]
-        raise SessionError(
-            422,
-            'not_trusted',
-            f'Claude never asked whether to trust {cwd}, so the runner could not trust it. '
-            'Remove the folder to have the runner clone it again.',
-            screen or None,
-        )
+                answered, answered_at = True, time.monotonic()
+            elif moved:  # the arrows did not reach Yes: never press Enter on anything else
+                break
+            else:
+                os.write(master, (DOWN if yes > selected else UP) * abs(yes - selected))
+                moved, seen = True, len(buf)
+                problem = 'The runner could not move to "Yes, I trust this folder".'
+        with contextlib.suppress(OSError):  # claude may have exited already
+            os.write(master, CTRL_C)  # leave without answering anything else
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=0.5)
     finally:
         if proc.poll() is None:
             proc.kill()
             proc.wait()
         os.close(master)
+    if answered:
+        problem = trust_problem(Path(env.get('HOME') or Path.home()), cwd)
+        if problem is None:
+            return
+    raise SessionError(
+        422,
+        'not_trusted',
+        f'The runner could not trust {cwd}: {problem} '
+        'Remove the folder to have the runner clone it again.',
+        _screen(buf).strip()[-500:] or None,
+    )
 
 
 Trust = Callable[[Path, Path, dict[str, str]], None]
 
 
 class Workspaces:
-    """Clones and worktrees under `root`. Thread-safe: one lock around every git change."""
+    """Clones and worktrees under `root`. Thread-safe: one lock per repo around its git changes."""
 
     def __init__(
         self,
@@ -215,7 +293,8 @@ class Workspaces:
         self.home = home
         self.trust = trust
         self.timeout = timeout
-        self._lock = threading.Lock()
+        self._locks: dict[str, threading.Lock] = {}
+        self._locks_guard = threading.Lock()
 
     # --- paths ----------------------------------------------------------------------------
 
@@ -232,14 +311,20 @@ class Workspaces:
     def worktree_dir(self, spec: RepoSpec) -> Path:
         return self._checked(self.root / f'{spec.name}-wt' / spec.task_id)
 
+    def _lock_for(self, spec: RepoSpec) -> threading.Lock:
+        with self._locks_guard:
+            return self._locks.setdefault(spec.name, threading.Lock())
+
     # --- running git and claude -----------------------------------------------------------
 
     def _env(self) -> dict[str, str]:
         return {**scrubbed_env(os.environ, self.home), 'GIT_TERMINAL_PROMPT': '0'}
 
-    def _run(self, argv: list[str], cwd: Path | None, what: str) -> str:
+    def _exec(
+        self, argv: list[str], cwd: Path | None, what: str
+    ) -> subprocess.CompletedProcess[str]:
         try:
-            p = subprocess.run(
+            return subprocess.run(
                 argv,
                 cwd=cwd,
                 env=self._env(),
@@ -249,22 +334,26 @@ class Workspaces:
                 stdin=subprocess.DEVNULL,
             )
         except subprocess.TimeoutExpired:
-            raise SessionError(422, 'clone_failed', f'{what} took too long.') from None
+            code = 'git_timeout' if argv[0] == 'git' else 'claude_timeout'
+            raise SessionError(503, code, f'{what} took too long. Try again later.') from None
         except OSError as e:
             raise SessionError(422, 'clone_failed', f'{what} could not run.', str(e)) from None
+
+    def _run(self, argv: list[str], cwd: Path | None, what: str) -> str:
+        p = self._exec(argv, cwd, what)
         if p.returncode != 0:
             said = (p.stderr or p.stdout).strip() or f'exit code {p.returncode}'
             raise SessionError(422, 'clone_failed', f'{what} failed.', said)
         return p.stdout
 
     def git(self, cwd: Path | None, *args: str, what: str = 'git') -> str:
-        return self._run(['git', *args], cwd, what)
+        return self._run(['git', *GIT_SAFE, *args], cwd, what)
 
     # --- the clone ------------------------------------------------------------------------
 
     def ensure(self, spec: RepoSpec) -> Path:
         """The clone for `spec`, made, trusted and given the plugin once."""
-        with self._lock:
+        with self._lock_for(spec):
             return self._ensure(spec)
 
     def _ensure(self, spec: RepoSpec) -> Path:
@@ -321,7 +410,7 @@ class Workspaces:
     def add_worktree(self, spec: RepoSpec) -> tuple[Path, bool]:
         """The task's worktree on `spec.branch`. Returns (path, made now). An existing worktree
         for the task is used again only if it is on the task's branch."""
-        with self._lock:
+        with self._lock_for(spec):
             clone = self._ensure(spec)
             path = self.worktree_dir(spec)
             if path.exists():
@@ -345,19 +434,14 @@ class Workspaces:
             return path, not exists
 
     def _has_branch(self, clone: Path, branch: str) -> bool:
-        p = subprocess.run(
-            ['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{branch}'],
-            cwd=clone,
-            env=self._env(),
-            capture_output=True,
-            timeout=self.timeout,
-        )
-        return p.returncode == 0
+        ref = f'refs/heads/{branch}'
+        argv = ['git', *GIT_SAFE, 'show-ref', '--verify', '--quiet', ref]
+        return self._exec(argv, clone, 'Looking up the branch').returncode == 0
 
     def remove_worktree(self, spec: RepoSpec, *, delete_branch: bool = False) -> None:
         """Remove the task's worktree (and, if asked, its branch). Never touches anything
         outside the workspaces root: the path is checked with every link followed."""
-        with self._lock:
+        with self._lock_for(spec):
             clone = self.clone_dir(spec)
             path = self.worktree_dir(spec)
             if path.exists():

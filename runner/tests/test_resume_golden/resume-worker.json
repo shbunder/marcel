@@ -3,6 +3,8 @@
   "--bg",
   "--resume",
   "{session_id}",
+  "--permission-mode",
+  "auto",
   "--channels",
   "plugin:marcel@marcel-local",
   "--allowedTools",
