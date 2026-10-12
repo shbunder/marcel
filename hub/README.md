@@ -1,7 +1,8 @@
 # Marcel hub
 
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
-exists today: the app skeleton, the database, `GET /api/health`, and pairing a phone.
+exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, and the task
+routes.
 
 ## Run
 
@@ -84,3 +85,24 @@ router = APIRouter(prefix='/api', dependencies=[Depends(require_device)])
 `tests/test_auth_routes.py` calls every route in the app without a token and fails on any that
 answers something other than 401. A route type it cannot call (a WebSocket) fails it too, until the
 test learns how.
+
+## Tasks
+
+`/api/tasks` lists, reads, steers, stops, archives and hands back tasks (see
+`contracts/app-api.yaml`). The code is in `src/marcel_hub/tasks/`.
+
+- **State machine.** Every state change follows `contracts/task-states.md`. Anything else is refused
+  and logged as `Refused a task transition: …`. Each change writes a `state` task event.
+- **Queue.** When the runner says its worker cap is full, a new task waits as `queued`. When a task
+  finishes, fails or is stopped, the oldest waiting task starts. A new task never skips the queue.
+  The queue is read from the database, so a restart keeps it.
+- **Steer** (`POST /tasks/{id}/messages`) records a `note` and hands the text to the outbox. A `done`
+  task goes back to `working`. A `stopped` or `failed` task answers 409 `task_finished`.
+- **Stop** asks the runner to stop the session. A queued task just leaves the queue. If the runner
+  does not answer, stop answers 503 `runner_unreachable` and the task is left as it was.
+- **Archive** works only on `done`, `failed` or `stopped` tasks (409 otherwise). Archived tasks are
+  listed only with `archived=true`.
+- **Hand-back** records a `note` and puts a `handback` event for Marcel's brain in the outbox.
+
+Not wired yet: the runner client and the channel gateway. Until they exist, starting or stopping a
+session answers that the runner is out of reach, and steer and hand-back messages wait in memory.
