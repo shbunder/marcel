@@ -1,5 +1,8 @@
+import Foundation
+import HTTPTypes
 import MarcelItems
 import MarcelKit
+import OpenAPIRuntime
 import XCTest
 
 @testable import MarcelChat
@@ -108,5 +111,103 @@ final class CatchUpTests: XCTestCase {
         json["pr"] = ["number": 14, "state": "open", "note": "GitHub is having trouble."]
         XCTAssertEqual(ArtifactPreview.summaryRows(Fx.decode(json)).last?.label,
                        "May be out of date: GitHub is having trouble.")
+    }
+
+    /// Review fix: the agent can be renamed, so no user-facing words in Chat, Items or Map hard-code "Marcel". They
+    /// read the `agentName` environment value (or a model's `agentName`). Allowed: the one fallback, and "Marcel" as
+    /// the product ("This changes Marcel itself" on a pull request that changes the app's own code).
+    func testNoUserFacingWordsHardCodeTheAgentsName() throws {
+        let packages = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let allowed: Set<String> = [#""Marcel""#, #""This changes Marcel itself""#,
+                                    #""This changes Marcel itself. It is merged only when you approve it.""#]
+        let literal = try NSRegularExpression(pattern: #""(?:[^"\\]|\\.)*""#)
+        var found: [String] = []
+        for package in ["Chat", "Items", "Map"] {
+            let sources = packages.appendingPathComponent(package).appendingPathComponent("Sources")
+            let files = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+            for case let file as URL in files where file.pathExtension == "swift" {
+                for line in try String(contentsOf: file, encoding: .utf8).split(separator: "\n") {
+                    let code = String(line)
+                    if code.trimmingCharacters(in: .whitespaces).hasPrefix("//") { continue }
+                    let range = NSRange(code.startIndex..., in: code)
+                    for match in literal.matches(in: code, range: range) {
+                        let text = String(code[Range(match.range, in: code)!])
+                        if text.contains("Marcel"), !allowed.contains(text) {
+                            found.append("\(package)/\(file.lastPathComponent): \(text)")
+                        }
+                    }
+                }
+            }
+            XCTAssertTrue(FileManager.default.fileExists(atPath: sources.path), "\(package) sources were read")
+        }
+        XCTAssertEqual(found, [], "user-facing words that hard-code the agent's name")
+    }
+
+    /// Review fix: an attached item the hub no longer has (404 `artifact_not_found`) would fail every retry the same
+    /// way. The bubble says so and a tap sends the message without the item.
+    func testAMessageWhoseItemIsGoneIsSentWithoutItOnRetry() async throws {
+        let fed = try FedCache()
+        let hub = FakeService()
+        hub.sendError = ChatError.itemGone
+        let model = ChatModel(service: hub, conversationId: Fx.conversation)
+        model.attach(offers)
+        model.draft = "Why?"
+        await model.send()
+        XCTAssertEqual(model.problem, ChatError.itemGone.message)
+        let line = try XCTUnwrap(users(ChatFeed.items(try fed.input(), local: model.local)).first)
+        XCTAssertEqual(line.status, .failed)
+        XCTAssertTrue(line.itemGone)
+        XCTAssertTrue(line.accessibilityText.hasSuffix(
+            "The item is gone from the hub. Double-tap to send it without the item."))
+
+        hub.sendError = nil
+        await model.retry(clientId: try XCTUnwrap(line.clientId))
+        XCTAssertEqual(hub.sent.map(\.attachment), [offers, nil], "the retry goes without the item")
+        XCTAssertNil(model.problem)
+        let sent = try XCTUnwrap(users(ChatFeed.items(try fed.input(), local: model.local)).first)
+        XCTAssertEqual(sent.status, .sent)
+        XCTAssertNil(sent.attachment)
+    }
+
+    /// Review fix: the hub's 404 says which thing is gone, by its code: the attached item, or the conversation.
+    func testASend404SaysWhichThingIsGone() async throws {
+        for (code, words, itemGone) in [
+            ("artifact_not_found",
+             "Not sent: the item you attached isn't on the hub any more. Tap the message to send it without the item.",
+             true),
+            ("conversation_not_found", "Not sent: the hub does not know this conversation.", false),
+        ] {
+            let hub = StubHub(status: 404, body: #"{"code":"\#(code)","message":"No."}"#)
+            let service = LiveChatService(client: HubClient.make(serverURL: URL(string: "http://hub.test/api")!,
+                                                                 transport: hub))
+            do {
+                _ = try await service.send(text: "Why?", clientId: "c1", conversationId: Fx.conversation,
+                                           attachment: offers)
+                XCTFail("\(code): sent")
+            } catch let error as ChatError {
+                XCTAssertEqual(error.message, words, code)
+                XCTAssertEqual(error.itemGone, itemGone, code)
+            }
+        }
+    }
+}
+
+/// A hub that answers every request the same way, through the real generated client.
+final class StubHub: ClientTransport, @unchecked Sendable {
+    let status: Int
+    let body: String
+
+    init(status: Int, body: String) {
+        self.status = status
+        self.body = body
+    }
+
+    func send(_ request: HTTPRequest, body: HTTPBody?, baseURL: URL, operationID: String) async throws -> (
+        HTTPResponse, HTTPBody?
+    ) {
+        var fields = HTTPFields()
+        fields[.contentType] = "application/json"
+        return (HTTPResponse(status: .init(code: status), headerFields: fields), HTTPBody(self.body))
     }
 }

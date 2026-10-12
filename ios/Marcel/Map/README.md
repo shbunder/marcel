@@ -22,6 +22,8 @@ map opens that room and sets it back to nil.
   updated 11:52", "yesterday", "Thu", "3 Oct"), a gold "1 needs you" badge, and a "Claude Code →" chip when the
   project links a Claude Code Project. Counts are the hub's (`Project.counts`). Opening the tab fetches
   `GET /projects` too, in case the stream has not brought them.
+- **The agent's name** on the map and in the rooms ("or just ask <name>", the composer, the notes and "Sent to …")
+  comes from the `agentName` environment value (MarcelItems), never a hard-coded "Marcel".
 - **"+ New"** opens the chat with "Start a new project: " in the composer: Marcel makes projects. It never overwrites
   what you were typing there (the app calls `ChatModel.propose`, which adds it after your words).
 - **A room** has the pinned board (an `ArtifactCard` with up to eight entries from `GET /artifacts/{id}/content`,

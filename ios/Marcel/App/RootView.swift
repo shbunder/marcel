@@ -108,6 +108,8 @@ struct MainTabs: View {
         }
         // An open quest view follows its transcript and approvals through the live stream's cache.
         .environment(\.liveEvents, connection.cache)
+        // Every tab and sheet says the agent's name as `GET /me` last gave it (Settings can rename it).
+        .environment(\.agentName, chat.agentName ?? AgentName.fallback)
         // "Ask about this" in any item viewer: the Chat tab, with the item on the next message.
         .environment(\.askInChat) { item in
             over = nil

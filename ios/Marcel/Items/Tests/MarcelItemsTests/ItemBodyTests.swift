@@ -175,11 +175,11 @@ final class ItemBodyTests: XCTestCase {
              "a table row has more cells than the table has columns"),
         ]
         for (json, reason) in cases {
-            XCTAssertEqual(problem(json), "This can't be drawn: \(reason). Ask Marcel to make it again.", json)
+            XCTAssertEqual(problem(json), "This can't be drawn: \(reason). Ask in Chat for it to be made again.", json)
         }
         let board = Fx.artifact(Fx.mockArtifact(Fx.boardId))
         XCTAssertEqual(ItemBody.make(board, contentType: nil, content: .loaded(Data("[1, 2]".utf8))),
-                       .brokenDashboard("This can't be drawn: a part has the wrong kind of value. Ask Marcel to make it again."))
+                       .brokenDashboard("This can't be drawn: a part has the wrong kind of value. Ask in Chat for it to be made again."))
     }
 
     func testTableCellsAndChartNumbersInWords() {

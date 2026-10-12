@@ -50,6 +50,10 @@ package's only screens. It depends on MarcelKit and PixelKit only, so Chat and M
   (`GET /me` once) with the item attached (`artifact_id`) and tagged with its project (`project_id`), and goes into the
   cache at once so Chat shows it. Only an older version than the current one is named in the text ("About version 2
   of this item."). A question that does not get through stays in the box.
+- **The agent's name** in the viewer's words ("Ask <name> about this…", "Sent to <name>.") comes from the `agentName`
+  environment value (`AgentName`, defined here so Chat and Map share it); the app sets it from `GET /me`.
+- **The action chips** (Ask about this, Pin to project, History) sit in rows that wrap (`ChipFlow`), as many per row
+  as fit.
 - **Pin to project** (wireframe 4B, B-31): a picker of the live (not archived) projects other than the item's own, by
   name. `POST /artifacts/{id}/move`; the answer goes into the cache at once, so the item moves in the Items tab and the
   rooms before `artifact.moved` confirms it. A board is not offered it (it stays with its project). The hub's 409s

@@ -36,10 +36,20 @@ public protocol ChatService {
 /// A failure said for the person holding the phone.
 public struct ChatError: Error, Equatable, LocalizedError {
     public var message: String
-    public init(_ message: String) { self.message = message }
+    /// The item attached to the message is gone from the hub (404 `artifact_not_found`): sending it again would fail
+    /// the same way, so the message is offered without it.
+    public var itemGone = false
+    public init(_ message: String, itemGone: Bool = false) {
+        self.message = message
+        self.itemGone = itemGone
+    }
     public var errorDescription: String? { message }
 
     static let unreachable = ChatError("Can't reach the hub right now.")
+    static let itemGone = ChatError(
+        "Not sent: the item you attached isn't on the hub any more. Tap the message to send it without the item.",
+        itemGone: true)
+    static let noConversation = ChatError("Not sent: the hub does not know this conversation.")
     static let unpaired = ChatError("The hub no longer accepts this phone. Pair it again.")
     static func unexpected(_ what: String) -> ChatError {
         ChatError("The hub answered something the app does not understand (\(what)).")
@@ -81,9 +91,9 @@ public struct LiveChatService: ChatService {
         switch output {
         case .created(let created): return try created.body.json
         case .unauthorized: throw ChatError.unpaired
-        case .notFound:
-            throw ChatError(attachment == nil ? "Not sent: the hub does not know this conversation."
-                            : "Not sent: the hub no longer has that item. Remove it and send again.")
+        case .notFound(let missing):
+            // Which thing is gone, by its code: the attached item, or the conversation itself.
+            throw (try? missing.body.json.code) == "artifact_not_found" ? ChatError.itemGone : ChatError.noConversation
         case .badRequest: throw ChatError("Not sent: the hub refused the message.")
         case .conflict: throw ChatError("Not sent: that thread has finished.")
         case .undocumented(let status, _): throw ChatError.unexpected("send, HTTP \(status)")

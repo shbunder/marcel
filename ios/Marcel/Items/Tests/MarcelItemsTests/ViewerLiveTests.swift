@@ -192,7 +192,7 @@ final class ViewerLiveTests: XCTestCase {
         XCTAssertEqual(hub.sent.first?.text, "Is Engie cheaper with solar?", "just the question")
         XCTAssertEqual(model.draft, "")
         XCTAssertFalse(model.asking)
-        XCTAssertEqual(model.sent, "Sent to Marcel. His answer comes in Chat.")
+        XCTAssertEqual(model.sent, "Sent to Marcel. The answer comes in Chat.")
 
         // The main chat shows it at once (it is in the cache the Chat tab reads).
         let messages = try fed.cache.container.mainContext.fetch(FetchDescriptor<CachedMessage>())

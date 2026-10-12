@@ -1,4 +1,5 @@
 import AvatarKit
+import MarcelItems
 import MarcelKit
 import PixelKit
 import SwiftUI
@@ -6,8 +7,8 @@ import SwiftUI
 /// What the top strip says: the giraffe's state, how many quests run and how many things need you. Worked out
 /// from the cached tasks, so it is right offline too and follows every `task.updated`.
 public struct ChatHeaderState: Equatable, Sendable {
-    /// The agent's name: "Marcel" until the hub says otherwise (Settings can rename it).
-    public var name: String = "Marcel"
+    /// The agent's name: `AgentName.fallback` until the hub says otherwise (Settings can rename it).
+    public var name: String = AgentName.fallback
     public var avatar: AvatarState
     public var running: Int
     public var needsYou: Int
@@ -16,7 +17,7 @@ public struct ChatHeaderState: Equatable, Sendable {
 
     public init(avatar: AvatarState = .idle, running: Int = 0, needsYou: Int = 0, offline: String? = nil,
                 name: String? = nil) {
-        self.name = name ?? "Marcel"
+        self.name = name ?? AgentName.fallback
         self.avatar = avatar
         self.running = running
         self.needsYou = needsYou
@@ -89,6 +90,4 @@ struct ChatAvatar: View {
 extension EnvironmentValues {
     /// Snapshot tests draw every avatar as its state's first frame, and the composer's field as plain text.
     @Entry public var chatStillAvatars = false
-    /// The agent's name on Marcel's dialogue boxes: "Marcel" until the hub says otherwise.
-    @Entry public var chatAgentName = "Marcel"
 }

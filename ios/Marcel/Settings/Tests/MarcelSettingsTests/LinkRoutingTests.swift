@@ -184,8 +184,11 @@ final class LinkRoutingTests: XCTestCase {
         XCTAssertEqual(hub.requests, ["GET /messages/msg_side", "GET /approvals/apr_done"],
                        "one read by id each; no list of approvals")
 
+        // An older hub: no message route (the hub's generic 404 `not_found`), and `/approvals/{id}` only takes POST
+        // (405 `method_not_allowed`). Neither means "gone".
         let old = FakeHub()
-        for route in ["GET /messages/msg_side", "GET /messages/msg_new", "GET /approvals/apr_engie"] { old[route] = nil }
+        for route in ["GET /messages/msg_side", "GET /messages/msg_new"] { old[route] = nil }
+        old["GET /approvals/apr_engie"] = (405, Fx.error("method_not_allowed", "That address does not take this kind of request."))
         let before = LinkRouter()
         await before.attach(try lookup(old))
         await before.handle(URL(string: "marcel://message/msg_side")!)

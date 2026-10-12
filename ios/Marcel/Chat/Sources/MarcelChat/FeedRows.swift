@@ -1,4 +1,5 @@
 import AvatarKit
+import MarcelItems
 import PixelKit
 import SwiftUI
 
@@ -100,7 +101,9 @@ struct UserBubble: View {
             case .sending:
                 PixelText("Sending…", role: .smallLabel).foregroundStyle(theme.muted.color)
             case .failed:
-                PixelText("Not sent · tap to try again", role: .smallLabel).foregroundStyle(theme.accent.color)
+                PixelText(line.itemGone ? "Item gone · tap to send without it" : "Not sent · tap to try again",
+                          role: .smallLabel)
+                    .foregroundStyle(theme.accent.color)
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -127,7 +130,7 @@ struct MarcelSays<Accessory: View>: View {
     static var indent: CGFloat { AvatarSize.small.points + PixelMetrics.steps(3) }
 
     /// The agent's name on the box, as the header says it.
-    @Environment(\.chatAgentName) private var agentName
+    @Environment(\.agentName) private var agentName
 
     init(text: String, links: [ChatMarkdown.Link] = [], @ViewBuilder accessory: () -> Accessory) {
         self.text = text

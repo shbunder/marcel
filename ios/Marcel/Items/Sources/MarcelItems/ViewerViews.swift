@@ -341,6 +341,7 @@ struct ViewerActions: View {
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.itemsStill) private var still
+    @Environment(\.agentName) private var agentName
 
     var body: some View {
         let theme = PixelTheme(scheme)
@@ -357,10 +358,8 @@ struct ViewerActions: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if asking { askBox(theme) }
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: PixelMetrics.steps(4)) { chips }
-                VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) { chips }
-            }
+            // As many chips per row as fit, the rest on the next row (three no longer fit one row on a phone).
+            ChipFlow(spacing: PixelMetrics.steps(4), lineSpacing: PixelMetrics.steps(3)) { chips }
         }
         .padding(.horizontal, ItemsMetrics.inset.leading)
         .padding(.top, PixelMetrics.steps(4))
@@ -375,7 +374,7 @@ struct ViewerActions: View {
     @ViewBuilder private var chips: some View {
         if !asking {
             ActionChip(title: "Ask about this", tone: .teal, action: toggleAsk)
-                .accessibilityHint("Asks Marcel a question about this item in Chat")
+                .accessibilityHint("Asks \(agentName) a question about this item in Chat")
         }
         if let pin {
             ActionChip(title: "Pin to project", tone: .gold, action: pin)
@@ -393,18 +392,18 @@ struct ViewerActions: View {
         let canSend = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !sending
         return HStack(alignment: .center, spacing: PixelMetrics.steps(3)) {
             if still {
-                PixelText(draft.isEmpty ? "Ask Marcel about this…" : draft, role: .body)
+                PixelText(draft.isEmpty ? "Ask \(agentName) about this…" : draft, role: .body)
                     .foregroundStyle((draft.isEmpty ? theme.muted : theme.text).color)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 TextField(text: $draft, axis: .vertical) {
-                    Text("Ask Marcel about this…").foregroundStyle(theme.muted.color)
+                    Text("Ask \(agentName) about this…").foregroundStyle(theme.muted.color)
                 }
                 .lineLimit(1...4)
                 .pixelText(.body)
                 .foregroundStyle(theme.text.color)
                 .tint(theme.accent.color)
-                .accessibilityLabel("Question for Marcel about this item")
+                .accessibilityLabel("Question for \(agentName) about this item")
             }
             Button(action: send) {
                 PixelGlyph(.pointer, color: canSend ? theme.accent : theme.muted, pixel: 3)
@@ -527,5 +526,55 @@ struct ViewerStill: View {
         }
         .background(PixelTheme(scheme).background.color)
         .environment(\.itemsStill, true)
+    }
+}
+
+/// Lays its views out left to right and starts a new row when the next one does not fit: the viewer's action chips.
+struct ChipFlow: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = rows(width: proposal.width ?? .infinity, subviews: subviews)
+        let width = rows.map(\.width).max() ?? 0
+        let height = rows.map(\.height).reduce(0, +) + lineSpacing * CGFloat(max(0, rows.count - 1))
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(width: bounds.width, subviews: subviews) {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: .init(size))
+                x += size.width + spacing
+            }
+            y += row.height + lineSpacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func rows(width: CGFloat, subviews: Subviews) -> [Row] {
+        var rows: [Row] = []
+        var row = Row()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let needed = row.indices.isEmpty ? size.width : row.width + spacing + size.width
+            if !row.indices.isEmpty, needed > width {
+                rows.append(row)
+                row = Row()
+            }
+            row.width = row.indices.isEmpty ? size.width : row.width + spacing + size.width
+            row.height = max(row.height, size.height)
+            row.indices.append(index)
+        }
+        if !row.indices.isEmpty { rows.append(row) }
+        return rows
     }
 }

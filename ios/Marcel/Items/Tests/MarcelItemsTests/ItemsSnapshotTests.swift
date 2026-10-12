@@ -122,7 +122,7 @@ final class ItemsSnapshotTests: XCTestCase {
                                     asking: true, draft: "Is Engie cheaper with solar?"),
                         named: "Viewer-ask", variants: [.light, .dark], padding: 0)
         Snapshot.assert(Self.viewer(Fx.mockArtifact(Fx.docId), content: Fx.mockHub("doc-v3.md"), history: 3,
-                                    sent: "Sent to Marcel. His answer comes in Chat."),
+                                    sent: "Sent to Marcel. The answer comes in Chat."),
                         named: "Viewer-sent", variants: [.light], padding: 0)
     }
 }

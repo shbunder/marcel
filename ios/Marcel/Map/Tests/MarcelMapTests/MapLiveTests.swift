@@ -40,7 +40,7 @@ final class MapLiveTests: XCTestCase {
         XCTAssertEqual(hub.sent.first?.conversationId, Fx.conversation, "to the main conversation, not a room's own")
         XCTAssertEqual(hub.sent.first?.projectId, "prj_energy", "tagged with the project (B-32)")
         XCTAssertEqual(model.drafts["prj_energy"], "")
-        XCTAssertEqual(model.sent["prj_energy"], "Sent to Marcel about Home energy. His answer comes in Chat.")
+        XCTAssertEqual(model.sent["prj_energy"], "Sent to Marcel about Home energy. The answer comes in Chat.")
 
         // The main chat shows it at once, tagged with the project.
         let chat = try FeedInput.read(from: fed.cache.container.mainContext, conversationId: Fx.conversation,

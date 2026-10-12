@@ -13,6 +13,8 @@ final class FakeService: ChatService {
     private(set) var answers: [(id: String, approve: Bool)] = []
     private(set) var approvalFetches = 0
     private(set) var sent: [(text: String, clientId: String, attachment: ItemAttachment?)] = []
+    /// Thrown by the next sends instead of storing them (until set back to nil).
+    var sendError: ChatError?
     /// The agent's name as `GET /me` gives it.
     var agentName = "Marcel"
     /// Holds a send until the test lets it go, to see the message while it is on its way.
@@ -39,6 +41,7 @@ final class FakeService: ChatService {
         sent.append((text, clientId, attachment))
         if holdSends { await withCheckedContinuation { held.append($0) } }
         if failing { throw ChatError("Not sent: can't reach the hub. Tap the message to try again.") }
+        if let sendError { throw sendError }
         var extra: [String: Any] = ["client_id": clientId]
         if let attachment { extra["artifact_id"] = attachment.artifactId; extra["project_id"] = attachment.projectId }
         return Fx.decode(Fx.message("msg_\(clientId)", at: 100, role: "user", text: text, extra: extra))

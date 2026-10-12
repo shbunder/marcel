@@ -34,6 +34,8 @@ public struct ChatScreen: View {
                     }
                 }
         }
+        // Every screen the chat opens says the agent's name as the hub last said it.
+        .environment(\.agentName, model.agentName ?? AgentName.fallback)
         // "Ask about this" in a viewer opened from the chat: back to the feed, with the item on the next message.
         .environment(\.askInChat) { item in
             model.attach(item)
@@ -120,7 +122,8 @@ struct LiveFeed: View {
                     .padding(.top, PixelMetrics.steps(2))
             }
             Composer(text: $model.draft,
-                     placeholder: Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(items)),
+                     placeholder: Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(items),
+                                                      name: header.name),
                      focused: $typing) {
                 Task { await model.send() }
             }
@@ -176,7 +179,7 @@ struct LiveFeed: View {
                 }
             }
         }
-        .environment(\.chatAgentName, header.name)
+        .environment(\.agentName, header.name)
         .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: collapsed)
         // Approvals are not in the cache: fetch them when one shows up or its task moves on.
         .task(id: Self.approvalKey(input)) { await model.reconcile(input) }
@@ -234,6 +237,8 @@ enum FeedMetrics {
 public struct AvatarLinks {
     public var notebook: (() -> Void)?
     public var settings: (() -> Void)?
+    /// The agent's name, for "<name>'s notebook" (the header sets it).
+    public var agentName = AgentName.fallback
 
     public init(notebook: (() -> Void)? = nil, settings: (() -> Void)? = nil) {
         self.notebook = notebook
@@ -242,7 +247,7 @@ public struct AvatarLinks {
 
     /// The named actions, in menu order.
     public var actions: [(name: String, run: () -> Void)] {
-        [notebook.map { ("Marcel's notebook", $0) }, settings.map { ("Settings", $0) }].compactMap { $0 }
+        [notebook.map { ("\(agentName)'s notebook", $0) }, settings.map { ("Settings", $0) }].compactMap { $0 }
     }
 
     /// "Opens Marcel's notebook or Settings".
@@ -252,6 +257,13 @@ public struct AvatarLinks {
 }
 
 struct ChatLayout<Feed: View, ComposerView: View>: View {
+    /// The header's links, saying the agent's name ("<name>'s notebook").
+    private var named: AvatarLinks {
+        var links = avatar
+        links.agentName = header.name
+        return links
+    }
+
     var header: ChatHeaderState
     var collapsed: Bool
     var problem: String?
@@ -275,6 +287,7 @@ struct ChatLayout<Feed: View, ComposerView: View>: View {
 
     var body: some View {
         let theme = PixelTheme(scheme)
+        let avatar = named
         let links = avatar.actions
         VStack(spacing: 0) {
             if !links.isEmpty {

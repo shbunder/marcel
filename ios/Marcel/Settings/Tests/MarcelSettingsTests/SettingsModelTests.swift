@@ -97,6 +97,8 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertNil(model.nameToSave)
     }
 
+    /// Review fix: the real hub answers a route it does not serve with 404 `not_found`, which the contract's 404 decodes;
+    /// that is "not available yet", not "the hub no longer has that".
     func testRenamingOnAHubThatCannotYet() async {
         let model = await loaded()
         model.name = "Marcella"

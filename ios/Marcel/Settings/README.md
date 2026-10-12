@@ -21,8 +21,11 @@ app (`ios/Marcel/App/RootView.swift`) shows the quest view, the artifact viewer,
 
 Each section loads and fails on its own. A hub that answers **404, 405 or 501** for a route the contract has (schedules
 before S-09.1, usage before S-10.1, renaming the agent) shows "Not available yet" in that section; the rest still work.
-FastAPI's bare 404 (`{"detail": "Not Found"}`) does not decode as the contract's `Error`; that is read as "not built yet"
-too (`LiveSettingsService.call`).
+The hub answers a route it does not serve with 404 and its generic code `not_found` (405 `method_not_allowed` for a
+method it does not take on that path). Where the contract lists a 404, that body decodes as the contract's `Error`, so
+the code decides: `not_found` is "not built yet", a specific code (`device_not_found`, `message_not_found`, …) means
+the thing is gone (`SettingsError.missing`). A bare 404 that does not decode is read as "not built yet" too
+(`LiveSettingsService.call`).
 
 **ntfy topic.** Made once per phone (`NtfyTopicStore`): `marcel-` and 24 random lower-case letters and digits. Anyone
 who knows a topic can read what is sent to it, so it is random, the screen says to keep it private, **Copy** puts it on
@@ -52,8 +55,8 @@ needs no token, so "Couldn't reach the hub" means the hub or the tunnel is down.
 | `marcel://artifact/<id>` | the item viewer |
 | `marcel://status` | the status screen |
 
-A message or approval the hub answers 404 for says so in plain words. A hub from before app API 0.5 has neither read
-(a bare 404): the router then falls back to what it did before, the cache for a message (else the chat) and
+A message or approval the hub answers 404 `message_not_found` / `approval_not_found` for says so in plain words. A hub
+from before app API 0.5 has neither read (404 `not_found`, or 405 for `GET /approvals/{id}`): the router then falls back to what it did before, the cache for a message (else the chat) and
 `GET /approvals` for an approval.
 
 Every link is untrusted (anything on the phone can open one): only the `marcel` scheme, one id of `[A-Za-z0-9_-]`

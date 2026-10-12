@@ -21,6 +21,7 @@ public struct ArtifactViewer: View {
     @State private var showingHistory = false
     @State private var choosingProject = false
     @Environment(\.askInChat) private var askInChat
+    @Environment(\.agentName) private var agentName
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
@@ -54,7 +55,9 @@ public struct ArtifactViewer: View {
         .onAppear {
             if model.cache == nil { model.cache = MarcelCache(container: context.container) }
             if model.service == nil { model.service = LiveItemsService.paired() }
+            model.agentName = agentName
         }
+        .onChange(of: agentName) { _, name in model.agentName = name }
         .task { if rows.isEmpty { await model.fetch(id: artifactId) } }
     }
 

@@ -1,3 +1,4 @@
+import MarcelItems
 import PixelKit
 import SwiftUI
 
@@ -26,10 +27,11 @@ struct ChatStill: View {
                     .padding(.top, PixelMetrics.steps(2))
             }
             Composer(text: .constant(draft),
-                     placeholder: Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(items)),
+                     placeholder: Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(items),
+                                                      name: header.name),
                      focused: nil, send: {})
             PixelTabBar(selection: .constant("chat"))
         }
-        .environment(\.chatAgentName, header.name)
+        .environment(\.agentName, header.name)
     }
 }

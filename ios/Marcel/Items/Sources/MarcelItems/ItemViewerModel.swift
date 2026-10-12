@@ -70,7 +70,7 @@ public final class ItemViewerModel {
     public var draft = ""
     /// Whether the question box is open.
     public var asking = false
-    /// A plain note after something got through: "Sent to Marcel…" after a question, "Pinned to …" after a pin.
+    /// A plain note after something got through: "Sent to <agent>…" after a question, "Pinned to …" after a pin.
     public private(set) var sent: String?
     /// True while a pin is on its way.
     public private(set) var pinning = false
@@ -83,6 +83,8 @@ public final class ItemViewerModel {
     @ObservationIgnored public var service: (any ItemsService)?
     @ObservationIgnored public var cache: MarcelCache?
     @ObservationIgnored public var conversationId: String?
+    /// The agent's name for the notes it writes (the viewer sets it from the environment).
+    @ObservationIgnored public var agentName = AgentName.fallback
 
     public init(service: (any ItemsService)? = nil, cache: MarcelCache? = nil, conversationId: String? = nil) {
         self.service = service
@@ -201,7 +203,7 @@ public final class ItemViewerModel {
             try cache?.save()
             if draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { draft = "" }
             asking = false
-            sent = "Sent to Marcel. His answer comes in Chat."
+            sent = "Sent to \(agentName). The answer comes in Chat."
         } catch {
             // The text stays in the box, so trying again is one tap.
             problem = "Not sent. " + ItemsError.words(for: error)

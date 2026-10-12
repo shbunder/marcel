@@ -99,11 +99,16 @@ public final class ChatModel {
         }
     }
 
-    /// Sends a message that did not get through again, with the same client id (the hub keeps one copy).
+    /// Sends a message that did not get through again, with the same client id (the hub keeps one copy). One whose
+    /// attached item is gone from the hub goes without the item: with it, it would fail the same way every time.
     public func retry(clientId: String) async {
         guard let index = local.pending.firstIndex(where: { $0.clientId == clientId }), local.pending[index].failed
         else { return }
         local.pending[index].failed = false
+        if local.pending[index].itemGone {
+            local.pending[index].attachment = nil
+            local.pending[index].itemGone = false
+        }
         await deliver(clientId)
     }
 
@@ -131,6 +136,10 @@ public final class ChatModel {
             problem = nil
         } catch {
             mark(clientId, failed: true)
+            if (error as? ChatError)?.itemGone == true,
+               let index = local.pending.firstIndex(where: { $0.clientId == clientId }) {
+                local.pending[index].itemGone = true
+            }
             problem = Self.say(error)
         }
     }

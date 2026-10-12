@@ -157,7 +157,8 @@ public final class SettingsModel {
             problem = nil
         } catch {
             problem = (error as? SettingsError) == .notAvailableYet
-                ? "Not available yet: this hub can't rename Marcel yet." : SettingsError.words(for: error)
+                ? "Not available yet: this hub can't rename \(agent?.name ?? "the agent") yet."
+                : SettingsError.words(for: error)
         }
     }
 

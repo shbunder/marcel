@@ -21,6 +21,7 @@ public struct MapView: View {
     @State private var navigation = MapNavigation()
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.agentName) private var agentName
     private let newProject: (String) -> Void
     /// A project room to open (a `marcel://project/<slug>` link); cleared once it is open.
     @Binding private var opening: String?
@@ -60,7 +61,9 @@ public struct MapView: View {
         .onAppear {
             if model.cache == nil { model.cache = MarcelCache(container: context.container) }
             if model.service == nil { model.service = LiveProjectService.paired() }
+            model.agentName = agentName
         }
+        .onChange(of: agentName) { _, name in model.agentName = name }
         .task { await model.refreshProjects() }
         .onChange(of: opening, initial: true) { _, projectId in
             guard let projectId else { return }

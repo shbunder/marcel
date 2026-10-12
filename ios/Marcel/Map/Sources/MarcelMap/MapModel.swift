@@ -1,5 +1,6 @@
 import Foundation
 import MarcelChat
+import MarcelItems
 import MarcelKit
 import Observation
 
@@ -29,7 +30,7 @@ public final class MapModel {
     public var problem: String?
     /// What you are typing, per project room.
     public var drafts: [String: String] = [:]
-    /// "Sent to Marcel…" after a room's message got through, per project.
+    /// "Sent to <agent>…" after a room's message got through, per project.
     public private(set) var sent: [String: String] = [:]
     /// Rooms with a message on its way.
     public private(set) var sending: Set<String> = []
@@ -44,6 +45,8 @@ public final class MapModel {
     @ObservationIgnored public var cache: MarcelCache?
     /// The main conversation, once the hub has said which it is (or remembered from the chat).
     @ObservationIgnored public var conversationId: String?
+    /// The agent's name for the notes the room writes (the map sets it from the environment).
+    @ObservationIgnored public var agentName = AgentName.fallback
 
     public init(service: (any ProjectService)? = nil, cache: MarcelCache? = nil, conversationId: String? = nil) {
         self.service = service
@@ -135,7 +138,7 @@ public final class MapModel {
             try cache?.upsert(message)
             try cache?.save()
             if drafts[projectId]?.trimmingCharacters(in: .whitespacesAndNewlines) == text { drafts[projectId] = "" }
-            sent[projectId] = "Sent to Marcel about \(projectName). His answer comes in Chat."
+            sent[projectId] = "Sent to \(agentName) about \(projectName). The answer comes in Chat."
         } catch {
             // The text stays in the box, so trying again is one tap.
             problem = "Not sent. " + MapError.words(for: error)

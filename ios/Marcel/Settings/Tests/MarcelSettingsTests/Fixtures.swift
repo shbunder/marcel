@@ -95,7 +95,7 @@ enum Fx {
 }
 
 /// A hub that answers the contract's routes from a table, through the real generated client. Unknown routes answer
-/// as an unbuilt FastAPI route does: a bare 404 `{"detail": "Not Found"}`.
+/// as the real hub answers a route it does not serve: 404 with its generic `not_found` error (`hub/…/auth/errors.py`).
 final class FakeHub: ClientTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var table: [String: (Int, String)] = [:]
@@ -153,7 +153,7 @@ final class FakeHub: ClientTransport, @unchecked Sendable {
             return table[route]
         }
         if offline { throw URLError(.notConnectedToInternet) }
-        let (status, json) = answer ?? (404, #"{"detail":"Not Found"}"#)
+        let (status, json) = answer ?? (404, Fx.error("not_found", "There is nothing at that address."))
         var fields = HTTPFields()
         fields[.contentType] = "application/json"
         return (HTTPResponse(status: .init(code: status), headerFields: fields), json.isEmpty ? nil : HTTPBody(json))

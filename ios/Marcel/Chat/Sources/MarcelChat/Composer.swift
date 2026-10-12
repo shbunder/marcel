@@ -1,3 +1,4 @@
+import MarcelItems
 import PixelKit
 import SwiftUI
 
@@ -20,9 +21,10 @@ public struct Composer: View {
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.chatStillAvatars) private var still
+    @Environment(\.agentName) private var agentName
 
-    static func placeholder(questionWaiting: Bool) -> String {
-        questionWaiting ? "Or say something…" : "Talk to Marcel…"
+    static func placeholder(questionWaiting: Bool, name: String) -> String {
+        questionWaiting ? "Or say something…" : "Talk to \(name)…"
     }
 
     private var canSend: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -68,7 +70,7 @@ public struct Composer: View {
         .pixelText(.body)
         .foregroundStyle(theme.text.color)
         .tint(theme.accent.color)
-        .accessibilityLabel("Message to Marcel")
+        .accessibilityLabel("Message to \(agentName)")
         if let focused {
             base.focused(focused)
         } else {

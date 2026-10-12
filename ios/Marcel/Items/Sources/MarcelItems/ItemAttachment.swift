@@ -20,7 +20,15 @@ public struct ItemAttachment: Hashable, Sendable {
     }
 }
 
+/// The agent's name as the screens say it. Settings can rename the agent, so no screen hard-codes it: the app puts
+/// the name from `GET /me` in the environment (`agentName`), and `fallback` stands in until the hub has said.
+public enum AgentName {
+    public static let fallback = "Marcel"
+}
+
 extension EnvironmentValues {
+    /// The agent's name on every screen (Chat, Items, Map). The app sets it from `GET /me`.
+    @Entry public var agentName = AgentName.fallback
     /// "Ask about this" in the viewer: opens Chat with the item attached. The app sets it (and the Chat tab for the
     /// viewers it opens itself). Without it, the viewer asks in its own question box.
     @Entry public var askInChat: ((ItemAttachment) -> Void)?

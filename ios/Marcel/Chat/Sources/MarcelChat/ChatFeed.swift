@@ -49,6 +49,8 @@ public struct UserLine: Equatable, Sendable {
     public var tone: ProjectChip.Tone = .teal
     /// The title of the item attached to it ("Ask about this", `artifact_id`), drawn under the message.
     public var attachment: String?
+    /// Not sent because the attached item is gone from the hub: a tap sends it without the item.
+    public var itemGone = false
 
     public init(id: String, text: String, status: Status = .sent, clientId: String? = nil, project: String? = nil,
                 tone: ProjectChip.Tone = .teal, attachment: String? = nil) {
@@ -67,6 +69,8 @@ public struct UserLine: Equatable, Sendable {
         return switch status {
         case .sent: "You said\(about): \(text)"
         case .sending: "Sending\(about): \(text)"
+        case .failed where itemGone:
+            "Not sent\(about): \(text). The item is gone from the hub. Double-tap to send it without the item."
         case .failed: "Not sent\(about): \(text). Double-tap to try again."
         }
     }
@@ -81,6 +85,8 @@ public struct PendingMessage: Equatable, Sendable {
     public var stored = false
     /// The item going with it.
     public var attachment: ItemAttachment?
+    /// The hub said the item is gone (404 `artifact_not_found`): a retry goes without it.
+    public var itemGone = false
 
     public init(clientId: String, text: String, failed: Bool, stored: Bool = false, attachment: ItemAttachment? = nil) {
         self.clientId = clientId
@@ -236,9 +242,11 @@ public enum ChatFeed {
         // Your messages on their way go last, until the hub's copy (same client id) arrives.
         let arrived = Set(input.messages.compactMap(\.clientId))
         for message in local.pending where !arrived.contains(message.clientId) {
-            items.append(.user(UserLine(id: "pending-\(message.clientId)", text: message.text,
-                                        status: message.failed ? .failed : message.stored ? .sent : .sending,
-                                        clientId: message.clientId, attachment: message.attachment?.title)))
+            var line = UserLine(id: "pending-\(message.clientId)", text: message.text,
+                                status: message.failed ? .failed : message.stored ? .sent : .sending,
+                                clientId: message.clientId, attachment: message.attachment?.title)
+            line.itemGone = message.itemGone
+            items.append(.user(line))
         }
         return items
     }
