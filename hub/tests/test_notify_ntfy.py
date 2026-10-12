@@ -1,7 +1,9 @@
 """The ntfy backend: what it posts, how it fails, and that a topic never reaches a log."""
 
+import asyncio
 import logging
 
+import httpx
 import pytest
 from sqlalchemy.engine import Engine
 from test_notify_fakes import NTFY, TOPIC, FakeNtfy, add_device, pusher_for
@@ -9,6 +11,7 @@ from test_tasks_fakes import add_agent, put_task, run
 
 from marcel_hub.models import Device, TaskState
 from marcel_hub.notify import NtfyNotifier, PushFailed, PushNotification
+from marcel_hub.notify.backends import SEND_TIMEOUT
 
 APPROVAL = PushNotification(
     title='Marcel needs your OK',
@@ -109,3 +112,32 @@ def test_a_topic_is_never_logged(
     assert all(TOPIC not in r.getMessage() for r in caplog.records)
     assert all(TOPIC not in str(r.exc_info) for r in caplog.records)
     assert 'dev_phone' in caplog.text  # logs name the device instead
+
+
+def test_the_post_has_a_timeout_and_a_slow_server_is_given_up(
+    engine: Engine, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    seen: list[dict] = []
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        seen.append(request.extensions['timeout'])
+        raise httpx.ReadTimeout('', request=request)
+
+    add_agent(engine)
+    add_device(engine)
+    notifier = NtfyNotifier(NTFY)  # the client the hub builds itself, with its own timeout
+    notifier.client._transport = httpx.MockTransport(slow)  # type: ignore[attr-defined]
+    pusher = pusher_for(engine, notifier)
+    task = put_task(engine, TaskState.done)
+
+    async def go() -> None:
+        pusher.on_state(task, 'done')
+        await asyncio.wait_for(pusher.wait(), timeout=2)
+        await pusher.aclose()
+
+    run(go())
+    assert len(seen) == 3  # three tries, then given up
+    assert all(t['read'] == SEND_TIMEOUT and t['connect'] == SEND_TIMEOUT for t in seen)
+    assert f'did not answer within {SEND_TIMEOUT:g} s' in caplog.text
+    assert '()' not in caplog.text

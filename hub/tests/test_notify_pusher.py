@@ -231,6 +231,25 @@ def test_the_nuc_coming_back_replaces_the_alert(engine: Engine, task: str) -> No
     ]
 
 
+def test_a_second_outage_after_the_all_clear_is_pushed_again(engine: Engine, task: str) -> None:
+    notifier = RecordingNotifier()
+    clock = Clock()
+    pusher = pusher_for(engine, notifier, clock=clock)
+    down = ('runner_unreachable', 'Marcel cannot reach the NUC', 'It keeps trying.')
+    drive(pusher, lambda: pusher.broke(*down))
+    clock.now += 60
+    drive(pusher, lambda: pusher.resolved('runner_unreachable'))
+    clock.now += 300  # down again five minutes later, well inside the hour
+    drive(pusher, lambda: pusher.broke(*down))
+    drive(pusher, lambda: pusher.resolved('runner_unreachable'))
+    assert [n.title for _, n in notifier.sent] == [
+        'Marcel cannot reach the NUC',
+        'The NUC is back',
+        'Marcel cannot reach the NUC',
+        'The NUC is back',
+    ]
+
+
 def test_a_cause_without_an_all_clear_is_quiet(engine: Engine, task: str) -> None:
     notifier = RecordingNotifier()
     pusher = pusher_for(engine, notifier)

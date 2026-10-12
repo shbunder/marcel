@@ -81,8 +81,13 @@ class NtfyNotifier:
             res = await self.client.post(
                 self.server + '/', json=self.payload(device.ntfy_topic, notification)
             )
-        except httpx.HTTPError as exc:  # the server is down, slow or unreachable
-            raise PushFailed(f'The ntfy server {self.server} did not answer ({exc}).') from None
+        except httpx.TimeoutException:
+            raise PushFailed(
+                f'The ntfy server {self.server} did not answer within {SEND_TIMEOUT:g} s.'
+            ) from None
+        except httpx.HTTPError as exc:  # the server is down or unreachable
+            why = str(exc) or type(exc).__name__
+            raise PushFailed(f'The ntfy server {self.server} did not answer ({why}).') from None
         if res.status_code >= 400:
             # 429 and 5xx may pass; any other 4xx is a request ntfy will refuse again.
             retry = res.status_code == 429 or res.status_code >= 500

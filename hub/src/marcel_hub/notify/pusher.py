@@ -151,6 +151,8 @@ class Pusher:
                 return
             title, body = FIXED[cause]
             self.push(routing.for_fixed(cause, title, body, link), None)
+            # The phone now says it is fixed: the next outage is pushed, even within the hour.
+            self._broke_sent.pop(cause, None)
         except Exception:
             log.exception('Could not push the all-clear for %s.', cause)
 
@@ -222,7 +224,7 @@ class Pusher:
                 await notifier.send(device, n)
             except PushFailed as exc:
                 if exc.retry and attempt + 1 < tries:
-                    log.info('A push to device %s failed (%s). Trying again.', device.id, exc)
+                    log.info('A push to device %s failed: %s Trying again.', device.id, exc)
                     await self.sleep(self.retry_delays[attempt])
                     continue
                 log.warning(
