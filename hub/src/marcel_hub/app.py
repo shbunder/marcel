@@ -18,7 +18,7 @@ from fastapi import APIRouter, FastAPI, Request
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from marcel_hub import __version__, auth, conversations, db, tasks, ws
+from marcel_hub import __version__, auth, channel, conversations, db, tasks, ws
 from marcel_hub.runner_client import DEFAULT_SOCKET, OffsetStore, RunnerClient, RunnerWatch
 
 DEFAULT_CONFIG_PATH = Path('/data/marcel.toml')
@@ -151,7 +151,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.runner_sock
         else None
     )
-    registry = tasks.install(app, runner=client)
+    # The channel gateway (S-04.6) is the registry's Outbox, and follows its events to expire or
+    # settle approval cards.
+    gateway = channel.create(app, settings.data_dir)
+    registry = tasks.install(
+        app, runner=client, outbox=gateway.outbox, publisher=gateway.task_publisher()
+    )
     watch = (
         RunnerWatch(
             client, registry, offsets=OffsetStore(settings.data_dir / 'runner-offsets.json')
@@ -162,6 +167,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.runner_watch = watch
     ws.install(app)
     app.include_router(conversations.router)
+    channel.install(app, gateway, registry, watch)
     return app
 
 

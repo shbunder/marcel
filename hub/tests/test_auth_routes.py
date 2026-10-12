@@ -20,6 +20,10 @@ from marcel_hub.auth import tokens
 
 # The contract's public operations: `security: []` on /health and /pair.
 PUBLIC = {('GET', '/api/health'), ('POST', '/api/pair')}
+# The channel gateway's socket (S-04.6) takes no device token: a session proves itself with the hub
+# secret in its hello (tests/test_channel_gateway.py). It is outside /api, so the tunnel never
+# forwards it.
+SESSION_SOCKETS = {'/channel'}
 
 
 def unprotected_routes(app: FastAPI) -> list[str]:
@@ -32,6 +36,8 @@ def unprotected_routes(app: FastAPI) -> list[str]:
             path = str(route.path or getattr(route.original_route, 'path', ''))
             url = re.sub(r'\{[^}]+\}', 'x', path)
             if isinstance(route.original_route, APIWebSocketRoute):
+                if path in SESSION_SOCKETS:
+                    continue
                 leaks += socket_leaks(client, path, url)
                 continue
             if not isinstance(route.original_route, APIRoute):

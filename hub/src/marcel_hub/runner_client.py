@@ -566,6 +566,13 @@ class _Tail:
     job: asyncio.Task[None]
 
 
+class SessionListener(Protocol):
+    """Told about every task session's state after the task was updated (the channel gateway uses
+    it to see a permission prompt answered in a terminal)."""
+
+    async def on_session(self, task_id: str, session: dict[str, Any]) -> None: ...
+
+
 class RunnerWatch:
     """Follows the runner's event stream and the transcript of every task session."""
 
@@ -592,6 +599,7 @@ class RunnerWatch:
         self.last_seq: int | None = None
         self._tails: dict[str, _Tail] = {}
         self._job: asyncio.Task[None] | None = None
+        self.listeners: list[SessionListener] = []
 
     # Lifecycle --------------------------------------------------------------------------------
 
@@ -712,6 +720,8 @@ class RunnerWatch:
         usage = await self.client.usage() if is_usage_limit(session) else None
         task = await self._report(task.id, map_session(session, usage))
         self._tail(task.id, session['id'], follow=task.state not in FINISHED_SESSION)
+        for listener in self.listeners:
+            await listener.on_session(task.id, session)
 
     def _task_for(self, session_id: str) -> Task | None:
         with Session(self.registry.engine) as s:

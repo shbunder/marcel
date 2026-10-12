@@ -95,6 +95,9 @@ class EventLog:
         self.lock = threading.RLock()
         self._listeners: dict[str, set[Listener]] = {}
         self.pause: Callable[[str], None] = lambda _step: None
+        # Called with (user_id, type, data) after each event is stored and sent, still under the
+        # lock. The channel gateway uses it to hand new user messages to the brain's session.
+        self.observers: list[Callable[[str, str, dict[str, Any]], None]] = []
 
     def publish(self, session: Session, user_id: str, type_: str, data: dict[str, Any]) -> Frame:
         """Store the event and commit `session` (with whatever the caller added to it), then send
@@ -118,6 +121,8 @@ class EventLog:
             for listener in list(listeners):
                 if not listener.push(frame):
                     listeners.discard(listener)
+            for observe in self.observers:
+                observe(user_id, type_, data)
             return frame
 
     def subscribe(

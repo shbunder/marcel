@@ -2,7 +2,7 @@
 
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, the task
-routes, conversations and the live event stream.
+routes, conversations, the live event stream, the channel gateway and approvals.
 
 ## Run
 
@@ -156,7 +156,8 @@ cut off before its next event.
   listed only with `archived=true`.
 - **Hand-back** records a `note` and puts a `handback` event for Marcel's brain in the outbox.
 
-Not wired yet: the channel gateway. Until it exists, steer and hand-back messages wait in memory.
+Steer and hand-back messages go to the channel gateway's Outbox (below), which delivers them to
+the session.
 
 ## Runner
 
@@ -181,3 +182,60 @@ background watcher follows the runner's streams:
   cleared, each task takes the state the runner reports, and queued tasks start if there is room.
 - **Bad input.** An event that does not match the contract is logged (`Ignored a bad runner event`)
   and dropped; the stream carries on.
+
+## Channel gateway: `/channel` and approvals
+
+Every Claude Code session on the NUC (the brain, a side thread, a worker) holds one WebSocket to
+`ws://127.0.0.1:7420/channel` through the marcel plugin's channel server
+(`contracts/channel-protocol.md`, `docs/channel-server.md`). The code is in
+`src/marcel_hub/channel/`.
+
+- **Outside `/api`.** The Cloudflare tunnel forwards only `/api/*`, so the channel is reachable
+  from the NUC alone. It takes no device token.
+- **Hub secret.** The hub reads it from `<data_dir>/hub-secret` (at least 32 characters; deploy
+  writes the same value to the plugin's `hub-secret`). A session with another secret is rejected
+  `bad_secret`. With no secret file, every session is. Either raises one "something broke" alert
+  (logged until the notifier, S-08.1, exists).
+- **Who a session is.** Only a session id the runner reported: a NUC task's `session_id` (role
+  `worker`, or `adopted`) or a conversation's `brain_session_id` (`brain` for the main
+  conversation, `side` for a side thread). Anything else is rejected `unknown_session`; the
+  server retries for two minutes. A plugin older than 0.1.0 is rejected `plugin_too_old`.
+- **A session acts only for itself.** A worker's `report` lands on its own task; a brain's or side
+  thread's `reply` in its own conversation. A worker's `reply`, a brain's `report` and a brain's
+  permission request are dropped and logged. A session can never answer a prompt.
+- **Calls.** Each stored `reply` or `report` is answered `call_ack`; a repeated `call_id` is not
+  stored again and is acked with `duplicate: true`. A call the hub fails to store is not acked, so
+  the server sends it again after a reconnect.
+- **Reports.** `started` and `progress` become `progress` task events (and move the task to
+  `working`); artifacts are stored (the row only, until S-04.7 copies files) with an `artifact`
+  event; `done` and `failed` set the summary and the state. `started`, `done` and `failed` post a
+  milestone in the main conversation. A report the state machine does not allow (for a task you
+  stopped) is stored but changes no state.
+- **Outbox.** Frames for a session (user messages, steers, hand-backs, permission decisions) are
+  numbered per task or conversation and kept in the database until the session acks them, so a
+  session that is offline, or a task still `queued`, gets them after its hello, in order, and a
+  restart loses nothing. The hub sends from the database a page at a time; a session that stops
+  reading costs nothing but memory for one flag. A newer socket for the same session replaces the
+  old one. A socket gets 15 s to say hello, and a frame over 256 KB closes it.
+- **Owner messages.** A message you send in the main conversation, or in a side thread, goes to
+  that conversation's session. A thread that belongs to a task is left to the task threads
+  (S-04.9).
+
+### Approvals
+
+A worker's permission prompt becomes an approval card: the task goes to `needs_you`, a
+`permission` task event, an `approval` message in the main conversation, `approval.created` on
+the phone, and a push (logged until S-08.1). The same `request_id` on the same task never opens a
+second card, whatever state the card is in.
+
+- `GET /api/approvals?state=` lists your cards, open ones first.
+- `POST /api/approvals/{id}` with `{"decision": "approve" | "deny", "note"?}` answers a card and
+  sends the session its `permission_decision`. A denial's note follows as a `steer`. Only the
+  owner of the task's agent sees or answers a card (404 for anyone else). A card that is no
+  longer open answers 409 with the card as it stands.
+- **Answered in a terminal.** When the runner shows the session left the permission prompt and the
+  transcript has the tool's result, the card becomes `approved` (or `denied`, when the result says
+  `denied: true`) with `answered_via: terminal`. The first answer wins, from the app or the
+  terminal.
+- **Expired.** When a task stops or fails with an open card, the card becomes `expired`.
+- Every change to a card sends `approval.resolved`.
