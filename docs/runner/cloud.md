@@ -42,9 +42,12 @@ reads the last JSON line of the output (a warning may come first).
 - **The link** is only handed back when it is `https://claude.ai/code/<that session id>`: https,
   host `claude.ai`, no user or port, nothing after the id but a query. The query
   (`?from=cli&m=0`) is dropped. The ack must also name the session the message was sent to.
-- **The pty child** runs in its own process group. When it runs past the timeout the whole group is
-  killed, and the child is always waited for and both pty ends closed, so no zombie or open file
-  is left behind. The runner reads at most 1 MB of its output.
+- **The child** (create and send alike) runs in its own process group. The runner stops reading
+  once `claude` has exited and its output has gone quiet, even if a helper it left still holds the
+  terminal or pipe open. Then, every time, the whole group is killed, `claude` is reaped and the
+  pty or pipe closed, so no zombie, stray helper or open file is left behind.
+- **Output size:** at most 1 MiB is read. On create the rest is dropped (the create line comes
+  first). On send more than 1 MiB is an error (`cloud_send_failed`): a receipt is one short line.
 
 ## Errors
 
@@ -54,7 +57,7 @@ All are `Error` bodies with a `message` a person can act on.
 |---|---|---|
 | 400 | `bad_request` | The body is not `{prompt}` / `{text}` with a non-empty string, or the session id is malformed. |
 | 422 | `cloud_unparsed` | Create printed no session id and claude.ai link, exited with an error, could not run, or ran past 60 s. |
-| 422 | `cloud_send_failed` | Send exited with an error, printed no ack, said `ok: false`, acked another session or link, or ran past 60 s. |
+| 422 | `cloud_send_failed` | Send exited with an error, printed no ack, said `ok: false`, acked another session or link, printed more than 1 MiB, or ran past 60 s. |
 
 When Claude printed something, the `message` ends with `Claude said: <output>` and `detail` holds
 the same output. That output has its terminal escapes and control characters removed, is cut to
@@ -65,6 +68,11 @@ A create that timed out may still have made the session: the message says to loo
 claude.ai/code before trying again.
 
 ## Not covered
+
+- **Only proven against the fake claude.** The runner runs `claude --cloud -- "<prompt>"` on a pty
+  from `subprocess.Popen`, and `claude -p --cloud <id> --output-format json -- "<text>"`. SP3 ran
+  the create *without* `--` and under `pty.fork`. Before F07 relies on cloud tasks, run one real
+  create and one real send on the NUC (see `project/lessons/runner-cloud.md` for what to compare).
 
 - The request has no `cwd` or repo. The runner creates the session from its home folder; which repo
   a cloud session gets from that was not recorded in SP3 (it was run from the marcel checkout).

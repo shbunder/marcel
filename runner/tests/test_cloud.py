@@ -476,3 +476,70 @@ class CloudRig(Rig):
         )
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
         return self.sessions
+
+
+# --- review fixes ---------------------------------------------------------------------------
+
+HELPER = (
+    'import subprocess\n'
+    'h = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])\n'
+    'open(pidfile, "a").write(f"{h.pid}\\n")\n'
+)
+
+
+def wait_gone(pid: int, within: float = 5.0) -> bool:
+    """A killed grandchild is reaped by init, a moment later."""
+    deadline = time.monotonic() + within
+    while not gone(pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return gone(pid)
+
+
+def test_spawn_does_not_wait_for_a_helper_that_holds_the_pty(tmp_path: Path) -> None:
+    # claude prints its line and exits, but leaves a helper with the pty open: no EOF comes.
+    line = f'Created cloud session: T View: https://claude.ai/code/{RECORDED_ID} Resume with: x'
+    claude = script(tmp_path, HELPER + f'print({line!r}, flush=True)\n')
+    started = time.monotonic()
+    out = Cloud(claude, tmp_path, spawn_timeout=30).spawn(b'{"prompt": "x"}')
+    assert time.monotonic() - started < 10
+    assert out['session_id'] == RECORDED_ID
+    child, helper = pids(tmp_path)
+    assert gone(child)
+    assert wait_gone(helper)  # the whole process group is killed, not only claude
+
+
+def test_send_does_not_wait_for_a_helper_that_holds_the_pipe(tmp_path: Path) -> None:
+    ack = {'ok': True, 'session_id': RECORDED_ID, 'url': f'https://claude.ai/code/{RECORDED_ID}'}
+    claude = script(tmp_path, HELPER + f'print({json.dumps(json.dumps(ack))}, flush=True)\n')
+    started = time.monotonic()
+    out = Cloud(claude, tmp_path, send_timeout=30).send(RECORDED_ID, b'{"text": "hi"}')
+    assert time.monotonic() - started < 10
+    assert out['ok'] is True
+    child, helper = pids(tmp_path)
+    assert gone(child)
+    assert wait_gone(helper)
+
+
+def test_send_output_is_capped_at_one_mib(tmp_path: Path) -> None:
+    claude = script(
+        tmp_path, 'sys.stdout.write("z" * (3 << 20))\nsys.stdout.flush()\ntime.sleep(60)\n'
+    )
+    started = time.monotonic()
+    with pytest.raises(SessionError) as e:
+        Cloud(claude, tmp_path, send_timeout=30).send(RECORDED_ID, b'{"text": "hi"}')
+    assert time.monotonic() - started < 10
+    assert (e.value.status, e.value.code) == (422, 'cloud_send_failed')
+    assert e.value.message.startswith(
+        'Claude printed more than 1 MiB instead of a short receipt, so the runner stopped it.'
+    )
+    (pid,) = pids(tmp_path)
+    assert gone(pid)
+
+
+@pytest.mark.parametrize('bad', ['session_abc\n', 'session_abc\r', ' session_abc'])
+def test_a_session_id_with_a_trailing_newline_is_refused(tmp_path: Path, bad: str) -> None:
+    claude = script(tmp_path, 'sys.exit(0)\n')
+    with pytest.raises(SessionError) as e:
+        Cloud(claude, tmp_path).send(bad, b'{"text": "hi"}')
+    assert (e.value.status, e.value.code) == (400, 'bad_request')
+    assert not (tmp_path / 'pids').exists()  # claude never ran

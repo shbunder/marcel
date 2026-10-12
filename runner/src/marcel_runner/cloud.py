@@ -22,6 +22,7 @@ import os
 import pty
 import re
 import select
+import signal
 import subprocess
 import time
 from collections.abc import Callable
@@ -35,9 +36,9 @@ from marcel_runner.sessions import SessionError
 SPAWN_TIMEOUT = 60.0  # SP3: the create call came back within seconds
 SEND_TIMEOUT = 60.0
 MAX_OUTPUT = 2000  # characters of Claude's output kept in an error
-MAX_READ = 1 << 20  # bytes read from the pty before the runner stops listening
+MAX_READ = 1 << 20  # bytes of Claude's output the runner reads, at most
 
-SESSION_ID = re.compile(r'^session_[A-Za-z0-9]+$')
+SESSION_ID = re.compile(r'session_[A-Za-z0-9]+')  # always fullmatch: `$` allows a newline
 CREATED = re.compile(
     r'Created cloud session:\s*(?P<title>.*?)\s*View:\s*(?P<url>https://\S+)', re.DOTALL
 )
@@ -69,7 +70,7 @@ def secrets_in(text: str) -> tuple[str, ...]:
 
 
 def check_id(session_id: str) -> str:
-    if not SESSION_ID.match(session_id):
+    if not SESSION_ID.fullmatch(session_id):
         raise SessionError(
             400, 'bad_request', 'That is not a cloud session id. It looks like session_01ABC….'
         )
@@ -98,11 +99,53 @@ def page_url(url: Any, session_id: str) -> str | None:
     return f'https://claude.ai/code/{session_id}'
 
 
+def _read_until(
+    fd: int, proc: subprocess.Popen[bytes], deadline: float, buf: bytearray, *, flood: bool
+) -> bool:
+    """Read `fd` into `buf` (at most `MAX_READ` bytes) until EOF, or until `proc` has exited and
+    nothing more is coming, or `deadline`. True when it stopped before `deadline`. Past
+    `MAX_READ` it raises `TooMuchOutput` when `flood` is true, else reads on and drops the rest.
+
+    EOF alone is not enough: a helper `claude` leaves behind can hold the terminal or pipe open
+    after `claude` itself has exited."""
+    while (left := deadline - time.monotonic()) > 0:
+        ready, _, _ = select.select([fd], [], [], min(left, 0.1))
+        if not ready:
+            if proc.poll() is not None:
+                return True  # claude exited and its output has gone quiet
+            continue
+        try:
+            chunk = os.read(fd, 65536)
+        except OSError:  # Linux: EIO once every holder of the pty has closed it
+            chunk = b''
+        if not chunk:  # EOF can come a moment before claude has exited: wait for that
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=max(0.0, deadline - time.monotonic()))
+            return proc.poll() is not None
+        if len(buf) + len(chunk) > MAX_READ and flood:
+            raise TooMuchOutput
+        buf += chunk[: max(0, MAX_READ - len(buf))]
+    return False
+
+
+def _end_group(proc: subprocess.Popen[bytes]) -> None:
+    """Kill everything left in `proc`'s process group, then reap `proc`. Always called, whether
+    claude exited, ran past its time or flooded its output."""
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(proc.pid, signal.SIGKILL)
+    proc.wait()
+
+
+class TooMuchOutput(Exception):
+    """Claude printed more than `MAX_READ` bytes."""
+
+
 def run_on_pty(
     argv: list[str], env: dict[str, str], cwd: Path, timeout: float
 ) -> tuple[int | None, str]:
     """Run `argv` with a pty as its terminal; return (exit code, output). The exit code is None
-    when it ran past `timeout` and was killed. The child and both pty ends are always cleaned up."""
+    when it ran past `timeout`. Output past `MAX_READ` bytes is dropped. Afterwards its whole
+    process group is killed, the child reaped and both pty ends closed."""
     master, slave = pty.openpty()
     try:
         proc = subprocess.Popen(
@@ -120,53 +163,40 @@ def run_on_pty(
         raise
     os.close(slave)
     buf = bytearray()
-    timed_out = True
     try:
-        end = time.monotonic() + timeout
-        while (left := end - time.monotonic()) > 0:
-            ready, _, _ = select.select([master], [], [], min(left, 0.2))
-            if not ready:
-                continue
-            try:
-                chunk = os.read(master, 65536)
-            except OSError:  # Linux: EIO once the child has closed its end
-                chunk = b''
-            if not chunk:
-                timed_out = False
-                break
-            if len(buf) < MAX_READ:
-                buf += chunk[: MAX_READ - len(buf)]
-        if not timed_out:
-            with contextlib.suppress(subprocess.TimeoutExpired):
-                proc.wait(timeout=max(0.0, min(5.0, end - time.monotonic())))
+        # The create line comes first, so on the pty output past the cap is dropped, not fatal.
+        _read_until(master, proc, time.monotonic() + timeout, buf, flood=False)
+        exited = proc.poll() is not None
     finally:
-        if proc.poll() is None:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(proc.pid, 9)
-            proc.wait()
-            timed_out = True
+        _end_group(proc)
         os.close(master)
-    return (None if timed_out else proc.returncode), buf.decode('utf-8', 'replace')
+    return (proc.returncode if exited else None), buf.decode('utf-8', 'replace')
 
 
 def run_piped(
     argv: list[str], env: dict[str, str], cwd: Path, timeout: float
 ) -> tuple[int | None, str]:
-    """Run `argv` without a terminal; return (exit code, stdout + stderr). None: timed out."""
+    """Run `argv` without a terminal; return (exit code, stdout and stderr together). None: it
+    ran past `timeout`. Raises `TooMuchOutput` past `MAX_READ` bytes. Its whole process group is
+    killed and the child reaped afterwards, as on the pty."""
+    proc = subprocess.Popen(
+        argv,
+        cwd=cwd,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    assert proc.stdout is not None
+    buf = bytearray()
     try:
-        done = subprocess.run(
-            argv,
-            cwd=cwd,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            stdin=subprocess.DEVNULL,
-        )
-    except subprocess.TimeoutExpired as e:
-        out = e.stdout or b''
-        return None, out.decode('utf-8', 'replace') if isinstance(out, bytes) else out
-    return done.returncode, done.stdout + done.stderr
+        _read_until(proc.stdout.fileno(), proc, time.monotonic() + timeout, buf, flood=True)
+        exited = proc.poll() is not None
+    finally:
+        _end_group(proc)
+        proc.stdout.close()
+    return (proc.returncode if exited else None), buf.decode('utf-8', 'replace')
 
 
 def parse_body(raw: bytes, key: str) -> str:
@@ -257,6 +287,14 @@ class Cloud:
         ]
         try:
             code, out = self.piped(argv, self._env(), self.cwd, self.send_timeout)
+        except TooMuchOutput:
+            raise SessionError(
+                422,
+                'cloud_send_failed',
+                f'Claude printed more than {MAX_READ // (1 << 20)} MiB instead of a short receipt, '
+                'so the runner stopped it. The message may still have been sent: check the session '
+                'at claude.ai/code before sending it again.',
+            ) from None
         except OSError as e:
             raise SessionError(
                 422,
