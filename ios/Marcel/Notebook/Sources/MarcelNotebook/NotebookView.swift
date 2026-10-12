@@ -17,7 +17,7 @@ public struct NotebookView: View {
         VStack(spacing: 0) {
             NotebookHeader(title: "Marcel's notebook", back: { dismiss() })
             ScrollView {
-                NotebookContent(model: model, rollovers: model.rollovers, open: { open = $0 })
+                NotebookContent(model: model, open: { open = $0 })
                     .padding(PixelMetrics.padding)
             }
             .refreshable { await model.load() }
@@ -35,8 +35,9 @@ public struct NotebookView: View {
 /// The sections, top to bottom. The live screen puts it in a scroll view; snapshots draw it as it is.
 struct NotebookContent: View {
     @Bindable var model: NotebookModel
-    var rollovers: RolloverLog
     var open: (NoteRow) -> Void
+
+    @State private var confirmingFreshStart = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: PixelMetrics.steps(7)) {
@@ -54,15 +55,31 @@ struct NotebookContent: View {
                 notes
             }
             NotebookCard("What Marcel carries") {
-                if rollovers.rollovers.isEmpty {
+                let carried = model.carried
+                if carried.isEmpty {
                     NotebookNote(text: NotebookText.noRollovers)
                 } else {
-                    ForEach(rollovers.rollovers) { rollover in
+                    ForEach(carried) { rollover in
                         PixelText(model.text.rollover(rollover), role: .detail)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+                if let note = model.rolloversNote {
+                    NotebookNote(text: note, accent: true)
+                }
+                NotebookButton(title: "Fresh start", enabled: model.canStartFresh) { confirmingFreshStart = true }
+                    .accessibilityHint("Asks first. Gives Marcel a new session; your chat stays as it is.")
+                if let line = model.freshStartLine {
+                    NotebookNote(text: line, accent: { if case .failed = model.freshStart { true } else { false } }())
+                }
+            }
+            .confirmationDialog("Give Marcel a fresh start?", isPresented: $confirmingFreshStart,
+                                titleVisibility: .visible) {
+                Button("Fresh start") { Task { await model.startFresh() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(NotebookText.freshStartConfirm)
             }
         }
     }

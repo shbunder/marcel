@@ -90,6 +90,9 @@ public struct NotebookText: Sendable {
     public static let noRollovers = "No fresh start seen yet. When Marcel starts a fresh session, it says here what it "
         + "kept. Your chat history never changes."
 
+    public static let freshStartConfirm = "Marcel starts a new session with its notes, recent messages and open "
+        + "threads, and says hello in the chat when it's ready. Your chat history stays as it is."
+
     // MARK: Conflicts
 
     /// What the "changed elsewhere" card says about the hub's version.

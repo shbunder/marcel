@@ -17,7 +17,7 @@ actions), wired in `ios/Marcel/App/RootView.swift`.
 | Project notes | `memory/projects/<slug>.md` | One row per project, by the project's name from the cache; projects without notes yet are listed after them ("No notes yet") and opening one starts the file. |
 | Dated notes | `memory/YYYY-MM-DD.md` | Newest first, titled by the date ("Sun, 4 Oct 2026"). |
 | Other notes | anything else | Only when there are any. |
-| What Marcel carries | `brain.rollover` events | "Context rolled over yesterday 23:00 (the daily fresh start). Kept: … Your chat history is unchanged." |
+| What Marcel carries | `GET /agents/{id}/brain/rollovers` and `brain.rollover` events | "Context rolled over yesterday 23:00 (the daily fresh start). Kept: … Your chat history is unchanged." |
 
 A row with unsaved changes on this phone says so ("Updated yesterday 18:40 · unsaved changes").
 
@@ -59,11 +59,21 @@ must have the path that was asked for.
 
 ## What Marcel carries
 
-The app API has no route that lists past rollovers and the cache does not keep them, so `RolloverLog` follows the live
-stream from the moment the tabs are up (`attach(to: connection.cache)`; the hub replays what a reconnecting phone
-missed) and keeps the last ten on this phone. Rollovers from before the phone was listening are not shown. The hub
-does not send `brain.rollover` until S-06.2 is built; until then the card says, in plain words, that no fresh start was
-seen yet. A route to list them is asked for in `project/contract-requests/S-12.9.md`.
+The card reads the hub's list, `GET /agents/{id}/brain/rollovers?limit=10` (app API 0.6; the agent is the first in
+`GET /me`), and merges in `RolloverLog`, the rollovers this phone saw on the live stream (`attach(to: connection.cache)`;
+kept on the phone, the last ten). The same rollover told twice (the hub's entry and the event: same reason, within a
+minute) shows once; newest first, at most ten. A rollover that arrives while the screen is open shows at once. The real
+hub does not serve the route until S-06.7: its generic 404 `not_found` (or a 405, or a bare 404) leaves the phone's log
+on its own, silently; any other failure says so under the list ("Couldn't read the past fresh starts from the hub, so
+this shows the ones this phone saw. …").
+
+**Fresh start** (`POST /agents/{id}/brain/rollover`) asks first ("Give Marcel a fresh start?" — Marcel starts a new
+session with its notes, recent messages and open threads, says hello in the chat when it's ready; the chat history
+stays as it is). Once the hub accepts it (202), or answers 409 `rollover_running` (one is already on its way), the
+button is off and the card says "Fresh start on its way…", until a `manual` rollover from then on shows: "Done: Marcel
+started fresh today 21:04." A hub without the route says "Not available yet: this hub can't give Marcel a fresh start
+yet."; 503 `runner_unreachable` "The hub can't start a new session for Marcel right now. Nothing changed."; the button
+works again after a failure.
 
 ## Errors, in plain words
 
@@ -94,12 +104,17 @@ follow Dynamic Type (the list is also snapshotted at Accessibility 5).
 - `MemoryPathTests` — the pattern, the sections, the path as one encoded segment on the wire, an answer about another
   file refused.
 - `PreviewSafetyTests` — HTML stays words, only `https` links get a button, and drawing the preview opens nothing.
+- `RolloverHistoryTests` — the hub's list merged with the phone's log without duplicates, newest ten; a hub without
+  the route (404 `not_found`, 405, bare 404) falling back silently; another failure said; an older log still read;
+  Fresh start on its way until the manual rollover shows, one tap sends one request, 409 `rollover_running`, and the
+  failures in words.
 - `RolloverLogTests` — rollovers from an in-memory cache's frames, newest first, replays ignored, the last ten kept
   across launches, reasons in words.
 - `LineDiffTests` — order and folding, and what VoiceOver reads.
 - `ReviewFixTests` — unpairing forgets drafts and rollovers; a draft equal to the hub's words is dropped; an offline
   draft's header line; the 1 MB and 50-draft bounds.
-- `NotebookSnapshotTests` — the notebook (light, dark, Accessibility 5), a hub without the notebook, a note's preview,
+- `NotebookSnapshotTests` — the notebook (light, dark, Accessibility 5), a fresh start on its way and one a hub can't
+  do yet (light and dark), a hub without the notebook, a note's preview,
   editing, and "changed elsewhere" (light and dark), compared pixel for pixel (no changed pixel allowed) with
   `Tests/MarcelNotebookTests/__Snapshots__/`. They render the content without the scroll view and the editor's text as
   plain text (`notebookStill`), which `ImageRenderer` needs. After a deliberate change run `make -C ios notebook-record`,
