@@ -180,4 +180,68 @@ final class QuestLiveTests: XCTestCase {
         XCTAssertEqual(model.problem, "This phone isn't paired with a hub yet.")
         XCTAssertFalse(model.loading)
     }
+
+    // Review fixes.
+
+    /// Waits for work the model started on its own (a reload after a re-sync) to finish.
+    private func eventually(_ condition: () -> Bool, _ message: String) async {
+        for _ in 0..<200 where !condition() { try? await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(condition(), message)
+    }
+
+    func testAfterAnOutageTheQuestReReadsItsStateApprovalsAndMissedEvents() async throws {
+        let (model, hub, cache) = try await opened()
+        XCTAssertEqual(model.statusOf("apr_engie"), .open)
+        // During the outage: the prompt was answered in the terminal, the quest went on and finished.
+        hub.task = Fx.taskJSON(state: "done", extra: ["approval_ids": [String]()])
+        hub.history += [
+            Fx.event(14, "text", Fx.text("Engie is cheaper by €40.")),
+            Fx.event(15, "state", ["from": "working", "to": "done", "reason": "The worker reported done"]),
+        ]
+        // The stream reconnects too late to replay: the hub asks for a re-sync. No new live event follows.
+        try await cache.resync(upTo: 900)
+
+        await eventually({ model.transcript.lastSeq == 15 }, "the missed events are read without a new live event")
+        XCTAssertEqual(model.transcript.events.map(\.seq), Array(1...15))
+        XCTAssertEqual(model.task?.state, .done, "the badge shows the quest is done")
+        XCTAssertEqual(model.steps.map(\.mark), [.done, .done, .done])
+        guard case .approval(_, _, _, let status) = model.rows.first(where: { $0.id == "e13" })?.kind else {
+            return XCTFail("the prompt is still there")
+        }
+        XCTAssertFalse(status.isOpen, "a prompt answered during the outage no longer offers Approve and Deny")
+    }
+
+    func testAGapSeenWhileTheHistoryLoadsIsFetchedAtTheEnd() async throws {
+        let hub = FakeQuestViewService(history: Fx.energyHistory)
+        let model = QuestViewModel(taskId: Fx.taskId, service: hub)
+        let later = (14...20).map { Fx.event($0, "text", Fx.text("later \($0)")) }
+        // While the only page is on its way, the quest moves on and the stream delivers just its newest event.
+        hub.whileAnswering = {
+            hub.history += later
+            model.receive(Fx.frame("task.event", Fx.eventJSON(20, "text", Fx.text("later 20")), id: 900))
+        }
+        await model.load()
+        XCTAssertEqual(model.transcript.events.map(\.seq), Array(1...20))
+        XCTAssertNil(model.transcript.missingAfter)
+    }
+
+    func testTwoMessagesWithTheSameWordsStayTwoUntilBothAreRecorded() async throws {
+        let (model, _, cache) = try await opened()
+        for _ in 0..<2 {
+            model.draft = "Yes"
+            await model.send()
+        }
+        model.draft = "Use 4 kWp, the roof is small"  // the same words as a note already in the history
+        await model.send()
+        XCTAssertEqual(model.pending.map(\.text), ["Yes", "Yes", "Use 4 kWp, the roof is small"])
+
+        try cache.apply(Fx.frame("task.event", Fx.eventJSON(14, "note", Fx.note("Yes")), id: 910))
+        XCTAssertEqual(model.pending.map(\.text), ["Yes", "Use 4 kWp, the roof is small"],
+                       "one recorded note replaces one pending message")
+        try cache.apply(Fx.frame("task.event", Fx.eventJSON(15, "note", Fx.note("Yes")), id: 911))
+        XCTAssertEqual(model.pending.map(\.text), ["Use 4 kWp, the roof is small"])
+        try cache.apply(Fx.frame("task.event", Fx.eventJSON(16, "note", Fx.note("Use 4 kWp, the roof is small")),
+                                 id: 912))
+        XCTAssertEqual(model.pending, [])
+    }
 }

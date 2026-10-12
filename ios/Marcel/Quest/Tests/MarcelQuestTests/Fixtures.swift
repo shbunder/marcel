@@ -147,9 +147,17 @@ final class FakeQuestViewService: QuestViewService {
         return Fx.decode(task)
     }
 
+    /// Runs once, after the next page is cut and before it is answered: what the live stream does meanwhile.
+    var whileAnswering: (() -> Void)?
+
     func events(taskId: String, after: Int?) async throws -> (events: [TaskEvent], hasMore: Bool) {
         asked.append("events after \(after.map(String.init) ?? "start")")
         let rest = history.filter { $0.seq > (after ?? 0) }
+        defer {
+            let hook = whileAnswering
+            whileAnswering = nil
+            hook?()
+        }
         return (Array(rest.prefix(pageSize)), rest.count > pageSize)
     }
 

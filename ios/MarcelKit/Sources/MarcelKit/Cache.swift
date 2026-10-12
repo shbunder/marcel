@@ -134,7 +134,8 @@ public final class MarcelCache: EventSink {
     }
 
     /// Calls `observer` with every numbered frame after the cache has applied it, including the ones it does not store
-    /// (`task.event`, `approval.*`). Keep the token and pass it to `stopObservingFrames` when the screen goes away.
+    /// (`task.event`, `approval.*`), and with a `resync.required` frame once a re-sync has refreshed the cache: the
+    /// frames missed before it are never replayed, so the observer must re-read what it shows. Keep the token and pass it to `stopObservingFrames` when the screen goes away.
     @discardableResult
     public func observeFrames(_ observer: @escaping @MainActor (EventFrame) -> Void) -> UUID {
         let token = UUID()
@@ -150,6 +151,9 @@ public final class MarcelCache: EventSink {
         try await refresher?.refresh(into: self)
         setLastEventId(lastEventId)
         try context.save()
+        // Frames were missed and will not be replayed: observers re-read what they show over REST.
+        let frame = EventFrame(id: 0, at: Date(), event: .resyncRequired(lastEventId: lastEventId))
+        for observer in frameObservers.values { observer(frame) }
     }
 
     // MARK: Writes

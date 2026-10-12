@@ -176,8 +176,18 @@ final class QuestDetailTests: XCTestCase {
         XCTAssertEqual(QuestViewModel.claudeURL(for: Fx.task(extra: ["remote_url": "https://claude.ai/code/s_2"])),
                        URL(string: "https://claude.ai/code/s_2"))
         XCTAssertNil(QuestViewModel.claudeURL(for: Fx.task()), "a NUC quest without Remote Control has no button")
+        XCTAssertNil(QuestViewModel.claudeURL(for: Fx.task(extra: ["cloud_url": "https://claude.ai/code/s_3"])),
+                     "a NUC quest opens only its remote_url")
+        XCTAssertNil(QuestViewModel.claudeURL(for: Fx.task(location: "cloud",
+                                                           extra: ["remote_url": "https://claude.ai/code/s_4"])),
+                     "a cloud quest opens only its cloud_url")
+        XCTAssertEqual(QuestViewModel.claudeURL(for: Fx.task(location: "cloud", extra: [
+            "cloud_url": "https://claude.ai/code/s_5", "remote_url": "https://claude.ai/code/s_6",
+        ])), URL(string: "https://claude.ai/code/s_5"))
         for bad in ["http://claude.ai/code/s", "javascript:alert(1)", "file:///etc/passwd", "https://", "claude.ai/x",
-                    "https://user:pw@claude.ai/code/s"] {
+                    "https://user:pw@claude.ai/code/s",
+                    "https://evil.invalid/code/s", "https://claude.ai.evil.invalid/code/s", "https://claude.ai/login",
+                    "https://claude.ai:8443/code/s", "https://claude.ai/codex"] {
             XCTAssertNil(QuestViewModel.claudeURL(for: Fx.task(extra: ["remote_url": bad])), bad)
         }
     }

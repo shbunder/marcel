@@ -16,7 +16,7 @@ extension EnvironmentValues {
 ///
 /// The transcript is `GET /tasks/{id}/events` merged with the live stream's `task.event` frames by `seq`, so nothing
 /// shows twice and a skipped event is fetched. The list is lazy, so a quest with thousands of events opens at once.
-/// Opened from the Chat, Quests and Map tabs; the back button dismisses it however it was shown.
+/// Opened from the Chat and Quests tabs; the back button dismisses it however it was shown.
 public struct QuestView: View {
     let taskId: String
     @State private var model: QuestViewModel

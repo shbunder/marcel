@@ -227,7 +227,7 @@ struct ToolRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(tool == "Bash" ? "Command" : tool): \(summary), \(outcome)")
+            .accessibilityLabel("\(tool == "Bash" ? "Command" : tool): \(CappedText(summary, maxLines: 2).text), \(outcome)")
             .accessibilityValue(expanded ? "Open" : "Folded")
             .accessibilityHint(expanded ? "Folds the answer away" : "Shows what came back")
             if expanded {

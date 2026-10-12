@@ -38,6 +38,8 @@ public final class QuestViewModel {
     @ObservationIgnored public var service: (any QuestViewService)?
     @ObservationIgnored public var cache: MarcelCache?
     @ObservationIgnored private var filling = false
+    /// The `seq` of every note of yours already matched against `pending` (or there before you sent anything).
+    @ObservationIgnored private var matchedNotes: Set<Int> = []
 
     public init(taskId: String, task: HubTask? = nil, service: (any QuestViewService)? = nil,
                 cache: MarcelCache? = nil) {
@@ -65,12 +67,31 @@ public final class QuestViewModel {
                             fromStart: transcript.contiguousThrough == 0)
         } catch {
             problem = QuestViewError.words(for: error)
+            return
         }
+        // A live event that arrived while the pages were read may have skipped some; fetch them now.
+        await fillGap()
+    }
+
+    /// The stream re-synced: frames sent during the outage are never replayed, so read the task (its state and open
+    /// approvals) and every event after the last one this view has.
+    public func reload() async {
+        guard let service else { return }
+        do {
+            setTask(try await service.task(id: taskId))
+            try await fetch(after: transcript.contiguousThrough == 0 ? nil : transcript.contiguousThrough,
+                            fromStart: transcript.contiguousThrough == 0)
+        } catch {
+            problem = QuestViewError.words(for: error)
+        }
+        await fillGap()
     }
 
     /// One frame from the live stream. Only this quest's events, task, approvals and moves matter here.
     public func receive(_ frame: EventFrame) {
         switch frame.event {
+        case .resyncRequired:
+            Task { await reload() }
         case .taskEvent(let event) where event.taskId == taskId:
             if transcript.merge([event]) > 0 { transcriptChanged() }
             // A live event past a hole: fetch what was skipped instead of showing a gap.
@@ -188,19 +209,17 @@ public final class QuestViewModel {
         await act { try await $0.move(taskId: self.taskId, to: projectId) }
     }
 
-    /// The quest's claude.ai/code page: `cloud_url` for a cloud quest, `remote_url` for a NUC session with Remote
-    /// Control. Only an `https` address with a host is offered; anything else is not a button.
+    /// The quest's claude.ai/code page (app-api.yaml `Task`): `cloud_url` for a cloud quest, `remote_url` for a NUC
+    /// session with Remote Control, never the other way round. Only `https://claude.ai/code…` is offered; anything
+    /// else is not a button.
     public var claudeURL: URL? { task.flatMap(Self.claudeURL(for:)) }
 
     public static func claudeURL(for task: HubTask) -> URL? {
-        let candidates = task.location == .cloud ? [task.cloudUrl, task.remoteUrl] : [task.remoteUrl, task.cloudUrl]
-        for raw in candidates.compactMap({ $0 }) {
-            if let url = URL(string: raw), url.scheme?.lowercased() == "https", let host = url.host(), !host.isEmpty,
-               url.user == nil, url.password == nil {
-                return url
-            }
-        }
-        return nil
+        guard let raw = task.location == .cloud ? task.cloudUrl : task.remoteUrl, let url = URL(string: raw),
+              url.scheme?.lowercased() == "https", url.host()?.lowercased() == "claude.ai", url.port == nil,
+              url.user == nil, url.password == nil, url.path == "/code" || url.path.hasPrefix("/code/")
+        else { return nil }
+        return url
     }
 
     private func act(_ action: @MainActor (any QuestViewService) async throws -> HubTask) async {
@@ -235,13 +254,13 @@ public final class QuestViewModel {
     }
 
     private func transcriptChanged() {
-        // A note you sent is in the transcript now: it no longer needs its own "Sending…" row.
-        if !pending.isEmpty {
-            let recorded = Set(transcript.events.suffix(50).compactMap { event -> String? in
-                if case .note("user", let text, _, _) = event.entry { return text }
-                return nil
-            })
-            pending.removeAll { recorded.contains($0.text) }
+        // A note you sent is in the transcript now: it no longer needs its own "Sending…" row. A recorded note has no
+        // client_id (NoteEventData), so each new note of yours replaces one pending message with the same text, the
+        // oldest: two messages with the same words stay two until both are recorded.
+        for event in transcript.events where !matchedNotes.contains(event.seq) {
+            guard case .note("user", let text, _, _) = event.entry else { continue }
+            matchedNotes.insert(event.seq)
+            if let index = pending.firstIndex(where: { $0.text == text }) { pending.remove(at: index) }
         }
         rebuild()
     }

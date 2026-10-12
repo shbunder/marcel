@@ -77,4 +77,14 @@ final class CacheTests: XCTestCase {
         try cache.apply(try EventFrame.decode(try Frames.contractExample("ApprovalResolved")))
         XCTAssertEqual(seen, [1294, 1296], "a stopped observer hears nothing more")
     }
+
+    func testObserversHearAboutAResyncSoTheyCanReRead() async throws {
+        let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
+        var heard: [String] = []
+        cache.observeFrames { frame in
+            if case .resyncRequired(let last) = frame.event { heard.append("resync \(last)") }
+        }
+        try await cache.resync(upTo: 1288)
+        XCTAssertEqual(heard, ["resync 1288"])
+    }
 }

@@ -217,4 +217,13 @@ final class QuestAccessibilityTests: XCTestCase {
             }
         }
     }
+
+    func testVoiceOverReadsALongCommandCutLikeTheScreen() {
+        let command = (1...200).map { "--flag-\($0)" }.joined(separator: " ")
+        let found = elements(of: RowsStill(events: [Fx.event(1, "tool_call", Fx.toolCall("t1", "Bash", command))]))
+        let row = found.first { $0.label.hasPrefix("Command: ") }
+        XCTAssertNotNil(row)
+        XCTAssertLessThanOrEqual(row?.label.count ?? .max, CappedText.maxLineLength + 40,
+                                 "VoiceOver reads the command as cut on screen, not all \(command.count) characters")
+    }
 }
