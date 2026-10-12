@@ -5,6 +5,7 @@ refusal, the hub secret, the brain-only session check, the own-agent scoping, me
 cannot leave the memory folder, and `location=auto` refused.
 """
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,7 @@ from sqlmodel import Session, select
 from test_channel_fakes import SECRET, ChannelHub, channel_hub, session_id
 from test_tasks_fakes import validator
 
-from marcel_hub.brain_api import NotSetUp
+from marcel_hub.brain_api import NoBoards, NotSetUp
 from marcel_hub.models import (
     Agent,
     Artifact,
@@ -334,7 +335,22 @@ def test_projects_create_update_and_list(brain: Brain) -> None:
     assert brain.get('/projects', archived='true').json() == []
 
 
-def test_board_note_says_boards_are_not_built_yet(brain: Brain) -> None:
+def test_board_note_lands_on_the_projects_board(brain: Brain) -> None:
+    """End to end: the brain's tool, the real boards port, the keeper, the board's content."""
+    res = brain.post('/projects/inbox/notes', {'text': 'Luminus is still cheapest.'})
+    assert res.status_code == 200, res.text
+    project_id = res.json()['project_id']
+    board_id = res.json()['board_artifact_id']
+    keeper = brain.hub.app.state.boards
+    assert project_id in keeper.due()
+    keeper.build(project_id)
+    data, _, _ = brain.hub.app.state.artifacts.content(board_id)
+    [note] = [w for w in json.loads(data)['widgets'] if w['type'] == 'note']
+    assert (note['text'], note['author']) == ('Luminus is still cheapest.', 'Marcel')
+
+
+def test_board_note_says_when_boards_are_not_set_up(brain: Brain) -> None:
+    brain.hub.app.state.brain_ports.boards = NoBoards()
     res = brain.post('/projects/inbox/notes', {'text': 'Luminus is still cheapest.'})
     assert res.status_code == 503
     assert res.json() == {
@@ -386,11 +402,31 @@ def test_artifacts_publish_refusals_are_plain(brain: Brain) -> None:
     assert res.status_code == 400 and 'not a web address' in res.json()['message']
     res = brain.post('/artifacts', {'kind': 'link', 'title': 'x', 'url': 'https://x.be',
                                     'artifact_id': 'art_1'})  # fmt: skip
-    assert res.status_code == 400 and 'new version' in res.json()['message']
+    assert res.status_code == 400 and 'no artifact art_1' in res.json()['message']
     res = brain.post('/artifacts', {'kind': 'video', 'title': 'x'})
     assert res.status_code == 400
     assert brain.post('/artifacts', {'kind': 'link', 'title': 'x', 'url': 'https://x.be',
                                      'project': 'nowhere'}).status_code == 404  # fmt: skip
+
+
+def test_the_brain_adds_versions_to_its_own_items_only(brain: Brain) -> None:
+    first = brain.post('/artifacts', {'kind': 'link', 'title': 'Offers',
+                                      'url': 'https://x.be/1'}).json()  # fmt: skip
+    assert first['updated_by'] == 'Marcel'
+    second = {'kind': 'link', 'title': 'Offers', 'url': 'https://x.be/2',
+              'artifact_id': first['id'], 'summary': 'Engie added.'}  # fmt: skip
+    res = brain.post('/artifacts', second)
+    assert res.status_code == 201, res.text
+    ARTIFACT.validate(res.json())
+    assert res.json()['id'] == first['id'] and res.json()['current_version'] == 2
+    assert res.json()['url'] == 'https://x.be/2' and res.json()['updated_by'] == 'Marcel'
+
+    # An item of another project is refused, and stays as it was.
+    brain.post('/projects', {'name': 'Garden'})
+    res = brain.post('/artifacts', {'kind': 'link', 'title': 'Offers', 'url': 'https://x.be/3',
+                                    'artifact_id': first['id'], 'project': 'garden'})  # fmt: skip
+    assert res.status_code == 400 and 'another project' in res.json()['message']
+    assert brain.hub.app.state.artifacts.get(first['id']).current_version == 2
 
 
 def test_artifacts_publish_without_a_store(brain: Brain) -> None:

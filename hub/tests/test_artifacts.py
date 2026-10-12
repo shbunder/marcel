@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 from test_tasks_fakes import RecordingPublisher, add_agent, put_task, run, validator
 from test_tasks_routes import pair
 
-from marcel_hub import artifacts
 from marcel_hub.app import Settings, create_app
 from marcel_hub.artifacts import (
     ArtifactNotFound,
@@ -27,6 +26,7 @@ from marcel_hub.artifacts import (
     PrStatusUnavailable,
     pr_status_from_gh,
 )
+from marcel_hub.artifacts import store as artifacts
 from marcel_hub.models import ArtifactKind, TaskEventType, TaskState
 
 ARTIFACT = validator('app-api.yaml#/components/schemas/Artifact')
@@ -261,8 +261,8 @@ def test_a_report_missing_what_its_kind_needs_is_refused(hub: Hub, spec: dict[st
         hub.store.publish_reported(spec)
 
 
-def test_a_new_version_is_refused_until_living_artifacts_exist(hub: Hub) -> None:
-    with pytest.raises(ArtifactRefused, match='new version'):
+def test_a_new_version_of_an_unknown_artifact_is_refused(hub: Hub) -> None:
+    with pytest.raises(ArtifactRefused, match='no artifact art_1'):
         hub.report({'kind': 'link', 'title': 'x', 'url': 'https://a.b/', 'artifact_id': 'art_1'})
 
 
@@ -355,7 +355,7 @@ def test_an_unknown_task_is_refused_before_anything_is_written(hub: Hub) -> None
 
 
 def test_a_failed_database_write_leaves_no_blob(hub: Hub, monkeypatch: pytest.MonkeyPatch) -> None:
-    def broken(art: Any) -> Any:
+    def broken(art: Any, summary: Any) -> Any:
         raise RuntimeError('database is locked')
 
     monkeypatch.setattr(hub.store, '_insert', broken)
@@ -411,7 +411,10 @@ def test_the_list_filters_by_task_and_kind(hub: Hub) -> None:
         on_task['id']
     ]
     assert [a['id'] for a in hub.get('/artifacts?kind=pr').json()['items']] == [pr['id']]
-    assert hub.get('/artifacts?kind=board').json() == {'items': []}
+    # Boards are listed only when asked for: here, the inbox's.
+    assert [a['kind'] for a in hub.get('/artifacts').json()['items']] == ['pr', 'link']
+    [board] = hub.get('/artifacts?kind=board').json()['items']
+    assert board['title'] == 'Inbox — board'
 
 
 @pytest.mark.parametrize('query', ['kind=pie', 'limit=0', 'limit=201', 'limit=x', 'cursor=abc'])
