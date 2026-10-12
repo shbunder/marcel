@@ -41,16 +41,38 @@ public final class NotebookModel {
     /// A problem with a part of the list (the "About you" lines), shown at the top; tap to clear.
     public var problem: String?
 
+    /// "Fresh start" (`POST /agents/{id}/brain/rollover`): where the last one asked from this screen stands.
+    public enum FreshStart: Equatable, Sendable {
+        case idle
+        /// Sent; the hub has not answered yet.
+        case asking
+        /// The hub started one (202), or one was already on its way (409 `rollover_running`), at this time. It is done
+        /// when a `manual` rollover from then on shows in "What Marcel carries".
+        case running(since: Date)
+        case failed(String)
+    }
+
+    /// Past rollovers from the hub (newest ten); nil when the hub's list could not be read, so only this phone's log
+    /// shows.
+    public private(set) var hubRollovers: [Rollover]?
+    /// Why the hub's list is not shown, when that is worth saying (not for a hub that does not serve it yet).
+    public private(set) var rolloversNote: String?
+    public private(set) var freshStart: FreshStart = .idle
+
     @ObservationIgnored let service: any NotebookService
     @ObservationIgnored public let drafts: DraftStore
     @ObservationIgnored public let rollovers: RolloverLog
     @ObservationIgnored let projectNames: @MainActor () -> [String: String]
     @ObservationIgnored public let text: NotebookText
+    /// When a fresh start was asked for (fixed in tests).
+    @ObservationIgnored let clock: () -> Date
 
     /// - Parameter projectNames: slug → name of every project (from the cache), so project notes show the project's
     ///   name and a project without notes can get some.
     public init(service: any NotebookService, drafts: DraftStore = DraftStore(), rollovers: RolloverLog,
-                projectNames: @escaping @MainActor () -> [String: String] = { [:] }, text: NotebookText = NotebookText()) {
+                projectNames: @escaping @MainActor () -> [String: String] = { [:] }, text: NotebookText = NotebookText(),
+                clock: @escaping () -> Date = { Date() }) {
+        self.clock = clock
         self.service = service
         self.drafts = drafts
         self.rollovers = rollovers
@@ -62,6 +84,7 @@ public final class NotebookModel {
     public var names: [String: String] { projectNames() }
 
     public func load() async {
+        await loadRollovers()
         let listing: MemoryListing
         do {
             listing = try await service.listing()
@@ -110,6 +133,73 @@ public final class NotebookModel {
             } catch {
                 problem = NotebookError.words(for: error)
             }
+        }
+    }
+
+    // MARK: What Marcel carries
+
+    /// The hub's list and this phone's log together, newest first, each rollover once. Follows the live stream: a
+    /// rollover that happens while the screen is open shows at once.
+    public var carried: [Rollover] {
+        Rollover.merged(hub: hubRollovers ?? [], phone: rollovers.rollovers)
+    }
+
+    /// Reads the hub's list. A hub that does not serve it yet (404 `not_found`, 405) leaves this phone's log on its own,
+    /// silently; any other failure says so under the list.
+    public func loadRollovers() async {
+        do {
+            hubRollovers = try await service.rollovers(limit: RolloverLog.keep)
+            rolloversNote = nil
+        } catch NotebookError.notAvailableYet {
+            hubRollovers = nil
+            rolloversNote = nil
+        } catch {
+            hubRollovers = nil
+            rolloversNote = "Couldn't read the past fresh starts from the hub, so this shows the ones this phone saw. "
+                + NotebookError.words(for: error)
+        }
+    }
+
+    /// The manual rollover that finished the fresh start asked for here, once it shows.
+    public var freshStartDone: Rollover? {
+        guard case .running(let since) = freshStart else { return nil }
+        return carried.first { $0.reason == "manual" && $0.at >= since.addingTimeInterval(-60) }
+    }
+
+    /// Off while one is being asked for or is on its way.
+    public var canStartFresh: Bool {
+        switch freshStart {
+        case .idle, .failed: true
+        case .asking: false
+        case .running: freshStartDone != nil
+        }
+    }
+
+    /// What the card says about the fresh start asked for here.
+    public var freshStartLine: String? {
+        switch freshStart {
+        case .idle: nil
+        case .asking: "Asking the hub…"
+        case .running:
+            if let done = freshStartDone { "Done: Marcel started fresh \(text.when(done.at)). It shows above." }
+            else { "Fresh start on its way. Marcel says hello in the chat when it's ready, and it shows here then." }
+        case .failed(let words): words
+        }
+    }
+
+    /// "Fresh start": asks the hub for a new main session now. The person has confirmed it.
+    public func startFresh() async {
+        guard canStartFresh else { return }
+        freshStart = .asking
+        do {
+            try await service.rollOver()
+            freshStart = .running(since: clock())
+        } catch NotebookError.rolloverRunning {
+            freshStart = .running(since: clock())
+        } catch NotebookError.notAvailableYet {
+            freshStart = .failed("Not available yet: this hub can't give Marcel a fresh start yet.")
+        } catch {
+            freshStart = .failed(NotebookError.words(for: error))
         }
     }
 

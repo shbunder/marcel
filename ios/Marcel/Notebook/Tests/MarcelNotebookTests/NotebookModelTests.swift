@@ -177,7 +177,7 @@ final class RolloverLogTests: XCTestCase {
         try cache.apply(Fx.frame("agent.state", ["agent_id": "agt_marcel", "state": ["kind": "idle"]], id: 13,
                                  at: Fx.now))
         try cache.apply(Fx.rollover(id: 12, at: Fx.at(-3600 * 19 - 40 * 60)))  // replayed after a reconnect
-        XCTAssertEqual(log.rollovers.map(\.id), [12, 10])
+        XCTAssertEqual(log.rollovers.map(\.id), ["event-12", "event-10"])
         XCTAssertEqual(Fx.text.rollover(log.rollovers[0]),
                        "Context rolled over yesterday 23:00 (the daily fresh start). Kept: open threads, decisions, "
                        + "today's plan. Your chat history is unchanged.")
@@ -195,7 +195,7 @@ final class RolloverLogTests: XCTestCase {
     func testOnlyTheLastTenAreKept() {
         let log = RolloverLog(defaults: .scratch())
         for id in 1...15 { log.receive(Fx.rollover(id: id, at: Fx.at(TimeInterval(id * 60)))) }
-        XCTAssertEqual(log.rollovers.map(\.id), Array((6...15).reversed()))
+        XCTAssertEqual(log.rollovers.map(\.id), (6...15).reversed().map { "event-\($0)" })
         log.clear()
         XCTAssertTrue(log.rollovers.isEmpty)
     }

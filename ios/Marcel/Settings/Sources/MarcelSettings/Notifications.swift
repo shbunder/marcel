@@ -71,7 +71,7 @@ public final class APNsRegistrar: PushTokenSource {
     }
 
     public func didRegister(deviceToken: Data) {
-        let token = deviceToken.map { String(format: "%02x", $0) }.joined()
+        let token = APNsToken.hex(deviceToken)
         let isNew = token != lastToken
         lastToken = token
         if waiting.isEmpty, isNew { onToken?(token) }
@@ -86,6 +86,20 @@ public final class APNsRegistrar: PushTokenSource {
         let all = waiting.values
         waiting = [:]
         all.forEach { $0.resume(with: result) }
+    }
+}
+
+/// The APNs device token as the hub takes it (`PushTarget.apns_token`, app API 0.6): hex, 64 to 200 digits.
+public enum APNsToken {
+    /// Apple's token bytes as lower-case hex, two digits a byte.
+    public static func hex(_ token: Data) -> String {
+        token.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Matches the contract's pattern `^[0-9a-fA-F]{64,200}$`, as the hub checks it.
+    public static func isValid(_ token: String?) -> Bool {
+        guard let token, (64...200).contains(token.utf8.count) else { return false }
+        return token.utf8.allSatisfy { (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }
     }
 }
 

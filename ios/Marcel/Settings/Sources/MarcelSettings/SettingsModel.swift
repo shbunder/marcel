@@ -234,6 +234,7 @@ public final class SettingsModel {
         do {
             let updated = try await service.setPaused(scheduleId: schedule.id, paused)
             replace(schedule.id) { _ in updated }
+            if pauseInstead?.id == schedule.id { pauseInstead = nil }
             problem = nil
         } catch {
             problem = SettingsError.words(for: error)
@@ -243,7 +244,7 @@ public final class SettingsModel {
     public func delete(_ schedule: Schedule) async {
         guard !busy else { return }
         guard !schedule.builtin else {
-            problem = SettingsError.builtIn.errorDescription
+            refuseDeleting(schedule)
             return
         }
         busy = true
@@ -252,9 +253,31 @@ public final class SettingsModel {
             try await service.delete(scheduleId: schedule.id)
             replace(schedule.id) { _ in nil }
             problem = nil
+        } catch SettingsError.builtIn {
+            // The hub knows it as a built-in digest (409 `schedule_builtin`): say so, hide Delete, offer pause.
+            refuseDeleting(schedule)
+        } catch SettingsError.scheduleGone {
+            replace(schedule.id) { _ in nil }
+            problem = SettingsError.scheduleGone.errorDescription
         } catch {
             problem = SettingsError.words(for: error)
         }
+    }
+
+    /// A built-in digest that someone tried to delete: offered "Pause it instead" (unless it is paused already).
+    public private(set) var pauseInstead: Schedule?
+
+    private func refuseDeleting(_ schedule: Schedule) {
+        problem = SettingsError.builtIn.errorDescription
+        replace(schedule.id) { var builtin = $0; builtin.builtin = true; return builtin }
+        pauseInstead = schedule.paused ? nil : schedule
+    }
+
+    /// "Pause it instead".
+    public func pauseInsteadOfDeleting() async {
+        guard let schedule = pauseInstead else { return }
+        pauseInstead = nil
+        await setPaused(schedule, true)
     }
 
     private func replace(_ id: String, _ change: (Schedule) -> Schedule?) {

@@ -53,8 +53,13 @@ public enum SettingsError: Error, Equatable, LocalizedError {
     case notAvailableYet
     /// 503 `no_reading` on `GET /usage`: the runner has not read the plan's usage since it started.
     case noReading
-    /// 409 on deleting a built-in digest: it can be paused, not deleted.
+    /// 409 `schedule_builtin` on deleting a built-in digest: it can be paused, not deleted.
     case builtIn
+    /// 404 `schedule_not_found`: the schedule was already deleted (elsewhere, or by Marcel).
+    case scheduleGone
+    /// An APNs token that is not 64 to 200 hex digits (the contract's pattern since app API 0.6): never sent, since the
+    /// hub refuses it and Apple would answer `BadDeviceToken`.
+    case badPushToken
     /// 409 on an approval: answered first (a terminal, another phone) or expired.
     case alreadyAnswered
     /// 400: the hub says what to change.
@@ -72,7 +77,10 @@ public enum SettingsError: Error, Equatable, LocalizedError {
         switch self {
         case .notAvailableYet: "Not available yet: the hub doesn't do this yet."
         case .noReading: "Usage unavailable: the hub hasn't read the plan's usage yet. It shows here once it has."
-        case .builtIn: "Built-in digests can be paused, not deleted."
+        case .builtIn: "Built-in digests can't be deleted, only paused. A paused digest stops until you resume it."
+        case .scheduleGone: "That schedule was already deleted."
+        case .badPushToken: "Apple gave this phone a push token the hub can't use, so notifications weren't turned on. "
+            + "Try again in a minute."
         case .alreadyAnswered: "That question was already answered, or it expired."
         case .refused(let message): message
         case .notFound: "The hub no longer has that. Pull down to refresh."
@@ -162,6 +170,7 @@ public struct LiveSettingsService: SettingsService {
     }
 
     public func setPush(deviceId: String, target: Components.Schemas.PushTarget) async throws -> Device {
+        if target.kind == .apns, !APNsToken.isValid(target.apnsToken) { throw SettingsError.badPushToken }
         let answer = try await call {
             try await client.setDevicePush(path: .init(deviceId: deviceId), body: .json(target))
         }
@@ -201,7 +210,9 @@ public struct LiveSettingsService: SettingsService {
         switch try await call({ try await client.deleteSchedule(path: .init(scheduleId: scheduleId)) }) {
         case .noContent: return
         case .unauthorized: throw SettingsError.unauthorized
-        case .notFound(let missing): throw SettingsError.missing(try? missing.body.json)
+        case .notFound(let missing):
+            let error = try? missing.body.json
+            throw error?.code == "schedule_not_found" ? SettingsError.scheduleGone : SettingsError.missing(error)
         case .conflict: throw SettingsError.builtIn
         case .undocumented(let status, _): throw SettingsError.undocumented(status, "schedule")
         }

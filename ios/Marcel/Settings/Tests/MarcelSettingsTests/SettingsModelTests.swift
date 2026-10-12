@@ -138,12 +138,49 @@ final class SettingsModelTests: XCTestCase {
         hub["GET /devices"] = (200, Fx.json(Fx.devices(phonePush: "none")))
         hub["PUT /devices/dev_phone/push"] = (200, Fx.json(Fx.devices(phonePush: "apns")[0]))
         let tokens = FakeTokens()
-        tokens.result = .success("a1b2c3")
+        let token = APNsToken.hex(Data((0..<32).map { UInt8($0 * 7 & 0xFF) }))
+        tokens.result = .success(token)
         let model = await loaded(hub, tokens: tokens)
         await model.turnOnNotifications()
         XCTAssertEqual(model.push, .apns)
-        XCTAssertEqual(hub.lastBody, ["kind": "apns", "apns_token": "a1b2c3"])
+        XCTAssertEqual(hub.lastBody, ["kind": "apns", "apns_token": token])
         XCTAssertEqual(model.devices.value?.first?.push, .apns)
+    }
+
+    /// S-12.12: the token goes hex-encoded (`PushTarget.apns_token`'s pattern, app API 0.6), and a token that does not
+    /// match is never sent: the hub would refuse it and Apple answer `BadDeviceToken`.
+    func testTheAPNsTokenIsHexAndCheckedBeforeItIsSent() async {
+        XCTAssertEqual(APNsToken.hex(Data([0x00, 0x0F, 0xAB, 0xFF])), "000fabff")
+        let apple = Data((0..<32).map { UInt8($0) })
+        XCTAssertEqual(APNsToken.hex(apple).count, 64)
+        XCTAssertTrue(APNsToken.isValid(APNsToken.hex(apple)))
+        XCTAssertTrue(APNsToken.isValid(String(repeating: "A", count: 200)), "upper case, at the longest")
+        for bad in [nil, "", "a1b2c3", String(repeating: "a", count: 63), String(repeating: "a", count: 201),
+                    String(repeating: "g", count: 64), "<" + String(repeating: "a", count: 64) + ">",
+                    apple.base64EncodedString(), String(repeating: "é", count: 64)] as [String?] {
+            XCTAssertFalse(APNsToken.isValid(bad), String(describing: bad))
+        }
+
+        let hub = FakeHub()
+        hub["GET /me"] = (200, Fx.json(Fx.me(apns: true)))
+        hub["PUT /devices/dev_phone/push"] = (200, Fx.json(Fx.devices(phonePush: "apns")[0]))
+        let tokens = FakeTokens()
+        tokens.result = .success(apple.base64EncodedString())
+        let model = await loaded(hub, tokens: tokens)
+        await model.turnOnNotifications()
+        XCTAssertFalse(hub.requests.contains { $0.hasPrefix("PUT") }, "never sent")
+        XCTAssertEqual(model.problem, "Apple gave this phone a push token the hub can't use, so notifications weren't "
+                       + "turned on. Try again in a minute.")
+        XCTAssertNotEqual(model.push, .apns)
+
+        // The token Apple sends a running app (`AppDelegate` → `onToken` → `setPush`) is checked the same way.
+        do {
+            _ = try await hub.service.setPush(deviceId: "dev_phone", target: .init(kind: .apns, apnsToken: "xyz"))
+            XCTFail("expected a refusal")
+        } catch {
+            XCTAssertEqual(error as? SettingsError, .badPushToken)
+        }
+        XCTAssertFalse(hub.requests.contains { $0.hasPrefix("PUT") })
     }
 
     func testFallsBackToNtfyWhenThisBuildHasNoPushEntitlement() async {
@@ -197,20 +234,63 @@ final class SettingsModelTests: XCTestCase {
         let model = await loaded(hub)
         let (digest, report) = (model.schedules.value![0], model.schedules.value![1])
         await model.delete(digest)
-        XCTAssertEqual(model.problem, "Built-in digests can be paused, not deleted.")
+        XCTAssertEqual(model.problem, Self.builtIn)
+        XCTAssertEqual(model.pauseInstead?.id, "sch_digest_morning", "pause is offered instead")
         XCTAssertFalse(hub.requests.contains("DELETE /schedules/sch_digest_morning"), "not even asked")
         await model.delete(report)
         XCTAssertEqual(model.schedules.value?.map(\.id), ["sch_digest_morning"])
         XCTAssertNil(model.problem)
     }
 
-    func testAHubRefusingToDeleteADigestSaysWhy() async {
+    static let builtIn = "Built-in digests can't be deleted, only paused. A paused digest stops until you resume it."
+
+    /// S-12.12: the hub's 409 `schedule_builtin` (app API 0.6) says why in plain words, hides Delete and offers pause;
+    /// "Pause" pauses it.
+    func testAHubRefusingToDeleteADigestOffersPauseInstead() async {
+        let hub = FakeHub()
+        hub["GET /schedules"] = (200, Fx.json([Fx.schedules[0], Fx.schedules[1].merging(["paused": false]) { $1 }]))
+        hub["DELETE /schedules/sch_deps"] = (409, Fx.error("schedule_builtin", "Built-in."))
+        hub["PATCH /schedules/sch_deps"] = (200, Fx.json(Fx.schedules[1].merging(["paused": true, "builtin": true]) { $1 }))
+        let model = await loaded(hub)
+        await model.delete(model.schedules.value![1])
+        XCTAssertEqual(model.problem, Self.builtIn)
+        XCTAssertEqual(model.schedules.value?.count, 2, "nothing was deleted")
+        XCTAssertEqual(model.schedules.value?[1].builtin, true, "Delete is hidden from now on")
+        XCTAssertEqual(model.pauseInstead?.id, "sch_deps")
+
+        await model.pauseInsteadOfDeleting()
+        XCTAssertEqual(hub.lastBody, ["paused": true])
+        XCTAssertEqual(model.schedules.value?[1].paused, true)
+        XCTAssertNil(model.pauseInstead)
+        XCTAssertNil(model.problem)
+    }
+
+    /// A paused digest is not offered pause again.
+    func testAPausedDigestIsNotOfferedPause() async {
         let hub = FakeHub()
         hub["DELETE /schedules/sch_deps"] = (409, Fx.error("schedule_builtin", "Built-in."))
         let model = await loaded(hub)
+        XCTAssertEqual(model.schedules.value?[1].paused, true)
         await model.delete(model.schedules.value![1])
-        XCTAssertEqual(model.problem, "Built-in digests can be paused, not deleted.")
-        XCTAssertEqual(model.schedules.value?.count, 2)
+        XCTAssertEqual(model.problem, Self.builtIn)
+        XCTAssertNil(model.pauseInstead)
+    }
+
+    /// S-12.12: 404 `schedule_not_found` means it is gone already; the hub's generic `not_found` means an older hub.
+    func testDeletingAScheduleThatIsAlreadyGone() async {
+        let hub = FakeHub()
+        hub["DELETE /schedules/sch_deps"] = (404, Fx.error("schedule_not_found", "No such schedule."))
+        let model = await loaded(hub)
+        await model.delete(model.schedules.value![1])
+        XCTAssertEqual(model.schedules.value?.map(\.id), ["sch_digest_morning"], "the row goes")
+        XCTAssertEqual(model.problem, "That schedule was already deleted.")
+
+        let older = FakeHub()
+        older["DELETE /schedules/sch_deps"] = (404, Fx.error("not_found", "There is nothing at that address."))
+        let olderModel = await loaded(older)
+        await olderModel.delete(olderModel.schedules.value![1])
+        XCTAssertEqual(olderModel.schedules.value?.count, 2)
+        XCTAssertEqual(olderModel.problem, "Not available yet: the hub doesn't do this yet.")
     }
 
     // MARK: Devices

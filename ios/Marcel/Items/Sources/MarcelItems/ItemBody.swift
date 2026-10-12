@@ -126,6 +126,9 @@ public struct PRCard: Equatable, Sendable {
     public var review: String?
     /// Why the card may be out of date (`pr.note`, app API 0.5): the hub could not refresh it from GitHub.
     public var note: String?
+    /// When the hub last read the PR from GitHub successfully (`pr.refreshed_at`, app API 0.6); nil before the first
+    /// good refresh.
+    public var refreshedAt: Date?
     public var selfChange: Bool
     /// Only an https address on github.com: anything else is not offered as a button.
     public var github: URL?
@@ -142,6 +145,7 @@ public struct PRCard: Equatable, Sendable {
         case .none?, nil: nil
         }
         note = artifact.pr?.note.flatMap { $0.isEmpty ? nil : "May be out of date: \($0)" }
+        refreshedAt = artifact.pr?.refreshedAt
         selfChange = artifact.selfChange == true
         github = artifact.url.flatMap(URL.init(string:)).flatMap(Self.githubLink)
         repository = github.map { url in url.pathComponents.dropFirst().prefix(2).joined(separator: "/") }
@@ -152,6 +156,14 @@ public struct PRCard: Equatable, Sendable {
     public static func githubLink(_ url: URL) -> URL? {
         guard url.scheme?.lowercased() == "https", url.host()?.lowercased() == "github.com" else { return nil }
         return url
+    }
+
+    /// "Checked 3 h ago", "Checked yesterday" (VoiceOver: "Checked 3 hours ago"): when the hub last read the PR from
+    /// GitHub. Nil before the first good refresh.
+    func checked(now: Date, timeZone: TimeZone) -> (short: String, spoken: String)? {
+        guard let refreshedAt else { return nil }
+        let ago = Ago(refreshedAt, now: now, timeZone: timeZone)
+        return ("Checked \(ago.short)", "Checked \(ago.spoken)")
     }
 
     public var stateText: String {

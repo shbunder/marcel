@@ -22,10 +22,11 @@ extension Components {
             /// `approval_not_found`; tasks:
             /// `task_not_found`, `task_not_finished`, `task_finished`, `runner_unreachable` (503);
             /// projects: `slug_taken`, `project_archived`, `project_is_inbox`, `project_busy`,
-            /// `agent_not_found`; artifacts and memory: `artifact_not_found`, `artifact_is_board`,
-            /// `invalid_memory_path`, `memory_file_not_found`, `memory_file_too_big`,
-            /// `memory_unavailable` (503); usage: `no_reading` (503). New codes may be added; treat an
-            /// unknown code by its HTTP status.
+            /// `agent_not_found`; agents: `rollover_running` (409); artifacts and memory:
+            /// `artifact_not_found`, `artifact_is_board`, `invalid_memory_path`,
+            /// `memory_file_not_found`, `memory_file_too_big`, `memory_unavailable` (503); schedules:
+            /// `schedule_not_found` (404), `schedule_builtin` (409); usage: `no_reading` (503). New
+            /// codes may be added; treat an unknown code by its HTTP status.
             ///
             ///
             /// - Remark: Generated from `#/components/schemas/Error/code`.
@@ -392,7 +393,10 @@ extension Components {
             }
             /// - Remark: Generated from `#/components/schemas/PushTarget/kind`.
             public var kind: Components.Schemas.PushTarget.KindPayload
-            /// Required when `kind` is `apns`.
+            /// Required when `kind` is `apns`. The device token from APNs, hex-encoded (64 to 200 hex
+            /// digits); anything else is 400 `bad_request`, because Apple answers `BadDeviceToken` to it.
+            /// Pattern new in 0.6.0.
+            ///
             ///
             /// - Remark: Generated from `#/components/schemas/PushTarget/apns_token`.
             public var apnsToken: Swift.String?
@@ -404,7 +408,7 @@ extension Components {
             ///
             /// - Parameters:
             ///   - kind:
-            ///   - apnsToken: Required when `kind` is `apns`.
+            ///   - apnsToken: Required when `kind` is `apns`. The device token from APNs, hex-encoded (64 to 200 hex
             ///   - ntfyTopic: Required when `kind` is `ntfy`.
             public init(
                 kind: Components.Schemas.PushTarget.KindPayload,
@@ -2364,6 +2368,10 @@ extension Components {
         /// matching `dashboard.schema.json`, drawn natively. `link`: any other URL. `board`: a project's
         /// board (B-35), a dashboard the hub keeps current; one per project.
         ///
+        /// The agent's digest board (B-35, B-36: "the morning digest is a board artifact") is a `doc`,
+        /// not a `board`: Marcel publishes it as Markdown in the Inbox, and each digest is a new
+        /// version of it. `board` is only ever a project's board, built by the hub.
+        ///
         ///
         /// - Remark: Generated from `#/components/schemas/ArtifactKind`.
         @frozen public enum ArtifactKind: String, Codable, Hashable, Sendable, CaseIterable {
@@ -2456,6 +2464,14 @@ extension Components {
                 ///
                 /// - Remark: Generated from `#/components/schemas/Artifact/pr/note`.
                 public var note: Swift.String?
+                /// When the hub last read this PR from GitHub successfully; absent before the first good
+                /// refresh. With `note`, the app can say since when a card is stale. A refresh that
+                /// changes nothing else sends no event of its own: the new time rides along on the next
+                /// `artifact.updated` (or the next read). New in 0.6.0.
+                ///
+                ///
+                /// - Remark: Generated from `#/components/schemas/Artifact/pr/refreshed_at`.
+                public var refreshedAt: Foundation.Date?
                 /// Creates a new `PrPayload`.
                 ///
                 /// - Parameters:
@@ -2464,18 +2480,21 @@ extension Components {
                 ///   - checks:
                 ///   - review:
                 ///   - note: Why the card may be out of date, in plain words, when the hub could not refresh it
+                ///   - refreshedAt: When the hub last read this PR from GitHub successfully; absent before the first good
                 public init(
                     number: Swift.Int,
                     state: Components.Schemas.Artifact.PrPayload.StatePayload,
                     checks: Components.Schemas.Artifact.PrPayload.ChecksPayload? = nil,
                     review: Components.Schemas.Artifact.PrPayload.ReviewPayload? = nil,
-                    note: Swift.String? = nil
+                    note: Swift.String? = nil,
+                    refreshedAt: Foundation.Date? = nil
                 ) {
                     self.number = number
                     self.state = state
                     self.checks = checks
                     self.review = review
                     self.note = note
+                    self.refreshedAt = refreshedAt
                 }
                 public enum CodingKeys: String, CodingKey {
                     case number
@@ -2483,6 +2502,7 @@ extension Components {
                     case checks
                     case review
                     case note
+                    case refreshedAt = "refreshed_at"
                 }
                 public init(from decoder: any Swift.Decoder) throws {
                     let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -2506,12 +2526,17 @@ extension Components {
                         Swift.String.self,
                         forKey: .note
                     )
+                    self.refreshedAt = try container.decodeIfPresent(
+                        Foundation.Date.self,
+                        forKey: .refreshedAt
+                    )
                     try decoder.ensureNoAdditionalProperties(knownKeys: [
                         "number",
                         "state",
                         "checks",
                         "review",
-                        "note"
+                        "note",
+                        "refreshed_at"
                     ])
                 }
             }
@@ -3519,7 +3544,10 @@ extension Components {
             public var prompt: Swift.String
             /// - Remark: Generated from `#/components/schemas/Schedule/paused`.
             public var paused: Swift.Bool
-            /// True for the four digests; they can be paused, not deleted.
+            /// True for the four digests; they can be paused, not deleted. Their ids are
+            /// `sch_digest_<digest>_<agent id>` (`morning`, `evening`, `weekly`, `usage`), so each agent
+            /// has its own four.
+            ///
             ///
             /// - Remark: Generated from `#/components/schemas/Schedule/builtin`.
             public var builtin: Swift.Bool
@@ -3542,7 +3570,7 @@ extension Components {
             ///   - location:
             ///   - prompt:
             ///   - paused:
-            ///   - builtin: True for the four digests; they can be paused, not deleted.
+            ///   - builtin: True for the four digests; they can be paused, not deleted. Their ids are
             ///   - deadlineMinutes: Say so if no run has started this long after the fire time (B-23).
             ///   - lastRunAt:
             ///   - nextRunAt:
@@ -3828,6 +3856,92 @@ extension Components {
                 ])
             }
         }
+        /// One past brain rollover; the `brain.rollover` event's `data`, with its id and time.
+        ///
+        /// - Remark: Generated from `#/components/schemas/Rollover`.
+        public struct Rollover: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/Rollover/id`.
+            public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/Rollover/agent_id`.
+            public var agentId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/Rollover/at`.
+            public var at: Foundation.Date
+            /// As events.schema.json `brain.rollover`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Rollover/reason`.
+            @frozen public enum ReasonPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case contextFull = "context_full"
+                case crashed = "crashed"
+                case daily = "daily"
+                case manual = "manual"
+            }
+            /// As events.schema.json `brain.rollover`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Rollover/reason`.
+            public var reason: Components.Schemas.Rollover.ReasonPayload
+            /// What the new session started with, in plain words.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Rollover/kept`.
+            public var kept: Swift.String
+            /// Creates a new `Rollover`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - agentId:
+            ///   - at:
+            ///   - reason: As events.schema.json `brain.rollover`.
+            ///   - kept: What the new session started with, in plain words.
+            public init(
+                id: Swift.String,
+                agentId: Swift.String,
+                at: Foundation.Date,
+                reason: Components.Schemas.Rollover.ReasonPayload,
+                kept: Swift.String
+            ) {
+                self.id = id
+                self.agentId = agentId
+                self.at = at
+                self.reason = reason
+                self.kept = kept
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case agentId = "agent_id"
+                case at
+                case reason
+                case kept
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.agentId = try container.decode(
+                    Swift.String.self,
+                    forKey: .agentId
+                )
+                self.at = try container.decode(
+                    Foundation.Date.self,
+                    forKey: .at
+                )
+                self.reason = try container.decode(
+                    Components.Schemas.Rollover.ReasonPayload.self,
+                    forKey: .reason
+                )
+                self.kept = try container.decode(
+                    Swift.String.self,
+                    forKey: .kept
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "id",
+                    "agent_id",
+                    "at",
+                    "reason",
+                    "kept"
+                ])
+            }
+        }
         /// What the pairing QR code encodes: a URL `marcel://pair?hub=<server URL, URL-encoded>&code=<code>`.
         /// The app keeps `hub` as its server URL and posts `code` to `/pair` on it.
         ///
@@ -3861,7 +3975,9 @@ extension Components {
             /// `note` is a plain notice: Marcel's own (the brain's `notify` tool, at most 6 per hour per
             /// agent, the rest dropped and logged, so a looping brain cannot flood the phone) and the
             /// hub's own, such as the usage guard pausing new work (`marcel://status`, collapse key
-            /// `usage`). `broke` is only for system faults (one per cause per hour).
+            /// `usage`) or a scheduled job that did not run or ran late (`normal`, linking to the
+            /// `system` message about it in the main conversation, collapse key `schedules_missed` or
+            /// `late:<schedule id>`). `broke` is only for system faults (one per cause per hour).
             ///
             ///
             /// - Remark: Generated from `#/components/schemas/PushNotification/category`.
@@ -3875,7 +3991,9 @@ extension Components {
             /// `note` is a plain notice: Marcel's own (the brain's `notify` tool, at most 6 per hour per
             /// agent, the rest dropped and logged, so a looping brain cannot flood the phone) and the
             /// hub's own, such as the usage guard pausing new work (`marcel://status`, collapse key
-            /// `usage`). `broke` is only for system faults (one per cause per hour).
+            /// `usage`) or a scheduled job that did not run or ran late (`normal`, linking to the
+            /// `system` message about it in the main conversation, collapse key `schedules_missed` or
+            /// `late:<schedule id>`). `broke` is only for system faults (one per cause per hour).
             ///
             ///
             /// - Remark: Generated from `#/components/schemas/PushNotification/category`.

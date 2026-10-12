@@ -15,7 +15,7 @@ app (`ios/Marcel/App/RootView.swift`) shows the quest view, the artifact viewer,
 | Name | `GET /me`, `PATCH /agents/{id}` | Rename the agent (1–40 characters). Shows its brain and worker models. The name is passed on (`SettingsModel.nameChanged`) so the chat header follows a rename. |
 | Notifications | `PUT /devices/{id}/push` | APNs when `/me` says the hub has it **and** this build can get a token; else an ntfy topic, with the steps to subscribe in the ntfy app (B-18). |
 | Plan usage | `GET /usage` | The 5-hour and weekly meters, reset times, and the usage guard's own words while it holds work back. A 503 `no_reading` (the runner has not read usage since it started) says "Usage unavailable" as a plain note, not a problem. |
-| Schedules | `GET /schedules`, `PATCH`, `DELETE /schedules/{id}` | Pause / resume any schedule; delete one after a confirmation. Built-in digests can only be paused. |
+| Schedules | `GET /schedules`, `PATCH`, `DELETE /schedules/{id}` | Pause / resume any schedule; delete one after a confirmation. Built-in digests can only be paused: they have no Delete button, and if the hub still answers 409 `schedule_builtin` the app says why in plain words, hides Delete and offers "Pause it instead?". 404 `schedule_not_found` means it was already deleted (the row goes); the generic `not_found` means an older hub ("not available yet"). |
 | Devices | `GET /devices`, `DELETE /devices/{id}` | Every paired device; remove another one (after a confirmation). **Unpair this phone** first revokes this phone on the hub (`DELETE /devices/{own id}`, so its token stops and pushes stop), forgets the ntfy topic, then forgets the hub. If the hub can't be told, the phone still unpairs and the pairing screen says so. |
 | System | `GET /health` | Opens the status screen. |
 
@@ -34,7 +34,9 @@ this phone's clipboard only (never Universal Clipboard) for two minutes (`TopicC
 **APNs.** `APNsRegistrar` asks for permission, calls `registerForRemoteNotifications`, and waits for the app delegate to
 pass on the token (20 s at most, per attempt: an earlier attempt's timer never fails a later one). The app has no `aps-environment` entitlement until there is an Apple developer
 account, so today registration fails and Settings falls back to ntfy and says why. Once a phone uses APNs, the app asks
-for the token again at each launch and sends a changed one to the hub.
+for the token again at each launch and sends a changed one to the hub. The token goes hex-encoded (`APNsToken.hex`), and
+`LiveSettingsService.setPush` checks it against the contract's pattern (`^[0-9a-fA-F]{64,200}$`, app API 0.6, the
+same check as the hub) before sending, so a malformed token is never sent; Settings says so in plain words.
 
 ## The status screen
 
@@ -96,8 +98,9 @@ the terminal first, not paired, no id) the phone shows a local notification that
   this phone only; an APNs timeout failing only its own attempt; a pairing link on the pairing screen.
 - `DeepLinkTests` — every kind, and malformed, foreign and oversized links refused.
 - `SettingsModelTests` — each section against the fake hub; "not available yet" on 404 / 405 / 501; rename; APNs, the
-  ntfy fallback, refused permission; pause, delete, built-in digests; revoking a device; the words each section shows;
+  ntfy fallback, refused permission; pause, delete, built-in digests (409 `schedule_builtin` → "Pause it instead?"), a schedule
+  already gone (`schedule_not_found`); the APNs token's hex check; revoking a device; the words each section shows;
   "usage unavailable" on 503 `no_reading`; the name passed on for the chat header.
-- `SettingsSnapshotTests` — Settings (everything there; a hub with no schedules or usage yet; no usage reading yet) and
+- `SettingsSnapshotTests` — Settings (everything there; a hub with no schedules or usage yet; no usage reading yet; deleting a built-in digest offering pause) and
   the status screen, in
   light and dark, pixel for pixel. `make -C ios settings-record` re-records them after a deliberate change.

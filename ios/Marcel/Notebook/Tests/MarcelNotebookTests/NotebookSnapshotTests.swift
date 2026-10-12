@@ -17,7 +17,7 @@ final class NotebookSnapshotTests: XCTestCase {
         var body: some View {
             VStack(spacing: 0) {
                 NotebookHeader(title: "Marcel's notebook", back: {})
-                NotebookContent(model: model, rollovers: model.rollovers, open: { _ in })
+                NotebookContent(model: model, open: { _ in })
                     .padding(PixelMetrics.padding)
             }
             .environment(\.notebookStill, true)
@@ -41,7 +41,8 @@ final class NotebookSnapshotTests: XCTestCase {
         let log = RolloverLog(defaults: .scratch("snapshot-rollovers-\(rollovers)"))
         if rollovers { log.receive(Fx.rollover(id: 12, at: Fx.at(-3600 * 19 - 40 * 60))) }
         let model = NotebookModel(service: hub.service, drafts: DraftStore(defaults: .scratch("snapshot-list")),
-                                  rollovers: log, projectNames: { Fx.projectNames }, text: Fx.text)
+                                  rollovers: log, projectNames: { Fx.projectNames }, text: Fx.text,
+                                  clock: { Fx.now })
         await model.load()
         return model
     }
@@ -57,7 +58,33 @@ final class NotebookSnapshotTests: XCTestCase {
     /// Wireframe 6B: about you, project notes (one without notes yet), dated notes, and a rollover. Also at the
     /// largest text size.
     func testNotebook() async {
-        Snapshot.assert(NotebookStill(model: await notebook()), named: "Notebook", padding: 0)
+        // S-12.12: the hub's list (one of them also seen on this phone, shown once) and "Fresh start".
+        let hub = FakeHub()
+        hub[Fx.rolloversRoute] = (200, Fx.json([
+            Fx.hubRollover("rol_2", at: Fx.at(-3600 * 19 - 40 * 60)),
+            Fx.hubRollover("rol_1", at: Fx.at(-86_400 * 3), reason: "context_full", kept: "Your notes."),
+        ]))
+        let model = await notebook(hub)
+        XCTAssertEqual(model.carried.count, 2)
+        Snapshot.assert(NotebookStill(model: model), named: "Notebook", padding: 0)
+    }
+
+    /// S-12.12: a fresh start asked for, on its way (the button is off until it shows).
+    func testFreshStartOnItsWay() async {
+        let hub = FakeHub()
+        hub[Fx.rollOverRoute] = (202, "")
+        let model = await notebook(hub)
+        await model.startFresh()
+        XCTAssertFalse(model.canStartFresh)
+        Snapshot.assert(NotebookStill(model: model), named: "Notebook-fresh-start", variants: Self.both, padding: 0)
+    }
+
+    /// S-12.12: a hub that cannot start one yet (before S-06.7) says so in plain words.
+    func testFreshStartNotAvailableYet() async {
+        let model = await notebook()
+        await model.startFresh()
+        Snapshot.assert(NotebookStill(model: model), named: "Notebook-fresh-start-not-yet", variants: Self.both,
+                        padding: 0)
     }
 
     /// A hub that has not built the memory routes, and no rollover seen yet.
