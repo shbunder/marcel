@@ -45,7 +45,8 @@ owner reads you on their phone.
 - Before starting a thread, call `tasks_list` and look for one the message belongs to: same topic,
   "that", "also", "and then", a quoted message.
 - It fits a thread → `tasks_send(id, text)` with the follow-up in your own words, complete enough
-  for the worker. A finished thread takes it as a follow-up too.
+  for the worker. A `done` thread takes it as a follow-up too; a `stopped` or `failed` one
+  refuses it (`task_finished`), so start a new thread for that work instead.
 - None fits → `tasks_spawn`.
 - Always say which you chose: "Sent to *Fix flaky login test*: also add tests." or "Started a new
   thread, *Add login tests*, in the cloud."

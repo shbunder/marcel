@@ -22,6 +22,7 @@ from skills_eval import (
     canned_caller,
     check_case,
     claude_command,
+    claude_env,
     load_cases,
     mcp_config,
     read_log,
@@ -229,7 +230,20 @@ def test_the_claude_command_uses_the_skill_and_only_the_fake_server(tmp_path: Pa
     assert '--strict-mcp-config' in cmd
     allowed = cmd[cmd.index('--allowedTools') + 1].split()
     assert f'mcp__{SERVER_NAME}__tasks_spawn' in allowed
+    blocked = cmd[cmd.index('--disallowedTools') + 1].split()
+    assert {'Task', 'Agent', 'Bash'} <= set(blocked)
     assert '# Orchestrate' in cmd[cmd.index('--append-system-prompt') + 1]
     server = mcp_config(case['id'], tmp_path / 'log')['mcpServers'][SERVER_NAME]
     assert server['args'][1:] == ['serve', case['id'], str(tmp_path / 'log')]
     assert CASES.is_file()
+
+
+def test_the_live_claude_gets_no_api_key() -> None:
+    env = claude_env({
+        'PATH': '/usr/bin', 'HOME': '/home/me', 'CLAUDE_CODE_SESSION_ID': 'abc',
+        'ANTHROPIC_API_KEY': 'sk-ant-x', 'ANTHROPIC_AUTH_TOKEN': 't', 'ANTHROPIC_BASE_URL': 'u',
+        'CLAUDE_CODE_OAUTH_TOKEN': 'o', 'CLAUDE_CODE_API_KEY_HELPER_TTL_MS': '1',
+        'CLAUDE_CODE_USE_BEDROCK': '1',
+    })  # fmt: skip
+    assert 'ANTHROPIC_API_KEY' not in env
+    assert env == {'PATH': '/usr/bin', 'HOME': '/home/me', 'CLAUDE_CODE_SESSION_ID': 'abc'}

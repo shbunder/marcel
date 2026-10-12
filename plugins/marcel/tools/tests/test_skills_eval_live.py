@@ -11,13 +11,21 @@ of every case are written to `.eval/<case>.jsonl` next to this file; record the 
 """
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
 import pytest
-from skills_eval import check_case, claude_command, load_cases, mcp_config, read_log
+from skills_eval import (
+    check_case,
+    claude_command,
+    claude_env,
+    load_cases,
+    mcp_config,
+    read_log,
+)
 
 pytestmark = pytest.mark.live
 OUT = Path(__file__).resolve().parent / '.eval'
@@ -35,7 +43,8 @@ def test_request_leads_to_the_expected_tool_calls(case: dict[str, Any], tmp_path
     config.write_text(json.dumps(mcp_config(case['id'], log)))
     run = subprocess.run(
         claude_command(case, config, claude),
-        cwd=tmp_path, capture_output=True, text=True, timeout=600, check=False,
+        cwd=tmp_path, env=claude_env(os.environ), capture_output=True, text=True, timeout=600,
+        check=False,
     )  # fmt: skip
     calls = read_log(log)
     (OUT / f'{case["id"]}.out.json').write_text(run.stdout)

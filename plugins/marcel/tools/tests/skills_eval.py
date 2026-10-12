@@ -10,6 +10,7 @@ with the case's `expect` and `forbid`.
 
 import json
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -121,6 +122,10 @@ def serve(case_id: str, log: Path) -> None:
         server.handle_line(line)
 
 
+# The brain routes; it must not do the work itself or hand it to a subagent (Task, or Agent).
+BLOCKED = 'Bash Edit Write Read Glob Grep WebFetch WebSearch Task Agent NotebookEdit'
+
+
 def claude_command(case: dict[str, Any], mcp_config: Path, claude: str = 'claude') -> list[str]:
     skill = (SKILLS / 'orchestrate' / 'SKILL.md').read_text()
     allowed = [f'mcp__{SERVER_NAME}__{name}' for name in sorted(tool_names())]
@@ -131,9 +136,24 @@ def claude_command(case: dict[str, Any], mcp_config: Path, claude: str = 'claude
         '--max-turns', '8',
         '--strict-mcp-config', '--mcp-config', str(mcp_config),
         '--allowedTools', ' '.join(allowed),
-        '--disallowedTools', 'Bash Edit Write Read Glob Grep WebFetch WebSearch Task NotebookEdit',
+        '--disallowedTools', BLOCKED,
         '--append-system-prompt', PREAMBLE + skill,
     ]  # fmt: skip
+
+
+def claude_env(environ: Mapping[str, str]) -> dict[str, str]:
+    """The environment for the live `claude`, without any API key or other way to bill outside
+    the Max login: no ANTHROPIC_* variable, no CLAUDE_CODE_* key or token, no CLAUDE_CODE_USE_*
+    provider switch (Bedrock, Vertex)."""
+
+    def billable(name: str) -> bool:
+        if name.startswith('ANTHROPIC_'):
+            return True
+        if name.startswith('CLAUDE_CODE_'):
+            return 'KEY' in name or 'TOKEN' in name or name.startswith('CLAUDE_CODE_USE_')
+        return False
+
+    return {k: v for k, v in environ.items() if not billable(k)}
 
 
 def mcp_config(case_id: str, log: Path) -> dict[str, Any]:
