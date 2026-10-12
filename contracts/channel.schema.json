@@ -114,7 +114,7 @@
         "kind": { "enum": ["task_failed", "task_silent", "task_question", "handback", "digest_due", "schedule_fired", "rollover"] },
         "text": { "type": "string", "description": "One line for the brain, in plain words." },
         "task_id": { "type": "string" },
-        "data": { "type": "object" }
+        "data": { "type": "object", "description": "For `handback`: `{title, state, note}` (the task's title and state, and what the owner wrote, `\"\"` if nothing)." }
       },
       "examples": [{ "type": "system_event", "seq": 43, "kind": "digest_due", "text": "The evening digest is due. The facts bundle is attached.", "data": { "digest": "evening" } }]
     },

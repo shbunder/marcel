@@ -224,6 +224,10 @@ without touching the brain.
 
 ## Data model (summary; where it and `contracts/` disagree, the contract wins)
 
+v1 has **one owner**. There is no user table: `owner_user_id` and `device.user_id` are the fixed id `usr_owner`,
+and the owner's name (`Me.name`) is a hub setting (`MARCEL_OWNER_NAME`). An agent's main conversation is created
+with the agent (`conversations.ensure_main_conversation`), so every agent the app sees has one.
+
 ```
 agent(id, owner_user_id, name, animal, palette, seed, persona_path, model_brain, model_worker,
       main_conversation_id)
