@@ -27,8 +27,8 @@ serves the bytes with their own content type, `nosniff`, and a CSP `sandbox` hea
 
 A PR's CI and review status is refreshed from a `PrStatusSource`; `pr_status_from_gh` turns
 GitHub's REST answers into the contract's `pr` fields. Per ADR-002 the hub reads GitHub itself with
-a read-only token; that client is S-04.12. Until it is wired, the hub starts with `NoPrStatus`,
-which says plainly that it cannot ask GitHub.
+a read-only token: `github.py` (S-04.12) installs that client and the loop that refreshes open PRs.
+Without a token the store keeps `NoPrStatus`, which says plainly that the token is missing.
 """
 
 import json
@@ -126,7 +126,8 @@ class PrStatusSource(Protocol):
 class NoPrStatus:
     async def fetch(self, url: str) -> dict[str, Any]:
         raise PrStatusUnavailable(
-            'The hub has no way to ask GitHub yet, so PR checks and reviews are not refreshed.'
+            'The hub has no GitHub token (MARCEL_GITHUB_TOKEN is not set), so it cannot check '
+            "this PR's checks and reviews."
         )
 
 
@@ -279,7 +280,7 @@ class ArtifactStore:
         self.events = events  # for the item-get message (B-36); None: no message
         # Writes a board's content now, by project id: set by the board keeper, so a board read
         # before its first build is built on the spot (`boards.BoardKeeper`).
-        self.build_board: Callable[[str], None] | None = None
+        self.build_board: Callable[[str], object] | None = None
         self._lock = threading.Lock()  # one new version of an artifact at a time
 
     # Reading -------------------------------------------------------------------------------
@@ -742,7 +743,9 @@ class ArtifactStore:
     # PR status -----------------------------------------------------------------------------
 
     async def refresh_pr(self, artifact_id: str) -> Artifact:
-        """Ask the PR status source and store the PR's state, checks and review.
+        """Ask the PR status source and store the PR's state, checks and review. When any of
+        them changed, send `artifact.updated` with the current version (no new version: the
+        artifact is the same PR); when nothing changed, send nothing.
 
         Raises `PrStatusUnavailable` (the last known status stays), `ArtifactNotFound`, or
         `ArtifactRefused` for an artifact that is not a PR.
@@ -757,13 +760,17 @@ class ArtifactStore:
                 raise PrStatusUnavailable(
                     f'GitHub sent a PR {key} the hub does not know ({status.get(key)!r}).'
                 )
-        with Session(self.engine) as s:
+        with self._lock, Session(self.engine) as s:
             row = s.get(Artifact, artifact_id)
-            assert row is not None
-            pr = dict(row.meta_json.get('pr', {}))
-            pr.update({k: status[k] for k in allowed if k in status})
+            if row is None:
+                raise ArtifactNotFound(artifact_id)
+            before = dict(row.meta_json.get('pr', {}))
+            pr = {**before, **{k: status[k] for k in allowed if k in status}}
+            if pr == before:
+                return row  # nothing changed: no event
             row.meta_json = {**row.meta_json, 'pr': pr}
             s.add(row)
             s.commit()
             s.refresh(row)
+        self._updated(row, self.version(row.id, row.current_version))
         return row
