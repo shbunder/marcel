@@ -43,13 +43,27 @@ public struct UserLine: Equatable, Sendable {
     public var status: Status = .sent
     /// For a message not yet back from the hub: the id that makes a retry safe.
     public var clientId: String?
+    /// The project room it was sent from (`project_id`, B-32): drawn as that project's chip under the message.
+    public var project: String?
+    public var tone: ProjectChip.Tone = .teal
+
+    public init(id: String, text: String, status: Status = .sent, clientId: String? = nil, project: String? = nil,
+                tone: ProjectChip.Tone = .teal) {
+        self.id = id
+        self.text = text
+        self.status = status
+        self.clientId = clientId
+        self.project = project
+        self.tone = tone
+    }
 
     /// What VoiceOver reads.
     public var accessibilityText: String {
-        switch status {
-        case .sent: "You said: \(text)"
-        case .sending: "Sending: \(text)"
-        case .failed: "Not sent: \(text). Double-tap to try again."
+        let about = project.map { ", about \($0)" } ?? ""
+        return switch status {
+        case .sent: "You said\(about): \(text)"
+        case .sending: "Sending\(about): \(text)"
+        case .failed: "Not sent\(about): \(text). Double-tap to try again."
         }
     }
 }
@@ -172,7 +186,10 @@ public enum ChatFeed {
             case .text, .quote:
                 let text = message.text ?? ""
                 if message.role == .user {
-                    items.append(.user(UserLine(id: message.id, text: text)))
+                    // Sent from a project room: tagged with that project (B-32).
+                    let project = message.projectId.flatMap { input.projects[$0] }
+                    items.append(.user(UserLine(id: message.id, text: text, project: project?.name,
+                                                tone: project.map { tone(for: $0.id) } ?? .teal)))
                 } else {
                     let routed = message.taskId.flatMap { Self.quest(id: "\(message.id)#quest", taskId: $0, input: input) }
                     items.append(.marcel(MarcelLine(id: message.id, body: ChatMarkdown.render(text), quest: routed)))

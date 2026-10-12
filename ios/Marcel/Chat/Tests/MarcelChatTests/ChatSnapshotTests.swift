@@ -23,6 +23,16 @@ final class ChatSnapshotTests: XCTestCase {
             named: "Chat-conversation", padding: 0)
     }
 
+    // S-12.7: a message sent from a project room carries that project's chip.
+    func testAMessageFromAProjectRoom() {
+        Snapshot.assert(
+            ChatStill(header: ChatHeaderState(), items: [
+                .user(UserLine(id: "u1", text: "Did the second installer reply?", project: "Home energy",
+                               tone: .teal)),
+            ], collapsed: true),
+            named: "Chat-project-tag", variants: twoModes, padding: 0)
+    }
+
     func testCollapsedHeaderOffline() {
         Snapshot.assert(
             ChatStill(header: ChatHeaderState(offline: "Offline · showing what's saved"), items: [

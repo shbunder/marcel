@@ -17,3 +17,7 @@
   environment flag, draw the composer's text as `PixelText` and the avatar as one still frame.
 - `PixelGlyph.pixel(for:)` and PixelKit's `pixelRendersOffscreen` are internal; tests reach the latter with
   `@testable import PixelKit` (SwiftPM debug builds allow it).
+- **A screen package can depend on another** (S-12.7): `MarcelMap` lists `../Chat` and `../Quests` in its
+  `Package.swift` to reuse the composer, the board preview and the quest grouping. Make only what it needs `public`,
+  and add the new package to `project.pbxproj` the way Quests is (a local package reference and a product dependency;
+  no exception entry).
