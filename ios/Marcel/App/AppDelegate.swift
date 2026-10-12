@@ -1,3 +1,4 @@
+import MarcelKit
 import MarcelSettings
 import UIKit
 import UserNotifications
@@ -8,7 +9,10 @@ import UserNotifications
 final class AppDelegate: NSObject, UIApplicationDelegate {
     /// One router for the app's life: links that arrive before the tabs are up wait in it.
     let router = LinkRouter()
-    lazy var push = PushHandler(router: router)
+    /// Approve and Deny answer with the hub and token pairing saved, read when the action comes in: iOS may start the
+    /// app in the background just for the action, and then no screen ever loads.
+    lazy var push = PushHandler(router: router, answer: PushHandler.answering(
+        hubStore: UserDefaultsPairedHubStore(), tokenStore: KeychainTokenStore()))
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {

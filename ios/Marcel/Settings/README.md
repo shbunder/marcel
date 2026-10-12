@@ -15,7 +15,7 @@ app (`ios/Marcel/App/RootView.swift`) shows the quest view, the artifact viewer,
 | Notifications | `PUT /devices/{id}/push` | APNs when `/me` says the hub has it **and** this build can get a token; else an ntfy topic, with the steps to subscribe in the ntfy app (B-18). |
 | Plan usage | `GET /usage` | The 5-hour and weekly meters, reset times, and the usage guard's own words while it holds work back. |
 | Schedules | `GET /schedules`, `PATCH`, `DELETE /schedules/{id}` | Pause / resume any schedule; delete one after a confirmation. Built-in digests can only be paused. |
-| Devices | `GET /devices`, `DELETE /devices/{id}` | Every paired device; remove another one (after a confirmation). This phone is removed with **Unpair this phone**, which forgets the hub. |
+| Devices | `GET /devices`, `DELETE /devices/{id}` | Every paired device; remove another one (after a confirmation). **Unpair this phone** first revokes this phone on the hub (`DELETE /devices/{own id}`, so its token stops and pushes stop), forgets the ntfy topic, then forgets the hub. If the hub can't be told, the phone still unpairs and the pairing screen says so. |
 | System | `GET /health` | Opens the status screen. |
 
 Each section loads and fails on its own. A hub that answers **404, 405 or 501** for a route the contract has (schedules
@@ -24,10 +24,11 @@ FastAPI's bare 404 (`{"detail": "Not Found"}`) does not decode as the contract's
 too (`LiveSettingsService.call`).
 
 **ntfy topic.** Made once per phone (`NtfyTopicStore`): `marcel-` and 24 random lower-case letters and digits. Anyone
-who knows a topic can read what is sent to it, so it is random and the screen says to keep it private.
+who knows a topic can read what is sent to it, so it is random, the screen says to keep it private, **Copy** puts it on
+this phone's clipboard only (never Universal Clipboard) for two minutes (`TopicClipboard`), and unpairing forgets it.
 
 **APNs.** `APNsRegistrar` asks for permission, calls `registerForRemoteNotifications`, and waits for the app delegate to
-pass on the token (20 s at most). The app has no `aps-environment` entitlement until there is an Apple developer
+pass on the token (20 s at most, per attempt: an earlier attempt's timer never fails a later one). The app has no `aps-environment` entitlement until there is an Apple developer
 account, so today registration fails and Settings falls back to ntfy and says why. Once a phone uses APNs, the app asks
 for the token again at each launch and sends a changed one to the hub.
 
@@ -54,6 +55,9 @@ Every link is untrusted (anything on the phone can open one): only the `marcel` 
 (at most 128) or a slug matching the contract's pattern, no query, fragment, user, port or percent-escape, at most 300
 characters. **`marcel://pair?…` never pairs the phone**: a web page could otherwise pair it with a stranger's hub.
 Anything else shows one plain sentence over the tabs (tap to dismiss) and opens nothing; nothing is sent to the hub.
+A pairing link while the phone is unpaired is answered on the pairing screen ("scan the code on this screen"), and that
+sentence goes away once the phone is paired. A link the hub could not look up says which: the hub refused this phone
+(pair again), the hub had a problem (5xx), or the hub couldn't be reached.
 
 **Cold start.** `AppDelegate` makes one `LinkRouter` and one `PushHandler` at launch and sets the handler as the
 notification centre's delegate in `didFinishLaunching`, so a push that launches the app is delivered. A link or push that
@@ -64,7 +68,9 @@ to the paired hub (`LiveLinkLookup`), which looks the waiting link up and shows 
 
 `PushCategories.make()` registers every category in the contract's `PushNotification.category` (`approval`, `task`,
 `broke`, `digest`, `note`). Only `approval` has actions: **Approve** and **Deny**, which need an unlocked phone and do
-not open the app; `PushHandler` answers with `POST /approvals/{id}` using this phone's token. If that fails (answered in
+not open the app; `PushHandler` answers with `POST /approvals/{id}` using this phone's token. The answerer is made at
+launch (`PushHandler.answering`) and reads the saved hub address and the Keychain token when the action comes in, because
+iOS may start the app in the background just for the action, and then no screen ever loads. If that fails (answered in
 the terminal first, not paired, no id) the phone shows a local notification that says so. A tap on any push opens its
 `deep_link`. A push that arrives while the app is open still shows as a banner.
 
@@ -77,6 +83,9 @@ the terminal first, not paired, no id) the phone shows a local notification that
   handler exactly as `AppDelegate` and `MainTabs` wire them, with a fake hub behind the real generated client and a
   real in-memory cache. Also: bad links open nothing and never reach the hub, links to things that are gone, Approve and
   Deny, every contract category registered.
+- `SettingsReviewFixTests` and the review tests in `LinkRoutingTests` — Approve from the lock screen with the app not
+  running; unpairing tells the hub (and still unpairs offline); 5xx, 401 and offline said apart; the topic copied to
+  this phone only; an APNs timeout failing only its own attempt; a pairing link on the pairing screen.
 - `DeepLinkTests` — every kind, and malformed, foreign and oversized links refused.
 - `SettingsModelTests` — each section against the fake hub; "not available yet" on 404 / 405 / 501; rename; APNs, the
   ntfy fallback, refused permission; pause, delete, built-in digests; revoking a device; the words each section shows.

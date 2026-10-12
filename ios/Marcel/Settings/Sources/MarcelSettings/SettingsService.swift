@@ -1,6 +1,7 @@
 import Foundation
 import MarcelKit
 import OpenAPIRuntime
+import OpenAPIURLSession
 
 public typealias Me = Components.Schemas.Me
 public typealias Device = Components.Schemas.Device
@@ -53,6 +54,10 @@ public enum SettingsError: Error, Equatable, LocalizedError {
     case refused(String)
     case notFound
     case unauthorized
+    /// A 5xx (other than 501): the hub is up but something on it failed.
+    case hubProblem
+    /// No hub address or no device token on this phone.
+    case notPaired
     case offline
     case unexpected(String)
 
@@ -64,6 +69,8 @@ public enum SettingsError: Error, Equatable, LocalizedError {
         case .refused(let message): message
         case .notFound: "The hub no longer has that. Pull down to refresh."
         case .unauthorized: "The hub no longer accepts this phone. Pair it again."
+        case .hubProblem: "The hub had a problem. Try again in a minute."
+        case .notPaired: "This phone isn't paired with a hub."
         case .offline: "Couldn't reach the hub. Check the connection and try again."
         case .unexpected(let what): "The hub sent something the app doesn't understand (\(what))."
         }
@@ -74,9 +81,12 @@ public enum SettingsError: Error, Equatable, LocalizedError {
             ?? "Something went wrong talking to the hub. Try again in a moment."
     }
 
-    /// A status the contract does not list for this route. 404, 405 and 501 mean the hub has not built it yet.
+    /// A status the contract does not list for this route. 404, 405 and 501 mean the hub has not built it yet;
+    /// any other 5xx means the hub hit a problem of its own.
     static func undocumented(_ status: Int, _ what: String) -> SettingsError {
-        [404, 405, 501].contains(status) ? .notAvailableYet : .unexpected("\(what), HTTP \(status)")
+        if [404, 405, 501].contains(status) { return .notAvailableYet }
+        if (500...599).contains(status) { return .hubProblem }
+        return .unexpected("\(what), HTTP \(status)")
     }
 }
 
@@ -86,6 +96,16 @@ public struct LiveSettingsService: SettingsService {
 
     public init(client: Client) {
         self.client = client
+    }
+
+    /// The hub this phone is paired with, as pairing left it (address in `hubStore`, token in `tokenStore`); nil
+    /// when either is missing. Read at the moment it is needed, so it also works when iOS starts the app in the
+    /// background for a notification action, before any screen exists.
+    public static func paired(hubStore: any PairedHubStore, tokenStore: any TokenStore,
+                              transport: any ClientTransport = URLSessionTransport()) -> (LiveSettingsService, PairedHub)? {
+        guard let hub = hubStore.load(), (try? tokenStore.token()) != nil else { return nil }
+        return (LiveSettingsService(client: HubClient.make(serverURL: hub.serverURL, tokenStore: tokenStore,
+                                                           transport: transport)), hub)
     }
 
     public func me() async throws -> Me {
@@ -184,7 +204,7 @@ public struct LiveSettingsService: SettingsService {
     public func health() async throws -> Health {
         switch try await call({ try await client.getHealth() }) {
         case .ok(let ok): return try ok.body.json
-        case .undocumented(let status, _): throw SettingsError.unexpected("health, HTTP \(status)")
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "health")
         }
     }
 
@@ -192,7 +212,7 @@ public struct LiveSettingsService: SettingsService {
         switch try await call({ try await client.listApprovals() }) {
         case .ok(let ok): return try ok.body.json
         case .unauthorized: throw SettingsError.unauthorized
-        case .undocumented(let status, _): throw SettingsError.unexpected("questions, HTTP \(status)")
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "questions")
         }
     }
 
@@ -200,7 +220,7 @@ public struct LiveSettingsService: SettingsService {
         switch try await call({ try await client.listProjects(query: .init(agentId: agentId)) }) {
         case .ok(let ok): return try ok.body.json
         case .unauthorized: throw SettingsError.unauthorized
-        case .undocumented(let status, _): throw SettingsError.unexpected("projects, HTTP \(status)")
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "projects")
         }
     }
 
@@ -215,7 +235,7 @@ public struct LiveSettingsService: SettingsService {
         case .badRequest: throw SettingsError.unexpected("answer, HTTP 400")
         case .unauthorized: throw SettingsError.unauthorized
         case .notFound: throw SettingsError.alreadyAnswered
-        case .undocumented(let status, _): throw SettingsError.unexpected("answer, HTTP \(status)")
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "answer")
         }
     }
 
@@ -227,6 +247,8 @@ public struct LiveSettingsService: SettingsService {
             return try await request()
         } catch let error as ClientError where [404, 405, 501].contains(error.response?.status.code ?? 0) {
             throw SettingsError.notAvailableYet
+        } catch let error as ClientError where (500...599).contains(error.response?.status.code ?? 0) {
+            throw SettingsError.hubProblem
         } catch let error as ClientError where error.underlyingError is URLError {
             throw SettingsError.offline
         } catch is URLError {

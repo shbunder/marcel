@@ -54,11 +54,15 @@ public final class SettingsModel {
     @ObservationIgnored let service: any SettingsService
     @ObservationIgnored let tokens: any PushTokenSource
     @ObservationIgnored let topics: NtfyTopicStore
+    /// This phone's device id as pairing saved it, for when `/me` could not be read.
+    @ObservationIgnored let thisDevice: String?
 
-    public init(service: any SettingsService, tokens: any PushTokenSource, topics: NtfyTopicStore = NtfyTopicStore()) {
+    public init(service: any SettingsService, tokens: any PushTokenSource, topics: NtfyTopicStore = NtfyTopicStore(),
+                thisDevice: String? = nil) {
         self.service = service
         self.tokens = tokens
         self.topics = topics
+        self.thisDevice = thisDevice
     }
 
     // MARK: Loading
@@ -248,6 +252,32 @@ public final class SettingsModel {
     }
 
     // MARK: Devices
+
+    /// Unpairing this phone: tells the hub first (`DELETE /devices/{this phone}`), so its token stops working and
+    /// pushes stop coming, then forgets the ntfy topic. Call before forgetting the token on the phone. Returns what to
+    /// tell the person when the hub could not be told; the phone unpairs either way.
+    public func forgetThisPhone() async -> String? {
+        defer { topics.clear() }
+        guard let deviceId = me?.deviceId ?? thisDevice else {
+            return "Couldn't tell the hub which phone this is, so it may still send to it. "
+                + "Remove this phone under Devices on another phone."
+        }
+        do {
+            try await service.revoke(deviceId: deviceId)
+            return nil
+        } catch SettingsError.notFound, SettingsError.unauthorized {
+            // The hub had already forgotten this phone.
+            return nil
+        } catch {
+            let why = switch error as? SettingsError {
+            case .offline: "it couldn't be reached"
+            case .hubProblem: "it had a problem"
+            default: "it didn't answer as expected"
+            }
+            return "Unpaired, but the hub wasn't told (\(why)), so it may still send to this phone. "
+                + "Remove this phone under Devices on another phone."
+        }
+    }
 
     /// Revokes another device. This phone is unpaired instead (it forgets the hub too).
     public func revoke(_ device: Device) async {

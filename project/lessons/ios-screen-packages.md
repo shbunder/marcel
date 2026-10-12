@@ -44,3 +44,6 @@
   holds the status. Catch that (`LiveSettingsService.call`) to say "not available yet" instead of "something went wrong".
 - **Silkscreen (the label face) has capitals only**: anything case-sensitive (an ntfy topic, an id) goes in the body
   face (`PixelText(role: .body)`), or it reads wrong.
+- **Notification actions can run with no screen** (S-12.10 review): iOS starts the app in the background for a
+  lock-screen action, so anything the action needs (here the hub address and token) must be built at launch from the
+  stores, never from a view's `.task`.

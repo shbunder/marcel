@@ -14,19 +14,21 @@ import UserNotifications
 struct RootView: View {
     let connection: HubConnection
     let router: LinkRouter
-    let push: PushHandler
 
     var body: some View {
         switch connection.phase {
         case .unpaired:
             PairingView(connection: connection)
-                .onAppear {
-                    // Links wait again until the phone is paired; push answers need a token.
-                    router.detach()
-                    push.answer = nil
+                // A link that could not be opened (a pairing link) or a note from unpairing, said here too.
+                .overlay(alignment: .top) {
+                    if let notice = router.notice {
+                        LinkNoticeView(text: notice) { router.notice = nil }
+                    }
                 }
+                // Links wait again until the phone is paired.
+                .onAppear { router.detach() }
         case .paired(let hub):
-            MainTabs(connection: connection, hub: hub, router: router, push: push)
+            MainTabs(connection: connection, hub: hub, router: router)
         }
     }
 }
@@ -46,7 +48,6 @@ struct MainTabs: View {
     let connection: HubConnection
     let hub: PairedHub
     let router: LinkRouter
-    let push: PushHandler
     private let settings: LiveSettingsService
     @State private var chat: ChatModel
     @State private var tab: PixelTabBar.Tab.ID = "chat"
@@ -56,11 +57,10 @@ struct MainTabs: View {
 
     private static let conversationKey = "chat.mainConversationId"
 
-    init(connection: HubConnection, hub: PairedHub, router: LinkRouter, push: PushHandler) {
+    init(connection: HubConnection, hub: PairedHub, router: LinkRouter) {
         self.connection = connection
         self.hub = hub
         self.router = router
-        self.push = push
         let client = HubClient.make(serverURL: hub.serverURL, tokenStore: connection.tokenStore)
         settings = LiveSettingsService(client: client)
         _chat = State(initialValue: ChatModel(
@@ -108,7 +108,6 @@ struct MainTabs: View {
             router.consume()
         }
         .task {
-            push.answer = { [settings] id, approve in try await settings.answer(approvalId: id, approve: approve) }
             APNsRegistrar.shared.onToken = { [settings, hub] token in
                 Task { _ = try? await settings.setPush(deviceId: hub.deviceId, target: .init(kind: .apns, apnsToken: token)) }
             }
@@ -142,7 +141,7 @@ struct MainTabs: View {
     @ViewBuilder private func screen(_ over: OverTabs) -> some View {
         switch over {
         case .settings:
-            SettingsView(model: SettingsModel(service: settings, tokens: APNsRegistrar.shared),
+            SettingsView(model: SettingsModel(service: settings, tokens: APNsRegistrar.shared, thisDevice: hub.deviceId),
                          status: { StatusModel(service: settings) },
                          unpair: unpair)
         case .quest(let taskId): QuestView(taskId: taskId)
@@ -151,8 +150,11 @@ struct MainTabs: View {
         }
     }
 
-    private func unpair() {
+    /// Forgets the hub on this phone. Settings has told the hub first; `note` says so when it couldn't, and shows on
+    /// the pairing screen.
+    private func unpair(_ note: String? = nil) {
         over = nil
+        router.notice = note
         UserDefaults.standard.removeObject(forKey: Self.conversationKey)
         connection.unpair()
     }

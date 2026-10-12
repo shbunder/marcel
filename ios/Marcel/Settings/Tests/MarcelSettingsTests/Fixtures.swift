@@ -168,3 +168,26 @@ extension UserDefaults {
         return UserDefaults(suiteName: suite)!
     }
 }
+
+/// What pairing leaves on the phone: the hub's address and the device token. In memory, for tests.
+struct PairedStores {
+    final class Token: TokenStore, @unchecked Sendable {
+        var value: String?
+        init(_ value: String?) { self.value = value }
+        func token() throws -> String? { value }
+        func save(_ token: String) throws { value = token }
+        func delete() throws { value = nil }
+    }
+
+    let hub: UserDefaultsPairedHubStore
+    let token: Token
+
+    init(paired: Bool, name: String = #function) {
+        hub = UserDefaultsPairedHubStore(defaults: .scratch("stores-\(name)"))
+        token = Token(paired ? "mrc_test" : nil)
+        if paired {
+            try! hub.save(PairedHub(serverURL: URL(string: "http://hub.test/api")!, deviceId: "dev_phone",
+                                    userId: "usr_owner"))
+        }
+    }
+}

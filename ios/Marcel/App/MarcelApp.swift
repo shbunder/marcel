@@ -22,7 +22,7 @@ struct MarcelApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(connection: connection, router: delegate.router, push: delegate.push)
+            RootView(connection: connection, router: delegate.router)
                 .task { connection.start() }
                 // `marcel://` links from the ntfy app, Safari or another app. Checked and routed by `LinkRouter`.
                 .onOpenURL { delegate.router.open($0) }

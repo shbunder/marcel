@@ -1,5 +1,6 @@
 import Foundation
 import MarcelKit
+import UIKit
 import XCTest
 
 @testable import MarcelSettings
@@ -221,5 +222,103 @@ final class SettingsModelTests: XCTestCase {
         hub.offline = true
         await model.load()
         XCTAssertEqual(model.health, .failed("Couldn't reach the hub. It may be down, or this phone is offline."))
+    }
+}
+
+/// The review's fixes to Settings: unpairing tells the hub, a hub's own failure says so, the topic stays on this
+/// phone, and an APNs timeout fails only its own attempt.
+@MainActor
+final class SettingsReviewFixTests: XCTestCase {
+    private func loaded(_ hub: FakeHub, topics: NtfyTopicStore) async -> SettingsModel {
+        let model = SettingsModel(service: hub.service, tokens: FakeTokens(), topics: topics, thisDevice: "dev_phone")
+        await model.load()
+        return model
+    }
+
+    /// Fix 2: unpairing revokes this phone on the hub (its token stops, pushes stop) and forgets the ntfy topic.
+    func testUnpairingTellsTheHubAndForgetsTheTopic() async {
+        let hub = FakeHub()
+        hub["DELETE /devices/dev_phone"] = (204, "")
+        let topics = NtfyTopicStore(defaults: .scratch())
+        _ = topics.topic()
+        let model = await loaded(hub, topics: topics)
+        let note = await model.forgetThisPhone()
+        XCTAssertNil(note)
+        XCTAssertTrue(hub.requests.contains("DELETE /devices/dev_phone"), "\(hub.requests)")
+        XCTAssertNil(topics.saved)
+    }
+
+    func testUnpairingWhenTheHubAlreadyForgotThisPhone() async {
+        let hub = FakeHub()
+        hub["DELETE /devices/dev_phone"] = (404, Fx.error("device_not_found", "No such device."))
+        let model = await loaded(hub, topics: NtfyTopicStore(defaults: .scratch()))
+        let note = await model.forgetThisPhone()
+        XCTAssertNil(note)
+    }
+
+    func testUnpairingOfflineStillUnpairsAndSaysSo() async {
+        let hub = FakeHub()
+        let topics = NtfyTopicStore(defaults: .scratch())
+        _ = topics.topic()
+        let model = await loaded(hub, topics: topics)
+        hub.offline = true
+        let note = await model.forgetThisPhone()
+        XCTAssertEqual(note, "Unpaired, but the hub wasn't told (it couldn't be reached), so it may still send to "
+            + "this phone. Remove this phone under Devices on another phone.")
+        XCTAssertTrue(hub.requests.contains("DELETE /devices/dev_phone"), "tried with the saved device id")
+        XCTAssertNil(topics.saved, "the topic is forgotten either way")
+    }
+
+    /// Fix 4: a 5xx is the hub's own problem, not "something the app doesn't understand".
+    func testAHubFailureSaysTheHubHadAProblem() async {
+        let hub = FakeHub()
+        hub["GET /usage"] = (500, Fx.error("internal", "Boom."))
+        hub["GET /schedules"] = (502, "")
+        let model = await loaded(hub, topics: NtfyTopicStore(defaults: .scratch()))
+        XCTAssertEqual(model.usage, .failed("The hub had a problem. Try again in a minute."))
+        XCTAssertEqual(model.schedules, .failed("The hub had a problem. Try again in a minute."))
+        let status = StatusModel(service: hub.service, alerts: LastAlertStore(defaults: .scratch()))
+        hub["GET /health"] = (500, "")
+        await status.load()
+        XCTAssertEqual(status.health, .failed("The hub had a problem. Try again in a minute."))
+    }
+
+    /// Fix 5: the topic is copied to this phone only, and expires.
+    func testTheTopicIsCopiedToThisPhoneOnlyAndExpires() throws {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let options = TopicClipboard.options(now: now)
+        XCTAssertEqual(options[.localOnly] as? Bool, true, "never Universal Clipboard")
+        XCTAssertEqual(options[.expirationDate] as? Date, now.addingTimeInterval(120))
+        let board = try XCTUnwrap(UIPasteboard(name: UIPasteboard.Name("settings-tests"), create: true))
+        TopicClipboard.copy("marcel-abc", to: board)
+        XCTAssertEqual(board.string, "marcel-abc")
+        UIPasteboard.remove(withName: board.name)
+    }
+
+    /// Fix 6: attempt 1 succeeds; its 0.6 s timer fires while attempt 2 waits and must not fail attempt 2.
+    func testAnEarlierTimeoutNeverFailsALaterRegistration() async throws {
+        let registrar = APNsRegistrar(authorize: { true }, register: {}, timeout: .milliseconds(600))
+        async let first = registrar.token()
+        try await Task.sleep(for: .milliseconds(50))
+        registrar.didRegister(deviceToken: Data([0xAB]))
+        let firstToken = try await first
+        XCTAssertEqual(firstToken, "ab")
+
+        try await Task.sleep(for: .milliseconds(250))  // t ≈ 0.3 s: start attempt 2
+        let second = Task { try await registrar.token() }
+        try await Task.sleep(for: .milliseconds(500))  // t ≈ 0.8 s: attempt 1's timer has fired
+        registrar.didRegister(deviceToken: Data([0xCD]))
+        let secondToken = try await second.value
+        XCTAssertEqual(secondToken, "cd")
+    }
+
+    func testARegistrationThatGetsNoAnswerTimesOut() async {
+        let registrar = APNsRegistrar(authorize: { true }, register: {}, timeout: .milliseconds(100))
+        do {
+            _ = try await registrar.token()
+            XCTFail("no answer from Apple must time out")
+        } catch {
+            XCTAssertEqual(error as? PushSetupError, .apnsUnavailable)
+        }
     }
 }

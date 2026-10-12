@@ -1,4 +1,6 @@
 import Foundation
+import MarcelKit
+import OpenAPIRuntime
 import UserNotifications
 
 /// The words of a push, kept for the status screen ("Last alert").
@@ -96,18 +98,37 @@ public struct LastAlertStore: @unchecked Sendable {
 /// launch, before any push can be delivered, so a push that cold-launches the app is not lost.
 @MainActor
 public final class PushHandler: NSObject, UNUserNotificationCenterDelegate {
+    public typealias Answer = (_ approvalId: String, _ approve: Bool) async throws -> Void
+
     public let router: LinkRouter
-    /// Answers an approval with this phone's token. Nil until the phone is paired.
-    public var answer: ((_ approvalId: String, _ approve: Bool) async throws -> Void)?
+    /// Answers an approval with this phone's token. Made at launch (see `answering`), so Approve and Deny work when
+    /// iOS starts the app in the background for the action and no screen ever loads.
+    let answer: Answer
     /// Tells the person something went wrong when the app is not open (a local notification).
     let report: (String) async -> Void
     let alerts: LastAlertStore
 
-    public init(router: LinkRouter, alerts: LastAlertStore = LastAlertStore(),
+    public init(router: LinkRouter, answer: @escaping Answer, alerts: LastAlertStore = LastAlertStore(),
                 report: ((String) async -> Void)? = nil) {
         self.router = router
+        self.answer = answer
         self.alerts = alerts
         self.report = report ?? Self.localNotification
+    }
+
+    /// Answers with the paired hub as the stores hold it at that moment: `POST /approvals/{id}` with the device token.
+    /// Throws `SettingsError.notPaired` when the phone has no hub or no token.
+    public static func answering(hubStore: any PairedHubStore, tokenStore: any TokenStore,
+                                 transport: (any ClientTransport)? = nil) -> Answer {
+        { approvalId, approve in
+            let paired = if let transport {
+                LiveSettingsService.paired(hubStore: hubStore, tokenStore: tokenStore, transport: transport)
+            } else {
+                LiveSettingsService.paired(hubStore: hubStore, tokenStore: tokenStore)
+            }
+            guard let (service, _) = paired else { throw SettingsError.notPaired }
+            try await service.answer(approvalId: approvalId, approve: approve)
+        }
     }
 
     /// What a response does. `action` is the action's identifier (`UNNotificationDefaultActionIdentifier` for a tap).
@@ -117,10 +138,6 @@ public final class PushHandler: NSObject, UNUserNotificationCenterDelegate {
         case PushCategories.approve, PushCategories.deny:
             guard let approvalId = payload.approvalId else {
                 await report("That question came without its id, so nothing was answered. Open Marcel to answer it.")
-                return
-            }
-            guard let answer else {
-                await report("This phone isn't paired, so nothing was answered.")
                 return
             }
             do {
@@ -145,8 +162,14 @@ public final class PushHandler: NSObject, UNUserNotificationCenterDelegate {
     }
 
     static func words(for error: any Error) -> String {
-        (error as? SettingsError)?.errorDescription
-            ?? "Your answer didn't reach the hub. Open Marcel and answer it there."
+        switch error as? SettingsError {
+        case .notPaired: "This phone isn't paired, so nothing was answered."
+        case .unauthorized: "The hub no longer accepts this phone, so nothing was answered. Pair it again."
+        case .offline: "Couldn't reach the hub, so nothing was answered. Open Marcel and answer it there."
+        case .hubProblem: "The hub had a problem, so nothing was answered. Open Marcel and answer it there."
+        case .some(let known): known.errorDescription ?? "Your answer didn't reach the hub."
+        case nil: "Your answer didn't reach the hub. Open Marcel and answer it there."
+        }
     }
 
     private static func localNotification(_ text: String) async {

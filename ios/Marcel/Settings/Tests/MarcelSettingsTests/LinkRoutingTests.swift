@@ -66,7 +66,7 @@ final class LinkRoutingTests: XCTestCase {
         for (link, place) in Self.routes {
             let hub = FakeHub()
             let router = LinkRouter()
-            let push = PushHandler(router: router, alerts: LastAlertStore(defaults: .scratch()), report: { _ in })
+            let push = PushHandler(router: router, answer: { _, _ in }, alerts: LastAlertStore(defaults: .scratch()), report: { _ in })
             // iOS launches the app and hands the tapped push to the delegate set in didFinishLaunching.
             let category = link.contains("status") ? "broke" : "task"
             await push.respond(action: UNNotificationDefaultActionIdentifier,
@@ -142,7 +142,7 @@ final class LinkRoutingTests: XCTestCase {
 
     func testAPushWithABadOrMissingLinkSaysSo() async {
         let router = LinkRouter()
-        let push = PushHandler(router: router, alerts: LastAlertStore(defaults: .scratch()), report: { _ in })
+        let push = PushHandler(router: router, answer: { _, _ in }, alerts: LastAlertStore(defaults: .scratch()), report: { _ in })
         for link in [nil, "marcel://task/a b", "https://example.com"] as [String?] {
             router.notice = nil
             await push.respond(action: UNNotificationDefaultActionIdentifier,
@@ -200,14 +200,21 @@ final class LinkRoutingTests: XCTestCase {
                     deepLink: "marcel://approval/apr_engie", approvalId: id, taskId: "tsk_energy")
     }
 
+    /// The push handler exactly as `AppDelegate` makes it at launch: answering from the saved hub and token.
+    private func launchedHandler(_ hub: FakeHub, paired: Bool = true, router: LinkRouter = LinkRouter(),
+                                 reported: @escaping (String) -> Void) -> PushHandler {
+        let stores = PairedStores(paired: paired)
+        return PushHandler(router: router, answer: PushHandler.answering(hubStore: stores.hub, tokenStore: stores.token,
+                                                                         transport: hub),
+                           alerts: LastAlertStore(defaults: .scratch()), report: { reported($0) })
+    }
+
     func testApproveAndDenyAnswerWithoutOpeningTheApp() async throws {
         let hub = FakeHub()
         hub["POST /approvals/apr_engie"] = (200, Fx.json(Fx.approvals[0].merging(["state": "approved"]) { $1 }))
         let router = LinkRouter()
         var reported: [String] = []
-        let push = PushHandler(router: router, alerts: LastAlertStore(defaults: .scratch()), report: { reported.append($0) })
-        let service = hub.service
-        push.answer = { id, approve in try await service.answer(approvalId: id, approve: approve) }
+        let push = launchedHandler(hub, router: router) { reported.append($0) }
 
         await push.respond(action: PushCategories.approve, payload: approvalPush())
         await push.respond(action: PushCategories.deny, payload: approvalPush())
@@ -219,25 +226,47 @@ final class LinkRoutingTests: XCTestCase {
         XCTAssertEqual(reported, [])
     }
 
+    /// Review fix 1: iOS starts the app in the background for the lock screen's Approve. No screen loads, so the
+    /// router is never attached; the answer must still go out with the saved hub and token.
+    func testApproveFromTheLockScreenWorksWhenTheAppWasNotRunning() async {
+        let hub = FakeHub()
+        hub["POST /approvals/apr_engie"] = (200, Fx.json(Fx.approvals[0].merging(["state": "approved"]) { $1 }))
+        let router = LinkRouter()
+        var reported: [String] = []
+        let push = launchedHandler(hub, router: router) { reported.append($0) }
+        XCTAssertFalse(router.isAttached, "a background launch: no tabs, no attach")
+        await push.respond(action: PushCategories.approve, payload: approvalPush())
+        XCTAssertEqual(hub.requests, ["POST /approvals/apr_engie"])
+        XCTAssertEqual(reported, [], "not the false \"isn't paired\"")
+    }
+
     func testAnAnswerThatFailsIsReportedInPlainWords() async {
         let hub = FakeHub()
-        hub["POST /approvals/apr_engie"] = (409, Fx.json(Fx.approvals[0].merging(["state": "denied"]) { $1 }))
         var reported: [String] = []
-        let push = PushHandler(router: LinkRouter(), alerts: LastAlertStore(defaults: .scratch()),
-                               report: { reported.append($0) })
-        await push.respond(action: PushCategories.approve, payload: approvalPush())
+        // Really not paired: no hub saved.
+        let unpaired = launchedHandler(hub, paired: false) { reported.append($0) }
+        await unpaired.respond(action: PushCategories.approve, payload: approvalPush())
         XCTAssertEqual(reported, ["This phone isn't paired, so nothing was answered."])
-        XCTAssertEqual(hub.requests, [], "not paired yet: nothing is sent")
+        XCTAssertEqual(hub.requests, [], "not paired: nothing is sent")
+
         reported = []
-        let service = hub.service
-        push.answer = { id, approve in try await service.answer(approvalId: id, approve: approve) }
+        let push = launchedHandler(hub) { reported.append($0) }
+        hub["POST /approvals/apr_engie"] = (409, Fx.json(Fx.approvals[0].merging(["state": "denied"]) { $1 }))
         await push.respond(action: PushCategories.approve, payload: approvalPush())
         await push.respond(action: PushCategories.approve, payload: approvalPush(nil))
+        hub["POST /approvals/apr_engie"] = (401, Fx.error("unauthorized", "Pair again."))
+        await push.respond(action: PushCategories.approve, payload: approvalPush())
+        hub["POST /approvals/apr_engie"] = (500, Fx.error("internal", "Boom."))
+        await push.respond(action: PushCategories.approve, payload: approvalPush())
+        hub.offline = true
+        await push.respond(action: PushCategories.approve, payload: approvalPush())
         XCTAssertEqual(reported, [
             "That question was already answered, or it expired.",
             "That question came without its id, so nothing was answered. Open Marcel to answer it.",
+            "The hub no longer accepts this phone, so nothing was answered. Pair it again.",
+            "The hub had a problem, so nothing was answered. Open Marcel and answer it there.",
+            "Couldn't reach the hub, so nothing was answered. Open Marcel and answer it there.",
         ])
-        XCTAssertEqual(hub.requests, ["POST /approvals/apr_engie"])
     }
 
     func testAnApprovalIdThatIsNotAnIdIsNeverSent() {
@@ -260,7 +289,7 @@ final class LinkRoutingTests: XCTestCase {
     func testABrokePushIsKeptForTheStatusScreen() async {
         let defaults = UserDefaults.scratch()
         let alerts = LastAlertStore(defaults: defaults)
-        let push = PushHandler(router: LinkRouter(), alerts: alerts, report: { _ in })
+        let push = PushHandler(router: LinkRouter(), answer: { _, _ in }, alerts: alerts, report: { _ in })
         push.arrived(PushPayload(title: "Marcel", body: "Finished", category: "task", deepLink: "marcel://task/t1"))
         XCTAssertNil(alerts.load(), "only faults are kept")
         push.arrived(PushPayload(title: "Something broke", body: "The NUC runner stopped answering.",
@@ -271,7 +300,7 @@ final class LinkRoutingTests: XCTestCase {
 
     func testDismissingAPushDoesNothing() async {
         let router = LinkRouter()
-        let push = PushHandler(router: router, alerts: LastAlertStore(defaults: .scratch()), report: { _ in })
+        let push = PushHandler(router: router, answer: { _, _ in }, alerts: LastAlertStore(defaults: .scratch()), report: { _ in })
         await push.respond(action: UNNotificationDismissActionIdentifier, payload: approvalPush())
         XCTAssertNil(router.pending)
         XCTAssertNil(router.notice)
@@ -283,5 +312,51 @@ final class LinkRoutingTests: XCTestCase {
         XCTAssertNil(LinkDestination.quest(taskId: "t").tab)
         XCTAssertNil(LinkDestination.artifact(id: "a").tab)
         XCTAssertNil(LinkDestination.status(alert: nil).tab)
+    }
+
+    // MARK: Review fixes 3 and 4
+
+    /// Review fix 3: a pairing link while unpaired is said on the pairing screen, and goes away once paired.
+    func testAPairingLinkWhileUnpairedIsSaidOnThePairingScreenAndClearedOnPairing() async throws {
+        let pair = URL(string: "marcel://pair?hub=https%3A%2F%2Fhub.example%2Fapi&code=K7Q2M9")!
+        let router = LinkRouter()
+        router.detach()  // the pairing screen appeared
+        await router.handle(pair)
+        XCTAssertEqual(router.notice, LinkRouter.pairOnTheScreen)
+        await router.attach(try lookup(FakeHub()))  // paired: the tabs came up
+        XCTAssertNil(router.notice, "no stale message after pairing")
+
+        // Cold launch by the link, before the app knew it was unpaired.
+        let cold = LinkRouter()
+        await cold.handle(pair)
+        cold.detach()
+        XCTAssertEqual(cold.notice, LinkRouter.pairOnTheScreen)
+
+        // Paired: the link is refused with the paired wording, and it stays.
+        let paired = LinkRouter()
+        await paired.attach(try lookup(FakeHub()))
+        await paired.handle(pair)
+        XCTAssertEqual(paired.notice, DeepLink.Problem.pairing.errorDescription)
+    }
+
+    /// Review fix 4: a refused phone, a failing hub and no network are three different sentences.
+    func testLookupFailuresSayWhatWentWrong() async throws {
+        let cases: [((Int, String)?, Bool, String)] = [
+            ((401, Fx.error("unauthorized", "No.")), false,
+             "The hub no longer accepts this phone, so that link couldn't be opened. Pair it again."),
+            ((500, Fx.error("internal", "Boom.")), false, "The hub had a problem opening that link. Try again in a minute."),
+            ((503, ""), false, "The hub had a problem opening that link. Try again in a minute."),
+            (nil, true, "Couldn't reach the hub to open that link. Check the connection and try again."),
+        ]
+        for (answer, offline, words) in cases {
+            let hub = FakeHub()
+            hub["GET /approvals"] = answer
+            hub.offline = offline
+            let router = LinkRouter()
+            await router.attach(try lookup(hub))
+            await router.handle(URL(string: "marcel://approval/apr_engie")!)
+            XCTAssertEqual(router.notice, words, "\(String(describing: answer))")
+            XCTAssertNil(router.destination)
+        }
     }
 }

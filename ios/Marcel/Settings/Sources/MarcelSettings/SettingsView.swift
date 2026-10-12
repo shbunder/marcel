@@ -8,7 +8,7 @@ import UIKit
 public struct SettingsView: View {
     @State private var model: SettingsModel
     private let statusModel: () -> StatusModel
-    private let unpair: () -> Void
+    private let unpair: (String?) -> Void
 
     @State private var showingStatus = false
     @Environment(\.dismiss) private var dismiss
@@ -16,8 +16,9 @@ public struct SettingsView: View {
 
     /// - Parameters:
     ///   - status: makes the status screen's model when "System status" is tapped.
-    ///   - unpair: forgets the hub on this phone (after a confirmation).
-    public init(model: SettingsModel, status: @escaping () -> StatusModel, unpair: @escaping () -> Void) {
+    ///   - unpair: forgets the hub on this phone, after the hub was told (`SettingsModel.forgetThisPhone`). Gets
+    ///     what to tell the person when the hub could not be told.
+    public init(model: SettingsModel, status: @escaping () -> StatusModel, unpair: @escaping (String?) -> Void) {
         _model = State(initialValue: model)
         self.statusModel = status
         self.unpair = unpair
@@ -46,11 +47,16 @@ public struct SettingsView: View {
         var actions = SettingsActions()
         actions.saveName = { Task { await model.saveName() } }
         actions.turnOnNotifications = { Task { await model.turnOnNotifications() } }
-        actions.copyTopic = { UIPasteboard.general.string = $0 }
+        actions.copyTopic = { TopicClipboard.copy($0) }
         actions.setPaused = { schedule, paused in Task { await model.setPaused(schedule, paused) } }
         actions.delete = { schedule in Task { await model.delete(schedule) } }
         actions.revoke = { device in Task { await model.revoke(device) } }
-        actions.unpair = unpair
+        actions.unpair = { [model, unpair] in
+            Task {
+                let note = await model.forgetThisPhone()
+                unpair(note)
+            }
+        }
         actions.openStatus = { showingStatus = true }
         return actions
     }
