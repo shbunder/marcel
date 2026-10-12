@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — app API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     The API the iPhone app uses to talk to the hub on the NUC. **Every path, including `/health`,
     `/pair` and `/ws`, sits under the server URL** (`https://marcel-bot.com/api/...`); the tunnel
@@ -795,6 +795,11 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MemoryTree' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '503':
+          description: The memory store could not run (code `memory_unavailable`). Nothing was changed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /memory/files/{path}:
     parameters:
@@ -814,7 +819,9 @@ paths:
     get:
       tags: [memory]
       operationId: getMemoryFile
-      summary: One memory file. The `ETag` header equals the body's `etag`.
+      summary: One memory file. The `ETag` header is the body's `etag` in quotes, as HTTP wants.
+      description: |
+        A file over 1 MB (written straight to disk) is not read: 400 `memory_file_too_big`.
       responses:
         '200':
           description: The file.
@@ -827,6 +834,11 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: The memory store could not run (code `memory_unavailable`). Nothing was changed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
     put:
       tags: [memory]
       operationId: putMemoryFile
@@ -834,7 +846,8 @@ paths:
       description: |
         With `If-Match`: saved only if the file's current etag matches, else 409 with the current
         version. Without `If-Match`: creates the file; if it already exists, 409 with the current
-        version, never a silent overwrite. Every save is one git commit.
+        version, never a silent overwrite. Every save is one git commit. `If-Match` may be the bare
+        etag, quoted, or `W/`-prefixed. A file over 1 MB is refused: 400 `memory_file_too_big`.
       parameters:
         - name: If-Match
           in: header
@@ -858,6 +871,16 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MemoryFile' }
+        '404':
+          description: '`If-Match` names a file that was removed since you read it (code `memory_file_not_found`).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: The memory store could not run (code `memory_unavailable`). Nothing was changed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /schedules:
     get:
@@ -1033,7 +1056,9 @@ components:
             `too_many_tries` (429); devices: `device_not_found`; conversations:
             `conversation_not_found`, `message_not_found`, `bad_cursor`, `already_main`; tasks:
             `task_not_found`, `task_not_finished`, `task_finished`, `runner_unreachable` (503);
-            projects: `slug_taken`, `project_archived`. New codes may be added; treat an unknown code
+            projects: `slug_taken`, `project_archived`, `project_is_inbox`, `project_busy`,
+            `agent_not_found`; artifacts and memory: `artifact_not_found`, `invalid_memory_path`,
+            `memory_file_not_found`, `memory_file_too_big`, `memory_unavailable` (503). New codes may be added; treat an unknown code
             by its HTTP status.
         message:
           type: string
@@ -2149,7 +2174,8 @@ components:
         Tags and a Click action set to `deep_link`.
 
         Deep links: `marcel://task/<task id>`, `marcel://message/<message id>`,
-        `marcel://approval/<approval id>`. An `approval` push on APNs has Approve and Deny actions;
+        `marcel://approval/<approval id>`, and `marcel://status` (the app's system status screen,
+        showing `GET /health`) for a `broke` push about no one task. An `approval` push on APNs has Approve and Deny actions;
         the app answers them with `POST /approvals/{id}` using its own token. ntfy pushes only open
         the deep link, so no token ever passes through the ntfy server.
       required: [title, body, category, deep_link, level]
@@ -2166,7 +2192,7 @@ components:
           description: '`urgent` for approvals and broken things; `normal` for done and digests.'
         deep_link:
           type: string
-          pattern: '^marcel://(task|message|approval)/[A-Za-z0-9_-]+$'
+          pattern: '^marcel://((task|message|approval)/[A-Za-z0-9_-]+|status)$'
         collapse_key:
           type: string
           description: A newer push with the same key replaces the older one (one per task or cause).

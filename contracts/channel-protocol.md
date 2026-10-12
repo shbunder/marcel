@@ -18,6 +18,13 @@ Cloud workers have no channel (the hub cannot reach them): they use
   task id or token in the environment.
 - **Secret:** the hub secret in `$CLAUDE_PLUGIN_DATA/hub-secret` (written at deploy, F14). Every
   session on the NUC shares it; what makes a session legitimate is that the runner reported its id.
+- **Brain and side-thread ids:** the hub accepts a brain or side session only when
+  `Conversation.brain_session_id` holds its id. The brain stories (S-06.x) write it when they spawn or
+  fork one.
+- **Prompts from the brain or a side thread:** they run with Marcel's own tools pre-allowed and nothing
+  else should ask. If one does raise a `permission_request`, the hub answers `permission_decision`
+  `deny` at once (and again on every re-send) and logs the tool; no approval card is opened, because a
+  card belongs to a task.
 
 ## The flow
 
@@ -43,7 +50,7 @@ channel server                                   hub
 
 | Frame | What the channel server does in the session |
 |---|---|
-| `user_message` | `notifications/claude/channel` with `content` = text, `meta` = `{kind: "user_message", message_id, conversation_id, quoted_message_id?}` |
+| `user_message` | `notifications/claude/channel` with `content` = text, `meta` = `{kind: "user_message", message_id, conversation_id, quoted_message_id?, project_id?}` |
 | `steer` | the same, `meta` = `{kind: "steer", task_id, note_id, author, handback?}` (`handback` as `"true"` when set) |
 | `system_event` | the same, `meta` = `{kind: "system_event", event: <kind>, task_id?}`; `data` goes in the content as a fenced JSON block |
 | `permission_decision` | `notifications/claude/channel/permission` `{request_id, behavior}` |
