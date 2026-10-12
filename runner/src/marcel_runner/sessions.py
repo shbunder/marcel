@@ -1,0 +1,584 @@
+"""Background sessions: spawn, list, get and stop, plus the worker cap.
+
+Every `claude` call goes through `Sessions._claude()`: an argument list (never a shell string),
+the absolute path from the settings, and an environment with no inherited `CLAUDE*` or
+`ANTHROPIC_*` variable (SP2 trap 2). State comes from `claude agents --json --all`; the runner
+keeps its own record of the sessions it started (role, name, model, …) in a state file, so roles
+and the worker cap survive a runner restart.
+"""
+
+import contextlib
+import json
+import os
+import re
+import subprocess
+import threading
+import time
+import uuid
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from urllib.parse import unquote
+
+from marcel_runner.health import Settings, cgroup_of, collect_health
+
+CHANNEL = 'plugin:marcel@marcel-local'
+CHANNEL_SERVER = 'plugin:marcel:marcel'  # how the debug log names the plugin's MCP server (SP1)
+ALLOWED_TOOLS = ('mcp__plugin_marcel_marcel__reply', 'mcp__plugin_marcel_marcel__report')
+REGISTERED = 'Channel notifications registered'
+SKIPPED = 'Channel notifications skipped'
+CHANNEL_WAIT = 30.0
+SPAWN_TIMEOUT = 60.0  # `claude --bg` returned in 0.6–1.4 s in SP2
+
+ROLES = ('brain', 'side', 'worker', 'adopted')
+PERMISSION_MODES = ('auto', 'acceptEdits', 'manual', 'plan')
+STATES = ('working', 'blocked', 'done', 'failed', 'stopped')
+SPAWN_KEYS = {'role', 'name', 'model', 'permission_mode', 'prompt', 'cwd', 'repo', 'channel'}
+NAME = re.compile(r'[A-Za-z0-9._-]{1,60}')
+MODEL = re.compile(r'[A-Za-z0-9._\[\]-]{1,80}')
+BACKGROUNDED = re.compile(r'backgrounded · ([0-9a-f]{8}) · (.+)')
+SCRUBBED_PREFIXES = ('CLAUDE', 'ANTHROPIC_')
+
+
+class SessionError(Exception):
+    """An HTTP error with a contract `Error` body. `message` is for a person on a phone."""
+
+    def __init__(self, status: int, code: str, message: str, detail: str | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+        self.code = code
+        self.message = message
+        self.detail = detail
+
+    def body(self) -> dict[str, str]:
+        out = {'code': self.code, 'message': self.message}
+        if self.detail:
+            out['detail'] = self.detail
+        return out
+
+
+class StateFileError(Exception):
+    """The runner's state file cannot be read. The message says which file and what to do."""
+
+
+def state_dir_from_env(env: Mapping[str, str] | None = None) -> Path:
+    env = os.environ if env is None else env
+    if env.get('MARCEL_RUNNER_STATE'):
+        return Path(env['MARCEL_RUNNER_STATE'])
+    base = env.get('XDG_STATE_HOME') or str(Path.home() / '.local' / 'state')
+    return Path(base) / 'marcel' / 'runner'
+
+
+def scrubbed_env(env: Mapping[str, str], home: Path) -> dict[str, str]:
+    """The environment for a `claude` child: no `CLAUDE*` marker from a parent Claude session
+    (it turns transcript saving off, SP2), and no `ANTHROPIC_*` key (tokens come from the
+    subscription only)."""
+    out = {k: v for k, v in env.items() if not k.startswith(SCRUBBED_PREFIXES)}
+    out['HOME'] = str(home)
+    return out
+
+
+def spawn_argv(
+    claude: Path,
+    *,
+    name: str,
+    model: str,
+    permission_mode: str,
+    prompt: str,
+    debug_file: Path,
+    channel: bool,
+) -> list[str]:
+    """The `claude --bg` command line. The prompt goes after `--`: `--channels` and
+    `--allowedTools` take several values and would swallow it (SP1)."""
+    argv = [
+        str(claude),
+        '--bg',
+        '--name',
+        name,
+        '--model',
+        model,
+        '--permission-mode',
+        permission_mode,
+    ]
+    if channel:
+        argv += ['--channels', CHANNEL]
+    argv += ['--allowedTools', *ALLOWED_TOOLS, '--debug-file', str(debug_file), '--', prompt]
+    return argv
+
+
+@dataclass(frozen=True)
+class SpawnRequest:
+    role: str
+    name: str
+    model: str
+    permission_mode: str
+    prompt: str
+    cwd: Path
+    channel: bool
+
+
+def _bad(message: str) -> SessionError:
+    return SessionError(400, 'bad_request', message)
+
+
+def parse_spawn(raw: bytes) -> SpawnRequest:
+    """Check a spawn body against `SpawnRequest` (contracts/runner-api.yaml)."""
+    try:
+        body = json.loads(raw or b'null')
+    except (ValueError, UnicodeDecodeError):
+        raise _bad('The request body is not valid JSON.') from None
+    if not isinstance(body, dict):
+        raise _bad('The request body must be a JSON object.')
+    unknown = sorted(set(body) - SPAWN_KEYS)
+    if unknown:
+        raise _bad(f'Unknown field(s): {", ".join(unknown)}.')
+    missing = [k for k in ('role', 'name', 'model', 'prompt') if k not in body]
+    if missing:
+        raise _bad(f'Missing field(s): {", ".join(missing)}.')
+    role, name, model = body['role'], body['name'], body['model']
+    mode, prompt = body.get('permission_mode', 'auto'), body['prompt']
+    channel = body.get('channel', True)
+    if role not in ROLES:
+        raise _bad(f'role must be one of {", ".join(ROLES)}.')
+    # A leading dash is refused: claude could read the value as a flag of its own.
+    if not isinstance(name, str) or not NAME.fullmatch(name) or name.startswith('-'):
+        raise _bad(
+            'name must be 1–60 letters, digits, dots, dashes or underscores, '
+            'not starting with a dash.'
+        )
+    if not isinstance(model, str) or not MODEL.fullmatch(model) or model.startswith('-'):
+        raise _bad('model must be a model name like "sonnet" or "opus".')
+    if mode not in PERMISSION_MODES:
+        raise _bad(f'permission_mode must be one of {", ".join(PERMISSION_MODES)}.')
+    if not isinstance(prompt, str) or not prompt:
+        raise _bad('prompt must be a non-empty string.')
+    if not isinstance(channel, bool):
+        raise _bad('channel must be true or false.')
+    if ('cwd' in body) == ('repo' in body):
+        raise _bad('Give exactly one of cwd and repo.')
+    if 'repo' in body:
+        raise SessionError(
+            501,
+            'not_supported',
+            'This runner cannot start a session from a repo yet. Pass cwd instead.',
+        )
+    cwd = body['cwd']
+    if not isinstance(cwd, str) or not Path(cwd).is_absolute():
+        raise _bad('cwd must be an absolute path.')
+    if not Path(cwd).is_dir():
+        raise _bad(f'The folder {cwd} does not exist, so no session was started.')
+    return SpawnRequest(role, name, model, mode, prompt, Path(cwd), channel)
+
+
+def _iso_from_ms(ms: Any) -> str | None:
+    if not isinstance(ms, int | float):
+        return None
+    dt = datetime.fromtimestamp(ms / 1000, UTC)
+    return dt.isoformat(timespec='seconds').replace('+00:00', 'Z')
+
+
+def project_dir(cwd: str) -> str:
+    """Claude Code's transcript folder for a cwd: every non-alphanumeric character → `-`."""
+    return re.sub(r'[^A-Za-z0-9]', '-', cwd)
+
+
+def running(row: Mapping[str, Any]) -> bool:
+    """Alive: a process is up (`status` is set), or it is still starting (working, no pid)."""
+    return bool(row.get('status')) or row.get('state') in ('working', 'blocked')
+
+
+class Sessions:
+    """The runner's sessions. Thread-safe: the HTTP server calls it from many threads."""
+
+    def __init__(
+        self,
+        settings: Settings,
+        state_dir: Path,
+        *,
+        home: Path | None = None,
+        cgroup_of: Callable[[int], str] = cgroup_of,
+        channel_wait: float = CHANNEL_WAIT,
+        poll: float = 0.25,
+        token: Callable[[], str] = lambda: uuid.uuid4().hex[:12],
+    ) -> None:
+        if not settings.claude.is_absolute():
+            raise ValueError(f'The path to claude must be absolute, not "{settings.claude}".')
+        self.settings = settings
+        self.state_dir = state_dir
+        self.state_file = state_dir / 'sessions.json'
+        self.home = home or Path.home()
+        self.cgroup_of = cgroup_of
+        self.channel_wait = channel_wait
+        self.poll = poll
+        self.token = token
+        self._lock = threading.Lock()  # the cap check and its reservation
+        self._write_lock = threading.Lock()  # the state file
+        self._pending = 0  # worker spawns past the cap check that are not in the roster yet
+        self._last_active = 0
+        self.records: dict[str, dict[str, Any]] = self._load()
+
+    # --- the state file -------------------------------------------------------------------
+
+    def _load(self) -> dict[str, dict[str, Any]]:
+        try:
+            data = json.loads(self.state_file.read_text('utf-8'))
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as e:
+            raise StateFileError(
+                f'The runner cannot read its state file {self.state_file} ({e}). '
+                'Fix or move it; without it the runner forgets which sessions are workers.'
+            ) from None
+        sessions = data.get('sessions') if isinstance(data, dict) else None
+        if not isinstance(sessions, dict):
+            raise StateFileError(
+                f'The state file {self.state_file} has no "sessions" map. Fix or move it.'
+            )
+        return sessions
+
+    def _remember(self, record: dict[str, Any]) -> None:
+        with self._write_lock:
+            # Copy, then swap: readers on other threads never see a dict being changed.
+            records = {**self.records, record['id']: record}
+            self.state_dir.mkdir(parents=True, exist_ok=True)
+            tmp = self.state_file.with_name(f'.{self.state_file.name}.{os.getpid()}.tmp')
+            tmp.write_text(json.dumps({'sessions': records}, indent=2) + '\n', 'utf-8')
+            os.replace(tmp, self.state_file)
+            self.records = records
+
+    # --- running claude -------------------------------------------------------------------
+
+    def _claude(
+        self, *args: str, cwd: Path | None = None, timeout: float | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        cmd = f'`claude {args[0]}`'
+        try:
+            return subprocess.run(
+                [str(self.settings.claude), *args],
+                cwd=cwd,
+                env=scrubbed_env(os.environ, self.home),
+                capture_output=True,
+                text=True,
+                timeout=timeout or self.settings.timeout,
+                stdin=subprocess.DEVNULL,
+            )
+        except subprocess.TimeoutExpired:
+            raise SessionError(
+                503, 'claude_timeout', f'Claude did not answer {cmd} in time. Try again.'
+            ) from None
+        except OSError as e:
+            raise SessionError(
+                503,
+                'claude_unavailable',
+                f'The runner could not run {self.settings.claude}: {e.strerror or e}.',
+            ) from None
+
+    def roster(self, all: bool = True) -> list[dict[str, Any]]:
+        """Background rows from `claude agents --json [--all]`, as Claude prints them."""
+        p = self._claude('agents', '--json', *(['--all'] if all else []))
+        if p.returncode != 0:
+            said = (p.stderr or p.stdout).strip() or f'exit code {p.returncode}'
+            raise SessionError(
+                503, 'roster_unavailable', 'Claude could not list its sessions.', said
+            )
+        try:
+            rows = json.loads(p.stdout)
+        except ValueError:
+            raise SessionError(
+                503,
+                'roster_unavailable',
+                'Claude listed its sessions in a form the runner cannot read.',
+            ) from None
+        return [r for r in rows if isinstance(r, dict) and r.get('kind') == 'background']
+
+    # --- the worker cap -------------------------------------------------------------------
+
+    def _running_workers(self) -> int:
+        workers = {i for i, r in self.records.items() if r.get('role') == 'worker'}
+        count = sum(1 for row in self.roster() if row.get('sessionId') in workers and running(row))
+        self._last_active = count
+        return count
+
+    def active_workers(self) -> int:
+        """Running workers this runner started, for `/health`. Falls back to the last count
+        when Claude cannot list its sessions (`/health` then says why anyway)."""
+        try:
+            return self._running_workers()
+        except SessionError:
+            return self._last_active
+
+    # --- spawn ----------------------------------------------------------------------------
+
+    def _supervisor_reason(self) -> str | None:
+        health = collect_health(self.settings, lambda: 0, self.cgroup_of)
+        return None if health['ok'] else health.get('reason', 'The runner cannot start sessions.')
+
+    def spawn(self, req: SpawnRequest) -> dict[str, Any]:
+        # The supervisor is checked before every spawn: the runner may have started without it.
+        reason = self._supervisor_reason()
+        if reason:
+            raise SessionError(422, 'no_supervisor', f'No session was started. {reason}')
+        worker = req.role == 'worker'
+        if worker:
+            with self._lock:
+                try:
+                    active = self._running_workers()
+                except SessionError as e:
+                    raise SessionError(
+                        422,
+                        'no_supervisor',
+                        'No session was started: the runner could not count the running workers.',
+                        e.detail or e.message,
+                    ) from None
+                if active + self._pending >= self.settings.cap:
+                    raise SessionError(
+                        409,
+                        'cap_reached',
+                        f'{self.settings.cap} workers are already running, the most allowed. '
+                        'Wait for one to finish or stop one, then try again.',
+                    )
+                self._pending += 1
+        try:
+            return self._launch(req)
+        finally:
+            if worker:
+                with self._lock:
+                    self._pending -= 1
+
+    def _launch(self, req: SpawnRequest) -> dict[str, Any]:
+        debug_file = self.state_dir / 'debug' / f'{req.name}-{self.token()}.log'
+        debug_file.parent.mkdir(parents=True, exist_ok=True)
+        argv = spawn_argv(
+            self.settings.claude,
+            name=req.name,
+            model=req.model,
+            permission_mode=req.permission_mode,
+            prompt=req.prompt,
+            debug_file=debug_file,
+            channel=req.channel,
+        )
+        p = self._claude(*argv[1:], cwd=req.cwd, timeout=SPAWN_TIMEOUT)
+        said = (p.stderr or p.stdout).strip()
+        if p.returncode != 0:
+            if 'not trusted' in said.lower():
+                raise SessionError(
+                    422,
+                    'not_trusted',
+                    f'The workspace {req.cwd} is not trusted yet, so no session was started. '
+                    'Run claude there once and accept the trust prompt.',
+                    said,
+                )
+            raise SessionError(422, 'exited', 'Claude refused to start the session.', said or None)
+        m = BACKGROUNDED.search(p.stdout)
+        if m is None:
+            raise SessionError(
+                422, 'exited', 'Claude did not say which session it started.', said or None
+            )
+        short = m.group(1)
+        row = self._resolve(short)
+        record = {
+            'id': row['sessionId'],
+            'short_id': short,
+            'role': req.role,
+            'name': req.name,
+            'task': None,
+            'permission_mode': req.permission_mode,
+            'model': req.model,
+            'cwd': str(req.cwd),
+            'channel': req.channel,
+            'started_at': datetime.now(UTC).isoformat(timespec='seconds').replace('+00:00', 'Z'),
+        }
+        self._remember(record)
+        registered = False
+        if req.channel:
+            registered = self._wait_channel(short, debug_file)
+        return {
+            'session_id': record['id'],
+            'short_id': short,
+            'name': req.name,
+            'cwd': str(req.cwd),
+            'channel_registered': registered,
+        }
+
+    def _resolve(self, short: str) -> dict[str, Any]:
+        """The full session id for a short id (SP2: the row is there as soon as `--bg` returns)."""
+        for attempt in range(5):
+            for row in self.roster():
+                if row.get('id') == short and isinstance(row.get('sessionId'), str):
+                    return row
+            time.sleep(0.1 * (attempt + 1))
+        raise SessionError(
+            422,
+            'exited',
+            f'Claude started session {short}, but it is not in its own list. '
+            'It may have exited at once.',
+        )
+
+    def _wait_channel(self, short: str, debug_file: Path) -> bool:
+        """True once the debug log says the marcel channel is registered. A `skipped` line or
+        no line within the wait stops the session and fails the spawn."""
+        deadline = time.monotonic() + self.channel_wait
+        while True:
+            for line in _read_lines(debug_file):
+                if CHANNEL_SERVER not in line:
+                    continue
+                if REGISTERED in line:
+                    return True
+                if SKIPPED in line:
+                    self._stop_quietly(short)
+                    raise SessionError(
+                        422,
+                        'channel_skipped',
+                        'The session started without its marcel channel, so it could not hear '
+                        'you. The runner stopped it.',
+                        line[line.find('MCP server') :] if 'MCP server' in line else line,
+                    )
+            if time.monotonic() >= deadline:
+                self._stop_quietly(short)
+                raise SessionError(
+                    422,
+                    'channel_timeout',
+                    f'The session did not connect its marcel channel within '
+                    f'{self.channel_wait:g} s. The runner stopped it.',
+                )
+            time.sleep(self.poll)
+
+    def _stop_quietly(self, short: str) -> None:
+        # The spawn already fails with the reason that matters.
+        with contextlib.suppress(SessionError):
+            self._claude('stop', short)
+
+    # --- list, get, stop ------------------------------------------------------------------
+
+    def _job(self, short: str, session_id: str) -> dict[str, Any]:
+        """Best effort: Claude Code's undocumented job file (`needs`, `detail`, `output`)."""
+        try:
+            job = json.loads((self.home / '.claude' / 'jobs' / short / 'state.json').read_text())
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(job, dict) or job.get('sessionId') not in (None, session_id):
+            return {}
+        return job
+
+    def _remote_url(self, session_id: str, cwd: str) -> str | None:
+        """The claude.ai page Remote Control bridged the session to: the last
+        `remote_session_change` attachment in its transcript (SP2). None when there is none."""
+        path = self.home / '.claude' / 'projects' / project_dir(cwd) / f'{session_id}.jsonl'
+        url: str | None = None
+        for line in _read_lines(path):
+            if 'remote_session_change' not in line:
+                continue
+            try:
+                attachment = json.loads(line).get('attachment') or {}
+            except (ValueError, AttributeError):
+                continue
+            if attachment.get('type') == 'remote_session_change':
+                value = attachment.get('url')
+                url = value if isinstance(value, str) and value.startswith('https://') else None
+        return url
+
+    def normalise(self, row: Mapping[str, Any]) -> dict[str, Any]:
+        """One `agents --json` row → the contract's `Session`."""
+        sid = str(row.get('sessionId'))
+        short = str(row.get('id') or sid[:8])
+        out: dict[str, Any] = {
+            'id': sid,
+            'short_id': short,
+            'name': str(row.get('name') or ''),
+            'state': row.get('state'),
+            'cwd': str(row.get('cwd') or ''),
+        }
+        record = self.records.get(sid)
+        if record:
+            out['role'] = record['role']
+        if row.get('status'):
+            out['status'] = row['status']
+        if row.get('waitingFor'):
+            out['waiting_for'] = row['waitingFor']
+        if isinstance(row.get('pid'), int):
+            out['pid'] = row['pid']
+        started = _iso_from_ms(row.get('startedAt'))
+        if started:
+            out['started_at'] = started
+        job = self._job(short, sid)
+        for key in ('needs', 'detail'):
+            if isinstance(job.get(key), str) and job[key]:
+                out[key] = job[key]
+        result = (
+            (job.get('output') or {}).get('result') if isinstance(job.get('output'), dict) else None
+        )
+        if isinstance(result, str) and result:
+            out['result'] = result
+        return out
+
+    def list_sessions(self, all: bool = True) -> list[dict[str, Any]]:
+        rows = [r for r in self.roster(all) if r.get('state') in STATES and r.get('sessionId')]
+        rows.sort(key=lambda r: r.get('startedAt') or 0, reverse=True)
+        return [self.normalise(r) for r in rows]
+
+    def _find(self, ref: str) -> dict[str, Any]:
+        for row in self.roster():
+            if ref and ref in (row.get('sessionId'), row.get('id')):
+                return row
+        raise SessionError(404, 'not_found', f'There is no session {ref} on this machine.')
+
+    def get(self, ref: str) -> dict[str, Any]:
+        row = self._find(ref)
+        session = self.normalise(row)
+        url = self._remote_url(session['id'], session['cwd'])
+        if url:
+            session['remote_url'] = url
+        return session
+
+    def stop(self, ref: str) -> dict[str, Any]:
+        row = self._find(ref)
+        p = self._claude('stop', str(row.get('id')))
+        if p.returncode != 0:
+            said = (p.stderr or p.stdout).strip() or f'exit code {p.returncode}'
+            raise SessionError(502, 'stop_failed', 'Claude could not stop the session.', said)
+        return self.get(str(row['sessionId']))
+
+    # --- HTTP -----------------------------------------------------------------------------
+
+    def route(
+        self, method: str, path: str, query: Mapping[str, list[str]], body: bytes
+    ) -> tuple[int, Any]:
+        """Answer one request under `/sessions`. Returns (status, JSON body)."""
+        try:
+            return self._route(method, path, query, body)
+        except SessionError as e:
+            return e.status, e.body()
+
+    def _route(
+        self, method: str, path: str, query: Mapping[str, list[str]], body: bytes
+    ) -> tuple[int, Any]:
+        parts = [unquote(p) for p in path.strip('/').split('/')]
+        if parts == ['sessions']:
+            if method == 'GET':
+                flag = (query.get('all') or ['true'])[-1].lower()
+                return 200, self.list_sessions(all=flag not in ('false', '0', 'no'))
+            if method == 'POST':
+                return 201, self.spawn(parse_spawn(body))
+            raise _not_allowed(path, 'GET or POST', method)
+        if len(parts) == 2:
+            if method == 'GET':
+                return 200, self.get(parts[1])
+            raise _not_allowed(path, 'GET', method)
+        if len(parts) == 3 and parts[2] == 'stop':
+            if method == 'POST':
+                return 200, self.stop(parts[1])
+            raise _not_allowed(path, 'POST', method)
+        raise SessionError(404, 'not_found', f'The runner has no {path}.')
+
+
+def _not_allowed(path: str, allowed: str, method: str) -> SessionError:
+    return SessionError(405, 'method_not_allowed', f'{path} only answers {allowed}, not {method}.')
+
+
+def _read_lines(path: Path) -> list[str]:
+    try:
+        return path.read_text('utf-8', errors='replace').splitlines()
+    except OSError:
+        return []

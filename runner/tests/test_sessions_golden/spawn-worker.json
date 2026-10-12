@@ -1,0 +1,19 @@
+[
+  "{claude}",
+  "--bg",
+  "--name",
+  "tsk-01J9ZQ6",
+  "--model",
+  "sonnet",
+  "--permission-mode",
+  "manual",
+  "--channels",
+  "plugin:marcel@marcel-local",
+  "--allowedTools",
+  "mcp__plugin_marcel_marcel__reply",
+  "mcp__plugin_marcel_marcel__report",
+  "--debug-file",
+  "{state}/debug/tsk-01J9ZQ6-token1.log",
+  "--",
+  "Check disk usage of all Docker volumes and report the five largest."
+]

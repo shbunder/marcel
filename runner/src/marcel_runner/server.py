@@ -1,4 +1,4 @@
-"""The runner's HTTP server on a unix socket. Today it serves `GET /health`."""
+"""The runner's HTTP server on a unix socket: `GET /health`, and `/sessions` (sessions.py)."""
 
 import grp
 import json
@@ -10,9 +10,11 @@ import sys
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlsplit
+from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 from marcel_runner.health import Settings, cgroup_of, collect_health
+from marcel_runner.sessions import Sessions, StateFileError, state_dir_from_env
 
 SOCKET_MODE = 0o660
 DIR_MODE = 0o750
@@ -77,11 +79,14 @@ def bind_socket(path: Path, group: str | None = None) -> socket.socket:
 class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
 
-    def __init__(self, sock: socket.socket, health: Callable[[], dict]) -> None:
+    def __init__(
+        self, sock: socket.socket, health: Callable[[], dict], sessions: Sessions | None = None
+    ) -> None:
         # bind_socket() has already bound `sock`; skip UnixStreamServer's own bind.
         socketserver.BaseServer.__init__(self, sock.getsockname(), Handler)
         self.socket = sock
         self.health = health
+        self.sessions = sessions
         sock.listen(16)
 
 
@@ -94,7 +99,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args) -> None:
         print(f'{self.command} {self.path} {format % args}', file=sys.stderr, flush=True)
 
-    def _send(self, code: int, obj: dict) -> None:
+    def _send(self, code: int, obj: Any) -> None:
         body = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header('content-type', 'application/json')
@@ -106,8 +111,14 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, {'code': error, 'message': message})
 
     def _dispatch(self) -> None:
-        path = urlsplit(self.path).path
-        if path != '/health':
+        url = urlsplit(self.path)
+        path = url.path
+        sessions = self.server.sessions
+        if sessions is not None and (path == '/sessions' or path.startswith('/sessions/')):
+            length = int(self.headers.get('content-length') or 0)
+            body = self.rfile.read(length) if length > 0 else b''
+            self._send(*sessions.route(self.command, path, parse_qs(url.query), body))
+        elif path != '/health':
             self._error(404, 'not_found', f'The runner has no {path}.')
         elif self.command != 'GET':
             self._error(405, 'method_not_allowed', f'/health only answers GET, not {self.command}.')
@@ -123,8 +134,11 @@ def serve(
     group: str | None = None,
     cgroup_of: Callable[[int], str] = cgroup_of,
     active_workers: Callable[[], int] = lambda: 0,
+    sessions: Sessions | None = None,
 ) -> UnixHTTPServer:
     """Check the supervisor, bind the socket and return a server ready for `serve_forever()`."""
+    if sessions is not None:
+        active_workers = sessions.active_workers
 
     def health() -> dict:
         return collect_health(settings, active_workers, cgroup_of)
@@ -135,7 +149,7 @@ def serve(
         first['supervisor']['running'] and first['supervisor']['own_unit']
     ):
         raise StartupError(f'{first["reason"]} The runner did not start.')
-    return UnixHTTPServer(bind_socket(path, group), health)
+    return UnixHTTPServer(bind_socket(path, group), health, sessions)
 
 
 def settings_from_env() -> tuple[Settings, Path, str | None]:
@@ -158,8 +172,8 @@ def settings_from_env() -> tuple[Settings, Path, str | None]:
 def main() -> int:
     try:
         settings, sock, group = settings_from_env()
-        srv = serve(sock, settings, group)
-    except StartupError as e:
+        srv = serve(sock, settings, group, sessions=Sessions(settings, state_dir_from_env()))
+    except (StartupError, StateFileError) as e:
         print(f'marcel-runner: {e}', file=sys.stderr)
         return 1
     print(f'marcel-runner: listening on {sock}', file=sys.stderr, flush=True)
