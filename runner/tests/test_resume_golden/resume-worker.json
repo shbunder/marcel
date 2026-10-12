@@ -1,0 +1,15 @@
+[
+  "{claude}",
+  "--bg",
+  "--resume",
+  "{session_id}",
+  "--channels",
+  "plugin:marcel@marcel-local",
+  "--allowedTools",
+  "mcp__plugin_marcel_marcel__reply",
+  "mcp__plugin_marcel_marcel__report",
+  "--debug-file",
+  "{state}/debug/resume-{short}-token2.log",
+  "--",
+  "Follow-up: also add a test for the empty case."
+]

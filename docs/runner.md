@@ -9,6 +9,8 @@ Session state changes (`GET /events`): see [runner/watch.md](runner/watch.md).
 
 Transcripts (`GET /sessions/{id}/tail`): see [runner/transcript.md](runner/transcript.md).
 
+Resume, fork and `repo` spawns (worktrees): see [runner/workspaces.md](runner/workspaces.md).
+
 ## Run it
 
 ```bash
