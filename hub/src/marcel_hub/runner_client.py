@@ -65,6 +65,16 @@ class StreamRefused(Exception):
         self.status = status
 
 
+class CloudRefused(Exception):
+    """The runner refused a cloud call: its status, its `code` (if any) and its `message`."""
+
+    def __init__(self, status: int, code: str | None, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.code = code
+        self.message = message
+
+
 def _unreachable(exc: Exception) -> str:
     return (
         f'The runner is not answering ({type(exc).__name__}). Is marcel-runner running on the NUC?'
@@ -215,6 +225,32 @@ class RunnerClient:
         if res.status_code != 200:
             raise RunnerUnavailable(_message(res))
         return res.json()
+
+    # Cloud sessions (S-07.1: `cloud.CloudTasks`) ---------------------------------------------
+
+    async def cloud_spawn(self, prompt: str, repo: dict[str, str] | None = None) -> dict[str, Any]:
+        """Create a claude.ai/code cloud session (`POST /cloud/sessions`); returns
+        `CloudSpawned` (`session_id`, `url`, `title`). Any refusal is `CloudRefused`."""
+        body: dict[str, Any] = {'prompt': prompt}
+        if repo is not None:
+            body['repo'] = repo
+        res = await self._call('POST', '/cloud/sessions', json=body, timeout=SPAWN_TIMEOUT)
+        if res.status_code == 201:
+            return res.json()
+        raise CloudRefused(res.status_code, _code(res), _message(res))
+
+    async def cloud_send(self, session_id: str, text: str) -> dict[str, Any]:
+        """Queue a follow-up for a cloud session; returns `CloudAck`. Any refusal is
+        `CloudRefused`."""
+        res = await self._call(
+            'POST',
+            f'/cloud/sessions/{session_id}/messages',
+            json={'text': text},
+            timeout=SPAWN_TIMEOUT,
+        )
+        if res.status_code == 202:
+            return res.json()
+        raise CloudRefused(res.status_code, _code(res), _message(res))
 
     # Reads -----------------------------------------------------------------------------------
 

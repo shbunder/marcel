@@ -31,6 +31,7 @@ class RunnerUnavailable(Exception):
 class Started:
     session_id: str
     branch: str | None = None
+    cloud_url: str | None = None  # a cloud session's claude.ai page (S-07.1)
 
 
 class Runner(Protocol):
