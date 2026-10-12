@@ -34,8 +34,9 @@ import httpx
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+from sqlalchemy import update
 from sqlalchemy.engine import Engine
-from sqlmodel import Session
+from sqlmodel import Session, col
 
 from marcel_hub.models import Device
 from marcel_hub.notify.backends import SEND_TIMEOUT, Kind, PushFailed
@@ -300,13 +301,18 @@ class ApnsNotifier:
         raise PushFailed(f'Apple refused the push ({why}).', retry)
 
     def _forget(self, device_id: str, token: str) -> None:
-        """Drop the token, unless the app registered a new one meanwhile."""
+        """Drop the token, unless the app registered a new one meanwhile.
+
+        One conditional UPDATE, so a token the app registers between Apple's answer and here is
+        never wiped (no read, compare, then write)."""
         with Session(self.engine) as s:
-            device = s.get(Device, device_id)
-            if device is not None and device.apns_token == token:
-                device.apns_token = None
-                s.add(device)
-                s.commit()
+            s.exec(
+                update(Device)
+                .where(col(Device.id) == device_id)
+                .where(col(Device.apns_token) == token)
+                .values(apns_token=None)
+            )
+            s.commit()
 
     async def aclose(self) -> None:
         await self.client.aclose()

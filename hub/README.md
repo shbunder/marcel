@@ -38,7 +38,7 @@ names the file.
 | `apns_key_id` | `MARCEL_APNS_KEY_ID` | unset. The key's 10-character id (in the file name and on the Keys page). `deploy/.env.local`; never logged |
 | `apns_team_id` | `MARCEL_APNS_TEAM_ID` | unset. The Apple developer team id (Membership details). `deploy/.env.local`; never logged |
 | `apns_topic` | `MARCEL_APNS_TOPIC` | unset. The iOS app's bundle id, e.g. `com.<you>.marcel`. Set all four `apns_*` or none: half of them stops the hub at start, naming what is missing |
-| `apns_sandbox` | `MARCEL_APNS_SANDBOX` | `false`: Apple's production server. `true` for an app built and run from Xcode (development push environment) |
+| `apns_sandbox` | `MARCEL_APNS_SANDBOX` | `false`: Apple's production server. `true` for an app built and run from Xcode (development push environment). Check this first when pushes stop: set wrong, Apple answers `BadDeviceToken` for every push, and the hub removes each phone's token until its app opens again |
 | `github_token` | `MARCEL_GITHUB_TOKEN` | unset: PR cards are not refreshed and say the token is missing. A fine-grained, **read-only** GitHub token (Pull requests: read, Checks and Commit statuses: read) on the owner's repos (ADR-002). Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown |
 | `tz` | `MARCEL_TZ` | `Europe/Brussels`. The owner's time zone (IANA name), and the only one the hub uses: the built-in digests run in it (ones the owner has not edited move when it changes), their facts and the usage guard's pushes show times in it, and the brain's nightly rollover runs at 04:00 in it. The process's own `TZ` is never used. A name that is not a time zone stops the hub at start |
 
@@ -79,7 +79,8 @@ for **10 minutes**. The app sends it to `POST /api/pair` and gets a device token
 - Every route except `GET /api/health` and `POST /api/pair` needs `Authorization: Bearer <token>`.
   Without it, or with a revoked token, the answer is 401. `/docs` and `/openapi.json` are off.
 - `GET /api/devices` lists your devices; `DELETE /api/devices/{id}` revokes one, and its token
-  stops working at once. `PUT /api/devices/{id}/push` stores an APNs token or ntfy topic.
+  stops working at once. `PUT /api/devices/{id}/push` stores an APNs token or ntfy topic. An APNs
+  token must be the hex device token iOS gives (64 to 200 characters, 0-9 and a-f), else 400.
 - `GET /api/me` reports `push.ntfy` (and `push.ntfy_server`) when `ntfy_server` is set, `push.apns`
   when the four `apns_*` settings are set, and each agent's live `state` (see "The avatar's state" below).
 - After 10 unknown codes in a minute, `POST /api/pair` refuses every code (429,

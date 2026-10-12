@@ -298,6 +298,27 @@ def test_a_token_registered_again_meanwhile_is_kept(engine: Engine) -> None:
         assert s.get(Device, 'dev_phone').apns_token == 'new-token-from-the-app'  # type: ignore[union-attr]
 
 
+def test_the_token_is_dropped_in_one_conditional_update(engine: Engine) -> None:
+    """No read-then-write: a token the app registers in between can never be wiped."""
+    from sqlalchemy import event
+
+    add_device(engine, apns_token=DEVICE_TOKEN)
+    statements: list[str] = []
+
+    def record(conn: Any, cursor: Any, statement: str, *rest: Any) -> None:
+        statements.append(' '.join(statement.split()).upper())
+
+    notifier = FakeApple().notifier(engine)
+    event.listen(engine, 'before_cursor_execute', record)
+    try:
+        notifier._forget('dev_phone', DEVICE_TOKEN)  # type: ignore[attr-defined]
+    finally:
+        event.remove(engine, 'before_cursor_execute', record)
+    assert len(statements) == 1, statements
+    assert statements[0].startswith('UPDATE DEVICE SET APNS_TOKEN')
+    assert 'DEVICE.ID = ?' in statements[0] and 'DEVICE.APNS_TOKEN = ?' in statements[0]
+
+
 def test_a_device_without_an_apns_token_is_not_posted(engine: Engine) -> None:
     apple = FakeApple()
     with pytest.raises(PushFailed) as err:
