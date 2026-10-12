@@ -28,6 +28,7 @@ from marcel_hub import (
     channel,
     conversations,
     db,
+    digest,
     github,
     memory,
     notify,
@@ -61,6 +62,8 @@ class Settings:
     ntfy_server: str | None = None
     # None: PR cards say the hub cannot ask GitHub. A read-only token (ADR-002); never shown.
     github_token: str | None = field(default=None, repr=False)
+    # The owner's time zone: the built-in digests fire in it (S-09.2).
+    tz: str = 'Europe/Brussels'
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -89,6 +92,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         'worker_cwd',
         'ntfy_server',
         'github_token',
+        'tz',
     }
     unknown = set(values) - known
     if unknown:
@@ -107,6 +111,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             github_token=str(values['github_token']).strip() or None
             if values.get('github_token')
             else None,
+            tz=_tz(values.get('tz', 'Europe/Brussels')),
         )
     except ValueError as exc:
         raise SettingsError(f'The port must be a number: {exc}.') from exc
@@ -127,6 +132,14 @@ def _ntfy_server(value: Any) -> str | None:
     return server
 
 
+def _tz(value: Any) -> str:
+    try:
+        schedule.cron.zone(str(value))
+    except schedule.CronError as exc:
+        raise SettingsError(f'tz: {exc}') from exc
+    return str(value)
+
+
 def _is_setting(name: str) -> bool:
     return name in {
         'MARCEL_DATA_DIR',
@@ -138,6 +151,7 @@ def _is_setting(name: str) -> bool:
         'MARCEL_WORKER_CWD',
         'MARCEL_NTFY_SERVER',
         'MARCEL_GITHUB_TOKEN',
+        'MARCEL_TZ',
     }
 
 
@@ -184,9 +198,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         avatars.prime()  # states that changed while the hub was down (S-04.8)
         avatars.start()
         prs.start()  # S-04.12: open PRs found again, then refreshed every 5 minutes
+        digests.ensure_builtins()  # S-09.2: before the scheduler's first look
+        digests.start()
         scheduler.start()  # S-09.1: missed fires are reported once, on its first look
         yield
         await scheduler.stop()  # a look in progress finishes first
+        await digests.stop()
         await prs.stop()
         await avatars.stop()
         await keeper.stop()
@@ -269,6 +286,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     usage.install(app, guard, registry, watch)
     # S-09.1: schedules fire through the registry (so the guard and the cap apply) or the outbox.
     scheduler = schedule.install(app, registry, gateway.outbox, pusher, settings.data_dir)
+    # S-09.2: the digest schedules' events carry the facts bundle; the brain writes the digest.
+    digests = digest.install(app, scheduler, pusher, guard, settings.data_dir, settings.tz)
     return app
 
 

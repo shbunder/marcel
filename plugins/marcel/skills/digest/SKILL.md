@@ -11,6 +11,15 @@ open approvals, threads in flight, done today, PRs ready, failures, usage by tas
 today's schedules. Write only from those facts. Do not open transcripts or start threads to write a
 digest.
 
+The bundle is `data.facts`. Times are already in the owner's time zone; `period` is today (the
+weekly review: the last 7 days). Each list is `{count, items, more}`: it keeps the first 10, so
+say "and N more" when `more` is not 0. The lists: `approvals`, `questions` (threads waiting for
+an answer), `in_flight`, `done`, `failures`, `prs_ready` (checks passing, no changes asked),
+`prs_merged`, `artifacts` (new items), `stale` (no activity for 3 days or more) and
+`schedules_today`. `usage` is there in the evening digest, the weekly review and a usage report
+sent on its own (`data.digest` is then `usage`: write only the Usage section): `plan` (the
+five-hour and weekly windows) and `by_task` (each with `points` and `share_pct`).
+
 What each one holds (B-17):
 
 > - **Morning, plan of the day:** pending approvals, today's scheduled jobs, threads in flight,
