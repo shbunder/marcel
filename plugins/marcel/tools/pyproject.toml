@@ -35,7 +35,7 @@ quote-style = "single"
 
 [tool.pyright]
 pythonVersion = "3.12"
-include = ["src", "tests"]
+include = ["src", "tests", "../scripts"]
 typeCheckingMode = "standard"
 venvPath = "."
 venv = ".venv"
@@ -46,7 +46,7 @@ addopts = "-q -m 'not live'"
 markers = ["live: reaches a real claude, network or device; never part of the gate"]
 
 [tool.coverage.run]
-source = ["marcel_tools"]
+source = ["marcel_tools", "../scripts"]
 branch = true
 
 [tool.coverage.report]

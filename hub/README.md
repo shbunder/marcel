@@ -76,8 +76,8 @@ for **10 minutes**. The app sends it to `POST /api/pair` and gets a device token
 
 - A token is `mrc_` plus 32 random bytes in hex. The hub keeps only its sha256, so the token is
   shown once and cannot be read back from the database. Pairing codes are stored hashed too.
-- Every route except `GET /api/health` and `POST /api/pair` needs `Authorization: Bearer <token>`.
-  Without it, or with a revoked token, the answer is 401. `/docs` and `/openapi.json` are off.
+- Every route except `GET /api/health`, `POST /api/pair` and the session API (below) needs
+  `Authorization: Bearer <token>`. Without it, or with a revoked token, the answer is 401. `/docs` and `/openapi.json` are off.
 - `GET /api/devices` lists your devices; `DELETE /api/devices/{id}` revokes one, and its token
   stops working at once. `PUT /api/devices/{id}/push` stores an APNs token or ntfy topic. An APNs
   token must be the hex device token iOS gives (64 to 200 characters, 0-9 and a-f), else 400.
@@ -96,11 +96,43 @@ router = APIRouter(prefix='/api', dependencies=[Depends(require_device)])
 ```
 
 `tests/test_auth_routes.py` calls every route in the app without a token and fails on any that
-answers something other than 401. A route type it cannot call (a WebSocket) fails it too, until the
+answers something other than 401 (for the session API: anything but the hidden 404). A route type it cannot call (a WebSocket) fails it too, until the
 test learns how.
 
 The WebSocket follows the same rule: `tests/test_auth_routes.py` opens every socket without a token
 and with an unknown one, and fails if the hub accepts it.
+
+## Adopting a session: `POST /api/session/adopt`
+
+`/marcel-adopt` (the plugin's command, `plugins/marcel/commands/`) hands a Claude Code session
+Marcel did not start to Marcel (B-14, `contracts/session-api.yaml`). Code: `adopt.py`.
+
+```bash
+marcel-hub adopt-token     # inside the hub container: a new adopt token, printed once
+```
+
+Save the token on every computer you use Claude Code on, readable by you only:
+`mkdir -p ~/.marcel && (umask 077 && cat > ~/.marcel/adopt-token)`, paste it, Enter, Ctrl-D. A cloud
+session has no such file: give it the token as the `MARCEL_ADOPT_TOKEN` secret of its environment.
+
+- **The token** is `mra_` plus 32 random bytes in hex. The hub keeps only its sha256, in
+  `<data_dir>/adopt-token.sha256` (owner-only), and reads it on every call: a new token works at
+  once and the previous one stops. It is not a device token, and a device token does not work here.
+- **Hidden.** Without the right token the answer is exactly the hub's 404 for an unknown address,
+  even for a broken body. After 10 wrong tokens in a minute every call gets 429 until the minute is
+  over. A hub with no adopt token yet refuses every call and says so once in its log.
+- **Checks.** A local session id is a UUID and needs `cwd`, a full path; a cloud one is
+  `session_…`. The title is one line of 1 to 120 characters; `url` is https; `machine` a host
+  name; no other fields. Each failure is a 400 that says what to change.
+- **Once per session.** The first call makes the task (201); any later call for that session, or
+  for a session Marcel started itself, returns its task (200) and changes nothing.
+- **What it makes.** A task with origin `adopted`, model `unknown`, already `working`, with a note
+  "Handed over with /marcel-adopt from <machine> in <cwd>"; filed in the inbox of the owner's first
+  agent; and an `adopted` milestone in that agent's main conversation. A local session is a `nuc`
+  task. When the runner lists it (`GET /sessions`), the hub follows its transcript at once
+  (`RunnerWatch.follow`) and its state from the runner's events, like its own tasks: `tracked:
+  live`. Otherwise (another computer, the cloud, or the runner out of reach) it is `links_only`: the
+  task keeps its link (`cloud_url`, or `remote_url` when given) and nothing more.
 
 ## Conversations
 
