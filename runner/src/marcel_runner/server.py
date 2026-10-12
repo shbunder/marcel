@@ -1,4 +1,5 @@
-"""The runner's HTTP server on a unix socket: `GET /health`, `GET /usage`, and `/sessions`."""
+"""The runner's HTTP server on a unix socket: `GET /health`, `GET /usage`, `/sessions` and
+`GET /events`."""
 
 import grp
 import json
@@ -16,6 +17,7 @@ from urllib.parse import parse_qs, urlsplit
 from marcel_runner.health import Settings, cgroup_of, collect_health
 from marcel_runner.sessions import Sessions, StateFileError, state_dir_from_env
 from marcel_runner.usage import UsageProbe
+from marcel_runner.watch import Watcher
 
 SOCKET_MODE = 0o660
 DIR_MODE = 0o750
@@ -86,6 +88,7 @@ class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
         health: Callable[[], dict],
         usage: UsageProbe,
         sessions: Sessions | None = None,
+        watcher: Watcher | None = None,
     ) -> None:
         # bind_socket() has already bound `sock`; skip UnixStreamServer's own bind.
         socketserver.BaseServer.__init__(self, sock.getsockname(), Handler)
@@ -93,6 +96,7 @@ class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
         self.health = health
         self.usage = usage
         self.sessions = sessions
+        self.watcher = watcher
         sock.listen(16)
 
 
@@ -124,6 +128,11 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get('content-length') or 0)
             body = self.rfile.read(length) if length > 0 else b''
             self._send(*sessions.route(self.command, path, parse_qs(url.query), body))
+        elif path == '/events' and self.server.watcher is not None:
+            if self.command != 'GET':
+                self._error(405, 'method_not_allowed', f'{path} only answers GET.')
+            else:
+                self.server.watcher.stream(self)  # holds the connection until the client leaves
         elif path not in ('/health', '/usage'):
             self._error(404, 'not_found', f'The runner has no {path}.')
         elif self.command != 'GET':
@@ -144,6 +153,7 @@ def serve(
     active_workers: Callable[[], int] = lambda: 0,
     usage: UsageProbe | None = None,
     sessions: Sessions | None = None,
+    watcher: Watcher | None = None,
 ) -> UnixHTTPServer:
     """Check the supervisor, bind the socket and return a server ready for `serve_forever()`."""
     if sessions is not None:
@@ -161,7 +171,7 @@ def serve(
     probe = usage if usage is not None else UsageProbe(settings.claude)
     if sessions is not None:
         sessions.refresh_usage = probe.refresh  # a fresh usage reading before each worker spawn
-    return UnixHTTPServer(bind_socket(path, group), health, probe, sessions)
+    return UnixHTTPServer(bind_socket(path, group), health, probe, sessions, watcher)
 
 
 def settings_from_env() -> tuple[Settings, Path, str | None]:
@@ -184,17 +194,21 @@ def settings_from_env() -> tuple[Settings, Path, str | None]:
 def main() -> int:
     try:
         settings, sock, group = settings_from_env()
-        srv = serve(sock, settings, group, sessions=Sessions(settings, state_dir_from_env()))
+        sessions = Sessions(settings, state_dir_from_env())
+        watcher = Watcher(sessions)
+        srv = serve(sock, settings, group, sessions=sessions, watcher=watcher)
     except (StartupError, StateFileError) as e:
         print(f'marcel-runner: {e}', file=sys.stderr)
         return 1
     print(f'marcel-runner: listening on {sock}', file=sys.stderr, flush=True)
     srv.usage.start()
+    watcher.start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        watcher.stop()
         srv.server_close()
         sock.unlink(missing_ok=True)
     return 0

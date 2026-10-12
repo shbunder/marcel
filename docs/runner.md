@@ -5,6 +5,8 @@ service and talks to the hub over HTTP on a unix socket. Today it answers `GET /
 
 Plan usage (`GET /usage`): see [runner/usage.md](runner/usage.md).
 
+Session state changes (`GET /events`): see [runner/watch.md](runner/watch.md).
+
 ## Run it
 
 ```bash
