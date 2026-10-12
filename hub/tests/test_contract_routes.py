@@ -18,8 +18,6 @@ METHODS = {'get', 'post', 'put', 'patch', 'delete'}
 PENDING_OPERATIONS: dict[tuple[str, str], str] = {
     ('GET', '/api/agents/{}'): 'agent settings: no story yet',
     ('PATCH', '/api/agents/{}'): 'agent settings: no story yet',
-    ('POST', '/api/agents/{}/brain/rollover'): 'manual rollover: S-06.7',
-    ('GET', '/api/agents/{}/brain/rollovers'): 'past rollovers: S-06.7',
 }
 
 

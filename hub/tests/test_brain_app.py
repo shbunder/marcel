@@ -185,6 +185,10 @@ def test_a_rollover_never_leaves_zero_brains_and_never_two_answering(
             )
             assert ack[0]['error']['code'] == 'replaced'
             assert all(m.body_json.get('text') != 'I am the old one' for m in hub.messages())
+            # Its text is not lost: the new brain gets it, once, and decides (S-06.7).
+            unsent = new_ch.deliver()
+            assert unsent['type'] == 'system_event' and unsent['kind'] == 'rollover'
+            assert unsent['data'] == {'unsent_reply': 'I am the old one'}
             reply = new_ch.call('reply', call_id='c_new', text='Fresh and here.')
             assert reply == {'type': 'call_ack', 'call_id': 'c_new'}
             wait(lambda: old in fake.stopped)

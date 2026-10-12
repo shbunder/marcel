@@ -33,6 +33,7 @@ names the file.
 | `runner_sock` | `MARCEL_RUNNER_SOCK` | `/run/marcel/runner.sock` (the runner's socket, mounted into the container) |
 | `worker_cwd` | `MARCEL_WORKER_CWD` | unset. Where workers without a repository run, e.g. `/home/<you>/marcel/workspaces/scratch` (a path on the NUC). Unset: such tasks fail with a reason |
 | `brain_cwd` | `MARCEL_BRAIN_CWD` | unset: the hub starts no brain. The brain workspace on the NUC, e.g. `/home/<you>/marcel/brain` (`brain/README.md`). Set: the hub keeps one brain running (see "The brain: keep-alive and rollover") |
+| `brain_context_window` | `MARCEL_BRAIN_CONTEXT_WINDOW` | `200000`, the Opus context window in tokens. Once a brain turn ends with its context past 70 % of this, the brain rolls over (reason `context_full`). A brain model named with Claude Code's `[1m]` suffix (e.g. `opus[1m]`) uses 1 000 000 instead. Less than 10000, or not a number, stops the hub at start |
 | `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no pushes. The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
 | `apns_key` | `MARCEL_APNS_KEY` | unset: no APNs pushes (`push.apns` false; phones use ntfy). The APNs auth key: the text of the `AuthKey_<id>.p8` file from the Apple developer site (Keys, with Apple Push Notifications service). The whole file, the file on one line with `\n` for its line breaks, or only the lines between `BEGIN` and `END`. Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown. A key that is not a P-256 `.p8` key stops the hub at start |
 | `apns_key_id` | `MARCEL_APNS_KEY_ID` | unset. The key's 10-character id (in the file name and on the Keys page). `deploy/.env.local`; never logged |
@@ -727,7 +728,9 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
   server retries for two minutes. One exception: a new brain started by a rollover is not the
   conversation's brain yet, and its hello is the hand-over (see "The brain: keep-alive and
   rollover"). A `reply` from a session that is no longer its conversation's (the brain a rollover
-  replaced) is refused with `call_ack.error` (`replaced`), so only one brain ever answers. A plugin older than 0.1.0 is rejected `plugin_too_old`.
+  replaced) is refused with `call_ack.error` (`replaced`), so only one brain ever answers. Its
+  text is not lost: the conversation's current session gets it once, as a `rollover` system event
+  with `data: {unsent_reply, in_reply_to?}`, and decides whether it still needs saying. A plugin older than 0.1.0 is rejected `plugin_too_old`.
 - **A session acts only for itself.** A worker's `report` lands on its own task; a brain's or side
   thread's `reply` in its own conversation. A worker's `reply` and a brain's `report` are stored
   nowhere, logged, and answered `call_ack` with `error` (`not_allowed`), so the session drops the
@@ -894,8 +897,11 @@ is set and the hub has a runner.
 - **Rollover.** Every night at 04:00 in the owner's time zone (the `tz` setting, `MARCEL_TZ`,
   default `Europe/Brussels`; the time is worked out from the calendar day, so clock changes do not
   move it), the hub starts a fresh
-  brain next to the old one. `BrainKeeper.roll_over(agent_id)` asks for one at any time; there is
-  no app route for it yet. The old brain keeps answering until the new one says hello on the
+  brain next to the old one. The owner can ask for one from the app
+  (`POST /api/agents/{agent_id}/brain/rollover`: 202, then `brain.rollover` once it has taken
+  over; 409 `rollover_running` while one is asked for or waiting for its hello; 503
+  `runner_unreachable` when the runner does not answer or the hub runs no brain, and nothing
+  changes). The old brain keeps answering until the new one says hello on the
   channel, and only once the old one is between turns (a hello while it is mid-turn is refused,
   and the channel server tries again 5 s later). At the hello the new id goes on the conversation,
   the old brain's socket is closed and its session stopped, and `brain.rollover` (time, reason,
@@ -912,10 +918,21 @@ is set and the hub has a runner.
   stopped.
 - **Never held back.** The brain is started through the runner directly, not through the task
   registry, so the worker cap and the usage guard never queue it.
-- **Not yet.** The hub cannot see how full the brain's context is (no transcript event carries
-  token counts), so there is no context-threshold rollover; and the rollover log lives only in the
-  app event stream, which keeps the latest 2000 events (`project/contract-requests/S-06.2.md`).
-  The 04:00 timer is the keeper's own; it can move onto the scheduler (S-09.1) later.
+- **When the context fills up.** The hub reads the current brain's transcript from the runner
+  (`GET /sessions/{id}/tail`: first the latest turn already there, then each new one). At every
+  `turn_end` it adds up `usage` (input + cache creation + cache read + output tokens, what the
+  session carries into its next turn) and compares it with the model's context window (the
+  `brain_context_window` setting, 200 000 by default; 1 000 000 for a `[1m]` model). Past 70 % it
+  asks for a rollover with reason `context_full`, between turns like any other. It asks once:
+  while a rollover is asked for or its new brain waits to say hello, more full turns ask for
+  nothing, and a late turn of a brain that was already replaced never counts.
+- **History.** Every rollover (crashed, daily, context_full, manual) is also a row in
+  `brain_rollover` (time, reason, what was kept, the old and new session ids), written with its
+  `brain.rollover` event. `GET /api/agents/{agent_id}/brain/rollovers?limit=` (1–50, default 10)
+  lists them newest first, `[]` before the first, long after the app event stream (which keeps
+  the latest 2000 events) has moved on. The session ids are kept for debugging; the route shows
+  the contract's `Rollover` fields only.
+- **Not yet.** The 04:00 timer is the keeper's own; it can move onto the scheduler (S-09.1) later.
 
 ## Brain tools: `/brain`
 

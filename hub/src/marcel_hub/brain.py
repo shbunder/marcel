@@ -16,21 +16,30 @@ the brain workspace, `~/marcel/brain` on the NUC). `BrainKeeper` keeps one runni
 - **Backoff.** A spawn that fails is retried after 5 s, then 15 s, 30 s, 1 min, 2 min, then every
   5 min. After `ALERT_AFTER` failures in a row the owner gets one "something broke" alert; it is
   cleared when a brain starts again.
-- **Rollover.** Nightly at 04:00 in the owner's time zone (the `tz` setting), or on request
-  (`roll_over`), the keeper starts a new brain next to the old one, seeded with what the hub kept
-  (`seed`). The old brain keeps answering until the new one says hello on the channel; the hello
-  is the hand-over (`said_hello`, called by the channel gateway), and only once the old brain is
-  between turns. The new id goes on the conversation, the old session is stopped, and a
-  `brain.rollover` event is stored and sent to the app. A new brain that never says hello within
-  `HELLO_WAIT_S` is stopped and the old one stays: there is never zero brains, and never two
-  answering (the gateway refuses a `reply` from a session that is no longer the conversation's).
+- **Rollover.** Nightly at 04:00 in the owner's time zone (the `tz` setting), when the brain's
+  context is more than `CONTEXT_FULL` full (S-06.7), or on request (`roll_over`, and the app's
+  `POST /api/agents/{agent_id}/brain/rollover`), the keeper starts a new brain next to the old
+  one, seeded with what the hub kept (`seed`). The old brain keeps answering until the new one
+  says hello on the channel; the hello is the hand-over (`said_hello`, called by the channel
+  gateway), and only once the old brain is between turns. The new id goes on the conversation,
+  the old session is stopped, and a `brain.rollover` event is stored and sent to the app. A new
+  brain that never says hello within `HELLO_WAIT_S` is stopped and the old one stays: there is
+  never zero brains, and never two answering (the gateway refuses a `reply` from a session that
+  is no longer the conversation's).
 - **Extras.** Any other live brain session of the agent the runner still has (one left over from a
   hub restart in the middle of a rollover) is stopped.
 - **The seed** is built by the hub from its own records — the last 24 h of the main conversation
   (messages and task milestones), the open threads and `MEMORY.md` — with no model call.
-
-The hub cannot see how full the brain's context is (no transcript event carries token counts), so
-there is no context-threshold rollover yet: see `project/contract-requests/S-06.2.md`.
+- **Context size** (S-06.7). The keeper reads the current brain's transcript from the runner
+  (`tail_turn_ends`) and, at each `turn_end`, adds up its `usage` (input, cache and output tokens:
+  what the session carries into its next turn). Past `CONTEXT_FULL` of the model's context window
+  it asks for a `context_full` rollover — once: while one is asked for or waiting for its hello,
+  and for any session that is no longer the conversation's brain, nothing more is asked. The
+  window is the `brain_context_window` setting (`CONTEXT_WINDOW` by default), or `LONG_CONTEXT`
+  for a model named with Claude Code's `[1m]` suffix.
+- **History** (S-06.7). Every rollover is a `brain_rollover` row, written with its
+  `brain.rollover` event, so the notebook can list past ones after the event log has moved on
+  (`GET /api/agents/{agent_id}/brain/rollovers`).
 """
 
 import asyncio
@@ -38,18 +47,25 @@ import contextlib
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, tzinfo
 from datetime import time as wall_time
 from typing import Any, Protocol
 
+import httpx
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlmodel import Session, col, select
 
+from marcel_hub.auth import ApiError, current_device, require_device
+from marcel_hub.auth.deps import DbSession
 from marcel_hub.conversations import ensure_main_conversation
 from marcel_hub.memory import MemoryRepo
 from marcel_hub.models import (
     Agent,
+    BrainRollover,
+    Conversation,
+    ConversationKind,
     Message,
     MessageKind,
     MessageRole,
@@ -57,7 +73,14 @@ from marcel_hub.models import (
     Task,
     TaskState,
 )
-from marcel_hub.runner_client import Alerts, LogAlerts
+from marcel_hub.runner_client import (
+    Alerts,
+    BadEvent,
+    LogAlerts,
+    StreamRefused,
+    check_transcript_event,
+    sse,
+)
 from marcel_hub.tasks.ports import RunnerUnavailable, StartFailed
 from marcel_hub.ws import EventLog
 
@@ -72,6 +95,12 @@ BUSY_TRIES = 2  # a rollover put off this often because Marcel was busy is skipp
 BUSY_RETRY_S = 300.0
 ALERT = 'brain_down'
 ROLLOVER_AT = wall_time(4, 0)
+
+CONTEXT_FULL = 0.70  # past this share of its context window, the brain is rolled over
+CONTEXT_WINDOW = 200_000  # tokens: the `brain_context_window` setting's default (Opus)
+LONG_CONTEXT = 1_000_000  # tokens: a model named with Claude Code's `[1m]` suffix
+TAIL_RETRY_S = (1.0, 30.0)  # reading a brain's transcript again: first wait, longest wait
+MAX_ROLLOVERS = 50  # the most past rollovers one request lists (app-api `limit`)
 
 SUMMARY_HOURS = 24
 MAX_MESSAGES = 60
@@ -106,6 +135,23 @@ class BrainRunner(Protocol):
     async def stop(self, session_id: str) -> None: ...
 
 
+class TailStream(Protocol):
+    def aiter_lines(self) -> AsyncIterator[str]: ...
+
+    async def aclose(self) -> None: ...
+
+
+class TailRunner(Protocol):
+    """What `tail_turn_ends` needs from the runner (`runner_client.RunnerClient`)."""
+
+    async def open_stream(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> TailStream: ...
+
+
 def brain_name(agent_id: str) -> str:
     """The runner's name for an agent's brain sessions (`SpawnRequest.name`)."""
     return f'brain-{agent_id}'[:60]
@@ -122,6 +168,87 @@ def next_rollover(after: datetime, tz: tzinfo | None = None) -> datetime:
         if due > after:
             return due.astimezone(UTC)
     raise AssertionError('04:00 comes every day')  # pragma: no cover
+
+
+def context_window(model: str, default: int = CONTEXT_WINDOW) -> int:
+    """The context window, in tokens, of the brain's model: `LONG_CONTEXT` for a `[1m]` model
+    (e.g. `opus[1m]`), otherwise `default` (the `brain_context_window` setting)."""
+    return LONG_CONTEXT if model.strip().lower().endswith('[1m]') else default
+
+
+def context_tokens(usage: Any) -> int | None:
+    """What the session carries into its next turn, from `TurnEnd.usage`
+    (transcript.schema.json): input + cache creation + cache read + output tokens. None when the
+    turn has no usage."""
+    if not isinstance(usage, dict):
+        return None
+    keys = (
+        'input_tokens',
+        'cache_creation_input_tokens',
+        'cache_read_input_tokens',
+        'output_tokens',
+    )
+    total = 0
+    for key in keys:
+        count = usage.get(key)
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            return None
+        total += count
+    return total
+
+
+async def tail_turn_ends(
+    runner: TailRunner,
+    session_id: str,
+    *,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> AsyncIterator[dict[str, Any]]:
+    """The `data` of each main-thread `turn_end` in a session's transcript: first the latest one
+    already there (a hub restart picks up where the brain is), then each new one as it comes.
+    Reads again with backoff when the runner is away or the stream breaks; ends when the runner
+    says the session is not there (404) or the request is bad (400)."""
+    path = f'/sessions/{session_id}/tail'
+    offset, follow, delay = 0, False, TAIL_RETRY_S[0]
+    while True:
+        params = {'offset': offset, 'follow': 'true' if follow else 'false'}
+        try:
+            res = await runner.open_stream(path, params=params)
+        except StreamRefused as exc:
+            if exc.status != 503:
+                log.info('Stopped reading main session %s: %s', session_id[:8], exc)
+                return
+            res = None
+        except RunnerUnavailable:
+            res = None
+        if res is not None:
+            latest: dict[str, Any] | None = None
+            try:
+                async for message in sse(res.aiter_lines()):
+                    try:
+                        event = check_transcript_event(message.data, session_id)
+                    except BadEvent as exc:
+                        log.warning('Ignored a bad event of main session %s: %s', session_id[:8],
+                                    exc)  # fmt: skip
+                        continue
+                    offset = event['offset']
+                    if event['type'] != 'turn_end' or 'subagent_id' in event:
+                        continue
+                    if follow:
+                        yield event['data']
+                    else:
+                        latest = event['data']
+            except httpx.TransportError as exc:
+                log.info('The transcript of main session %s broke off (%s).', session_id[:8], exc)
+            finally:
+                await res.aclose()
+            if not follow:  # caught up: the latest turn counts, then follow from here
+                follow = True
+                if latest is not None:
+                    yield latest
+                continue
+            delay = TAIL_RETRY_S[0]
+        await sleep(delay)
+        delay = min(delay * 2, TAIL_RETRY_S[1])
 
 
 def _alive(session: dict[str, Any]) -> bool:
@@ -173,6 +300,7 @@ class BrainKeeper:
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         monotonic: Callable[[], float] = time.monotonic,
         tz: tzinfo | None = None,
+        window: int = CONTEXT_WINDOW,
     ) -> None:
         self.engine = engine
         self.runner = runner
@@ -183,6 +311,7 @@ class BrainKeeper:
         self.clock = clock
         self.monotonic = monotonic
         self.tz = tz  # the app passes the `tz` setting; None: the process's local zone
+        self.window = window  # the `brain_context_window` setting
         self._lock = asyncio.Lock()  # one check at a time
         self._mutex = threading.Lock()  # the per-agent state, shared with `said_hello`
         self._agents: dict[str, _AgentBrain] = {}
@@ -196,6 +325,9 @@ class BrainKeeper:
         self.turn_open: Callable[[str, str], bool] | None = None
         self.hand_over: Callable[[str, datetime], None] | None = None
         self._handed: dict[str, tuple[str, datetime]] = {}  # new brain → (conversation, seed)
+        # Set by the app when it has a runner: each brain's `turn_end`s (`tail_turn_ends`).
+        self.turn_ends: Callable[[str], AsyncIterator[dict[str, Any]]] | None = None
+        self._tails: dict[str, tuple[str, asyncio.Task[None]]] = {}  # agent → (session, reader)
 
     # Lifecycle --------------------------------------------------------------------------------
 
@@ -205,6 +337,11 @@ class BrainKeeper:
         self._job = self._loop.create_task(self._run(tick or TICK_S), name='brain-keeper')
 
     async def stop(self) -> None:
+        tails = [task for _, task in self._tails.values()]
+        self._tails.clear()
+        for task in tails:
+            task.cancel()
+        await asyncio.gather(*tails, return_exceptions=True)
         if self._job is not None:
             self._job.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -228,11 +365,53 @@ class BrainKeeper:
                 await asyncio.wait_for(self._wake.wait(), tick)
             self._wake.clear()
 
-    def roll_over(self, agent_id: str, reason: str = 'manual') -> None:
-        """Ask for a fresh brain for `agent_id` (reason as in `brain.rollover`)."""
+    def roll_over(self, agent_id: str, reason: str = 'manual') -> bool:
+        """Ask for a fresh brain for `agent_id` (reason as in `brain.rollover`). False, and
+        nothing changes, when one is already asked for or waiting for its hello."""
         with self._mutex:
-            self._state(agent_id).wanted = reason
+            st = self._state(agent_id)
+            if st.pending is not None or st.wanted is not None:
+                return False
+            st.wanted = reason
         self.poke()
+        return True
+
+    def rolling_over(self, agent_id: str) -> bool:
+        """A rollover is asked for, or its new brain is waiting to say hello."""
+        with self._mutex:
+            st = self._agents.get(agent_id)
+            return st is not None and (st.pending is not None or st.wanted is not None)
+
+    def turn_ended(self, session_id: str, data: dict[str, Any]) -> bool:
+        """A brain session ended a turn (`turn_end` `data`). Past `CONTEXT_FULL` of its context
+        window, ask for a `context_full` rollover; True when one was asked for. Only the
+        conversation's current brain counts, and only once (`roll_over` refuses a second)."""
+        tokens = context_tokens(data.get('usage'))
+        if tokens is None:
+            return False
+        with Session(self.engine) as s:
+            conv = s.exec(
+                select(Conversation)
+                .where(Conversation.brain_session_id == session_id)
+                .where(Conversation.kind == ConversationKind.main)
+            ).first()
+            if conv is None:  # not, or no longer, an agent's brain: an old one's last turn
+                return False
+            agent = s.get(Agent, conv.agent_id)
+            assert agent is not None
+            agent_id, window = agent.id, context_window(agent.model_brain, self.window)
+        if tokens < CONTEXT_FULL * window:
+            return False
+        if not self.roll_over(agent_id, 'context_full'):
+            return False  # one is on its way already
+        log.info(
+            "Marcel's main session %s is %.0f%% full (%d of %d tokens); starting a fresh one.",
+            session_id[:8],
+            100 * tokens / window,
+            tokens,
+            window,
+        )
+        return True
 
     def _state(self, agent_id: str) -> _AgentBrain:
         return self._agents.setdefault(agent_id, _AgentBrain())
@@ -328,6 +507,33 @@ class BrainKeeper:
             ):
                 log.warning('Stopping an extra main session %s: only one may run.', sid[:8])
                 await self._stop(sid, 'another main session is running')
+        # 5. Read the current brain's turns, to see how full its context is.
+        self._follow(agent_id, self._current(agent_id))
+
+    def _follow(self, agent_id: str, session_id: str | None) -> None:
+        """Keep one transcript reader per agent, on its current brain."""
+        if self.turn_ends is None:
+            return
+        reading = self._tails.get(agent_id)
+        if reading is not None and reading[0] == session_id and not reading[1].done():
+            return
+        if reading is not None:
+            reading[1].cancel()
+            del self._tails[agent_id]
+        if session_id is None:
+            return
+        task = asyncio.get_running_loop().create_task(
+            self._read_turns(session_id), name=f'brain-turns-{session_id[:8]}'
+        )
+        self._tails[agent_id] = (session_id, task)
+
+    async def _read_turns(self, session_id: str) -> None:
+        assert self.turn_ends is not None
+        try:
+            async for data in self.turn_ends(session_id):
+                self.turn_ended(session_id, data)
+        except Exception:  # the next check starts a new reader
+            log.exception('Stopped reading how full main session %s is.', session_id[:8])
 
     async def _put_off(self, agent_id: str, pending: _Pending) -> None:
         """The new brain waited out its time because the old one stayed in a turn. That is not a
@@ -432,7 +638,7 @@ class BrainKeeper:
             log.info("Started Marcel's main session %s.", sid[:8])
         else:
             log.warning("Marcel's main session %s was gone; started %s.", dead[:8], sid[:8])
-            self._published(agent_id, 'crashed', kept)
+            self._published(agent_id, 'crashed', kept, dead, sid)
 
     async def _start_rollover(self, agent_id: str, reason: str) -> None:
         started = await self._spawn(agent_id, reason)
@@ -455,13 +661,25 @@ class BrainKeeper:
             s.commit()
             return conv.id
 
-    def _published(self, agent_id: str, reason: str, kept: str) -> None:
+    def _published(self, agent_id: str, reason: str, kept: str, old: str | None, new: str) -> None:
+        """Store the rollover in its history and send `brain.rollover`, in one write."""
         log.info('Brain rollover for %s (%s): %s', agent_id, reason, kept)
-        if self.events is None:
-            return
         with Session(self.engine) as s:
             agent = s.get(Agent, agent_id)
             assert agent is not None
+            s.add(
+                BrainRollover(
+                    agent_id=agent_id,
+                    at=self.clock(),
+                    reason=reason,
+                    kept=kept,
+                    old_session_id=old,
+                    new_session_id=new,
+                )
+            )
+            if self.events is None:
+                s.commit()
+                return
             data = {'agent_id': agent_id, 'reason': reason, 'kept': kept}
             self.events.publish(s, agent.owner_user_id, 'brain.rollover', data)
 
@@ -494,7 +712,7 @@ class BrainKeeper:
             if old is not None:
                 st.retiring.add(old)
             self._handed[session_id] = (conversation_id, pending.seeded_at)
-        self._published(agent_id, pending.reason, pending.kept)
+        self._published(agent_id, pending.reason, pending.kept, old, session_id)
         self.poke()  # stop the old one now
         return agent_id, conversation_id
 
@@ -623,3 +841,75 @@ def _kept(notes: bool, messages: int, tasks: int) -> str:
     said.append(f'{tasks} open thread{"s" if tasks != 1 else ""}')
     text = ', '.join(said[:-1]) + ' and ' + said[-1]
     return text[0].upper() + text[1:] + '.'
+
+
+# The app's routes (app-api.yaml `agents`, S-06.7) ------------------------------------------------
+
+router = APIRouter(prefix='/api', tags=['agents'], dependencies=[Depends(require_device)])
+
+
+def _owned(session: Session, request: Request, agent_id: str) -> Agent:
+    agent = session.get(Agent, agent_id)
+    if agent is None or agent.owner_user_id != current_device(request).user_id:
+        raise ApiError(404, 'agent_not_found', 'That agent is not on this hub.')
+    return agent
+
+
+def rollover_json(row: BrainRollover) -> dict[str, Any]:
+    """The contract's `Rollover`."""
+    at = row.at if row.at.tzinfo else row.at.replace(tzinfo=UTC)
+    return {
+        'id': row.id,
+        'agent_id': row.agent_id,
+        'at': at.astimezone(UTC).isoformat().replace('+00:00', 'Z'),
+        'reason': row.reason,
+        'kept': row.kept,
+    }
+
+
+@router.post('/agents/{agent_id}/brain/rollover', status_code=202)
+async def roll_over_brain(agent_id: str, request: Request, session: DbSession) -> Response:
+    agent = _owned(session, request, agent_id)
+    keeper: BrainKeeper | None = request.app.state.brain
+    if keeper is None or keeper.runner is None:
+        raise ApiError(
+            503,
+            'runner_unreachable',
+            f'{agent.name} has no main session on this hub to refresh: the brain workspace is '
+            'not set up. Nothing changed.',
+        )
+    busy = ApiError(
+        409,
+        'rollover_running',
+        f'{agent.name} is already starting a fresh session. It takes over in a minute or two.',
+    )
+    if keeper.rolling_over(agent_id):
+        raise busy
+    try:
+        await keeper.runner.sessions()
+    except RunnerUnavailable as exc:
+        raise ApiError(
+            503,
+            'runner_unreachable',
+            f'{agent.name} cannot start a fresh session just now: {exc} Nothing changed.',
+        ) from exc
+    if not keeper.roll_over(agent_id, 'manual'):
+        raise busy
+    return Response(status_code=202)
+
+
+@router.get('/agents/{agent_id}/brain/rollovers')
+def list_brain_rollovers(
+    agent_id: str,
+    request: Request,
+    session: DbSession,
+    limit: int = Query(default=10, ge=1, le=MAX_ROLLOVERS),
+) -> list[dict[str, Any]]:
+    _owned(session, request, agent_id)
+    rows = session.exec(
+        select(BrainRollover)
+        .where(BrainRollover.agent_id == agent_id)
+        .order_by(col(BrainRollover.at).desc(), col(BrainRollover.id).desc())
+        .limit(limit)
+    )
+    return [rollover_json(r) for r in rows]

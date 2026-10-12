@@ -9,7 +9,9 @@ answers it with `call_ack` + `error`, so the session drops the call instead of r
 A rollover (S-06.2) starts a new brain while the old one still runs. The new one's hello is the
 hand-over: `Brains.said_hello` makes it the conversation's brain, its socket takes the
 conversation's frames from the old one (whose socket is closed), and from then on a `reply` from
-the old session is refused, so only one brain ever answers.
+the old session is refused, so only one brain ever answers. Its text is not lost (S-06.7): the
+conversation's current session gets it once, as a `rollover` system event with
+`data: {unsent_reply, in_reply_to?}`, and decides whether it still needs saying.
 
 A worker's `report(note)` (S-04.14) is one fact for its project's notes: the hub appends
 `- <date> <text> (from <task title>)` to `memory/projects/<slug>.md` of the task's own project (the
@@ -167,6 +169,7 @@ class Gateway:
         self.links: dict[str, Any] = {}  # target → its live `socket.Link`
         self.memory: MemoryRepo | None = None  # where a worker's notes go (`install` sets it)
         self.tz: tzinfo = UTC  # the owner's time zone: a note's date
+        self._unsent: set[str] = set()  # call ids of `replaced` replies already passed on
 
     def tasks(self) -> TaskRegistry:
         assert self.registry is not None, 'install the gateway with the task registry'
@@ -341,6 +344,7 @@ class Gateway:
             assert conv is not None
             if conv.brain_session_id != peer.session_id:
                 # A newer session took this conversation over (a brain rollover): only one answers.
+                self._pass_on_unsent(conv.id, frame)
                 raise CallRefused(
                     'replaced',
                     'Marcel did not take this reply: a newer session answers here now.',
@@ -353,6 +357,28 @@ class Gateway:
                 kind=MessageKind.text,
                 body={'text': frame['text']},
             )
+
+    def _pass_on_unsent(self, conversation_id: str, frame: dict[str, Any]) -> None:
+        """Hand a refused `replaced` reply's text to the conversation's current session, once per
+        call: a re-sent copy is refused again but not passed on twice."""
+        with self._calls_lock:
+            if frame['call_id'] in self._unsent:
+                return
+            self._unsent.add(frame['call_id'])
+        data = {'unsent_reply': frame['text']}
+        if frame.get('in_reply_to'):
+            data['in_reply_to'] = frame['in_reply_to']
+        self.outbox.put(
+            conversation_target(conversation_id),
+            {
+                'type': 'system_event',
+                'kind': 'rollover',
+                'text': 'The previous main session wrote this reply after you took over, and it '
+                'was not sent. Say it only if it still needs saying.',
+                'data': data,
+            },
+        )
+        log.info('Passed a reply the replaced session wrote on to the new one.')
 
     async def _store_report(self, peer: Peer, frame: dict[str, Any]) -> None:
         assert peer.task_id is not None
