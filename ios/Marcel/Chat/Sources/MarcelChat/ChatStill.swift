@@ -15,7 +15,7 @@ struct ChatStill: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ChatHeader(state: header, collapsed: collapsed)
+            AvatarHeader(state: header, collapsed: collapsed)
             VStack(alignment: .leading, spacing: FeedMetrics.spacing) {
                 FeedStack(items: items, actions: actions)
             }

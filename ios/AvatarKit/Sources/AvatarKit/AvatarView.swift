@@ -12,6 +12,12 @@ public enum AvatarSize: CGFloat, CaseIterable, Sendable {
     /// Screen pixels per sprite pixel: the largest whole number that fits the frame in the box, and at least 1 so
     /// a sprite pixel is never dropped. Whole numbers keep every sprite pixel a crisp square.
     public func zoom(frameWidth: Int, frameHeight: Int, displayScale: CGFloat) -> Int {
+        Self.zoom(box: points, frameWidth: frameWidth, frameHeight: frameHeight, displayScale: displayScale)
+    }
+
+    /// The same rule for a box of any size in points (a header that shrinks between 120 and 44 pt steps through
+    /// whole zooms: 6×, 5×, 4×, 3×, 2× on a 3× screen).
+    public static func zoom(box points: CGFloat, frameWidth: Int, frameHeight: Int, displayScale: CGFloat) -> Int {
         let box = points * displayScale
         let fit = min(box / CGFloat(frameWidth), box / CGFloat(frameHeight))
         return max(1, Int(fit.rounded(.down)))
@@ -22,18 +28,28 @@ public enum AvatarSize: CGFloat, CaseIterable, Sendable {
 /// shows each state's first frame and does not move.
 public struct AvatarView: View {
     let state: AvatarState
-    let size: AvatarSize
+    /// The square box, in points.
+    let box: CGFloat
     let sheet: SpriteSheet
+    /// The agent's name, for VoiceOver ("Marcel is thinking").
+    let name: String
 
     @State private var player: AvatarPlayer
     @State private var onScreen = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
-    public init(state: AvatarState, size: AvatarSize, sheet: SpriteSheet = .giraffe) {
+    public init(state: AvatarState, size: AvatarSize, sheet: SpriteSheet = .giraffe, name: String = "Marcel") {
+        self.init(state: state, box: size.points, sheet: sheet, name: name)
+    }
+
+    /// A box of any size (the chat header shrinks smoothly from 120 to 44 pt); the sprite still zooms in whole
+    /// numbers, so it steps down a size at a time.
+    public init(state: AvatarState, box: CGFloat, sheet: SpriteSheet = .giraffe, name: String = "Marcel") {
         self.state = state
-        self.size = size
+        self.box = box
         self.sheet = sheet
+        self.name = name
         _player = State(initialValue: AvatarPlayer(sheet: sheet, state: state, at: Date.timeIntervalSinceReferenceDate))
     }
 
@@ -54,13 +70,13 @@ public struct AvatarView: View {
             AvatarFrameView(sheet: sheet,
                             frame: Self.frame(player: player, state: state, reduceMotion: reduceMotion,
                                               at: context.date.timeIntervalSinceReferenceDate),
-                            size: size)
+                            box: box)
         }
         .onAppear { onScreen = true }
         .onDisappear { onScreen = false }
         .onChange(of: state) { _, new in player.setState(new, at: Date.timeIntervalSinceReferenceDate) }
         .accessibilityElement()
-        .accessibilityLabel(state.accessibilityDescription)
+        .accessibilityLabel(state.accessibilityDescription(name: name))
     }
 }
 
@@ -69,24 +85,30 @@ public struct AvatarView: View {
 public struct AvatarFrameView: View {
     let sheet: SpriteSheet
     let frame: Int
-    let size: AvatarSize
+    /// The square box, in points.
+    let box: CGFloat
     @Environment(\.displayScale) private var displayScale
 
     public init(sheet: SpriteSheet = .giraffe, frame: Int, size: AvatarSize) {
+        self.init(sheet: sheet, frame: frame, box: size.points)
+    }
+
+    /// A box of any size in points; the sprite zooms by the largest whole number that fits.
+    public init(sheet: SpriteSheet = .giraffe, frame: Int, box: CGFloat) {
         self.sheet = sheet
         self.frame = frame
-        self.size = size
+        self.box = box
     }
 
     public var body: some View {
-        let zoom = CGFloat(size.zoom(frameWidth: sheet.frameWidth, frameHeight: sheet.frameHeight,
-                                     displayScale: displayScale))
+        let zoom = CGFloat(AvatarSize.zoom(box: box, frameWidth: sheet.frameWidth, frameHeight: sheet.frameHeight,
+                                           displayScale: displayScale))
         Image(decorative: sheet.image(frame: frame), scale: displayScale)
             .interpolation(.none)
             .antialiased(false)
             .resizable()
             .frame(width: CGFloat(sheet.frameWidth) * zoom / displayScale,
                    height: CGFloat(sheet.frameHeight) * zoom / displayScale)
-            .frame(width: size.points, height: size.points)
+            .frame(width: box, height: box)
     }
 }

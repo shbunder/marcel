@@ -48,5 +48,6 @@ final class AvatarStateTests: XCTestCase {
     func testVoiceOverReadsTheState() {
         XCTAssertEqual(AvatarState.working(2).accessibilityDescription, "Marcel is working on 2 tasks")
         XCTAssertEqual(AvatarState.needsYou.accessibilityDescription, "Marcel needs you")
+        XCTAssertEqual(AvatarState.thinking.accessibilityDescription(name: "Gigi"), "Gigi is thinking")
     }
 }

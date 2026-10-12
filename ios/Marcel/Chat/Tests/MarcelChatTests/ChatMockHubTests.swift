@@ -1,3 +1,4 @@
+import AvatarKit
 import Foundation
 import MarcelKit
 import XCTest
@@ -135,5 +136,48 @@ final class ChatMockHubTests: XCTestCase {
         try await waitUntil("version 2 of the item") { try items("Switching to Luminus").first?.badge == "Updated · v2" }
         XCTAssertEqual(try items("Switching to Luminus").count, 1)
         XCTAssertEqual(try items("Switching to Luminus").filter(\.showsBanner).count, 1, "You got only once")
+    }
+
+    /// S-13.3: the giraffe in the header follows the mock hub's `agent.state` events through a run — thinking,
+    /// working, needs you, (approve) working, done, idle — wired as `LiveFeed` wires it.
+    func testAgentStateFromTheMockHubShowsInTheHeader() async throws {
+        guard let hub = ProcessInfo.processInfo.environment["MARCEL_MOCK_HUB"], let serverURL = URL(string: hub) else {
+            throw XCTSkip("Set MARCEL_MOCK_HUB (make -C ios chat-integration) to run against the mock hub.")
+        }
+        let tokens = FixedToken()
+        let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
+        let stream = EventStream(connector: URLSessionEventSocketConnector(serverURL: serverURL, tokenStore: tokens),
+                                 sink: cache)
+        let service = LiveChatService(client: HubClient.make(serverURL: serverURL, tokenStore: tokens))
+        let model = ChatModel(service: service)
+        await model.start()
+        final class Seen { var states: [AvatarState] = [] }
+        let seen = Seen()
+        let token = cache.observeFrames { frame in
+            model.receive(frame)
+            let shown = ChatHeaderState(tasks: [HubTask](), name: model.agentName, live: model.agentState).avatar
+            if seen.states.last != shown { seen.states.append(shown) }
+        }
+        defer { cache.stopObservingFrames(token) }
+        let streaming = Task { await stream.run() }
+        defer { streaming.cancel() }
+        for approval in try await service.approvals() where approval.state == .open {
+            _ = try await service.answer(approvalId: approval.id, approve: false)
+            try await Task.sleep(for: .seconds(2))
+        }
+        try await waitUntil("the stream to go live") { stream.status == .live }
+        try await waitUntil("the mock to be free") { model.agentState == nil || model.agentState == .idle }
+        seen.states = []
+
+        model.draft = "Can you fix the flaky login test? (avatar integration \(UUID().uuidString.prefix(6)))"
+        await model.send()
+        try await waitUntil("the header to say it needs you") { seen.states.contains(.needsYou) }
+        let open = try await service.approvals().first { $0.state == .open }
+        _ = try await service.answer(approvalId: try XCTUnwrap(open).id, approve: true)
+        try await waitUntil("the header to go back to idle", seconds: 40) { seen.states.last == .idle && seen.states.contains(.done) }
+        // Frames before the run (the send coming back) leave the giraffe idle; from the run on, every state shows.
+        XCTAssertEqual(Array(seen.states.drop { $0 == .idle }), [.thinking, .working(1), .needsYou, .working(1), .done, .idle])
+        let header = ChatHeaderState(tasks: [HubTask](), name: model.agentName, live: model.agentState)
+        XCTAssertEqual(header.accessibilityText, "\(model.agentName ?? "Marcel") is free. Nothing running")
     }
 }

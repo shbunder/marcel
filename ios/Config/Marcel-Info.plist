@@ -14,6 +14,21 @@
 			</array>
 		</dict>
 	</array>
+	<!-- The app icon (S-13.3): loose PNGs drawn from the giraffe sprite sheet, in Marcel/App/AppIcon/. Not an asset
+	     catalog: actool cannot compile one on a Mac without the iOS platform component (ios/README.md). -->
+	<key>CFBundleIcons</key>
+	<dict>
+		<key>CFBundlePrimaryIcon</key>
+		<dict>
+			<key>CFBundleIconFiles</key>
+			<array>
+				<string>AppIcon20x20</string>
+				<string>AppIcon29x29</string>
+				<string>AppIcon40x40</string>
+				<string>AppIcon60x60</string>
+			</array>
+		</dict>
+	</dict>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- The mock hub (127.0.0.1:7499) and a hub on the home network speak plain HTTP. -->

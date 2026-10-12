@@ -1,3 +1,4 @@
+import AvatarKit
 import Foundation
 import MarcelItems
 import MarcelKit
@@ -27,6 +28,11 @@ public final class ChatModel {
     public var attachment: ItemAttachment?
     /// The agent's name for the header, as the hub last said it (`GET /me`, or Settings after a rename).
     public var agentName: String?
+    /// What the header's giraffe shows, as the hub last said it (`GET /me`, then every `agent.state` event). Nil
+    /// until the hub has said; the header then works it out from the cached tasks.
+    public private(set) var agentState: AvatarState?
+    /// The agent this chat is with; `agent.state` events for another agent are not for this header.
+    public private(set) var agentId: String?
     /// A message to bring into view (a `marcel://message/<id>` link). The feed scrolls to it, loading older pages
     /// from the cache if needed, then clears it.
     public var focus: String?
@@ -58,6 +64,8 @@ public final class ChatModel {
         do {
             let agent = try await service.mainAgent()
             agentName = agent.name
+            agentId = agent.id ?? agentId
+            if let state = agent.state { agentState = state }
             let id = agent.conversationId
             if id != conversationId {
                 conversationId = id
@@ -66,6 +74,20 @@ public final class ChatModel {
             problem = nil
         } catch {
             if conversationId == nil { problem = Self.say(error) }
+        }
+    }
+
+    /// A frame from the live stream (the app's `liveEvents` cache calls this for every frame). `agent.state` moves
+    /// the header's giraffe; after a re-sync the missed ones are gone, so the hub is asked again.
+    public func receive(_ frame: EventFrame) {
+        switch frame.event {
+        case .agentState(let id, let state):
+            guard agentId == nil || agentId == id else { return }
+            agentState = AvatarState(state)
+        case .resyncRequired:
+            Task { await start() }
+        default:
+            break
         }
     }
 

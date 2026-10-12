@@ -75,7 +75,8 @@ public struct ChatScreen: View {
                 LiveFeed(model: model, conversationId: conversationId, limit: model.limit, offline: offline,
                          actions: actions, avatar: avatar)
             } else {
-                ChatLayout(header: ChatHeaderState(offline: offline, name: model.agentName), collapsed: false, problem: model.problem,
+                ChatLayout(header: ChatHeaderState(tasks: [HubTask](), offline: offline, name: model.agentName,
+                                                   live: model.agentState), collapsed: false, problem: model.problem,
                            avatar: avatar, composer: { EmptyView() }) {
                     PixelText(model.problem == nil ? "Opening the conversation…" : "Nothing saved on this phone yet.",
                               role: .detail)
@@ -142,7 +143,8 @@ struct LiveFeed: View {
         let input = FeedInput.decode(newestMessages: window, limit: limit, tasks: tasks, artifacts: artifacts,
                                      projects: projects)
         let items = ChatFeed.items(input, local: model.local)
-        let header = ChatHeaderState(tasks: input.tasks.values, offline: offline, name: model.agentName)
+        let header = ChatHeaderState(tasks: input.tasks.values, offline: offline, name: model.agentName,
+                                     live: model.agentState)
         // Big giraffe while you sit at the latest messages; small once you scroll back or start typing.
         let collapsed = distanceFromBottom > 24 || typing
         @Bindable var model = model
@@ -221,10 +223,11 @@ struct LiveFeed: View {
         .onChange(of: offline) { old, new in
             if old != nil, new == nil { Task { await model.reconnected(input) } }
         }
-        // A side thread opened on another device: its "n replies" shows here too.
         .task {
             if let live, observer == nil {
-                observer = live.observeFrames { [sideChats = model.sideChats, context] frame in
+                // The giraffe follows `agent.state`; side threads opened on another device show "n replies".
+                observer = live.observeFrames { [model, sideChats = model.sideChats, context] frame in
+                    model.receive(frame)
                     sideChats.receive(frame, context: context)
                 }
             }
@@ -338,7 +341,7 @@ struct ChatLayout<Feed: View, ComposerView: View>: View {
         let links = avatar.actions
         VStack(spacing: 0) {
             if !links.isEmpty {
-                ChatHeader(state: header, collapsed: collapsed)
+                AvatarHeader(state: header, collapsed: collapsed)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         if links.count == 1 { links[0].run() } else { choosing = true }
@@ -357,7 +360,7 @@ struct ChatLayout<Feed: View, ComposerView: View>: View {
                         Button("Cancel", role: .cancel) {}
                     }
             } else {
-                ChatHeader(state: header, collapsed: collapsed)
+                AvatarHeader(state: header, collapsed: collapsed)
             }
             feed
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)

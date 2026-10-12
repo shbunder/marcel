@@ -31,14 +31,17 @@ public enum AvatarState: Hashable, Sendable {
         }
     }
 
-    /// What VoiceOver reads for the avatar.
-    public var accessibilityDescription: String {
+    /// What VoiceOver reads for the avatar, for an agent called "Marcel".
+    public var accessibilityDescription: String { accessibilityDescription(name: "Marcel") }
+
+    /// What VoiceOver reads for the avatar, with the agent's own name: "Marcel is thinking".
+    public func accessibilityDescription(name: String) -> String {
         switch self {
-        case .idle: "Marcel is free"
-        case .thinking: "Marcel is thinking"
-        case .working(let n): n == 1 ? "Marcel is working on 1 task" : "Marcel is working on \(max(n, 0)) tasks"
-        case .needsYou: "Marcel needs you"
-        case .done: "Marcel is done"
+        case .idle: "\(name) is free"
+        case .thinking: "\(name) is thinking"
+        case .working(let n): n == 1 ? "\(name) is working on 1 task" : "\(name) is working on \(max(n, 0)) tasks"
+        case .needsYou: "\(name) needs you"
+        case .done: "\(name) is done"
         }
     }
 }

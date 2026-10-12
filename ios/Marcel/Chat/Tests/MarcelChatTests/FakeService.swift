@@ -1,3 +1,4 @@
+import AvatarKit
 import Foundation
 import MarcelItems
 import MarcelKit
@@ -17,6 +18,9 @@ final class FakeService: ChatService {
     var sendError: ChatError?
     /// The agent's name as `GET /me` gives it.
     var agentName = "Marcel"
+    /// What `GET /me` says the avatar shows (S-13.3), and how often it was asked.
+    var agentState: AvatarState?
+    private(set) var meFetches = 0
     /// Holds a send until the test lets it go, to see the message while it is on its way.
     var holdSends = false
     /// Side chats (S-12.4).
@@ -33,8 +37,9 @@ final class FakeService: ChatService {
     }
 
     func mainAgent() async throws -> MainAgent {
+        meFetches += 1
         if failing { throw ChatError.unreachable }
-        return MainAgent(conversationId: Fx.conversation, name: agentName)
+        return MainAgent(conversationId: Fx.conversation, name: agentName, id: "agt_marcel", state: agentState)
     }
 
     func send(text: String, clientId: String, conversationId: String, attachment: ItemAttachment?) async throws
