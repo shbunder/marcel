@@ -22,6 +22,7 @@ from marcel_hub import (
     __version__,
     artifacts,
     auth,
+    brain_api,
     channel,
     conversations,
     db,
@@ -225,6 +226,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     channel.install(app, gateway, registry, watch)  # after artifacts: reports store through it
     # S-04.10: workers start with their project's notes; task changes update their project.
     projects.install(app, ws.OwnerPublisher(app.state.events), registry, repo)
+    # S-05.3: the brain's tools, outside /api (the tunnel never forwards them); last, as they use
+    # the gateway, tasks, artifacts, memory and projects.
+    brain_api.install(app)
     return app
 
 

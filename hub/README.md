@@ -3,7 +3,7 @@
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, the task
 routes, conversations, the live event stream, artifacts, memory, projects, push notifications,
-the channel gateway and approvals.
+the channel gateway and approvals, and the brain tools' routes.
 
 ## Run
 
@@ -397,3 +397,25 @@ second card, whatever state the card is in.
   resolved from the transcript if it can be, and otherwise becomes `expired`. At start the hub does
   the same for cards left open while it was down.
 - Every change to a card sends `approval.resolved`.
+
+## Brain tools: `/brain`
+
+`brain_api.py` is the hub side of Marcel's brain tools (`plugins/marcel/tools`, which lists every
+tool and its route). The brain's MCP server calls these routes over plain HTTP on the NUC.
+
+- **Outside `/api`.** The tunnel forwards only `/api/*`; a request with `cf-connecting-ip` answers
+  404 anyway.
+- **No device token.** A call carries the hub secret (`X-Marcel-Secret`, the channel's
+  `hub-secret`) and its session id (`X-Marcel-Session`). Only a session that is a conversation's
+  `brain_session_id` (the brain or a side thread) gets in; a worker gets 403, anything else 401.
+  `tests/test_auth_routes.py` checks these routes refuse a caller without them, like every other.
+- **One agent.** Tasks and projects are looked up within the brain's agent; another agent's
+  answer 404 as if they did not exist.
+- `tasks_spawn` refuses `location: auto` with a hint: the brain decides where work runs.
+- Memory writes go through `MemoryRepo.write` (one commit, `memory: <path> (agent)`, paths that
+  cannot leave the memory folder, etag conflicts answered with the current etag).
+- `notify` posts the text in the main conversation and pushes it (`urgent` → category `broke`,
+  `normal` → `digest`), linking to that message.
+- Parts built by later stories sit behind `app.state.brain_ports` (`boards`, `schedules`,
+  `usage`, `artifacts`); until a story plugs its own in, the default answers 503 `not_set_up` with
+  what is missing, and stores nothing.
