@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from marcel_runner import __version__
+from marcel_runner.claude_env import scrubbed_env
 
 SUPERVISOR_UNIT = 'marcel-claude-daemon.service'
 
@@ -37,6 +38,7 @@ def _run(settings: Settings, *args: str) -> subprocess.CompletedProcess[str]:
         text=True,
         timeout=settings.timeout,
         stdin=subprocess.DEVNULL,
+        env=scrubbed_env(os.environ),
     )
 
 
