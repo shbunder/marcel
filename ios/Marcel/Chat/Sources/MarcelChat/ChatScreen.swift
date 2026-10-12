@@ -1,3 +1,4 @@
+import MarcelItems
 import MarcelKit
 import PixelKit
 import SwiftData
@@ -24,7 +25,7 @@ public struct ChatScreen: View {
                 .navigationDestination(for: ChatRoute.self) { route in
                     switch route {
                     case .quest(let line): QuestPlaceholder(line: line)
-                    case .item(let line): ItemPlaceholder(line: line)
+                    case .item(let line): ArtifactViewer(artifactId: line.artifactId, conversationId: model.conversationId)
                     }
                 }
         }

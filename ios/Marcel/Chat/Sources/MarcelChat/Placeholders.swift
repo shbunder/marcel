@@ -22,28 +22,3 @@ struct QuestPlaceholder: View {
         .background(theme.background.color)
     }
 }
-
-/// Where an item card leads until the item viewer exists: its preview, and its link when it has one.
-struct ItemPlaceholder: View {
-    var line: ItemLine
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        let theme = PixelTheme(scheme)
-        VStack(alignment: .leading, spacing: PixelMetrics.steps(6)) {
-            ArtifactCard(title: line.title, badge: line.badge) {
-                ForEach(line.rows, id: \.self) { ArtifactRow($0.label, value: $0.value, emphasised: $0.emphasised) }
-            }
-            if let url = line.url.flatMap(ChatMarkdown.webLink) {
-                LinkButton(link: .init(title: "Open \(line.title)", url: url))
-            }
-            PixelText("The full item viewer comes in a later update.", role: .body)
-                .foregroundStyle(theme.muted.color)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer()
-        }
-        .padding(FeedMetrics.inset)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(theme.background.color)
-    }
-}

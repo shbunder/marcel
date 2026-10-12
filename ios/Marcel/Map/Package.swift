@@ -14,6 +14,8 @@ let package = Package(
         // The room reuses the chat's composer and board preview, and the quest log's grouping and cards.
         .package(path: "../Chat"),
         .package(path: "../Quests"),
+        // The board and the items open the artifact viewer.
+        .package(path: "../Items"),
     ],
     targets: [
         .target(
@@ -23,6 +25,7 @@ let package = Package(
                 .product(name: "PixelKit", package: "PixelKit"),
                 .product(name: "MarcelChat", package: "Chat"),
                 .product(name: "MarcelQuests", package: "Quests"),
+                .product(name: "MarcelItems", package: "Items"),
             ]
         ),
         .testTarget(name: "MarcelMapTests", dependencies: ["MarcelMap"], exclude: ["__Snapshots__"]),

@@ -1,4 +1,5 @@
 import MarcelChat
+import MarcelItems
 import MarcelKit
 import MarcelMap
 import MarcelQuests
@@ -48,7 +49,7 @@ struct MainTabs: View {
                         chat.draft = request
                         tab = "chat"
                     }
-                case "items": ComingSoonView(title: "Items")
+                case "items": ItemsView(conversationId: chat.conversationId)
                 default:
                     ChatScreen(model: chat, offline: offlineText)
                 }
@@ -77,22 +78,5 @@ struct MainTabs: View {
         case .live: nil
         case .unpaired: "The hub no longer accepts this phone"
         }
-    }
-}
-
-/// A tab that is not built yet.
-struct ComingSoonView: View {
-    var title: String
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        let theme = PixelTheme(scheme)
-        VStack(spacing: PixelMetrics.steps(4)) {
-            PixelText(title, role: .title).foregroundStyle(theme.text.color)
-            PixelText("Coming soon.", role: .body).foregroundStyle(theme.muted.color)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(theme.background.color)
-        .accessibilityElement(children: .combine)
     }
 }

@@ -21,3 +21,11 @@
   `Package.swift` to reuse the composer, the board preview and the quest grouping. Make only what it needs `public`,
   and add the new package to `project.pbxproj` the way Quests is (a local package reference and a product dependency;
   no exception entry).
+- **Several `Grid`s in one stack under `ImageRenderer`** (S-12.8): tiles with `.frame(maxHeight: .infinity)` made
+  the stack hand the grids the wrong heights (rows overlapping, the last grid stretched). Give each grid
+  `.fixedSize(horizontal: false, vertical: true)`: rows still stretch to their tallest tile, and no taller.
+- **A real `WKWebView` works in the SimTestRunner** (S-12.8): `loadHTMLString` plus `evaluateJavaScript` in an XCTest
+  shows whether a page's own `<script>` ran, so a web view's rules can be tested on behaviour, not just on its
+  configuration. Swift Charts also draws under `ImageRenderer`; a web view and QuickLook do not.
+- **The item viewer lives in MarcelItems, which depends only on MarcelKit and PixelKit**, so Chat and Map can depend on
+  it and open `ArtifactViewer(artifactId:)` (no cycle). Keep it that way: Items must not import Chat or Map.

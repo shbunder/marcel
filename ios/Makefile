@@ -21,15 +21,17 @@ PIXEL_TESTS := $(BUILD)/pixelkit-sim/$(ARCH)-apple-ios-simulator/debug/PixelKitP
 CHAT_TESTS := $(BUILD)/chat-sim/$(ARCH)-apple-ios-simulator/debug/MarcelChatPackageTests.xctest
 QUESTS_TESTS := $(BUILD)/quests-sim/$(ARCH)-apple-ios-simulator/debug/MarcelQuestsPackageTests.xctest
 MAP_TESTS := $(BUILD)/map-sim/$(ARCH)-apple-ios-simulator/debug/MarcelMapPackageTests.xctest
+ITEMS_TESTS := $(BUILD)/items-sim/$(ARCH)-apple-ios-simulator/debug/MarcelItemsPackageTests.xctest
 RUNNER  := $(BUILD)/runner/SimTestRunner
 SIM     ?= $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun simctl list devices available -j | python3 scripts/pick-simulator.py $(SDK_VER))
 MOCK_HUB ?= http://127.0.0.1:7499/api
 
 .PHONY: check app test tests-bundle avatar-tests-bundle pixelkit-test pixelkit-bundle pixelkit-record integration \
   chat-test chat-bundle chat-record chat-integration quests-test quests-bundle quests-record quests-integration \
-  map-test map-bundle map-record map-integration generate boot clean
+  map-test map-bundle map-record map-integration items-test items-bundle items-record items-integration generate boot \
+  clean
 
-check: app test pixelkit-test chat-test quests-test map-test
+check: app test pixelkit-test chat-test quests-test map-test items-test
 
 # The app and its packages, for the simulator.
 app:
@@ -142,6 +144,26 @@ map-record: map-bundle $(RUNNER) boot
 # The map and a room against the mock hub (start it first: MOCK_HUB_PORT=7488 make mock-hub). Not part of the gate.
 map-integration: map-bundle $(RUNNER) boot
 	SIMCTL_CHILD_MARCEL_MOCK_HUB=$(MOCK_HUB) xcrun simctl spawn $(SIM) $(RUNNER) $(MAP_TESTS) MapMockHubTests
+
+# The Items tab and the artifact viewer (Marcel/Items, the MarcelItems package): the grid by project, every kind of
+# item, versions, "Ask about this", the web view's rules, and snapshots compared with
+# Marcel/Items/Tests/MarcelItemsTests/__Snapshots__.
+items-bundle:
+	swift build --quiet --package-path Marcel/Items --scratch-path $(BUILD)/items-sim --build-tests \
+	  --triple $(TRIPLE) --sdk $(SDK) -Xswiftc -F -Xswiftc $(PLAT)/Library/Frameworks \
+	  -Xlinker -F -Xlinker $(PLAT)/Library/Frameworks
+
+items-test: items-bundle $(RUNNER) boot
+	xcrun simctl spawn $(SIM) $(RUNNER) $(ITEMS_TESTS)
+
+# Re-record the Items snapshots after a deliberate change (the recording run fails by design), then check them.
+items-record: items-bundle $(RUNNER) boot
+	-SIMCTL_CHILD_MARCELITEMS_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(ITEMS_TESTS) ItemsSnapshotTests
+	xcrun simctl spawn $(SIM) $(RUNNER) $(ITEMS_TESTS)
+
+# Items and the viewer against the mock hub (start it first: MOCK_HUB_PORT=7488 make mock-hub). Not part of the gate.
+items-integration: items-bundle $(RUNNER) boot
+	SIMCTL_CHILD_MARCEL_MOCK_HUB=$(MOCK_HUB) xcrun simctl spawn $(SIM) $(RUNNER) $(ITEMS_TESTS) ItemsMockHubTests
 
 # Regenerate MarcelKit/Sources/MarcelAPI from contracts/app-api.yaml after the contract changes.
 generate:

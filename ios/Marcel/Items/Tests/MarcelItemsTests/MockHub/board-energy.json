@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "title": "Energy contracts",
+  "widgets": [
+    {
+      "type": "section",
+      "title": "Waiting on you",
+      "empty_text": "Nothing waiting on you.",
+      "widgets": []
+    },
+    {
+      "type": "section",
+      "title": "In flight",
+      "empty_text": "No threads running.",
+      "widgets": []
+    },
+    {
+      "type": "section",
+      "title": "Recent results",
+      "empty_text": "No items yet.",
+      "widgets": [
+        {
+          "type": "list",
+          "items": [
+            {
+              "text": "Energy offers compared \u00b7 v3",
+              "detail": "Energy contracts"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Upcoming",
+      "empty_text": "Nothing scheduled.",
+      "widgets": []
+    }
+  ],
+  "subtitle": "Find a cheaper gas and electricity contract before the renewal on 1 December."
+}
