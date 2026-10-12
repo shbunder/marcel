@@ -10,14 +10,19 @@ message `memory: <path> (app|agent)`.
 - **Paths.** A path must match the contract's pattern (letters, digits, `.`, `_`, `-`, `/`, ending
   in `.md`, no `..`, no leading `/`, no part starting with `.`), and no part of it may be a
   symlink, so a path can never leave the memory folder or reach `.git/`.
-- **Git.** Run as a subprocess with no global or system config, so the host's hooks and settings
-  never apply. If git is missing or fails, the save is undone and answers 503 `memory_unavailable`.
+- **Git.** The git database lives in `<data_dir>/memory.git`, outside the folder the brain can
+  reach, so nobody but the hub can change its config or hooks. Git runs with no global or system
+  config, hooks, file-system monitor or attribute files forced off, and the hub refuses to commit
+  while a `.gitattributes` sits in the memory folder: nothing planted can make git run a program.
+  A `.git` folder left inside the memory folder by an older hub is moved out once, with a fresh
+  config. If git is missing or fails, the save is undone and answers 503 `memory_unavailable`.
 """
 
 import contextlib
 import hashlib
 import os
 import re
+import shutil
 import stat
 import subprocess
 import threading
@@ -34,6 +39,8 @@ from marcel_hub.auth import require_device
 
 GIT = 'git'
 MAX_FILE_BYTES = 1_000_000
+# The request body may be longer than the file: JSON escapes (`\n`, `\/`, `\u00e9`) take room.
+MAX_BODY_BYTES = 2 * MAX_FILE_BYTES
 PATH_PATTERN = re.compile(r'^(?!/)(?!.*\.\.)(?!(.*/)?\.)[A-Za-z0-9._/-]+\.md$')  # the contract's
 SUBJECT = re.compile(r'^memory: .+ \((app|agent)\)$')
 
@@ -54,6 +61,10 @@ class MemoryConflict(Exception):
     def __init__(self, current: dict[str, Any]) -> None:
         super().__init__(f'{current["path"]} changed since it was read.')
         self.current = current
+
+
+class MemoryFileTooBig(Exception):
+    """A file on disk over `MAX_FILE_BYTES`: the app cannot open it (400 `memory_file_too_big`)."""
 
 
 class MemoryUnavailable(Exception):
@@ -78,47 +89,100 @@ def _write_file(path: Path, data: bytes) -> None:
     os.replace(tmp, path)
 
 
+# Settings forced on every git command. They beat any config file, so nothing planted in a config
+# can make git run a program: no hooks, no file-system monitor, no attribute files.
+GIT_OVERRIDES = (
+    'core.hooksPath=/dev/null',
+    'core.fsmonitor=false',
+    'core.attributesFile=/dev/null',
+    'commit.gpgsign=false',
+    'core.quotePath=false',
+)
+# A hub-written config for a git folder moved in from the memory folder (see `_migrate`).
+FRESH_CONFIG = '[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n'
+
+
 class MemoryRepo:
-    def __init__(self, root: Path) -> None:
+    """The memory folder (`root`, the work tree the brain can reach) and its git database
+    (`git_dir`, default `<root>.git` next to it, which only the hub can reach)."""
+
+    def __init__(self, root: Path, git_dir: Path | None = None) -> None:
         self.root = root
+        self.git_dir = git_dir or root.with_name(f'{root.name}.git')
         self._lock = threading.Lock()
 
     # Git -----------------------------------------------------------------------------------
 
-    def _git(self, *args: str) -> str:
-        env = {
-            **os.environ,
-            'GIT_CONFIG_GLOBAL': os.devnull,
+    def _git(self, *args: str, ok: tuple[int, ...] = (0,)) -> str | None:
+        """Run git on the memory repo. Returns stdout, or None for an allowed non-zero exit."""
+        env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+        env |= {
+            'GIT_CONFIG_GLOBAL': os.devnull,  # never the host user's ~/.gitconfig
             'GIT_CONFIG_NOSYSTEM': '1',
+            'GIT_ATTR_NOSYSTEM': '1',
             'GIT_AUTHOR_NAME': 'Marcel hub',
             'GIT_AUTHOR_EMAIL': 'hub@marcel.invalid',
             'GIT_COMMITTER_NAME': 'Marcel hub',
             'GIT_COMMITTER_EMAIL': 'hub@marcel.invalid',
         }
-        cmd = [GIT, '-C', str(self.root), '-c', f'safe.directory={self.root}',
-               '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false',
-               '-c', 'core.quotePath=false', *args]  # fmt: skip
+        cmd = [GIT, f'--git-dir={self.git_dir}', f'--work-tree={self.root}', '--literal-pathspecs']
+        for setting in GIT_OVERRIDES:
+            cmd += ['-c', setting]
         try:
-            out = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=30)
+            out = subprocess.run(
+                [*cmd, *args], capture_output=True, text=True, env=env, cwd=self.root, timeout=30
+            )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise MemoryUnavailable(f'git could not run ({exc}).') from exc
-        if out.returncode != 0:
-            raise MemoryUnavailable(f'git {args[0]} failed: {out.stderr.strip()}')
-        return out.stdout
+        if out.returncode == 0:
+            return out.stdout
+        if out.returncode in ok:
+            return None
+        raise MemoryUnavailable(f'git {args[0]} failed: {out.stderr.strip()}')
+
+    def _out(self, *args: str) -> str:
+        return self._git(*args) or ''
 
     def _ensure(self) -> None:
-        if not (self.root / '.git').is_dir():
-            self.root.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(parents=True, exist_ok=True)
+        self._migrate()
+        if not self.git_dir.is_dir():
             self._git('init', '-q', '-b', 'main')
+
+    def _migrate(self) -> None:
+        """Move a git folder out of the memory folder, once, so the brain can no longer edit it.
+
+        What came along could have been edited by anyone who reached the memory folder, so its
+        config is replaced and its hooks and attribute files are dropped; the history stays.
+        """
+        inside = self.root / '.git'
+        if self.git_dir.exists() or not inside.is_dir() or inside.is_symlink():
+            return
+        os.replace(inside, self.git_dir)
+        (self.git_dir / 'config').write_text(FRESH_CONFIG)
+        shutil.rmtree(self.git_dir / 'hooks', ignore_errors=True)
+        (self.git_dir / 'info' / 'attributes').unlink(missing_ok=True)
+
+    def _refuse_attribute_files(self) -> None:
+        """A `.gitattributes` can name a filter program; the hub never commits next to one."""
+        for dirpath, dirnames, filenames in os.walk(self.root, followlinks=False):
+            if '.gitattributes' in filenames:
+                where = Path(dirpath, '.gitattributes').relative_to(self.root)
+                raise MemoryUnavailable(
+                    f'the memory folder has a {where} file, which the hub does not allow. '
+                    'Remove it.'
+                )
+            dirnames[:] = [d for d in dirnames if d != '.git']
+
+    def _has_commits(self) -> bool:
+        return self._git('rev-parse', '-q', '--verify', 'HEAD', ok=(1, 128)) is not None
 
     def _head_blobs(self) -> dict[str, str]:
         """path -> blob id for every file in the last commit (empty before the first one)."""
-        try:
-            out = self._git('ls-tree', '-r', '-z', 'HEAD')
-        except MemoryUnavailable:
+        if not self._has_commits():
             return {}
         blobs: dict[str, str] = {}
-        for entry in out.split('\0'):
+        for entry in self._out('ls-tree', '-r', '-z', 'HEAD').split('\0'):
             if entry:
                 meta, path = entry.split('\t', 1)
                 blobs[path] = meta.split()[2]
@@ -126,10 +190,9 @@ class MemoryRepo:
 
     def _last_commits(self) -> dict[str, tuple[str, str]]:
         """path -> (commit time, subject) of the last commit that touched it."""
-        try:
-            out = self._git('log', '--format=%x1e%cI%x1f%s', '--name-only')
-        except MemoryUnavailable:
+        if not self._has_commits():
             return {}
+        out = self._out('log', '--format=%x1e%cI%x1f%s', '--name-only')
         seen: dict[str, tuple[str, str]] = {}
         for record in out.split('\x1e')[1:]:
             header, _, names = record.partition('\n')
@@ -194,11 +257,15 @@ class MemoryRepo:
             return None
         except OSError as exc:  # a symlink swapped in after the check
             raise InvalidMemoryPath(rel) from exc
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
             os.close(fd)
             return None
         with os.fdopen(fd, 'rb') as f:
-            return path, f.read()
+            data = f.read(MAX_FILE_BYTES + 1)  # a file written straight to disk can be any size
+        if len(data) > MAX_FILE_BYTES:
+            raise MemoryFileTooBig(rel)
+        return path, data
 
     def read(self, rel: str) -> dict[str, Any]:
         """The contract's `MemoryFile`."""
@@ -221,9 +288,10 @@ class MemoryRepo:
                 rel = path.relative_to(self.root).as_posix()
                 if path.is_symlink() or not PATH_PATTERN.fullmatch(rel):
                     continue
-                data = path.read_bytes()
-                when = self._when(rel, blob_id(data), path, head, commits)
-                files.append({'path': rel, 'size_bytes': len(data),
+                size = path.stat().st_size
+                etag = blob_id(path.read_bytes()) if size <= MAX_FILE_BYTES else ''
+                when = self._when(rel, etag, path, head, commits)
+                files.append({'path': rel, 'size_bytes': size,
                               'updated_at': when['updated_at']})  # fmt: skip
         return sorted(files, key=lambda f: f['path'])
 
@@ -248,6 +316,7 @@ class MemoryRepo:
             elif if_match is not None:
                 raise MemoryFileNotFound(rel)
 
+            self._refuse_attribute_files()
             path = self.resolve(rel)
             path.parent.mkdir(parents=True, exist_ok=True)
             self.resolve(rel)  # a folder made just now cannot be a symlink, but check anyway
@@ -301,8 +370,31 @@ def _unavailable(exc: MemoryUnavailable) -> JSONResponse:
     return _error(503, 'memory_unavailable', f'The memory was not saved: {exc} Try again later.')
 
 
+def _too_long() -> JSONResponse:
+    return _error(400, 'bad_request', 'That memory file is too long. Keep it under 1 MB.')
+
+
+def _too_big(rel: str) -> JSONResponse:
+    message = f'{rel} is over 1 MB, too big to open in the app. Shorten it on the NUC.'
+    return _error(400, 'memory_file_too_big', message)
+
+
 def _file(body: dict[str, Any], status: int = 200) -> JSONResponse:
-    return JSONResponse(body, status_code=status, headers={'ETag': body['etag']})
+    # HTTP quotes an ETag; the body's `etag` stays bare.
+    return JSONResponse(body, status_code=status, headers={'ETag': f'"{body["etag"]}"'})
+
+
+async def _capped_body(request: Request) -> bytes | None:
+    """The request body, or None once it passes `MAX_BODY_BYTES`. Never reads more than that."""
+    declared = request.headers.get('content-length', '')
+    if declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+        return None
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw += chunk
+        if len(raw) > MAX_BODY_BYTES:
+            return None
+    return bytes(raw)
 
 
 def _repo(request: Request) -> MemoryRepo:
@@ -310,7 +402,7 @@ def _repo(request: Request) -> MemoryRepo:
 
 
 def _etag(header: str | None) -> str | None:
-    """Accept `abc`, `"abc"` and `W/"abc"`: the contract sends the bare etag, HTTP quotes it."""
+    """Accept `abc`, `"abc"` and `W/"abc"`: the body's etag is bare, the header quotes it."""
     if header is None:
         return None
     return header.strip().removeprefix('W/').strip('"')
@@ -330,6 +422,8 @@ def get_memory_file(request: Request, path: str) -> Any:
         return _file(_repo(request).read(path))
     except InvalidMemoryPath:
         return _invalid_path(path)
+    except MemoryFileTooBig:
+        return _too_big(path)
     except MemoryFileNotFound:
         return _not_found(path)
     except MemoryUnavailable as exc:
@@ -338,7 +432,9 @@ def get_memory_file(request: Request, path: str) -> Any:
 
 @router.put('/memory/files/{path:path}')
 async def put_memory_file(request: Request, path: str) -> Any:
-    raw = await request.body()
+    raw = await _capped_body(request)
+    if raw is None:
+        return _too_long()
     try:
         body = MemoryWrite.model_validate_json(raw)
     except ValidationError as exc:
@@ -347,7 +443,7 @@ async def put_memory_file(request: Request, path: str) -> Any:
         return _error(400, 'bad_request', f'Send JSON like {{"content": "…"}} ({where}: '
                                           f'{first["msg"]}).')  # fmt: skip
     if len(body.content.encode('utf-8')) > MAX_FILE_BYTES:
-        return _error(400, 'bad_request', 'That memory file is too long. Keep it under 1 MB.')
+        return _too_long()
     if_match = _etag(request.headers.get('If-Match'))
     repo = _repo(request)
     try:
@@ -363,6 +459,8 @@ async def put_memory_file(request: Request, path: str) -> Any:
         )
     except MemoryConflict as exc:
         return _file(exc.current, 409)
+    except MemoryFileTooBig:
+        return _too_big(path)
     except MemoryUnavailable as exc:
         return _unavailable(exc)
     return _file(saved)

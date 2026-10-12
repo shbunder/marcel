@@ -6,6 +6,8 @@ contracts/dashboard.schema.json. Nothing here reaches GitHub or the network.
 
 import copy
 import json
+import os
+import shutil
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -285,6 +287,43 @@ def test_a_symlink_out_of_the_workspaces_is_refused(hub: Hub, tmp_path: Path) ->
     (hub.workspace / 'db.bin').symlink_to(secret)
     with pytest.raises(ArtifactRefused, match='outside'):
         hub.report({'kind': 'file', 'title': 'x', 'path': str(hub.workspace / 'db.bin')})
+
+
+def test_a_folder_swapped_for_a_link_while_copying_is_refused(
+    hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A worker swaps a folder for a link to the hub's data just as the hub starts reading.
+    The hub opens one folder at a time without following links, so it never reads through it."""
+    hub.file('reports/marcel.toml', 'harmless\n')
+    secret_dir = tmp_path / 'data'
+    (secret_dir / 'marcel.toml').write_text('owner token\n')
+    real_open = os.open
+    swapped: list[bool] = []
+
+    def open_and_swap(path: Any, flags: int, *args: Any, **kw: Any) -> int:
+        if not swapped:  # first open: the workers' folder itself
+            swapped.append(True)
+            shutil.rmtree(hub.workspace / 'reports')
+            (hub.workspace / 'reports').symlink_to(secret_dir)
+        return real_open(path, flags, *args, **kw)
+
+    monkeypatch.setattr(artifacts.os, 'open', open_and_swap)
+    with pytest.raises(ArtifactRefused, match='goes through a link'):
+        hub.report({'kind': 'file', 'title': 'x',
+                    'path': str(hub.workspace / 'reports' / 'marcel.toml')})  # fmt: skip
+    assert swapped
+
+
+def test_a_file_in_a_subfolder_of_the_workspaces_is_copied(hub: Hub) -> None:
+    path = hub.file('task-1/out/notes.md', '# Notes\n')
+    art = hub.report({'kind': 'doc', 'title': 'Notes', 'path': path})
+    assert hub.get(f'/artifacts/{art["id"]}/content').text == '# Notes\n'
+
+
+def test_a_file_where_a_folder_should_be_is_missing(hub: Hub) -> None:
+    hub.file('plain', 'x')
+    with pytest.raises(ArtifactRefused, match='no file'):
+        hub.report({'kind': 'file', 'title': 'x', 'path': str(hub.workspace / 'plain' / 'x')})
 
 
 def test_a_relative_or_missing_path_is_refused(hub: Hub) -> None:

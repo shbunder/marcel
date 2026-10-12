@@ -10,6 +10,7 @@ import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 import pytest
@@ -37,11 +38,15 @@ def url(path: str) -> str:
     return '/api/memory/files/' + quote(path, safe='')
 
 
+def git(root: Path, *args: str) -> str:
+    """Plain git on the memory repo, the way a person on the NUC would look at it."""
+    git_dir = root.with_name(f'{root.name}.git')
+    cmd = ['git', f'--git-dir={git_dir}', f'--work-tree={root}', *args]
+    return subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
+
+
 def git_log(root: Path) -> list[str]:
-    out = subprocess.run(
-        ['git', '-C', str(root), 'log', '--format=%s'], capture_output=True, text=True, check=True
-    )
-    return out.stdout.splitlines()
+    return git(root, 'log', '--format=%s').splitlines()
 
 
 @pytest.fixture
@@ -135,7 +140,7 @@ def test_reading_a_file_returns_its_etag_in_the_body_and_the_header(client: Test
     assert body['path'] == 'memory/2026-10-04.md'
     assert body['content'] == 'Family dinner is at 18:30.\n'
     assert body['etag'] == blob_id(b'Family dinner is at 18:30.\n')
-    assert res.headers['ETag'] == body['etag']
+    assert res.headers['ETag'] == f'"{body["etag"]}"'  # HTTP quotes it; the body stays bare
     assert body['updated_by'] == 'app'
 
 
@@ -174,10 +179,7 @@ def test_saving_only_commits_the_file_that_was_saved(client: TestClient, tmp_pat
 
     client.put(url('other.md'), json={'content': 'x\n'})
 
-    status = subprocess.run(
-        ['git', '-C', str(root), 'status', '--porcelain'], capture_output=True, text=True
-    )
-    assert status.stdout.strip() == '?? scratch.md'
+    assert git(root, 'status', '--porcelain').strip() == '?? scratch.md'
 
 
 def test_an_unchanged_save_makes_no_commit(client: TestClient, tmp_path: Path) -> None:
@@ -245,10 +247,10 @@ def test_a_failed_commit_puts_the_old_file_back(
     etag = repo.write('MEMORY.md', 'old\n', None, 'app')['etag']
     real_git = repo._git
 
-    def broken_git(*args: str) -> str:
+    def broken_git(*args: str, **kw: Any) -> str | None:
         if args[0] == 'commit':
             raise MemoryUnavailable('git said no.')
-        return real_git(*args)
+        return real_git(*args, **kw)
 
     monkeypatch.setattr(repo, '_git', broken_git)
     with pytest.raises(MemoryUnavailable):
@@ -381,7 +383,8 @@ def test_a_folder_in_place_of_a_file_is_not_found(repo: MemoryRepo) -> None:
 def test_the_repo_is_created_on_first_use(tmp_path: Path) -> None:
     repo = MemoryRepo(tmp_path / 'fresh')
     assert repo.tree() == []
-    assert (tmp_path / 'fresh' / '.git').is_dir()
+    assert (tmp_path / 'fresh.git').is_dir()
+    assert not (tmp_path / 'fresh' / '.git').exists()  # the brain cannot reach the git folder
 
 
 def test_the_folder_check_holds_even_if_the_pattern_lets_dots_through(
@@ -395,3 +398,79 @@ def test_the_folder_check_holds_even_if_the_pattern_lets_dots_through(
     with pytest.raises(InvalidMemoryPath):
         repo.write('../escaped.md', 'x', None, 'app')
     assert not (repo.root.parent / 'escaped.md').exists()
+
+
+def test_the_last_part_of_a_path_is_opened_without_following_a_link(
+    repo: MemoryRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If a link appears after the path check (a race), opening the file still refuses it."""
+    secret = tmp_path / 'secret.md'
+    secret.write_text('secret\n')
+    repo.write('MEMORY.md', 'x\n', None, 'app')
+    os.symlink(secret, repo.root / 'late.md')
+    monkeypatch.setattr(repo, 'resolve', lambda rel: repo.root / rel)  # the check already passed
+
+    with pytest.raises(InvalidMemoryPath):
+        repo.read('late.md')
+
+
+def test_a_file_written_on_disk_over_the_limit_is_not_read_into_memory(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client.put(url('MEMORY.md'), json={'content': 'x\n'})
+    big = tmp_path / 'memory' / 'huge.md'
+    big.write_bytes(b'x' * (memory.MAX_FILE_BYTES + 4096))
+
+    read_sizes: list[int] = []
+    real_fdopen = os.fdopen
+
+    def recording_fdopen(fd: int, *args: Any, **kw: Any) -> Any:
+        f = real_fdopen(fd, *args, **kw)
+        real_read = f.read
+
+        def read(*a: Any) -> bytes:
+            data = real_read(*a)
+            read_sizes.append(len(data))
+            return data
+
+        f.read = read
+        return f
+
+    monkeypatch.setattr(memory.os, 'fdopen', recording_fdopen)
+    res = client.get(url('huge.md'))
+    assert max(read_sizes) == memory.MAX_FILE_BYTES + 1  # never the whole file
+    monkeypatch.undo()
+
+    assert res.status_code == 400
+    ERROR.validate(res.json())
+    assert res.json()['code'] == 'memory_file_too_big'
+    sizes = {f['path']: f['size_bytes'] for f in client.get('/api/memory').json()['files']}
+    assert sizes['huge.md'] == memory.MAX_FILE_BYTES + 4096
+    over = client.put(url('huge.md'), json={'content': 'short\n'}, headers={'If-Match': 'x'})
+    assert over.status_code == 400
+    assert big.stat().st_size == memory.MAX_FILE_BYTES + 4096
+
+
+def test_a_body_without_a_length_is_cut_off_at_the_limit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A chunked body (no Content-Length) is read only up to the limit, then refused."""
+    monkeypatch.setattr(memory, 'MAX_BODY_BYTES', 100)
+
+    def chunks() -> Iterator[bytes]:
+        for _ in range(50):
+            yield b'x' * 10
+
+    res = client.put(url('MEMORY.md'), content=chunks())
+
+    assert res.status_code == 400
+    assert 'too long' in res.json()['message']
+
+
+def test_a_body_with_a_large_length_is_refused_before_reading(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(memory, 'MAX_BODY_BYTES', 100)
+    res = client.put(url('MEMORY.md'), json={'content': 'x' * 200})
+    assert res.status_code == 400
+    assert 'too long' in res.json()['message']

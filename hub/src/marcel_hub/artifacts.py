@@ -16,9 +16,10 @@ A refusal raises `ArtifactRefused` with a message for the worker that says what 
 hands in is stored with `trusted: false`. The hub never renders or runs artifact content: it
 serves the bytes with their own content type, `nosniff`, and a CSP `sandbox` header.
 
-A PR's CI and review status is refreshed from a `PrStatusSource`. Where `gh api` runs (the runner
-on the host, or a GitHub token on the hub) is not decided yet, so the hub starts with `NoPrStatus`,
-which says so; `pr_status_from_gh` turns `gh api` answers into the contract's `pr` fields.
+A PR's CI and review status is refreshed from a `PrStatusSource`; `pr_status_from_gh` turns
+GitHub's REST answers into the contract's `pr` fields. Per ADR-002 the hub reads GitHub itself with
+a read-only token; that client is S-04.12. Until it is wired, the hub starts with `NoPrStatus`,
+which says plainly that it cannot ask GitHub.
 """
 
 import json
@@ -175,6 +176,22 @@ def check_dashboard(data: bytes) -> None:
                     f'labels but series “{series["name"]}” has {len(series["values"])} values. '
                     'Give every series exactly one value per label.'
                 )
+
+
+def _open_at(
+    name: str, dir_fd: int, flags: int, outside: ArtifactRefused, missing: ArtifactRefused
+) -> int:
+    """Open `name` inside the folder `dir_fd`, never through a symlink."""
+    try:
+        return os.open(name, os.O_RDONLY | os.O_NOFOLLOW | flags, dir_fd=dir_fd)
+    except FileNotFoundError as exc:
+        raise missing from exc
+    except OSError as exc:  # ELOOP or ENOTDIR: a symlink, or a file where a folder should be
+        try:
+            is_link = stat.S_ISLNK(os.stat(name, dir_fd=dir_fd, follow_symlinks=False).st_mode)
+        except OSError:
+            is_link = False
+        raise (outside if is_link else missing) from exc
 
 
 # The store ---------------------------------------------------------------------------------
@@ -343,9 +360,13 @@ class ArtifactStore:
         return self._store(art, None)
 
     def _read_worker_file(self, raw: str) -> tuple[bytes, str]:
-        """The bytes of a worker's file, only from inside `files_root`, never through a symlink
-        that leads out of it."""
-        path = Path(raw)
+        """The bytes of a worker's file, only from inside `files_root`.
+
+        The path is opened one folder at a time from `files_root`, each step refusing a symlink
+        (`O_NOFOLLOW` relative to the folder already open). Nothing is checked first and opened
+        later, so a worker cannot swap a folder for a link in between.
+        """
+        path = Path(os.path.normpath(raw))
         if not path.is_absolute():
             raise ArtifactRefused(f'The artifact was not saved: {raw} must be an absolute path.')
         if self.files_root is None:
@@ -353,21 +374,28 @@ class ArtifactStore:
                 'The artifact was not saved: this hub cannot read files from the NUC. '
                 'Hand it in as a link instead.'
             )
-        real = path.resolve()
-        if not real.is_relative_to(self.files_root.resolve()):
-            raise ArtifactRefused(
-                f'The artifact was not saved: {raw} is outside the workers’ folder, '
-                'so the hub will not copy it.'
-            )
+        outside = ArtifactRefused(
+            f'The artifact was not saved: {raw} is outside the workers’ folder or goes through '
+            'a link, so the hub will not copy it.'
+        )
+        missing = ArtifactRefused(f'The artifact was not saved: there is no file at {raw}.')
+        root = self.files_root.resolve()  # set by the hub, not by a worker
+        rel = next((path.relative_to(base) for base in (self.files_root, root)
+                    if path.is_relative_to(base)), None)  # fmt: skip
+        if rel is None or not rel.parts:
+            raise outside
+
+        fds = [os.open(root, os.O_RDONLY | os.O_DIRECTORY)]
         try:
-            fd = os.open(real, os.O_RDONLY | os.O_NOFOLLOW)
-        except OSError as exc:
-            raise ArtifactRefused(
-                f'The artifact was not saved: there is no file at {raw}.'
-            ) from exc
+            for part in rel.parts[:-1]:
+                fds.append(_open_at(part, fds[-1], os.O_DIRECTORY, outside, missing))
+            fd = _open_at(rel.parts[-1], fds[-1], os.O_NONBLOCK, outside, missing)
+        finally:
+            for f in fds:
+                os.close(f)
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             os.close(fd)
-            raise ArtifactRefused(f'The artifact was not saved: there is no file at {raw}.')
+            raise missing
         with os.fdopen(fd, 'rb') as f:
             data = f.read(MAX_BLOB_BYTES + 1)
         if len(data) > MAX_BLOB_BYTES:
