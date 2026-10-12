@@ -34,6 +34,7 @@ names the file.
 | `worker_cwd` | `MARCEL_WORKER_CWD` | unset. Where workers without a repository run, e.g. `/home/<you>/marcel/workspaces/scratch` (a path on the NUC). Unset: such tasks fail with a reason |
 | `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no pushes. The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
 | `github_token` | `MARCEL_GITHUB_TOKEN` | unset: PR cards are not refreshed and say the token is missing. A fine-grained, **read-only** GitHub token (Pull requests: read, Checks and Commit statuses: read) on the owner's repos (ADR-002). Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown |
+| `tz` | `MARCEL_TZ` | `Europe/Brussels`. The owner's time zone (IANA name), and the only one the hub uses: the built-in digests run in it (ones the owner has not edited move when it changes), their facts and the usage guard's pushes show times in it. The process's own `TZ` is never used. A name that is not a time zone stops the hub at start |
 
 `MARCEL_CONFIG` moves the config file itself (tests use it).
 
@@ -516,6 +517,54 @@ app's `/api/schedules` and the brain's `schedule_*` tools reach the same `Schedu
 - **Shutdown.** Stopping the hub lets a look in progress finish (a spawn is never cut in half),
   then ends the loop.
 
+## Digests
+
+`src/marcel_hub/digest.py` (S-09.2, B-17). The hub gathers the facts; the brain writes the digest
+with the plugin's `digest` skill. The hub never writes a digest itself.
+
+- **Four built-in schedules** per agent, in the `tz` setting, made at start (and within 30 seconds
+  for an agent made later): *Morning digest* 07:00, *Evening digest* 21:00, *Weekly review*
+  Sunday 18:00, *Usage report* 21:00. They run in the brain, can be paused or changed in the app,
+  and cannot be deleted. Their ids are `sch_digest_<digest>_<agent id>`. When `tz` changes, the
+  ones the owner has not edited (cron and time zone still as the hub set them) move to it at start.
+- **The usage report rides with the evening digest** while both run at the same time and neither
+  is paused: the evening bundle carries `usage` and the usage report sends nothing of its own.
+  Moved to another time it is sent on its own (`digest: usage`); paused, the evening digest leaves
+  usage out.
+- **The facts bundle**, read when a digest fires: `approvals` (open cards), `questions` (threads
+  waiting for an answer), `in_flight`, `done`, `failures`, `prs_ready` (open, checks passing, no
+  changes asked; an approving review is not needed, as the owner reviews by merging),
+  `prs_merged`, `artifacts` (new items), `stale` (no activity for 3 days), `schedules_today` (the
+  other schedules' fires until midnight) and, in the evening digest, the weekly review and a lone
+  usage report, `usage` (the plan's windows and usage by task since the last report). Today means
+  since local midnight; the weekly review covers the last 7 days. Every list keeps its first 10,
+  with `count` and `more`; every text is one line of at most 160 characters. Times are ISO in the
+  owner's time zone. No settings, no approval details (the command an approval would run), and in
+  titles and summaries token-shaped words (`ghp_…`, `sk-…`, `Bearer …`, device tokens `mrc_…`, any
+  run of 32+ hex characters such as the hub secret) become `[hidden]`, as does the value of
+  `NAME=value` when NAME ends in secret, token, key or password (`MARCEL_HUB_SECRET=[hidden]`).
+- **Delivery.** The bundle goes as a `digest_due` system event (`data: {digest, title, facts,
+  artifact_id?}`) through the channel outbox, so it waits there while the brain restarts.
+- **The digest board.** The brain publishes with the event's `title` ("Evening digest — Monday 12
+  October"). The hub takes as the digest a new version of the board, or a doc by Marcel in the
+  inbox with exactly that title; any other doc published meanwhile is ignored. The first one
+  becomes the agent's digest board; later events name it (`artifact_id`), so each digest is a new
+  version.
+  When it gets a new version, the hub posts it as a card in the main conversation and pushes it
+  (category `digest`, the version's summary as the text). The brain adds its one-line headline.
+- **When the brain does not publish within 30 minutes** (down, busy or failed), the hub logs a
+  warning and posts one plain line of its own, with a push, made from the bundle's numbers: "The
+  evening digest was not written: Marcel did not publish it within 30 minutes. In short: 2 things
+  wait for you; 3 threads are working." The owner is never left guessing, and nothing waits on the
+  brain. A digest published later (until the next digest of its kind) is still recognised: it
+  becomes the board and gets its card, without a second push.
+- **Restart.** The board ids, the digests waiting to be published and the usage baselines are kept
+  in `<data_dir>/digests.json`; an unreadable file is logged and digests start afresh.
+- **Live test** (`tests/test_digest_live.py`, marked `live`, never in a gate): on the NUC, with
+  `MARCEL_LIVE_URL`, `MARCEL_LIVE_TOKEN` (a paired device's token) and `MARCEL_LIVE_AGENT`, it moves
+  the morning digest to the next minute, waits for its card in the main conversation, and puts
+  the time back: `make -C hub test-live`.
+
 ## Usage guard
 
 `src/marcel_hub/usage.py` keeps Marcel inside the Claude Max plan (B-19). It reads the runner's
@@ -529,8 +578,8 @@ app's `/api/schedules` and the brain's `schedule_*` tools reach the same `Schedu
 - **One push per crossing.** When a hold starts, one push: "Marcel is pausing new work until 14:00:
   the subscription is at 91 %." Nothing for further polls, for queued spawns, or for a hold that
   ends and starts again for the same reset time. A hold whose reset is unknown (it lasts 30
-  minutes) pushes at most once per 5 hours, or again after a fresh reading. Times are in the hub's
-  time zone (set `TZ` on the container).
+  minutes) pushes at most once per 5 hours, or again after a fresh reading. Times are in the `tz`
+  setting's time zone (`MARCEL_TZ`), never the container's.
 - **When it lets go.** At the window's reset time, or when a fresh reading shows every window
   below its limit (not after a limit hit: that waits for the reset). The queue then starts oldest
   first through the task registry, so the worker cap still applies; a task that now waits for a

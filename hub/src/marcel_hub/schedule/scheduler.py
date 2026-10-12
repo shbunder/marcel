@@ -147,7 +147,10 @@ class Scheduler:
         self.pusher = pusher
         self.state_path = state_path
         self.clock = clock
-        self.brain_frame: Callable[[Schedule, datetime], dict[str, Any]] = default_brain_frame
+        # None: nothing to send for this fire (the usage report, sent with the evening digest).
+        self.brain_frame: Callable[[Schedule, datetime], dict[str, Any] | None] = (
+            default_brain_frame
+        )
         self.watches: list[Watch] = []
         self._job: asyncio.Task[None] | None = None
         self._stop: asyncio.Event | None = None
@@ -355,8 +358,12 @@ class Scheduler:
         ref = ''
         try:
             if row.location == ScheduleLocation.brain:
+                frame = self.brain_frame(row, at)
+                if frame is None:
+                    log.info('Schedule %s "%s" had nothing to send.', row.id, row.name)
+                    return
                 target = conversation_target(self.frames.main_conversation(row.agent_id))
-                ref = f'{target}#{self.frames.put(target, self.brain_frame(row, at))}'
+                ref = f'{target}#{self.frames.put(target, frame)}'
             else:
                 task = await self.registry.spawn(
                     row.agent_id,
