@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel runner API
-  version: 0.1.0
+  version: 0.1.1
   description: |
     The runner is the only process that runs `claude` (native on the NUC, a systemd user unit). The
     hub (in Docker) talks to it over HTTP on a unix socket: `/run/user/<uid>/marcel/runner.sock` on
@@ -312,8 +312,9 @@ paths:
       summary: The latest plan-usage reading (SP4).
       description: |
         Read with `claude -p "/usage" --no-session-persistence` (no model call) every 5 minutes and
-        before each worker spawn; optionally refreshed from status-line `rate_limits` files. When
-        no reading is fresh (older than 15 minutes), `stale` is true and the last values are kept.
+        before each worker spawn; optionally refreshed from status-line `rate_limits` files.
+        `stale` is true when the last good reading is older than 15 minutes, or when the latest
+        attempt to read usage failed. The last values are kept in both cases.
       responses:
         '200':
           description: The reading.
@@ -613,7 +614,9 @@ components:
         weekly: { $ref: '#/components/schemas/UsageWindowReading' }
         source: { type: string, enum: [cli_usage, statusline] }
         taken_at: { type: string, format: date-time }
-        stale: { type: boolean }
+        stale:
+          type: boolean
+          description: True when the last good reading is older than 15 minutes, or the latest attempt to read usage failed.
       example:
         five_hour: { used_pct: 4, resets_at: '2026-10-04T14:29:00Z' }
         weekly: { used_pct: 66, resets_at: '2026-10-09T01:59:00Z' }
