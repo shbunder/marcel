@@ -6,8 +6,11 @@ exists today: the app skeleton, the database and `GET /api/health`.
 ## Run
 
 ```bash
-uv run uvicorn --factory marcel_hub.app:create_app --port 7420
+uv run marcel-hub
 ```
+
+It listens on the `host` and `port` from the settings below. If the settings cannot be read, it
+stops with `Marcel hub did not start.` and the reason.
 
 On start the hub applies every pending database migration. If a migration fails, the hub does not
 start and the error is printed in the log.

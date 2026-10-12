@@ -9,7 +9,7 @@ from referencing import Registry, Resource
 from sqlalchemy import create_engine, inspect
 
 from marcel_hub import __version__
-from marcel_hub.app import Settings, SettingsError, create_app, load_settings
+from marcel_hub.app import Settings, SettingsError, create_app, load_settings, main
 
 CONTRACT = Path(__file__).resolve().parents[2] / 'contracts' / 'app-api.yaml'
 
@@ -130,3 +130,36 @@ def test_a_failing_migration_stops_the_hub_at_start(
     monkeypatch.setattr('marcel_hub.db.upgrade', boom)
     with pytest.raises(RuntimeError, match='0002'), TestClient(create_app(settings)):
         pass
+
+
+def test_settings_reject_a_path_of_the_wrong_type(tmp_path: Path) -> None:
+    cfg = tmp_path / 'marcel.toml'
+    cfg.write_text('data_dir = 5\n')
+    with pytest.raises(SettingsError, match=r'marcel\.toml'):
+        load_settings({'MARCEL_CONFIG': str(cfg)})
+
+
+def test_marcel_hub_serves_on_the_configured_host_and_port(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr('uvicorn.run', lambda app, **kw: calls.append({'app': app, **kw}))
+    monkeypatch.setenv('MARCEL_CONFIG', str(tmp_path / 'none.toml'))
+    monkeypatch.setenv('MARCEL_DATA_DIR', str(tmp_path))
+    monkeypatch.setenv('MARCEL_HOST', '127.0.0.1')
+    monkeypatch.setenv('MARCEL_PORT', '9123')
+    main()
+    assert len(calls) == 1
+    assert (calls[0]['host'], calls[0]['port']) == ('127.0.0.1', 9123)
+    assert calls[0]['app'].state.settings.db_path == tmp_path / 'marcel.db'  # type: ignore[attr-defined]
+
+
+def test_marcel_hub_refuses_to_start_on_broken_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = tmp_path / 'marcel.toml'
+    cfg.write_text('port = = 1')
+    monkeypatch.setenv('MARCEL_CONFIG', str(cfg))
+    monkeypatch.setattr('uvicorn.run', lambda *a, **kw: pytest.fail('should not serve'))
+    with pytest.raises(SystemExit, match=r'did not start.*marcel\.toml'):
+        main()

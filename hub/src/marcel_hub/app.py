@@ -63,6 +63,10 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         )
     except ValueError as exc:
         raise SettingsError(f'The port must be a number: {exc}.') from exc
+    except TypeError as exc:
+        raise SettingsError(
+            f'A setting in {config_path} has the wrong type: {exc}. Use text for paths.'
+        ) from exc
 
 
 def _is_setting(name: str) -> bool:
@@ -106,3 +110,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = engine
     app.include_router(router)
     return app
+
+
+def main() -> None:
+    """`marcel-hub`: start the hub on the configured host and port."""
+    import uvicorn
+
+    try:
+        settings = load_settings()
+    except SettingsError as exc:
+        raise SystemExit(f'Marcel hub did not start. {exc}') from exc
+    uvicorn.run(create_app(settings), host=settings.host, port=settings.port)
