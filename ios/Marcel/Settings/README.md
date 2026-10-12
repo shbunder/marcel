@@ -1,7 +1,8 @@
 # Settings — settings, notifications and links (S-12.10)
 
 Settings (B-18, B-19, B-22), the system status screen, and where every `marcel://` link and every push leads. Drawn
-with PixelKit components. Settings opens from the avatar header in the chat (tap the giraffe).
+with PixelKit components. Settings opens from the avatar header in the chat (tap the giraffe,
+then "Settings"; the same menu opens Marcel's notebook, `Marcel/Notebook`).
 
 It is a Swift package (`MarcelSettings`) so its tests run in the simulator like the other packages'. It depends only on
 MarcelKit and PixelKit. It does not show the screens a link leads to: it says where to go (`LinkDestination`), and the

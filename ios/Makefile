@@ -24,6 +24,7 @@ MAP_TESTS := $(BUILD)/map-sim/$(ARCH)-apple-ios-simulator/debug/MarcelMapPackage
 ITEMS_TESTS := $(BUILD)/items-sim/$(ARCH)-apple-ios-simulator/debug/MarcelItemsPackageTests.xctest
 QUEST_TESTS := $(BUILD)/quest-sim/$(ARCH)-apple-ios-simulator/debug/MarcelQuestPackageTests.xctest
 SETTINGS_TESTS := $(BUILD)/settings-sim/$(ARCH)-apple-ios-simulator/debug/MarcelSettingsPackageTests.xctest
+NOTEBOOK_TESTS := $(BUILD)/notebook-sim/$(ARCH)-apple-ios-simulator/debug/MarcelNotebookPackageTests.xctest
 RUNNER  := $(BUILD)/runner/SimTestRunner
 SIM     ?= $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun simctl list devices available -j | python3 scripts/pick-simulator.py $(SDK_VER))
 MOCK_HUB ?= http://127.0.0.1:7499/api
@@ -31,9 +32,10 @@ MOCK_HUB ?= http://127.0.0.1:7499/api
 .PHONY: check app test tests-bundle avatar-tests-bundle pixelkit-test pixelkit-bundle pixelkit-record integration \
   chat-test chat-bundle chat-record chat-integration quests-test quests-bundle quests-record quests-integration \
   map-test map-bundle map-record map-integration items-test items-bundle items-record items-integration quest-test \
-  quest-bundle quest-record settings-test settings-bundle settings-record generate boot clean
+  quest-bundle quest-record settings-test settings-bundle settings-record notebook-test notebook-bundle notebook-record \
+  generate boot clean
 
-check: app test pixelkit-test chat-test quests-test map-test items-test quest-test settings-test
+check: app test pixelkit-test chat-test quests-test map-test items-test quest-test settings-test notebook-test
 
 # The app and its packages, for the simulator.
 app:
@@ -198,6 +200,22 @@ settings-test: settings-bundle $(RUNNER) boot
 settings-record: settings-bundle $(RUNNER) boot
 	-SIMCTL_CHILD_MARCELSETTINGS_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS) SettingsSnapshotTests
 	xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS)
+
+# Marcel's notebook (Marcel/Notebook, the MarcelNotebook package): the memory files by section, the editor's save,
+# draft and "changed elsewhere" paths against a fake hub, untrusted paths, the rollover card, and snapshots compared
+# with Marcel/Notebook/Tests/MarcelNotebookTests/__Snapshots__.
+notebook-bundle:
+	swift build --quiet --package-path Marcel/Notebook --scratch-path $(BUILD)/notebook-sim --build-tests \
+	  --triple $(TRIPLE) --sdk $(SDK) -Xswiftc -F -Xswiftc $(PLAT)/Library/Frameworks \
+	  -Xlinker -F -Xlinker $(PLAT)/Library/Frameworks
+
+notebook-test: notebook-bundle $(RUNNER) boot
+	xcrun simctl spawn $(SIM) $(RUNNER) $(NOTEBOOK_TESTS)
+
+# Re-record the notebook's snapshots after a deliberate change (the recording run fails by design), then check them.
+notebook-record: notebook-bundle $(RUNNER) boot
+	-SIMCTL_CHILD_MARCELNOTEBOOK_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(NOTEBOOK_TESTS) NotebookSnapshotTests
+	xcrun simctl spawn $(SIM) $(RUNNER) $(NOTEBOOK_TESTS)
 
 # Regenerate MarcelKit/Sources/MarcelAPI from contracts/app-api.yaml after the contract changes.
 generate:

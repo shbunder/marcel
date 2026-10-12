@@ -2,6 +2,7 @@ import MarcelChat
 import MarcelItems
 import MarcelKit
 import MarcelMap
+import MarcelNotebook
 import MarcelQuest
 import MarcelQuests
 import MarcelSettings
@@ -33,9 +34,10 @@ struct RootView: View {
     }
 }
 
-/// What opens over the tabs: Settings, or where a link leads.
+/// What opens over the tabs: Settings, Marcel's notebook, or where a link leads.
 enum OverTabs: Identifiable, Hashable {
     case settings
+    case notebook
     case quest(String)
     case artifact(String)
     case status(PushAlert?)
@@ -49,6 +51,11 @@ struct MainTabs: View {
     let hub: PairedHub
     let router: LinkRouter
     private let settings: LiveSettingsService
+    private let notebook: LiveNotebookService
+    /// "What Marcel carries": the brain's rollovers, followed from the moment the tabs are up.
+    @State private var rollovers = RolloverLog()
+    /// The avatar header asks: the notebook or Settings (wireframe 6B: both open from the header).
+    @State private var choosing = false
     @State private var chat: ChatModel
     @State private var tab: PixelTabBar.Tab.ID = "chat"
     @State private var over: OverTabs?
@@ -63,6 +70,7 @@ struct MainTabs: View {
         self.router = router
         let client = HubClient.make(serverURL: hub.serverURL, tokenStore: connection.tokenStore)
         settings = LiveSettingsService(client: client)
+        notebook = LiveNotebookService(client: client)
         _chat = State(initialValue: ChatModel(
             service: LiveChatService(client: client),
             conversationId: UserDefaults.standard.string(forKey: Self.conversationKey),
@@ -82,8 +90,8 @@ struct MainTabs: View {
                     }
                 case "items": ItemsView(conversationId: chat.conversationId)
                 default:
-                    // Settings open from the avatar header.
-                    ChatScreen(model: chat, offline: offlineText, openSettings: { over = .settings })
+                    // Marcel's notebook and Settings open from the avatar header.
+                    ChatScreen(model: chat, offline: offlineText, openSettings: { choosing = true })
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -95,6 +103,11 @@ struct MainTabs: View {
             if let notice = router.notice {
                 LinkNoticeView(text: notice) { router.notice = nil }
             }
+        }
+        .confirmationDialog("Marcel", isPresented: $choosing) {
+            Button("Marcel's notebook") { over = .notebook }
+            Button("Settings") { over = .settings }
+            Button("Cancel", role: .cancel) {}
         }
         .sheet(item: $over) { over in
             NavigationStack { screen(over) }
@@ -108,6 +121,7 @@ struct MainTabs: View {
             router.consume()
         }
         .task {
+            rollovers.attach(to: connection.cache)
             APNsRegistrar.shared.onToken = { [settings, hub] token in
                 Task { _ = try? await settings.setPush(deviceId: hub.deviceId, target: .init(kind: .apns, apnsToken: token)) }
             }
@@ -144,6 +158,11 @@ struct MainTabs: View {
             SettingsView(model: SettingsModel(service: settings, tokens: APNsRegistrar.shared, thisDevice: hub.deviceId),
                          status: { StatusModel(service: settings) },
                          unpair: unpair)
+        case .notebook:
+            NotebookView(model: NotebookModel(service: notebook, rollovers: rollovers, projectNames: { [connection] in
+                Dictionary((try? connection.cache.projects())?.map { ($0.slug, $0.name) } ?? [],
+                           uniquingKeysWith: { first, _ in first })
+            }))
         case .quest(let taskId): QuestView(taskId: taskId)
         case .artifact(let id): ArtifactViewer(artifactId: id, conversationId: chat.conversationId)
         case .status(let alert): StatusView(model: StatusModel(service: settings, alert: alert))
@@ -156,6 +175,9 @@ struct MainTabs: View {
         over = nil
         router.notice = note
         UserDefaults.standard.removeObject(forKey: Self.conversationKey)
+        // The notebook's unsaved drafts and rollover log belong to this hub.
+        DraftStore().discardAll()
+        rollovers.clear()
         connection.unpair()
     }
 

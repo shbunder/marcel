@@ -23,6 +23,7 @@ package's only screens. It depends on MarcelKit and PixelKit only, so Chat and M
 - **By kind** (`ItemBody.make`):
   - `doc` as Markdown or plain text: drawn natively (`ItemMarkdown`): headings, paragraphs, lists, quotes, code,
     tables. Links become buttons under their block, and only `http`/`https` with a host — like the chat's Markdown.
+    `MarkdownView` is public: Marcel's notebook (`Marcel/Notebook`) previews a note with it, under the same rules.
   - `doc` as HTML: a `WKWebView` under `WebPolicy`. JavaScript is **off** unless the hub marked the item `trusted`;
     an untrusted page also gets a content security policy that blocks scripts and every network load; nothing is
     stored between pages; the web view never navigates away — a tapped web link opens in Safari, anything else is
