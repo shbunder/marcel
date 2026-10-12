@@ -59,3 +59,7 @@ done`); the hub never has to invent a state in between.
 Every transition writes a `state` task event (`StateEventData`: `from`, `to`, `reason`) and sends
 `task.updated`. Archiving (`POST /tasks/{id}/archive`, B-17) is not a state: it sets `archived_at`
 on a `done`, `failed` or `stopped` task and hides it from the Activity tab.
+
+**Stopping while the runner is unreachable.** Stopping a NUC task means asking the runner first. While it does
+not answer, `POST /tasks/{id}/stop` answers 503 `runner_unreachable` and the task stays as it was, so a task in
+`unknown` reaches `stopped` only once the runner is back.
