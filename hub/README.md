@@ -33,6 +33,7 @@ names the file.
 | `runner_sock` | `MARCEL_RUNNER_SOCK` | `/run/marcel/runner.sock` (the runner's socket, mounted into the container) |
 | `worker_cwd` | `MARCEL_WORKER_CWD` | unset. Where workers without a repository run, e.g. `/home/<you>/marcel/workspaces/scratch` (a path on the NUC). Unset: such tasks fail with a reason |
 | `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no pushes. The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
+| `github_token` | `MARCEL_GITHUB_TOKEN` | unset: PR cards are not refreshed and say the token is missing. A fine-grained, **read-only** GitHub token (Pull requests: read, Checks and Commit statuses: read) on the owner's repos (ADR-002). Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown |
 
 `MARCEL_CONFIG` moves the config file itself (tests use it).
 
@@ -254,9 +255,9 @@ code is in `src/marcel_hub/artifacts/` (`store.py`, `routes.py`). Boards are lis
   does not have, one from another project, or a board is refused (`UnknownArtifact`): the channel
   answers the whole report with `call_ack.error` (`unknown_artifact`) and stores none of it.
 - **PR status.** `refresh_pr` asks a `PrStatusSource` for the PR's state, checks and review;
-  `pr_status_from_gh` maps GitHub's REST answers to them. The hub reads GitHub itself with a
-  read-only token (ADR-002); that client comes with S-04.12. Until then a refresh answers that the
-  hub cannot ask GitHub. A PR starts as `open`.
+  `pr_status_from_gh` maps GitHub's REST answers to them. When one of them changed it sends
+  `artifact.updated` with the current version (a refresh is not a new version); when nothing
+  changed it sends nothing. A PR starts as `open`. See [PR status refresh](#pr-status-refresh).
 - **Project.** An item belongs to its task's project, and moves with the task (the app gets
   `artifact.updated` for each, with its current version). One with no task goes to the inbox of
   the hub's first agent.
@@ -264,6 +265,32 @@ code is in `src/marcel_hub/artifacts/` (`store.py`, `routes.py`). Boards are lis
   version on `artifact`, `artifact_id` on `message`, and a board for every project. Its downgrade
   drops boards and `artifact` messages and keeps every other row. Older code reads only `<id>`, so
   after a downgrade an item that had reached version 2 or later shows its version 1 bytes.
+
+## PR status refresh
+
+`src/marcel_hub/github.py` (S-04.12, ADR-002) keeps PR cards in step with GitHub. Read-only: it
+only ever sends `GET` requests to `https://api.github.com`.
+
+- **When.** A PR artifact is refreshed as soon as it is made (or gets a new version), then every
+  5 minutes while it is `open` or `draft`. The refresh that sees it `merged` or `closed` is its
+  last. At start the hub finds every open PR artifact again, so a restart loses none. The loop
+  looks for due PRs every 5 s and stops cleanly with the hub.
+- **What it asks.** Per refresh, three calls: the pull request, its head commit's check runs and
+  its reviews, mapped by `pr_status_from_gh`.
+- **Untrusted URLs.** A PR URL comes from a worker. Only `https://github.com/<owner>/<repo>/pull/<n>`
+  is read, with GitHub's own rules for owner and repository names; anything else (another host, a
+  port, a login, a query, `..`) is refused in plain words and no request is sent.
+- **Rate limits.** A `429`, or a `403` with `Retry-After` or `X-RateLimit-Remaining: 0`, pauses
+  every GitHub call (one token, one limit) for `Retry-After` (seconds or a date), else until
+  `X-RateLimit-Reset`, else 60 s; never longer than an hour.
+- **When it fails** the last known status stays and the reason, in plain words, is kept on the
+  artifact as `meta_json.pr_note` and logged once: no token, a revoked token (`401`), a token not
+  allowed there (`403`), a private or missing PR (`404`), GitHub in trouble (`5xx`), or GitHub out
+  of reach (network down or a timeout). The contract has no field to send it to the app yet
+  (`project/contract-requests/S-04.12.md`). It clears on the next good refresh.
+- **The token** is sent only in the `Authorization` header, never in a URL (httpx logs URLs), an
+  error message, an artifact or a `repr`; errors from httpx are not chained onto the hub's own.
+  `tests/test_github.py` captures every logger at DEBUG and fails if the token shows up.
 
 ## Project boards
 
