@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel runner API
-  version: 0.1.6
+  version: 0.1.7
   description: |
     The runner is the only process that runs `claude` (native on the NUC, a systemd user unit). The
     hub (in Docker) talks to it over HTTP on a unix socket: `/run/user/<uid>/marcel/runner.sock` on
@@ -376,6 +376,14 @@ paths:
     post:
       operationId: spawnCloudSession
       summary: Create a claude.ai/code cloud session (`claude --cloud "<prompt>"` on a pty, SP3).
+      description: |
+        `claude --cloud` takes its repo and branch from the folder it runs in (SP3 ran it from a
+        checkout of shbunder/marcel). Without `repo` the runner runs it in its own home folder, so the
+        cloud session has no repo. With `repo` (new in 0.1.7) the runner makes sure
+        `~/marcel/workspaces/<repo>` is cloned and fetched, exactly as for a `repo` spawn, and runs
+        `claude --cloud` in a folder of that clone checked out at `base` (the repo's default branch when
+        absent), so claude.ai starts the session on that repo and branch. The cloud session makes its
+        own branch; nothing is pushed from the NUC.
       requestBody:
         required: true
         content:
@@ -389,15 +397,33 @@ paths:
                   type: string
                   minLength: 1
                   description: Includes the worker protocol, the hub report URL and the task's own token.
-              example: { prompt: 'You are a Marcel worker for task tsk_01J9ZQ5 …' }
+                repo: { $ref: '#/components/schemas/CloudRepo' }
+              example: { prompt: 'You are a Marcel worker for task tsk_01J9ZQ5 …', repo: { url: 'https://github.com/shbunder/marcel' } }
       responses:
         '201':
           description: Created; the cloud box starts within about 20 s.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CloudSpawned' }
+        '400':
+          description: '`bad_request`: the body does not match (a missing or empty `prompt`, an unknown field, a `repo` that is not a `CloudRepo`).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '422':
-          description: '`claude --cloud` did not print a session id (`code: cloud_unparsed`; `message` holds its output).'
+          description: |
+            `cloud_unparsed`: `claude --cloud` exited without printing a session id and URL on
+            `claude.ai`; `message` holds its output. For a `repo` create also `clone_failed` (the
+            clone, the fetch or the checkout of `base`), with git's own words in `detail`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: |
+            `claude` could not be used: `claude_timeout` (it did not print a session within 60 s; the
+            runner kills it, and a session claude.ai made meanwhile is not tracked), `claude_unavailable`
+            (missing or not executable). For a `repo` create also `git_timeout`. Nothing the hub can
+            follow was created.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -428,8 +454,18 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CloudAck' }
+        '400':
+          description: '`bad_request`: the body is not `{text}` with a non-empty `text`, or `session_id` does not match `^session_[A-Za-z0-9]+$`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '422':
-          description: 'claude.ai refused or the CLI failed (`code: cloud_send_failed`).'
+          description: 'claude.ai refused or the CLI failed (`code: cloud_send_failed`; `message` holds its output).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: '`claude` could not be used: `claude_timeout` (no ack within 60 s; the message may still arrive) or `claude_unavailable` (missing or not executable).'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -719,13 +755,40 @@ components:
           waiting_for: permission prompt
           cwd: /home/shbunder/marcel/workspaces/scratch
 
+    CloudRepo:
+      type: object
+      required: [url]
+      additionalProperties: false
+      description: |
+        The repo a cloud session starts on (new in 0.1.7). The same `url` and `base` rules as
+        `RepoSpec`, without `task_id` and `slug`: the runner makes no worktree or branch of its own.
+      properties:
+        url:
+          type: string
+          maxLength: 300
+          pattern: '^https://[^/@?#]+/[^?#]+$'
+          description: Clone URL, as `RepoSpec.url`.
+        base:
+          type: string
+          pattern: '^[A-Za-z0-9_][A-Za-z0-9._/-]{0,99}$'
+          not: { pattern: '(\.\.|//|/$|\.$|\.lock$)' }
+          description: Branch the session starts from (default the repo's default branch), as `RepoSpec.base`.
+      example: { url: 'https://github.com/shbunder/marcel', base: main }
+
     CloudSpawned:
       type: object
       required: [session_id, url, title]
       additionalProperties: false
       properties:
         session_id: { type: string, pattern: '^session_[A-Za-z0-9]+$' }
-        url: { type: string, format: uri }
+        url:
+          type: string
+          format: uri
+          pattern: '^https://claude\.ai/code/session_[A-Za-z0-9]+$'
+          description: |
+            Always `https://claude.ai/code/<session_id>`: the runner drops the `?from=cli&m=0` Claude
+            prints, and refuses (`cloud_unparsed`) a URL on any other host. The hub stores it as the
+            task's `cloud_url`.
         title: { type: string }
       example:
         session_id: session_0168oBNCs8Q2BrHDFu6tYUdh
@@ -738,8 +801,12 @@ components:
       additionalProperties: false
       properties:
         ok: { type: boolean }
-        session_id: { type: string }
-        url: { type: string, format: uri }
+        session_id: { type: string, pattern: '^session_[A-Za-z0-9]+$' }
+        url:
+          type: string
+          format: uri
+          pattern: '^https://claude\.ai/code/session_[A-Za-z0-9]+$'
+          description: As `CloudSpawned.url`, `https://claude.ai/code/<session_id>` without a query.
       example: { ok: true, session_id: session_0168oBNCs8Q2BrHDFu6tYUdh, url: 'https://claude.ai/code/session_0168oBNCs8Q2BrHDFu6tYUdh' }
 
     UsageWindowReading:

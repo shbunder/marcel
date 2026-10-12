@@ -44,6 +44,14 @@ Event = dict[str, Any]
 # What an `Agent` tool call asked for, by tool_use_id, so the later launch result can name the
 # subagent. The runner keeps one of these per tail stream.
 Agents = dict[str, dict[str, str]]
+# The token counts of the last main-thread assistant line, kept until the turn ends (TurnEnd.usage).
+USAGE_KEYS = (
+    'input_tokens',
+    'cache_creation_input_tokens',
+    'cache_read_input_tokens',
+    'output_tokens',
+)
+Usage = dict[str, int]
 
 
 def _clip(text: str, limit: int = MAX_TEXT) -> tuple[str, bool]:
@@ -186,15 +194,32 @@ def _user(line: dict[str, Any], agents: Agents) -> list[tuple[str, dict[str, Any
     return out
 
 
+def _keep_usage(line: dict[str, Any], usage: Usage) -> None:
+    counts = (line.get('message') or {}).get('usage')
+    if line.get('isSidechain') or not isinstance(counts, dict):
+        return
+    if all(isinstance(counts.get(k), int) and counts[k] >= 0 for k in USAGE_KEYS):
+        usage.clear()
+        usage.update({k: counts[k] for k in USAGE_KEYS})
+
+
 def normalize(
-    line: dict[str, Any], *, session_id: str, offset: int, agents: Agents | None = None
+    line: dict[str, Any],
+    *,
+    session_id: str,
+    offset: int,
+    agents: Agents | None = None,
+    usage: Usage | None = None,
 ) -> list[Event]:
-    """Every event one transcript line gives, in order."""
+    """Every event one transcript line gives, in order. With `usage` (one dict per stream), a
+    `turn_end` carries the token counts of the turn's last main-thread assistant line."""
     agents = {} if agents is None else agents
     kind = line.get('type')
     if kind in DROPPED:
         return []
     if kind == 'assistant':
+        if usage is not None:
+            _keep_usage(line, usage)
         pairs = _assistant(line, agents)
     elif kind == 'user':
         pairs = _user(line, agents)
@@ -204,6 +229,9 @@ def normalize(
             turn['message_count'] = line['messageCount']
         if isinstance(line.get('pendingBackgroundAgentCount'), int):
             turn['pending_background_agents'] = line['pendingBackgroundAgentCount']
+        if usage:
+            turn['usage'] = dict(usage)
+            usage.clear()
         pairs = [('turn_end', turn)]
     elif kind == 'system':
         pairs = []
@@ -217,14 +245,21 @@ def normalize(
     ]
 
 
-def normalize_file(text: str, session_id: str) -> list[Event]:
+def normalize_file(text: str, session_id: str, *, with_usage: bool = False) -> list[Event]:
+    """A whole transcript. `with_usage` adds `TurnEnd.usage` (runner-api 0.1.7); off by default so
+    a runner that does not send it yet still matches this reference."""
     events: list[Event] = []
     agents: Agents = {}
+    usage: Usage | None = {} if with_usage else None
     offset = 0
     for raw_line in text.splitlines(keepends=True):
         offset += len(raw_line.encode())
         if raw_line.strip():
             events += normalize(
-                json.loads(raw_line), session_id=session_id, offset=offset, agents=agents
+                json.loads(raw_line),
+                session_id=session_id,
+                offset=offset,
+                agents=agents,
+                usage=usage,
             )
     return events

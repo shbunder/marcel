@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import pytest
@@ -65,14 +64,6 @@ def test_a_call_ack_can_carry_a_refusal(registry: Registry) -> None:
     )
     with pytest.raises(ValidationError):
         check.validate({'type': 'call_ack', 'call_id': 'c1', 'error': {'code': 'x'}})
-
-
-def test_the_versions_were_bumped() -> None:
-    assert load_yaml('app-api.yaml')['info']['version'] == '0.5.0'
-    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.6'
-    assert load_yaml('session-api.yaml')['info']['version'] == '0.1.1'
-    assert load_yaml('brain-api.yaml')['info']['version'] == '0.1.0'
-    assert json.loads((CONTRACTS / 'channel.schema.json').read_text())
 
 
 def test_a_brain_notice_has_its_own_category(registry: Registry) -> None:

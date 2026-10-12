@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — app API
-  version: 0.5.0
+  version: 0.6.0
   description: |
     The API the iPhone app uses to talk to the hub on the NUC. **Every path, including `/health`,
     `/pair` and `/ws`, sits under the server URL** (`https://marcel-bot.com/api/...`); the tunnel
@@ -199,6 +199,57 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Agent' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /agents/{agent_id}/brain/rollover:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    post:
+      tags: [agents]
+      operationId: rollOverBrain
+      summary: Give Marcel a fresh main session now (a manual rollover). New in 0.6.0.
+      description: |
+        The hub starts a new brain with Marcel's notes and recent context, and hands the
+        conversation over when it says hello (channel-protocol.md § Brain rollover). The
+        `brain.rollover` event (reason `manual`) follows once the hand-over is done.
+      responses:
+        '202': { description: Started; the `brain.rollover` event follows. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`rollover_running`: a rollover is already waiting for its new session to say hello.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: '`runner_unreachable`: the hub cannot start a session just now. Nothing changed.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /agents/{agent_id}/brain/rollovers:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    get:
+      tags: [agents]
+      operationId: listBrainRollovers
+      summary: Marcel's past rollovers, newest first (for the notebook). New in 0.6.0.
+      description: |
+        The same facts as each `brain.rollover` event, kept apart from the event log so a rollover
+        from before this phone was listening is still shown. `[]` before the first one.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        '200':
+          description: Rollovers, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Rollover' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -924,7 +975,13 @@ paths:
         With `If-Match`: saved only if the file's current etag matches, else 409 with the current
         version. Without `If-Match`: creates the file; if it already exists, 409 with the current
         version, never a silent overwrite. Every save is one git commit. `If-Match` may be the bare
-        etag, quoted, or `W/`-prefixed. A file over 1 MB is refused: 400 `memory_file_too_big`.
+        etag, quoted, or `W/`-prefixed; clients should send the **bare** etag, because generated
+        clients (swift-openapi-generator) URI-encode header values, which turns the quotes into
+        `%22`. A file over 1 MB is refused: 400 `memory_file_too_big`.
+
+        A failed `If-Match` is **409 with the current version in the body**, not HTTP's usual 412:
+        deliberate, so the app can show both versions without a second read. Hub and app follow
+        this together; never change one side alone.
       parameters:
         - name: If-Match
           in: header
@@ -1027,8 +1084,16 @@ paths:
       responses:
         '204': { description: Deleted. }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '404':
+          description: No such schedule (`schedule_not_found`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`schedule_builtin`: a built-in digest; it can be paused, not deleted.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /usage:
     get:
@@ -1142,10 +1207,11 @@ components:
             `approval_not_found`; tasks:
             `task_not_found`, `task_not_finished`, `task_finished`, `runner_unreachable` (503);
             projects: `slug_taken`, `project_archived`, `project_is_inbox`, `project_busy`,
-            `agent_not_found`; artifacts and memory: `artifact_not_found`, `artifact_is_board`,
-            `invalid_memory_path`, `memory_file_not_found`, `memory_file_too_big`,
-            `memory_unavailable` (503); usage: `no_reading` (503). New codes may be added; treat an
-            unknown code by its HTTP status.
+            `agent_not_found`; agents: `rollover_running` (409); artifacts and memory:
+            `artifact_not_found`, `artifact_is_board`, `invalid_memory_path`,
+            `memory_file_not_found`, `memory_file_too_big`, `memory_unavailable` (503); schedules:
+            `schedule_not_found` (404), `schedule_builtin` (409); usage: `no_reading` (503). New
+            codes may be added; treat an unknown code by its HTTP status.
         message:
           type: string
           description: For people. Short, says what happened and what to do.
@@ -1248,7 +1314,11 @@ components:
         kind: { type: string, enum: [apns, ntfy] }
         apns_token:
           type: string
-          description: Required when `kind` is `apns`.
+          pattern: '^[0-9a-fA-F]{64,200}$'
+          description: |
+            Required when `kind` is `apns`. The device token from APNs, hex-encoded (64 to 200 hex
+            digits); anything else is 400 `bad_request`, because Apple answers `BadDeviceToken` to it.
+            Pattern new in 0.6.0.
         ntfy_topic:
           type: string
           description: Required when `kind` is `ntfy`.
@@ -1895,6 +1965,10 @@ components:
         page). `doc`: Markdown or HTML. `file`: anything else with bytes. `dashboard`: JSON
         matching `dashboard.schema.json`, drawn natively. `link`: any other URL. `board`: a project's
         board (B-35), a dashboard the hub keeps current; one per project.
+
+        The agent's digest board (B-35, B-36: "the morning digest is a board artifact") is a `doc`,
+        not a `board`: Marcel publishes it as Markdown in the Inbox, and each digest is a new
+        version of it. `board` is only ever a project's board, built by the hub.
       enum: [pr, branch, doc, file, dashboard, link, board]
       example: pr
 
@@ -1957,7 +2031,15 @@ components:
                 from GitHub: "GitHub refused the token", "No GitHub token is set
                 (MARCEL_GITHUB_TOKEN)", "GitHub is having trouble". Absent or null when the last
                 refresh worked. New in 0.5.0.
-          example: { number: 14, state: open, checks: pending, note: GitHub is having trouble. }
+            refreshed_at:
+              type: string
+              format: date-time
+              description: |
+                When the hub last read this PR from GitHub successfully; absent before the first good
+                refresh. With `note`, the app can say since when a card is stale. A refresh that
+                changes nothing else sends no event of its own: the new time rides along on the next
+                `artifact.updated` (or the next read). New in 0.6.0.
+          example: { number: 14, state: open, checks: pending, note: GitHub is having trouble., refreshed_at: '2026-10-04T18:25:00Z' }
         created_at: { type: string, format: date-time }
         updated_at:
           type: string
@@ -2228,7 +2310,10 @@ components:
         paused: { type: boolean }
         builtin:
           type: boolean
-          description: True for the four digests; they can be paused, not deleted.
+          description: |
+            True for the four digests; they can be paused, not deleted. Their ids are
+            `sch_digest_<digest>_<agent id>` (`morning`, `evening`, `weekly`, `usage`), so each agent
+            has its own four.
         deadline_minutes:
           type: integer
           minimum: 1
@@ -2236,7 +2321,7 @@ components:
         last_run_at: { type: string, format: date-time }
         next_run_at: { type: string, format: date-time }
       example:
-        id: sch_digest_morning
+        id: sch_digest_morning_agt_marcel
         agent_id: agt_marcel
         name: Morning digest
         cron: '0 7 * * *'
@@ -2282,6 +2367,29 @@ components:
         deadline_minutes: { type: integer, minimum: 1 }
       example: { paused: true }
 
+    Rollover:
+      type: object
+      description: One past brain rollover; the `brain.rollover` event's `data`, with its id and time.
+      required: [id, agent_id, at, reason, kept]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        agent_id: { type: string }
+        at: { type: string, format: date-time }
+        reason:
+          type: string
+          enum: [context_full, crashed, daily, manual]
+          description: As events.schema.json `brain.rollover`.
+        kept:
+          type: string
+          description: What the new session started with, in plain words.
+      example:
+        id: rol_01JA2C4
+        agent_id: agt_marcel
+        at: '2026-10-12T04:00:00Z'
+        reason: daily
+        kept: Your notes, the last 40 messages, 3 open threads and the project list.
+
     PairingCode:
       type: string
       description: |
@@ -2321,7 +2429,9 @@ components:
             `note` is a plain notice: Marcel's own (the brain's `notify` tool, at most 6 per hour per
             agent, the rest dropped and logged, so a looping brain cannot flood the phone) and the
             hub's own, such as the usage guard pausing new work (`marcel://status`, collapse key
-            `usage`). `broke` is only for system faults (one per cause per hour).
+            `usage`) or a scheduled job that did not run or ran late (`normal`, linking to the
+            `system` message about it in the main conversation, collapse key `schedules_missed` or
+            `late:<schedule id>`). `broke` is only for system faults (one per cause per hour).
         level:
           type: string
           enum: [normal, urgent]

@@ -316,7 +316,7 @@ TRANSCRIPT_DATA: dict[str, dict[str, tuple[Kind, bool]]] = {
                       'status': (frozenset({'completed', 'failed', 'stopped', 'unknown'}), True),
                       'summary': ('string', False)},
     'turn_end': {'duration_ms': ('count', True), 'message_count': ('count', False),
-                 'pending_background_agents': ('count', False)},
+                 'pending_background_agents': ('count', False), 'usage': ('object', False)},
     'error': {'message': ('string', True), 'api_error_status': ('integer', False),
               'usage_limit': ('boolean', False)},
     'raw': {'entry_type': ('string', True), 'entry': ('object', False)},

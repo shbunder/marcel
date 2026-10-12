@@ -20,7 +20,7 @@ Cloud workers have no channel (the hub cannot reach them): they use
   session on the NUC shares it; what makes a session legitimate is that the runner reported its id.
 - **Brain and side-thread ids:** the hub accepts a brain or side session only when
   `Conversation.brain_session_id` holds its id. The brain stories (S-06.x) write it when they spawn or
-  fork one.
+  fork one. One exception, a rollover: see [Brain rollover](#brain-rollover).
 - **Prompts from the brain or a side thread:** they run with Marcel's own tools pre-allowed and nothing
   else should ask. If one does raise a `permission_request`, the hub answers `permission_decision`
   `deny` at once (and again on every re-send) and logs the tool; no approval card is opened, because a
@@ -56,7 +56,7 @@ channel server                                   hub
 | `permission_decision` | `notifications/claude/channel/permission` `{request_id, behavior}` |
 | Claude Code's `notifications/claude/channel/permission_request` | → `permission_request` frame, fields unchanged |
 | the `reply` tool call | → `reply` frame; the tool returns when `call_ack` arrives (or after 10 s with "queued"); a `call_ack` with `error` returns as a tool error carrying its code and message |
-| the `report` tool call | → `report` frame; same |
+| the `report` tool call | → `report` frame; same. `report(note)` (0.6) stores one fact in the project's notes (session-api.yaml `Report`) |
 
 `meta` keys must be identifiers (letters, digits, underscores): Claude Code silently drops other keys.
 
@@ -98,6 +98,24 @@ and a short settle delay has passed: the session registers its channel handler a
   owner adds a note to a denial (app-api.yaml `ApprovalAnswer.note`), the hub sends it right after
   the `permission_decision`: as a `steer` to a worker, or a `user_message` to the brain or a side
   thread.
+
+## Brain rollover
+
+A rollover (events.schema.json `brain.rollover`) starts a fresh brain while the old one may still run.
+
+- **Hand-over at hello.** The hub accepts the new brain's `hello` although `brain_session_id` still
+  names the old one: that hello is the hand-over. The new session becomes the conversation's brain,
+  its socket takes the conversation's unacked frames, and the old session's socket is closed.
+- **Not while the old brain is mid-turn.** The hub hands over only between turns (from the runner's
+  session state and its own turn tracking). While the old brain is in a turn, the new brain's hello
+  is answered `rejected unknown_session`; the server's 5 s retry brings it back.
+- **After the hand-over** a `reply` from the old session is answered `call_ack` with
+  `error.code: replaced`, and nothing reaches the owner from it. Its text is not lost: the hub
+  sends it to the new brain as a `system_event` `rollover` with `data: {unsent_reply,
+  in_reply_to?}`, and the new brain decides whether it still needs saying. The old session's
+  `reply` tool returns the error ("a newer session answers here now").
+- **Owner messages** sent after the new brain's notes were written reach it again: those already
+  answered as one `rollover` system event (`data.messages`), the unanswered ones as `user_message`.
 
 ## Failure, and what the owner sees
 
