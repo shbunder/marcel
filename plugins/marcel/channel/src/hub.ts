@@ -26,6 +26,7 @@ export interface HubOptions {
   unknownRetryMs?: number;
   unknownWindowMs?: number;
   pingMs?: number;
+  quietMs?: number;
   ackTimeoutMs?: number;
   helloTimeoutMs?: number;
 }
@@ -60,7 +61,7 @@ export class HubClient {
   private failures = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private pingTimer: ReturnType<typeof setInterval> | undefined;
-  private lastReceived = 0;
+  private quietTimer: ReturnType<typeof setTimeout> | undefined;
   private unknownSince: number | undefined;
   private rejectedThisSocket = false;
   private ended = false;
@@ -76,6 +77,7 @@ export class HubClient {
       unknownRetryMs: 5000,
       unknownWindowMs: 120_000,
       pingMs: 20_000,
+      quietMs: 60_000,
       ackTimeoutMs: 10_000,
       helloTimeoutMs: 15_000,
       ...opts,
@@ -155,7 +157,6 @@ export class HubClient {
     this.socket = socket;
     socket.onopen = () => {
       if (this.socket !== socket) return;
-      this.lastReceived = Date.now();
       const hello: Hello = {
         type: 'hello',
         session_id: this.o.sessionId,
@@ -232,6 +233,21 @@ export class HubClient {
   private clearPing(): void {
     if (this.pingTimer) clearInterval(this.pingTimer);
     this.pingTimer = undefined;
+    if (this.quietTimer) clearTimeout(this.quietTimer);
+    this.quietTimer = undefined;
+  }
+
+  /** The hub has sent nothing for `quietMs`: treat the connection as dead. Every hub frame restarts the clock. */
+  private armQuietTimer(): void {
+    if (this.quietTimer) clearTimeout(this.quietTimer);
+    this.quietTimer = setTimeout(() => this.onQuiet(), this.o.quietMs);
+  }
+
+  private onQuiet(): void {
+    this.o.log('The hub went quiet. Reconnecting.');
+    this.clearPing();
+    this.abandon();
+    this.scheduleReconnect();
   }
 
   private send(frame: ToHub): boolean {
@@ -248,7 +264,7 @@ export class HubClient {
   // --- frames from the hub ----------------------------------------------------------------------------------
 
   private onData(data: unknown): void {
-    this.lastReceived = Date.now();
+    if (this.quietTimer) this.armQuietTimer();
     let frame: ToSession;
     try {
       frame = JSON.parse(String(data)) as ToSession;
@@ -292,7 +308,8 @@ export class HubClient {
     this.failures = 0;
     this.unknownSince = undefined;
     this.clearPing();
-    this.pingTimer = setInterval(() => this.onPingTick(), this.o.pingMs);
+    this.pingTimer = setInterval(() => this.send({ type: 'ping' }), this.o.pingMs);
+    this.armQuietTimer();
     this.o.log(`Connected to the hub as ${welcome.role}.`);
     this.o.onWelcome?.(welcome);
     // Anything the hub may not have stored goes again; the hub acks a repeated call_id with `duplicate`.
@@ -330,17 +347,6 @@ export class HubClient {
     this.stopReason = reason;
     this.permissions.clear();
     this.failAllCalls(this.unreachableText());
-  }
-
-  private onPingTick(): void {
-    if (Date.now() - this.lastReceived > this.o.pingMs * 3) {
-      this.o.log('The hub went quiet. Reconnecting.');
-      this.clearPing();
-      this.abandon();
-      this.scheduleReconnect();
-      return;
-    }
-    this.send({ type: 'ping' });
   }
 
   // --- tool calls -------------------------------------------------------------------------------------------

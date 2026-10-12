@@ -164,6 +164,28 @@ describe('connecting', () => {
     expect(h.logs.some((l) => l.includes('went quiet'))).toBe(true);
   });
 
+  it('reconnects 60 s after the last hub frame, not on the next ping tick', async () => {
+    const h = await connected();
+    h.hub.onFrame = () => undefined; // silent from the welcome on
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(h.hub.attempts).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.logs.some((l) => l.includes('went quiet'))).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000); // first backoff step
+    expect(h.hub.attempts).toBe(2);
+  });
+
+  it('any hub frame restarts the 60 s quiet clock', async () => {
+    const h = await connected();
+    h.hub.onFrame = () => undefined;
+    await vi.advanceTimersByTimeAsync(50_000);
+    h.hub.push({ type: 'pong' });
+    await vi.advanceTimersByTimeAsync(50_000);
+    expect(h.logs.some((l) => l.includes('went quiet'))).toBe(false);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(h.logs.some((l) => l.includes('went quiet'))).toBe(true);
+  });
+
   it('ignores frames from a socket it already left', async () => {
     const h = await connected();
     const old = h.hub.current;

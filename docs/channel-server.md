@@ -39,7 +39,7 @@ answers "Queued" and the session carries on. The call is sent again after a reco
 | Hub takes the connection but never answers hello | Closes it after 15 s, logs it, and reconnects with the same backoff | Same as above |
 | Hub drops in the middle of a call | Sends the call again after the reconnect | "Queued" after 10 s |
 | A permission prompt is waiting during a reconnect | Sends it again after the reconnect. The answer still reaches the session | Nothing changes |
-| Hub goes quiet (nothing for about a minute) | Drops the connection and reconnects | Nothing changes |
+| Hub goes quiet (nothing for 60 s) | Drops the connection and reconnects | Nothing changes |
 | `unknown_session` | Tries again every 5 s for 2 minutes, then logs it and stops | "Marcel is unreachable" once it stops |
 | `bad_secret` | Logs it, never retries | "Marcel is unreachable. A deploy wrote a different secret." |
 | `plugin_too_old` | Logs it, never retries | "Marcel is unreachable. Update the plugin." |
