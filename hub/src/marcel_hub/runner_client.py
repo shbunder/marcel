@@ -31,11 +31,11 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
-from sqlmodel import Session, col, select
+from sqlmodel import Session, col, func, select
 
-from marcel_hub.models import Task, TaskEvent, TaskLocation, TaskState
+from marcel_hub.models import Task, TaskEvent, TaskEventType, TaskLocation, TaskState
 from marcel_hub.tasks.ports import CapReached, RunnerUnavailable, Started, StartFailed
-from marcel_hub.tasks.registry import TaskRegistry
+from marcel_hub.tasks.registry import DROPPED_TRANSCRIPT, TaskRegistry
 from marcel_hub.tasks.states import TRANSITIONS, IllegalTransition
 
 log = logging.getLogger(__name__)
@@ -48,6 +48,7 @@ BASE_DELAY = 0.5
 MAX_DELAY = 30.0
 
 UNREACHABLE = 'runner_unreachable'  # the alert's cause
+TAIL_WARN_AFTER = 300.0  # seconds of 503s on a tail before the hub logs a warning
 
 # Task states that only a live session holds; these go to `unknown` when the runner is lost.
 LIVE = frozenset({TaskState.starting, TaskState.working, TaskState.needs_you, TaskState.silent})
@@ -391,15 +392,20 @@ class TailPosition:
     line can give several events. `committed` is the end of the line before it, which is known to
     be complete, so a tail resumes from `committed` and skips what it already has of `line`.
 
-    `replay_until` is set when the file started over: up to that offset the new file may repeat
-    events the hub already stored, so they are checked against the stored ones. It is kept in
-    memory only.
+    When the file started over, the new file may repeat events the hub already stored, up to
+    `replay_until` (the old file's last line). Each event there is matched, in order and one for
+    one, against the stored events with seq in (`replay_after`, `replay_last`]: `replay_last` was
+    the task's newest event when the file started over, `replay_after` the last stored event
+    matched so far. All three are saved with the position, so a hub restart in the middle of a
+    re-read does not store repeats. Once the new file is past `replay_until` they go back to 0.
     """
 
     committed: int = 0
     line: int = 0
     index: int = -1
     replay_until: int = 0
+    replay_after: int = 0
+    replay_last: int = 0
 
     def is_new(self, offset: int, index: int) -> bool:
         return offset > self.line or (offset == self.line and index > self.index)
@@ -408,28 +414,39 @@ class TailPosition:
         if offset > self.line:
             self.committed, self.line = self.line, offset
         self.index = index
+        if self.line > self.replay_until:
+            self.replay_until = self.replay_after = self.replay_last = 0
 
-    def start_over(self) -> None:
-        """The file started over: read it again from byte 0, checking what may be a repeat."""
+    def start_over(self, last_seq: int) -> None:
+        """The file started over: read it again from byte 0. Up to the old file's end, events may
+        repeat the task's events up to `last_seq`."""
         self.replay_until = max(self.replay_until, self.line)
+        self.replay_after, self.replay_last = 0, last_seq
         self.committed, self.line, self.index = 0, 0, -1
 
     def may_repeat(self, offset: int) -> bool:
-        return offset <= self.replay_until
+        return offset <= self.replay_until and self.replay_after < self.replay_last
+
+    def saved(self) -> list[int]:
+        head = [self.committed, self.line, self.index]
+        if not self.replay_until:
+            return head
+        return [*head, self.replay_until, self.replay_after, self.replay_last]
 
 
 def _parse_positions(stored: Any) -> dict[str, TailPosition]:
-    """`{session id: [committed, line, index]}` with whole numbers; anything else is corrupt."""
+    """`{session id: [committed, line, index]}`, or with `replay_until, replay_after, replay_last`
+    added while a file that started over is read again; whole numbers. Anything else is corrupt."""
     if not isinstance(stored, dict):
         raise ValueError('it is not a map of session ids')
     positions = {}
     for sid, pos in stored.items():
-        if not (isinstance(pos, list) and len(pos) == 3 and all(_is_int(n) for n in pos)):
-            raise ValueError(f'the entry for {sid} is not three whole numbers')
-        committed, line, index = pos
-        if not 0 <= committed <= line or index < -1:
+        if not (isinstance(pos, list) and len(pos) in (3, 6) and all(_is_int(n) for n in pos)):
+            raise ValueError(f'the entry for {sid} is not three or six whole numbers')
+        committed, line, index, *replay = pos
+        if not 0 <= committed <= line or index < -1 or any(n < 0 for n in replay):
             raise ValueError(f'the entry for {sid} is out of order')
-        positions[sid] = TailPosition(committed, line, index)
+        positions[sid] = TailPosition(committed, line, index, *replay)
     return positions
 
 
@@ -459,7 +476,7 @@ class OffsetStore:
     def save(self) -> None:
         if self.path is None:
             return
-        data = {sid: [p.committed, p.line, p.index] for sid, p in self.positions.items()}
+        data = {sid: p.saved() for sid, p in self.positions.items()}
         tmp = self.path.with_suffix('.tmp')
         tmp.write_text(json.dumps(data))
         tmp.replace(self.path)
@@ -501,13 +518,10 @@ class Report:
     fields: dict[str, Any] = field(default_factory=dict)
 
 
-def _same_time(stored: datetime, when: datetime) -> bool:
-    """A stored time (SQLite may drop the zone; the hub stores UTC) against a parsed one."""
-    if stored.tzinfo is None and when.tzinfo is not None:
-        when = when.astimezone(UTC).replace(tzinfo=None)
-    elif stored.tzinfo is not None and when.tzinfo is None:
-        stored = stored.astimezone(UTC).replace(tzinfo=None)
-    return stored == when
+def _stored_time(at: str) -> datetime:
+    """A transcript time in UTC, as the hub stores it (the column type wants a time zone)."""
+    when = datetime.fromisoformat(at.replace('Z', '+00:00'))
+    return when.astimezone(UTC) if when.tzinfo is not None else when.replace(tzinfo=UTC)
 
 
 def _clock(value: str) -> str:
@@ -848,6 +862,8 @@ class RunnerWatch:
 
     async def _read_tail(self, task_id: str, session_id: str, follow: bool) -> None:
         delay = self.base_delay
+        refused_for = 0.0  # seconds of 503s in a row
+        warned = False
         while True:
             position = self.offsets.get(session_id)
             params = {'offset': position.committed, 'follow': 'true' if follow else 'false'}
@@ -869,11 +885,23 @@ class RunnerWatch:
                     exc,
                     delay,
                 )
+                if refused_for >= TAIL_WARN_AFTER and not warned:
+                    warned = True
+                    log.warning(
+                        'The transcript of task %s has not been readable for %d minutes: the '
+                        'runner keeps answering that it cannot ask Claude Code (%s). The hub '
+                        'keeps trying.',
+                        task_id,
+                        refused_for // 60,
+                        exc,
+                    )
                 await self.sleep(delay)
+                refused_for += delay
                 delay = min(delay * 2, self.max_delay)
                 continue
             except RunnerUnavailable:
                 return  # the event stream notices too; tails restart when the runner is back
+            refused_for, warned = 0.0, False
             stream = _Stream(resumed_from=position.committed)
             try:
                 async for message in sse(res.aiter_lines()):
@@ -884,28 +912,45 @@ class RunnerWatch:
                 log.warning('The transcript of task %s broke off (%s). Resuming.', task_id, exc)
             finally:
                 await res.aclose()
+            if stream.last is not None:  # it gave events: the next break starts a new backoff
+                delay = self.base_delay
             await self.sleep(delay)
             delay = min(delay * 2, self.max_delay)
 
-    def _already_stored(self, task_id: str, event: dict[str, Any]) -> bool:
-        """Whether the task already has this event: same type, time and data.
+    def _last_seq(self, task_id: str) -> int:
+        with Session(self.registry.engine) as s:
+            last = s.exec(select(func.max(TaskEvent.seq)).where(TaskEvent.task_id == task_id)).one()
+        return last or 0
 
-        Only asked while a file that started over is read again, where a repeat of the old file is
-        possible. Transcript events are stored without their offset, so content is the only key;
-        two different events with the same time and data cannot be told apart, and would look the
-        same in the app anyway.
+    def _stored_repeat(
+        self, task_id: str, event: dict[str, Any], position: TailPosition
+    ) -> int | None:
+        """The seq of the stored event this one repeats, or None: same type, time and data, the
+        first such event after `replay_after` (the files are read in order, and each stored event
+        cancels one repeat). Transcript events are stored without their offset, so content is the
+        only key.
+
+        The query walks the task's events by primary key (task_id, seq) from `replay_after` and
+        stops at the first match, so re-reading a file in order costs about one row per event; no
+        extra index is needed. Like the rest of the hub's database work it runs on the event loop.
         """
         at = event.get('at')
-        if not isinstance(at, str):
-            return False
-        when = datetime.fromisoformat(at.replace('Z', '+00:00'))
+        if event['type'] in DROPPED_TRANSCRIPT or not isinstance(at, str):
+            return None
+        rows = (
+            select(TaskEvent.seq, TaskEvent.data_json)
+            .where(TaskEvent.task_id == task_id)
+            .where(TaskEvent.seq > position.replay_after)
+            .where(TaskEvent.seq <= position.replay_last)
+            .where(TaskEvent.type == TaskEventType(event['type']))
+            .where(TaskEvent.at == _stored_time(at))
+            .order_by(col(TaskEvent.seq))
+        )
         with Session(self.registry.engine) as s:
-            rows = s.exec(
-                select(TaskEvent)
-                .where(TaskEvent.task_id == task_id)
-                .where(TaskEvent.type == event['type'])
-            ).all()
-        return any(_same_time(r.at, when) and r.data_json == event['data'] for r in rows)
+            for seq, data in s.exec(rows):
+                if data == event['data']:
+                    return seq
+        return None
 
     async def _on_transcript(
         self, task_id: str, session_id: str, raw: str, stream: _Stream
@@ -926,15 +971,19 @@ class RunnerWatch:
                 offset,
                 before,
             )
-            position.start_over()
+            position.start_over(self._last_seq(task_id))
         if not position.is_new(offset, index):
             return  # already stored before a reconnect
-        repeat = position.may_repeat(offset) and self._already_stored(task_id, event)
-        if not repeat:
+        repeat = (
+            self._stored_repeat(task_id, event, position) if position.may_repeat(offset) else None
+        )
+        if repeat is None:
             self.registry.append_transcript(task_id, event)
+        else:
+            position.replay_after = repeat
         position.advance(offset, index)
         self.offsets.save()
-        if repeat:
+        if repeat is not None:
             return
         if event['type'] == 'error' and event['data'].get('usage_limit'):
             usage = await self.client.usage()

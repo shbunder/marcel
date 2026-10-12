@@ -13,7 +13,9 @@
   0; the hub's stored offset is then past the new ones. Since runner-api 0.1.5 the hub sees the
   first offset at or below where it resumed (or any offset below the one before) as "the file
   started over", resets its position and reads it again. Transcript events are stored without
-  their offset, so it skips repeats by type, time and data. It cannot see a file replaced by a
+  their offset, so it skips repeats by type, time and data, matched in order and one for one
+  against the events stored before the restart (the re-read state is saved in
+  `runner-offsets.json`). It cannot see a file replaced by a
   *longer* one while no tail was open (the resume offset is then inside the new file).
 - **A tail found by the fallback search never moves to the expected folder.** Decided: leave it.
   A session id names exactly one transcript; Claude Code writes it in the folder for the cwd it was

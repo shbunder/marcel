@@ -180,10 +180,14 @@ background watcher follows the runner's streams:
   gets them as `task.event`). `thinking` and `turn_end` are not stored. The hub remembers how far it
   read each transcript in `<data_dir>/runner-offsets.json`, so a reconnect or a restart never stores
   an event twice. A tail the runner answers with 503 (it could not ask `claude` just then) is
-  retried after 0.5 s, 1, 2 … up to 30 s; a 404 or 400 ends that tail with a log line
+  retried after 0.5 s, 1, 2 … up to 30 s (the delay starts again at 0.5 s after a stream that gave
+  events); after 5 minutes of 503s the hub logs one warning (`The transcript of task … has not been
+  readable for 5 minutes`) and keeps trying. A 404 or 400 ends that tail with a log line
   (`Stopped reading the transcript of task …`). When a transcript file starts over (truncated or
   replaced, so its offsets go backwards), the hub reads it again from the start and stores what is
-  new; an event it already has (same type, time and data) is not stored twice.
+  new. An event that repeats one it already has (same type, time and data, matched in order, one
+  for one) is not stored twice; how far that re-read got is saved with the offsets, so a hub
+  restart in the middle of it is safe too.
 - **Runner down.** When the runner does not answer, every NUC task that was live goes to `unknown`,
   and one "something broke" alert is pushed (see Push notifications). The hub
   retries after 0.5 s, then 1, 2, 4 … up to 30 s. When the runner answers again the alert is
