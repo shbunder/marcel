@@ -2,9 +2,9 @@
 #
 # Why not `xcodebuild test`: on this Mac's Xcode the iOS platform component is not installed, so
 # xcodebuild lists no simulator as a destination for any scheme ("iOS 26.5 is not installed"). This lane
-# needs no destination: it builds the app with `-target … -sdk iphonesimulator`, builds MarcelKit's tests
-# with SwiftPM for the simulator, and runs them on a booted simulator through a small runner that carries
-# the Keychain entitlement an app has. See README.md.
+# needs no destination: it builds the app with `-target … -sdk iphonesimulator`, builds MarcelKit's,
+# AvatarKit's and PixelKit's tests with SwiftPM for the simulator, and runs them on a booted simulator
+# through a small runner that carries the Keychain entitlement an app has. See README.md.
 
 DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 export DEVELOPER_DIR
@@ -17,13 +17,15 @@ PLAT    := $(DEVELOPER_DIR)/Platforms/iPhoneSimulator.platform/Developer
 TRIPLE  := $(ARCH)-apple-ios18.0-simulator
 TESTS   := $(BUILD)/spm-sim/$(ARCH)-apple-ios-simulator/debug/MarcelKitPackageTests.xctest
 AVATAR_TESTS := $(BUILD)/spm-avatar/$(ARCH)-apple-ios-simulator/debug/AvatarKitPackageTests.xctest
+PIXEL_TESTS := $(BUILD)/pixelkit-sim/$(ARCH)-apple-ios-simulator/debug/PixelKitPackageTests.xctest
 RUNNER  := $(BUILD)/runner/SimTestRunner
 SIM     ?= $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun simctl list devices available -j | python3 scripts/pick-simulator.py $(SDK_VER))
 MOCK_HUB ?= http://127.0.0.1:7499/api
 
-.PHONY: check app test tests-bundle avatar-tests-bundle integration generate boot clean
+.PHONY: check app test tests-bundle avatar-tests-bundle pixelkit-test pixelkit-bundle pixelkit-record integration \
+  generate boot clean
 
-check: app test
+check: app test pixelkit-test
 
 # The app and its three packages, for the simulator.
 app:
@@ -59,6 +61,22 @@ boot:
 test: tests-bundle avatar-tests-bundle $(RUNNER) boot
 	xcrun simctl spawn $(SIM) $(RUNNER) $(TESTS)
 	xcrun simctl spawn $(SIM) $(RUNNER) $(AVATAR_TESTS)
+
+# PixelKit's tests on the simulator: snapshots of every component (light, dark, largest text), contrast and
+# accessibility checks. Built separately so MarcelKit's package graph stays as it is.
+pixelkit-bundle:
+	swift build --quiet --package-path PixelKit --scratch-path $(BUILD)/pixelkit-sim --build-tests \
+	  --triple $(TRIPLE) --sdk $(SDK) -Xswiftc -F -Xswiftc $(PLAT)/Library/Frameworks \
+	  -Xlinker -F -Xlinker $(PLAT)/Library/Frameworks
+
+pixelkit-test: pixelkit-bundle $(RUNNER) boot
+	xcrun simctl spawn $(SIM) $(RUNNER) $(PIXEL_TESTS)
+
+# Re-record PixelKit's reference snapshots after a deliberate change (the recording run fails by design), then
+# check them. Look at the PNGs in PixelKit/Tests/PixelKitTests/__Snapshots__ before committing them.
+pixelkit-record: pixelkit-bundle $(RUNNER) boot
+	-SIMCTL_CHILD_PIXELKIT_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(PIXEL_TESTS) ComponentSnapshotTests
+	xcrun simctl spawn $(SIM) $(RUNNER) $(PIXEL_TESTS)
 
 # Against the mock hub (start it first with `make mock-hub` from the repo root). Not part of the gate.
 integration: tests-bundle $(RUNNER) boot
