@@ -59,8 +59,8 @@ public struct LiveQuestService: QuestService {
         case .ok(let ok): return try ok.body.json
         case .unauthorized: throw QuestActionError.unauthorized
         case .notFound: throw QuestActionError.notFound
-        // 503 runner_unreachable is in contract 0.3.0; the generated client (0.2.0) sees it as undocumented.
-        case .undocumented(503, _): throw QuestActionError.runnerUnreachable
+        // 503 runner_unreachable: the runner did not answer, so the task was left as it was.
+        case .serviceUnavailable: throw QuestActionError.runnerUnreachable
         case .undocumented(let status, _): throw QuestActionError.unexpected("stop, HTTP \(status)")
         }
     }

@@ -124,7 +124,9 @@ public enum Operations {
     /// The live event stream (WebSocket upgrade). Frames are defined in events.schema.json.
     ///
     /// Authenticate with the same `Authorization: Bearer` header as REST. The first frame is
-    /// `hello` (or `resync.required` if `since` is older than the hub keeps). After that, every
+    /// `hello` (or `resync.required` if `since` is older than the hub keeps, higher than any id it
+    /// sent, or not a number; the socket is not refused, because a refused socket reads as
+    /// "unpaired" on the phone). After that, every
     /// frame is an event with an `id` one higher than the last; `hello` and `resync.required`
     /// use `id: 0` and are not part of that sequence.
     ///
@@ -1452,6 +1454,8 @@ public enum Operations {
         }
     }
     /// The main conversation and every side thread of an agent.
+    ///
+    /// An agent that does not exist or is not yours gives an empty list, so the answer does not reveal which agents exist.
     ///
     /// - Remark: HTTP `GET /conversations`.
     /// - Remark: Generated from `#/paths//conversations/get(listConversations)`.
@@ -3500,6 +3504,60 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/tasks/{task_id}/stop/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/tasks/{task_id}/stop/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas._Error)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas._Error {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.StopTask.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.StopTask.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// The runner did not answer, so the task was not stopped (code `runner_unreachable`). It is
+            /// left as it was: marking it `stopped` could hide a session that is still running. Try again
+            /// once the runner is back.
+            ///
+            ///
+            /// - Remark: Generated from `#/paths//tasks/{task_id}/stop/post(stopTask)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.StopTask.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.StopTask.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
                             response: self
                         )
                     }
@@ -6464,6 +6522,57 @@ public enum Operations {
                     }
                 }
             }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/memory/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/memory/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas._Error)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas._Error {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetMemoryTree.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetMemoryTree.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// The memory store could not run (code `memory_unavailable`). Nothing was changed.
+            ///
+            /// - Remark: Generated from `#/paths//memory/get(getMemoryTree)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetMemoryTree.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetMemoryTree.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
             /// Undocumented response.
             ///
             /// A response with a code that is not documented in the OpenAPI document.
@@ -6495,7 +6604,10 @@ public enum Operations {
             }
         }
     }
-    /// One memory file. The `ETag` header equals the body's `etag`.
+    /// One memory file. The `ETag` header is the body's `etag` in quotes, as HTTP wants.
+    ///
+    /// A file over 1 MB (written straight to disk) is not read: 400 `memory_file_too_big`.
+    ///
     ///
     /// - Remark: HTTP `GET /memory/files/{path}`.
     /// - Remark: Generated from `#/paths//memory/files/{path}/get(getMemoryFile)`.
@@ -6687,6 +6799,57 @@ public enum Operations {
                     }
                 }
             }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/memory/files/{path}/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/memory/files/{path}/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas._Error)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas._Error {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetMemoryFile.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetMemoryFile.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// The memory store could not run (code `memory_unavailable`). Nothing was changed.
+            ///
+            /// - Remark: Generated from `#/paths//memory/files/{path}/get(getMemoryFile)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetMemoryFile.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetMemoryFile.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
             /// Undocumented response.
             ///
             /// A response with a code that is not documented in the OpenAPI document.
@@ -6722,7 +6885,8 @@ public enum Operations {
     ///
     /// With `If-Match`: saved only if the file's current etag matches, else 409 with the current
     /// version. Without `If-Match`: creates the file; if it already exists, 409 with the current
-    /// version, never a silent overwrite. Every save is one git commit.
+    /// version, never a silent overwrite. Every save is one git commit. `If-Match` may be the bare
+    /// etag, quoted, or `W/`-prefixed. A file over 1 MB is refused: 400 `memory_file_too_big`.
     ///
     ///
     /// - Remark: HTTP `PUT /memory/files/{path}`.
@@ -6935,6 +7099,108 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/memory/files/{path}/PUT/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/memory/files/{path}/PUT/responses/404/content/application\/json`.
+                    case json(Components.Schemas._Error)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas._Error {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PutMemoryFile.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PutMemoryFile.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// `If-Match` names a file that was removed since you read it (code `memory_file_not_found`).
+            ///
+            /// - Remark: Generated from `#/paths//memory/files/{path}/put(putMemoryFile)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.PutMemoryFile.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.PutMemoryFile.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/memory/files/{path}/PUT/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/memory/files/{path}/PUT/responses/503/content/application\/json`.
+                    case json(Components.Schemas._Error)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas._Error {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PutMemoryFile.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PutMemoryFile.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// The memory store could not run (code `memory_unavailable`). Nothing was changed.
+            ///
+            /// - Remark: Generated from `#/paths//memory/files/{path}/put(putMemoryFile)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.PutMemoryFile.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.PutMemoryFile.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
                             response: self
                         )
                     }

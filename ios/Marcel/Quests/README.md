@@ -23,7 +23,7 @@ out of the app target's own sources by itself.
   the live stream, so turning it on fetches `GET /tasks?archived=true` into the cache.
 - **Swipe** a running or queued quest to stop it (after a confirmation), a finished one to archive it. The hub's
   answer goes into the cache at once; `task.updated` confirms it later. A stop the NUC did not answer (503) leaves the
-  quest running and says so; the generated client is from contract 0.2.0, so that 503 arrives as "undocumented".
+  quest running and says so.
 - The hub comes from what pairing stored (address in UserDefaults, token in the Keychain); nothing is written there.
 
 ## Tests (`make -C ios quests-test`, part of `make ios-check`)
