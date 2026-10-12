@@ -84,12 +84,23 @@ public protocol APIProtocol: Sendable {
     ///
     /// Returns as soon as the message is stored. Marcel's answer arrives later as a
     /// `message.created` event. `client_id` makes retries safe: the same `client_id` returns the
-    /// same message instead of a duplicate.
+    /// same message instead of a duplicate. With `artifact_id` ("Ask about this", B-21) the item
+    /// is attached: the stored message carries it, and Marcel is told which item it is about; an
+    /// unknown item answers 404 `artifact_not_found`. New in 0.5.0.
     ///
     ///
     /// - Remark: HTTP `POST /conversations/{conversation_id}/messages`.
     /// - Remark: Generated from `#/paths//conversations/{conversation_id}/messages/post(sendMessage)`.
     func sendMessage(_ input: Operations.SendMessage.Input) async throws -> Operations.SendMessage.Output
+    /// One message by id, in any of your conversations. New in 0.5.0.
+    ///
+    /// For a `marcel://message/<id>` deep link that arrives before the live stream has the
+    /// message: `conversation_id` says whether it is in the main conversation or a side thread.
+    ///
+    ///
+    /// - Remark: HTTP `GET /messages/{message_id}`.
+    /// - Remark: Generated from `#/paths//messages/{message_id}/get(getMessage)`.
+    func getMessage(_ input: Operations.GetMessage.Input) async throws -> Operations.GetMessage.Output
     /// Reply in thread — open (or reopen) the side thread on a message (B-08).
     ///
     /// Idempotent: a message has at most one side thread, and calling this again returns it.
@@ -158,6 +169,15 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /approvals`.
     /// - Remark: Generated from `#/paths//approvals/get(listApprovals)`.
     func listApprovals(_ input: Operations.ListApprovals.Input) async throws -> Operations.ListApprovals.Output
+    /// One approval by id, in any state. New in 0.5.0.
+    ///
+    /// For a `marcel://approval/<id>` deep link: the approval names its task, and still answers
+    /// once `GET /approvals` no longer lists it.
+    ///
+    ///
+    /// - Remark: HTTP `GET /approvals/{approval_id}`.
+    /// - Remark: Generated from `#/paths//approvals/{approval_id}/get(getApproval)`.
+    func getApproval(_ input: Operations.GetApproval.Input) async throws -> Operations.GetApproval.Output
     /// Approve or deny (B-12). The first answer wins, from the app or a terminal.
     ///
     /// - Remark: HTTP `POST /approvals/{approval_id}`.
@@ -183,6 +203,16 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /artifacts/{artifact_id}/versions`.
     /// - Remark: Generated from `#/paths//artifacts/{artifact_id}/versions/get(listArtifactVersions)`.
     func listArtifactVersions(_ input: Operations.ListArtifactVersions.Input) async throws -> Operations.ListArtifactVersions.Output
+    /// Pin an item to another project (B-21, B-31), like moving a task. New in 0.5.0.
+    ///
+    /// A hub-only change; Marcel is not woken. The item keeps its versions and its task; only
+    /// `project_id` changes. Moving it to the project it is in already answers 200 and changes
+    /// nothing.
+    ///
+    ///
+    /// - Remark: HTTP `POST /artifacts/{artifact_id}/move`.
+    /// - Remark: Generated from `#/paths//artifacts/{artifact_id}/move/post(moveArtifact)`.
+    func moveArtifact(_ input: Operations.MoveArtifact.Input) async throws -> Operations.MoveArtifact.Output
     /// The Map (B-30). The `inbox` project always exists.
     ///
     /// Every agent has exactly one project with slug `inbox`, named "Inbox", created with the agent. Threads
@@ -411,7 +441,9 @@ extension APIProtocol {
     ///
     /// Returns as soon as the message is stored. Marcel's answer arrives later as a
     /// `message.created` event. `client_id` makes retries safe: the same `client_id` returns the
-    /// same message instead of a duplicate.
+    /// same message instead of a duplicate. With `artifact_id` ("Ask about this", B-21) the item
+    /// is attached: the stored message carries it, and Marcel is told which item it is about; an
+    /// unknown item answers 404 `artifact_not_found`. New in 0.5.0.
     ///
     ///
     /// - Remark: HTTP `POST /conversations/{conversation_id}/messages`.
@@ -425,6 +457,23 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// One message by id, in any of your conversations. New in 0.5.0.
+    ///
+    /// For a `marcel://message/<id>` deep link that arrives before the live stream has the
+    /// message: `conversation_id` says whether it is in the main conversation or a side thread.
+    ///
+    ///
+    /// - Remark: HTTP `GET /messages/{message_id}`.
+    /// - Remark: Generated from `#/paths//messages/{message_id}/get(getMessage)`.
+    public func getMessage(
+        path: Operations.GetMessage.Input.Path,
+        headers: Operations.GetMessage.Input.Headers = .init()
+    ) async throws -> Operations.GetMessage.Output {
+        try await getMessage(Operations.GetMessage.Input(
+            path: path,
+            headers: headers
         ))
     }
     /// Reply in thread — open (or reopen) the side thread on a message (B-08).
@@ -593,6 +642,23 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// One approval by id, in any state. New in 0.5.0.
+    ///
+    /// For a `marcel://approval/<id>` deep link: the approval names its task, and still answers
+    /// once `GET /approvals` no longer lists it.
+    ///
+    ///
+    /// - Remark: HTTP `GET /approvals/{approval_id}`.
+    /// - Remark: Generated from `#/paths//approvals/{approval_id}/get(getApproval)`.
+    public func getApproval(
+        path: Operations.GetApproval.Input.Path,
+        headers: Operations.GetApproval.Input.Headers = .init()
+    ) async throws -> Operations.GetApproval.Output {
+        try await getApproval(Operations.GetApproval.Input(
+            path: path,
+            headers: headers
+        ))
+    }
     /// Approve or deny (B-12). The first answer wins, from the app or a terminal.
     ///
     /// - Remark: HTTP `POST /approvals/{approval_id}`.
@@ -660,6 +726,26 @@ extension APIProtocol {
         try await listArtifactVersions(Operations.ListArtifactVersions.Input(
             path: path,
             headers: headers
+        ))
+    }
+    /// Pin an item to another project (B-21, B-31), like moving a task. New in 0.5.0.
+    ///
+    /// A hub-only change; Marcel is not woken. The item keeps its versions and its task; only
+    /// `project_id` changes. Moving it to the project it is in already answers 200 and changes
+    /// nothing.
+    ///
+    ///
+    /// - Remark: HTTP `POST /artifacts/{artifact_id}/move`.
+    /// - Remark: Generated from `#/paths//artifacts/{artifact_id}/move/post(moveArtifact)`.
+    public func moveArtifact(
+        path: Operations.MoveArtifact.Input.Path,
+        headers: Operations.MoveArtifact.Input.Headers = .init(),
+        body: Operations.MoveArtifact.Input.Body
+    ) async throws -> Operations.MoveArtifact.Output {
+        try await moveArtifact(Operations.MoveArtifact.Input(
+            path: path,
+            headers: headers,
+            body: body
         ))
     }
     /// The Map (B-30). The `inbox` project always exists.

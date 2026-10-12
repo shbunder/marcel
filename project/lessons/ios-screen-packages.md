@@ -39,9 +39,13 @@
 - **App wiring that must be tested goes in a package** (S-12.10): the app target has no test bundle, so the link
   router, the push handler and the push categories live in MarcelSettings, and `AppDelegate` / `RootView` only create
   and connect them. "Cold start" is tested there: deliver the link before `attach`, then attach as the tabs do.
-- **A hub route that is not built yet answers a bare 404** (`{"detail": "Not Found"}`): for an operation whose contract
-  lists a 404, the generated client tries to decode it as `Error`, fails, and throws a `ClientError` whose `response`
-  holds the status. Catch that (`LiveSettingsService.call`) to say "not available yet" instead of "something went wrong".
+- **A hub route that is not built yet answers 404 with the generic code `not_found`** (`hub/…/auth/errors.py`; 405
+  `method_not_allowed` when the path exists for another method). For an operation whose contract lists a 404 that
+  body **decodes** as the contract's `Error`, so `.notFound` alone cannot tell "gone" from "not built": check the code
+  (`message_not_found`, `device_not_found`, … mean gone; `not_found` means not built — S-12.11 review,
+  `SettingsError.missing`). A body that does not decode (FastAPI's bare `{"detail": "Not Found"}`) throws a
+  `ClientError` whose `response` holds the status; `LiveSettingsService.call` reads that as "not available yet". Test
+  fakes should answer unknown routes with the hub's real body, not the bare one.
 - **Silkscreen (the label face) has capitals only**: anything case-sensitive (an ntfy topic, an id) goes in the body
   face (`PixelText(role: .body)`), or it reads wrong.
 - **Notification actions can run with no screen** (S-12.10 review): iOS starts the app in the background for a

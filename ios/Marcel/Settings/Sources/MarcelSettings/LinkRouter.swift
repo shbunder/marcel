@@ -28,12 +28,13 @@ public enum LinkDestination: Equatable, Hashable, Sendable {
 /// `LiveLinkLookup`; tests use a fake hub.
 @MainActor
 public protocol LinkLookup {
-    /// The task an approval belongs to (`GET /approvals`; the contract has no `GET /approvals/{id}`).
+    /// The task an approval belongs to (`GET /approvals/{id}`, answered or not); nil when the hub has no such approval.
     func taskId(forApproval id: String) async throws -> String?
     /// The live project with this slug: the cache first, then `GET /projects`.
     func projectId(slug: String) async throws -> String?
-    /// Where a message lives, if the phone has it: its conversation and, for a quest's own thread, its task.
-    func message(id: String) -> (conversationId: String, taskId: String?)?
+    /// Where a message lives (`GET /messages/{id}`): its conversation and, for a quest's own thread, its task; nil
+    /// when the hub has no such message.
+    func message(id: String) async throws -> (conversationId: String, taskId: String?)?
     /// The main conversation, when known.
     var mainConversationId: String? { get }
 }
@@ -169,9 +170,9 @@ public final class LinkRouter {
             guard let projectId = try await lookup.projectId(slug: slug) else { return .failure(.noProject) }
             return .success(.room(projectId: projectId))
         case .message(let id):
+            guard let found = try await lookup.message(id: id) else { return .failure(.noMessage) }
             // A message in a quest's own thread lives with that quest; the app has no other thread view.
-            if let found = lookup.message(id: id), let taskId = found.taskId,
-               let main = lookup.mainConversationId, found.conversationId != main {
+            if let taskId = found.taskId, let main = lookup.mainConversationId, found.conversationId != main {
                 return .success(.quest(taskId: taskId))
             }
             return .success(.chat(messageId: id))
@@ -186,6 +187,7 @@ public final class LinkRouter {
 /// Why a well-formed link still led nowhere.
 enum LinkFailure: Error, Equatable {
     case noApproval
+    case noMessage
     case noProject
     case offline
     case refused
@@ -205,6 +207,7 @@ enum LinkFailure: Error, Equatable {
     var words: String {
         switch self {
         case .noApproval: "That question has gone: it was answered or it expired."
+        case .noMessage: "That message isn't on the hub any more, so there's nothing to open."
         case .noProject: "Marcel has no project at that link any more. It may have been archived."
         case .offline: "Couldn't reach the hub to open that link. Check the connection and try again."
         case .refused: "The hub no longer accepts this phone, so that link couldn't be opened. Pair it again."

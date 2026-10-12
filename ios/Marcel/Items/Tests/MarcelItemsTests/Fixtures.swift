@@ -212,8 +212,9 @@ final class FakeItemsService: ItemsService {
     ]
     var contentError: ItemsError?
     var sendError: ItemsError?
+    var moveError: ItemsError?
     var asked: [String] = []
-    var sent: [(text: String, conversationId: String, projectId: String)] = []
+    var sent: [(text: String, conversationId: String, projectId: String, artifactId: String)] = []
 
     func artifacts() async throws -> [Artifact] {
         asked.append("artifacts")
@@ -243,10 +244,23 @@ final class FakeItemsService: ItemsService {
         return Fx.conversation
     }
 
-    func send(text: String, clientId: String, conversationId: String, projectId: String) async throws -> Message {
+    func send(text: String, clientId: String, conversationId: String, projectId: String, artifactId: String)
+        async throws -> Message
+    {
         asked.append("send \(projectId)")
         if let sendError { throw sendError }
-        sent.append((text, conversationId, projectId))
-        return Fx.decode(Fx.messageJSON("msg_\(sent.count)", text: text, project: projectId, clientId: clientId))
+        sent.append((text, conversationId, projectId, artifactId))
+        var json = Fx.messageJSON("msg_\(sent.count)", text: text, project: projectId, clientId: clientId)
+        json["artifact_id"] = artifactId
+        return Fx.decode(json)
+    }
+
+    /// Pins the item: answers it with its new project, as the hub does.
+    func move(artifactId: String, to projectId: String) async throws -> Artifact {
+        asked.append("move \(artifactId) \(projectId)")
+        if let moveError { throw moveError }
+        guard var json = Fx.allArtifacts.first(where: { $0["id"] as? String == artifactId }) else { throw ItemsError.gone }
+        json["project_id"] = projectId
+        return Fx.artifact(json)
     }
 }

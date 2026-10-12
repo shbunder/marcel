@@ -21,7 +21,12 @@ public struct LiveLinkLookup: LinkLookup {
     public var mainConversationId: String? { main() }
 
     public func taskId(forApproval id: String) async throws -> String? {
-        try await service.approvals().first { $0.id == id }?.taskId
+        do {
+            return try await service.approval(id: id)?.taskId
+        } catch SettingsError.notAvailableYet {
+            // A hub from before app API 0.5 has no `GET /approvals/{id}`: look among the open ones.
+            return try await service.approvals().first { $0.id == id }?.taskId
+        }
     }
 
     public func projectId(slug: String) async throws -> String? {
@@ -42,10 +47,15 @@ public struct LiveLinkLookup: LinkLookup {
         return nil
     }
 
-    public func message(id: String) -> (conversationId: String, taskId: String?)? {
-        var fetch = FetchDescriptor<CachedMessage>(predicate: #Predicate { $0.id == id })
-        fetch.fetchLimit = 1
-        guard let row = try? cache.container.mainContext.fetch(fetch).first else { return nil }
-        return (row.conversationId, row.taskId)
+    public func message(id: String) async throws -> (conversationId: String, taskId: String?)? {
+        do {
+            return try await service.message(id: id).map { ($0.conversationId, $0.taskId) }
+        } catch SettingsError.notAvailableYet {
+            // A hub from before app API 0.5 has no `GET /messages/{id}`: the cache if it has it, else the chat.
+            var fetch = FetchDescriptor<CachedMessage>(predicate: #Predicate { $0.id == id })
+            fetch.fetchLimit = 1
+            if let row = try? cache.container.mainContext.fetch(fetch).first { return (row.conversationId, row.taskId) }
+            return (mainConversationId ?? "", nil)
+        }
     }
 }

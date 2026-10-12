@@ -54,7 +54,7 @@ final class MapSnapshotTests: XCTestCase {
             RoomStill(room: try Self.wireframeRoom, board: .loading, notes: NotesState.empty,
                       draft: "And the heat pump?",
                       problem: "That project is archived, so the quest stayed where it was.",
-                      sent: "Sent to Marcel about Home energy. His answer comes in Chat."),
+                      sent: "Sent to Marcel about Home energy. The answer comes in Chat."),
             named: "Room-sent", variants: [.light, .dark], padding: 0)
     }
 

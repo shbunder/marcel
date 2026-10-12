@@ -95,7 +95,7 @@ enum Fx {
 }
 
 /// A hub that answers the contract's routes from a table, through the real generated client. Unknown routes answer
-/// as an unbuilt FastAPI route does: a bare 404 `{"detail": "Not Found"}`.
+/// as the real hub answers a route it does not serve: 404 with its generic `not_found` error (`hub/…/auth/errors.py`).
 final class FakeHub: ClientTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var table: [String: (Int, String)] = [:]
@@ -111,6 +111,18 @@ final class FakeHub: ClientTransport, @unchecked Sendable {
         self["GET /health"] = (200, Fx.json(Fx.health))
         self["GET /approvals"] = (200, Fx.json(Fx.approvals))
         self["GET /projects"] = (200, Fx.json([Fx.project("prj_energy", slug: "energy", name: "Energy contracts")]))
+        // By id (app API 0.5): one open approval, one answered (no longer in `GET /approvals`), and messages the
+        // phone has cached and one it has not.
+        self["GET /approvals/apr_engie"] = (200, Fx.json(Fx.approvals[0]))
+        self["GET /approvals/apr_done"] = (200, Fx.json(Fx.approvals[0].merging(
+            ["id": "apr_done", "task_id": "tsk_garden", "state": "approved"]) { $1 }))
+        self["GET /approvals/apr_gone"] = (404, Fx.error("approval_not_found", "No such approval."))
+        self["GET /messages/msg_main"] = (200, Fx.json(Fx.message("msg_main", conversation: "cnv_main")))
+        self["GET /messages/msg_side"] = (200, Fx.json(Fx.message("msg_side", conversation: "cnv_side_1",
+                                                                  task: "tsk_energy")))
+        self["GET /messages/msg_fresh"] = (200, Fx.json(Fx.message("msg_fresh", conversation: "cnv_side_2",
+                                                                   task: "tsk_garden")))
+        self["GET /messages/msg_gone"] = (404, Fx.error("message_not_found", "No such message."))
     }
 
     subscript(route: String) -> (Int, String)? {
@@ -141,7 +153,7 @@ final class FakeHub: ClientTransport, @unchecked Sendable {
             return table[route]
         }
         if offline { throw URLError(.notConnectedToInternet) }
-        let (status, json) = answer ?? (404, #"{"detail":"Not Found"}"#)
+        let (status, json) = answer ?? (404, Fx.error("not_found", "There is nothing at that address."))
         var fields = HTTPFields()
         fields[.contentType] = "application/json"
         return (HTTPResponse(status: .init(code: status), headerFields: fields), json.isEmpty ? nil : HTTPBody(json))

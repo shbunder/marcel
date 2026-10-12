@@ -1,4 +1,5 @@
 import MarcelChat
+import MarcelItems
 import MarcelKit
 import MarcelQuests
 import PixelKit
@@ -122,6 +123,7 @@ struct RoomQuest: View {
 /// The project's notes, read-only: the first lines of `memory/projects/<slug>.md`.
 struct NotesView: View {
     var state: NotesState?
+    @Environment(\.agentName) private var agentName
 
     static let maxLines = 6
 
@@ -134,7 +136,7 @@ struct NotesView: View {
             guard !all.isEmpty else { return ["No notes yet."] }
             let more = all.count - Self.maxLines
             return Array(all.prefix(Self.maxLines)) + (more > 0 ? ["…and \(more) more \(more == 1 ? "line" : "lines")."] : [])
-        case .empty?: return ["No notes yet. Marcel writes down what every quest here should know."]
+        case .empty?: return ["No notes yet. \(agentName) writes down what every quest here should know."]
         case .failed(let problem): return [problem]
         case .loading?, nil: return ["Loading the notes…"]
         }
@@ -299,7 +301,9 @@ struct RoomComposer: View {
     var focused: FocusState<Bool>.Binding?
     var send: () -> Void
 
-    static let placeholder = "Tell Marcel about this project…"
+    @Environment(\.agentName) private var agentName
+
+    static func placeholder(name: String) -> String { "Tell \(name) about this project…" }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -308,7 +312,7 @@ struct RoomComposer: View {
                     .padding(.horizontal, MapMetrics.inset.leading)
                     .padding(.top, PixelMetrics.steps(2))
             }
-            Composer(text: $draft, placeholder: Self.placeholder, focused: focused, send: send)
+            Composer(text: $draft, placeholder: Self.placeholder(name: agentName), focused: focused, send: send)
         }
     }
 }

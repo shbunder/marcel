@@ -1,3 +1,4 @@
+import MarcelItems
 import PixelKit
 import SwiftUI
 
@@ -59,13 +60,14 @@ struct TileView: View {
 /// "+ New": a dashed tile. Marcel makes projects, so it opens the chat with the request started.
 struct NewTile: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.agentName) private var agentName
 
     var body: some View {
         let theme = PixelTheme(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
             PixelText("+ New", role: .label)
                 .foregroundStyle(theme.text.color)
-            PixelText("or just ask Marcel", role: .detail)
+            PixelText("or just ask \(agentName)", role: .detail)
                 .foregroundStyle(theme.muted.color)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -78,7 +80,7 @@ struct NewTile: View {
                                                                           dash: [PixelMetrics.steps(3)])))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("New project")
-        .accessibilityHint("Opens the chat to ask Marcel for one")
+        .accessibilityHint("Opens the chat to ask \(agentName) for one")
     }
 }
 
@@ -123,9 +125,10 @@ struct TileGrid<Tile: View, New: View>: View {
 /// What an empty map says.
 struct EmptyMap: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.agentName) private var agentName
 
     var body: some View {
-        PixelText("No projects yet. Marcel files every thread in one; ask him to start one.", role: .body)
+        PixelText("No projects yet. \(agentName) files every thread in one; ask to start one.", role: .body)
             .foregroundStyle(PixelTheme(scheme).muted.color)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)

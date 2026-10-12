@@ -205,6 +205,7 @@ struct SettingsContent: View {
             switch model.usage {
             case .loading: SettingsNote(text: "Loading…")
             case .notAvailableYet: SettingsNote(text: "Not available yet: the hub doesn't read plan usage yet.")
+            case .unavailable(let words): SettingsNote(text: words)
             case .failed(let words): SettingsNote(text: words, accent: true)
             case .loaded(let usage):
                 ForEach(text.meters(usage), id: \.label) { UsageMeterView(meter: $0) }
@@ -218,7 +219,7 @@ struct SettingsContent: View {
             switch model.schedules {
             case .loading: SettingsNote(text: "Loading…")
             case .notAvailableYet: SettingsNote(text: "Not available yet: the hub can't list schedules yet.")
-            case .failed(let words): SettingsNote(text: words, accent: true)
+            case .failed(let words), .unavailable(let words): SettingsNote(text: words, accent: true)
             case .loaded(let list) where list.isEmpty:
                 SettingsNote(text: "Nothing scheduled. Ask Marcel in the chat: “every Monday, …”.")
             case .loaded(let list):
@@ -243,7 +244,7 @@ struct SettingsContent: View {
             switch model.devices {
             case .loading: SettingsNote(text: "Loading…")
             case .notAvailableYet: SettingsNote(text: "Not available yet: the hub can't list devices yet.")
-            case .failed(let words): SettingsNote(text: words, accent: true)
+            case .failed(let words), .unavailable(let words): SettingsNote(text: words, accent: true)
             case .loaded(let list):
                 ForEach(list, id: \.id) { device in
                     SettingsRow(device.name, detail: text.deviceLine(device)) {
