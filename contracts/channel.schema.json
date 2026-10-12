@@ -84,7 +84,8 @@
         "conversation_id": { "type": "string" },
         "text": { "type": "string" },
         "quoted_message_id": { "type": "string" },
-        "project_id": { "type": "string", "description": "Sent from a project room (B-32): which project the message is about. The server passes it in `meta`." }
+        "project_id": { "type": "string", "description": "Sent from a project room (B-32): which project the message is about. The server passes it in `meta`." },
+        "artifact_id": { "type": "string", "description": "The item the owner attached (\"Ask about this\", app-api.yaml `NewMessage.artifact_id`). The server passes it in `meta`, so the brain can read the item." }
       },
       "examples": [{ "type": "user_message", "seq": 41, "message_id": "msg_01J9ZQZ1", "conversation_id": "cnv_main_marcel", "text": "Can you fix the flaky login test in shbunder/marcel?" }]
     },
@@ -174,6 +175,7 @@
         "call_id": { "type": "string" },
         "kind": { "enum": ["started", "progress", "artifact", "done", "failed"] },
         "text": { "type": "string" },
+        "next": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "description": "For `progress`: the steps the worker still plans, in order, after `text`. Each progress report replaces the previous list. The hub copies it into the task event (app-api.yaml `ProgressEventData.next`)." },
         "summary": { "type": "string" },
         "artifact": { "$ref": "#/$defs/Artifact" },
         "artifacts": { "type": "array", "items": { "$ref": "#/$defs/Artifact" } }

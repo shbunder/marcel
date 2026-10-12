@@ -3,7 +3,8 @@
 The tools Marcel's brain session uses to act: start, steer, stop and file threads; keep projects; save
 artifacts; read and write memory; schedules; push the owner; read plan usage. A small MCP stdio server
 (`python3 -m marcel_tools`, standard library only) that turns each tool call into one HTTP call to the
-hub's `/brain` routes (`hub/src/marcel_hub/brain_api.py`).
+hub's `/brain` routes (`hub/src/marcel_hub/brain_api.py`), written down in
+`contracts/brain-api.yaml`.
 
 The plugin starts it for every session (`.claude-plugin/plugin.json`, server `tools`), so Claude Code
 names the tools `mcp__plugin_marcel_tools__<tool>`. Only the brain and its side threads get answers;

@@ -1,0 +1,863 @@
+openapi: 3.1.0
+info:
+  title: Marcel hub — brain API
+  version: 0.1.0
+  description: |
+    The routes Marcel's brain tools call (`plugins/marcel/tools`, the `tools` MCP server of the
+    marcel plugin). Each tool call is one HTTP call to the hub on the NUC; the hub side is
+    `hub/src/marcel_hub/brain_api.py`. Written down from what both do today (S-05.3).
+
+    **Local only.** The routes live under `/brain`, outside `/api`, and the Cloudflare tunnel
+    forwards only `/api/*`. As a backstop, a request carrying Cloudflare's `cf-connecting-ip` header
+    is answered 404 `not_found`, exactly like a route that does not exist.
+
+    **Who may call.** Every route needs both headers:
+    - `X-Marcel-Secret`: the hub secret (`<data_dir>/hub-secret` on the hub, the channel's; the
+      plugin reads it from `$CLAUDE_PLUGIN_DATA/hub-secret`). No device token is accepted here, and
+      the secret is accepted nowhere under `/api`.
+    - `X-Marcel-Session`: the caller's `CLAUDE_CODE_SESSION_ID`. It must be a conversation's
+      `brain_session_id`: the brain of the main conversation or a side thread forked from it.
+
+    The checks run in this order: tunnel header (404 `not_found`), hub secret missing or shorter
+    than the channel's minimum on the hub (503 `no_secret`), wrong secret (401 `bad_secret`),
+    unknown session (401 `unknown_session`), a worker or adopted session (403 `not_brain`).
+
+    **Its own agent only.** Every task, project and schedule is looked up within the caller's
+    agent; another agent's answers 404, exactly like something that does not exist. A project is
+    named by its slug or its id (`project` fields and path parameters); for a slug, a live
+    project is preferred over an archived one.
+
+    **Bodies.** A request body is read no further than 64 KB (a memory write: 2 MB plus 4 KB);
+    past that the hub answers 413 `too_large`. Every text field has a maximum length.
+
+    **Errors** have app-api.yaml's `Error` shape; the `message` is written for the brain to act
+    on. The codes this API adds: `bad_secret`, `unknown_session` (401), `not_brain` (403),
+    `no_secret` (503), `not_set_up` (503: a part of the hub built by a later story, or no reading
+    yet for usage), `too_large` (413), `project_not_found`, `message_not_found`,
+    `task_not_found`, `memory_file_not_found`, `schedule_not_found` (404), `project_archived`,
+    `slug_taken`, `task_finished`, `memory_conflict`, `schedule_builtin` (409),
+    `invalid_memory_path`, `memory_file_too_big`, `bad_request` (400), `runner_unreachable`,
+    `memory_unavailable` (503). An unexpected crash is 500 `internal_error`.
+servers:
+  - url: http://127.0.0.1:7420/brain
+    description: On the NUC (`MARCEL_HUB_URL` overrides the host for development)
+security:
+  - secret: []
+    session: []
+
+tags:
+  - name: tasks
+  - name: projects
+  - name: artifacts
+  - name: memory
+  - name: schedules
+  - name: notify
+
+paths:
+  /tasks:
+    post:
+      tags: [tasks]
+      operationId: brainSpawnTask
+      summary: tasks_spawn — start a thread.
+      description: |
+        `location` `auto` is refused (400) with a hint to choose, so the decision shows in the
+        brain's own turn. A `cloud` task needs `repo`. `message_id` must be a message in the
+        caller's own conversation (404 `message_not_found` otherwise); it becomes the task's
+        parent message. Without `project` the task goes to the agent's Inbox. Without `model`
+        the agent's worker model is used.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewTask' }
+      responses:
+        '201':
+          description: Started (or queued).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '404':
+          description: No such project (`project_not_found`) or message (`message_not_found`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '409': { $ref: '#/components/responses/ProjectArchived' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '503': { $ref: '#/components/responses/NoSecret' }
+    get:
+      tags: [tasks]
+      operationId: brainListTasks
+      summary: tasks_list — threads, most recent first, at most 50.
+      parameters:
+        - name: state
+          in: query
+          description: One or more `TaskState` values, comma-separated. An unknown one is 400.
+          schema: { type: string }
+        - name: project
+          in: query
+          description: A project slug or id.
+          schema: { type: string }
+        - name: archived
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '404': { $ref: '#/components/responses/ProjectNotFound' }
+        '503': { $ref: '#/components/responses/NoSecret' }
+
+  /tasks/{task_id}:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      tags: [tasks]
+      operationId: brainGetTask
+      summary: tasks_get — one thread and its last ten events.
+      responses:
+        '200':
+          description: The task.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '404': { $ref: '#/components/responses/TaskNotFound' }
+        '503': { $ref: '#/components/responses/NoSecret' }
+
+  /tasks/{task_id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      tags: [tasks]
+      operationId: brainSteerTask
+      summary: tasks_send — steer a thread (a note with `author` `marcel`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Steer' }
+      responses:
+        '200':
+          description: Sent.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '404': { $ref: '#/components/responses/TaskNotFound' }
+        '409':
+          description: The task is `stopped` or `failed` (code `task_finished`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '503': { $ref: '#/components/responses/NoSecret' }
+
+  /tasks/{task_id}/stop:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      tags: [tasks]
+      operationId: brainStopTask
+      summary: tasks_stop — stop a thread.
+      responses:
+        '200':
+          description: Stopped.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Task' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '404': { $ref: '#/components/responses/TaskNotFound' }
+        '503':
+          description: |
+            The runner could not be reached, so the task was not stopped (code
+            `runner_unreachable`), or the hub has no secret (`no_secret`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+
+  /tasks/{task_id}/move:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      tags: [tasks, projects]
+      operationId: brainMoveTask
+      summary: tasks_move — file a thread under another project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Move' }
+      responses:
+        '200':
+          description: Moved.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '404':
+          description: No such task (`task_not_found`) or project (`project_not_found`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '409': { $ref: '#/components/responses/ProjectArchived' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '503': { $ref: '#/components/responses/NoSecret' }
+
+  /projects:
+    get:
+      tags: [projects]
+      operationId: brainListProjects
+      summary: projects_list — projects with counts, most recent activity first, Inbox last.
+      parameters:
+        - name: archived
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The projects.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: 'app-api.yaml#/components/schemas/Project' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '503': { $ref: '#/components/responses/NoSecret' }
+    post:
+      tags: [projects]
+      operationId: brainCreateProject
+      summary: projects_create — a new project and its notes file.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewProject' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Project' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '409':
+          description: A live project already has that slug (code `slug_taken`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '503': { $ref: '#/components/responses/NoSecret' }
+
+  /projects/{project}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectRef'
+    patch:
+      tags: [projects]
+      operationId: brainUpdateProject
+      summary: projects_update — change a project. At least one field (400 otherwise).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectUpdate' }
+      responses:
+        '200':
+          description: Changed.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Project' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '404': { $ref: '#/components/responses/ProjectNotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '503': { $ref: '#/components/responses/NoSecret' }
+
+  /projects/{project}/notes:
+    parameters:
+      - $ref: '#/components/parameters/ProjectRef'
+    post:
+      tags: [projects]
+      operationId: brainBoardNote
+      summary: board_note — a line on the project's board.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BoardNote' }
+      responses:
+        '200':
+          description: Added.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BoardNoteAdded' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '404': { $ref: '#/components/responses/ProjectNotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '503': { $ref: '#/components/responses/NotSetUp' }
+
+  /artifacts:
+    post:
+      tags: [artifacts]
+      operationId: brainPublishArtifact
+      summary: artifacts_publish — save an artifact, or a new version of one.
+      description: |
+        Stored the same way as a worker's `report` artifact (channel.schema.json `Artifact`),
+        filed under `project` (the agent's Inbox by default) with `updated_by` "Marcel". With
+        `artifact_id`, a new version of one of that project's items (B-34); an item of another
+        project, or a board, is refused (400).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewArtifact' }
+      responses:
+        '201':
+          description: Saved.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Artifact' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '404': { $ref: '#/components/responses/ProjectNotFound' }
+        '409': { $ref: '#/components/responses/ProjectArchived' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '503': { $ref: '#/components/responses/NotSetUp' }
+
+  /memory:
+    get:
+      tags: [memory]
+      operationId: brainReadMemory
+      summary: memory_read — one memory file with its etag; without `path`, the list.
+      parameters:
+        - name: path
+          in: query
+          schema: { type: string, maxLength: 1024 }
+      responses:
+        '200':
+          description: The file (`MemoryFile`) with `path`, the list (`MemoryTree`) without.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: 'app-api.yaml#/components/schemas/MemoryFile'
+                  - $ref: 'app-api.yaml#/components/schemas/MemoryTree'
+        '400':
+          description: Not a memory path (`invalid_memory_path`) or the file is too big (`memory_file_too_big`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '404':
+          description: No such memory file (`memory_file_not_found`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '503': { $ref: '#/components/responses/MemoryUnavailable' }
+    put:
+      tags: [memory]
+      operationId: brainWriteMemory
+      summary: 'memory_write — save and commit a memory file (`memory: <path> (agent)`).'
+      description: |
+        Without `etag` the file must not exist yet; with it, `etag` must be the one last read.
+        Anything else is 409 `memory_conflict`, whose message names the current etag.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MemoryWrite' }
+      responses:
+        '200':
+          description: Saved.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/MemoryFile' }
+        '400':
+          description: |
+            A bad body (`bad_request`, also for content over 1 MB), not a memory path
+            (`invalid_memory_path`), or the file on disk is too big to replace (`memory_file_too_big`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '404':
+          description: The file named by `etag` was removed since it was read (`memory_file_not_found`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '409':
+          description: Changed since it was read, or exists already (`memory_conflict`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '503': { $ref: '#/components/responses/MemoryUnavailable' }
+
+  /schedules:
+    post:
+      tags: [schedules]
+      operationId: brainCreateSchedule
+      summary: schedule_create — recurring work.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewSchedule' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Schedule' }
+        '400':
+          description: A bad body, a `cron` without five fields, or an unknown `tz` (`bad_request`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '503': { $ref: '#/components/responses/NotSetUp' }
+    get:
+      tags: [schedules]
+      operationId: brainListSchedules
+      summary: schedule_list — every schedule of the agent.
+      responses:
+        '200':
+          description: The schedules.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: 'app-api.yaml#/components/schemas/Schedule' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '503': { $ref: '#/components/responses/NotSetUp' }
+
+  /schedules/{schedule_id}:
+    parameters:
+      - name: schedule_id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [schedules]
+      operationId: brainDeleteSchedule
+      summary: schedule_delete — remove one.
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduleDeleted' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '404':
+          description: No such schedule on this agent (`schedule_not_found`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '409':
+          description: A built-in schedule; it can be paused in the app, not deleted (`schedule_builtin`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '503': { $ref: '#/components/responses/NotSetUp' }
+
+  /notify:
+    post:
+      tags: [notify]
+      operationId: brainNotify
+      summary: notify — post in the main chat and push it as Marcel's own notice.
+      description: |
+        The text is posted as Marcel's message in the main conversation, then pushed with app-api
+        `PushNotification.category` `note` (`level` sets how loud), deep link
+        `marcel://message/<message_id>`. At most 6 pushes per hour per agent: past that the
+        message is still posted, the push is dropped and logged, and `pushed` is false. `broke`
+        stays for the hub's own system faults.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Notify' }
+      responses:
+        '200':
+          description: Posted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Notified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '503': { $ref: '#/components/responses/NoSecret' }
+
+  /usage:
+    get:
+      tags: [notify]
+      operationId: brainGetUsage
+      summary: usage_get — plan usage and the guard.
+      description: |
+        The same reading as app-api `GET /usage`. Before the usage guard's first reading, or on a
+        hub without a runner, the answer is 503 `not_set_up` (the app API says `no_reading` for
+        the same case).
+      responses:
+        '200':
+          description: The latest reading.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Usage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '503': { $ref: '#/components/responses/NotSetUp' }
+
+components:
+  securitySchemes:
+    secret:
+      type: apiKey
+      in: header
+      name: X-Marcel-Secret
+      description: The hub secret (`$CLAUDE_PLUGIN_DATA/hub-secret`).
+    session:
+      type: apiKey
+      in: header
+      name: X-Marcel-Session
+      description: The caller's `CLAUDE_CODE_SESSION_ID`; must be a brain or side-thread session.
+
+  parameters:
+    TaskId:
+      name: task_id
+      in: path
+      required: true
+      schema: { type: string }
+    ProjectRef:
+      name: project
+      in: path
+      required: true
+      description: A project's slug or id, at most 80 characters.
+      schema: { type: string, maxLength: 80 }
+
+  responses:
+    BadRequest:
+      description: The request was not valid (`bad_request`). `message` says what to change.
+      content:
+        application/json:
+          schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+    Unauthorized:
+      description: The secret does not match (`bad_secret`), or the session is no conversation's brain (`unknown_session`).
+      content:
+        application/json:
+          schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+    NotBrain:
+      description: A worker or adopted session (`not_brain`); a worker reports with the channel's `report` tool.
+      content:
+        application/json:
+          schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+    NoSecret:
+      description: The hub has no secret, so it refuses the brain tools (`no_secret`). Redeploy to write it.
+      content:
+        application/json:
+          schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+    NotSetUp:
+      description: |
+        This part of the hub is not built or not ready yet (`not_set_up`); nothing was stored. Also
+        `no_secret`, as on every route.
+      content:
+        application/json:
+          schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+    MemoryUnavailable:
+      description: The memory repository cannot be read or written (`memory_unavailable`), or `no_secret`.
+      content:
+        application/json:
+          schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+    TooLarge:
+      description: The body is over the cap (`too_large`).
+      content:
+        application/json:
+          schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+    ProjectNotFound:
+      description: No such project on this agent (`project_not_found`).
+      content:
+        application/json:
+          schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+    ProjectArchived:
+      description: The project is archived, so nothing new can be filed there (`project_archived`).
+      content:
+        application/json:
+          schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+    TaskNotFound:
+      description: No such task on this agent (`task_not_found`).
+      content:
+        application/json:
+          schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+
+  schemas:
+    NewTask:
+      type: object
+      required: [title, prompt, location]
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        prompt: { type: string, minLength: 1, maxLength: 20000 }
+        location:
+          type: string
+          enum: [nuc, cloud]
+          description: '`auto` is refused with a hint: the brain decides where work runs (B-04).'
+        project:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: A project slug or id. Absent means the agent's Inbox.
+        repo:
+          type: string
+          pattern: '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$'
+          description: '`owner/name`, without `..`. Required for `cloud`.'
+        model:
+          type: string
+          pattern: '^[A-Za-z0-9._\[\]][A-Za-z0-9._\[\]-]{0,79}$'
+        expected_minutes: { type: integer, minimum: 1, maximum: 10080 }
+        message_id:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: The owner's message this answers; must be in the caller's conversation.
+      example:
+        title: Fix the flaky login test
+        prompt: The login test fails one run in five. Find the race and fix it, with a regression test.
+        location: cloud
+        repo: shbunder/marcel
+        message_id: msg_01J9ZQZ1
+
+    TaskList:
+      type: object
+      required: [items, more]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items: { $ref: 'app-api.yaml#/components/schemas/Task' }
+        more:
+          type: boolean
+          description: True when there are more than the 50 returned.
+      example: { items: [], more: false }
+
+    TaskDetail:
+      type: object
+      required: [id, recent_events]
+      description: |
+        Every field of app-api.yaml `Task`, plus `recent_events`: the task's last ten events
+        (app-api `TaskEvent`), oldest first.
+      properties:
+        id: { type: string }
+        recent_events:
+          type: array
+          maxItems: 10
+          items: { $ref: 'app-api.yaml#/components/schemas/TaskEvent' }
+      example:
+        id: tsk_01J9ZQ6
+        title: Check disk usage
+        recent_events:
+          - task_id: tsk_01J9ZQ6
+            seq: 12
+            type: tool_call
+            at: '2026-10-04T18:06:39Z'
+            data: { tool_use_id: toolu_01VQ3n8ZkC2xH7d4Rb5Tq9Lw, tool: Bash, summary: docker system df -v }
+
+    Steer:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text: { type: string, minLength: 1, maxLength: 20000 }
+      example: { text: Also include named volumes that are not in use. }
+
+    Move:
+      type: object
+      required: [project]
+      additionalProperties: false
+      properties:
+        project:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: A live project's slug or id.
+      example: { project: energy-contracts }
+
+    NewProject:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        slug: { type: string, pattern: '^[a-z0-9][a-z0-9-]{0,39}$' }
+        goal: { type: string, maxLength: 300 }
+        repo:
+          type: string
+          pattern: '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$'
+        folder: { type: string, minLength: 1, maxLength: 1024 }
+        instructions: { type: string, maxLength: 20000 }
+        claude_project_url: { type: string, format: uri, maxLength: 2048 }
+      example: { name: Energy contracts, slug: energy-contracts, goal: Find the cheapest energy contract for next year. }
+
+    ProjectUpdate:
+      type: object
+      additionalProperties: false
+      description: At least one field; an empty body is 400.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        goal: { type: string, maxLength: 300 }
+        repo:
+          type: string
+          pattern: '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$'
+        folder: { type: string, minLength: 1, maxLength: 1024 }
+        instructions: { type: string, maxLength: 20000 }
+        claude_project_url: { type: string, format: uri, maxLength: 2048 }
+      example: { instructions: 'Always compare against the current Engie contract, and show yearly totals.' }
+
+    BoardNote:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text: { type: string, minLength: 1, maxLength: 500 }
+      example: { text: Waiting for the Luminus quote before deciding. }
+
+    BoardNoteAdded:
+      type: object
+      required: [project_id, board_artifact_id]
+      additionalProperties: false
+      properties:
+        project_id: { type: string }
+        board_artifact_id: { type: string }
+      example: { project_id: prj_01JA0A1, board_artifact_id: art_01JA0A2 }
+
+    NewArtifact:
+      type: object
+      required: [kind, title]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [pr, branch, doc, file, dashboard, link]
+        title: { type: string, minLength: 1, maxLength: 300 }
+        url:
+          type: string
+          maxLength: 2048
+          description: For `pr`, `branch` and `link`.
+        path:
+          type: string
+          maxLength: 1024
+          description: Absolute path on the NUC, for `doc`, `file` and `dashboard`.
+        project:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: A live project's slug or id. Absent means the agent's Inbox.
+        artifact_id:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Publish a new version of this item (B-34) instead of a new one.
+        summary:
+          type: string
+          maxLength: 200
+          description: What changed in this version, in one line.
+      example: { kind: link, title: Luminus offer, url: 'https://www.luminus.be/en/offer', project: energy-contracts }
+
+    MemoryWrite:
+      type: object
+      required: [path, content]
+      additionalProperties: false
+      properties:
+        path: { type: string, minLength: 1, maxLength: 1024 }
+        content:
+          type: string
+          description: Markdown, at most 1 MB (in UTF-8).
+        etag:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: The etag last read. Absent to create a new file.
+      example:
+        path: MEMORY.md
+        content: "# Memory\n\n- Family dinner is at 18:30.\n"
+        etag: 3b18e512dba79e4c8300dd08aeb37f8e728b8dad
+
+    NewSchedule:
+      type: object
+      required: [name, cron, tz, location, prompt]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        cron:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Five fields, minute hour day month weekday, in `tz`.
+        tz:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: An IANA time zone.
+        location:
+          type: string
+          enum: [brain, nuc, cloud]
+        prompt: { type: string, minLength: 1, maxLength: 20000 }
+        deadline_minutes: { type: integer, minimum: 1, maximum: 10080 }
+      example: { name: Weekly garden check, cron: '0 8 * * 1', tz: Europe/Brussels, location: brain, prompt: Check the garden notes and suggest this week's jobs. }
+
+    ScheduleDeleted:
+      type: object
+      required: [deleted]
+      additionalProperties: false
+      properties:
+        deleted:
+          type: string
+          description: The id that was removed.
+      example: { deleted: sch_01JA0C1 }
+
+    Notify:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text: { type: string, minLength: 1, maxLength: 20000 }
+        level:
+          type: string
+          enum: [normal, urgent]
+          default: normal
+      example: { text: 'The Luminus quote came in: 12 % cheaper than Engie.', level: normal }
+
+    Notified:
+      type: object
+      required: [message_id, pushed]
+      additionalProperties: false
+      properties:
+        message_id:
+          type: string
+          description: The message posted in the main conversation.
+        pushed:
+          type: boolean
+          description: False when the hourly cap dropped the push, the push failed, or the hub has no pusher.
+      example: { message_id: msg_01JA0D1, pushed: true }

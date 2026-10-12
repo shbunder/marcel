@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — session API
-  version: 0.1.0
+  version: 0.1.1
   description: |
     The two hub endpoints that Claude Code sessions call themselves, over HTTPS through the tunnel.
     They sit under the same `/api` server as the app API but use their own tokens, never a device
@@ -156,6 +156,13 @@ components:
         text:
           type: string
           description: For `progress`, one line. Reports are milestones, not a running commentary.
+        next:
+          type: array
+          maxItems: 20
+          items: { type: string, minLength: 1, maxLength: 200 }
+          description: |
+            For `progress`: the steps still planned, in order, after `text`. Each progress report
+            replaces the previous list (app-api.yaml `ProgressEventData.next`). New in 0.1.1.
         summary:
           type: string
           description: For `done` and `failed`, one or two sentences for the milestone.

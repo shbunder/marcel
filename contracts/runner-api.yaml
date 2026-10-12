@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel runner API
-  version: 0.1.5
+  version: 0.1.6
   description: |
     The runner is the only process that runs `claude` (native on the NUC, a systemd user unit). The
     hub (in Docker) talks to it over HTTP on a unix socket: `/run/user/<uid>/marcel/runner.sock` on
@@ -105,11 +105,19 @@ paths:
             The session did not start properly. `code` is one of `not_trusted`, `channel_skipped`,
             `channel_timeout`, `exited` (with the session's own `detail`), `no_supervisor`,
             `clone_failed`.
+
+            For a `repo` spawn: `clone_failed` covers every workspace step (the clone, the fetch, the
+            task worktree, the plugin install and the check that the install left the repo's tracked
+            files unchanged), with git's or Claude's own words in `detail`. `not_trusted` also means
+            the trust dialog's "Yes" could not be reached, or `~/.claude.json` afterwards does not
+            show the folder trusted, or shows any of the repo's own MCP servers enabled.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '501':
-          description: '`not_supported`: a `repo` spawn, until worktrees land (S-03.5).'
+          description: |
+            `not_supported`: a `repo` spawn on a runner started without workspaces. Since 0.1.6 the
+            runner serves `repo` spawns (S-03.5), so this is not expected in production.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -117,6 +125,8 @@ paths:
           description: |
             `claude` could not be used: `claude_timeout` (it did not answer in time), `claude_unavailable`
             (missing or not executable). On a timeout the session may have started; the runner then records it (so it counts toward the cap) and stops it, and `message` says whether the stop worked.
+            For a `repo` spawn also `git_timeout` (a git step took too long) or `claude_timeout` (the
+            plugin install took too long); nothing was started.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -202,7 +212,25 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: 'Still running (`code: running`; use the channel), or Claude started a copy (`code: resume_copied`).'
+          description: |
+            Still running (`code: running`; use the channel), Claude started a copy
+            (`code: resume_copied`), or the session is a worker and the worker cap is reached
+            (`code: cap_reached`): a woken worker runs again, so it counts, as on spawn.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: |
+            The session did not wake properly, with the same wording as spawn: `no_supervisor`,
+            `exited` (Claude refused, did not say which session it woke, or the folder the session
+            ran in is gone; `detail` holds what it said), `channel_skipped`, `channel_timeout`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: |
+            `claude` could not be used: `claude_timeout`, `claude_unavailable` or
+            `roster_unavailable`, as on spawn.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -228,9 +256,32 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Spawned' }
+        '400':
+          description: 'The body does not match `ForkRequest` (`code: bad_request`).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            `not_forkable`: the session is a worker. A fork is a `side` session (uncounted, with
+            the brain tools), so a worker's fork would be an uncapped worker with powers the worker
+            never had. Start a new task instead.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '422':
-          description: The fork did not start properly (same codes as spawn).
+          description: |
+            The fork did not start properly (same codes as spawn): `no_supervisor`, `exited`,
+            `channel_skipped`, `channel_timeout`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: |
+            `claude` could not be used: `claude_timeout`, `claude_unavailable` or
+            `roster_unavailable`, as on spawn. On a timeout the fork may have started; the runner
+            then records it and stops it, as on spawn.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -539,9 +590,25 @@ components:
       required: [url, task_id, slug]
       additionalProperties: false
       properties:
-        url: { type: string, description: 'Clone URL, e.g. https://github.com/shbunder/marcel' }
-        base: { type: string, description: Branch to start from (default the repo's default branch). }
-        task_id: { type: string }
+        url:
+          type: string
+          maxLength: 300
+          pattern: '^https://[^/@?#]+/[^?#]+$'
+          description: |
+            Clone URL, e.g. https://github.com/shbunder/marcel. Only `https://host/path`, without a
+            user name or password, query or fragment; its last part (without `.git`) names the
+            folder, and may not end in `-wt`.
+        base:
+          type: string
+          pattern: '^[A-Za-z0-9_][A-Za-z0-9._/-]{0,99}$'
+          not: { pattern: '(\.\.|//|/$|\.$|\.lock$)' }
+          description: |
+            Branch to start from (default the repo's default branch). A plain branch name: no
+            leading `-`, no `..` or `//`, not ending in `/`, `.` or `.lock`.
+        task_id:
+          type: string
+          pattern: '^[A-Za-z0-9_][A-Za-z0-9_-]{0,59}$'
+          description: Becomes a folder and part of the branch name, so it never starts with `-`.
         slug: { type: string, pattern: '^[a-z0-9-]{1,40}$' }
       example: { url: 'https://github.com/shbunder/marcel', task_id: tsk_01J9ZQ5, slug: fix-flaky-login-test }
 

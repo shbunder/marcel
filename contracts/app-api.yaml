@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — app API
-  version: 0.4.1
+  version: 0.5.0
   description: |
     The API the iPhone app uses to talk to the hub on the NUC. **Every path, including `/health`,
     `/pair` and `/ws`, sits under the server URL** (`https://marcel-bot.com/api/...`); the tunnel
@@ -249,7 +249,9 @@ paths:
       description: |
         Returns as soon as the message is stored. Marcel's answer arrives later as a
         `message.created` event. `client_id` makes retries safe: the same `client_id` returns the
-        same message instead of a duplicate.
+        same message instead of a duplicate. With `artifact_id` ("Ask about this", B-21) the item
+        is attached: the stored message carries it, and Marcel is told which item it is about; an
+        unknown item answers 404 `artifact_not_found`. New in 0.5.0.
       requestBody:
         required: true
         content:
@@ -266,6 +268,29 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: A task thread whose task is `stopped` or `failed` (code `task_finished`). See `Conversation.task_id`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /messages/{message_id}:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    get:
+      tags: [conversations]
+      operationId: getMessage
+      summary: One message by id, in any of your conversations. New in 0.5.0.
+      description: |
+        For a `marcel://message/<id>` deep link that arrives before the live stream has the
+        message: `conversation_id` says whether it is in the main conversation or a side thread.
+      responses:
+        '200':
+          description: The message.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: No such message, or one in another person's conversation (code `message_not_found`).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -544,6 +569,25 @@ paths:
         in: path
         required: true
         schema: { type: string }
+    get:
+      tags: [approvals]
+      operationId: getApproval
+      summary: One approval by id, in any state. New in 0.5.0.
+      description: |
+        For a `marcel://approval/<id>` deep link: the approval names its task, and still answers
+        once `GET /approvals` no longer lists it.
+      responses:
+        '200':
+          description: The approval as it stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Approval' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: No such approval (code `approval_not_found`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
     post:
       tags: [approvals]
       operationId: answerApproval
@@ -649,6 +693,39 @@ paths:
                 items: { $ref: '#/components/schemas/ArtifactVersion' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /artifacts/{artifact_id}/move:
+    parameters:
+      - $ref: '#/components/parameters/ArtifactId'
+    post:
+      tags: [artifacts, projects]
+      operationId: moveArtifact
+      summary: Pin an item to another project (B-21, B-31), like moving a task. New in 0.5.0.
+      description: |
+        A hub-only change; Marcel is not woken. The item keeps its versions and its task; only
+        `project_id` changes. Moving it to the project it is in already answers 200 and changes
+        nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ArtifactMove' }
+      responses:
+        '200':
+          description: Moved. An `artifact.moved` event follows, and both projects' boards are rebuilt.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Artifact' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            The target project is archived (code `project_archived`), or the item is a project's
+            `board`, which stays with its project (code `artifact_is_board`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /projects:
     get:
@@ -965,6 +1042,13 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Usage' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '503':
+          description: |
+            No reading yet (code `no_reading`): the runner has not read plan usage since it started,
+            or the hub has no runner. The app shows "usage unavailable". New in 0.5.0.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
 components:
   securitySchemes:
@@ -1054,12 +1138,14 @@ components:
             `bad_request` (400), `not_found` (404), `method_not_allowed` (405), `internal_error` (500);
             pairing: `pairing_code_invalid`, `pairing_code_used`, `pairing_code_expired`,
             `too_many_tries` (429); devices: `device_not_found`; conversations:
-            `conversation_not_found`, `message_not_found`, `bad_cursor`, `already_main`; tasks:
+            `conversation_not_found`, `message_not_found`, `bad_cursor`, `already_main`; approvals:
+            `approval_not_found`; tasks:
             `task_not_found`, `task_not_finished`, `task_finished`, `runner_unreachable` (503);
             projects: `slug_taken`, `project_archived`, `project_is_inbox`, `project_busy`,
-            `agent_not_found`; artifacts and memory: `artifact_not_found`, `invalid_memory_path`,
-            `memory_file_not_found`, `memory_file_too_big`, `memory_unavailable` (503). New codes may be added; treat an unknown code
-            by its HTTP status.
+            `agent_not_found`; artifacts and memory: `artifact_not_found`, `artifact_is_board`,
+            `invalid_memory_path`, `memory_file_not_found`, `memory_file_too_big`,
+            `memory_unavailable` (503); usage: `no_reading` (503). New codes may be added; treat an
+            unknown code by its HTTP status.
         message:
           type: string
           description: For people. Short, says what happened and what to do.
@@ -1277,8 +1363,9 @@ components:
           description: |
             Set when the side thread was opened on a task's milestone or approval. Such a thread
             is the task's own: a message posted there steers the task (no brain turn, like
-            `POST /tasks/{id}/messages`), and the hub mirrors that task's later milestones into
-            it. The full transcript stays in the thread view. Posting to a thread whose task is
+            `POST /tasks/{id}/messages`), and the hub mirrors that task's later milestones and
+            approval cards into it (an approval card appears in the thread as well as in the main
+            conversation; answering either answers both). The full transcript stays in the thread view. Posting to a thread whose task is
             `stopped` or `failed` returns 409 `task_finished`; a `done` task takes the message as
             a follow-up and goes back to `working`.
         title: { type: string }
@@ -1315,6 +1402,11 @@ components:
           description: |
             Sent from a project room (B-32). The message still goes to the main conversation; the tag
             tells Marcel which project it is about.
+        artifact_id:
+          type: string
+          description: |
+            An item attached to the message ("Ask about this" on an item, B-21). The stored message
+            carries it as `artifact_id`. New in 0.5.0.
       example: { text: Also add a test for the empty case., client_id: 7d2c9a40-1f7b-4e55-9e1a-2c3b4d5e6f70 }
 
     SendToMain:
@@ -1392,7 +1484,9 @@ components:
           description: Present for `quote`.
         artifact_id:
           type: string
-          description: Present for `artifact`.
+          description: |
+            Present for `artifact`. On a user `text` message, the item the owner attached
+            (`NewMessage.artifact_id`).
         task_id: { type: string }
         project_id:
           type: string
@@ -1665,8 +1759,20 @@ components:
       required: [text]
       additionalProperties: false
       properties:
-        text: { type: string }
-      example: { text: Found the race; writing the regression test now. }
+        text:
+          type: string
+          description: What the worker is doing now.
+        next:
+          type: array
+          maxItems: 20
+          items: { type: string, minLength: 1, maxLength: 200 }
+          description: |
+            The steps the worker still plans, in order, after `text`; the quest view lists them
+            as "· next" (wireframe 2A). Each progress event replaces the previous list; absent
+            means the worker gave none, not that nothing is left. New in 0.5.0.
+      example:
+        text: Found the race; writing the regression test now.
+        next: [Run the login tests ten times, Open the PR]
 
     ArtifactEventData:
       type: object
@@ -1843,6 +1949,15 @@ components:
             review:
               type: string
               enum: [none, requested, approved, changes_requested]
+            note:
+              type: [string, 'null']
+              maxLength: 200
+              description: |
+                Why the card may be out of date, in plain words, when the hub could not refresh it
+                from GitHub: "GitHub refused the token", "No GitHub token is set
+                (MARCEL_GITHUB_TOKEN)", "GitHub is having trouble". Absent or null when the last
+                refresh worked. New in 0.5.0.
+          example: { number: 14, state: open, checks: pending, note: GitHub is having trouble. }
         created_at: { type: string, format: date-time }
         updated_at:
           type: string
@@ -2026,6 +2141,16 @@ components:
         project_id: { type: string }
       example: { project_id: prj_01JA0A1 }
 
+    ArtifactMove:
+      type: object
+      required: [project_id]
+      additionalProperties: false
+      properties:
+        project_id:
+          type: string
+          description: The project to pin the item to.
+      example: { project_id: prj_01JA0A1 }
+
     MemoryTree:
       type: object
       required: [files]
@@ -2174,9 +2299,15 @@ components:
         Tags and a Click action set to `deep_link`.
 
         Deep links: `marcel://task/<task id>`, `marcel://message/<message id>`,
-        `marcel://approval/<approval id>`, and `marcel://status` (the app's system status screen,
-        showing `GET /health`) for a `broke` push about no one task. An `approval` push on APNs has Approve and Deny actions;
-        the app answers them with `POST /approvals/{id}` using its own token. ntfy pushes only open
+        `marcel://approval/<approval id>`, `marcel://artifact/<artifact id>`,
+        `marcel://project/<project slug>` (`Project.slug`), and `marcel://status` (the app's system
+        status screen, showing `GET /health`) for a push about no one task. The app reads the target
+        with `GET /tasks/{id}`, `GET /messages/{id}`, `GET /approvals/{id}`, `GET /artifacts/{id}`
+        or `GET /projects`.
+
+        An `approval` push on APNs has two actions on the `approval` category, with the action
+        identifiers `approve` and `deny`; the app answers them with `POST /approvals/{id}`
+        (`decision` `approve` or `deny`) using its own token. ntfy pushes only open
         the deep link, so no token ever passes through the ntfy server.
       required: [title, body, category, deep_link, level]
       additionalProperties: false
@@ -2187,16 +2318,17 @@ components:
           type: string
           enum: [approval, task, broke, digest, note]
           description: |
-            `note` is Marcel's own notice (the brain's `notify` tool): at most 6 per hour per agent,
-            the rest are dropped and logged, so a looping brain cannot flood the phone. `broke` is only
-            for system faults (one per cause per hour).
+            `note` is a plain notice: Marcel's own (the brain's `notify` tool, at most 6 per hour per
+            agent, the rest dropped and logged, so a looping brain cannot flood the phone) and the
+            hub's own, such as the usage guard pausing new work (`marcel://status`, collapse key
+            `usage`). `broke` is only for system faults (one per cause per hour).
         level:
           type: string
           enum: [normal, urgent]
           description: '`urgent` for approvals and broken things; `normal` for done and digests.'
         deep_link:
           type: string
-          pattern: '^marcel://((task|message|approval)/[A-Za-z0-9_-]+|status)$'
+          pattern: '^marcel://((task|message|approval|artifact)/[A-Za-z0-9_-]+|project/[a-z0-9][a-z0-9-]{0,39}|status)$'
         collapse_key:
           type: string
           description: A newer push with the same key replaces the older one (one per task or cause).
