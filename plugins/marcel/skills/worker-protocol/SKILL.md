@@ -33,6 +33,7 @@ brain's tools answer a worker with an error.
 | `artifact` | `artifact` | One thing you made, as soon as it exists. |
 | `done` | `summary` | The work is finished. Optional `artifacts`: everything worth keeping. |
 | `failed` | `summary` | You cannot finish. Say why and what would unblock it. |
+| `note` | `text` | One lasting fact later threads in this project need ("The Luminus contract ends on 1 March 2027"), at most 1000 characters, 10 per task. It goes in the project's notes, not the chat. If Marcel refuses it, put the fact in your `done` summary instead. |
 
 ### `next` — your remaining steps
 

@@ -350,7 +350,7 @@
       ]
     },
     "BrainRollover": {
-      "description": "Marcel's main session was replaced by a fresh one (S-06.2). Shown in Marcel's notebook so a rollover is never silent.",
+      "description": "Marcel's main session was replaced by a fresh one (S-06.2). Shown in Marcel's notebook so a rollover is never silent; the notebook reads past ones from app-api.yaml `GET /agents/{agent_id}/brain/rollovers` (0.6.0), so one from before the phone was listening is shown too.",
       "allOf": [{ "$ref": "#/$defs/Envelope" }],
       "properties": {
         "type": { "const": "brain.rollover" },

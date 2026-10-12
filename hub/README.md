@@ -734,7 +734,8 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
   brain knows which project it is about; one sent with "Ask about this" carries the item's
   `artifact_id`, so the brain can read it. A conversation with no session yet (`brain_session_id` unset) gets nothing queued: the
   session that starts for it reads the conversation. A thread that belongs to a task never goes to
-  a session: it steers its task (see "Task threads").
+  a session: it steers its task (see "Task threads"). Where each one goes is the triage's call
+  (see "Waking the brain").
 
 ### Approvals
 
@@ -796,6 +797,43 @@ thread.
   new brain. The brain keeper only counts sessions with the role `brain`.
 - Like the brain, forks are started through the runner directly: the usage guard never holds them
   back. A turn in a side thread shows the avatar "thinking", like one in the main conversation.
+
+## Waking the brain: triage
+
+Every brain turn spends plan usage, so the hub wakes the brain only when a decision needs it
+(S-06.5, `plan/02-architecture.md` § Token economy). `src/marcel_hub/triage.py` is the one place
+that decides: `wake_policy` is the table below, and `RulesTriage` (plain code, no model) is the
+`Triage` the hub uses. A decision is one of `BrainTurn` (wake the main brain, or a side thread's
+fork), `Direct(target)` (straight to a task, no brain turn) or `Store` (keep it and show it).
+
+| Event | Decision |
+|---|---|
+| Your message in the main chat | brain turn (a short "status?" question is logged as `status_question`) |
+| Your message in a side thread | turn in that thread's fork |
+| Your message in a task's thread; approve / deny | straight to the task |
+| Worker started, progress, artifact | stored |
+| Worker done | stored; the milestone carries the worker's summary |
+| Artifact published or updated, board rebuilt | stored |
+| Worker failed, gone silent, or asked a question (not a permission prompt) | brain turn: a `task_failed`, `task_silent` or `task_question` system event |
+| Digest due, a `brain` schedule, a hand-back, a rollover's hand-over note | brain turn |
+
+- **Every system event for a conversation is checked.** `ChannelOutbox.put` asks the triage before
+  it queues one, whoever writes it (the gateway, the registry's hand-back, the scheduler, the
+  digests). One the triage does not wake the brain for is logged and not queued (`put` returns 0).
+- **A question** is a task moving to `needs_you` with the runner's reason "The session asked a
+  question". A permission prompt has its approval card instead, and a usage limit waits for the
+  window to reset; neither wakes the brain.
+- **The decision log.** Every decision is one line in `<data_dir>/triage.log` (rotated at 10 MB,
+  five old files kept), and on the `marcel_hub.triage` logger: a plain sentence, ` | `, then the
+  decision as JSON (`at`, `event`, `decision`, `brain_turn`, `target`, `reason`, `rule`,
+  `agent_id`, `conversation_id`, `task_id`, `by`). S-16.2 counts brain turns by `rule`, e.g.
+  `sed 's/.* | //' triage.log | jq -r 'select(.brain_turn) | .rule' | sort | uniq -c`.
+  A file rather than a table: it needs no migration, nothing in the hub reads it back, and it does
+  not depend on how the server's own logging is set up (by default it drops INFO lines).
+- **Not yet decided at run time:** a task moved to another project (no event says so) and a steer
+  sent with `POST /api/tasks/{id}/messages` (it goes to the task by its route). Neither ever woke
+  the brain. The hub's watchdog that marks a task `silent` is not built yet; when it is, the
+  brain is told through the same path.
 
 ## The brain: keep-alive and rollover
 

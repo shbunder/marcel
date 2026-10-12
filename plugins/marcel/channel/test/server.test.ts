@@ -280,7 +280,7 @@ describe('inbound messages', () => {
     const h = await connected();
     h.hub.push({ type: 'user_message', seq: 3, message_id: 'm', conversation_id: 'c', text: 'x', quoted_message_id: 'q', project_id: 'p', artifact_id: 'a' });
     h.hub.push({ type: 'steer', seq: 1, task_id: 't', note_id: 'n', author: 'marcel', text: 'x' });
-    h.hub.push({ type: 'system_event', seq: 2, kind: 'digest_due', text: 'x', task_id: 't' });
+    h.hub.push({ type: 'system_event', seq: 2, kind: 'task_failed', text: 'x', task_id: 't' });
     await flush();
     for (const n of h.notifications('notifications/claude/channel')) {
       for (const key of Object.keys((n.params as { meta: object }).meta)) expect(key).toMatch(/^[A-Za-z0-9_]+$/);

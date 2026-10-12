@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — brain API
-  version: 0.1.0
+  version: 0.1.1
   description: |
     The routes Marcel's brain tools call (`plugins/marcel/tools`, the `tools` MCP server of the
     marcel plugin). Each tool call is one HTTP call to the hub on the NUC; the hub side is
@@ -34,7 +34,7 @@ info:
     on. The codes this API adds: `bad_secret`, `unknown_session` (401), `not_brain` (403),
     `no_secret` (503), `not_set_up` (503: a part of the hub built by a later story, or no reading
     yet for usage), `too_large` (413), `project_not_found`, `message_not_found`,
-    `task_not_found`, `memory_file_not_found`, `schedule_not_found` (404), `project_archived`,
+    `task_not_found`, `memory_file_not_found`, `schedule_not_found`, `digest_not_found` (404), `project_archived`,
     `slug_taken`, `task_finished`, `memory_conflict`, `schedule_builtin` (409),
     `invalid_memory_path`, `memory_file_too_big`, `bad_request` (400), `runner_unreachable`,
     `memory_unavailable` (503). An unexpected crash is 500 `internal_error`.
@@ -338,7 +338,11 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/NotBrain' }
-        '404': { $ref: '#/components/responses/ProjectNotFound' }
+        '404':
+          description: No such project on this agent (`project_not_found`), or an `in_reply_to` the hub does not know (`digest_not_found`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
         '409': { $ref: '#/components/responses/ProjectArchived' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '503': { $ref: '#/components/responses/NotSetUp' }
@@ -783,6 +787,16 @@ components:
           type: string
           maxLength: 200
           description: What changed in this version, in one line.
+        in_reply_to:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: |
+            The `digest_id` of the `digest_due` system event this doc answers (channel.schema.json
+            `SystemEvent.data`). The hub then counts this publish as that digest, whatever its title,
+            and stores the id on the version. Without it the hub matches a digest on the event's
+            `data.title` or `data.artifact_id`. An id the hub does not know is 404 `digest_not_found`.
+            New in 0.1.1.
       example: { kind: link, title: Luminus offer, url: 'https://www.luminus.be/en/offer', project: energy-contracts }
 
     MemoryWrite:

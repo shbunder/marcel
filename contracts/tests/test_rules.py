@@ -29,7 +29,7 @@ def example(name: str) -> dict[str, Any]:
 
 BAD = [
     ('PushTarget', {'kind': 'apns'}),
-    ('PushTarget', {'kind': 'ntfy', 'apns_token': 'abc'}),
+    ('PushTarget', {'kind': 'ntfy', 'apns_token': 'ab' * 32}),
     ('AgentState', {'kind': 'working'}),
     ('Message', {k: v for k, v in example('Message').items() if k != 'milestone'}),
     (
