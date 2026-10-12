@@ -69,7 +69,7 @@ def test_a_call_ack_can_carry_a_refusal(registry: Registry) -> None:
 
 def test_the_versions_were_bumped() -> None:
     assert load_yaml('app-api.yaml')['info']['version'] == '0.4.1'
-    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.4'
+    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.5'
     assert json.loads((CONTRACTS / 'channel.schema.json').read_text())
 
 
