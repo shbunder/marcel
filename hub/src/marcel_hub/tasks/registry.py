@@ -57,6 +57,10 @@ DROPPED_TRANSCRIPT = frozenset({'thinking', 'turn_end'})
 HUB_ONLY_NOTE_KEYS = frozenset({'prompt', 'client_id'})
 
 
+# The reason on a done task's move back to `working` when a follow-up is sent.
+FOLLOW_UP_SENT = 'A follow-up was sent'
+
+
 class TaskNotFound(Exception):
     def __init__(self, task_id: str) -> None:
         super().__init__(f'There is no task {task_id}.')
@@ -453,6 +457,10 @@ class TaskRegistry:
         if client_id:
             note['client_id'] = client_id
         self._append(task_id, TaskEventType.note, note)
+        if task.state == TaskState.done:
+            # Live before the hand-over: a cloud worker's first report on the follow-up can
+            # arrive while the send is still in flight, and must find its task live (S-07.1).
+            await self.transition(task_id, TaskState.working, FOLLOW_UP_SENT)
         await self.outbox.to_task(
             task_id,
             {
@@ -463,8 +471,6 @@ class TaskRegistry:
                 'text': text,
             },
         )
-        if task.state == TaskState.done:
-            return await self.transition(task_id, TaskState.working, 'A follow-up was sent')
         if task.state == TaskState.needs_you:
             return await self.transition(task_id, TaskState.working, 'A steer message arrived')
         return self.get(task_id)

@@ -289,7 +289,7 @@ The hub must be up behind `marcel-bot.com` before any cloud worker runs.
   (`https://github.com/<owner/name>`) and a prompt that starts with the worker protocol: the report
   URL `https://marcel-bot.com/api/session/report`, the task's token, the body of each report kind
   (`started`, `progress` with `next`, `artifact`, `note`, `done`, `failed`), the repo, and what
-  Marcel expects back (a PR on the repo as a `pr` artifact) by when. The task text comes last,
+  Marcel expects back (a PR on the repo as a `pr` artifact) by when. The task's title and text come last,
   between two lines marked with a new random word, introduced as data that does not change how the
   worker reports. The task stores the session id and `cloud_url` (`https://claude.ai/code/<id>`).
   The stored opening prompt is the task text alone; the token is never in a task event or a log.
@@ -299,7 +299,8 @@ The hub must be up behind `marcel-bot.com` before any cloud worker runs.
   words, e.g. "Claude Code did not open the cloud session within a minute, so nothing is running
   for this task." Nothing is followed and the token is spent.
 - **Report tokens.** `mrt_` plus 32 random bytes in hex, one per spawn and one per follow-up. Only
-  the sha256 is kept, in `<data_dir>/cloud-tokens.json` (owner-only). A token is good for its one
+  the sha256 is kept, in `<data_dir>/cloud-tokens.json` (owner-only, written to a new file and
+  renamed over the old one, so a crash never leaves it half-written). A token is good for its one
   task, for 48 hours, and is spent by the task's `done` or `failed` report or a stop;
   `CloudTasks.task_for_token` also refuses any token of a finished task.
 - **Reports.** `CloudTasks.report(task_id, body)` checks a `session-api.yaml` `Report` (a cloud
@@ -314,8 +315,10 @@ The hub must be up behind `marcel-bot.com` before any cloud worker runs.
   pushes "A task went quiet" once; a silent task is not looked at again. A later report brings it
   back to `working` (or straight to `done` / `failed`).
 - **Follow-ups.** A steer to a cloud task (app or brain) goes out with `POST
-  /cloud/sessions/{id}/messages`, with a new report token. A send the runner refuses is shown in
-  the task's thread ("The follow-up did not reach the cloud session: …").
+  /cloud/sessions/{id}/messages`, with a new report token. A `done` task moves back to `working`
+  before the send, so a report that arrives while the send is still in flight is taken. A send
+  that fails is shown in the task's thread ("The follow-up did not reach the cloud session: …"),
+  and a task the follow-up had revived goes back to `done`.
 - **Stop.** The runner cannot stop a cloud session. Stopping the task stops following it and
   spends its tokens; the session may run on until it ends on claude.ai.
 

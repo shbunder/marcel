@@ -5,8 +5,9 @@ own reports over HTTPS, plus a deadline watchdog. So:
 
 - **Spawn.** A `cloud` task is opened with the runner's `POST /cloud/sessions`, on the task's repo
   (`repo: {url}`), with a prompt that starts with the worker protocol: the report URL, the task's
-  own token, the body of each report, the repo and what Marcel expects back. The task text follows,
-  between two lines marked with a random word, as data the protocol cannot be talked out of.
+  own token, the body of each report, the repo and what Marcel expects back. The task's title and
+  text follow, between two lines marked with a random word, as data the protocol cannot be talked
+  out of.
   The session id and `cloud_url` (`https://claude.ai/code/<session id>`) are stored on the task.
 - **Could not start.** A `503` (`claude_timeout`, `claude_unavailable`, `git_timeout`) or a `422`
   fails the task with "Could not start:" and the reason in plain words. Nothing runs that the hub
@@ -25,7 +26,9 @@ own reports over HTTPS, plus a deadline watchdog. So:
   once ("A task went quiet", B-23); a task already silent is not looked at again, so nothing
   repeats.
 - **Follow-ups.** A steer to a cloud task goes out with the runner's `cloud_send`, with a new token
-  for the reports that follow. A send that fails is shown in the task's thread.
+  for the reports that follow. The registry moves a `done` task to `working` before the send, so a
+  report that beats the runner's answer is taken. A send that fails is shown in the task's thread,
+  and a task the follow-up had revived goes back to `done`.
 - **Stop.** The runner cannot stop a cloud session. Stopping the task stops following it and spends
   its tokens; the session itself may run on until it ends on claude.ai.
 """
@@ -38,6 +41,7 @@ import logging
 import os
 import re
 import secrets
+import tempfile
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -52,6 +56,7 @@ from sqlmodel import Session, col, select
 from marcel_hub.channel.gateway import Gateway, Peer
 from marcel_hub.models import (
     Task,
+    TaskEvent,
     TaskEventType,
     TaskLocation,
     TaskOrigin,
@@ -61,7 +66,7 @@ from marcel_hub.models import (
 )
 from marcel_hub.runner_client import CloudRefused
 from marcel_hub.tasks.ports import Outbox, Runner, RunnerUnavailable, Started, StartFailed
-from marcel_hub.tasks.registry import TaskRegistry
+from marcel_hub.tasks.registry import FOLLOW_UP_SENT, TaskRegistry
 from marcel_hub.tasks.states import FINISHED, IllegalTransition
 
 log = logging.getLogger(__name__)
@@ -186,12 +191,13 @@ def worker_prompt(task: Task, text: str, token: str, report_url: str = REPORT_UR
     repo = task.repo or 'none'
     if task.repo:
         outcome = (
-            f'"{task.title}". When you change code, push your branch and open a pull request on '
-            f'{task.repo}, then hand it in as a `pr` artifact in your `done` report.'
+            'The task below, done. When you change code, push your branch and open a pull '
+            f'request on {task.repo}, then hand it in as a `pr` artifact in your `done` report.'
         )
     else:
-        outcome = f'"{task.title}", with what you found in your `done` summary.'
-    marker, body = _fenced(text)
+        outcome = 'The task below, done, with what you found in your `done` summary.'
+    # The title is the owner's words too: it goes inside the fence, never in the protocol.
+    marker, body = _fenced(f'Title: {task.title}\n\n{text}')
     return PROMPT.substitute(
         task_id=task.id,
         repo=repo,
@@ -246,10 +252,19 @@ class TokenStore:
     def _save(self) -> None:
         if self.path is None:
             return
-        data = json.dumps(self._rows).encode()
-        fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, 'wb') as f:
-            f.write(data)
+        # A new owner-only file beside the old one, flushed to disk, then renamed over it: a
+        # crash mid-write leaves the old file whole, never a half-written one.
+        fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix='.cloud-tokens-')
+        try:
+            with os.fdopen(fd, 'wb') as f:
+                f.write(json.dumps(self._rows).encode())
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, self.path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
 
     def mint(self, task_id: str, now: datetime | None = None) -> str:
         """A new token for `task_id`, good for 48 hours. The token is returned once only."""
@@ -439,7 +454,9 @@ class CloudTasks:
         """Send a follow-up with a new report token. A failure is shown in the task's thread."""
         task = self.registry.get(task_id)
         if self.client is None or task.session_id is None:
-            self._send_failed(task_id, NO_RUNNER if self.client is None else 'it has no session')
+            await self._send_failed(
+                task_id, NO_RUNNER if self.client is None else 'it has no session'
+            )
             return
         token = self.tokens.mint(task_id)
         self._touch(task_id)  # the quiet window starts again from the follow-up
@@ -448,17 +465,32 @@ class CloudTasks:
                 task.session_id, follow_up_prompt(task, text, token, self.report_url)
             )
         except CloudRefused as exc:
-            self._send_failed(task_id, _not_started(exc))
+            await self._send_failed(task_id, _not_started(exc))
         except RunnerUnavailable as exc:
-            self._send_failed(task_id, redact(str(exc)))
+            await self._send_failed(task_id, redact(str(exc)))
 
-    def _send_failed(self, task_id: str, why: str) -> None:
+    async def _send_failed(self, task_id: str, why: str) -> None:
+        """Say so in the thread, and put a task this follow-up revived back to `done`: no
+        worker is on it, so it must not wait 30 minutes to be called quiet."""
+        message = f'The follow-up did not reach the cloud session: {why}'
         log.warning('Task %s: a follow-up did not reach its cloud session: %s', task_id, why)
-        self.registry.append_event(
-            task_id,
-            TaskEventType.error,
-            {'message': f'The follow-up did not reach the cloud session: {why}'},
-        )
+        self.registry.append_event(task_id, TaskEventType.error, {'message': message})
+        if self.registry.get(task_id).state != TaskState.working:
+            return  # the worker already reported, or someone stopped the task
+        with Session(self.registry.engine) as s:
+            last = s.exec(
+                select(TaskEvent)
+                .where(TaskEvent.task_id == task_id)
+                .where(TaskEvent.type == TaskEventType.state)
+                .order_by(col(TaskEvent.seq).desc())
+            ).first()
+        if (
+            last is not None
+            and last.data_json.get('from') == TaskState.done.value
+            and (last.data_json.get('reason') == FOLLOW_UP_SENT)
+        ):
+            with contextlib.suppress(IllegalTransition):
+                await self.registry.transition(task_id, TaskState.done, message)
 
     # Reports (S-07.2's `POST /api/session/report` calls these) --------------------------------
 
