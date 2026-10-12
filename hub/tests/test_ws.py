@@ -79,9 +79,17 @@ def settings(tmp_path: Path) -> Settings:
     return Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db')
 
 
+def quiet_app(settings: Settings) -> Any:
+    """The app without the avatar following messages: these tests count the events a message
+    makes, and a message to the brain also sends `agent.state` (covered in test_agent_state)."""
+    app = create_app(settings)
+    app.state.events.observers.remove(app.state.agent_states.observe)
+    return app
+
+
 @pytest.fixture
 def client(settings: Settings) -> Any:
-    with TestClient(create_app(settings)) as c:
+    with TestClient(quiet_app(settings)) as c:
         yield c
 
 
@@ -268,11 +276,11 @@ def test_a_since_the_hub_never_sent_asks_for_a_resync(
 
 
 def test_event_ids_and_replay_survive_a_hub_restart(settings: Settings) -> None:
-    with TestClient(create_app(settings)) as first:
+    with TestClient(quiet_app(settings)) as first:
         phone = add_phone(first)
         main = add_agent(first)[1]
         send(first, phone, main, 'before the restart')
-    with TestClient(create_app(settings)) as second:
+    with TestClient(quiet_app(settings)) as second:
         send(second, phone, main, 'after the restart')
         with connect(second, phone, since=0) as ws:
             assert frame(ws)['data'] == {'last_event_id': 2, 'replayed': 2}

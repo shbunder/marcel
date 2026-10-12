@@ -50,7 +50,8 @@ def device_json(device: Device, current: Device) -> dict[str, Any]:
     return body
 
 
-def agent_json(agent: Agent) -> dict[str, Any]:
+def agent_json(agent: Agent, state: dict[str, Any]) -> dict[str, Any]:
+    """The contract's `Agent`; `state` is its live `AgentState` (`agent_state.AgentStates`)."""
     return {
         'id': agent.id,
         'name': agent.name,
@@ -58,7 +59,7 @@ def agent_json(agent: Agent) -> dict[str, Any]:
         'palette': agent.palette,
         'seed': agent.seed,
         'main_conversation_id': agent.main_conversation_id,
-        'state': {'kind': 'idle'},  # the live avatar state arrives with S-04.8
+        'state': state,
         'model_brain': agent.model_brain,
         'model_worker': agent.model_worker,
     }
@@ -96,7 +97,7 @@ def me(request: Request, session: DbSession) -> dict[str, Any]:
         'user_id': device.user_id,
         'name': request.app.state.settings.owner_name,
         'device_id': device.id,
-        'agents': [agent_json(a) for a in agents],
+        'agents': [agent_json(a, request.app.state.agent_states.current(a.id)) for a in agents],
         'push': request.app.state.pusher.capabilities(),  # notify/ (S-08.1)
     }
 

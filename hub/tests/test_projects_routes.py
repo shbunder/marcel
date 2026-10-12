@@ -260,6 +260,9 @@ def test_moving_a_task_files_it_and_tells_the_app(api: Api, client: TestClient, 
     TASK.validate(res.json())
     assert res.json()['project_id'] == energy['id']
     sent = frames(client, before)
+    # The avatar hears of the working task too (S-04.8; test_agent_state covers it).
+    assert [f['type'] for f in sent].count('agent.state') == 1
+    sent = [f for f in sent if f['type'] != 'agent.state']
     assert [f['type'] for f in sent] == [
         'task.moved',
         'task.updated',

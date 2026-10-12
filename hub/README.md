@@ -3,7 +3,7 @@
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, the task
 routes, conversations, the live event stream, artifacts and their versions, memory, projects and
-their boards, push notifications, the channel gateway and approvals, and the brain tools' routes.
+their boards, the avatar's state, push notifications, the channel gateway and approvals, and the brain tools' routes.
 
 ## Run
 
@@ -73,7 +73,7 @@ for **10 minutes**. The app sends it to `POST /api/pair` and gets a device token
 - `GET /api/devices` lists your devices; `DELETE /api/devices/{id}` revokes one, and its token
   stops working at once. `PUT /api/devices/{id}/push` stores an APNs token or ntfy topic.
 - `GET /api/me` reports `push.ntfy` (and `push.ntfy_server`) when `ntfy_server` is set, `push.apns`
-  as off until S-08.2, and every agent as `idle` until S-04.8.
+  as off until S-08.2, and each agent's live `state` (see "The avatar's state" below).
 - After 10 unknown codes in a minute, `POST /api/pair` refuses every code (429,
   `too_many_tries`) until the minute is over. Expired or already-used codes do not count.
 - Every error has the contract's `Error` shape: a stable `code` and a `message` for people. A bad
@@ -258,6 +258,25 @@ content itself, with no brain turn. The code is `src/marcel_hub/boards.py`.
   waits for the project's next change.
 
 Needs `jsonschema` at run time and `contracts/dashboard.schema.json` next to `hub/`.
+
+## The avatar's state
+
+What each agent's avatar shows (B-28), as the contract's `AgentState`. It is derived, never stored;
+the code is `src/marcel_hub/agent_state.py`.
+
+- **Order.** `needs_you` if any of the agent's tasks needs you; else `working` with
+  `active_tasks` = its tasks in `working` (the real number; the app shows at most 3 spots); else
+  `thinking` while a brain turn runs; else `done` for 5 s after one of its tasks reached `done`
+  (not `failed` or `stopped`); else `idle`.
+- **A brain turn** starts when the owner writes in the main conversation or a side thread (not a
+  task's thread), and ends at the agent's next text message there (the brain's `reply`). A turn
+  with no reply stops counting after 180 s, so the avatar never thinks forever.
+- **Sent on change only.** `agent.state` goes through the app event log, so phones get it on
+  `/api/ws` like any other event. `GET /api/me` shows the same state.
+- **Timers.** A loop on the hub's event loop ends done and thinking windows (once a second). At
+  start the hub compares each agent's state with the last `agent.state` in the event log and sends
+  the new one if it changed while the hub was down. Tests hold the loop back (`conftest.py`), set a
+  fake clock and call `AgentStates.tick()`.
 
 ## Memory
 

@@ -14,3 +14,17 @@ log, so any test that counts app events would become flaky the moment a board ha
   it on the spot). Tests that read a board straight away should `build` it first.
 - Every artifact now has an `artifact_version` row and every project a `board` artifact. A test
   that counts all artifacts must leave boards out (`Artifact.kind != ArtifactKind.board`).
+
+## The avatar state in tests (S-04.8)
+
+`agent_state.AgentStates` follows the same event log and sends `agent.state` when an agent's state
+changes. Two things that used to make one event now make two:
+
+- a message the owner writes to the brain (main conversation or side thread) also sends
+  `agent.state` `thinking`;
+- a task moving into or out of `working` / `needs_you` / `done` also sends `agent.state`.
+
+Tests that count the events of a message take the avatar off the log
+(`app.state.events.observers.remove(app.state.agent_states.observe)`, see `tests/test_ws.py`
+`quiet_app`); tests that count task events filter `agent.state` out. `conftest.py` holds its
+once-a-second tick back, like the board keeper's; drive it with a fake clock and `tick()`.
