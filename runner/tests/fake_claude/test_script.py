@@ -7,7 +7,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from fake_claude import EXECUTABLE
+from fake_claude import EXECUTABLE, FakeClaude
 
 SCRIPT = Path(__file__).resolve().parents[3] / 'scripts' / 'fake-claude'
 
@@ -22,15 +22,17 @@ def test_the_fake_is_first_on_path_in_a_scratch_home(tmp_path: Path) -> None:
     probe = 'command -v claude; echo "$HOME"; claude --bg -- go; claude agents --json --all'
 
     done = run('worker-fails', 'sh', '-c', probe, home=home)
-
-    assert done.returncode == 0, done.stderr
-    which, seen_home, spawned, listed = done.stdout.splitlines()
-    assert (which, seen_home) == (str(EXECUTABLE), str(home))
-    assert spawned.startswith('backgrounded · ')
-    [row] = json.loads(listed)
-    session = json.loads((home / '.claude/fake-claude/sessions' / f'{row["id"]}.json').read_text())
-    assert Path(session['scenario']).stem == 'worker-fails'
-    subprocess.run([str(EXECUTABLE), 'stop', row['id']], env={**os.environ, 'HOME': str(home)})
+    try:
+        assert done.returncode == 0, done.stderr
+        which, seen_home, spawned, listed = done.stdout.splitlines()
+        assert (which, seen_home) == (str(EXECUTABLE), str(home))
+        assert spawned.startswith('backgrounded · ')
+        [row] = json.loads(listed)
+        sessions = home / '.claude' / 'fake-claude' / 'sessions'
+        session = json.loads((sessions / f'{row["id"]}.json').read_text())
+        assert Path(session['scenario']).stem == 'worker-fails'
+    finally:
+        FakeClaude(home).stop_all()
 
 
 def test_an_unknown_scenario_lists_the_real_ones(tmp_path: Path) -> None:
