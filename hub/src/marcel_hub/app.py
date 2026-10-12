@@ -111,6 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         db.upgrade(engine)
+        await app.state.tasks.drain()  # tasks queued before a restart start if there is room
         yield
         engine.dispose()
 

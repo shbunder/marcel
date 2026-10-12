@@ -1,5 +1,6 @@
 """The worker-cap queue: tasks that hit `cap_reached` wait, and start oldest first."""
 
+from sqlmodel import Session, select
 from test_tasks_fakes import (  # noqa: F401  (fixtures)
     AGENT,
     FakeRunner,
@@ -10,7 +11,7 @@ from test_tasks_fakes import (  # noqa: F401  (fixtures)
     runner_fixture,
 )
 
-from marcel_hub.models import TaskLocation, TaskState
+from marcel_hub.models import TaskEvent, TaskLocation, TaskState
 from marcel_hub.tasks.registry import TaskRegistry
 
 
@@ -135,3 +136,22 @@ def test_a_cloud_task_does_not_wait_behind_the_nuc_queue(
     cloud = run(registry.spawn(AGENT, 'cloud', prompt='x', location=TaskLocation.cloud))
     assert cloud.state == TaskState.starting
     assert registry.get(second).state == TaskState.queued
+
+
+def test_a_queued_task_starts_with_its_prompt_not_a_later_note_from_marcel(
+    registry: TaskRegistry, runner: FakeRunner
+) -> None:
+    runner.cap = 1
+    first, second = spawn(registry, 'one'), spawn(registry, 'two')
+    run(registry.steer(second, 'Also check the logs.', author='marcel'))
+    with Session(registry.engine) as s:  # make the later note the first one stored
+        for event in s.exec(select(TaskEvent).where(TaskEvent.task_id == second)):
+            if event.data_json.get('prompt'):
+                s.delete(event)
+                s.add(TaskEvent(task_id=second, seq=99, type=event.type,
+                                data_json=event.data_json, at=event.at))  # fmt: skip
+        s.commit()
+
+    run(registry.stop(first))
+
+    assert runner.started[-1] == (second, 'Prompt for two')

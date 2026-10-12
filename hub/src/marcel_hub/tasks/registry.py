@@ -48,6 +48,11 @@ log = logging.getLogger(__name__)
 # Transcript event types the app does not show (transcript.schema.json): not stored.
 DROPPED_TRANSCRIPT = frozenset({'thinking', 'turn_end'})
 
+# Kept on a stored `note` for the hub's own use, never sent to the app: `NoteEventData` allows
+# only `author`, `text` and `handback`. `prompt` marks a task's opening prompt; `client_id` is
+# the app's retry key for a steer.
+HUB_ONLY_NOTE_KEYS = frozenset({'prompt', 'client_id'})
+
 
 class TaskNotFound(Exception):
     def __init__(self, task_id: str) -> None:
@@ -165,12 +170,13 @@ class TaskRegistry:
 
     @staticmethod
     def event_to_api(event: TaskEvent) -> dict[str, Any]:
+        data = {k: v for k, v in event.data_json.items() if k not in HUB_ONLY_NOTE_KEYS}
         return {
             'task_id': event.task_id,
             'seq': event.seq,
             'type': event.type.value,
             'at': iso(event.at),
-            'data': event.data_json,
+            'data': data,
         }
 
     # Creating --------------------------------------------------------------------------------
@@ -197,23 +203,24 @@ class TaskRegistry:
         )
         async with self._lock:
             # The worker cap is the NUC's; cloud tasks never wait behind it.
-            waiting = location == TaskLocation.nuc and bool(self.queue())
-            if waiting:
+            if location == TaskLocation.nuc and self.queue():
                 self.create(task, prompt, TaskState.queued, 'Others are waiting first')
-        if waiting:
-            await self.drain()  # a slot may have freed while the runner was out of reach
-            return self.get(task.id)
-        async with self._lock:
-            try:
-                started = await self.runner.start(task, prompt)
-            except CapReached:
-                return self.create(task, prompt, TaskState.queued, 'The worker cap is reached')
-            except (StartFailed, RunnerUnavailable) as exc:
-                self.create(task, prompt, TaskState.starting, 'Spawn accepted')
-                return self._transition(task.id, TaskState.failed, f'Could not start: {exc}')
-            task.session_id = started.session_id
-            task.branch = started.branch or task.branch
-            return self.create(task, prompt, TaskState.starting, 'Spawn accepted')
+            else:
+                return await self._start_new(task, prompt)
+        await self.drain()  # a slot may have freed while the runner was out of reach
+        return self.get(task.id)
+
+    async def _start_new(self, task: Task, prompt: str) -> Task:
+        try:
+            started = await self.runner.start(task, prompt)
+        except CapReached:
+            return self.create(task, prompt, TaskState.queued, 'The worker cap is reached')
+        except (StartFailed, RunnerUnavailable) as exc:
+            self.create(task, prompt, TaskState.starting, 'Spawn accepted')
+            return self._transition(task.id, TaskState.failed, f'Could not start: {exc}')
+        task.session_id = started.session_id
+        task.branch = started.branch or task.branch
+        return self.create(task, prompt, TaskState.starting, 'Spawn accepted')
 
     def create(self, task: Task, prompt: str, state: TaskState, reason: str) -> Task:
         """Store a new task in `starting` or `queued`, with its opening prompt as a note."""
@@ -226,7 +233,9 @@ class TaskRegistry:
             s.refresh(task)
         self._publish_task(task.id, 'task.created')
         self._append(task.id, TaskEventType.state, {'to': state.value, 'reason': reason})
-        self._append(task.id, TaskEventType.note, {'author': 'marcel', 'text': prompt})
+        self._append(
+            task.id, TaskEventType.note, {'author': 'marcel', 'text': prompt, 'prompt': True}
+        )
         return self.get(task.id)
 
     # Moving ----------------------------------------------------------------------------------
@@ -290,10 +299,24 @@ class TaskRegistry:
                 )
 
     def _prompt(self, task_id: str) -> str:
-        for event in self.events(task_id, limit=1000)[0]:
-            if event.type == TaskEventType.note and event.data_json.get('author') == 'marcel':
-                return event.data_json['text']
-        return ''
+        with Session(self.engine) as s:
+            event = s.exec(
+                select(TaskEvent)
+                .where(TaskEvent.task_id == task_id)
+                .where(TaskEvent.type == TaskEventType.note)
+                .where(func.json_extract(TaskEvent.data_json, '$.prompt') == 1)
+                .order_by(col(TaskEvent.seq))
+            ).first()
+        return event.data_json['text'] if event else ''
+
+    def _note_with_client_id(self, task_id: str, client_id: str) -> TaskEvent | None:
+        with Session(self.engine) as s:
+            return s.exec(
+                select(TaskEvent)
+                .where(TaskEvent.task_id == task_id)
+                .where(TaskEvent.type == TaskEventType.note)
+                .where(func.json_extract(TaskEvent.data_json, '$.client_id') == client_id)
+            ).first()
 
     # Events ----------------------------------------------------------------------------------
 
@@ -340,14 +363,22 @@ class TaskRegistry:
 
     # What the app can do ---------------------------------------------------------------------
 
-    async def steer(self, task_id: str, text: str, author: str = 'user') -> Task:
+    async def steer(
+        self, task_id: str, text: str, author: str = 'user', client_id: str | None = None
+    ) -> Task:
+        """Record a note and hand it to the outbox. A repeated `client_id` changes nothing."""
         task = self.get(task_id)
+        if client_id and self._note_with_client_id(task_id, client_id):
+            return task
         if task.state in (TaskState.stopped, TaskState.failed):
             raise TaskFinished(
                 f'This task has {task.state.value}, so it cannot take messages. '
                 'Ask Marcel to retry it instead.'
             )
-        self._append(task_id, TaskEventType.note, {'author': author, 'text': text})
+        note: dict[str, Any] = {'author': author, 'text': text}
+        if client_id:
+            note['client_id'] = client_id
+        self._append(task_id, TaskEventType.note, note)
         await self.outbox.to_task(
             task_id,
             {

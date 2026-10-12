@@ -8,15 +8,17 @@ import inspect
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from marcel_hub.auth import require_device
 from marcel_hub.models import Task, TaskState
 from marcel_hub.tasks.ports import RunnerUnavailable
 from marcel_hub.tasks.registry import NotArchivable, TaskFinished, TaskNotFound, TaskRegistry
 
-router = APIRouter(prefix='/api')
+# Every task route needs a paired device's token (S-04.2).
+router = APIRouter(prefix='/api', dependencies=[Depends(require_device)])
 
 
 class NewMessage(BaseModel):
@@ -129,7 +131,9 @@ async def steer_task(request: Request, task_id: str) -> Any:
     if isinstance(body, JSONResponse):
         return body
     registry = _registry(request)
-    return await _answer(registry, lambda: registry.steer(task_id, body.text), 202)
+    return await _answer(
+        registry, lambda: registry.steer(task_id, body.text, client_id=body.client_id), 202
+    )
 
 
 @router.post('/tasks/{task_id}/stop')

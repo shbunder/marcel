@@ -6,9 +6,12 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from test_tasks_fakes import AGENT, FakeRunner, add_agent, put_task, validator
+from sqlalchemy.engine import Engine
+from sqlmodel import Session
+from test_tasks_fakes import AGENT, FakeRunner, add_agent, put_task, run, validator
 
 from marcel_hub.app import Settings, create_app
+from marcel_hub.auth.tokens import create_pairing_code
 from marcel_hub.models import TaskState
 from marcel_hub.tasks.ports import MemoryOutbox, NoRunner
 from marcel_hub.tasks.registry import TaskRegistry
@@ -40,12 +43,52 @@ class Hub:
         return self.client.get(f'/api{path}', **kw)
 
 
+def pair(client: TestClient, engine: Engine) -> str:
+    """Pair a device the way the app does, and return its token."""
+    with Session(engine) as s:
+        code = create_pairing_code(s)
+    res = client.post('/api/pair', json={'code': code, 'device_name': 'Test phone'})
+    assert res.status_code == 201, res.text
+    return res.json()['token']
+
+
 @pytest.fixture
 def hub(tmp_path: Path) -> Iterator[Hub]:
     app = create_app(Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db'))
     with TestClient(app) as client:
         add_agent(app.state.engine)
+        client.headers['Authorization'] = f'Bearer {pair(client, app.state.engine)}'
         yield Hub(client, app.state.tasks)
+
+
+def test_the_task_routes_need_a_token(hub: Hub) -> None:
+    task_id = hub.task(TaskState.working)
+    del hub.client.headers['Authorization']
+    assert error_code(hub.get('/tasks', params={'agent_id': AGENT}), 401) == 'unauthorized'
+    assert error_code(hub.post(f'/tasks/{task_id}/stop'), 401) == 'unauthorized'
+    assert hub.registry.get(task_id).state == TaskState.working
+
+
+def test_queued_tasks_start_when_the_hub_starts(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db')
+    with TestClient(create_app(settings)) as client:
+        engine = client.app.state.engine  # type: ignore[attr-defined]
+        add_agent(engine)
+        registry: TaskRegistry = client.app.state.tasks  # type: ignore[attr-defined]
+        registry.runner = FakeRunner(cap=0)
+        task_id = run_spawn(registry)
+        assert registry.get(task_id).state == TaskState.queued
+
+    app = create_app(settings)
+    runner = FakeRunner(cap=1)
+    app.state.tasks.runner = runner  # the restarted hub's runner has a free slot
+    with TestClient(app):
+        assert app.state.tasks.get(task_id).state == TaskState.starting
+    assert runner.started == [(task_id, 'Check the volumes.')]
+
+
+def run_spawn(registry: TaskRegistry) -> str:
+    return run(registry.spawn(AGENT, 'Volumes', prompt='Check the volumes.')).id
 
 
 def error_code(res: Any, status: int) -> str:
@@ -120,6 +163,24 @@ def test_steering_a_done_task_sends_it_back_to_work(hub: Hub) -> None:
     [frame] = hub.outbox.tasks[task_id]
     STEER.validate({**frame, 'seq': 1})
     assert frame['text'] == 'Also add a test for the empty case.'
+
+
+def test_a_retried_steer_is_recorded_and_delivered_once(hub: Hub) -> None:
+    task_id = hub.task(TaskState.done)
+    body = {'text': 'Also the empty case.', 'client_id': '7d2c9a40-1f7b-4e55-9e1a-2c3b4d5e6f70'}
+
+    first = hub.post(f'/tasks/{task_id}/messages', json=body)
+    again = hub.post(f'/tasks/{task_id}/messages', json=body)
+
+    assert (first.status_code, again.status_code) == (202, 202)
+    assert again.json()['state'] == 'working'
+    assert len(hub.outbox.tasks[task_id]) == 1
+    events = hub.get(f'/tasks/{task_id}/events').json()
+    EVENT_PAGE.validate(events)  # the retry key stays in the hub
+    assert [e['type'] for e in events['items']] == ['note', 'state']
+    other = hub.post(f'/tasks/{task_id}/messages', json={**body, 'client_id': 'another'})
+    assert other.status_code == 202
+    assert len(hub.outbox.tasks[task_id]) == 2
 
 
 @pytest.mark.parametrize('state', [TaskState.queued, TaskState.starting, TaskState.working])

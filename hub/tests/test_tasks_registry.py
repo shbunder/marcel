@@ -32,9 +32,18 @@ def test_spawn_starts_a_session_and_records_the_prompt(
     assert task.session_id == f'ses-{task.id}'
     state, note = registry.events(task.id)[0]
     assert state.data_json == {'to': 'starting', 'reason': 'Spawn accepted'}
-    assert note.data_json == {'author': 'marcel', 'text': 'Report the five largest.'}
+    assert note.data_json == {
+        'author': 'marcel',
+        'text': 'Report the five largest.',
+        'prompt': True,
+    }
     for event in (state, note):
         TASK_EVENT.validate(registry.event_to_api(event))
+    # The prompt flag is the hub's own; the app sees a plain note from Marcel.
+    assert registry.event_to_api(note)['data'] == {
+        'author': 'marcel',
+        'text': 'Report the five largest.',
+    }
 
 
 @pytest.mark.parametrize('down', [True, False])

@@ -12,6 +12,7 @@ from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 from sqlalchemy.engine import Engine
 from sqlmodel import Session
+from test_contract import PENDING
 
 from marcel_hub.models import Agent, Task, TaskLocation, TaskOrigin, TaskState
 from marcel_hub.tasks.ports import CapReached, MemoryOutbox, RunnerUnavailable, Started, StartFailed
@@ -117,6 +118,11 @@ def registry_fixture(
 def _registry() -> Registry:
     api = yaml.safe_load((CONTRACTS / 'app-api.yaml').read_text())
     api['$schema'] = 'https://json-schema.org/draft/2020-12/schema'
+    # Contract fields no story stores yet (e.g. Task.project_id, S-04.10) are not required here;
+    # this follows test_contract.PENDING, so the check tightens when that list shrinks.
+    for schema, fields in PENDING.items():
+        node = api['components']['schemas'][schema]
+        node['required'] = [f for f in node.get('required', []) if f not in fields]
     registry: Registry = Registry()
     for name, doc in (
         ('app-api.yaml', api),
