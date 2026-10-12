@@ -13,7 +13,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from marcel_hub.channel.frames import BadFrame, parse
+from marcel_hub.channel.frames import BadCall, BadFrame, parse
 from marcel_hub.channel.gateway import Gateway, Peer, Rejection
 from marcel_hub.channel.outbox import PAGE, Wake
 
@@ -166,6 +166,10 @@ async def channel(ws: WebSocket) -> None:
                 return
             try:
                 frame = parse(raw)
+            except BadCall as exc:  # a call names its id: say why, so it is not re-sent
+                log.warning('Refused a bad %s from session %s: %s.', exc.code.removeprefix('bad_'),
+                            peer.session_id[:8], exc)  # fmt: skip
+                await link.send(exc.ack())
             except BadFrame as exc:
                 log.warning('Ignored a bad frame from session %s: %s.', peer.session_id[:8], exc)
             else:

@@ -522,7 +522,9 @@ def test_bad_frames_are_ignored_and_the_socket_stays(hub: ChannelHub) -> None:
         ch.ws.send_text('not json')
         ch.send(type='report', call_id='c_x', kind='done')  # no summary
         ch.send(type='hello', session_id=sid, secret=SECRET, plugin_version='0.1.0')
-        assert ch.until_pong() == []
+        # Only the call names its id, so only it is answered (S-04.14): with why, never stored.
+        [refused] = ch.until_pong()
+        assert (refused['call_id'], refused['error']['code']) == ('c_x', 'bad_report')
         assert ch.call('report', kind='progress', text='Still here.')['type'] == 'call_ack'
     assert hub.registry.get(task_id).state == TaskState.working
 

@@ -33,7 +33,7 @@ from starlette.concurrency import run_in_threadpool
 
 from marcel_hub.artifacts import ArtifactRefused, UnknownArtifact
 from marcel_hub.channel.approvals import ApprovalBook
-from marcel_hub.channel.frames import next_steps_problem, version_tuple
+from marcel_hub.channel.frames import next_steps_problem, note_problem, version_tuple
 from marcel_hub.channel.outbox import ChannelOutbox, conversation_target, task_target
 from marcel_hub.channel.ports import Artifacts, Brains, LogPush, Push
 from marcel_hub.conversations import ensure_main_conversation, message_json, post_message
@@ -365,6 +365,10 @@ class Gateway:
         steps = frame.get('next') if kind == 'progress' else None
         if steps is not None and (problem := next_steps_problem(steps)) is not None:
             raise CallRefused('bad_next', f'Marcel did not take this report: {problem}.')
+        if kind == 'note' and (problem := note_problem(frame.get('text'))) is not None:
+            raise CallRefused(
+                'bad_note', f'Marcel did not keep this note: {problem}. {NOTE_FALLBACK}'
+            )
         reported = [frame['artifact']] if 'artifact' in frame else []
         reported += frame.get('artifacts', [])
         # A new version of an artifact the task may not update refuses the whole report, before

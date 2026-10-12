@@ -199,6 +199,48 @@ def test_a_note_never_follows_a_slug_out_of_the_notes_folder(hub: ChannelHub) ->
     assert not any(FACT in p.read_text() for p in hub.tmp_path.rglob('*.md'))
 
 
+@pytest.mark.parametrize(
+    ('fields', 'says'),
+    [({'text': 'x' * 1001}, 'the note is 1001 characters; keep it to 1000'),
+     ({'text': ''}, 'a note needs the fact as text'),
+     ({}, 'a note needs the fact as text')],
+)  # fmt: skip
+def test_a_note_past_the_contract_is_answered_bad_note(
+    hub: ChannelHub, fields: dict[str, Any], says: str
+) -> None:
+    task_id, sid = hub.task()
+    with hub.connect() as ch:
+        ch.hello(sid)
+        ack = ch.call('report', call_id='c_long', kind='note', **fields)
+        assert ack['error'] == {
+            'code': 'bad_note',
+            'message': f'Marcel did not keep this note: {says}. '
+            'Put the fact in your done summary instead.',
+        }
+        assert 'error' not in ch.call('report', kind='note', text='x' * 1000)  # socket still up
+    assert notes(hub, 'inbox').count('x' * 1000) == 1 and 'x' * 1001 not in notes(hub, 'inbox')
+    assert sum(s.endswith(f'(worker {task_id})') for s in subjects(hub)) == 1
+
+
+def test_a_malformed_call_is_answered_with_its_reason(hub: ChannelHub) -> None:
+    task_id, sid = hub.task()
+    with hub.connect() as ch:
+        ch.hello(sid)
+        ch.send(type='report', call_id='c_bad', kind='done')  # no summary
+        [ack] = ch.until_pong()  # answered, not dropped (fails at once, never hangs)
+        assert ack['call_id'] == 'c_bad' and ack['error']['code'] == 'bad_report'
+        assert 'a done report needs a summary' in ack['error']['message']
+        assert ch.call('report', kind='progress', text='Still here.').get('error') is None
+    assert hub.registry.get(task_id).state == TaskState.working
+    brain_sid = hub.brain()
+    with hub.connect() as ch:
+        ch.hello(brain_sid)
+        ch.send(type='reply', call_id='c_reply')  # no text
+        [ack] = ch.until_pong()
+        assert ack['error']['code'] == 'bad_reply'
+    assert hub.messages() == []
+
+
 def test_a_full_notes_file_refuses_the_note(hub: ChannelHub) -> None:
     _task_id, sid = hub.task()
     memory(hub).write('projects/inbox.md', 'x' * (MAX_FILE_BYTES - 10) + '\n', None, 'app')

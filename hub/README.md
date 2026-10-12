@@ -484,7 +484,8 @@ on first use. The code is `src/marcel_hub/memory.py`.
   the briefing cannot be built, the task starts without it and the log says
   `starts without its project briefing` and why.
 - **Notes from workers** (`report(note)`, session-api 0.1.2). A worker sends one lasting fact (1 to
-  1000 characters; anything else is a bad frame and dropped). The gateway appends
+  1000 characters; anything else is answered `call_ack` error `bad_note`, saying what to fix and
+  "Put the fact in your done summary instead.", and nothing is stored). The gateway appends
   `- <date> <text> (from <task title>)` to `memory/projects/<slug>.md` of the task's own project
   (`projects/inbox.md` for one in the Inbox), with the date in the owner's time zone, and commits it
   as `memory: projects/<slug>.md (worker <task id>)`. The file name comes from the project's slug
@@ -643,7 +644,10 @@ with the plugin's `digest` skill. The hub never writes a digest itself.
   version of the board, or a doc by Marcel in the inbox with exactly that title, unless that
   version answers another digest; any other doc published meanwhile is ignored. An
   `in_reply_to` the hub never sent this agent's brain (or one older than the last 50 answered)
-  is refused 404 `digest_not_found`, and nothing is stored. The first one
+  is refused 404 `digest_not_found`, and nothing is stored. That includes a digest the hub gave up
+  waiting for: once the next digest of its kind was sent, or 8 days passed (`LATE_FOR`), its id is
+  forgotten. The brain then publishes without `in_reply_to`, and the title match takes it if the
+  hub is still waiting. The first one
   becomes the agent's digest board; later events name it (`artifact_id`), so each digest is a new
   version.
   When it gets a new version, the hub posts it as a card in the main conversation and pushes it
@@ -735,8 +739,12 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
 - **Calls.** Each stored `reply` or `report` is answered `call_ack`; a repeated `call_id` is not
   stored again and is acked with `duplicate: true`. A report that asks for a new version of an
   artifact it may not update is refused whole: `call_ack` with `error` (`unknown_artifact`), and
-  nothing of it is stored or recorded. A call the hub fails to store is not acked, so
-  the server sends it again after a reconnect.
+  nothing of it is stored or recorded. A `reply` or `report` that breaks the contract (a missing
+  field, an unknown one, a wrong type, an unknown report kind) but names its `call_id` is answered
+  `call_ack` with `error` (`bad_reply` / `bad_report`) saying what is wrong, so the session's tool
+  returns it and the server does not re-send it for ever; only a frame with no usable `call_id` is
+  logged and dropped. A call the hub fails to store is not acked, so the server sends it again
+  after a reconnect.
 - **Reports.** `started` and `progress` become `progress` task events (and move the task to
   `working`); a `progress` report's `next` (the steps the worker still plans) is copied into its
   event as `next`. A `next` past the contract (more than 20 steps, an empty step, one over 200
