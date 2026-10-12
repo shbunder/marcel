@@ -4,11 +4,12 @@
 `Session` and hands the list to the `Feed`. The feed compares it with what it saw last and keeps
 one `RunnerEvent` per real change: `session.state` when a session appears or any field changes,
 `session.gone` when it leaves the list. `runner.warning` says, in plain words, when the runner has
-not been able to see Claude's sessions three polls in a row.
+not been able to see Claude's sessions three polls in a row; `runner.recovered` says when it can
+again.
 
-The feed keeps the last 1000 events. A client that reconnects with `Last-Event-ID` gets exactly
-the events it missed. A client that cannot resume (no id, an id from before a runner restart, or one
-that fell out of the 1000) first gets one `session.state` per known session, then the live events.
+The feed keeps the last 1000 events. On every connect a client gets, in this order: the events it
+missed (when its `Last-Event-ID` can be resumed from), then one `session.state` per known session,
+all carrying the newest id (the fresh view), then the live events.
 
 Event ids start at the runner's start time in milliseconds and go up by one per event, so an id
 from before a runner restart is always older than every id of the new run and is never mistaken
@@ -89,28 +90,37 @@ class Feed:
         return out
 
     def warn(self, message: str) -> dict[str, Any]:
+        return self._message('runner.warning', message)
+
+    def recovered(self, message: str) -> dict[str, Any]:
+        return self._message('runner.recovered', message)
+
+    def _message(self, kind: str, message: str) -> dict[str, Any]:
         with self._cond:
-            event = self._append('runner.warning', message=message)
+            event = self._append(kind, message=message)
             self._cond.notify_all()
         return event
 
     def connect(self, last_event_id: str | None) -> tuple[list[dict[str, Any]], int]:
         """What a new connection gets first, and the id to follow from.
 
-        With an id this feed can resume from, the events after it. Otherwise one `session.state`
-        per known session, all carrying the newest id, so resuming from it later misses nothing.
+        With an id this feed can resume from, the events after it first. Then, on every connect,
+        one `session.state` per known session, all carrying the newest id: the fresh view. It
+        comes last, so the client ends on each session's current state (a client that marked its
+        sessions unknown while it was away gets them back even when nothing changed).
         """
         with self._cond:
             last = _parse_id(last_event_id)
             oldest = self._events[0]['seq'] if self._events else self._next
+            missed: list[dict[str, Any]] = []
             if last is not None and oldest - 1 <= last <= self.head:
-                return [e for e in self._events if e['seq'] > last], self.head
+                missed = [e for e in self._events if e['seq'] > last]
             at = self._clock()
-            snapshot = [
+            fresh = [
                 {'seq': self.head, 'type': 'session.state', 'at': at, 'session': s}
                 for s in self._view.values()
             ]
-            return snapshot, self.head
+            return missed + fresh, self.head
 
     def after(self, cursor: int, timeout: float) -> list[dict[str, Any]] | None:
         """The events after `cursor`, waiting up to `timeout` for one. `[]` when none came.
@@ -244,12 +254,18 @@ class Watcher:
             sessions = self.read()
         except Exception as e:  # never let the watcher die; say what went wrong
             return self._failed(e)
+        recovered: list[dict[str, Any]] = []
         if self.failures >= self.warn_after:
-            _say("The runner can see Claude's sessions again.")
+            message = (
+                f"The runner can see Claude's sessions again, after {self.failures} failed tries. "
+                'Task states are up to date again.'
+            )
+            _say(message)
+            recovered = [self.feed.recovered(message)]
         elif self.failures:
             _say(f'Claude listed its sessions again after {self.failures} failed tries.')
         self.failures = 0
-        return self.feed.update(sessions)
+        return recovered + self.feed.update(sessions)
 
     def _failed(self, e: Exception) -> list[dict[str, Any]]:
         self.failures += 1

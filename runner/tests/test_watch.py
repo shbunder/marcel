@@ -93,7 +93,7 @@ def test_an_unchanged_session_gives_no_event(stub: StubRoster) -> None:
     [event] = w.poll()
     assert event['previous_state'] == 'working'
     assert event['session']['waiting_for'] == 'permission prompt'
-    assert [e['seq'] for e in w.feed.connect('0')[0]] == [1, 2]
+    assert [e['seq'] for e in w.feed.connect('0')[0]] == [1, 2, 2]  # missed, then the fresh view
 
 
 def test_a_new_session_has_no_previous_state_and_a_change_of_any_field_counts(
@@ -148,7 +148,7 @@ def test_history_is_bounded() -> None:
     assert [(e['seq'], e['session']['name']) for e in first] == [(10, '9')]
     # Just old enough: everything after it is still there.
     first, cursor = feed.connect('7')
-    assert [e['seq'] for e in first] == [8, 9, 10]
+    assert [e['seq'] for e in first] == [8, 9, 10, 10]  # missed, then the fresh view
 
 
 def test_the_default_history_matches_the_contract() -> None:
@@ -163,11 +163,43 @@ def test_resume_gets_exactly_the_missed_events() -> None:
     feed.update([{'id': SID, 'state': 'blocked'}])
     feed.update([{'id': SID, 'state': 'done'}])
     first, cursor = feed.connect('1')
-    assert [e['seq'] for e in first] == [2, 3]  # the control: replay, not a fresh view
+    # The control: the missed events are replayed (not only a fresh view), then the fresh view.
+    assert [(e['seq'], e['session']['state']) for e in first] == [
+        (2, 'blocked'),
+        (3, 'done'),
+        (3, 'done'),
+    ]
     assert cursor == 3
     first, cursor = feed.connect('3')
-    assert first == []
+    assert [(e['seq'], e['session']['state']) for e in first] == [(3, 'done')]
     assert cursor == 3
+
+
+def test_a_resume_where_nothing_changed_ends_with_each_current_state() -> None:
+    # A hub that marked its tasks unknown during a short outage gets them back (lead, PR #39).
+    feed = Feed(first_seq=1)
+    feed.update([{'id': SID, 'state': 'blocked'}, {'id': SID2, 'state': 'done'}])
+    first, cursor = feed.connect(str(feed.head))
+    assert cursor == 2
+    assert [(e['seq'], e['type'], e['session']['id'], e['session']['state']) for e in first] == [
+        (2, 'session.state', SID, 'blocked'),
+        (2, 'session.state', SID2, 'done'),
+    ]
+    assert all('previous_state' not in e for e in first)
+
+
+def test_a_resume_after_a_change_gets_the_change_then_the_fresh_view() -> None:
+    feed = Feed(first_seq=1)
+    feed.update([{'id': SID, 'state': 'working'}, {'id': SID2, 'state': 'done'}])
+    last = feed.head
+    feed.update([{'id': SID, 'state': 'blocked'}, {'id': SID2, 'state': 'done'}])
+    first, _ = feed.connect(str(last))
+    assert [(e['seq'], e['session']['id'], e['session']['state']) for e in first] == [
+        (3, SID, 'blocked'),  # the change, once
+        (3, SID, 'blocked'),  # the fresh view, last
+        (3, SID2, 'done'),
+    ]
+    assert [e.get('previous_state') for e in first] == ['working', None, None]
 
 
 def test_a_fresh_connection_gets_one_state_per_session_with_the_newest_id() -> None:
@@ -241,7 +273,9 @@ def test_three_failed_polls_warn_once_and_the_watcher_recovers(
     assert 'daemon unreachable' in warning['message']
     assert 'marcel-claude-daemon.service' in warning['message']
     stub.rows = []  # the restart stopped the session
-    [gone] = w.poll()
+    recovered, gone = w.poll()
+    assert recovered['type'] == 'runner.recovered'
+    assert "can see Claude's sessions again" in recovered['message']
     assert gone['type'] == 'session.gone'
     assert w.failures == 0
     log = capsys.readouterr().err
@@ -258,8 +292,25 @@ def test_a_short_hiccup_is_logged_but_not_a_warning(
     stub.errors = 1
     assert w.poll() == []
     stub.rows = [row()]
-    assert len(w.poll()) == 1
+    assert [e['type'] for e in w.poll()] == ['session.state']  # no runner.recovered
     assert 'again after 1 failed tries' in capsys.readouterr().err
+
+
+def test_runner_recovered_is_sent_once_and_only_after_a_warning(stub: StubRoster) -> None:
+    w = Watcher(stub, Feed(first_seq=1))
+    stub.rows = [row()]
+    assert [e['type'] for e in w.poll()] == ['session.state']  # a first good poll: no recovery
+    stub.errors = 2  # two failures: logged, no warning, so no recovery either
+    w.poll()
+    w.poll()
+    assert w.poll() == []
+    stub.errors = 4
+    made = [e['type'] for _ in range(5) for e in w.poll()]
+    assert made == ['runner.warning', 'runner.recovered']
+    assert w.poll() == []  # once only
+    event = list(w.feed._events)[-1]
+    assert set(event) == {'seq', 'type', 'at', 'message'}
+    assert 'Task states are up to date again' in event['message']
 
 
 def test_the_watcher_thread_survives_an_unexpected_error(stub: StubRoster) -> None:
@@ -270,12 +321,17 @@ def test_the_watcher_thread_survives_an_unexpected_error(stub: StubRoster) -> No
     w.start()
     try:
         deadline = time.monotonic() + 5
-        while w.feed.head < 2 and time.monotonic() < deadline:
+        while w.feed.head < 3 and time.monotonic() < deadline:
             time.sleep(0.01)
     finally:
         w.stop()
     first, _ = w.feed.connect('0')
-    assert [e['type'] for e in first] == ['runner.warning', 'session.state']
+    assert [e['type'] for e in first] == [
+        'runner.warning',
+        'runner.recovered',
+        'session.state',
+        'session.state',  # the fresh view
+    ]
     assert 'Something unexpected went wrong' in first[0]['message']
     assert 'boom' in first[0]['message']
 
@@ -445,10 +501,17 @@ def test_events_stream_resumes_without_duplicates_or_gaps(
     stub.rows = [row(state='done')]
     w.poll()
     b = Stream(server.sock, last_event_id=str(seen[-1]['seq']))
-    seen += b.take(2)
+    seen += b.take(3)
     b.close()
-    assert [e['seq'] for e in seen] == [1, 2, 3, 4]
-    assert [e['session']['state'] for e in seen] == ['working', 'blocked', 'working', 'done']
+    assert [e['seq'] for e in seen] == [1, 2, 3, 4, 4]  # the last one is the fresh view
+    assert [e['session']['state'] for e in seen] == [
+        'working',
+        'blocked',
+        'working',
+        'done',
+        'done',
+    ]
+    assert 'previous_state' not in seen[-1]
 
 
 def test_a_quiet_stream_sends_keepalives_and_ends_when_the_runner_stops(

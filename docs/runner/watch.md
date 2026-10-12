@@ -24,6 +24,7 @@ the lines added since the last poll, so a long transcript is read once, not ever
 | `session.state` | A session shows up, or any field of its `Session` changes. `previous_state` is the state before (absent for a new session). |
 | `session.gone` | A session leaves `agents --json --all`. `session` is the last thing seen. |
 | `runner.warning` | Three polls in a row failed. `message` says why, in plain words. |
+| `runner.recovered` | The first good poll after a `runner.warning`. `message` says so, in plain words. Never sent without a warning before it. |
 
 A poll that finds nothing new sends nothing. The runner never sends the same session twice in a
 row unchanged.
@@ -49,10 +50,19 @@ restart is always smaller than every id of the new run, and is never mistaken fo
 The runner keeps the last 1000 events in memory, and nothing else grows with time: the view holds
 one entry per listed session.
 
-| The client connects with | It first gets |
-|---|---|
-| A `Last-Event-ID` the runner still has (or the newest id) | Exactly the events after it, then live events. No repeats, nothing missed. |
-| No `Last-Event-ID`, an id older than the 1000 kept, one from before a restart, or one it cannot read | One `session.state` per known session, all carrying the newest id, then live events. |
+On every connect the client gets, in this order:
+
+1. **The events it missed**, when its `Last-Event-ID` is one the runner can resume from (one it still
+   has, or the newest id). Each event once, nothing missed. With no id, an id older than the 1000
+   kept, one from before a restart, or one it cannot read, this part is empty.
+2. **The fresh view, always:** one `session.state` per known session, all carrying the newest id and
+   no `previous_state`.
+3. Live events.
+
+The fresh view comes last on purpose. A hub that marked its tasks `unknown` during a short outage
+gets every session's current state back, even when nothing changed meanwhile. Sent first, it would
+be followed by older changes and make a task jump back (e.g. `done` → `working` → `done`). The fresh
+view repeats states the client may already have; the hub ignores a state it already has.
 
 A client that falls more than 1000 events behind while connected is disconnected. It reconnects
 and gets the fresh view.
@@ -66,7 +76,7 @@ that left.
 |---|---|---|
 | `claude agents` fails once or twice (e.g. the supervisor is restarting) | Logs one line, keeps polling. | Nothing in the app. |
 | It fails three polls in a row | Sends one `runner.warning`, keeps polling. | "The runner has not been able to see Claude's sessions for 3 tries in a row. … Task states may be out of date until it can; it keeps trying." |
-| It answers again | Logs "The runner can see Claude's sessions again." and sends what changed meanwhile. | Sessions the restart stopped show as `stopped`, `done` or `gone`. |
+| It answers again | Sends one `runner.recovered` ("The runner can see Claude's sessions again, …") and what changed meanwhile. | Sessions the restart stopped show as `stopped`, `done` or `gone`. |
 | A job file (`~/.claude/jobs/<id>/state.json`) is missing or not JSON | Leaves `needs`, `detail` and `result` out. | The state is still right; the approval card has no text. |
 | Anything unexpected in a poll | Counts it as a failed poll and says what it was. The watcher never stops. | As above. |
 

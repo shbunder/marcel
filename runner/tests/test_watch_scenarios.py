@@ -195,7 +195,11 @@ def test_a_reconnect_with_last_event_id_gets_no_duplicates_and_misses_nothing(ri
 
     second = Stream(rig.sock, last_event_id=str(seen[-1]['seq']))
     seen += rig.until(second, mine(short, 'done'))
+    [fresh] = second.take(1)  # then the fresh view: the session's current state, newest id
     second.close()
+    assert fresh['seq'] == seen[-1]['seq'] == rig.watcher.feed.head
+    assert fresh['session'] == seen[-1]['session']
+    assert 'previous_state' not in fresh
 
     history = list(rig.watcher.feed._events)  # everything the runner made, in order
     upto = [e for e in history if e['seq'] <= seen[-1]['seq']]
