@@ -15,6 +15,7 @@ import pytest
 import yaml
 from skills_eval import (
     CASES,
+    REPLY,
     ROOT,
     SERVER_NAME,
     SKILLS,
@@ -37,7 +38,7 @@ MAX_DESCRIPTION = 1024  # Claude Code's limit for a skill description
 EXPECTED = {'orchestrate', 'worker-protocol', 'digest'}
 # The behaviours each skill quotes from plan/01-functional-spec.md.
 QUOTES = {
-    'orchestrate': ['B-03', 'B-04', 'B-05', 'B-06', 'B-07', 'B-13'],
+    'orchestrate': ['B-03', 'B-04', 'B-05', 'B-06', 'B-07', 'B-13', 'B-31'],
     'digest': ['B-17'],
 }
 
@@ -148,15 +149,16 @@ def test_the_linter_catches_a_wrong_tool(tmp_path: Path) -> None:
 # The eval's cases (run live on the NUC) are checked here, so a renamed tool breaks the gate.
 
 
-def test_five_cases_naming_real_tools_and_arguments() -> None:
+def test_eight_cases_naming_real_tools_and_arguments() -> None:
     cases = load_cases()
-    assert len(cases) == 5
-    assert len({c['id'] for c in cases}) == 5
+    assert len(cases) == 8
+    assert len({c['id'] for c in cases}) == 8
+    schemas = {tool.name: tool.schema for tool in TOOLS} | {REPLY['name']: REPLY['inputSchema']}
     for case in cases:
         named = {s['tool'] for s in case['expect']} | set(case['forbid']) | set(case['answers'])
         assert named <= tool_names(), f'{case["id"]}: {sorted(named - tool_names())}'
         for step in case['expect']:
-            props = BY_NAME[step['tool']].schema.get('properties', {})
+            props = schemas[step['tool']].get('properties', {})
             assert set(step['args']) <= set(props), f'{case["id"]}: {step}'
             for key, value in step['args'].items():
                 assert value in props[key].get('enum', [value])

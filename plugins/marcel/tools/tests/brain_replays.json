@@ -1,0 +1,72 @@
+{
+  "about": "Recorded brain turns for the scripted project-routing test (tests/fake_brain.py, S-06.6). Each replay is what the brain does for one eval case in skills/evals/brain-routing.json, following the orchestrate skill. `skill_says` are the rules the turn relies on: the fake claude refuses to replay when the skill it is given no longer says them. `calls` go, in order, through the real tools server to an in-process hub.",
+  "replays": {
+    "project-by-repo": {
+      "skill_says": [
+        "Before every `tasks_spawn`, call `projects_list` and pick the project",
+        "**Repo:** the work is on a repo a project names → that project.",
+        "name it in the started line"
+      ],
+      "calls": [
+        { "tool": "tasks_list", "args": {} },
+        { "tool": "projects_list", "args": {} },
+        {
+          "tool": "tasks_spawn",
+          "args": {
+            "title": "Update the Marcel README",
+            "prompt": "The README in shbunder/marcel still describes v2. Rewrite it for v3: what Marcel is now, how to run it, where the plan lives. Done means a PR with the new README.",
+            "location": "cloud",
+            "repo": "shbunder/marcel",
+            "project": "marcel",
+            "expected_minutes": 30
+          }
+        },
+        { "tool": "reply", "args": { "text": "Started *Update the Marcel README* in the cloud, in *Marcel*." } }
+      ]
+    },
+    "project-by-goal": {
+      "skill_says": [
+        "Before every `tasks_spawn`, call `projects_list` and pick the project",
+        "**Goal:** the request serves a project's goal",
+        "name it in the started line"
+      ],
+      "calls": [
+        { "tool": "tasks_list", "args": {} },
+        { "tool": "projects_list", "args": {} },
+        {
+          "tool": "tasks_spawn",
+          "args": {
+            "title": "Compare Engie's gas offer with Luminus",
+            "prompt": "Engie sent a new gas offer. Compare it with what the house pays Luminus now (the current contract is in the project notes). Done means one line: which is cheaper per year, and by how much.",
+            "location": "nuc",
+            "project": "energy-contracts",
+            "expected_minutes": 20
+          }
+        },
+        { "tool": "reply", "args": { "text": "Started *Compare Engie's gas offer with Luminus* on the NUC, in *Energy contracts*." } }
+      ]
+    },
+    "project-inbox": {
+      "skill_says": [
+        "Before every `tasks_spawn`, call `projects_list` and pick the project",
+        "**Nothing fits** → `inbox`. Do not invent a project for one-off work.",
+        "name it in the started line"
+      ],
+      "calls": [
+        { "tool": "tasks_list", "args": {} },
+        { "tool": "projects_list", "args": {} },
+        {
+          "tool": "tasks_spawn",
+          "args": {
+            "title": "Find a banana bread recipe",
+            "prompt": "Find three well-reviewed banana bread recipes, pick the best one for a family kitchen, and save it as a Markdown doc. Done means the doc is attached.",
+            "location": "nuc",
+            "project": "inbox",
+            "expected_minutes": 15
+          }
+        },
+        { "tool": "reply", "args": { "text": "Started *Find a banana bread recipe* on the NUC, in the Inbox." } }
+      ]
+    }
+  }
+}

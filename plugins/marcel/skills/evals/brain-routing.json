@@ -1,5 +1,5 @@
 {
-  "about": "Five canned requests to the brain and the tool calls the orchestrate skill should lead to. Run on the NUC with `make -C plugins/marcel/tools test-live` (tests/test_skills_eval_live.py). `answers` are the canned tool results; `expect` lists calls that must appear in this order (argument values match when the expected text is in the actual value, ignoring case); `forbid` lists tools that must not be called.",
+  "about": "Canned requests to the brain and the tool calls the orchestrate skill should lead to. Run on the NUC with `make -C plugins/marcel/tools test-live` (tests/test_skills_eval_live.py). `answers` are the canned tool results; `expect` lists calls that must appear in this order (argument values match when the expected text is in the actual value, ignoring case); `forbid` lists tools that must not be called.",
   "cases": [
     {
       "id": "cloud-fix",
@@ -55,6 +55,51 @@
       },
       "expect": [{ "tool": "tasks_spawn", "args": { "location": "cloud", "repo": "shbunder/harry", "model": "opus" } }],
       "forbid": ["tasks_send"]
+    },
+    {
+      "id": "project-by-repo",
+      "behaviours": ["B-31"],
+      "request": "The README in shbunder/marcel still describes v2. Bring it up to date.",
+      "answers": {
+        "tasks_list": "No threads yet.",
+        "projects_list": "- marcel (prj_eval1): Marcel — The home assistant the family talks to (repo shbunder/marcel) [working 0, needs you 0, done this week 2]\n- energy-contracts (prj_eval2): Energy contracts — Cheaper gas and electricity for the house [working 0, needs you 0, done this week 1]\n- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
+        "tasks_spawn": "Started “Update the Marcel README” in the cloud (tsk_eval6)."
+      },
+      "expect": [
+        { "tool": "tasks_spawn", "args": { "location": "cloud", "repo": "shbunder/marcel", "project": "marcel" } },
+        { "tool": "reply", "args": { "text": "in *Marcel*" } }
+      ],
+      "forbid": ["tasks_send", "projects_create"]
+    },
+    {
+      "id": "project-by-goal",
+      "behaviours": ["B-31"],
+      "request": "Engie sent us a new offer for gas. Is it cheaper than what we pay Luminus now?",
+      "answers": {
+        "tasks_list": "No threads yet.",
+        "projects_list": "- marcel (prj_eval1): Marcel — The home assistant the family talks to (repo shbunder/marcel) [working 0, needs you 0, done this week 2]\n- energy-contracts (prj_eval2): Energy contracts — Cheaper gas and electricity for the house [working 0, needs you 0, done this week 1]\n- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
+        "tasks_spawn": "Started “Compare Engie's gas offer with Luminus” on the NUC (tsk_eval7)."
+      },
+      "expect": [
+        { "tool": "tasks_spawn", "args": { "location": "nuc", "project": "energy-contracts" } },
+        { "tool": "reply", "args": { "text": "Energy contracts" } }
+      ],
+      "forbid": ["tasks_send", "projects_create"]
+    },
+    {
+      "id": "project-inbox",
+      "behaviours": ["B-31"],
+      "request": "Find three good banana bread recipes and save the best one for me.",
+      "answers": {
+        "tasks_list": "No threads yet.",
+        "projects_list": "- marcel (prj_eval1): Marcel — The home assistant the family talks to (repo shbunder/marcel) [working 0, needs you 0, done this week 2]\n- energy-contracts (prj_eval2): Energy contracts — Cheaper gas and electricity for the house [working 0, needs you 0, done this week 1]\n- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
+        "tasks_spawn": "Started “Find a banana bread recipe” on the NUC (tsk_eval8)."
+      },
+      "expect": [
+        { "tool": "tasks_spawn", "args": { "project": "inbox" } },
+        { "tool": "reply", "args": { "text": "Inbox" } }
+      ],
+      "forbid": ["tasks_send", "projects_create"]
     }
   ]
 }
