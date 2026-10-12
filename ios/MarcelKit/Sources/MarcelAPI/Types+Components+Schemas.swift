@@ -18,12 +18,14 @@ extension Components {
             /// `bad_request` (400), `not_found` (404), `method_not_allowed` (405), `internal_error` (500);
             /// pairing: `pairing_code_invalid`, `pairing_code_used`, `pairing_code_expired`,
             /// `too_many_tries` (429); devices: `device_not_found`; conversations:
-            /// `conversation_not_found`, `message_not_found`, `bad_cursor`, `already_main`; tasks:
+            /// `conversation_not_found`, `message_not_found`, `bad_cursor`, `already_main`; approvals:
+            /// `approval_not_found`; tasks:
             /// `task_not_found`, `task_not_finished`, `task_finished`, `runner_unreachable` (503);
             /// projects: `slug_taken`, `project_archived`, `project_is_inbox`, `project_busy`,
-            /// `agent_not_found`; artifacts and memory: `artifact_not_found`, `invalid_memory_path`,
-            /// `memory_file_not_found`, `memory_file_too_big`, `memory_unavailable` (503). New codes may be added; treat an unknown code
-            /// by its HTTP status.
+            /// `agent_not_found`; artifacts and memory: `artifact_not_found`, `artifact_is_board`,
+            /// `invalid_memory_path`, `memory_file_not_found`, `memory_file_too_big`,
+            /// `memory_unavailable` (503); usage: `no_reading` (503). New codes may be added; treat an
+            /// unknown code by its HTTP status.
             ///
             ///
             /// - Remark: Generated from `#/components/schemas/Error/code`.
@@ -763,8 +765,9 @@ extension Components {
             public var parentMessageId: Swift.String?
             /// Set when the side thread was opened on a task's milestone or approval. Such a thread
             /// is the task's own: a message posted there steers the task (no brain turn, like
-            /// `POST /tasks/{id}/messages`), and the hub mirrors that task's later milestones into
-            /// it. The full transcript stays in the thread view. Posting to a thread whose task is
+            /// `POST /tasks/{id}/messages`), and the hub mirrors that task's later milestones and
+            /// approval cards into it (an approval card appears in the thread as well as in the main
+            /// conversation; answering either answers both). The full transcript stays in the thread view. Posting to a thread whose task is
             /// `stopped` or `failed` returns 409 `task_finished`; a `done` task takes the message as
             /// a follow-up and goes back to `working`.
             ///
@@ -892,25 +895,35 @@ extension Components {
             ///
             /// - Remark: Generated from `#/components/schemas/NewMessage/project_id`.
             public var projectId: Swift.String?
+            /// An item attached to the message ("Ask about this" on an item, B-21). The stored message
+            /// carries it as `artifact_id`. New in 0.5.0.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/NewMessage/artifact_id`.
+            public var artifactId: Swift.String?
             /// Creates a new `NewMessage`.
             ///
             /// - Parameters:
             ///   - text:
             ///   - clientId: Chosen by the app; makes retries safe.
             ///   - projectId: Sent from a project room (B-32). The message still goes to the main conversation; the tag
+            ///   - artifactId: An item attached to the message ("Ask about this" on an item, B-21). The stored message
             public init(
                 text: Swift.String,
                 clientId: Swift.String? = nil,
-                projectId: Swift.String? = nil
+                projectId: Swift.String? = nil,
+                artifactId: Swift.String? = nil
             ) {
                 self.text = text
                 self.clientId = clientId
                 self.projectId = projectId
+                self.artifactId = artifactId
             }
             public enum CodingKeys: String, CodingKey {
                 case text
                 case clientId = "client_id"
                 case projectId = "project_id"
+                case artifactId = "artifact_id"
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -926,10 +939,15 @@ extension Components {
                     Swift.String.self,
                     forKey: .projectId
                 )
+                self.artifactId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .artifactId
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "text",
                     "client_id",
-                    "project_id"
+                    "project_id",
+                    "artifact_id"
                 ])
             }
         }
@@ -1114,7 +1132,9 @@ extension Components {
             ///
             /// - Remark: Generated from `#/components/schemas/Message/quoted_message_id`.
             public var quotedMessageId: Swift.String?
-            /// Present for `artifact`.
+            /// Present for `artifact`. On a user `text` message, the item the owner attached
+            /// (`NewMessage.artifact_id`).
+            ///
             ///
             /// - Remark: Generated from `#/components/schemas/Message/artifact_id`.
             public var artifactId: Swift.String?
@@ -1183,7 +1203,7 @@ extension Components {
             ///   - milestone:
             ///   - approvalId: Present for `approval`. Fetch or watch the approval for its state.
             ///   - quotedMessageId: Present for `quote`.
-            ///   - artifactId: Present for `artifact`.
+            ///   - artifactId: Present for `artifact`. On a user `text` message, the item the owner attached
             ///   - taskId:
             ///   - projectId: The project a user message was sent from (B-32), or the project of an `artifact` message.
             ///   - clientId:
@@ -1891,17 +1911,32 @@ extension Components {
         }
         /// - Remark: Generated from `#/components/schemas/ProgressEventData`.
         public struct ProgressEventData: Codable, Hashable, Sendable {
+            /// What the worker is doing now.
+            ///
             /// - Remark: Generated from `#/components/schemas/ProgressEventData/text`.
             public var text: Swift.String
+            /// The steps the worker still plans, in order, after `text`; the quest view lists them
+            /// as "· next" (wireframe 2A). Each progress event replaces the previous list; absent
+            /// means the worker gave none, not that nothing is left. New in 0.5.0.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/ProgressEventData/next`.
+            public var next: [Swift.String]?
             /// Creates a new `ProgressEventData`.
             ///
             /// - Parameters:
-            ///   - text:
-            public init(text: Swift.String) {
+            ///   - text: What the worker is doing now.
+            ///   - next: The steps the worker still plans, in order, after `text`; the quest view lists them
+            public init(
+                text: Swift.String,
+                next: [Swift.String]? = nil
+            ) {
                 self.text = text
+                self.next = next
             }
             public enum CodingKeys: String, CodingKey {
                 case text
+                case next
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -1909,8 +1944,13 @@ extension Components {
                     Swift.String.self,
                     forKey: .text
                 )
+                self.next = try container.decodeIfPresent(
+                    [Swift.String].self,
+                    forKey: .next
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
-                    "text"
+                    "text",
+                    "next"
                 ])
             }
         }
@@ -2408,6 +2448,14 @@ extension Components {
                 }
                 /// - Remark: Generated from `#/components/schemas/Artifact/pr/review`.
                 public var review: Components.Schemas.Artifact.PrPayload.ReviewPayload?
+                /// Why the card may be out of date, in plain words, when the hub could not refresh it
+                /// from GitHub: "GitHub refused the token", "No GitHub token is set
+                /// (MARCEL_GITHUB_TOKEN)", "GitHub is having trouble". Absent or null when the last
+                /// refresh worked. New in 0.5.0.
+                ///
+                ///
+                /// - Remark: Generated from `#/components/schemas/Artifact/pr/note`.
+                public var note: Swift.String?
                 /// Creates a new `PrPayload`.
                 ///
                 /// - Parameters:
@@ -2415,22 +2463,26 @@ extension Components {
                 ///   - state:
                 ///   - checks:
                 ///   - review:
+                ///   - note: Why the card may be out of date, in plain words, when the hub could not refresh it
                 public init(
                     number: Swift.Int,
                     state: Components.Schemas.Artifact.PrPayload.StatePayload,
                     checks: Components.Schemas.Artifact.PrPayload.ChecksPayload? = nil,
-                    review: Components.Schemas.Artifact.PrPayload.ReviewPayload? = nil
+                    review: Components.Schemas.Artifact.PrPayload.ReviewPayload? = nil,
+                    note: Swift.String? = nil
                 ) {
                     self.number = number
                     self.state = state
                     self.checks = checks
                     self.review = review
+                    self.note = note
                 }
                 public enum CodingKeys: String, CodingKey {
                     case number
                     case state
                     case checks
                     case review
+                    case note
                 }
                 public init(from decoder: any Swift.Decoder) throws {
                     let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -2450,11 +2502,16 @@ extension Components {
                         Components.Schemas.Artifact.PrPayload.ReviewPayload.self,
                         forKey: .review
                     )
+                    self.note = try container.decodeIfPresent(
+                        Swift.String.self,
+                        forKey: .note
+                    )
                     try decoder.ensureNoAdditionalProperties(knownKeys: [
                         "number",
                         "state",
                         "checks",
-                        "review"
+                        "review",
+                        "note"
                     ])
                 }
             }
@@ -3224,6 +3281,33 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/ArtifactMove`.
+        public struct ArtifactMove: Codable, Hashable, Sendable {
+            /// The project to pin the item to.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ArtifactMove/project_id`.
+            public var projectId: Swift.String
+            /// Creates a new `ArtifactMove`.
+            ///
+            /// - Parameters:
+            ///   - projectId: The project to pin the item to.
+            public init(projectId: Swift.String) {
+                self.projectId = projectId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case projectId = "project_id"
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.projectId = try container.decode(
+                    Swift.String.self,
+                    forKey: .projectId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "project_id"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/MemoryTree`.
         public struct MemoryTree: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/MemoryTree/FilesPayload`.
@@ -3756,9 +3840,15 @@ extension Components {
         /// Tags and a Click action set to `deep_link`.
         ///
         /// Deep links: `marcel://task/<task id>`, `marcel://message/<message id>`,
-        /// `marcel://approval/<approval id>`, and `marcel://status` (the app's system status screen,
-        /// showing `GET /health`) for a `broke` push about no one task. An `approval` push on APNs has Approve and Deny actions;
-        /// the app answers them with `POST /approvals/{id}` using its own token. ntfy pushes only open
+        /// `marcel://approval/<approval id>`, `marcel://artifact/<artifact id>`,
+        /// `marcel://project/<project slug>` (`Project.slug`), and `marcel://status` (the app's system
+        /// status screen, showing `GET /health`) for a push about no one task. The app reads the target
+        /// with `GET /tasks/{id}`, `GET /messages/{id}`, `GET /approvals/{id}`, `GET /artifacts/{id}`
+        /// or `GET /projects`.
+        ///
+        /// An `approval` push on APNs has two actions on the `approval` category, with the action
+        /// identifiers `approve` and `deny`; the app answers them with `POST /approvals/{id}`
+        /// (`decision` `approve` or `deny`) using its own token. ntfy pushes only open
         /// the deep link, so no token ever passes through the ntfy server.
         ///
         ///
@@ -3768,13 +3858,26 @@ extension Components {
             public var title: Swift.String
             /// - Remark: Generated from `#/components/schemas/PushNotification/body`.
             public var body: Swift.String
+            /// `note` is a plain notice: Marcel's own (the brain's `notify` tool, at most 6 per hour per
+            /// agent, the rest dropped and logged, so a looping brain cannot flood the phone) and the
+            /// hub's own, such as the usage guard pausing new work (`marcel://status`, collapse key
+            /// `usage`). `broke` is only for system faults (one per cause per hour).
+            ///
+            ///
             /// - Remark: Generated from `#/components/schemas/PushNotification/category`.
             @frozen public enum CategoryPayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case approval = "approval"
                 case task = "task"
                 case broke = "broke"
                 case digest = "digest"
+                case note = "note"
             }
+            /// `note` is a plain notice: Marcel's own (the brain's `notify` tool, at most 6 per hour per
+            /// agent, the rest dropped and logged, so a looping brain cannot flood the phone) and the
+            /// hub's own, such as the usage guard pausing new work (`marcel://status`, collapse key
+            /// `usage`). `broke` is only for system faults (one per cause per hour).
+            ///
+            ///
             /// - Remark: Generated from `#/components/schemas/PushNotification/category`.
             public var category: Components.Schemas.PushNotification.CategoryPayload
             /// `urgent` for approvals and broken things; `normal` for done and digests.
@@ -3803,7 +3906,7 @@ extension Components {
             /// - Parameters:
             ///   - title:
             ///   - body:
-            ///   - category:
+            ///   - category: `note` is a plain notice: Marcel's own (the brain's `notify` tool, at most 6 per hour per
             ///   - level: `urgent` for approvals and broken things; `normal` for done and digests.
             ///   - deepLink:
             ///   - collapseKey: A newer push with the same key replaces the older one (one per task or cause).
