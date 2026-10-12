@@ -19,7 +19,7 @@ You verify exactly one story. You get its id (e.g. `S-04.6`) and its branch.
 | Controls: delete the gate and a test goes red | ✅ / ❌ | per control: the test that would fail |
 | Degraded paths tested (runner, hub or session down; push failed) | ✅ / ❌ | |
 | Docs updated where an operator would notice the change | ✅ / ❌ | |
-| Commits staged by name, board and code not mixed | ✅ / ❌ | |
+| Commits staged by name, plan and code not mixed, no status in git | ✅ / ❌ | |
 | No model SDK, API key, or `docker restart` | ✅ / ❌ | |
 
 End with **Verdict: merge** or **Verdict: fix first**, and a numbered list of what to fix, most

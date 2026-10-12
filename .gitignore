@@ -41,3 +41,6 @@ deploy/.env.local
 # Runtime data lives on the NUC under ~/marcel/, never in the repo
 data/
 scratch/**/out/
+
+# Build board exports and sync files (status lives on the board, not in git)
+.board/

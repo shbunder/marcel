@@ -63,14 +63,15 @@ The source of truth. It holds:
 
 | Area | What the hub owns |
 |---|---|
-| Data | agents, users, devices, the conversation (main and side), tasks, events, artifacts, schedules, usage snapshots |
+| Data | agents, users, devices, the conversation (main and side), **projects**, tasks, events, artifacts **and their versions**, schedules, usage snapshots |
 | App API | REST + one WebSocket per device (`contracts/app-api.yaml`, `contracts/events.schema.json`) |
 | Channel gateway | One WebSocket endpoint, `/channel`, that every session's channel server connects to. Messages for a session are pushed down it; replies, progress, artifacts and permission requests come up it. |
 | Brain lifecycle | Asks the runner to keep exactly one brain session alive per agent, restarts it, and triggers rollovers (F06). |
 | Task state machine | Nine states (`queued`, `starting`, `working`, `needs_you`, `done`, `failed`, `stopped`, `silent`, `unknown`), every transition listed in `contracts/task-states.md`, driven by runner and channel events. |
 | Scheduler | APScheduler with a SQLite job store; digests, user schedules, watchdogs. |
 | Push | Notifier interface with APNs and ntfy backends. |
-| Memory | A git working copy at `~/marcel/memory`. The app edits through the API; the hub commits. |
+| Memory | A git working copy at `~/marcel/memory`, including `projects/<slug>.md` project notes. The app edits through the API; the hub commits. |
+| Project boards | One board artifact per project, rebuilt by the hub (no brain turn) whenever a task, approval or artifact in the project changes (B-35). |
 | Usage guard | See F10. |
 
 ### runner (Python 3.12, native on the host, systemd user service)
@@ -109,11 +110,15 @@ Loaded by the brain, its side threads and every NUC worker.
   The plugin's settings pre-allow its own tools (`mcp__plugin_marcel_marcel__reply`, `…__report`) so
   replies never prompt.
   - It pushes inbound user and steering messages as `<channel source="marcel" …>` events.
-  - It exposes `reply` (brain and side) and `report` (workers: progress, artifact, done) tools.
+  - It exposes `reply` (brain and side) and `report` (workers: progress, artifact, done) tools. `report(artifact)`
+    takes an optional `artifact_id`: with it, the artifact gets a new version instead of a new entry (B-34).
   - It relays permission prompts as approval cards.
 - **Brain MCP tools** (`marcel-tools`, Python MCP server over HTTP to the hub):
-  - tasks: `tasks_spawn`, `tasks_list`, `tasks_get`, `tasks_send`, `tasks_stop`;
-  - artifacts and memory: `artifacts_add`, `memory_read`, `memory_write`;
+  - tasks: `tasks_spawn(…, project)`, `tasks_list`, `tasks_get`, `tasks_send`, `tasks_stop`, `tasks_move(project)`;
+  - projects: `projects_list`, `projects_create`, `projects_update`, `board_note(project, text)` (Marcel's
+    "what this means" lines on a board);
+  - artifacts and memory: `artifacts_publish(…, artifact_id?)` (a new artifact, or a new version of an existing
+    one), `memory_read`, `memory_write`;
   - schedules: `schedule_create`, `schedule_list`, `schedule_delete`;
   - other: `notify`, `usage_get`.
 - **`/marcel-adopt` command**: registers the current session (id, cwd, cloud or local) with the hub through
@@ -132,16 +137,18 @@ Loaded by the brain, its side threads and every NUC worker.
 
 ### iOS app (Swift 6, SwiftUI, iOS 18+, `ios/`)
 
-- **Screens:**
-  - Chat (main + side threads, milestone and approval cards);
-  - Activity;
-  - Thread view (live transcript, steer, approve, stop);
-  - Library (PR cards, Markdown/HTML in `WKWebView`, file preview, native widgets);
-  - Memory editor;
-  - Settings.
+- **Screens** (wireframes: `scratch/spikes/SP5-avatar/wireframes/`):
+  - Chat (the one conversation; dialogue boxes, thread cards, choice prompts for approvals, item-get banners,
+    artifact cards, side chats);
+  - Quests (all threads by state, filter by project) and the quest view (steps, live detail, steer, stop, hand back);
+  - Map (projects) and the project room (board, quests, items, notes);
+  - Items (all artifacts by project) and the artifact viewer (latest version, history);
+  - Marcel's notebook (memory, rollover log) and Settings, both opened from the avatar header.
+- **Packages:** `MarcelKit` (models, API client, WebSocket, SwiftData cache), `PixelKit` (the pixel-classic design
+  system: tokens, fonts, components), `AvatarKit` (the sprite player).
 - **Networking:** `URLSession` + `URLSessionWebSocketTask`; a local cache in SwiftData.
-- **Avatar:** RealityKit in a `RealityView` with a virtual camera, procedurally built from
-  `shared/avatar/recipes/*.json` + `shared/avatar/palettes.json` + a seed (F13).
+- **Avatar:** a sprite sheet (`shared/avatar/pixel/out/*.png` + `.json`) built by `shared/avatar/pixel/build.py`,
+  played by `AvatarKit` with nearest-neighbour scaling at whole-number zoom. No 3D, no RealityKit (SP5 result).
 
 ## Key flows
 
@@ -169,6 +176,13 @@ fork only.
 worker-protocol>"`) → the hub stores the session id and URL. Status and completion come from whatever the
 de-risking experiment SP3 proves works. The fallback is a link plus the cloud session's own reports to the hub over HTTPS.
 
+**7. Project filing.** The brain passes `project` to `tasks_spawn` (or `Inbox`). The "started" milestone names
+it. A move from the app (`POST /tasks/{id}/move`) is a hub-only change: no brain turn.
+
+**8. A living artifact.** A worker calls `report(artifact, artifact_id=…)` → the hub stores a new
+`artifact_version`, emits `artifact.updated`, and rebuilds the project's board. The app shows "updated" on every
+card of that artifact. Only the first version of an artifact gets a "YOU GOT" banner.
+
 ## Token economy
 
 Workers spend most of the tokens; a coding session burns far more than a routing turn. The brain is
@@ -182,8 +196,9 @@ Opus, though, and every turn re-reads its context, so the hub keeps brain turns 
 | User message in a side thread | yes | that side fork |
 | Steer typed in a thread view, or "reply in thread" on a milestone card | **no** | hub forwards it straight to that task (explicit routing chosen in the UI) |
 | Approve / deny tap | **no** | hub → channel |
-| Worker progress | **no** | hub stores it; thread view and Activity only |
+| Worker progress | **no** | hub stores it; quest view and Quests tab only |
 | Worker done | **no** | hub posts a milestone from the worker's own summary |
+| Artifact published or updated; project board rebuilt; task moved to another project | **no** | hub |
 | Worker failed, silent, or asked a question the user can't answer with a button | yes | brain decides: retry, re-route, or ask |
 | Digest due | yes | brain writes it from the hub's facts bundle |
 | "status?"-style message | yes in v1 | brain via `tasks_list`, with a cached system prompt |
@@ -213,18 +228,22 @@ without touching the brain.
 agent(id, owner_user_id, name, animal, palette, seed, persona_path, model_brain, model_worker,
       main_conversation_id)
 device(id, user_id, name, token_hash, apns_token?, ntfy_topic?, created_at, last_seen)
+project(id, agent_id, slug, name, goal, repo?, folder?, instructions_md?, claude_project_url?,
+        board_artifact_id, archived, created_at)                 -- B-30…B-33a (S-02.5, S-04.10)
 conversation(id, agent_id, kind[main|side], parent_message_id?, task_id?, brain_session_id?)
-message(id, conversation_id, role[user|agent|system], kind[text|milestone|approval|quote], body_json,
-        task_id?, client_id?, created_at)
-task(id, agent_id, title, location[nuc|cloud], state, queued_reason?[cap|usage], model,
+message(id, conversation_id, role[user|agent|system], kind[text|milestone|approval|quote|artifact], body_json,
+        task_id?, project_id?, client_id?, created_at)
+task(id, agent_id, project_id, title, location[nuc|cloud], state, queued_reason?[cap|usage], model,
      session_id?, cloud_url?, remote_url?, repo?, branch?, worktree?,
      origin[marcel|adopted|schedule], parent_message_id?, schedule_id?, summary?, waiting_for?,
      created_at, updated_at, last_activity_at, expected_by?, archived_at?)
 task_event(task_id, seq, type, data_json, at)                    -- normalised transcript + hub events
 approval(id, task_id, request_id, tool, summary, detail?, artifact_id?,
          state[open|approved|denied|expired], answered_via?[app|terminal], answered_at?)
-artifact(id, task_id?, kind[pr|branch|doc|file|dashboard|link], title, url?, content_type?,
-         size_bytes?, trusted, self_change, meta_json, created_at)
+artifact(id, task_id?, project_id, kind[pr|branch|doc|file|dashboard|link|board], title, url?, content_type?,
+         size_bytes?, trusted, self_change, current_version, meta_json, created_at, updated_at)
+artifact_version(artifact_id, version, url?, content_type?, size_bytes?, summary?, author[task|brain|hub],
+         created_at)                                             -- B-34 (S-04.11)
 schedule(id, agent_id, name, cron, tz, location[nuc|cloud|brain], prompt, paused, builtin,
          deadline_minutes?, last_run_at?, next_run_at?)
 usage_snapshot(id, taken_at, window[five_hour|weekly], used_pct, resets_at, source)
@@ -237,10 +256,11 @@ hub/          Python package `marcel_hub` (+ tests)            → Docker image
 runner/       Python package `marcel_runner` (+ fake claude)   → systemd user unit
 plugins/marcel/   Claude Code plugin (channel server TS, tools py, skills, commands)
 brain/        brain workspace template (CLAUDE.md persona, settings)
-ios/          Xcode project `Marcel` (app + MarcelKit + AvatarKit packages)
-shared/avatar/    recipes/*.json, palettes.json  (consumed by iOS; validated by a py test)
-contracts/    app-api.yaml, events.schema.json, task-states.md, dashboard.schema.json (S-02.1);
-              runner-api.yaml, transcript.schema.json, channel-protocol.md, session-api.yaml (S-02.2)
+ios/          Xcode project `Marcel` (app + MarcelKit + PixelKit + AvatarKit packages)
+shared/avatar/pixel/   build.py + out/ sprite sheet and loops (consumed by iOS; reproducibility test in py)
+contracts/    app-api.yaml, events.schema.json, task-states.md, dashboard.schema.json (S-02.1; projects and
+              artifact versions S-02.5); runner-api.yaml, transcript.schema.json, channel-protocol.md,
+              session-api.yaml (S-02.2); avatar-sheet.schema.json (S-02.5)
 deploy/       docker-compose.yml, systemd units, cloudflared ingress, redeploy.sh, watchdog
 project/      board: features/, stories/, decisions/, lessons/, contract-requests/
 docs/         operator + developer docs
@@ -253,7 +273,8 @@ plan/         this plan: spec, architecture, spikes, playbook
 |---|---|---|
 | Hub / runner | Python 3.12, uv, FastAPI, SQLite (SQLModel), APScheduler 3, pytest, ruff, pyright | Same toolchain as Harry; boring |
 | Channel server | TypeScript, `@modelcontextprotocol/sdk`, bun or node 22 | Matches the official channel examples |
-| iOS | Swift 6, SwiftUI, iOS 18 minimum, RealityKit, SwiftData, XCTest | RealityView needs iOS 18; SceneKit is soft-deprecated |
+| iOS | Swift 6, SwiftUI, iOS 18 minimum, SwiftData, XCTest; bundled OFL fonts (Silkscreen, Pixelify Sans) | Pixel-classic UI (SP5); no 3D engine needed |
+| Avatar | Sprite sheet built by a Python script (no packages), played natively | Tiny (5 KB), deterministic, reviewable as images (SP5) |
 | Push | APNs (token-based .p8) + ntfy fallback | B-18 |
 | Auth | Device tokens (random 32 bytes, stored hashed); QR pairing; Cloudflare tunnel | B-27 |
 | Deploy | Hub in Docker Compose; runner and claude native; flag-file redeploy + health watchdog + git revert | B-24 |
@@ -271,5 +292,5 @@ The seven risks the plan started with were all tested on the NUC and the Mac (`0
 | 4. Steering a live session | **Resolved**: only through the channel; stop then `--resume` between turns, guarding the copy race (SP2) | — |
 | 5. Hub ↔ runner socket | **Resolved** (SP6) | Separate claude supervisor unit; `RuntimeDirectoryPreserve`; linger on |
 | 6. Forking the brain | **Resolved**: `--resume <brain> --fork-session` (SP7) | A fork reloads the brain's whole context once: keep the brain small (S-06.2) |
-| 7. Avatar on iPhone | **Open** (SP5): works in the simulator; iPhone frame rate, colours and the owner's verdict pending | Boxes cannot make the logo's neck curve; one custom mesh may be needed |
+| 7. Avatar on iPhone | **Resolved** (SP5, 2026-10-12): the owner chose the pixel-classic sprite over RealityKit, plush and vector looks | A 48 × 54 sprite sheet built by a script; no 3D engine on the phone |
 | New: undocumented internals | `~/.claude/jobs/*` and `/usage` wording may change with any Claude Code update | Used best effort only, behind a version check; `agents --json` stays the source of truth |

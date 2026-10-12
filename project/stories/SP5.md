@@ -1,11 +1,10 @@
 ---
 id: SP5
-title: RealityKit giraffe
+title: RealityKit giraffe (decided: pixel classic)
 feature: F00
 wave: 0
 runs_on: Mac
 size: S
-status: In Progress
 depends: 
 touches: scratch/spikes/SP5-*
 behaviours: 
@@ -30,3 +29,7 @@ runs at a steady 60 fps.
 ## From the spikes (2026-10-04)
 
 - Built and working in the iPhone 16 Pro simulator (60 fps there). Open until the owner runs it on the iPhone: frame rate in four modes, energy impact, the colour-fix switch, and the "that's Marcel" verdict. Steps: `scratch/spikes/SP5-avatar/RESULT.md` § "To finish on the iPhone".
+- **Decided 2026-10-12:** after five more rounds (pixel art, Clawd style, vector, ten proposals rendered in
+  Blender, a Dot-style plush head) the owner chose the **pixel-classic** sprite and its Zelda-like UI. No
+  RealityKit. Results and wireframes: `scratch/spikes/SP5-avatar/` (`RESULT.md`, `wireframes/`). F12 and F13
+  were rewritten around it (S-12.1–S-12.10, S-13.1–S-13.3).
