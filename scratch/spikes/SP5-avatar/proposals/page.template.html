@@ -166,6 +166,23 @@ header.top p { color: var(--muted); max-width: 64ch; margin: 12px 0 0; }
 .m8b .sugg { display: flex; gap: 6px; padding: 10px 12px 0; flex-wrap: wrap; }
 .m8b .sugg span { background: #fff; border: 1.5px solid #ead9e0; border-radius: 999px; padding: 5px 10px; font-size: 11.5px; font-weight: 800; }
 .m8b .input { margin: auto 12px 22px; background: #fff; border-radius: 999px; padding: 10px 14px; color: #a0909a; font-size: 13px; display: flex; justify-content: space-between; box-shadow: 0 1px 0 #efdfe6; }
+/* 11 dots-style computer view */
+.m11 { background: #fdf3f5; color: #2a2226; font-family: "Manrope", sans-serif; }
+.m11 .who { display: flex; align-items: center; gap: 8px; padding: 0 14px 8px; }
+.m11 .who .r3d-slot { width: 44px; height: 44px; }
+.m11 .who b { display: block; font-size: 14px; }
+.m11 .pill { font-size: 11px; font-weight: 700; color: #9c3e5a; background: #fff; border-radius: 999px; padding: 3px 9px; box-shadow: 0 1px 0 #f0dfe5; }
+.m11 .msg { margin: 0 14px 8px; font-size: 12.5px; line-height: 1.4; }
+.m11 .msg.me { background: #d47088; color: #fff; padding: 8px 11px; border-radius: 14px 14px 4px 14px; margin-left: 46px; }
+.m11 .msg.them { background: #fff; padding: 8px 11px; border-radius: 14px 14px 14px 4px; margin-right: 34px; box-shadow: 0 1px 0 #f0dfe5; }
+.m11 .comp { margin: 4px 12px 0; background: linear-gradient(160deg, #f4b9c7, #e88aa1); border-radius: 18px; padding: 10px; }
+.m11 .comp .bar { font: 600 10px/1 var(--mono); color: #6e2a42; margin-bottom: 6px; display: flex; justify-content: space-between; }
+.m11 .win { background: #fff; border-radius: 10px; padding: 8px; font-size: 11px; display: grid; gap: 5px; position: relative; overflow: hidden; }
+.m11 .win .row { display: flex; justify-content: space-between; border-bottom: 1px solid #f2e6ea; padding-bottom: 4px; }
+.m11 .win .row b { color: #3f6b6a; }
+.m11 .control { margin: 8px auto 0; display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 700; }
+.m11 .control span { background: #2a2226; color: #fff; border-radius: 999px; padding: 4px 10px; }
+.m11 .corner { position: absolute; right: -8px; bottom: 14px; width: 120px; height: 120px; }
 /* 8 toon voice (unused) */
 .m8 { background: radial-gradient(120% 70% at 50% 30%, #ffe3ea 0%, #f6b9c8 55%, #e8899f 100%); color: #3a1526; font-family: "Nunito", sans-serif; }
 .m8 .chip { margin: 4px auto 0; background: rgba(255, 255, 255, .7); border-radius: 999px; padding: 5px 12px; font-size: 12px; font-weight: 800; }
@@ -226,7 +243,7 @@ header.top p { color: var(--muted); max-width: 64ch; margin: 12px 0 0; }
     <p>Ten directions for Marcel's avatar, from pixel art to high-quality 3D, each shown inside the kind of app it suits. The 2D ones are drawn live in code; the 3D ones are modelled and rendered in Blender (Cycles, real fur) and played as animation. Use the bar below to switch what Marcel is doing in all of them at once.</p>
     <nav class="scale" aria-label="Jump to a proposal">
       <a href="#p1">1 Pixel</a><a href="#p2">2 Blocks</a><a href="#p3">3 Tiles</a><a href="#p4">4 One line</a><a href="#p5">5 Friendly</a>
-      <a href="#p6">6 Professional</a><a href="#p7">7 Voxel</a><a href="#p8">8 Cartoon 3D</a><a href="#p9">9 Clay 3D</a><a href="#p10">10 Plush 3D</a>
+      <a href="#p6">6 Professional</a><a href="#p7">7 Voxel</a><a href="#p8">8 Cartoon 3D</a><a href="#p9">9 Clay 3D</a><a href="#p10">10 Plush 3D</a><a href="#p11">11 A Dot</a>
     </nav>
   </header>
 
@@ -436,6 +453,28 @@ header.top p { color: var(--muted); max-width: 64ch; margin: 12px 0 0; }
         <div class="comp">Open Marcel's computer</div>
       </div></div>
       <div class="verdict"><div><b>Like</b>OpenAI Dots, Meta's Jolly</div><div><b>Good at</b>The most tactile and alive; right on the current wave of agent mascots.</div><div><b>Watch out</b>Fur is the most expensive to render; frames are pre-rendered, so every new pose is a new render.</div></div>
+    </div>
+  </section>
+  <!-- 11 -->
+  <section class="prop" id="p11">
+    <div class="prop-head"><span class="num">11</span><h2>A Dot named Marcel</h2><p>Modelled on OpenAI's Dots: just a head. One fuzzy rose gumdrop, bead eyes, no mouth, short horn stubs and ears, giraffe patches woven into the fur, and one accessory, a chunky teal knit bow tie. The app follows Dots too: the character up in the chat, a framed view of Marcel's own computer doing the work, and a "Take over" button.</p></div>
+    <div class="prop-body">
+      <div class="stage" style="background:radial-gradient(90% 80% at 50% 40%,#3a2830,#141012)"><img class="r3d" data-r3d="dot" alt="Marcel as a Dot"></div>
+      <div class="phone"><div class="screen m11"><div class="island"></div>
+        <div class="sb"><span>9:41</span><span>100%</span></div>
+        <div class="who"><div class="r3d-slot full" data-r3d="dot"></div><div><b>Marcel</b><span class="pill">Thinking…</span></div></div>
+        <div class="msg me">Find the cheapest energy contract and switch us if it saves more than €150</div>
+        <div class="msg them">On it. I'm comparing the four suppliers on our address in my browser.</div>
+        <div class="comp"><div class="bar"><span>Marcel's computer</span><span>●  live</span></div>
+          <div class="win"><b>Compare energy offers · our address</b>
+            <div class="row"><span>Supplier A</span><b>€1,284 / yr</b></div>
+            <div class="row"><span>Supplier B</span><span>€1,412 / yr</span></div>
+            <div class="row"><span>Current contract</span><span>€1,496 / yr</span></div>
+            <small style="color:#75656d">Saves €212. Waiting for your OK before switching.</small></div>
+          <div class="control">Marcel has control <span>Take over</span></div></div>
+        <div class="corner r3d-slot full" data-r3d="dot"></div>
+      </div></div>
+      <div class="verdict"><div><b>Like</b>OpenAI Dots (Alfred, the yellow Dot with glasses and a bow tie)</div><div><b>Good at</b>The most current look; reads at any size because it is one shape; the bow tie and patches keep it Marcel.</div><div><b>Watch out</b>Very close to the Dots formula. People will see the resemblance, and the giraffe is now only a hint.</div></div>
     </div>
   </section>
 </div>
