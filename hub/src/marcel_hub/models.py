@@ -145,6 +145,19 @@ class Device(SQLModel, table=True):
     last_seen: datetime | None = None
 
 
+class PairingCode(SQLModel, table=True):
+    """A one-time code from `marcel-hub pair`. Only its sha256 is stored; it works once, until
+    `expires_at`."""
+
+    __tablename__ = 'pairing_code'  # type: ignore[assignment]
+
+    code_hash: str = Field(primary_key=True)
+    user_id: str
+    created_at: datetime = Field(default_factory=utcnow)
+    expires_at: datetime
+    used_at: datetime | None = None
+
+
 class Conversation(SQLModel, table=True):
     id: str = Field(default_factory=lambda: new_id('cnv'), primary_key=True)
     agent_id: str = Field(foreign_key='agent.id', index=True)

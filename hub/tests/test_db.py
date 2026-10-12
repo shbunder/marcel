@@ -10,7 +10,7 @@ from marcel_hub import db, models  # noqa: F401
 
 TABLES = {
     'agent', 'device', 'conversation', 'message', 'task', 'task_event',
-    'approval', 'artifact', 'schedule', 'usage_snapshot',
+    'approval', 'artifact', 'schedule', 'usage_snapshot', 'pairing_code',
 }  # fmt: skip
 
 
