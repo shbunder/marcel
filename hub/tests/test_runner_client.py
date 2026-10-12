@@ -10,11 +10,14 @@ from typing import Any
 
 import httpx
 import pytest
+from jsonschema import Draft202012Validator
 from test_runner_client_fakes import FakeRunnerServer
-from test_tasks_fakes import run
+from test_tasks_fakes import CONTRACTS, run, validator
 
 from marcel_hub.models import Task, TaskLocation, TaskOrigin, TaskState
 from marcel_hub.runner_client import (
+    TRANSCRIPT_DATA,
+    TRANSCRIPT_FIELDS,
     BadEvent,
     LogAlerts,
     OffsetStore,
@@ -419,9 +422,21 @@ def test_offsets_survive_a_restart_and_a_broken_file_is_not_fatal(
     store.get('s-1').advance(100, 2)
     store.save()
     assert OffsetStore(path).get('s-1') == TailPosition(0, 100, 2)
-    path.write_text('{nope')
-    assert OffsetStore(path).positions == {}
-    assert 'read again from the start' in caplog.text
+    for corrupt in [
+        '{nope',
+        '[]',
+        'null',
+        '5',
+        '{"s": ["a", "b", "c"]}',
+        '{"s": [1, 2]}',
+        '{"s": [true, 2, 0]}',
+        '{"s": [200, 100, 0]}',
+        '{"s": [0, 1, -2]}',
+    ]:
+        caplog.clear()
+        path.write_text(corrupt)
+        assert OffsetStore(path).positions == {}, corrupt
+        assert 'read again from the start' in caplog.text, corrupt
     OffsetStore().save()  # in memory only: nothing to write
 
 
@@ -446,3 +461,98 @@ def test_the_fake_is_a_faithful_enough_runner() -> None:
         await client.aclose()
 
     run(scenario())
+
+
+# Transcript data against the contract ------------------------------------------------------------
+
+SCHEMA = json.loads((CONTRACTS / 'transcript.schema.json').read_text())
+TRANSCRIPT_EVENT = Draft202012Validator(SCHEMA)
+TASK_EVENT = validator('app-api.yaml#/components/schemas/TaskEvent')
+DEF_NAMES = {'text': 'Text', 'thinking': 'Thinking', 'tool_call': 'ToolCall',
+             'tool_result': 'ToolResult', 'diff': 'Diff', 'subagent_start': 'SubagentStart',
+             'subagent_stop': 'SubagentStop', 'turn_end': 'TurnEnd', 'error': 'Error',
+             'raw': 'Raw'}  # fmt: skip
+
+
+def _contract_kind(prop: dict[str, Any]) -> Any:
+    if 'enum' in prop:
+        return frozenset(prop['enum'])
+    if prop['type'] == 'array':
+        return 'hunks'
+    if prop['type'] == 'integer' and prop.get('minimum') == 0:
+        return 'count'
+    return prop['type']
+
+
+def test_the_hubs_transcript_table_matches_the_contract() -> None:
+    defs = SCHEMA['$defs']
+    assert set(TRANSCRIPT_DATA) == set(defs['TranscriptEvent']['properties']['type']['enum'])
+    assert set(defs['TranscriptEvent']['properties']) == TRANSCRIPT_FIELDS
+    for kind, name in DEF_NAMES.items():
+        shape = defs[name]
+        assert shape['additionalProperties'] is False
+        expected = {
+            key: (_contract_kind(prop), key in shape['required'])
+            for key, prop in shape['properties'].items()
+        }
+        assert TRANSCRIPT_DATA[kind] == expected, kind
+
+
+GOOD_DATA = {
+    'text': {'role': 'user', 'text': 'Hi', 'source': 'channel'},
+    'thinking': {'duration_ms': 3},
+    'tool_call': {'tool_use_id': 't', 'tool': 'Bash', 'summary': 'ls', 'input': {'command': 'ls'}},
+    'tool_result': {'tool_use_id': 't', 'is_error': False, 'denied': True, 'text': '',
+                    'truncated': False},
+    'diff': {'tool_use_id': 't', 'file_path': 'a.py', 'hunks': [
+        {'old_start': 1, 'old_lines': 1, 'new_start': 1, 'new_lines': 2, 'lines': ['-a', '+b']}]},
+    'subagent_start': {'tool_use_id': 't', 'agent_id': 'a1', 'description': 'd',
+                       'subagent_type': 'x'},
+    'subagent_stop': {'agent_id': 'a1', 'status': 'completed', 'summary': 's'},
+    'turn_end': {'duration_ms': 1, 'message_count': 2, 'pending_background_agents': 0},
+    'error': {'message': 'm', 'api_error_status': 429, 'usage_limit': True},
+    'raw': {'entry_type': 'x', 'entry': {}},
+}  # fmt: skip
+
+
+def line(kind: str, data: Any, **extra: Any) -> str:
+    return json.dumps({'session_id': 's-1', 'offset': 5, 'at': '2026-10-04T09:05:02Z',
+                       'type': kind, 'data': data, **extra})  # fmt: skip
+
+
+@pytest.mark.parametrize('kind', sorted(GOOD_DATA))
+def test_every_event_the_hub_accepts_is_in_the_contract(kind: str) -> None:
+    event = check_transcript_event(line(kind, GOOD_DATA[kind], subagent_id='a1'), 's-1')
+    TRANSCRIPT_EVENT.validate(event)
+    if kind not in ('thinking', 'turn_end'):  # the two the hub never stores
+        TASK_EVENT.validate({'task_id': 't', 'seq': 1, 'type': kind, 'at': event['at'],
+                             'data': event['data']})  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ('kind', 'data', 'why'),
+    [
+        ('text', {'role': 7, 'text': ['x'], 'extra': 1}, 'unknown fields extra'),
+        ('text', {'role': 7, 'text': ['x']}, 'wrong type for role, text'),
+        ('text', {'role': 'robot', 'text': 'x'}, 'wrong type for role'),
+        ('thinking', {'duration_ms': -1}, 'wrong type for duration_ms'),
+        ('tool_call', {'tool_use_id': 't', 'tool': 'B', 'summary': 's', 'input': 'ls'}, 'input'),
+        ('tool_result', {'tool_use_id': 't', 'is_error': 'no', 'text': ''}, 'is_error'),
+        ('diff', {'tool_use_id': 't', 'file_path': 'a', 'hunks': [{'lines': []}]}, 'hunks'),
+        ('diff', {'tool_use_id': 't', 'file_path': 'a', 'hunks': 'x'}, 'hunks'),
+        ('subagent_stop', {'agent_id': 'a', 'status': 'exploded'}, 'status'),
+        ('error', {'message': 'm', 'api_error_status': True}, 'api_error_status'),
+        ('raw', {'entry_type': 'x', 'entry': []}, 'entry'),
+    ],
+)
+def test_out_of_contract_data_is_refused(kind: str, data: Any, why: str) -> None:
+    with pytest.raises(BadEvent, match=why):
+        check_transcript_event(line(kind, data), 's-1')
+    assert not TRANSCRIPT_EVENT.is_valid(json.loads(line(kind, data)))
+
+
+def test_unknown_or_bad_event_fields_are_refused() -> None:
+    with pytest.raises(BadEvent, match='unknown fields secret'):
+        check_transcript_event(line('thinking', {'duration_ms': 1}, secret=1), 's-1')
+    with pytest.raises(BadEvent, match='subagent_id'):
+        check_transcript_event(line('thinking', {'duration_ms': 1}, subagent_id=3), 's-1')

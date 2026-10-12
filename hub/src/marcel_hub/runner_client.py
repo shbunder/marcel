@@ -227,19 +227,37 @@ async def sse(lines: AsyncIterator[str]) -> AsyncIterator[SSE]:
 
 RUNNER_EVENT_TYPES = frozenset({'session.state', 'session.gone', 'runner.warning'})
 SESSION_STATES = frozenset({'working', 'blocked', 'done', 'failed', 'stopped'})
-# transcript.schema.json: the required keys of each event type's `data`.
-TRANSCRIPT_DATA = {
-    'text': ('role', 'text'),
-    'thinking': ('duration_ms',),
-    'tool_call': ('tool_use_id', 'tool', 'summary'),
-    'tool_result': ('tool_use_id', 'is_error', 'text'),
-    'diff': ('tool_use_id', 'file_path', 'hunks'),
-    'subagent_start': ('tool_use_id', 'description'),
-    'subagent_stop': ('agent_id', 'status'),
-    'turn_end': ('duration_ms',),
-    'error': ('message',),
-    'raw': ('entry_type',),
-}
+# transcript.schema.json `$defs`, field by field: what each event type's `data` may hold. A field
+# is (kind, required). A test checks this table against the contract file, so they cannot drift.
+# Kinds: 'string', 'integer', 'count' (integer ≥ 0), 'boolean', 'object', 'hunks', or a set of
+# allowed strings.
+Kind = str | frozenset[str]
+TRANSCRIPT_DATA: dict[str, dict[str, tuple[Kind, bool]]] = {
+    'text': {'role': (frozenset({'user', 'assistant'}), True), 'text': ('string', True),
+             'source': ('string', False)},
+    'thinking': {'duration_ms': ('count', True)},
+    'tool_call': {'tool_use_id': ('string', True), 'tool': ('string', True),
+                  'summary': ('string', True), 'input': ('object', False)},
+    'tool_result': {'tool_use_id': ('string', True), 'is_error': ('boolean', True),
+                    'denied': ('boolean', False), 'text': ('string', True),
+                    'truncated': ('boolean', False)},
+    'diff': {'tool_use_id': ('string', True), 'file_path': ('string', True),
+             'hunks': ('hunks', True)},
+    'subagent_start': {'tool_use_id': ('string', True), 'agent_id': ('string', False),
+                       'description': ('string', True), 'subagent_type': ('string', False)},
+    'subagent_stop': {'agent_id': ('string', True),
+                      'status': (frozenset({'completed', 'failed', 'stopped', 'unknown'}), True),
+                      'summary': ('string', False)},
+    'turn_end': {'duration_ms': ('count', True), 'message_count': ('count', False),
+                 'pending_background_agents': ('count', False)},
+    'error': {'message': ('string', True), 'api_error_status': ('integer', False),
+              'usage_limit': ('boolean', False)},
+    'raw': {'entry_type': ('string', True), 'entry': ('object', False)},
+}  # fmt: skip
+TRANSCRIPT_FIELDS = frozenset(
+    {'session_id', 'offset', 'index', 'subagent_id', 'at', 'type', 'data'}
+)
+HUNK_FIELDS = ('old_start', 'old_lines', 'new_start', 'new_lines')
 
 
 class BadEvent(ValueError):
@@ -257,6 +275,45 @@ def _check_time(value: Any, what: str) -> None:
         datetime.fromisoformat(value.replace('Z', '+00:00'))
     except ValueError:
         raise BadEvent(f'{what} has a time that is not ISO 8601: {value!r}') from None
+
+
+def _is_hunk(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == {*HUNK_FIELDS, 'lines'}
+        and all(_is_int(value[k]) for k in HUNK_FIELDS)
+        and isinstance(value['lines'], list)
+        and all(isinstance(line, str) for line in value['lines'])
+    )
+
+
+def _fits(kind: Kind, value: Any) -> bool:
+    if isinstance(kind, frozenset):
+        return value in kind
+    return {
+        'string': lambda: isinstance(value, str),
+        'integer': lambda: _is_int(value),
+        'count': lambda: _is_int(value) and value >= 0,
+        'boolean': lambda: isinstance(value, bool),
+        'object': lambda: isinstance(value, dict),
+        'hunks': lambda: isinstance(value, list) and all(_is_hunk(h) for h in value),
+    }[kind]()
+
+
+def check_data(kind: str, data: Any) -> None:
+    """Check a transcript event's `data` against its `$defs` shape. Raises `BadEvent`."""
+    fields = TRANSCRIPT_DATA[kind]
+    if not isinstance(data, dict):
+        raise BadEvent(f'a {kind} event has no data')
+    missing = [key for key, (_, required) in fields.items() if required and key not in data]
+    if missing:
+        raise BadEvent(f'a {kind} event lacks {", ".join(missing)}')
+    extra = sorted(set(data) - set(fields))
+    if extra:
+        raise BadEvent(f'a {kind} event has unknown fields {", ".join(extra)}')
+    wrong = [key for key, value in data.items() if not _fits(fields[key][0], value)]
+    if wrong:
+        raise BadEvent(f'a {kind} event has the wrong type for {", ".join(wrong)}')
 
 
 def check_runner_event(raw: str) -> dict[str, Any]:
@@ -303,15 +360,14 @@ def check_transcript_event(raw: str, session_id: str) -> dict[str, Any]:
     if 'index' in event and (not _is_int(event['index']) or event['index'] < 0):
         raise BadEvent('a transcript event has a bad index')
     _check_time(event.get('at'), f'transcript event at offset {event["offset"]}')
-    required = TRANSCRIPT_DATA.get(event.get('type'))  # type: ignore[arg-type]
-    if required is None:
+    if event.get('type') not in TRANSCRIPT_DATA:
         raise BadEvent(f'unknown transcript event type {event.get("type")!r}')
-    data = event.get('data')
-    if not isinstance(data, dict):
-        raise BadEvent(f'a {event["type"]} event has no data')
-    missing = [key for key in required if key not in data]
-    if missing:
-        raise BadEvent(f'a {event["type"]} event lacks {", ".join(missing)}')
+    if 'subagent_id' in event and not isinstance(event['subagent_id'], str):
+        raise BadEvent('a transcript event has a bad subagent_id')
+    extra = sorted(set(event) - TRANSCRIPT_FIELDS)
+    if extra:
+        raise BadEvent(f'a transcript event has unknown fields {", ".join(extra)}')
+    check_data(event['type'], event.get('data'))
     return event
 
 
@@ -340,6 +396,21 @@ class TailPosition:
         self.index = index
 
 
+def _parse_positions(stored: Any) -> dict[str, TailPosition]:
+    """`{session id: [committed, line, index]}` with whole numbers; anything else is corrupt."""
+    if not isinstance(stored, dict):
+        raise ValueError('it is not a map of session ids')
+    positions = {}
+    for sid, pos in stored.items():
+        if not (isinstance(pos, list) and len(pos) == 3 and all(_is_int(n) for n in pos)):
+            raise ValueError(f'the entry for {sid} is not three whole numbers')
+        committed, line, index = pos
+        if not 0 <= committed <= line or index < -1:
+            raise ValueError(f'the entry for {sid} is out of order')
+        positions[sid] = TailPosition(committed, line, index)
+    return positions
+
+
 @dataclass
 class OffsetStore:
     """Tail positions per session, kept in a JSON file (or only in memory without a path)."""
@@ -351,9 +422,8 @@ class OffsetStore:
         if self.path is None or not self.path.exists():
             return
         try:
-            stored = json.loads(self.path.read_text())
-            self.positions = {sid: TailPosition(*pos) for sid, pos in stored.items()}
-        except (ValueError, TypeError, OSError) as exc:
+            self.positions = _parse_positions(json.loads(self.path.read_text()))
+        except (ValueError, OSError) as exc:
             log.warning(
                 'Could not read %s (%s). Transcripts are read again from the start; '
                 'events already stored may be stored twice.',
@@ -540,50 +610,71 @@ class RunnerWatch:
     async def run(self) -> None:
         delay = self.base_delay
         while True:
-            headers = {'Last-Event-ID': str(self.last_seq)} if self.last_seq else None
             try:
-                res = await self.client.open_stream('/events', headers=headers)
-            except (RunnerUnavailable, StreamRefused) as exc:
-                await self._down(str(exc))
-                await self.sleep(delay)
-                delay = min(delay * 2, self.max_delay)
-                continue
-            delay = self.base_delay
-            await self._up()
-            try:
-                async for message in sse(res.aiter_lines()):
-                    await self._on_runner_event(message.data)
-            except httpx.TransportError as exc:
-                log.warning('The runner event stream broke (%s). Reconnecting.', exc)
-            finally:
-                await res.aclose()
+                if await self._follow_events():
+                    delay = self.base_delay
+            except Exception as exc:  # never die silently: say so, then retry
+                log.exception('The runner feed hit an unexpected error. Retrying.')
+                await self._fail(f'The hub could not follow the runner: {exc}.')
             await self.sleep(delay)
             delay = min(delay * 2, self.max_delay)
+
+    async def _follow_events(self) -> bool:
+        """Read `/events` until it ends. True when the connection was made and taken up."""
+        headers = {'Last-Event-ID': str(self.last_seq)} if self.last_seq else None
+        try:
+            res = await self.client.open_stream('/events', headers=headers)
+        except (RunnerUnavailable, StreamRefused) as exc:
+            await self._down(str(exc))
+            return False
+        try:
+            await self._up()
+            async for message in sse(res.aiter_lines()):
+                await self._on_runner_event(message.data)
+        except httpx.TransportError as exc:
+            log.warning('The runner event stream broke (%s). Reconnecting.', exc)
+        finally:
+            await res.aclose()
+        return True
+
+    async def _fail(self, why: str) -> None:
+        """An unexpected error: the runner counts as unreachable, whatever the socket says."""
+        try:
+            await self._down(why)
+        except Exception:
+            log.exception('Could not mark the runner unreachable.')
+        finally:
+            self.reachable, self.reason = False, why
 
     # Reachability -----------------------------------------------------------------------------
 
     async def _up(self) -> None:
+        # Tasks that waited for a worker slot while the runner was away start now. Only once that
+        # worked does the runner count as back.
+        await self.registry.drain()
         was = self.reachable
         self.reachable, self.reason = True, ''
         if was is False:
             log.info('The runner answers again.')
             self.alerts.resolved(UNREACHABLE)
-        # Tasks that waited for a worker slot while the runner was away start now.
-        await self.registry.drain()
 
     async def _down(self, why: str) -> None:
         if self.reachable is False:
             return  # one alert per outage, however many retries fail
         self.reachable, self.reason = False, why
         await self._stop_tails()
-        lost = self._live_nuc_tasks()
-        for task_id in lost:
-            await self._report(task_id, Report(TaskState.unknown, 'The runner is unreachable'))
-        count = f'{len(lost)} task{"s" if len(lost) != 1 else ""}'
+        try:
+            lost = self._live_nuc_tasks()
+            for task_id in lost:
+                await self._report(task_id, Report(TaskState.unknown, 'The runner is unreachable'))
+            count = f'{len(lost)} task{"s" if len(lost) != 1 else ""} now show as unknown'
+        except Exception:  # the alert matters more than the bookkeeping
+            log.exception('Could not mark the NUC tasks unknown.')
+            count = 'its tasks may show an old state'
         self.alerts.broke(
             UNREACHABLE,
             'Marcel cannot reach the NUC',
-            f'{why} Marcel cannot see its work there: {count} now show as unknown. '
+            f'{why} Marcel cannot see its work there: {count}. '
             'It keeps trying and will tell you when the NUC is back.',
         )
 

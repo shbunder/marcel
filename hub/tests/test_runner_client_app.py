@@ -122,3 +122,37 @@ def test_a_reachable_runner_shows_in_health(tmp_path: Path, short_dir: Path) -> 
         FakeRunnerHandler.stop.set()
         server.shutdown()
         server.server_close()
+
+
+def test_health_shows_an_unexpected_watcher_error_then_the_recovery(
+    tmp_path: Path, short_dir: Path
+) -> None:
+    sock = short_dir / 'runner.sock'
+    FakeRunnerHandler.stop.clear()
+    server = Server(str(sock), FakeRunnerHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        app = create_app(settings(tmp_path, sock))
+        drain = app.state.tasks.drain
+        calls = []
+
+        async def flaky_drain() -> None:
+            calls.append(1)
+            if len(calls) in (2, 3):  # the start-up drain passes; the watcher's first two fail
+                raise RuntimeError('database is locked')
+            await drain()
+
+        app.state.tasks.drain = flaky_drain
+        with TestClient(app) as client:
+            deadline = time.monotonic() + 5
+            while 'database is locked' not in client.get('/api/health').json()['runner'].get(
+                'reason', ''
+            ):
+                assert time.monotonic() < deadline, 'health never showed the error'
+                time.sleep(0.01)
+            assert wait_for_health(client, reachable=True) == {'reachable': True}
+            FakeRunnerHandler.stop.set()
+    finally:
+        FakeRunnerHandler.stop.set()
+        server.shutdown()
+        server.server_close()

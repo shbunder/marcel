@@ -431,3 +431,95 @@ def test_a_task_back_from_unknown_takes_the_state_the_runner_reports(
 
     run(scenario())
     assert registry.get(task_id).waiting_for == 'Your approval: approve Write: notes.md'
+
+
+def test_an_unexpected_error_marks_the_runner_unreachable_and_it_recovers(
+    registry: TaskRegistry,
+    fake: FakeRunnerServer,
+    alerts: RecordingAlerts,
+    sleeps: Sleeps,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    drain = registry.drain
+    failures = [RuntimeError('database is locked')] * 3
+
+    async def flaky_drain() -> None:
+        if failures:
+            raise failures.pop()
+        await drain()
+
+    monkeypatch.setattr(registry, 'drain', flaky_drain)
+
+    async def scenario() -> None:
+        watch = watch_for(fake, registry, alerts, sleeps)
+        watch.start()
+        await until(lambda: watch.reachable is False)
+        assert 'database is locked' in watch.reason
+        assert [cause for cause, _, _ in alerts.raised] == [UNREACHABLE]
+        await until(lambda: watch.reachable is True)  # the watcher kept going
+        await watch.close()
+        assert alerts.cleared == [UNREACHABLE]
+        assert sleeps.delays[:3] == [0.5, 1.0, 2.0]
+
+    run(scenario())
+
+
+def test_a_transcript_feed_that_loses_the_runner_stops_quietly(
+    registry: TaskRegistry, fake: FakeRunnerServer, alerts: RecordingAlerts, sleeps: Sleeps
+) -> None:
+    sid = fake.add_session('working')
+    task_id = put_task(registry.engine, TaskState.working, session_id=sid)
+    fake.kill()
+
+    async def scenario() -> None:
+        watch = watch_for(fake, registry, alerts, sleeps)
+        # The event stream notices the outage; the tail itself just ends.
+        await watch._read_tail(task_id, sid, follow=True)
+        await watch.close()
+
+    run(scenario())
+    assert sleeps.delays == []
+    assert registry.get(task_id).state == TaskState.working
+
+
+def test_the_alert_goes_out_even_when_tasks_cannot_be_marked_unknown(
+    registry: TaskRegistry,
+    fake: FakeRunnerServer,
+    alerts: RecordingAlerts,
+    sleeps: Sleeps,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake.kill()
+
+    async def scenario() -> RunnerWatch:
+        watch = watch_for(fake, registry, alerts, sleeps)
+
+        def locked() -> list[str]:
+            raise RuntimeError('database is locked')
+
+        monkeypatch.setattr(watch, '_live_nuc_tasks', locked)
+        watch.start()
+        await until(lambda: bool(alerts.raised))
+        await watch.close()
+        return watch
+
+    watch = run(scenario())
+    assert 'its tasks may show an old state' in alerts.raised[0][2]
+    assert watch.reachable is False
+
+
+def test_a_failing_alert_still_leaves_the_runner_marked_unreachable(
+    registry: TaskRegistry, fake: FakeRunnerServer, sleeps: Sleeps
+) -> None:
+    class BrokenAlerts(RecordingAlerts):
+        def broke(self, cause: str, title: str, body: str) -> None:
+            raise RuntimeError('notifier down')
+
+    async def scenario() -> RunnerWatch:
+        watch = watch_for(fake, registry, BrokenAlerts(), sleeps)
+        watch.reachable = True
+        await watch._fail('The hub could not follow the runner: boom.')
+        return watch
+
+    watch = run(scenario())
+    assert (watch.reachable, watch.reason) == (False, 'The hub could not follow the runner: boom.')
