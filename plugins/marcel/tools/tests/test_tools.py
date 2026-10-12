@@ -9,7 +9,8 @@ import uuid
 from typing import Any
 
 from conftest import World
-from marcel_hub.models import Message, Project, Task, TaskEvent, TaskState
+from marcel_hub.digest import Pending
+from marcel_hub.models import ArtifactVersion, Message, Project, Task, TaskEvent, TaskState
 from sqlmodel import Session, select
 
 from marcel_tools.tools import BY_NAME, TOOLS
@@ -257,6 +258,32 @@ def test_artifacts_publish_a_new_version(world: World) -> None:
     art_id = first.split('(', 1)[1].split(',', 1)[0]
     again = world.ok('artifacts_publish', {**link, 'artifact_id': art_id})
     assert f'({art_id}, version 2)' in again
+
+
+def test_artifacts_publish_answers_a_digest_with_in_reply_to(world: World) -> None:
+    # The hub sent this digest_due event (S-04.14): it now knows the digest_id.
+    digest_id = 'dig_01J9ZW0'
+    world.app.state.digests.pending.append(
+        Pending(world.agent_id, 'evening', '2026-10-12T19:00:00+00:00',
+                '2026-10-12T20:00:00+00:00', 'Quiet day.', 'Evening digest', digest_id=digest_id)
+    )  # fmt: skip
+    # A doc needs the NUC's files, which this test hub cannot read; a link answers the same way.
+    saved = world.ok('artifacts_publish', {'kind': 'link', 'title': 'Tonight, in short',
+                                           'url': 'https://x.be/evening',
+                                           'in_reply_to': digest_id})  # fmt: skip
+    art_id = saved.split('(', 1)[1].split(',', 1)[0]
+    with Session(world.app.state.engine) as s:
+        version = s.get(ArtifactVersion, (art_id, 1))
+        assert version is not None and version.in_reply_to == digest_id
+
+
+def test_artifacts_publish_refuses_an_unknown_or_bad_in_reply_to(world: World) -> None:
+    link = {'kind': 'link', 'title': 'x', 'url': 'https://x.be'}
+    text = world.error('artifacts_publish', {**link, 'in_reply_to': 'dig_never_sent'})
+    assert 'There is no digest dig_never_sent to answer' in text
+    too_long = world.error('artifacts_publish', {**link, 'in_reply_to': 'd' * 81})
+    assert too_long.endswith('"in_reply_to" is too long (at most 80 characters).')
+    assert '"in_reply_to"' in world.error('artifacts_publish', {**link, 'in_reply_to': ''})
 
 
 def test_memory_write_and_read(world: World) -> None:

@@ -172,12 +172,142 @@ def test_the_port_gives_what_the_contract_reference_gives(name: str) -> None:
     """Same events, except a line without a time: the reference says 1970, the runner gives it the
     time of the line before it."""
     ours = normalise_file(FIXTURES / name)
-    theirs = reference().normalize_file((FIXTURES / name).read_text(), Path(name).stem)
+    theirs = reference().normalize_file(
+        (FIXTURES / name).read_text(), Path(name).stem, with_usage=True
+    )
     assert len(ours) == len(theirs)
     for mine, ref in zip(ours, theirs, strict=True):
         if ref['at'] == '1970-01-01T00:00:00Z':
             ref = {**ref, 'at': mine['at']}
         assert mine == ref
+
+
+# --- TurnEnd.usage (runner-api 0.1.7) ---------------------------------------------------------
+
+T1 = FIXTURES / 't1-happy-path.jsonl'
+USAGE_KEYS = (
+    'input_tokens',
+    'cache_creation_input_tokens',
+    'cache_read_input_tokens',
+    'output_tokens',
+)
+
+
+def _main_counts_before_each_turn_end(path: Path) -> list[dict[str, int]]:
+    """By hand: the four counts of the last main-thread assistant line before each turn end."""
+    out, last = [], None
+    for raw in path.read_bytes().splitlines():
+        entry = json.loads(raw)
+        usage = (entry.get('message') or {}).get('usage') if entry['type'] == 'assistant' else None
+        if usage and not entry.get('isSidechain'):
+            last = {k: usage[k] for k in USAGE_KEYS}
+        if entry.get('subtype') == 'turn_duration':
+            assert last is not None
+            out.append(last)
+            last = None
+    return out
+
+
+def test_every_turn_end_of_the_happy_path_carries_the_turns_last_usage() -> None:
+    turns = [e for e in normalise_file(T1) if e['type'] == 'turn_end']
+    assert len(turns) == 3
+    assert [t['data']['usage'] for t in turns] == _main_counts_before_each_turn_end(T1)
+    assert all(set(t['data']['usage']) == set(USAGE_KEYS) for t in turns)
+
+
+def test_subagent_lines_never_give_their_counts_to_a_turn_end() -> None:
+    """Control: the subagent's assistant lines (`isSidechain`, much larger counts) come after
+    the main thread's last one, right before the turn end; the turn end keeps the main counts."""
+    lines = T1.read_bytes().splitlines(keepends=True)
+    first_end = next(i for i, raw in enumerate(lines) if b'turn_duration' in raw)
+    sidechain = [
+        raw for raw in SUBAGENT.read_bytes().splitlines(keepends=True) if b'"usage"' in raw
+    ]
+    assert sidechain and all(json.loads(raw)['isSidechain'] for raw in sidechain)
+    n, offset, turns = Normaliser('s'), 0, []
+    for raw in [*lines[:first_end], *sidechain, lines[first_end]]:
+        offset += len(raw)
+        turns += [e for e in n.line(raw, offset) if e['type'] == 'turn_end']
+    [turn] = [valid(t) for t in turns]
+    assert turn['data']['usage'] == _main_counts_before_each_turn_end(T1)[0]
+
+
+def test_a_subagent_stream_never_carries_usage() -> None:
+    """Control: a file under `subagents/` never counts, even where a line lacks `isSidechain`."""
+    n = Normaliser('s', subagent_id='a918dd7c41e7ee8b8')
+    for i, raw in enumerate(SUBAGENT.read_bytes().splitlines(keepends=True)):
+        entry = json.loads(raw)
+        entry.pop('isSidechain', None)
+        n.line(json.dumps(entry).encode(), i)
+    end = {'type': 'system', 'subtype': 'turn_duration', 'durationMs': 5}
+    [turn] = one({**end, 'isSidechain': False}, n)
+    assert 'usage' not in turn['data']
+
+
+def test_usage_is_cleared_at_each_turn_end() -> None:
+    n = Normaliser('s')
+    counts = dict.fromkeys(USAGE_KEYS, 3)
+    one({'type': 'assistant', 'message': {'content': [], 'usage': counts}}, n)
+    end = {'type': 'system', 'subtype': 'turn_duration', 'durationMs': 5}
+    [first] = one(end, n)
+    [second] = one(end, n)
+    assert first['data']['usage'] == counts
+    assert 'usage' not in second['data']
+
+
+@pytest.mark.parametrize(
+    'usage',
+    [
+        {'input_tokens': 1, 'cache_creation_input_tokens': 2, 'cache_read_input_tokens': 3},
+        {**dict.fromkeys(USAGE_KEYS, 1), 'output_tokens': -1},
+        {**dict.fromkeys(USAGE_KEYS, 1), 'output_tokens': True},
+        {**dict.fromkeys(USAGE_KEYS, 1), 'output_tokens': '4'},
+        'lots',
+    ],
+)
+def test_incomplete_counts_keep_the_ones_before(usage: Any) -> None:
+    n = Normaliser('s')
+    good = dict.fromkeys(USAGE_KEYS, 7)
+    one({'type': 'assistant', 'message': {'content': [], 'usage': good}}, n)
+    one({'type': 'assistant', 'message': {'content': [], 'usage': usage}}, n)
+    [turn] = one({'type': 'system', 'subtype': 'turn_duration', 'durationMs': 1}, n)
+    assert turn['data']['usage'] == good
+
+
+def test_a_reread_file_forgets_the_counts() -> None:
+    n = Normaliser('s')
+    one({'type': 'assistant', 'message': {'content': [], 'usage': dict.fromkeys(USAGE_KEYS, 1)}}, n)
+    n.reset()
+    [turn] = one({'type': 'system', 'subtype': 'turn_duration', 'durationMs': 1}, n)
+    assert 'usage' not in turn['data']
+
+
+@pytest.mark.parametrize('turn', [0, 1, 2])
+def test_a_resume_between_the_last_answer_and_the_turn_end_keeps_the_counts(
+    tmp_path: Path, turn: int
+) -> None:
+    """A tail resumed after a turn's last assistant line still sends that turn's counts."""
+    path = tmp_path / 't1.jsonl'
+    path.write_bytes(T1.read_bytes())
+    lines = T1.read_bytes().splitlines(keepends=True)
+    ends = [i for i, raw in enumerate(lines) if b'turn_duration' in raw]
+    pos = sum(len(x) for x in lines[: ends[turn]])
+    n = Normaliser('s')
+    transcript._agents_before(n, path, pos, transcript.MAX_LINE)
+    [end] = n.line(lines[ends[turn]], pos + len(lines[ends[turn]]))
+    assert end['data']['usage'] == _main_counts_before_each_turn_end(T1)[turn]
+
+
+def test_a_resume_right_after_a_turn_end_carries_nothing_from_before_it(tmp_path: Path) -> None:
+    path = tmp_path / 't.jsonl'
+    entries = [
+        {'type': 'assistant', 'message': {'content': [], 'usage': dict.fromkeys(USAGE_KEYS, 1)}},
+        {'type': 'system', 'subtype': 'turn_duration', 'durationMs': 1},
+    ]
+    path.write_bytes(b''.join(json.dumps(e).encode() + b'\n' for e in entries))
+    n = Normaliser('s')
+    transcript._agents_before(n, path, path.stat().st_size, transcript.MAX_LINE)
+    assert n.usage == {}
 
 
 def test_a_subagent_transcript_carries_its_id_on_every_event() -> None:

@@ -590,6 +590,69 @@ describe('report', () => {
     expect(h.hub.of('report')).toHaveLength(0);
   });
 
+  it('sends a note with its fact, up to 1000 characters', async () => {
+    const h = await connected();
+    ack(h);
+    const fact = 'The Luminus contract ends on 1 March 2027.';
+    expect(text(await h.callTool('report', { kind: 'note', text: fact }))).toBe('Sent.');
+    expect(text(await h.callTool('report', { kind: 'note', text: 'x'.repeat(1000) }))).toBe('Sent.');
+    // 1000 emoji are 1000 characters, as JSON Schema and the hub count them, though JavaScript sees 2000
+    expect(text(await h.callTool('report', { kind: 'note', text: '🦒'.repeat(1000) }))).toBe('Sent.');
+    const [a, b, c] = h.hub.of('report');
+    expect(a).toMatchObject({ kind: 'note', text: fact });
+    expect(b?.text).toHaveLength(1000);
+    expect([...(c?.text ?? '')]).toHaveLength(1000);
+  });
+
+  it('refuses a note without a fact or over 1000 characters, in plain words, and sends nothing', async () => {
+    const h = await connected();
+    ack(h);
+    const bad: [Record<string, unknown>, RegExp][] = [
+      [{ kind: 'note' }, /a note needs the fact as "text"/],
+      [{ kind: 'note', text: '' }, /a note needs the fact as "text"/],
+      [{ kind: 'note', text: '   ' }, /a note needs the fact as "text"/],
+      [{ kind: 'note', text: 7 }, /"text" must be a string/],
+      [{ kind: 'note', text: 'x'.repeat(1001) }, /^the note is 1001 characters; keep it to 1000\.$/],
+      [{ kind: 'note', text: '🦒'.repeat(1001) }, /the note is 1001 characters/],
+    ];
+    for (const [args, pattern] of bad) {
+      const res = await h.callTool('report', args);
+      expect(res.result?.isError, JSON.stringify(args)).toBe(true);
+      expect(text(res)).toMatch(pattern);
+    }
+    expect(h.hub.of('report')).toHaveLength(0);
+  });
+
+  it('returns each of the hub’s note refusals as a tool error with its plain message, and does not re-send', async () => {
+    // The codes and messages the hub answers a note with (hub channel/gateway.py, S-04.14).
+    const fallback = 'Put the fact in your done summary instead.';
+    const refusals = [
+      { code: 'too_many_notes', message: `Marcel did not keep this note: this thread already sent 10 notes, the most one thread may. ${fallback}` },
+      { code: 'notes_full', message: `Marcel did not keep this note: the notes of this project are full (1 MB). ${fallback}` },
+      { code: 'memory_unavailable', message: `Marcel did not keep this note: the notes could not be saved just now. ${fallback}` },
+      { code: 'bad_note', message: `Marcel did not keep this note: a note needs the fact as text. ${fallback}` },
+      { code: 'bad_report', message: 'Marcel did not take this report: it breaks the channel contract.' },
+    ];
+    for (const refusal of refusals) {
+      const h = await connected();
+      h.hub.onFrame = (f) => (f.type === 'report' ? { type: 'call_ack', call_id: f.call_id, error: refusal } : undefined);
+      const res = await h.callTool('report', { kind: 'note', text: 'The boiler was serviced on 2 October.' });
+      expect(res.result?.isError, refusal.code).toBe(true);
+      expect(text(res)).toContain(refusal.code);
+      expect(text(res)).toContain(refusal.message);
+      expect(h.server.hub?.pendingCallCount).toBe(0);
+      expect(h.hub.of('report')).toHaveLength(1);
+    }
+  });
+
+  it('describes note in the report tool', async () => {
+    const res = await new Harness().request('tools/list');
+    const report = (res.result as { tools: { name: string; description: string; inputSchema: { properties: Record<string, { enum?: string[] }> } }[] }).tools.find((t) => t.name === 'report')!;
+    expect(report.description).toContain('note');
+    expect(report.description).toContain('1000 characters');
+    expect(report.inputSchema.properties.kind?.enum).toContain('note');
+  });
+
   it('describes next in the report tool', async () => {
     const res = await new Harness().request('tools/list');
     const report = (res.result as { tools: { name: string; description: string; inputSchema: { properties: Record<string, unknown> } }[] }).tools.find((t) => t.name === 'report')!;

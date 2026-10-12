@@ -24,8 +24,11 @@ The server has no runtime dependencies.
 - Messages arrive as channel events. `meta.kind` is `user_message`, `steer` or `system_event`.
   A quoted message adds `meta.quoted_message_id`; a hand-back steer adds `meta.handback` = `"true"`.
 - Tool `reply(text, in_reply_to?)` for the brain and side threads.
-- Tool `report(kind, …)` for workers: `started`, `progress` (needs `text`), `artifact` (needs `artifact`), `done` and `failed` (need `summary`).
+- Tool `report(kind, …)` for workers: `started`, `progress` (needs `text`), `artifact` (needs `artifact`), `done` and `failed` (need `summary`),
+  and `note` (needs `text`, 1 to 1000 characters: one lasting fact for the project's notes).
   A report that breaks these rules is refused with a plain message before it leaves the session.
+- When the hub refuses a call (its `call_ack` carries an error, e.g. `too_many_notes`, `notes_full`,
+  `memory_unavailable`, `bad_note`), the tool returns an error with the hub's code and plain message, and the call is not sent again.
 - Permission prompts go to the hub as approval cards. The owner's answer comes back to the session.
 
 A tool call returns when the hub confirms it stored the call. If the hub has not confirmed in 10 s, the tool

@@ -24,10 +24,14 @@
 - **Delivery.** The bundle goes to the brain as a `digest_due` system event through the channel
   outbox (the scheduler's `brain_frame`), so it waits there while the brain restarts. The brain
   writes the digest with the `digest` skill and publishes it with `artifacts_publish`, with the
-  `title` the event gives ("Evening digest — Monday 12 October"). The event names the agent's
-  digest board (`artifact_id`) once there is one, so each digest is a new version of the same item.
-  The hub knows the published digest by that: a new version of the board, or a doc by Marcel in
-  the inbox with exactly that title. Any other doc published meanwhile is not taken for it.
+  `title` the event gives ("Evening digest — Monday 12 October") and `in_reply_to` set to the
+  event's `digest_id` (S-04.14, brain-api 0.1.1). The event names the agent's digest board
+  (`artifact_id`) once there is one, so each digest is a new version of the same item. The hub
+  knows the published digest first by `in_reply_to` (kept on the version), whatever its title or
+  project; without it, by a new version of the board, or a doc by Marcel in the inbox with exactly
+  that title, unless that version answers another digest. Any other doc published meanwhile is not
+  taken for it. `in_reply_to` with an id the hub never sent (or one older than `KNOWN_ANSWERED`
+  answered digests) is refused 404 `digest_not_found`.
 - **Announcing.** When the board has a new version, the hub posts it as a card in the main
   conversation and pushes it (category `digest`, the version's summary as the text). The brain
   adds its one headline line with `reply`.
@@ -77,6 +81,7 @@ from marcel_hub.models import (
     ScheduleLocation,
     Task,
     TaskState,
+    new_id,
 )
 from marcel_hub.notify.message import BODY_MAX, clip
 from marcel_hub.projects.store import IN_FLIGHT
@@ -98,6 +103,7 @@ MAX_PER_DAY = 48  # fires of one schedule listed per day, at most
 STATE_FILE = 'digests.json'
 DEFAULT_TZ = 'Europe/Brussels'
 MARCEL = 'Marcel'  # `Artifact.updated_by` of what the brain publishes (brain_api.py)
+KNOWN_ANSWERED = 50  # answered digest ids still accepted as `in_reply_to` (a fixed version)
 
 
 @dataclass(frozen=True)
@@ -502,6 +508,7 @@ class Pending:
     headline: str
     title: str = ''  # the title the event asks the brain to publish with
     late: bool = False
+    digest_id: str = ''  # the event's `digest_id`; '' for one sent before S-04.14
 
 
 @dataclass
@@ -535,6 +542,9 @@ class Digests:
         # schedule id → the cron and tz the hub last gave a built-in digest. A row that still has
         # them was not edited by the owner, so it follows a changed `tz` setting.
         self.made: dict[str, dict[str, str]] = {}
+        # digest id → agent id of the last `KNOWN_ANSWERED` digests published, oldest first: a
+        # corrected version may still name one in `in_reply_to`.
+        self.answered: dict[str, str] = {}
         self._job: asyncio.Task[None] | None = None
         self._stop: asyncio.Event | None = None
         self._load()
@@ -644,11 +654,15 @@ class Digests:
         label = BY_DIGEST[digest].label
         self.pending = [p for p in self.pending if (p.agent_id, p.digest) != (row.agent_id, digest)]
         title = digest_title(digest, now, row.tz)
+        digest_id = new_id('dig')
         self.pending.append(
-            Pending(row.agent_id, digest, iso(now), iso(now + DEADLINE), headline(bundle), title)
-        )
+            Pending(row.agent_id, digest, iso(now), iso(now + DEADLINE), headline(bundle), title,
+                    digest_id=digest_id)
+        )  # fmt: skip
         self.save()
-        data: dict[str, Any] = {'digest': digest, 'title': title, 'facts': bundle}
+        data: dict[str, Any] = {
+            'digest': digest, 'title': title, 'facts': bundle, 'digest_id': digest_id,
+        }  # fmt: skip
         if board is not None:
             data['artifact_id'] = board
         log.info('The %s is due for agent %s; the facts go to the brain.', label, row.agent_id)
@@ -659,6 +673,12 @@ class Digests:
             'skill.',
             'data': data,
         }
+
+    def knows(self, agent_id: str, digest_id: str) -> bool:
+        """`brain_api.DigestIds`: a digest this agent's brain was sent, waiting or answered."""
+        if self.answered.get(digest_id) == agent_id:
+            return True
+        return any(p.digest_id == digest_id and p.agent_id == agent_id for p in self.pending)
 
     def _board(self, agent_id: str) -> str | None:
         board = self.boards.get(agent_id)
@@ -707,6 +727,10 @@ class Digests:
             if art is not None:
                 self.boards[p.agent_id] = art.id
                 self._announce(p, art, push=not p.late)
+                if p.digest_id:
+                    self.answered[p.digest_id] = p.agent_id
+                    while len(self.answered) > KNOWN_ANSWERED:
+                        del self.answered[next(iter(self.answered))]
                 changed = True
             elif p.late:
                 if now - datetime.fromisoformat(p.fired_at) < LATE_FOR:
@@ -725,12 +749,25 @@ class Digests:
             self.save()
 
     def _published(self, p: Pending) -> Artifact | None:
-        """The digest Marcel published in answer to this event: a new version of the board, or
-        a doc in the agent's inbox with the exact title the event asked for (it names the digest
-        and its date, so another doc published meanwhile is never taken for it)."""
+        """The digest Marcel published in answer to this event: a version whose `in_reply_to`
+        is the event's `digest_id`; else a new version of the board, or a doc in the agent's
+        inbox with the exact title the event asked for (it names the digest and its date, so
+        another doc published meanwhile is never taken for it), unless that version answers
+        another digest."""
         fired = datetime.fromisoformat(p.fired_at)
         board = self.boards.get(p.agent_id)
         with Session(self.engine) as s:
+            if p.digest_id:
+                answer = s.exec(
+                    select(Artifact)
+                    .join(ArtifactVersion, col(ArtifactVersion.artifact_id) == Artifact.id)
+                    .join(Project, col(Project.id) == Artifact.project_id)
+                    .where(ArtifactVersion.in_reply_to == p.digest_id)
+                    .where(Project.agent_id == p.agent_id)
+                    .order_by(col(ArtifactVersion.created_at).desc())
+                ).first()
+                if answer is not None:
+                    return answer
             inbox = s.exec(
                 select(Project.id)
                 .where(Project.agent_id == p.agent_id)
@@ -748,6 +785,13 @@ class Digests:
                     .order_by(col(Artifact.updated_at).desc(), col(Artifact.id).desc())
                 )
             )
+            # A version that answers another digest is that digest, never this one.
+            found = [
+                art
+                for art in found
+                if (version := s.get(ArtifactVersion, (art.id, art.current_version))) is None
+                or version.in_reply_to in (None, p.digest_id)
+            ]
         for art in found:
             if art.id == board:
                 return art
@@ -811,6 +855,7 @@ class Digests:
             'boards': self.boards,
             'pending': [asdict(p) for p in self.pending],
             'made': self.made,
+            'answered': self.answered,
             'baselines': {k: asdict(v) for k, v in self.baselines.items()},
         }
         tmp = self.state_path.with_suffix('.tmp')
@@ -829,6 +874,7 @@ class Digests:
                 str(k): {'cron': str(v['cron']), 'tz': str(v['tz'])}
                 for k, v in data.get('made', {}).items()
             }
+            answered = {str(k): str(v) for k, v in data.get('answered', {}).items()}
             for p in pending:
                 datetime.fromisoformat(p.fired_at)
                 datetime.fromisoformat(p.deadline_at)
@@ -836,6 +882,7 @@ class Digests:
             log.warning('Could not read %s (%s). Digests start afresh.', self.state_path, exc)
             return
         self.boards, self.pending, self.baselines, self.made = boards, pending, baselines, made
+        self.answered = answered
 
 
 def install(
@@ -857,5 +904,6 @@ def install(
         tz=tz,
     )
     scheduler.brain_frame = digests.frame
+    app.state.brain_ports.digests = digests  # which `in_reply_to` ids the brain may name
     app.state.digests = digests
     return digests

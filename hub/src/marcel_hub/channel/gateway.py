@@ -10,6 +10,12 @@ A rollover (S-06.2) starts a new brain while the old one still runs. The new one
 hand-over: `Brains.said_hello` makes it the conversation's brain, its socket takes the
 conversation's frames from the old one (whose socket is closed), and from then on a `reply` from
 the old session is refused, so only one brain ever answers.
+
+A worker's `report(note)` (S-04.14) is one fact for its project's notes: the hub appends
+`- <date> <text> (from <task title>)` to `memory/projects/<slug>.md` of the task's own project (the
+Inbox's for an unfiled task) and commits it as `memory: projects/<slug>.md (worker <task id>)`. The
+path is made from the project's slug only, never from anything the worker sends. A note posts no
+milestone and changes no state. A task may send `MAX_NOTES`; the next is refused `too_many_notes`.
 """
 
 import contextlib
@@ -18,19 +24,28 @@ import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, tzinfo
 from pathlib import Path
 from typing import Any
 
 from sqlmodel import Session, col, select
+from starlette.concurrency import run_in_threadpool
 
 from marcel_hub.artifacts import ArtifactRefused, UnknownArtifact
 from marcel_hub.channel.approvals import ApprovalBook
-from marcel_hub.channel.frames import next_steps_problem, version_tuple
+from marcel_hub.channel.frames import next_steps_problem, note_problem, version_tuple
 from marcel_hub.channel.outbox import ChannelOutbox, conversation_target, task_target
 from marcel_hub.channel.ports import Artifacts, Brains, LogPush, Push
 from marcel_hub.conversations import ensure_main_conversation, message_json, post_message
+from marcel_hub.memory import (
+    InvalidMemoryPath,
+    MemoryFileTooBig,
+    MemoryRepo,
+    MemoryUnavailable,
+    TooManyAppends,
+)
 from marcel_hub.models import (
+    INBOX_SLUG,
     Agent,
     AnsweredVia,
     Approval,
@@ -41,12 +56,14 @@ from marcel_hub.models import (
     Message,
     MessageKind,
     MessageRole,
+    Project,
     Task,
     TaskEventType,
     TaskLocation,
     TaskOrigin,
     TaskState,
 )
+from marcel_hub.projects.store import SLUG_PATTERN, notes_path
 from marcel_hub.runner_client import Alerts, LogAlerts
 from marcel_hub.tasks.ports import NullPublisher, Publisher
 from marcel_hub.tasks.registry import TaskRegistry
@@ -67,6 +84,8 @@ WORKER_ROLES = frozenset({'worker', 'adopted'})
 CHAT_ROLES = frozenset({'brain', 'side'})
 # runner_client.map_session's reason for a session that asked something an approval cannot answer.
 QUESTION = 'The session asked a question'
+MAX_NOTES = 10  # `report(note)`s one task may send (session-api.yaml `Report`)
+NOTE_FALLBACK = 'Put the fact in your done summary instead.'
 # A task entering one of these states is a triage event (S-06.5); the system event that wakes the
 # brain for it, if the triage decides so.
 STATE_EVENTS = {
@@ -146,6 +165,8 @@ class Gateway:
         self._left_prompt: set[str] = set()  # task ids whose cards wait for a transcript result
         self._alerted: set[str] = set()
         self.links: dict[str, Any] = {}  # target → its live `socket.Link`
+        self.memory: MemoryRepo | None = None  # where a worker's notes go (`install` sets it)
+        self.tz: tzinfo = UTC  # the owner's time zone: a note's date
 
     def tasks(self) -> TaskRegistry:
         assert self.registry is not None, 'install the gateway with the task registry'
@@ -344,6 +365,10 @@ class Gateway:
         steps = frame.get('next') if kind == 'progress' else None
         if steps is not None and (problem := next_steps_problem(steps)) is not None:
             raise CallRefused('bad_next', f'Marcel did not take this report: {problem}.')
+        if kind == 'note' and (problem := note_problem(frame.get('text'))) is not None:
+            raise CallRefused(
+                'bad_note', f'Marcel did not keep this note: {problem}. {NOTE_FALLBACK}'
+            )
         reported = [frame['artifact']] if 'artifact' in frame else []
         reported += frame.get('artifacts', [])
         # A new version of an artifact the task may not update refuses the whole report, before
@@ -357,6 +382,8 @@ class Gateway:
                 self.artifacts.version_target(artifact['artifact_id'], task_id)
             except UnknownArtifact as exc:
                 raise CallRefused('unknown_artifact', str(exc)) from exc
+        if kind == 'note':
+            await self._store_note(task_id, frame['text'])
         artifact_ids = []
         for artifact in reported:
             try:
@@ -384,6 +411,53 @@ class Gateway:
             state = TaskState.done if kind == 'done' else TaskState.failed
             await self._move(task_id, state, f'The worker reports {kind}', summary=frame['summary'])
             self.milestone(task_id, kind, summary=frame['summary'], artifact_ids=artifact_ids)
+
+    async def _store_note(self, task_id: str, text: str) -> None:
+        """Append one fact to the notes of the task's own project, or refuse the report with the
+        reason. The worker never names the file: it comes from the project's slug."""
+        refused = 'Marcel did not keep this note'
+        if self.memory is None:
+            raise CallRefused(
+                'memory_unavailable', f'{refused}: this hub has no notes folder. {NOTE_FALLBACK}'
+            )
+        with Session(self.engine) as s:
+            task = s.get(Task, task_id)
+            assert task is not None
+            project = s.get(Project, task.project_id) if task.project_id else None
+            if project is None:  # unfiled: the agent's Inbox
+                project = s.exec(
+                    select(Project)
+                    .where(Project.agent_id == task.agent_id)
+                    .where(Project.slug == INBOX_SLUG)
+                ).first()
+            slug, title = (project.slug if project else None), task.title
+        if slug is None or not SLUG_PATTERN.fullmatch(slug):
+            raise CallRefused(
+                'memory_unavailable', f'{refused}: its project has no notes file. {NOTE_FALLBACK}'
+            )
+        rel = notes_path(slug)
+        today = datetime.now(self.tz).date().isoformat()
+        line = f'- {today} {one_line(text)} (from {one_line(title)})'
+        try:
+            await run_in_threadpool(self.memory.append, rel, line, f'worker {task_id}', MAX_NOTES)
+        except TooManyAppends:
+            raise CallRefused(
+                'too_many_notes',
+                f'{refused}: this thread already sent {MAX_NOTES} notes, the most one thread '
+                f'may. {NOTE_FALLBACK}',
+            ) from None
+        except MemoryFileTooBig:
+            raise CallRefused(
+                'notes_full',
+                f'{refused}: the notes of this project are full (1 MB). {NOTE_FALLBACK}',
+            ) from None
+        except (MemoryUnavailable, InvalidMemoryPath, ValueError) as exc:
+            log.warning('Task %s: a note was not kept in %s: %s', task_id, rel, exc)
+            raise CallRefused(
+                'memory_unavailable',
+                f'{refused}: the notes could not be saved just now. {NOTE_FALLBACK}',
+            ) from None
+        log.info('Task %s added a note to %s.', task_id, rel)
 
     async def _move(self, task_id: str, to: TaskState, reason: str, **fields: Any) -> None:
         """A state report from the session; one the state machine does not allow changes
@@ -685,6 +759,11 @@ class Gateway:
             if m.role == MessageRole.user and asks and m.id not in waiting:
                 self.outbox.put(target, user_frame(conversation_id, message_json(m)))
                 log.info('Sent message %s again to the new main session.', m.id)
+
+
+def one_line(text: str) -> str:
+    """`text` on one line: a note can never add a heading or a second list item."""
+    return ' '.join(text.split())
 
 
 def _said(m: Message) -> str:

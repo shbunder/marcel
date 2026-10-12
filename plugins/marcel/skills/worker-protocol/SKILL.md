@@ -47,6 +47,16 @@ step list.
  "next": ["Replace the timer with a wait for the login response", "Run the test 50 times", "Open a PR"]}
 ```
 
+### `note` — a fact for later threads
+
+Send a note only when a later thread in this project would need the fact and could not easily
+find it again: a date, a decision, where something lives, what did not work. Not your progress,
+not what is already in a PR or a file you attach.
+
+```json
+{"kind": "note", "text": "The Luminus contract ends on 1 March 2027; the cancellation notice is one month."}
+```
+
 ### Artifacts
 
 An artifact is `{kind, title, url | path}`:

@@ -220,6 +220,8 @@ def test_a_bad_session_id_never_reaches_claude(tmp_path: Path, bad: str) -> None
         b'{"prompt": 7}',
         b'{"prompt": "  "}',
         b'{"prompt":"a","x":1}',
+        b'{"prompt":"a","repo":null}',
+        b'{"prompt":"a","repo":{}}',
     ],
 )
 def test_spawn_body_must_match_the_contract(shim: Cloud, raw: bytes) -> None:
@@ -228,10 +230,30 @@ def test_spawn_body_must_match_the_contract(shim: Cloud, raw: bytes) -> None:
     assert (e.value.status, e.value.code) == (400, 'bad_request')
 
 
-def test_send_body_must_match_the_contract(shim: Cloud) -> None:
+@pytest.mark.parametrize(
+    'raw',
+    [b'', b'[]', b'{"prompt": "hi"}', b'{"text": 7}', b'{"text": " "}', b'{"text":"a","x":1}'],
+)
+def test_send_body_must_match_the_contract(shim: Cloud, raw: bytes) -> None:
     with pytest.raises(SessionError) as e:
-        shim.send(RECORDED_ID, b'{"prompt": "hi"}')
+        shim.send(RECORDED_ID, raw)
     assert (e.value.status, e.value.code) == (400, 'bad_request')
+
+
+def test_timeouts_and_a_missing_claude_are_503_through_the_route(tmp_path: Path) -> None:
+    hang = script(tmp_path, 'time.sleep(30)\n')
+    cloud = Cloud(hang, tmp_path, spawn_timeout=0.5, send_timeout=0.5)
+    status, body = cloud.route('POST', '/cloud/sessions', b'{"prompt": "x"}')
+    assert (status, body['code']) == (503, 'claude_timeout')
+    status, body = cloud.route('POST', f'/cloud/sessions/{RECORDED_ID}/messages', b'{"text": "x"}')
+    assert (status, body['code']) == (503, 'claude_timeout')
+    missing = Cloud(tmp_path / 'nope', tmp_path)
+    status, body = missing.route('POST', '/cloud/sessions', b'{"prompt": "x"}')
+    assert (status, body['code']) == (503, 'claude_unavailable')
+    status, body = missing.route(
+        'POST', f'/cloud/sessions/{RECORDED_ID}/messages', b'{"text": "x"}'
+    )
+    assert (status, body['code']) == (503, 'claude_unavailable')
 
 
 # --- the link -------------------------------------------------------------------------------
@@ -325,7 +347,7 @@ def test_send_times_out_with_a_plain_error(tmp_path: Path) -> None:
     with pytest.raises(SessionError) as e:
         Cloud(claude, tmp_path, send_timeout=0.5).send(RECORDED_ID, b'{"text": "hi"}')
     assert time.monotonic() - started < 10
-    assert e.value.code == 'cloud_send_failed'
+    assert (e.value.status, e.value.code) == (503, 'claude_timeout')
     assert e.value.message.startswith('Claude did not pass the message on within 0.5 s.')
     (pid,) = pids(tmp_path)
     assert gone(pid)
@@ -335,13 +357,14 @@ def test_a_missing_claude_is_a_plain_error(tmp_path: Path) -> None:
     cloud = Cloud(tmp_path / 'nope' / 'claude', tmp_path)
     with pytest.raises(SessionError) as e:
         cloud.spawn(b'{"prompt": "x"}')
-    assert (e.value.code, e.value.message.split(':')[0]) == (
-        'cloud_unparsed',
+    assert (e.value.status, e.value.code, e.value.message.split(':')[0]) == (
+        503,
+        'claude_unavailable',
         f'The runner could not run {tmp_path / "nope" / "claude"}',
     )
     with pytest.raises(SessionError) as e:
         cloud.send(RECORDED_ID, b'{"text": "x"}')
-    assert e.value.code == 'cloud_send_failed'
+    assert (e.value.status, e.value.code) == (503, 'claude_unavailable')
 
 
 # --- the pty: always reaped, nothing leaked -------------------------------------------------
@@ -375,7 +398,7 @@ def test_spawn_timeout_kills_and_reaps_the_whole_group(tmp_path: Path) -> None:
     with pytest.raises(SessionError) as e:
         cloud.spawn(b'{"prompt": "x"}')
     assert time.monotonic() - started < 10
-    assert (e.value.status, e.value.code) == (422, 'cloud_unparsed')
+    assert (e.value.status, e.value.code) == (503, 'claude_timeout')
     assert e.value.message == (
         'Claude did not create the cloud session within 3 s. '
         'It may still appear at claude.ai/code: look there before trying again. '

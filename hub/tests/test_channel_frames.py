@@ -6,7 +6,14 @@ from typing import Any
 
 import pytest
 
-from marcel_hub.channel.frames import ARTIFACT_FIELDS, FIELDS, BadFrame, parse, version_tuple
+from marcel_hub.channel.frames import (
+    ARTIFACT_FIELDS,
+    FIELDS,
+    BadCall,
+    BadFrame,
+    parse,
+    version_tuple,
+)
 
 SCHEMA = json.loads(
     (Path(__file__).resolve().parents[2] / 'contracts' / 'channel.schema.json').read_text()
@@ -86,6 +93,7 @@ HELLO = {
         ('{"type": "report", "call_id": "c", "kind": "progress"}', 'needs text'),
         ('{"type": "report", "call_id": "c", "kind": "artifact"}', 'needs an artifact'),
         ('{"type": "report", "call_id": "c", "kind": "done"}', 'needs a summary'),
+
         ('{"type": "report", "call_id": "c", "kind": "done", "summary": "s", "artifacts": {}}',
          'not a list'),
         ('{"type": "report", "call_id": "c", "kind": "artifact", "artifact": 1}', 'not an object'),
@@ -103,6 +111,47 @@ HELLO = {
 def test_bad_frames_are_refused(frame: str, why: str) -> None:
     with pytest.raises(BadFrame, match=why):
         parse(frame)
+
+
+@pytest.mark.parametrize(
+    ('frame', 'code', 'why'),
+    [
+        ({'type': 'report', 'call_id': 'c_1', 'kind': 'done'}, 'bad_report',
+         'a done report needs a summary'),
+        ({'type': 'report', 'call_id': 'c_1', 'kind': 'nap'}, 'bad_report',
+         "unknown report kind 'nap'"),
+        ({'type': 'report', 'call_id': 'c_1', 'kind': 'note', 'text': 5}, 'bad_report',
+         'wrong type for text'),
+        ({'type': 'reply', 'call_id': 'c_1'}, 'bad_reply', 'a reply lacks text'),
+        ({'type': 'reply', 'call_id': 'c_1', 'text': 'hi', 'mood': 'x'}, 'bad_reply',
+         'unknown fields mood'),
+    ],
+)  # fmt: skip
+def test_a_bad_call_with_a_call_id_is_answered_not_dropped(
+    frame: dict[str, Any], code: str, why: str
+) -> None:
+    with pytest.raises(BadCall) as caught:
+        parse(json.dumps(frame))
+    ack = caught.value.ack()
+    assert ack['call_id'] == 'c_1' and ack['error']['code'] == code
+    assert why in ack['error']['message']
+    assert ack['error']['message'].startswith(f'Marcel did not take this {frame["type"]}')
+
+
+@pytest.mark.parametrize(
+    'frame',
+    [{'type': 'report', 'kind': 'done'}, {'type': 'report', 'call_id': 7, 'kind': 'done'},
+     {'type': 'reply', 'text': 'hi'}, {'type': 'ack', 'seq': 0}],
+)  # fmt: skip
+def test_a_bad_frame_without_a_call_id_cannot_be_answered(frame: dict[str, Any]) -> None:
+    with pytest.raises(BadFrame) as caught:
+        parse(json.dumps(frame))
+    assert not isinstance(caught.value, BadCall)
+
+
+def test_a_note_of_a_thousand_characters_is_taken() -> None:
+    frame = {'type': 'report', 'call_id': 'c', 'kind': 'note', 'text': 'é' * 1000}
+    assert parse(json.dumps(frame)) == frame
 
 
 def test_not_json_is_refused() -> None:
