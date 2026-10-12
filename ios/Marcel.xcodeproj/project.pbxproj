@@ -10,6 +10,7 @@
 		4DE100000000000000000001 /* MarcelKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000001 /* MarcelKit */; };
 		4DE100000000000000000002 /* PixelKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000002 /* PixelKit */; };
 		4DE100000000000000000003 /* AvatarKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000003 /* AvatarKit */; };
+		4DE100000000000000000004 /* MarcelChat in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000004 /* MarcelChat */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,9 +21,22 @@
 		4DE300000000000000000003 /* AvatarKit */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = AvatarKit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		4DF100000000000000000001 /* Exceptions for "Marcel" folder in "Marcel" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Chat,
+			);
+			target = 4DA600000000000000000001 /* Marcel */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		4DA200000000000000000001 /* Marcel */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				4DF100000000000000000001 /* Exceptions for "Marcel" folder in "Marcel" target */,
+			);
 			path = Marcel;
 			sourceTree = "<group>";
 		};
@@ -36,6 +50,7 @@
 				4DE100000000000000000001 /* MarcelKit in Frameworks */,
 				4DE100000000000000000002 /* PixelKit in Frameworks */,
 				4DE100000000000000000003 /* AvatarKit in Frameworks */,
+				4DE100000000000000000004 /* MarcelChat in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -93,6 +108,7 @@
 				4DE200000000000000000001 /* MarcelKit */,
 				4DE200000000000000000002 /* PixelKit */,
 				4DE200000000000000000003 /* AvatarKit */,
+				4DE200000000000000000004 /* MarcelChat */,
 			);
 			productName = Marcel;
 			productReference = 4DA100000000000000000001 /* Marcel.app */;
@@ -126,6 +142,7 @@
 				4DE400000000000000000001 /* XCLocalSwiftPackageReference "MarcelKit" */,
 				4DE400000000000000000002 /* XCLocalSwiftPackageReference "PixelKit" */,
 				4DE400000000000000000003 /* XCLocalSwiftPackageReference "AvatarKit" */,
+				4DE400000000000000000004 /* XCLocalSwiftPackageReference "Marcel/Chat" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4DA400000000000000000002 /* Products */;
@@ -299,6 +316,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = AvatarKit;
 		};
+		4DE400000000000000000004 /* XCLocalSwiftPackageReference "Marcel/Chat" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Marcel/Chat;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -316,6 +337,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4DE400000000000000000003 /* XCLocalSwiftPackageReference "AvatarKit" */;
 			productName = AvatarKit;
+		};
+		4DE200000000000000000004 /* MarcelChat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4DE400000000000000000004 /* XCLocalSwiftPackageReference "Marcel/Chat" */;
+			productName = MarcelChat;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

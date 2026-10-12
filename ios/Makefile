@@ -18,14 +18,15 @@ TRIPLE  := $(ARCH)-apple-ios18.0-simulator
 TESTS   := $(BUILD)/spm-sim/$(ARCH)-apple-ios-simulator/debug/MarcelKitPackageTests.xctest
 AVATAR_TESTS := $(BUILD)/spm-avatar/$(ARCH)-apple-ios-simulator/debug/AvatarKitPackageTests.xctest
 PIXEL_TESTS := $(BUILD)/pixelkit-sim/$(ARCH)-apple-ios-simulator/debug/PixelKitPackageTests.xctest
+CHAT_TESTS := $(BUILD)/chat-sim/$(ARCH)-apple-ios-simulator/debug/MarcelChatPackageTests.xctest
 RUNNER  := $(BUILD)/runner/SimTestRunner
 SIM     ?= $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun simctl list devices available -j | python3 scripts/pick-simulator.py $(SDK_VER))
 MOCK_HUB ?= http://127.0.0.1:7499/api
 
 .PHONY: check app test tests-bundle avatar-tests-bundle pixelkit-test pixelkit-bundle pixelkit-record integration \
-  generate boot clean
+  chat-test chat-bundle chat-record chat-integration generate boot clean
 
-check: app test pixelkit-test
+check: app test pixelkit-test chat-test
 
 # The app and its three packages, for the simulator.
 app:
@@ -77,6 +78,25 @@ pixelkit-test: pixelkit-bundle $(RUNNER) boot
 pixelkit-record: pixelkit-bundle $(RUNNER) boot
 	-SIMCTL_CHILD_PIXELKIT_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(PIXEL_TESTS) ComponentSnapshotTests
 	xcrun simctl spawn $(SIM) $(RUNNER) $(PIXEL_TESTS)
+
+# The Chat tab's tests (Marcel/Chat, the MarcelChat package): the feed, its cards, the composer, and snapshots of
+# the screen in light and dark, compared with Marcel/Chat/Tests/MarcelChatTests/__Snapshots__.
+chat-bundle:
+	swift build --quiet --package-path Marcel/Chat --scratch-path $(BUILD)/chat-sim --build-tests \
+	  --triple $(TRIPLE) --sdk $(SDK) -Xswiftc -F -Xswiftc $(PLAT)/Library/Frameworks \
+	  -Xlinker -F -Xlinker $(PLAT)/Library/Frameworks
+
+chat-test: chat-bundle $(RUNNER) boot
+	xcrun simctl spawn $(SIM) $(RUNNER) $(CHAT_TESTS)
+
+# Re-record the Chat snapshots after a deliberate change (the recording run fails by design), then check them.
+chat-record: chat-bundle $(RUNNER) boot
+	-SIMCTL_CHILD_MARCELCHAT_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(CHAT_TESTS) ChatSnapshotTests
+	xcrun simctl spawn $(SIM) $(RUNNER) $(CHAT_TESTS)
+
+# The chat's scenario against the mock hub (start it first: MOCK_HUB_PORT=7488 make mock-hub). Not part of the gate.
+chat-integration: chat-bundle $(RUNNER) boot
+	SIMCTL_CHILD_MARCEL_MOCK_HUB=$(MOCK_HUB) xcrun simctl spawn $(SIM) $(RUNNER) $(CHAT_TESTS) ChatMockHubTests
 
 # Against the mock hub (start it first with `make mock-hub` from the repo root). Not part of the gate.
 integration: tests-bundle $(RUNNER) boot
