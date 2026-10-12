@@ -8,6 +8,8 @@ the examples name but do not define (the Inbox's and Marcel dev's) and the scrip
 
 ```bash
 make mock-hub                 # http://127.0.0.1:7499/api  (MOCK_DELAY=0 for an instant scenario)
+MOCK_HUB_PORT=7488 make mock-hub   # another port, so two sessions on one Mac do not collide
+HUB=http://127.0.0.1:7488 mock-hub/scripts/walk.sh
 mock-hub/scripts/walk.sh      # walks the whole scenario with curl and a WebSocket listener
 make -C mock-hub check        # the lane gate: ruff, pyright, pytest, coverage >= 90 %
 ```

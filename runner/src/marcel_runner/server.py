@@ -1,4 +1,4 @@
-"""The runner's HTTP server on a unix socket. Today it serves `GET /health`."""
+"""The runner's HTTP server on a unix socket. It serves `GET /health` and `GET /usage`."""
 
 import grp
 import json
@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from marcel_runner.health import Settings, cgroup_of, collect_health
+from marcel_runner.usage import UsageProbe
 
 SOCKET_MODE = 0o660
 DIR_MODE = 0o750
@@ -77,11 +78,12 @@ def bind_socket(path: Path, group: str | None = None) -> socket.socket:
 class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
 
-    def __init__(self, sock: socket.socket, health: Callable[[], dict]) -> None:
+    def __init__(self, sock: socket.socket, health: Callable[[], dict], usage: UsageProbe) -> None:
         # bind_socket() has already bound `sock`; skip UnixStreamServer's own bind.
         socketserver.BaseServer.__init__(self, sock.getsockname(), Handler)
         self.socket = sock
         self.health = health
+        self.usage = usage
         sock.listen(16)
 
 
@@ -107,10 +109,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self) -> None:
         path = urlsplit(self.path).path
-        if path != '/health':
+        if path not in ('/health', '/usage'):
             self._error(404, 'not_found', f'The runner has no {path}.')
         elif self.command != 'GET':
-            self._error(405, 'method_not_allowed', f'/health only answers GET, not {self.command}.')
+            self._error(405, 'method_not_allowed', f'{path} only answers GET, not {self.command}.')
+        elif path == '/usage':
+            self._send(*self.server.usage.reading())
         else:
             self._send(200, self.server.health())
 
@@ -123,6 +127,7 @@ def serve(
     group: str | None = None,
     cgroup_of: Callable[[int], str] = cgroup_of,
     active_workers: Callable[[], int] = lambda: 0,
+    usage: UsageProbe | None = None,
 ) -> UnixHTTPServer:
     """Check the supervisor, bind the socket and return a server ready for `serve_forever()`."""
 
@@ -135,7 +140,8 @@ def serve(
         first['supervisor']['running'] and first['supervisor']['own_unit']
     ):
         raise StartupError(f'{first["reason"]} The runner did not start.')
-    return UnixHTTPServer(bind_socket(path, group), health)
+    probe = usage if usage is not None else UsageProbe(settings.claude)
+    return UnixHTTPServer(bind_socket(path, group), health, probe)
 
 
 def settings_from_env() -> tuple[Settings, Path, str | None]:
@@ -163,6 +169,7 @@ def main() -> int:
         print(f'marcel-runner: {e}', file=sys.stderr)
         return 1
     print(f'marcel-runner: listening on {sock}', file=sys.stderr, flush=True)
+    srv.usage.start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

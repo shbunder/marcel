@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — app API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     The API the iPhone app uses to talk to the hub on the NUC. **Every path, including `/health`,
     `/pair` and `/ws`, sits under the server URL** (`https://marcel-bot.com/api/...`); the tunnel
@@ -58,7 +58,9 @@ paths:
       summary: The live event stream (WebSocket upgrade). Frames are defined in events.schema.json.
       description: |
         Authenticate with the same `Authorization: Bearer` header as REST. The first frame is
-        `hello` (or `resync.required` if `since` is older than the hub keeps). After that, every
+        `hello` (or `resync.required` if `since` is older than the hub keeps, higher than any id it
+        sent, or not a number; the socket is not refused, because a refused socket reads as
+        "unpaired" on the phone). After that, every
         frame is an event with an `id` one higher than the last; `hello` and `resync.required`
         use `id: 0` and are not part of that sequence.
       parameters:
@@ -205,6 +207,7 @@ paths:
       tags: [conversations]
       operationId: listConversations
       summary: The main conversation and every side thread of an agent.
+      description: An agent that does not exist or is not yours gives an empty list, so the answer does not reveal which agents exist.
       parameters:
         - name: agent_id
           in: query
@@ -433,6 +436,14 @@ paths:
               schema: { $ref: '#/components/schemas/Task' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: |
+            The runner did not answer, so the task was not stopped (code `runner_unreachable`). It is
+            left as it was: marking it `stopped` could hide a session that is still running. Try again
+            once the runner is back.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /tasks/{task_id}/archive:
     parameters:
@@ -1015,7 +1026,15 @@ components:
       properties:
         code:
           type: string
-          description: Stable, for code (e.g. `pairing_code_expired`).
+          description: |
+            Stable, for code; the app may match on it. The hub uses: `unauthorized` (401),
+            `bad_request` (400), `not_found` (404), `method_not_allowed` (405), `internal_error` (500);
+            pairing: `pairing_code_invalid`, `pairing_code_used`, `pairing_code_expired`,
+            `too_many_tries` (429); devices: `device_not_found`; conversations:
+            `conversation_not_found`, `message_not_found`, `bad_cursor`, `already_main`; tasks:
+            `task_not_found`, `task_not_finished`, `task_finished`, `runner_unreachable` (503);
+            projects: `slug_taken`, `project_archived`. New codes may be added; treat an unknown code
+            by its HTTP status.
         message:
           type: string
           description: For people. Short, says what happened and what to do.
@@ -1238,9 +1257,15 @@ components:
             `stopped` or `failed` returns 409 `task_finished`; a `done` task takes the message as
             a follow-up and goes back to `working`.
         title: { type: string }
-        reply_count: { type: integer, minimum: 0 }
+        reply_count:
+          type: integer
+          minimum: 0
+          description: Side threads only (0 when empty); absent on the main conversation.
         created_at: { type: string, format: date-time }
-        last_message_at: { type: string, format: date-time }
+        last_message_at:
+          type: string
+          format: date-time
+          description: Present once the conversation has a message.
       example:
         id: cnv_side_01J9ZR0
         agent_id: agt_marcel
@@ -1636,11 +1661,14 @@ components:
         author:
           type: string
           enum: [user, marcel]
-          description: '`user`: typed in the thread view or a task thread. `marcel`: sent by the brain (`tasks_send`).'
+          description: '`user`: typed in the thread view or a task thread. `marcel`: sent by the brain (`tasks_send`), or the task''s opening prompt.'
         text: { type: string }
         handback:
           type: boolean
           description: True when the note came with a hand-back.
+        prompt:
+          type: boolean
+          description: True for the task's opening prompt, the first note of every task.
       example: { author: user, text: Also add a test for the empty case. }
 
     PermissionEventData:

@@ -1,5 +1,5 @@
 # Marcel v3 — one gate per lane. `make check` runs every lane that builds off a Mac.
-PY_LANES := contracts hub mock-hub runner plugins/marcel/tools
+PY_LANES := contracts hub mock-hub runner plugins/marcel/tools shared/avatar/pixel
 # `make mock-hub` runs the mock hub; its gate is mock-hub-check, so it is built apart from the rest.
 GATED    := $(filter-out mock-hub,$(PY_LANES))
 CHANNEL  := plugins/marcel/channel
@@ -40,7 +40,7 @@ test:
 # iOS builds need Xcode: run this on the Mac only.
 ios-check:
 	@command -v xcodebuild >/dev/null || { echo "ios-check needs Xcode: run it on the Mac."; exit 1; }
-	cd ios && xcodebuild test -scheme Marcel -destination 'platform=iOS Simulator,name=iPhone 16'
+	$(MAKE) -C ios check
 
 # The board (project/). See project/README.md.
 board:
