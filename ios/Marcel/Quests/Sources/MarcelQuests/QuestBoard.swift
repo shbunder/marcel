@@ -30,6 +30,9 @@ public enum QuestGroup: String, CaseIterable, Sendable {
         }
     }
 
+    /// What VoiceOver says: the title with a comma where the screen shows "·".
+    public var spokenTitle: String { title.replacingOccurrences(of: " · ", with: ", ") }
+
     /// Done and failed quests are folded away until you open them.
     public var startsCollapsed: Bool { self == .finished }
 }
@@ -125,6 +128,9 @@ public struct QuestBoard: Equatable, Sendable {
             ?? "All projects"
         return filter.archived ? "Archived · \(project)" : project
     }
+
+    /// The filter as VoiceOver says it: "Archived, Home energy".
+    public var spokenFilterTitle: String { filterTitle.replacingOccurrences(of: " · ", with: ", ") }
 
     /// What an empty log says, in plain words.
     public var emptyText: String {

@@ -47,7 +47,30 @@ public final class QuestsModel {
         }
     }
 
-    /// Swipe → Stop: a running or queued quest.
+    /// The quest a Stop swipe asked about. Stopping cannot be undone, so a swipe only asks; the quest stops when the
+    /// question is confirmed.
+    public private(set) var pendingStop: QuestRow?
+
+    /// Swipe → Stop: asks "Stop …?" and sends nothing yet.
+    public func askToStop(_ row: QuestRow) {
+        guard row.canStop else { return }
+        problem = nil
+        pendingStop = row
+    }
+
+    /// "Stop the quest" in the confirmation.
+    public func confirmStop() async {
+        guard let row = pendingStop else { return }
+        pendingStop = nil
+        await stop(row.id)
+    }
+
+    /// "Keep it running", or the confirmation dismissed.
+    public func cancelStop() {
+        pendingStop = nil
+    }
+
+    /// Stops a running or queued quest. Called by `confirmStop`, never straight from a swipe.
     public func stop(_ taskId: String) async {
         await send(taskId) { try await $0.stop(taskId: taskId) }
     }

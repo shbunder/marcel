@@ -15,7 +15,6 @@ public struct QuestsView: View {
     @Query private var artifacts: [CachedArtifact]
     @Query private var projects: [CachedProject]
     @State private var model: QuestsModel
-    @State private var confirmingStop: QuestRow?
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var scheme
 
@@ -37,18 +36,18 @@ public struct QuestsView: View {
             if model.service == nil { model.service = LiveQuestService.paired() }
         }
         .confirmationDialog(
-            confirmingStop.map { "Stop \($0.title)?" } ?? "", isPresented: stopDialogShown, titleVisibility: .visible,
-            presenting: confirmingStop
-        ) { row in
-            Button("Stop the quest", role: .destructive) { Task { await model.stop(row.id) } }
-            Button("Keep it running", role: .cancel) {}
+            model.pendingStop.map { "Stop \($0.title)?" } ?? "", isPresented: stopDialogShown,
+            titleVisibility: .visible, presenting: model.pendingStop
+        ) { _ in
+            Button("Stop the quest", role: .destructive) { Task { await model.confirmStop() } }
+            Button("Keep it running", role: .cancel) { model.cancelStop() }
         } message: { _ in
             Text("Marcel stops the session. It can't be picked up again.")
         }
     }
 
     private var stopDialogShown: Binding<Bool> {
-        Binding(get: { confirmingStop != nil }, set: { if !$0 { confirmingStop = nil } })
+        Binding(get: { model.pendingStop != nil }, set: { if !$0 { model.cancelStop() } })
     }
 
     @ViewBuilder
@@ -90,7 +89,8 @@ public struct QuestsView: View {
     @ViewBuilder
     private func swipes(for row: QuestRow) -> some View {
         if row.canStop {
-            Button("Stop") { confirmingStop = row }
+            // Only asks; the quest stops when the confirmation is answered (`QuestsModel.confirmStop`).
+            Button("Stop") { model.askToStop(row) }
                 .tint(PixelColor.deep.color)
                 .accessibilityLabel("Stop this quest")
         }
@@ -112,7 +112,7 @@ public struct QuestsView: View {
         } label: {
             FilterLabel(title: board.filterTitle)
         }
-        .accessibilityLabel("Filter: \(board.filterTitle)")
+        .accessibilityLabel("Filter: \(board.spokenFilterTitle)")
         .accessibilityHint("Pick a project, or show archived quests")
     }
 }

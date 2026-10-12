@@ -80,14 +80,14 @@ struct SectionTitle: View {
         if let toggle {
             Button(action: toggle) { label }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(section.group.title), \(section.rows.count) quests")
+                .accessibilityLabel("\(section.group.spokenTitle), \(section.rows.count) quests")
                 .accessibilityValue(open ? "Shown" : "Hidden")
                 .accessibilityHint(open ? "Hides them" : "Shows them")
                 .accessibilityAddTraits(.isHeader)
         } else {
             label
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(section.title)
+                .accessibilityLabel(section.group.spokenTitle)
                 .accessibilityAddTraits(.isHeader)
         }
     }

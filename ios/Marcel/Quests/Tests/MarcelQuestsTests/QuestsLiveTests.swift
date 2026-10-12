@@ -102,6 +102,36 @@ final class QuestsLiveTests: XCTestCase {
         XCTAssertNil(try fed.board(model.filter).row("t_old"))
     }
 
+    func testASwipeAloneNeverStopsAQuest() async throws {
+        let fed = try seeded()
+        let hub = FakeQuestService(tasks: [Fx.taskJSON("t_energy", "Energy contracts", state: "working")])
+        let model = QuestsModel(service: hub, cache: fed.cache)
+        let row = try XCTUnwrap(try fed.board().row("t_energy"))
+
+        model.askToStop(row)
+        XCTAssertEqual(model.pendingStop?.id, "t_energy", "the swipe asks first")
+        XCTAssertEqual(hub.asked, [], "the swipe sends nothing to the hub")
+        XCTAssertEqual(try fed.board().row("t_energy")?.state, .working)
+
+        model.cancelStop()
+        XCTAssertNil(model.pendingStop)
+        await model.confirmStop()
+        XCTAssertEqual(hub.asked, [], "after \"Keep it running\" there is nothing left to confirm")
+
+        model.askToStop(row)
+        await model.confirmStop()
+        XCTAssertEqual(hub.asked, ["stop t_energy"], "only the confirmation stops it")
+        XCTAssertNil(model.pendingStop)
+        XCTAssertEqual(try fed.board().row("t_energy")?.state, .stopped)
+    }
+
+    func testAFinishedQuestCannotBeAskedToStop() throws {
+        let fed = try seeded()
+        let model = QuestsModel(service: FakeQuestService(tasks: []), cache: fed.cache)
+        model.askToStop(try XCTUnwrap(try fed.board().row("t_bins")))
+        XCTAssertNil(model.pendingStop)
+    }
+
     func testStoppingARunningQuestMovesItToDone() async throws {
         let fed = try seeded()
         let hub = FakeQuestService(tasks: [Fx.taskJSON("t_energy", "Energy contracts", state: "working")])

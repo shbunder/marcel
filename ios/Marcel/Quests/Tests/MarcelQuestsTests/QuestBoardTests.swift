@@ -99,6 +99,27 @@ final class QuestBoardTests: XCTestCase {
         XCTAssertEqual(board.layout[.working], ["t_working_pr"], "a quest still working is not ready yet")
     }
 
+    func testAQuestWaitingOnYouWithAnOpenPullRequestStaysPinnedUnderWaitingOnYou() {
+        let tasks = [Fx.task("t1", "Self-update", state: "needs_you", project: "prj_dev"),
+                     Fx.task("t2", "Energy contracts", state: "working", active: Fx.minute)]
+        let board = QuestBoard(tasks: tasks, artifacts: [Fx.pr("p1", task: "t1")], projects: Fx.projects, now: Fx.now)
+        XCTAssertEqual(board.groups.first, .waitingOnYou)
+        XCTAssertEqual(board.layout[.waitingOnYou], ["t1"])
+        XCTAssertNil(board.layout[.readyForReview], "a PR does not pull a question out of the pinned group")
+        XCTAssertEqual(board.row("t1")?.state, .needsYou)
+        XCTAssertTrue(board.row("t1")?.detail.contains("PR #41") ?? false, "the card still shows its PR")
+    }
+
+    func testVoiceOverHearsCommasWhereTheScreenShowsDots() {
+        XCTAssertEqual(QuestGroup.finished.spokenTitle, "Done, this week")
+        let board = QuestBoard(tasks: [], projects: Fx.projects,
+                               filter: QuestFilter(projectId: "prj_energy", archived: true), now: Fx.now)
+        XCTAssertEqual(board.spokenFilterTitle, "Archived, Home energy")
+        let tasks = [Fx.task("t1", "A", state: "done", project: "prj_dev")]
+        let row = QuestBoard(tasks: tasks, artifacts: [Fx.pr("p1", task: "t1", state: "draft")], now: Fx.now).row("t1")
+        XCTAssertFalse(row?.spoken.contains("·") ?? true, row?.spoken ?? "")
+    }
+
     func testTheNewestPullRequestOfAQuestCounts() {
         let tasks = [Fx.task("t1", "A", state: "done")]
         let prs = [Fx.pr("p_old", task: "t1", number: 40, state: "closed", updated: Fx.hour),

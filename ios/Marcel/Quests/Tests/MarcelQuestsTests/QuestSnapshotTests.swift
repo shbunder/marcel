@@ -122,10 +122,10 @@ final class QuestAccessibilityTests: XCTestCase {
             }
             XCTAssertTrue(labels.contains("Quest log"))
             XCTAssertTrue(labels.contains("Waiting on you"))
-            XCTAssertTrue(labels.contains("Done · this week, 5 quests"))
+            XCTAssertTrue(labels.contains("Done, this week, 5 quests"))
             for label in labels {
                 XCTAssertFalse(label.isEmpty, "\(size): an element has no label")
-                XCTAssertNil(label.first { "▶▼♥◀▸▾".contains($0) }, "\(size): \"\(label)\" has a symbol")
+                XCTAssertNil(label.first { "▶▼♥◀▸▾·".contains($0) }, "\(size): \"\(label)\" has a symbol")
                 // "NUC" is the home server's name, said as one word; everything else is in sentence case.
                 let shouted = label.split { !$0.isLetter }
                     .first { $0.count >= 3 && $0 == $0.uppercased() && $0 != $0.lowercased() && $0 != "NUC" }
