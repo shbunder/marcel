@@ -39,6 +39,9 @@ from marcel_hub.auth import require_device
 
 GIT = 'git'
 MAX_FILE_BYTES = 1_000_000
+# The most of one memory file a worker's opening prompt carries (a "memory slice", e.g. project
+# notes). The rest stays in the file, which the prompt names.
+SLICE_MAX_BYTES = 8_000
 # The request body may be longer than the file: JSON escapes (`\n`, `\/`, `\u00e9`) take room.
 MAX_BODY_BYTES = 2 * MAX_FILE_BYTES
 PATH_PATTERN = re.compile(r'^(?!/)(?!.*\.\.)(?!(.*/)?\.)[A-Za-z0-9._/-]+\.md$')  # the contract's
@@ -266,6 +269,22 @@ class MemoryRepo:
         if len(data) > MAX_FILE_BYTES:
             raise MemoryFileTooBig(rel)
         return path, data
+
+    def read_slice(self, rel: str, cap: int = SLICE_MAX_BYTES) -> tuple[str, bool] | None:
+        """The first `cap` bytes of a file as text, and whether it was cut; None if there is no
+        file. Reads no more than that and runs no git, so it is cheap enough for every spawn."""
+        try:
+            fd = os.open(self.resolve(rel), os.O_RDONLY | os.O_NOFOLLOW)
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+        except OSError as exc:  # a symlink swapped in after the check
+            raise InvalidMemoryPath(rel) from exc
+        with os.fdopen(fd, 'rb') as f:
+            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                return None
+            data = f.read(cap + 1)
+        cut = len(data) > cap
+        return data[:cap].decode('utf-8', errors='ignore'), cut
 
     def read(self, rel: str) -> dict[str, Any]:
         """The contract's `MemoryFile`."""

@@ -2,7 +2,8 @@
 
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, the task
-routes, conversations, the live event stream, artifacts, memory and push notifications.
+routes, conversations, the live event stream, artifacts, memory, projects, push notifications,
+the channel gateway and approvals.
 
 ## Run
 
@@ -106,8 +107,10 @@ anyone else gets a 404 `conversation_not_found`.
   `thread: {conversation_id, reply_count}`.
 - `POST /api/conversations/{id}/messages`: stores the message and answers 201 at once; it never
   waits for Marcel (B-02). The same `client_id` in the same conversation returns the stored message
-  and sends no new event, so a retry never makes a duplicate. `project_id` is accepted and not yet
-  stored (S-04.10).
+  and sends no new event, so a retry never makes a duplicate. A `project_id` (sent from a project
+  room, B-32) must be one of the agent's projects (400 otherwise) and is stored on the message;
+  the message still goes to the main conversation, and `message.project_id` tells Marcel which
+  project it is about.
 - `POST /api/messages/{id}/thread`: opens the side thread on a message (201), or returns the one it
   already has (200). A thread on a milestone or approval gets that message's `task_id`.
 - `POST /api/conversations/{id}/send-to-main`: from a side thread, `{"message_id"}` quotes one of
@@ -141,8 +144,8 @@ cut off before its next event.
 
 ## Tasks
 
-`/api/tasks` lists, reads, steers, stops, archives and hands back tasks (see
-`contracts/app-api.yaml`). The code is in `src/marcel_hub/tasks/`.
+`/api/tasks` lists (filters `state`, `archived`, `project_id`), reads, steers, stops, archives and
+hands back tasks (see `contracts/app-api.yaml`). The code is in `src/marcel_hub/tasks/`.
 
 - **State machine.** Every state change follows `contracts/task-states.md`. Anything else is refused
   and logged as `Refused a task transition: …`. Each change writes a `state` task event.
@@ -157,7 +160,8 @@ cut off before its next event.
   listed only with `archived=true`.
 - **Hand-back** records a `note` and puts a `handback` event for Marcel's brain in the outbox.
 
-Not wired yet: the channel gateway. Until it exists, steer and hand-back messages wait in memory.
+Steer and hand-back messages go to the channel gateway's Outbox (below), which delivers them to
+the session.
 
 ## Runner
 
@@ -185,7 +189,7 @@ background watcher follows the runner's streams:
 
 ## Artifacts
 
-`/api/artifacts` lists items newest first (filters `task_id`, `kind`), reads one, and serves its
+`/api/artifacts` lists items newest first (filters `task_id`, `project_id`, `kind`), reads one, and serves its
 content. The code is `src/marcel_hub/artifacts.py`.
 
 - **Handing one in.** A worker's `report` artifact (`channel.schema.json` `Artifact`) goes to
@@ -206,8 +210,9 @@ content. The code is `src/marcel_hub/artifacts.py`.
   `pr_status_from_gh` maps GitHub's REST answers to them. The hub reads GitHub itself with a
   read-only token (ADR-002); that client comes with S-04.12. Until then a refresh answers that the
   hub cannot ask GitHub. A PR starts as `open`.
-- Not yet: projects (`project_id` answers 400) and versions (every item is at version 1). They come
-  with S-04.10 and S-04.11.
+- **Project.** An item belongs to its task's project, and moves with the task. One with no task
+  goes to the inbox of the hub's first agent.
+- Not yet: versions (every item is at version 1). They come with S-04.11.
 
 Needs `jsonschema` at run time and `contracts/dashboard.schema.json` next to `hub/`.
 
@@ -245,6 +250,48 @@ on first use. The code is `src/marcel_hub/memory.py`.
   `info/attributes`, since the brain could have edited them.
 - Needs `git` on the path.
 
+## Projects
+
+`/api/projects` lists, creates, reads, changes and archives projects (B-30…B-33a), and
+`POST /api/tasks/{id}/move` files a task under another one. The code is in
+`src/marcel_hub/projects/`.
+
+- **Inbox.** Every agent has one project with slug `inbox`, made in the same write as the agent
+  (`models.inbox_id`), whoever inserts it. A task stored without a project is filed there, and the
+  database refuses a task with none (triggers `task_needs_project_*`). Migration 0005 gave every
+  existing agent its inbox and filed existing tasks and artifacts there. Its downgrade keeps every
+  row: it turns foreign keys off while it rebuilds the tables, and `db.downgrade` then drops the
+  pooled connections so the next one has them on again.
+- **Slugs** match `^[a-z0-9][a-z0-9-]{0,39}$` (400 otherwise). Without one, the slug is made from
+  the name (`Energy contracts` → `energy-contracts`, then `-2`, `-3` … if taken). A slug asked for
+  that a live project of the agent already has answers 409 `slug_taken`; the database index
+  `ix_project_live_slug` enforces it. An archived project's slug can be used again.
+- **Notes** (B-33). Creating a project creates `memory/projects/<slug>.md` in the memory folder
+  (one git commit). Notes already there (from an archived project with that slug) are kept. If git
+  fails, the project is still made, and the log says the notes file was not.
+- **Briefing.** A worker's opening prompt starts with its project: name, goal, repo, folder,
+  standing instructions and notes, each cut at `memory.SLICE_MAX_BYTES` (8 KB) with a line that
+  says where the rest is. Instructions and notes sit between markers
+  (`<<<project-notes slug=…>>>` … `<<<end project-notes>>>`); any `<<<` inside them is broken up,
+  so notes a worker wrote cannot close the block and pass as the task. An inbox with no notes or
+  instructions adds nothing. The stored opening note (what the app shows) is the prompt alone. If
+  the briefing cannot be built, the task starts without it and the log says
+  `starts without its project briefing` and why.
+- **Archive** refuses the inbox (409 `project_is_inbox`) and a project with any task that is not
+  done, failed or stopped (409 `project_busy`).
+- **Move.** Only into a live project of the same agent (409 `project_archived`, 404
+  `project_not_found`). The task's items move with it. The app gets `task.moved`, `task.updated`,
+  then `project.updated` for the new and the old project. Moving into the same project sends
+  nothing. No brain turn.
+- **Counts** on each project: `working` (queued, starting, working, silent, unknown), `needs_you`,
+  and `done_7d` (done, last changed in the past 7 days). `updated_at` is the latest change to the
+  project or any task in it. Every `task.created`/`task.updated` is followed by `project.updated`
+  for that task's project.
+- **Owner only.** Someone else's project answers 404 `project_not_found`, someone else's agent
+  404 `agent_not_found`, and listing it gives `[]`.
+- **Board.** `board_artifact_id` is reserved when the project is made; the board itself is built
+  under that id by S-04.11.
+
 ## Push notifications
 
 `src/marcel_hub/notify/` sends pushes to paired phones (B-16, B-18). Set `ntfy_server` to turn
@@ -280,3 +327,73 @@ Nothing else pushes: no progress, no `working`, `queued`, `unknown` or `stopped`
 - **Secrets.** An ntfy topic lets anyone read the pushes. Logs name the device id, never the topic.
 - **APNs** (S-08.2) is a second backend with `kind = 'apns'`; devices that registered an APNs token
   get nothing until it exists, and the log says so.
+
+## Channel gateway: `/channel` and approvals
+
+Every Claude Code session on the NUC (the brain, a side thread, a worker) holds one WebSocket to
+`ws://127.0.0.1:7420/channel` through the marcel plugin's channel server
+(`contracts/channel-protocol.md`, `docs/channel-server.md`). The code is in
+`src/marcel_hub/channel/`.
+
+- **Outside `/api`.** The Cloudflare tunnel forwards only `/api/*`, so the channel is reachable
+  from the NUC alone. It takes no device token. As a backstop, a `/channel` request carrying
+  Cloudflare's `cf-connecting-ip` header is refused before it is accepted.
+- **Hub secret.** The hub reads it from `<data_dir>/hub-secret` (at least 32 characters; deploy
+  writes the same value to the plugin's `hub-secret`). A session with another secret is rejected
+  `bad_secret`. With no secret file, every session is. Either raises one "something broke" push.
+- **Who a session is.** Only a session id the runner reported: a NUC task's `session_id` (role
+  `worker`, or `adopted`) or a conversation's `brain_session_id` (`brain` for the main
+  conversation, `side` for a side thread). Anything else is rejected `unknown_session`; the
+  server retries for two minutes. A plugin older than 0.1.0 is rejected `plugin_too_old`.
+- **A session acts only for itself.** A worker's `report` lands on its own task; a brain's or side
+  thread's `reply` in its own conversation. A worker's `reply` and a brain's `report` are dropped
+  and logged. A session can never answer a prompt.
+- **Brain and side-thread prompts are denied.** An approval card belongs to a task, so the brain
+  or a side thread cannot get one (`project/contract-requests/S-04.6.md`). Rather than wait at its
+  prompt for ever, the session gets `permission_decision deny` at once, and the log says which
+  tool it asked for. A re-sent prompt is denied again.
+- **Calls.** Each stored `reply` or `report` is answered `call_ack`; a repeated `call_id` is not
+  stored again and is acked with `duplicate: true`. A call the hub fails to store is not acked, so
+  the server sends it again after a reconnect.
+- **Reports.** `started` and `progress` become `progress` task events (and move the task to
+  `working`); artifacts go to the artifact store (files are copied from the workers' folder) and
+  get an `artifact` event; one the store refuses becomes an `error` event saying why, and the rest
+  of the report still counts; `done` and `failed` set the summary and the state. `started`, `done` and `failed` post a
+  milestone in the main conversation. A report the state machine does not allow (for a task you
+  stopped) is stored but changes no state.
+- **Outbox.** Frames for a session (user messages, steers, hand-backs, permission decisions) are
+  numbered per task or conversation and kept in the database until the session acks them, so a
+  session that is offline, or a task still `queued`, gets them after its hello, in order, and a
+  restart loses nothing. The hub sends from the database a page at a time; a session that stops
+  reading costs nothing but memory for one flag. Acked frames are deleted (the newest row of each
+  task or conversation stays, to keep the numbering). When a task stops or fails, frames it never
+  received are dropped. A newer socket for the same session replaces the old one. A socket gets
+  15 s to say hello, and a frame over 256 KB closes it (uvicorn's `ws_max_size` is the same cap).
+- **Owner messages.** A message you send in the main conversation, or in a side thread, goes to
+  that conversation's session. Only your own messages go: Marcel's replies are never sent back to
+  it. A conversation with no session yet (`brain_session_id` unset) gets nothing queued: the
+  session that starts for it reads the conversation. A thread that belongs to a task is left to
+  the task threads (S-04.9).
+
+### Approvals
+
+A worker's permission prompt becomes an approval card: the task goes to `needs_you`, a
+`permission` task event, an `approval` message in the main conversation, `approval.created` on
+the phone, and an approval push. The same `request_id` on the same task never opens a
+second card, whatever state the card is in.
+
+- `GET /api/approvals?state=` lists your cards, open ones first.
+- `POST /api/approvals/{id}` with `{"decision": "approve" | "deny", "note"?}` answers a card and
+  sends the session its `permission_decision`. A denial's note follows as a `steer`. Only the
+  owner of the task's agent sees or answers a card (404 for anyone else). A card that is no
+  longer open answers 409 with the card as it stands.
+- **Answered in a terminal.** When the runner shows the session left the permission prompt and the
+  transcript has the tool's result, the card becomes `approved` (or `denied`, when the result says
+  `denied: true`) with `answered_via: terminal`. The first answer wins, from the app or the
+  terminal. The answer is matched by tool name: the first result of a call to the same tool that
+  arrived after the card opened. Two prompts for the same tool at once can be matched the wrong
+  way round (a known limit).
+- **Expired.** When a task ends (`done`, `failed` or `stopped`) with an open card, the card is
+  resolved from the transcript if it can be, and otherwise becomes `expired`. At start the hub does
+  the same for cards left open while it was down.
+- Every change to a card sends `approval.resolved`.

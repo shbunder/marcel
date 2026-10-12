@@ -241,11 +241,14 @@ class ArtifactStore:
         kind: ArtifactKind | None = None,
         offset: int = 0,
         limit: int = 50,
+        project_id: str | None = None,
     ) -> tuple[list[Artifact], int | None]:
         """Newest first. Returns the page and the offset of the next one (None at the end)."""
         query = select(Artifact)
         if task_id is not None:
             query = query.where(Artifact.task_id == task_id)
+        if project_id is not None:
+            query = query.where(Artifact.project_id == project_id)
         if kind is not None:
             query = query.where(Artifact.kind == kind)
         query = query.order_by(desc(col(Artifact.created_at)), desc(col(Artifact.id)))
@@ -270,8 +273,8 @@ class ArtifactStore:
 
     @staticmethod
     def to_api(art: Artifact) -> dict[str, Any]:
-        """The contract's `Artifact`. Versions and projects come with S-04.10 and S-04.11; until
-        then every artifact is at version 1, and its current version is its first."""
+        """The contract's `Artifact`. Versions come with S-04.11; until then every artifact is at
+        version 1, and its current version is its first."""
         body: dict[str, Any] = {
             'id': art.id,
             'kind': art.kind.value,
@@ -282,7 +285,7 @@ class ArtifactStore:
             'created_at': iso(art.created_at),
             'updated_at': iso(art.created_at),
         }
-        for name in ('task_id', 'url', 'content_type', 'size_bytes'):
+        for name in ('task_id', 'project_id', 'url', 'content_type', 'size_bytes'):
             if (value := getattr(art, name)) is not None:
                 body[name] = value
         if 'pr' in art.meta_json:
@@ -507,9 +510,6 @@ def list_artifacts(
     cursor: str | None = None,
     limit: str = '50',
 ) -> Any:
-    if project_id is not None:
-        return _error(400, 'bad_request', 'Items cannot be listed by project yet. Leave out '
-                                          'project_id.')  # fmt: skip
     if kind == 'board':  # in the contract; boards arrive with S-04.11
         return {'items': []}
     kinds = [k.value for k in ArtifactKind]
@@ -521,7 +521,7 @@ def list_artifacts(
         return _error(400, 'bad_request', 'That page cursor is not valid. Start again without it.')
     store = _store(request)
     rows, nxt = store.page(
-        task_id, ArtifactKind(kind) if kind else None, int(cursor or 0), int(limit)
+        task_id, ArtifactKind(kind) if kind else None, int(cursor or 0), int(limit), project_id
     )
     page: dict[str, Any] = {'items': [store.to_api(a) for a in rows]}
     if nxt is not None:

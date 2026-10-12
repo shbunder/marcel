@@ -83,7 +83,8 @@
         "message_id": { "type": "string" },
         "conversation_id": { "type": "string" },
         "text": { "type": "string" },
-        "quoted_message_id": { "type": "string" }
+        "quoted_message_id": { "type": "string" },
+        "project_id": { "type": "string", "description": "Sent from a project room (B-32): which project the message is about. The server passes it in `meta`." }
       },
       "examples": [{ "type": "user_message", "seq": 41, "message_id": "msg_01J9ZQZ1", "conversation_id": "cnv_main_marcel", "text": "Can you fix the flaky login test in shbunder/marcel?" }]
     },
@@ -139,7 +140,14 @@
       "properties": {
         "type": { "const": "call_ack" },
         "call_id": { "type": "string" },
-        "duplicate": { "type": "boolean", "description": "True when the hub had already stored this `call_id`." }
+        "duplicate": { "type": "boolean", "description": "True when the hub had already stored this `call_id`." },
+        "error": {
+          "description": "The hub refused this call and stored nothing (e.g. an unknown `artifact_id`, or a frame this session may not send). The server's tool returns `message` to the session and drops the call; it is not re-sent.",
+          "type": "object",
+          "required": ["code", "message"],
+          "additionalProperties": false,
+          "properties": { "code": { "type": "string" }, "message": { "type": "string" } }
+        }
       },
       "examples": [{ "type": "call_ack", "call_id": "c_01J9ZQZ3" }]
     },
