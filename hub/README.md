@@ -325,7 +325,8 @@ content itself, with no brain turn. The code is `src/marcel_hub/boards.py`.
   (the newest 5 tasks done in the past 7 days, each with its summary and those of its items filed
   in this project, at their version, then *Pinned here*: items pinned to this project that no
   result above lists, newest change first),
-  *Upcoming* (empty until schedules exist), then Marcel's notes, the newest 5.
+  *Upcoming* (empty: schedules are kept per agent, not per project), then Marcel's notes, the
+  newest 5.
 - **When.** `BoardKeeper` watches the app event log. Any task, approval or artifact change in a
   project (and a project created, renamed or moved into), and any step a worker reports with
   `report(progress)`, marks its board. A marked board is rebuilt
@@ -477,6 +478,41 @@ Nothing else pushes: no progress, no `working`, `queued`, `unknown` or `stopped`
 - **Secrets.** An ntfy topic lets anyone read the pushes. Logs name the device id, never the topic.
 - **APNs** (S-08.2) is a second backend with `kind = 'apns'`; devices that registered an APNs token
   get nothing until it exists, and the log says so.
+
+## Schedules
+
+`src/marcel_hub/schedule/` runs recurring work (B-22) and says when it did not run (B-23). The
+app's `/api/schedules` and the brain's `schedule_*` tools reach the same `Scheduler`.
+
+- **The store is the `schedule` table.** Each row keeps its five-field cron, its time zone (`tz`),
+  `paused`, and `next_run_at` / `last_run_at`, in UTC. A restart finds every schedule where it was.
+  No APScheduler: see `project/decisions/ADR-003-scheduler-without-apscheduler.md`.
+- **Times are wall-clock times in `tz`** (`cron.py`). Each matching time fires once, across the
+  clock changes: a time skipped in spring (02:30 when 02:00 jumps to 03:00) fires once at 03:30; a
+  time that happens twice in autumn fires at its first occurrence only.
+- **Firing.** A loop looks every 30 seconds (sooner when a fire is due). A due schedule moves its
+  `next_run_at` on first, then: `brain` sends a `system_event` `schedule_fired` (the prompt in
+  `data`) to the brain of the agent's main conversation; `nuc` / `cloud` spawns a worker task
+  (`origin: schedule`, `schedule_id`) through the task registry, so the usage guard and the worker
+  cap queue it rather than drop it. The prompt is the owner's text, handed to Claude as text.
+- **Missed fires are not made up.** A fire more than 10 minutes late (the hub was down) is skipped
+  and the schedule moves on to its next time. Everything one look found missed makes one message in
+  the main conversation and one push (category `note`), e.g. "Marcel was off when 2 scheduled jobs
+  were due, so they did not run: “Garden check” (3 times), “Weekly report”. …".
+- **"Did not run".** With `deadline_minutes`, a fire is watched until its run starts: the task
+  leaves `queued`, or the brain's channel takes the event. If that has not happened by the
+  deadline, one message and one push say so and why (waiting for a worker, held by the usage
+  guard, the brain has not picked it up, or it could not start). Watches live in
+  `<data_dir>/scheduler.json`, so a restart keeps watching and never says it twice; an unreadable
+  file is logged and the scheduler starts without watches.
+- **Pause, resume, change, delete** (`PATCH` / `DELETE /api/schedules/{id}`). A paused schedule has
+  no `next_run_at`; resuming starts at the next time after now, and the paused stretch is not
+  reported as missed. Built-in schedules (the digests, S-09.2) can be paused or changed, not
+  deleted (409 `schedule_builtin`). Only the owner of a schedule's agent sees it (404
+  `schedule_not_found` for anyone else). A stored cron that can no longer be read pauses its
+  schedule, with a warning in the log.
+- **Shutdown.** Stopping the hub lets a look in progress finish (a spawn is never cut in half),
+  then ends the loop.
 
 ## Usage guard
 
@@ -631,7 +667,8 @@ routes, bodies and error codes are the contract `contracts/brain-api.yaml`;
   message is still posted, the push is dropped and logged, and the answer says `pushed: false`.
   `broke` stays for the hub's own system faults.
 - Parts built by other stories sit behind `app.state.brain_ports` (`boards`, `schedules`,
-  `usage`, `artifacts`). `boards` is plugged in (`boards.BrainBoards`, S-04.11), and `usage` is
+  `usage`, `artifacts`). `boards` is plugged in (`boards.BrainBoards`, S-04.11), `schedules` is
+  the scheduler (`schedule.Scheduler`, S-09.1), and `usage` is
   the usage guard when a runner is set up (S-10.1; before its first reading it answers 503
   `not_set_up`); until a story plugs its own in, the default answers 503 `not_set_up` with
   what is missing, and stores nothing.

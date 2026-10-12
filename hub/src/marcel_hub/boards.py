@@ -5,7 +5,8 @@ A board is a dashboard (`contracts/dashboard.schema.json`) with four sections an
 - *Waiting on you*: open approvals in the project, and tasks that need you for anything else.
 - *In flight*: running tasks, each with its state and the last step it reported.
 - *Recent results*: tasks finished in the last 7 days, with their summary and items (newest 5).
-- *Upcoming*: the project's schedules. Schedules do not exist yet, so it is always empty.
+- *Upcoming*: the project's schedules. Schedules are kept per agent, not per project, so it is
+  always empty.
 - Marcel's "what this means" lines (`BoardKeeper.board_note`; the brain's `board_note` tool reaches
   it through `BrainBoards`), the newest `MAX_NOTES`.
 

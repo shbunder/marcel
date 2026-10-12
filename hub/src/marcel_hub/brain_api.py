@@ -35,7 +35,8 @@ Some tools reach parts of the hub that are built elsewhere. Each sits behind a s
 
 Every request body is read only up to a cap (`MAX_BODY_BYTES`, more for a memory write), and
 every text field has a maximum length.
-- `schedules` (`schedule_*`): the scheduler, S-09.1.
+- `schedules` (`schedule_*`): the scheduler (`schedule.Scheduler`, S-09.1), plugged in by
+  `schedule.install`.
 - `usage` (`usage_get`): the usage guard (`usage.UsageGuard`, S-10.1), plugged in by
   `usage.install` when the hub has a runner.
 """
@@ -772,6 +773,8 @@ async def create_schedule(request: Request, brain: BrainDep) -> Any:
         )
     except NotSetUp as exc:
         return not_set_up(exc)
+    except ValueError as exc:  # a cron field out of range, or a day that never comes
+        return bad_request(str(exc))
     return JSONResponse(created, status_code=201)
 
 
