@@ -93,8 +93,10 @@ Bad:
 
 A thread in the cloud cannot reach Marcel's channel. Your prompt then gives you a report token.
 Send the same fields as JSON with `POST https://marcel-bot.com/api/session/report` and the header
-`Authorization: Bearer <token>`. The token works for this one task only, and stops working after
-your `done` or `failed`, so send that last.
+`Authorization: Bearer <token>`. The token works for this one task only, for 48 hours, and stops
+working after your `done` or `failed`, so send that last. A cloud thread hands over `pr`, `branch`
+and `link` artifacts only (a URL, never a path). A follow-up message from Marcel brings a new token:
+use it from then on. Never write the token into a file, a commit or a PR.
 
 ## Example run
 

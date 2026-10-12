@@ -237,6 +237,7 @@ class TaskRegistry:
             return self._transition(task.id, TaskState.failed, f'Could not start: {exc}')
         task.session_id = started.session_id
         task.branch = started.branch or task.branch
+        task.cloud_url = started.cloud_url or task.cloud_url
         return self.create(task, prompt, TaskState.starting, 'Spawn accepted')
 
     def create(
@@ -342,6 +343,7 @@ class TaskRegistry:
                     why,
                     session_id=started.session_id,
                     branch=started.branch or task.branch,
+                    cloud_url=started.cloud_url or task.cloud_url,
                 )
 
     def _wait_for_slot(self, task: Task) -> None:
