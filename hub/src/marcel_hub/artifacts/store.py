@@ -398,10 +398,13 @@ class ArtifactStore:
 
     # Storing -------------------------------------------------------------------------------
 
-    def version_target(self, artifact_id: str, task_id: str | None) -> Artifact:
-        """The artifact a worker may hand a new version of. Raises `UnknownArtifact` for an id
-        the hub does not have, one from another project than the task's, or a board (the hub
-        keeps boards itself)."""
+    def version_target(
+        self, artifact_id: str, task_id: str | None, project_id: str | None = None
+    ) -> Artifact:
+        """The artifact a worker (or Marcel) may hand a new version of. The caller's project is
+        its task's, or `project_id` when no task hands it in (Marcel's own items). Raises
+        `UnknownArtifact` for an id the hub does not have, one from another project, or a board
+        (the hub keeps boards itself)."""
         try:
             art = self.get(artifact_id)
         except ArtifactNotFound:
@@ -416,8 +419,8 @@ class ArtifactStore:
                 f'The artifact was not saved: {artifact_id} is a project board, which the hub '
                 'keeps up to date itself.'
             )
-        project_id = None
         if task_id is not None:
+            project_id = None
             with Session(self.engine) as s:
                 task = s.get(Task, task_id)
                 project_id = task.project_id if task else None
@@ -428,10 +431,17 @@ class ArtifactStore:
             )
         return art
 
-    def publish_reported(self, spec: dict[str, Any], task_id: str | None = None) -> Artifact:
+    def publish_reported(
+        self,
+        spec: dict[str, Any],
+        task_id: str | None = None,
+        project_id: str | None = None,
+        author: str | None = None,
+    ) -> Artifact:
         """Store what a worker handed in with `report`: a new artifact, or with `artifact_id` a
-        new version of one in the task's project. Raises `ArtifactRefused` (`UnknownArtifact`
-        for an id it may not update)."""
+        new version of one in the task's project. Marcel's own items have no task: they are
+        filed under `project_id`, by `author` ("Marcel"). Raises `ArtifactRefused`
+        (`UnknownArtifact` for an id it may not update)."""
         try:
             reported = ReportedArtifact.model_validate(spec)
         except ValidationError as exc:
@@ -441,7 +451,7 @@ class ArtifactStore:
         kind = ArtifactKind(reported.kind)
         target = None
         if reported.artifact_id is not None:
-            target = self.version_target(reported.artifact_id, task_id)
+            target = self.version_target(reported.artifact_id, task_id, project_id)
             if target.kind is not kind:
                 raise ArtifactRefused(
                     f'The artifact was not saved: “{target.title}” is a {target.kind.value}, so '
@@ -451,11 +461,13 @@ class ArtifactStore:
         if target is not None:
             return self.add_version(
                 target.id, content, title=reported.title, task_id=task_id,
-                summary=reported.summary,
+                summary=reported.summary, author=author,
             )  # fmt: skip
         art = Artifact(kind=kind, title=reported.title, task_id=task_id, url=content.url,
                        trusted=False, content_type=content.content_type, meta_json=content.meta,
-                       size_bytes=None if content.data is None else len(content.data))  # fmt: skip
+                       size_bytes=None if content.data is None else len(content.data),
+                       project_id=project_id if task_id is None else None,
+                       updated_by=author)  # fmt: skip
         return self._store(art, content.data, reported.summary)
 
     def publish_hub_html(self, title: str, html: str, task_id: str | None = None) -> Artifact:

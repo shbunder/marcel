@@ -6,11 +6,13 @@ A board is a dashboard (`contracts/dashboard.schema.json`) with four sections an
 - *In flight*: running tasks, each with its state and the last step it reported.
 - *Recent results*: tasks finished in the last 7 days, with their summary and items (newest 5).
 - *Upcoming*: the project's schedules. Schedules do not exist yet, so it is always empty.
-- Marcel's "what this means" lines (`BoardKeeper.board_note`, the brain's `board_note` tool), the
-  newest `MAX_NOTES`.
+- Marcel's "what this means" lines (`BoardKeeper.board_note`; the brain's `board_note` tool reaches
+  it through `BrainBoards`), the newest `MAX_NOTES`.
 
 The board artifact is made with its project (`models.make_board`). `BoardKeeper` watches the app
-event log: any task, approval or artifact change in a project marks that project's board. A marked
+event log: any task, approval or artifact change in a project, and any step a worker reports
+(a `progress` task event), marks that project's board. A failed rebuild is tried once more on the
+next tick. A marked
 board is rebuilt `DEBOUNCE_S` after the first mark, and never sooner than `DEBOUNCE_S` after its
 last rebuild, so a burst of changes makes one rebuild. A rebuild stores a new version only when
 the content changed. The keeper ignores events about boards, so a rebuild never marks itself.
@@ -201,6 +203,7 @@ class BoardKeeper:
         self._building = threading.RLock()
         self._due: dict[str, float] = {}
         self._last: dict[str, float] = {}
+        self._retrying: set[str] = set()  # boards whose last rebuild failed once
         self._task: asyncio.Task[None] | None = None
         artifacts.build_board = self.build
 
@@ -244,7 +247,9 @@ class BoardKeeper:
             return [(data['project_id'], False)] if data.get('project_id') else []
         if type_ == 'task.moved':
             return [(data['from_project_id'], False), (data['to_project_id'], False)]
-        if type_ in ('approval.created', 'approval.resolved'):
+        if type_ == 'task.event' and data.get('type') != TaskEventType.progress.value:
+            return []  # transcript lines change nothing on a board; a reported step does
+        if type_ in ('approval.created', 'approval.resolved', 'task.event'):
             with Session(self.engine) as s:
                 task = s.get(Task, data['task_id'])
             return [(task.project_id, False)] if task and task.project_id else []
@@ -273,8 +278,26 @@ class BoardKeeper:
             try:
                 self.build(project_id)
             except Exception:  # one broken board must not stop the others
-                log.exception('Could not rebuild the board of project %s.', project_id)
+                self._failed(project_id)
+            else:
+                self._retrying.discard(project_id)
         return ready
+
+    def _failed(self, project_id: str) -> None:
+        """Try a failed rebuild once more on the next tick (a passing hiccup, such as a locked
+        database). A second failure waits for the project's next change, so a board that always
+        fails cannot keep the hub busy."""
+        if project_id in self._retrying:
+            self._retrying.discard(project_id)
+            log.exception(
+                'Could not rebuild the board of project %s again; it waits for the next change.',
+                project_id,
+            )
+            return
+        log.exception('Could not rebuild the board of project %s; trying once more.', project_id)
+        self._retrying.add(project_id)
+        with self._marks:
+            self._due.setdefault(project_id, self.clock())
 
     def build(self, project_id: str) -> bool:
         """Rebuild the board now. Returns True when it stored new content."""
@@ -342,6 +365,20 @@ class BoardKeeper:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
             self._task = None
+
+
+class BrainBoards:
+    """The brain's `board_note` port (`brain_api.Boards`): Marcel's line goes on the board."""
+
+    def __init__(self, keeper: BoardKeeper) -> None:
+        self.keeper = keeper
+
+    def add_note(self, project_id: str, text: str) -> dict[str, Any]:
+        self.keeper.board_note(project_id, text, author='Marcel')
+        with Session(self.keeper.engine) as s:
+            project = s.get(Project, project_id)
+        assert project is not None  # board_note refuses an unknown project
+        return {'project_id': project_id, 'board_artifact_id': project.board_artifact_id}
 
 
 def install(app: FastAPI) -> BoardKeeper:

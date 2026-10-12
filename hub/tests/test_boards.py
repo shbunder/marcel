@@ -358,6 +358,7 @@ def test_a_broken_board_does_not_stop_the_others(
     b.keeper.mark(b.inbox.id)
     with caplog.at_level(logging.ERROR):
         b.settle()
+        b.later(0.01)  # its one retry fails too
     assert b.keeper.due() == {}
     assert 'Could not rebuild the board' in caplog.text
     assert b.board(other.id)['title'] == 'Garden'
@@ -408,3 +409,86 @@ def test_the_hub_has_no_brain_turn_for_a_board(hub: ChannelHub, b: Boards) -> No
     b.settle()
     assert b.texts('In flight') == ['Check disk usage']  # the board was rebuilt …
     assert hub.gateway.outbox.pending(f'conversation:{hub.main_id}') == []  # … and nothing woke
+
+
+# The board follows what really happens, with nobody marking it by hand. --------------------
+
+
+def test_a_reported_step_reaches_in_flight_without_a_manual_mark(
+    hub: ChannelHub, b: Boards
+) -> None:
+    task_id, sid = hub.task(title='Compare the offers')
+    assert b.keeper.due() == {}
+    with hub.connect() as ch:
+        ch.hello(sid)
+        ch.call('report', kind='progress', text='Comparing the yearly totals')
+    assert b.inbox.id in b.keeper.due()  # the progress event marked it
+    b.settle()
+    [items] = [w['items'] for w in b.section('In flight')]
+    assert items == [
+        {'text': 'Compare the offers', 'detail': 'Working · Comparing the yearly totals'}
+    ]
+
+
+def test_an_approval_event_alone_marks_the_board(hub: ChannelHub, b: Boards) -> None:
+    task_id, _ = hub.task()
+    assert b.keeper.due() == {}
+    assert hub.gateway.approvals.open(task_id, permission()) is not None  # approval.created only
+    assert list(b.keeper.due()) == [b.inbox.id]
+
+
+def test_a_failed_rebuild_is_tried_once_more_on_the_next_tick(
+    hub: ChannelHub, b: Boards, caplog: pytest.LogCaptureFixture
+) -> None:
+    real_build = b.keeper.build
+    failures = [RuntimeError('database is locked')]
+    calls: list[str] = []
+
+    def flaky(project_id: str) -> bool:
+        calls.append(project_id)
+        if failures:
+            raise failures.pop()
+        return real_build(project_id)
+
+    b.keeper.build = flaky  # type: ignore[method-assign]
+    hub.task(title='Check disk usage')
+    b.keeper.mark(b.inbox.id)
+    with caplog.at_level(logging.ERROR):
+        b.settle()
+    assert 'trying once more' in caplog.text
+    assert b.later(0.01) == [b.inbox.id]  # the next tick
+    assert b.texts('In flight') == ['Check disk usage']
+
+    # Two failures in a row: it gives up until the next change.
+    failures[:] = [RuntimeError('a'), RuntimeError('b')]
+    b.keeper.mark(b.inbox.id)
+    b.settle()
+    b.later(0.01)
+    assert len(calls) == 4 and b.keeper.due() == {}
+    assert 'waits for the next change' in caplog.text
+
+
+def test_the_running_hub_rebuilds_boards_by_itself(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The real app's startup runs the keeper: no test calls `flush` here."""
+    monkeypatch.setattr(boards, 'TICK_S', 0.02)
+    with channel_hub(tmp_path) as hub:
+        keeper: BoardKeeper = hub.app.state.boards
+        keeper.debounce = 0.05
+        store: ArtifactStore = hub.app.state.artifacts
+        project = hub.app.state.projects.create(OWNER, hub.agent_id, 'Energy')
+        board_id = project.board_artifact_id
+
+        def wait_for(check: Any) -> None:
+            for _ in range(250):
+                if check():
+                    return
+                time.sleep(0.02)
+            raise AssertionError('the hub did not rebuild the board by itself')
+
+        wait_for(lambda: store.stored_bytes(store.get(board_id)) is not None)
+        task_id, _ = hub.task(title='Compare the offers', project_id=project.id)
+        hub.registry._publish_task(task_id)  # task.updated, as any change sends
+        wait_for(lambda: store.get(board_id).current_version == 2)
+        assert b'Compare the offers' in store.content(board_id)[0]
