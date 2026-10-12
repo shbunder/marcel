@@ -6,11 +6,17 @@ of that user. A phone that reconnects with `?since=` gets the events it missed, 
 hub no longer has them (only the latest `keep` are stored), or never sent that id, the first frame
 is `resync.required` and the app re-fetches over REST.
 
+A phone that stays connected but stops reading cannot make the hub hold events for it forever: once
+`MAX_PENDING` events wait for one socket, the hub closes it (code 1013, try again later) and the
+phone reconnects with `?since=`, getting the replay from the database or a resync.
+
 Other stories publish through `request.app.state.events.publish(session, user_id, type, data)`.
 """
 
 import asyncio
+import contextlib
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -28,6 +34,10 @@ KEEP_EVENTS = 2000
 
 # Close code for a refused or revoked device. Before `accept()` the server answers 403.
 POLICY_VIOLATION = 1008
+# Events waiting for one socket before the hub gives up on it and closes it.
+MAX_PENDING = 2000
+# Close code for a socket that fell too far behind: reconnect with `?since=`.
+TRY_AGAIN_LATER = 1013
 
 Frame = dict[str, Any]
 
@@ -43,25 +53,39 @@ def control(type_: str, data: dict[str, Any]) -> Frame:
 
 @dataclass(eq=False)
 class Listener:
-    """One open socket. Frames are handed to its own event loop, from any thread."""
+    """One open socket. Frames are handed to its own event loop, from any thread.
+
+    At most `MAX_PENDING` frames wait; one more sets `overflowed`, and the socket is closed."""
 
     device_id: str
     loop: asyncio.AbstractEventLoop
-    queue: asyncio.Queue[Frame] = field(default_factory=asyncio.Queue)
+    queue: asyncio.Queue[Frame] = field(default_factory=lambda: asyncio.Queue(MAX_PENDING))
+    overflowed: asyncio.Event = field(default_factory=asyncio.Event)
 
     def push(self, frame: Frame) -> bool:
         try:
-            self.loop.call_soon_threadsafe(self.queue.put_nowait, frame)
+            self.loop.call_soon_threadsafe(self._deliver, frame)
         except RuntimeError:  # the loop is closed: the socket is gone
             return False
         return True
+
+    def _deliver(self, frame: Frame) -> None:
+        if self.overflowed.is_set():
+            return
+        try:
+            self.queue.put_nowait(frame)
+        except asyncio.QueueFull:
+            self.overflowed.set()
 
 
 class EventLog:
     """Stores app events and fans them out to every open socket of the user.
 
     One lock covers numbering, storing and handing out, so ids never collide, and every socket
-    gets events in id order with no gap between its replay and the live feed.
+    gets events in id order with no gap between its replay and the live feed. (SQLite on its own
+    does not give that: two writers can read the same last id, and a later event can be handed
+    out before an earlier one.) `pause` is called at each step, holding the lock; tests use it
+    to hold one step open and prove that nothing slips in.
     """
 
     def __init__(self, engine: Engine, keep: int = KEEP_EVENTS) -> None:
@@ -70,6 +94,7 @@ class EventLog:
         # Re-entrant: a caller may hold it around a read-then-write (client_id checks).
         self.lock = threading.RLock()
         self._listeners: dict[str, set[Listener]] = {}
+        self.pause: Callable[[str], None] = lambda _step: None
 
     def publish(self, session: Session, user_id: str, type_: str, data: dict[str, Any]) -> Frame:
         """Store the event and commit `session` (with whatever the caller added to it), then send
@@ -79,6 +104,7 @@ class EventLog:
                 select(func.max(AppEvent.id)).where(AppEvent.user_id == user_id)
             ).one()
             event = AppEvent(user_id=user_id, id=(last or 0) + 1, type=type_, data_json=data)
+            self.pause('numbered')
             session.add(event)
             session.exec(  # type: ignore[call-overload]
                 delete(AppEvent).where(
@@ -87,6 +113,7 @@ class EventLog:
             )
             session.commit()
             frame = frame_of(event)
+            self.pause('stored')
             listeners = self._listeners.get(user_id, set())
             for listener in list(listeners):
                 if not listener.push(frame):
@@ -123,6 +150,7 @@ class EventLog:
                     control('hello', {'last_event_id': last, 'replayed': len(replay)}),
                     *(frame_of(e) for e in replay),
                 ]
+            self.pause('replayed')
             self._listeners.setdefault(user_id, set()).add(listener)
         return listener, head
 
@@ -155,10 +183,30 @@ def parse_since(raw: str | None) -> int | None:
     resync: the app's copy is not trustworthy, but it is still paired."""
     if raw is None:
         return None
-    return int(raw) if raw.isdigit() else -1
+    # isdigit() alone accepts '²' and '١٢', which int() then refuses or reads as another number.
+    return int(raw) if raw.isascii() and raw.isdigit() else -1
 
 
 router = APIRouter(prefix='/api')
+
+
+async def send_frame(ws: WebSocket, frame: Frame) -> None:
+    """Every frame leaves through here (tests replace it with a phone that stops reading)."""
+    await ws.send_json(frame)
+
+
+async def pump(
+    ws: WebSocket, engine: Engine, device_id: str, listener: Listener, head: list[Frame]
+) -> None:
+    for frame in head:
+        await send_frame(ws, frame)
+    while True:
+        frame = await listener.queue.get()
+        # A device removed while connected stops getting events at once, like its token.
+        if not still_paired(engine, device_id):
+            await ws.close(code=POLICY_VIOLATION)
+            return
+        await send_frame(ws, frame)
 
 
 @router.websocket('/ws')
@@ -173,30 +221,32 @@ async def event_stream(ws: WebSocket) -> None:
     listener, head = events.subscribe(
         device.user_id, parse_since(ws.query_params.get('since')), device.id
     )
+    sending = asyncio.ensure_future(pump(ws, engine, device.id, listener, head))
+    behind = asyncio.ensure_future(listener.overflowed.wait())
     # The app sends nothing but pings; reading is how a closed socket is noticed.
     incoming = asyncio.ensure_future(ws.receive())
     try:
-        for frame in head:
-            await ws.send_json(frame)
         while True:
-            nxt = asyncio.ensure_future(listener.queue.get())
-            await asyncio.wait({nxt, incoming}, return_when=asyncio.FIRST_COMPLETED)
-            if nxt.done():
-                # A device removed while connected stops getting events at once, like its token.
-                if not still_paired(engine, device.id):
-                    await ws.close(code=POLICY_VIOLATION)
-                    return
-                await ws.send_json(nxt.result())
-            else:
-                nxt.cancel()  # nothing was taken from the queue
-            if incoming.done():
-                if incoming.result()['type'] == 'websocket.disconnect':
-                    return
-                incoming = asyncio.ensure_future(ws.receive())
+            await asyncio.wait({sending, behind, incoming}, return_when=asyncio.FIRST_COMPLETED)
+            if behind.done():
+                # Too far behind: stop sending and let the phone catch up with `?since=`.
+                sending.cancel()
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(ws.close(code=TRY_AGAIN_LATER), timeout=1)
+                return
+            if sending.done():
+                # Closed for a revoked device, or the phone went away mid-send.
+                with contextlib.suppress(WebSocketDisconnect):
+                    sending.result()
+                return
+            if incoming.result()['type'] == 'websocket.disconnect':
+                return
+            incoming = asyncio.ensure_future(ws.receive())
     except WebSocketDisconnect:
         return
     finally:
-        incoming.cancel()
+        for task in (sending, behind, incoming):
+            task.cancel()
         events.unsubscribe(device.user_id, listener)
 
 

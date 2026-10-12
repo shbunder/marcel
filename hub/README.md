@@ -127,6 +127,12 @@ cut off before its next event.
 - The hub keeps the last 2000 events per user (`ws.KEEP_EVENTS`). If `since` is older than that,
   higher than the last id, or not a number, the first frame is `resync.required`: re-fetch over
   REST, then carry on from its `last_event_id`. Live events still follow on the same socket.
+- A phone that stays connected but stops reading is closed (code 1013, try again later) once 2000
+  events wait for it (`ws.MAX_PENDING`); it reconnects with `?since=` and catches up from the
+  database, so the hub never holds an unbounded backlog in memory.
+- Ordering comes from one lock in `EventLog`: numbering, storing and handing out an event happen
+  together, and a reconnecting socket is registered under the same lock as its replay is read, so
+  no event falls in between.
 - Other code sends events with `request.app.state.events.publish(session, user_id, type, data)`;
   it commits the session with the event, so the change and its event land together.
 

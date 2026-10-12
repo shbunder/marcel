@@ -20,6 +20,7 @@ from sqlmodel import Session, select
 from starlette.websockets import WebSocketDisconnect
 from test_conversations import Phone, add_agent, add_phone, send
 
+from marcel_hub import ws as ws_module
 from marcel_hub.app import Settings, create_app
 from marcel_hub.auth import tokens
 from marcel_hub.models import AppEvent
@@ -255,7 +256,7 @@ def test_only_the_latest_events_are_kept(client: TestClient, phone: Phone, main:
         assert [e.id for e in s.exec(select(AppEvent)).all()] == [4, 5, 6]
 
 
-@pytest.mark.parametrize('since', [9, 'abc', -1])
+@pytest.mark.parametrize('since', [9, 'abc', -1, '²', '١٢'])
 def test_a_since_the_hub_never_sent_asks_for_a_resync(
     client: TestClient, phone: Phone, main: str, since: int | str
 ) -> None:
@@ -350,3 +351,129 @@ def test_a_missing_frame_fails_fast_instead_of_hanging(client: TestClient, phone
         frame(ws)
         with pytest.raises(pytest.fail.Exception, match='No frame from the hub'):
             receive(ws, timeout=0.2)
+
+
+# ---- control: the lock (numbering, hand-out order, no gap on reconnect) -----------------------
+#
+# SQLite serialises writes, so a burst of concurrent sends rarely shows a race. These tests hold
+# one step of the event log open (`EventLog.pause`) while a second writer tries to go ahead, which
+# is the interleaving the lock exists to stop. Remove the lock and each of them goes red.
+
+OWNER = tokens.OWNER_USER_ID
+
+
+def hold(events: EventLog, step: str) -> tuple[threading.Event, threading.Event]:
+    """Make the first caller that reaches `step` wait until `release` is set."""
+    reached, release = threading.Event(), threading.Event()
+
+    def pause(at: str) -> None:
+        if at == step and not reached.is_set():
+            reached.set()
+            assert release.wait(5)
+
+    events.pause = pause
+    return reached, release
+
+
+def publisher(client: TestClient, errors: list[Exception]) -> threading.Thread:
+    def run() -> None:
+        try:
+            with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+                log(client).publish(s, OWNER, 'message.created', {})
+        except Exception as exc:
+            errors.append(exc)
+
+    return threading.Thread(target=run)
+
+
+def race(client: TestClient, step: str) -> list[Exception]:
+    """A first event held at `step`, a second one sent meanwhile, then the first let go."""
+    errors: list[Exception] = []
+    reached, release = hold(log(client), step)
+    first, second = publisher(client, errors), publisher(client, errors)
+    first.start()
+    assert reached.wait(5)
+    second.start()
+    second.join(0.3)  # with the lock it waits here; without it, it finishes
+    release.set()
+    first.join(5)
+    second.join(5)
+    return errors
+
+
+def stored_ids(client: TestClient) -> list[int]:
+    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+        return [e.id for e in s.exec(select(AppEvent)).all()]
+
+
+def test_two_writers_never_get_the_same_id(client: TestClient) -> None:
+    assert race(client, 'numbered') == []
+    assert sorted(stored_ids(client)) == [1, 2]
+
+
+def test_events_are_handed_out_in_id_order(client: TestClient, phone: Phone) -> None:
+    with connect(client, phone) as ws:
+        frame(ws)
+        assert race(client, 'stored') == []
+        assert [receive(ws)['id'] for _ in range(2)] == [1, 2]
+
+
+def test_an_event_sent_while_a_phone_reconnects_is_not_lost(
+    client: TestClient, phone: Phone
+) -> None:
+    errors: list[Exception] = []
+    reached, release = hold(log(client), 'replayed')
+    late = publisher(client, errors)
+
+    def meanwhile() -> None:
+        # The hold blocks the socket's event loop, so the connect cannot return until release.
+        assert reached.wait(5)  # the replay is read, the socket is not registered yet
+        late.start()
+        late.join(0.3)
+        release.set()
+
+    driver = threading.Thread(target=meanwhile)
+    driver.start()
+    with connect(client, phone, since=0) as ws:
+        driver.join(5)
+        late.join(5)
+        assert errors == []
+        # It waited for the socket to be registered, so it arrives live rather than not at all.
+        assert receive(ws)['data'] == {'last_event_id': 0, 'replayed': 0}
+        assert receive(ws)['id'] == 1
+
+
+# ---- control: bounded memory per socket ------------------------------------------------------
+
+
+def test_a_phone_that_stops_reading_is_closed_and_catches_up_with_since(
+    client: TestClient, phone: Phone, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ws_module, 'MAX_PENDING', 3)
+    real_send = ws_module.send_frame
+    sent: list[int] = []
+
+    async def stuck_after_hello(ws: Any, body: dict[str, Any]) -> None:
+        if sent:  # the phone read `hello`, then stopped reading
+            await asyncio.Event().wait()
+        sent.append(body['id'])
+        await real_send(ws, body)
+
+    monkeypatch.setattr(ws_module, 'send_frame', stuck_after_hello)
+    with connect(client, phone) as ws:
+        assert receive(ws)['type'] == 'hello'
+        [listener] = log(client)._listeners[OWNER]
+        with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+            for _ in range(10):
+                log(client).publish(s, OWNER, 'message.created', {})
+        with pytest.raises(WebSocketDisconnect) as closed:
+            receive(ws)
+        assert closed.value.code == ws_module.TRY_AGAIN_LATER
+    assert listener.overflowed.is_set()
+    assert listener.queue.qsize() <= 3
+    assert log(client).listeners(OWNER) == 0
+
+    monkeypatch.setattr(ws_module, 'send_frame', real_send)
+    with connect(client, phone, since=0) as ws:
+        assert receive(ws)['data'] == {'last_event_id': 10, 'replayed': 10}
+        assert [receive(ws)['id'] for _ in range(10)] == list(range(1, 11))
