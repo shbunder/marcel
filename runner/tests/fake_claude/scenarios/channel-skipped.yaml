@@ -1,0 +1,10 @@
+# SP1: the session starts, but its debug log says the channel was skipped.
+description: The marcel channel is skipped, so the session cannot hear the hub.
+channel: skipped
+transcript: transcripts/t1-happy-path.jsonl
+job: t1-done
+steps:
+  - wait: 0.05
+    state: working
+    status: busy
+    transcript: 33

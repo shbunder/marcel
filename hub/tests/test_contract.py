@@ -38,7 +38,8 @@ def contract_enum(path: tuple[str, ...]) -> list[str]:
     ],
 )
 def test_enum_matches_contract(model_enum: type[StrEnum], path: tuple[str, ...]) -> None:
-    assert [m.value for m in model_enum] == contract_enum(path)
+    pending = PENDING_ENUM_VALUES.get(path[0], set())
+    assert [m.value for m in model_enum] == [v for v in contract_enum(path) if v not in pending]
 
 
 def test_task_states_match_the_state_machine_doc() -> None:
@@ -59,6 +60,27 @@ DERIVED = {
 }
 
 
+# Added to the contract by S-02.5 (projects and living artifacts) before the hub stores them.
+# The owning story removes its entries when it adds the columns; the last test below fails as
+# soon as an entry is stored, so this list can only shrink.
+PENDING = {
+    'Message': {'artifact_id', 'project_id'},  # S-04.10, S-04.11
+    'Task': {'project_id'},  # S-04.10
+    'Artifact': {'project_id', 'current_version', 'updated_by', 'updated_at'},  # S-04.10, S-04.11
+}
+PENDING_ENUM_VALUES = {
+    'MessageKind': {'artifact'},  # S-04.11
+    'ArtifactKind': {'board'},  # S-04.11
+}
+MODELS = {
+    'Message': models.Message,
+    'Task': models.Task,
+    'Artifact': models.Artifact,
+    'MessageKind': models.MessageKind,
+    'ArtifactKind': models.ArtifactKind,
+}
+
+
 @pytest.mark.parametrize(
     ('schema', 'model'),
     [
@@ -71,4 +93,15 @@ DERIVED = {
 def test_every_contract_field_is_stored_or_derived(schema: str, model: type) -> None:
     columns = set(model.model_fields)
     missing = set(SCHEMAS[schema]['properties']) - columns - DERIVED.get(schema, set())
-    assert not missing
+    assert not missing - PENDING.get(schema, set())
+
+
+def test_pending_entries_are_still_pending() -> None:
+    for schema, fields in PENDING.items():
+        assert fields <= set(SCHEMAS[schema]['properties']), f'{schema}: not in the contract'
+        stored = fields & set(MODELS[schema].model_fields)
+        assert not stored, f'{schema} now stores {stored}: remove it from PENDING'
+    for enum, values in PENDING_ENUM_VALUES.items():
+        assert values <= set(SCHEMAS[enum]['enum'])
+        stored = values & {m.value for m in MODELS[enum]}
+        assert not stored, f'{enum} now has {stored}: remove it from PENDING_ENUM_VALUES'

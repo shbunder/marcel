@@ -38,6 +38,11 @@ def load_transcript() -> dict[str, Any]:
 
 
 @cache
+def load_dashboard() -> dict[str, Any]:
+    return json.loads((contracts_dir() / 'dashboard.schema.json').read_text())
+
+
+@cache
 def registry() -> Registry:
     """The documents under one base URI, as the contract tests do, so they can $ref each other."""
     return Registry().with_resources(
@@ -45,6 +50,7 @@ def registry() -> Registry:
             (BASE + 'app-api.yaml', Resource(load_api(), DRAFT202012)),
             (BASE + 'events.schema.json', Resource.from_contents(load_events())),
             (BASE + 'transcript.schema.json', Resource.from_contents(load_transcript())),
+            (BASE + 'dashboard.schema.json', Resource.from_contents(load_dashboard())),
         ]
     )
 
@@ -62,6 +68,12 @@ def example(name: str) -> Any:
     return copy.deepcopy(component(name)['example'])
 
 
+def response_example(path: str, method: str, status: int) -> Any:
+    """A fresh copy of the example an operation's response gives inline."""
+    resp = load_api()['paths'][path][method]['responses'][str(status)]
+    return copy.deepcopy(resp['content']['application/json']['example'])
+
+
 def validator(pointer: str) -> Draft202012Validator:
     """A validator for a pointer such as `app-api.yaml#/components/schemas/Task`."""
     return Draft202012Validator(
@@ -71,6 +83,11 @@ def validator(pointer: str) -> Draft202012Validator:
 
 def validate_event(frame: Any) -> None:
     validator('events.schema.json').validate(frame)
+
+
+def validate_dashboard(content: Any) -> None:
+    """The content of a `dashboard` or `board` artifact."""
+    validator('dashboard.schema.json').validate(content)
 
 
 def operations() -> list[tuple[str, str, dict[str, Any]]]:

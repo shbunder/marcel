@@ -24,7 +24,7 @@ Blocks: F03
 5. Measure the latency from a state change to its appearance in `agents --json`.
 
 **Pass:** a written mapping from `agents --json` and JSONL to `contracts/transcript.schema.json`, plus
-fixtures committed in `runner/tests/fixtures/`.
+fixtures committed in `runner/tests/fake_claude/fixtures/` (moved there by S-02.3).
 
 ## Result
 

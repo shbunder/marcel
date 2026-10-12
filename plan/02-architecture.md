@@ -228,7 +228,7 @@ without touching the brain.
 agent(id, owner_user_id, name, animal, palette, seed, persona_path, model_brain, model_worker,
       main_conversation_id)
 device(id, user_id, name, token_hash, apns_token?, ntfy_topic?, created_at, last_seen)
-project(id, agent_id, slug, name, goal, repo?, folder?, instructions_md?, claude_project_url?,
+project(id, agent_id, slug, name, goal, repo?, folder?, instructions?, claude_project_url?,
         board_artifact_id, archived, created_at)                 -- B-30…B-33a (S-02.5, S-04.10)
 conversation(id, agent_id, kind[main|side], parent_message_id?, task_id?, brain_session_id?)
 message(id, conversation_id, role[user|agent|system], kind[text|milestone|approval|quote|artifact], body_json,
@@ -242,8 +242,8 @@ approval(id, task_id, request_id, tool, summary, detail?, artifact_id?,
          state[open|approved|denied|expired], answered_via?[app|terminal], answered_at?)
 artifact(id, task_id?, project_id, kind[pr|branch|doc|file|dashboard|link|board], title, url?, content_type?,
          size_bytes?, trusted, self_change, current_version, meta_json, created_at, updated_at)
-artifact_version(artifact_id, version, url?, content_type?, size_bytes?, summary?, author[task|brain|hub],
-         created_at)                                             -- B-34 (S-04.11)
+artifact_version(artifact_id, version, url?, content_type?, size_bytes?, summary?, author,
+         created_at)              -- B-34 (S-04.11); author in plain words: a task title, "Marcel" or "the hub"
 schedule(id, agent_id, name, cron, tz, location[nuc|cloud|brain], prompt, paused, builtin,
          deadline_minutes?, last_run_at?, next_run_at?)
 usage_snapshot(id, taken_at, window[five_hour|weekly], used_pct, resets_at, source)

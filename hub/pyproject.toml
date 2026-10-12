@@ -3,7 +3,13 @@ name = "marcel-hub"
 version = "0.1.0"
 description = "Marcel hub: state, app API, channel gateway and scheduler. Runs in Docker on the NUC."
 requires-python = ">=3.12"
-dependencies = ["fastapi>=0.115", "uvicorn>=0.30", "sqlmodel>=0.0.22", "alembic>=1.13"]
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "sqlmodel>=0.0.22",
+    "alembic>=1.13",
+    "segno>=1.6",
+]
 
 [project.scripts]
 marcel-hub = "marcel_hub.app:main"
