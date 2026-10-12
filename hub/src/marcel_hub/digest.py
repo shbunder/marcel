@@ -4,7 +4,9 @@
   look for agents made later): *Morning digest* 07:00, *Evening digest* 21:00, *Weekly review*
   Sunday 18:00 and *Usage report* 21:00, in the owner's time zone (`Settings.tz`). They are
   `builtin` (paused or changed in the app, never deleted) and run in the `brain`. Their ids name
-  the digest: `sch_digest_<digest>_<agent id>`.
+  the digest: `sch_digest_<digest>_<agent id>`. When `tz` changes, each one the owner has not
+  edited (its cron and time zone are still what the hub gave it, kept in the state file) moves to
+  the new time zone at start; an edited one is left alone.
 - **The usage report is part of the evening digest** while both run at the same time (same cron
   and time zone) and neither is paused: the evening bundle then carries `usage`, and the usage
   report's own fire sends nothing. Moved to another time, it is sent on its own (`digest: usage`);
@@ -16,12 +18,16 @@
   `MAX_ITEMS`, with `count` and `more` for the rest; every text is cut to `TEXT_MAX`), in the
   schedule's time zone, and carries no secrets: no settings, no approval details (the command an
   approval would run), and anything shaped like a token in a title or summary is replaced by
-  `[hidden]`. The weekly review covers the last 7 days; the others cover today since midnight.
+  `[hidden]` (token shapes, the hub's device tokens, runs of 32+ hex characters, and the value of
+  `NAME=value` where NAME ends in secret, token, key or password). The weekly review covers the
+  last 7 days; the others cover today since midnight.
 - **Delivery.** The bundle goes to the brain as a `digest_due` system event through the channel
   outbox (the scheduler's `brain_frame`), so it waits there while the brain restarts. The brain
-  writes the digest with the `digest` skill and publishes it with `artifacts_publish`. The event
-  names the agent's digest board (`artifact_id`) once there is one, so each digest is a new version
-  of the same item; the first doc Marcel publishes in the inbox after a digest fires becomes it.
+  writes the digest with the `digest` skill and publishes it with `artifacts_publish`, with the
+  `title` the event gives ("Evening digest — Monday 12 October"). The event names the agent's
+  digest board (`artifact_id`) once there is one, so each digest is a new version of the same item.
+  The hub knows the published digest by that: a new version of the board, or a doc by Marcel in
+  the inbox with exactly that title. Any other doc published meanwhile is not taken for it.
 - **Announcing.** When the board has a new version, the hub posts it as a card in the main
   conversation and pushes it (category `digest`, the version's summary as the text). The brain
   adds its one headline line with `reply`.
@@ -29,9 +35,11 @@
   waits on it: the hub logs a warning and posts one plain line of its own in the main
   conversation, with a push, made from the bundle's numbers ("The evening digest was not written
   … In short: 2 approvals wait for you; 3 threads are working."). It never writes the digest itself:
-  only the brain thinks. A digest published after that is kept, without a second card.
-- **Restart.** The board ids, the digests waiting to be published and the usage baselines (usage
-  by task is counted since the last report) are kept in `<data_dir>/digests.json`.
+  only the brain thinks. A digest published after that is still recognised (until the next digest
+  of its kind, at most `LATE_FOR`): it becomes the board and gets its card, without a second push.
+- **Restart.** The board ids, the digests waiting to be published, the usage baselines (usage
+  by task is counted since the last report) and what the hub gave each built-in schedule are kept
+  in `<data_dir>/digests.json`.
 """
 
 from __future__ import annotations
@@ -51,6 +59,7 @@ from fastapi import FastAPI
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, col, select
 
+from marcel_hub.auth.tokens import TOKEN_PREFIX
 from marcel_hub.brain_api import NotSetUp
 from marcel_hub.conversations import ensure_main_conversation, post_message
 from marcel_hub.models import (
@@ -83,6 +92,7 @@ TEXT_MAX = 160  # characters of any title, summary or question
 STALE_AFTER = timedelta(days=3)  # a thread with no activity this long is stale
 WEEK = timedelta(days=7)
 DEADLINE = timedelta(minutes=30)  # the brain publishes within this, or the hub says so
+LATE_FOR = timedelta(days=8)  # a late digest is still recognised this long (or until the next)
 TICK_S = 30.0  # seconds between looks for a published digest
 MAX_PER_DAY = 48  # fires of one schedule listed per day, at most
 STATE_FILE = 'digests.json'
@@ -112,11 +122,21 @@ BUILTINS = (
 )  # fmt: skip
 BY_DIGEST = {b.digest: b for b in BUILTINS}
 
-# Shapes of common secrets: GitHub, Anthropic/OpenAI-style, Slack and AWS keys, bearer tokens.
+# Shapes of common secrets: GitHub, Anthropic/OpenAI-style, Slack and AWS keys, bearer tokens,
+# the hub's device tokens (`mrc_` + 64 hex) and any run of 32 or more hex characters (the hub
+# secret, hashes). A git commit id (40 hex) is hidden too: better than a leaked secret.
 SECRET = re.compile(
     r'\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{16,}'
     r'|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})'
     r'|\b[Bb]earer\s+[A-Za-z0-9._~+/=-]{16,}'
+    r'|' + re.escape(TOKEN_PREFIX) + r'[0-9A-Fa-f]{16,}'
+    r'|(?<![0-9A-Fa-f])[0-9A-Fa-f]{32,}(?![0-9A-Fa-f])'
+)
+# `NAME=value` where NAME is, or ends in, secret / token / key / password (any case), as in
+# `MARCEL_HUB_SECRET=…` or `api_key=…`: the value is hidden, the name stays.
+SECRET_SETTING = re.compile(
+    r'\b((?:[A-Za-z0-9]+[_-])*(?:secret|token|key|password|SECRET|TOKEN|KEY|PASSWORD|Secret|'
+    r'Token|Key|Password))\s*=\s*(?:"[^"]*"|\'[^\']*\'|\S+)'
 )
 
 
@@ -136,7 +156,8 @@ def digest_of(row: Schedule) -> str | None:
 
 def safe_text(value: str | None) -> str:
     """One line, at most `TEXT_MAX` characters, with token-like words hidden."""
-    return clip(SECRET.sub('[hidden]', value or ''), TEXT_MAX)
+    hidden = SECRET_SETTING.sub(r'\1=[hidden]', value or '')
+    return clip(SECRET.sub('[hidden]', hidden), TEXT_MAX)
 
 
 def capped(items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -417,6 +438,22 @@ def _today(
     return [f[2] for f in fires]
 
 
+def digest_title(digest: str, now: datetime, tz: str) -> str:
+    """The title the brain publishes the digest with, e.g. "Evening digest — Monday 12 October"
+    (the date in `tz`). The hub knows the published digest by it."""
+    try:
+        where: tzinfo = zone(tz)
+    except CronError:
+        where = UTC
+    day = _aware(now).astimezone(where)
+    return f'{BY_DIGEST[digest].name} — {DAYS[day.weekday()]} {day.day} {MONTHS[day.month - 1]}'
+
+
+DAYS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
+MONTHS = ('January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
+          'September', 'October', 'November', 'December')  # fmt: skip
+
+
 def headline(bundle: dict[str, Any]) -> str:
     """A plain line from the bundle's numbers, for when the brain wrote nothing."""
     parts: list[str] = []
@@ -455,13 +492,16 @@ class DigestPushes(Protocol):
 
 @dataclass
 class Pending:
-    """A digest sent to the brain and not published yet."""
+    """A digest sent to the brain and not published yet. `late` once the fallback line was said:
+    it is still recognised as the board when it comes, until the next digest of its kind."""
 
     agent_id: str
     digest: str
     fired_at: str  # ISO, UTC
     deadline_at: str
     headline: str
+    title: str = ''  # the title the event asks the brain to publish with
+    late: bool = False
 
 
 @dataclass
@@ -492,6 +532,9 @@ class Digests:
         self.boards: dict[str, str] = {}  # agent id → its digest board's artifact id
         self.pending: list[Pending] = []
         self.baselines: dict[str, Baseline] = {}  # 'day' / 'week' → usage by task at the report
+        # schedule id → the cron and tz the hub last gave a built-in digest. A row that still has
+        # them was not edited by the owner, so it follows a changed `tz` setting.
+        self.made: dict[str, dict[str, str]] = {}
         self._job: asyncio.Task[None] | None = None
         self._stop: asyncio.Event | None = None
         self._load()
@@ -499,17 +542,22 @@ class Digests:
     # The built-in schedules -------------------------------------------------------------------
 
     def ensure_builtins(self) -> int:
-        """Make each agent's missing digest schedules. Returns how many were made."""
+        """Make each agent's missing digest schedules, and move the ones the owner has not edited
+        to the `tz` setting. Returns how many were made."""
         now = self.clock()
-        made = 0
+        made, moved = 0, 0
         with Session(self.engine) as s:
             agent_ids = list(s.exec(select(Agent.id)))
-            have = set(s.exec(select(Schedule.id).where(col(Schedule.builtin).is_(True))))
+            have = {
+                r.id: r for r in s.exec(select(Schedule).where(col(Schedule.builtin).is_(True)))
+            }
             for agent_id in agent_ids:
                 for b in BUILTINS:
                     sid = builtin_id(b.digest, agent_id)
                     if sid in have:
+                        moved += self._follow_tz(s, have[sid], b, now)
                         continue
+                    self.made[sid] = {'cron': b.cron, 'tz': self.tz}
                     s.add(Schedule(
                         id=sid, agent_id=agent_id, name=b.name, cron=b.cron, tz=self.tz,
                         location=ScheduleLocation.brain, prompt=b.prompt, builtin=True,
@@ -517,9 +565,30 @@ class Digests:
                     ))  # fmt: skip
                     made += 1
             s.commit()
+        if made or moved:
+            self.save()
         if made:
             log.info('Made %d built-in digest schedule(s).', made)
+        if moved:
+            log.info('Moved %d built-in digest schedule(s) to the time zone %s.', moved, self.tz)
         return made
+
+    def _follow_tz(self, s: Session, row: Schedule, b: Builtin, now: datetime) -> int:
+        """1 when `row` moved to the `tz` setting. A row the hub has no record of counts as the
+        hub's own while its cron is still the built-in one."""
+        given = self.made.get(row.id)
+        if given is None:
+            if row.cron != b.cron:
+                return 0
+            given = self.made[row.id] = {'cron': row.cron, 'tz': row.tz}
+        if (row.cron, row.tz) != (given['cron'], given['tz']) or row.tz == self.tz:
+            return 0  # edited by the owner, or already right
+        row.tz = self.tz
+        if not row.paused:
+            row.next_run_at = Cron.parse(row.cron, self.tz).next_after(now)
+        s.add(row)
+        self.made[row.id] = {'cron': row.cron, 'tz': self.tz}
+        return 1
 
     def _rows(self, agent_id: str) -> dict[str, Schedule]:
         with Session(self.engine) as s:
@@ -574,11 +643,12 @@ class Digests:
             self.baselines[scope] = Baseline(iso(now), self.facts.usage.usage_by_task())
         label = BY_DIGEST[digest].label
         self.pending = [p for p in self.pending if (p.agent_id, p.digest) != (row.agent_id, digest)]
+        title = digest_title(digest, now, row.tz)
         self.pending.append(
-            Pending(row.agent_id, digest, iso(now), iso(now + DEADLINE), headline(bundle))
+            Pending(row.agent_id, digest, iso(now), iso(now + DEADLINE), headline(bundle), title)
         )
         self.save()
-        data: dict[str, Any] = {'digest': digest, 'facts': bundle}
+        data: dict[str, Any] = {'digest': digest, 'title': title, 'facts': bundle}
         if board is not None:
             data['artifact_id'] = board
         log.info('The %s is due for agent %s; the facts go to the brain.', label, row.agent_id)
@@ -627,25 +697,37 @@ class Digests:
                 log.exception('The digests could not look for published digests. They try again.')
 
     def check(self) -> None:
-        """Announce each digest the brain has published; say so for each one it did not."""
+        """Announce each digest the brain has published; say so, once, for each one it did not
+        publish in time, and keep recognising it if it comes late."""
         now = self.clock()
         kept: list[Pending] = []
+        changed = False
         for p in self.pending:
             art = self._published(p)
             if art is not None:
                 self.boards[p.agent_id] = art.id
-                self._announce(p, art)
+                self._announce(p, art, push=not p.late)
+                changed = True
+            elif p.late:
+                if now - datetime.fromisoformat(p.fired_at) < LATE_FOR:
+                    kept.append(p)
+                else:
+                    changed = True
             elif now >= datetime.fromisoformat(p.deadline_at):
                 self._fallback(p)
+                p.late = True
+                kept.append(p)
+                changed = True
             else:
                 kept.append(p)
-        if kept != self.pending:
+        if changed:
             self.pending = kept
             self.save()
 
     def _published(self, p: Pending) -> Artifact | None:
-        """The doc Marcel published since the digest fired: the board when it has a new version,
-        else the newest doc or dashboard Marcel published in the agent's inbox."""
+        """The digest Marcel published in answer to this event: a new version of the board, or
+        a doc in the agent's inbox with the exact title the event asked for (it names the digest
+        and its date, so another doc published meanwhile is never taken for it)."""
         fired = datetime.fromisoformat(p.fired_at)
         board = self.boards.get(p.agent_id)
         with Session(self.engine) as s:
@@ -666,14 +748,15 @@ class Digests:
                     .order_by(col(Artifact.updated_at).desc(), col(Artifact.id).desc())
                 )
             )
-        if not found:
-            return None
         for art in found:
             if art.id == board:
                 return art
-        return found[0]
+        for art in found:
+            if p.title and art.title == p.title:
+                return art
+        return None
 
-    def _announce(self, p: Pending, art: Artifact) -> None:
+    def _announce(self, p: Pending, art: Artifact, push: bool = True) -> None:
         label = BY_DIGEST[p.digest].label
         log.info('The %s is published as %s (version %d).', label, art.id, art.current_version)
         with Session(self.engine) as s:
@@ -683,7 +766,7 @@ class Digests:
             p.agent_id, role=MessageRole.agent, kind=MessageKind.artifact, body={},
             artifact_id=art.id, project_id=art.project_id,
         )  # fmt: skip
-        if message_id is not None:
+        if message_id is not None and push:
             self._push(message_id, label, summary, user_id)
 
     def _fallback(self, p: Pending) -> None:
@@ -727,6 +810,7 @@ class Digests:
         data = {
             'boards': self.boards,
             'pending': [asdict(p) for p in self.pending],
+            'made': self.made,
             'baselines': {k: asdict(v) for k, v in self.baselines.items()},
         }
         tmp = self.state_path.with_suffix('.tmp')
@@ -741,13 +825,17 @@ class Digests:
             boards = {str(k): str(v) for k, v in data['boards'].items()}
             pending = [Pending(**p) for p in data['pending']]
             baselines = {str(k): Baseline(**v) for k, v in data['baselines'].items()}
+            made = {
+                str(k): {'cron': str(v['cron']), 'tz': str(v['tz'])}
+                for k, v in data.get('made', {}).items()
+            }
             for p in pending:
                 datetime.fromisoformat(p.fired_at)
                 datetime.fromisoformat(p.deadline_at)
         except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
             log.warning('Could not read %s (%s). Digests start afresh.', self.state_path, exc)
             return
-        self.boards, self.pending, self.baselines = boards, pending, baselines
+        self.boards, self.pending, self.baselines, self.made = boards, pending, baselines, made
 
 
 def install(

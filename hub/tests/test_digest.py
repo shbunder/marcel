@@ -10,9 +10,11 @@ once, in plain words; the built-in digests cannot be deleted.
 
 import asyncio
 import json
+import secrets
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,6 +32,7 @@ from test_tasks_fakes import (  # noqa: F401  (fixtures)
 
 from marcel_hub import digest
 from marcel_hub.app import Settings, SettingsError, create_app, load_settings
+from marcel_hub.auth.tokens import new_token
 from marcel_hub.brain_api import NotSetUp
 from marcel_hub.channel.outbox import ChannelOutbox
 from marcel_hub.digest import (
@@ -60,6 +63,7 @@ from marcel_hub.models import (
 )
 from marcel_hub.schedule import ScheduleBuiltin, Scheduler
 from marcel_hub.tasks.registry import TaskRegistry
+from marcel_hub.usage import UsageGuard
 
 TZ = 'Europe/Brussels'
 # Monday 12 October 2026, 21:00 in Brussels (UTC+2): the evening digest's time.
@@ -320,10 +324,31 @@ def test_every_list_is_capped_and_says_how_many_more(
 
 
 def test_secrets_of_every_common_shape_are_hidden() -> None:
+    hub_secret = secrets.token_hex(32)  # the channel's hub secret: 64 hex
     for secret in (TOKEN, 'github_pat_' + 'A' * 30, 'sk-ant-' + 'b' * 30, 'xoxb-' + '1' * 20,
-                   'AKIA' + 'Z' * 16, 'Bearer ' + 'q' * 30):  # fmt: skip
-        assert secret not in digest.safe_text(f'it used {secret} here')
-    assert digest.safe_text('A normal title, sk-ip it') == 'A normal title, sk-ip it'
+                   'AKIA' + 'Z' * 16, 'Bearer ' + 'q' * 30, new_token(), hub_secret,
+                   hub_secret.upper()[:32], 'c0ffee' * 6):  # fmt: skip
+        assert secret not in digest.safe_text(f'it used {secret} here'), secret
+    for line, kept in (
+        (f'MARCEL_HUB_SECRET={hub_secret[:12]}', 'MARCEL_HUB_SECRET=[hidden]'),
+        ('export API_KEY=Zm9vYmFyYmF6', 'export API_KEY=[hidden]'),
+        ('db_password = "hunter2 two"', 'db_password=[hidden]'),
+        ("my-token='abc'", 'my-token=[hidden]'),
+        ('SECRET=x and more', 'SECRET=[hidden] and more'),
+    ):
+        shown = digest.safe_text(line)
+        assert kept in shown, (line, shown)
+        for value in (hub_secret[:12], 'Zm9v', 'hunter2', 'abc', '=x'):
+            assert value not in shown, (line, shown)
+    for fine in (
+        'A normal title, sk-ip it',
+        'Fix the key handling',
+        'monkey=banana',
+        'Thread tsk_019a2b3c4d5e1f2a3b4c done',
+        'Token ring = old',
+        'v2.3.1 at 21:00',
+    ):
+        assert digest.safe_text(fine) == fine
 
 
 def test_usage_by_task_counts_from_the_last_report(
@@ -460,7 +485,7 @@ def test_other_brain_schedules_keep_their_own_event(
 
 def publish(
     engine: Engine,
-    title: str = 'Evening, Monday 12 October',
+    title: str = 'Evening digest — Monday 12 October',
     at: datetime = EVENING,
     artifact_id: str | None = None,
     summary: str = '2 things wait for you.',
@@ -548,10 +573,51 @@ def test_a_digest_not_published_in_time_is_said_once_in_plain_words(
         '1 pull request is ready to merge; the plan is at 62 % of the week.'
     )
     assert [p[1] for p in pushes.sent] == ['Evening digest']
-    # A digest published after that is kept as the board, without a second card.
-    publish(engine, at=clock.now)
+    # A digest published after that is still recognised: it becomes the board and its card is
+    # posted, without a second push.
+    clock.go(hours=2)
+    late = publish(engine, at=clock.now)
     digests.check()
-    assert len(messages(engine)) == 1
+    assert digests.boards == {AGENT: late} and digests.pending == []
+    assert [m.kind for m in messages(engine)] == [MessageKind.text, MessageKind.artifact]
+    assert len(pushes.sent) == 1
+
+
+def test_a_late_digest_is_recognised_until_the_next_one_of_its_kind(
+    engine: Engine, digests: Digests, sched: Scheduler, clock: Clock
+) -> None:
+    digests.ensure_builtins()
+    due(engine, 'evening')
+    run(sched.tick())
+    clock.go(minutes=31)
+    digests.check()
+    assert [p.late for p in digests.pending] == [True]
+    clock.now = EVENING + timedelta(days=1)  # the next evening digest replaces it
+    run(sched.tick())
+    assert [(p.late, p.title) for p in digests.pending] == [
+        (False, 'Evening digest — Tuesday 13 October')
+    ]
+    # With no next digest (paused), a late one is forgotten after LATE_FOR.
+    digests.pending[0].late = True
+    clock.now += digest.LATE_FOR
+    digests.check()
+    assert digests.pending == []
+
+
+def test_an_unrelated_doc_published_meanwhile_is_not_taken_for_the_digest(
+    engine: Engine, digests: Digests, sched: Scheduler, frames: ChannelOutbox, clock: Clock,
+    pushes: Pushes,
+) -> None:  # fmt: skip
+    digests.ensure_builtins()
+    due(engine, 'evening')
+    run(sched.tick())
+    assert sent(frames)[-1]['data']['title'] == 'Evening digest — Monday 12 October'
+    publish(engine, 'Shopping list', at=clock.now + timedelta(minutes=1))
+    digests.check()
+    assert digests.boards == {} and messages(engine) == [] and len(digests.pending) == 1
+    real = publish(engine, at=clock.now + timedelta(minutes=2))
+    digests.check()
+    assert digests.boards == {AGENT: real}
 
 
 def test_waiting_digests_and_the_board_survive_a_restart(
@@ -618,3 +684,53 @@ def test_the_time_zone_setting(tmp_path: Path) -> None:
     assert load_settings(env).tz == 'America/New_York'
     with pytest.raises(SettingsError, match='Europe/Brussels'):
         load_settings({**env, 'MARCEL_TZ': 'Mars/Base'})
+
+
+# One time zone: the `tz` setting --------------------------------------------------------------
+
+
+def test_the_usage_guard_says_times_in_the_tz_setting_not_the_process_zone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv('TZ', 'Asia/Tokyo')  # the process's own zone must not matter
+    settings = Settings(data_dir=tmp_path, db_path=tmp_path / 'm.db', tz='America/New_York')
+    guard = create_app(settings).state.usage_guard
+    assert guard.tz == ZoneInfo('America/New_York')
+    assert guard._clock(datetime(2026, 10, 12, 19, 0, tzinfo=UTC)).endswith('15:00')
+    assert UsageGuard().tz is UTC  # never "whatever the process is set to"
+
+
+def test_builtin_digests_follow_a_changed_tz_unless_the_owner_edited_them(
+    engine: Engine, registry: TaskRegistry, digests: Digests, sched: Scheduler, clock: Clock,
+    tmp_path: Path,
+) -> None:  # fmt: skip
+    digests.ensure_builtins()
+    sched.update(builtin_id('weekly', AGENT), {'cron': '0 9 * * 6'})  # the owner moved it
+    sched.update(builtin_id('usage', AGENT), {'tz': 'Asia/Tokyo'})  # and this one
+    sched.update(builtin_id('morning', AGENT), {'paused': True})  # pausing is not an edit
+    with Session(engine) as s:  # an evening row from before the hub kept records of its own
+        evening = s.get(Schedule, builtin_id('evening', AGENT))
+        assert evening is not None
+        evening.tz = 'Europe/Paris'
+        s.add(evening)
+        s.commit()
+    digests.made.pop(builtin_id('evening', AGENT))
+    digests.save()
+
+    london = Digests(engine, Facts(engine), clock=clock, tz='Europe/London',
+                     state_path=tmp_path / digest.STATE_FILE)  # fmt: skip
+    assert london.ensure_builtins() == 0
+    rows = schedules(engine)
+    tz = {d: rows[builtin_id(d, AGENT)].tz for d in ('morning', 'evening', 'weekly', 'usage')}
+    assert tz == {'morning': 'Europe/London', 'evening': 'Europe/London',
+                  'weekly': TZ, 'usage': 'Asia/Tokyo'}  # fmt: skip
+    assert rows[builtin_id('morning', AGENT)].next_run_at is None  # still paused
+    evening_at = rows[builtin_id('evening', AGENT)].next_run_at
+    assert evening_at is not None and evening_at.replace(tzinfo=UTC) == datetime(
+        2026, 10, 12, 20, 0, tzinfo=UTC
+    )  # 21:00 in London
+    # Started again with the same setting: nothing moves.
+    again = Digests(engine, Facts(engine), clock=clock, tz='Europe/London',
+                    state_path=tmp_path / digest.STATE_FILE)  # fmt: skip
+    again.ensure_builtins()
+    assert schedules(engine)[builtin_id('evening', AGENT)].next_run_at == evening_at

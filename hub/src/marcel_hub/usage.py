@@ -132,7 +132,7 @@ class UsageGuard:
         state_path: Path | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-        tz: tzinfo | None = None,
+        tz: tzinfo = UTC,
         five_hour_limit: float = FIVE_HOUR_LIMIT,
         weekly_limit: float = WEEKLY_LIMIT,
     ) -> None:
@@ -142,7 +142,7 @@ class UsageGuard:
         self.state_path = state_path
         self.clock = clock
         self.sleep = sleep
-        self.tz = tz  # None: the hub's local time zone (set TZ on the container)
+        self.tz = tz  # the owner's (`Settings.tz`); never the process's own time zone
         self.limits = {'five_hour': five_hour_limit, 'weekly': weekly_limit}
         self.registry: TaskRegistry | None = None
         self.reading: dict[str, Any] | None = None
@@ -567,10 +567,17 @@ def get_usage(request: Request) -> Any:
 
 
 def create(
-    reader: Reader | None, data_dir: Path, pusher: Pushes | None, publisher: Publisher
+    reader: Reader | None,
+    data_dir: Path,
+    pusher: Pushes | None,
+    publisher: Publisher,
+    tz: tzinfo = UTC,
 ) -> UsageGuard:
-    """The guard, before the task registry exists: its `task_publisher` goes to `tasks.install`."""
-    return UsageGuard(reader, pusher=pusher, publisher=publisher, state_path=data_dir / STATE_FILE)
+    """The guard, before the task registry exists: its `task_publisher` goes to `tasks.install`.
+    `tz` is the owner's time zone (`Settings.tz`): its pushes say times in it."""
+    return UsageGuard(
+        reader, pusher=pusher, publisher=publisher, state_path=data_dir / STATE_FILE, tz=tz
+    )
 
 
 def install(

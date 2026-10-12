@@ -40,6 +40,7 @@ from marcel_hub import (
     ws,
 )
 from marcel_hub.runner_client import DEFAULT_SOCKET, OffsetStore, RunnerClient, RunnerWatch
+from marcel_hub.schedule.cron import zone
 
 DEFAULT_CONFIG_PATH = Path('/data/marcel.toml')
 
@@ -134,7 +135,7 @@ def _ntfy_server(value: Any) -> str | None:
 
 def _tz(value: Any) -> str:
     try:
-        schedule.cron.zone(str(value))
+        zone(str(value))
     except schedule.CronError as exc:
         raise SettingsError(f'tz: {exc}') from exc
     return str(value)
@@ -241,7 +242,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     pusher = notify.install(app, settings.ntfy_server)
     gateway = channel.create(app, settings.data_dir, push=pusher, alerts=pusher)
     # S-10.1: the usage guard sees limit hits in the registry's events once they are stored.
-    guard = usage.create(client, settings.data_dir, pusher, ws.OwnerPublisher(app.state.events))
+    guard = usage.create(
+        client,
+        settings.data_dir,
+        pusher,
+        ws.OwnerPublisher(app.state.events),
+        zone(settings.tz),  # the owner's time zone, never the process's
+    )
     registry = tasks.install(
         app,
         runner=client,
