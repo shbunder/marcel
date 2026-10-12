@@ -7,6 +7,8 @@ export const TOOL_REPORT = 'report';
 /** channel.schema.json `Report.next` bounds. */
 export const MAX_NEXT_STEPS = 20;
 export const MAX_NEXT_STEP_CHARS = 200;
+/** channel.schema.json `Artifact.summary` bound. */
+export const MAX_ARTIFACT_SUMMARY_CHARS = 200;
 
 const ARTIFACT_SCHEMA = {
   type: 'object',
@@ -15,6 +17,11 @@ const ARTIFACT_SCHEMA = {
     title: { type: 'string' },
     url: { type: 'string', description: 'Required for pr, branch and link.' },
     path: { type: 'string', description: 'Absolute path on this machine. Required for doc, file and dashboard.' },
+    artifact_id: {
+      type: 'string',
+      description: 'To update an item you were given, its id: this becomes a new version of it instead of a new item.',
+    },
+    summary: { type: 'string', maxLength: MAX_ARTIFACT_SUMMARY_CHARS, description: 'What changed in this version, in one line.' },
   },
   required: ['kind', 'title'],
 };
@@ -39,7 +46,9 @@ export const TOOLS = [
     description:
       'Tell Marcel how a task is going. Workers use it: started, progress (needs text), artifact (needs artifact), ' +
       'done or failed (need summary). Lead with the outcome, in short sentences. With progress, also send "next": ' +
-      'the steps you still plan, in order (at most 20, each under 200 characters); each progress report replaces the list.',
+      'the steps you still plan, in order (at most 20, each under 200 characters); each progress report replaces the list. ' +
+      'To update an item you were given, put its artifact_id on the artifact (and a one-line summary of the change): ' +
+      'it becomes a new version of that item instead of a new one.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -77,6 +86,9 @@ export function buildReply(args: Args): Built<Reply> {
 const KINDS: readonly string[] = ['started', 'progress', 'artifact', 'done', 'failed'];
 const ARTIFACT_KINDS: readonly string[] = ['pr', 'branch', 'doc', 'file', 'dashboard', 'link'];
 
+/** Characters as JSON Schema counts them (code points), so an emoji is one, as the hub counts it. */
+const charCount = (s: string): number => [...s].length;
+
 function buildArtifact(raw: unknown): Built<Artifact> {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ok: false, error: 'an artifact must be an object.' };
   const a = raw as Args;
@@ -91,13 +103,19 @@ function buildArtifact(raw: unknown): Built<Artifact> {
     if (!isString(a.path)) return { ok: false, error: 'an artifact "path" must be a string.' };
     artifact.path = a.path;
   }
+  if (a.artifact_id !== undefined) {
+    if (!isString(a.artifact_id)) return { ok: false, error: 'an artifact "artifact_id" must be a string.' };
+    artifact.artifact_id = a.artifact_id;
+  }
+  if (a.summary !== undefined) {
+    if (!isString(a.summary)) return { ok: false, error: 'an artifact "summary" must be a string.' };
+    if (charCount(a.summary) > MAX_ARTIFACT_SUMMARY_CHARS) return { ok: false, error: `an artifact "summary" is longer than ${MAX_ARTIFACT_SUMMARY_CHARS} characters; shorten it.` };
+    artifact.summary = a.summary;
+  }
   if (['pr', 'branch', 'link'].includes(artifact.kind) && !artifact.url) return { ok: false, error: `a ${artifact.kind} artifact needs a "url".` };
   if (['doc', 'file', 'dashboard'].includes(artifact.kind) && !artifact.path) return { ok: false, error: `a ${artifact.kind} artifact needs a "path".` };
   return { ok: true, frame: artifact };
 }
-
-/** Characters as JSON Schema counts them (code points), so an emoji is one, as the hub counts it. */
-const charCount = (s: string): number => [...s].length;
 
 function buildNext(raw: unknown): Built<string[]> {
   if (!Array.isArray(raw) || !raw.every(isString)) return { ok: false, error: '"next" must be a list of steps, each one a piece of text.' };
