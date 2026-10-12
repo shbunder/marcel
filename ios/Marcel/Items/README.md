@@ -29,8 +29,9 @@ package's only screens. It depends on MarcelKit and PixelKit only, so Chat and M
     stored between pages; the web view never navigates away — a tapped web link opens in Safari, anything else is
     cancelled. A line under the header says which it is.
   - `file`: written to the app's temporary folder (`items/<id>-v<n>/<title>.<ext>`) and shown with QuickLook.
-  - `pr`: a card with the state, checks, review and "This changes Marcel itself" for a self-change; "Open in
-    GitHub" only for an `https://github.com/…` address.
+  - `pr`: a card with the state, checks, review, "May be out of date: …" when the hub could not refresh it from
+    GitHub (`pr.note`, app API 0.5), and "This changes Marcel itself" for a self-change; "Open in GitHub" only for an
+    `https://github.com/…` address.
   - `link` and `branch`: a card; a button only for an http(s) address.
   - `dashboard` and `board`: drawn from the JSON (`contracts/dashboard.schema.json`): stat, list, checklist, table,
     chart (Swift Charts, bar or line), note and section. JSON that does not fit the schema (unknown widget, missing
@@ -42,12 +43,18 @@ package's only screens. It depends on MarcelKit and PixelKit only, so Chat and M
 - **Version line**: "Updated 2 min ago by Energy contracts · v3" (VoiceOver: "…, version 3"). **History**
   (`GET /artifacts/{id}/versions`, fetched again for each new current version) opens from the "History · 3" chip;
   an older version opens read-only ("v2 of 3 · read only · on 9 Oct") with "Back to the latest".
-- **Ask about this** opens a question box. The question goes to the main conversation (`GET /me` once), tagged with
-  the item's project (`project_id`), and goes into the cache at once so Chat shows it. The contract's `NewMessage`
-  has no field to attach an item, so the text ends with the item: "(About the item “Energy offers compared”,
-  version 3, art_01JA0B1.)". A question that does not get through stays in the box.
-- **Pin to project** (wireframe 4B) is not built: the app API has no way to pin an item to a project (a project has
-  exactly one board, `board_artifact_id`, which the hub keeps). It needs a contract change first.
+- **Ask about this.** In the app it opens Chat with the item attached (the `askInChat` environment value, an
+  `ItemAttachment`; the app and the Chat tab set it): the chip above the composer, the message's `artifact_id`
+  (app API 0.5) and the item under the sent bubble are the Chat tab's (see `../Chat/README.md`). Without it (a
+  viewer shown on its own) the viewer opens its own question box: the question goes to the main conversation
+  (`GET /me` once) with the item attached (`artifact_id`) and tagged with its project (`project_id`), and goes into the
+  cache at once so Chat shows it. Only an older version than the current one is named in the text ("About version 2
+  of this item."). A question that does not get through stays in the box.
+- **Pin to project** (wireframe 4B, B-31): a picker of the live (not archived) projects other than the item's own, by
+  name. `POST /artifacts/{id}/move`; the answer goes into the cache at once, so the item moves in the Items tab and the
+  rooms before `artifact.moved` confirms it. A board is not offered it (it stays with its project). The hub's 409s
+  are plain words: "That project is archived, so nothing can be pinned to it." (`project_archived`) and "This is a
+  project's board. It stays with its own project." (`artifact_is_board`).
 
 ## Tests (`make -C ios items-test`, part of `make ios-check`)
 
@@ -58,15 +65,17 @@ package's only screens. It depends on MarcelKit and PixelKit only, so Chat and M
 - `ViewerLiveTests` — the story's UI test one layer down (XCUITest cannot run on this Mac's Xcode, see
   ../../README.md): an in-memory cache fed with event frames, the viewer's model with a fake hub. An
   `artifact.updated` refreshes an open document and a board and bumps the version; the history and read-only old
-  versions; "Ask about this"; failures in plain words.
+  versions; "Ask about this" with the item attached; "Pin to project" (targets, the cache moved at once, both 409s);
+  failures in plain words.
 - `DashboardLimitTests` — huge, infinite and missing chart values (no crash, a note), a 3,000-row table and 5,000
   widgets drawn quickly with "…and N more", charts cut at 500 points.
 - `WebAndFileTests` — the web view's configuration (JavaScript off unless trusted), the navigation rules and the delegate that applies them, and a real
   `WKWebView` in the simulator: an untrusted page's `<script>` does not run, a trusted one's does, and the content
   security policy alone also stops it. QuickLook can preview the written file.
 - `LiveItemsServiceTests` — the generated client with a stubbed transport: paths, `?version=`, the cursor, the
-  question's body, and the hub's refusals (404, 401, 400, 500, no network, too big) in words.
-- `ItemsSnapshotTests` — the tab and every kind in the viewer, in light, dark and Accessibility 5, compared pixel for
+  question's body (with `artifact_id`), the pin and its 409s, and the hub's refusals (404, 401, 400, 500, no network, too big) in words.
+- `ItemsSnapshotTests` — the tab and every kind in the viewer (also a PR card that may be out of date and an item
+  just pinned), in light, dark and Accessibility 5, compared pixel for
   pixel with `Tests/MarcelItemsTests/__Snapshots__/`. They render `ItemsStill` and `ViewerStill`; where the screen
   shows a web view or QuickLook (which `ImageRenderer` cannot draw), the still shows the page's words or the file's
   card. After a deliberate change run `make -C ios items-record`, look at the PNGs, and commit them.

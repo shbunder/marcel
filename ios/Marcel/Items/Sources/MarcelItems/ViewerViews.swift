@@ -179,6 +179,11 @@ struct PRCardView: View {
                     PixelText(line, role: .detail)
                         .foregroundStyle(theme.text.color)
                 }
+                if let note = card.note {
+                    PixelText(note, role: .detail)
+                        .foregroundStyle(theme.muted.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if card.selfChange {
                     PixelText("This changes Marcel itself. It is merged only when you approve it.",
                               role: .detail)
@@ -328,6 +333,8 @@ struct ViewerActions: View {
     var historyCount: Int?
     var showingOld: Bool
     var toggleAsk: () -> Void
+    /// "Pin to project"; nil hides it (a project's board stays with its project).
+    var pin: (() -> Void)?
     var send: () -> Void
     var history: () -> Void
     var latest: () -> Void
@@ -369,6 +376,10 @@ struct ViewerActions: View {
         if !asking {
             ActionChip(title: "Ask about this", tone: .teal, action: toggleAsk)
                 .accessibilityHint("Asks Marcel a question about this item in Chat")
+        }
+        if let pin {
+            ActionChip(title: "Pin to project", tone: .gold, action: pin)
+                .accessibilityHint("Moves this item to another project")
         }
         if showingOld {
             ActionChip(title: "Back to the latest", tone: .rose, action: latest)
@@ -495,6 +506,8 @@ struct ViewerStill: View {
     var draft = ""
     var sent: String?
     var problem: String?
+    /// "Pin to project" is offered for every kind but a board, as the screen does.
+    var pinnable = true
 
     @Environment(\.colorScheme) private var scheme
 
@@ -509,8 +522,8 @@ struct ViewerStill: View {
             }
             .padding(ItemsMetrics.inset)
             ViewerActions(draft: .constant(draft), asking: asking, sending: false, sent: sent, problem: problem,
-                          historyCount: historyCount, showingOld: line?.isOld == true, toggleAsk: {}, send: {},
-                          history: {}, latest: {})
+                          historyCount: historyCount, showingOld: line?.isOld == true, toggleAsk: {},
+                          pin: pinnable ? {} : nil, send: {}, history: {}, latest: {})
         }
         .background(PixelTheme(scheme).background.color)
         .environment(\.itemsStill, true)

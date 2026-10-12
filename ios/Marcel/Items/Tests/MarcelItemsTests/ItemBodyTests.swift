@@ -62,6 +62,27 @@ final class ItemBodyTests: XCTestCase {
         }
     }
 
+    /// S-12.11: `pr.note` (app API 0.5) says why the card may be stale; absent, null or empty says nothing.
+    func testAPullRequestCardSaysWhyItMayBeOutOfDate() {
+        XCTAssertEqual(Self.prWithNote("GitHub is having trouble.").note, "May be out of date: GitHub is having trouble.")
+        XCTAssertTrue(Self.prWithNote("GitHub is having trouble.").spoken
+            .hasSuffix("Review requested. May be out of date: GitHub is having trouble."))
+        for nothing in [nil, NSNull(), ""] as [Any?] {
+            XCTAssertNil(Self.prWithNote(nothing).note, String(describing: nothing))
+        }
+    }
+
+    static func prWithNote(_ note: Any?) -> PRCard {
+        var json = Fx.mockArtifact(Fx.prId)
+        var pr = json["pr"] as! [String: Any]
+        pr["note"] = note
+        json["pr"] = pr
+        guard case .pr(let card) = ItemBody.make(Fx.artifact(json), contentType: nil, content: nil) else {
+            fatalError("not a PR")
+        }
+        return card
+    }
+
     func testLinksAndBranchesOpenOnlyWebAddresses() {
         guard case .link(let link) = body(Fx.link, nil), case .link(let branch) = body(Fx.branch, nil) else {
             return XCTFail("not links")

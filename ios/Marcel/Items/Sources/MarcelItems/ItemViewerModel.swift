@@ -70,8 +70,10 @@ public final class ItemViewerModel {
     public var draft = ""
     /// Whether the question box is open.
     public var asking = false
-    /// "Sent to Marcel…" after a question got through.
+    /// A plain note after something got through: "Sent to Marcel…" after a question, "Pinned to …" after a pin.
     public private(set) var sent: String?
+    /// True while a pin is on its way.
+    public private(set) var pinning = false
     public private(set) var sending = false
     /// Bytes by `key(id, version)`.
     public private(set) var contents: [String: ContentState] = [:]
@@ -167,15 +169,16 @@ public final class ItemViewerModel {
         }
     }
 
-    /// The text "Ask about this" posts: your question, then which item (and version) it is about, so Marcel can find
-    /// it. The contract has no field to attach an item to a message, so the item travels as its id.
+    /// The text "Ask about this" posts. The item itself travels as the message's `artifact_id`; only an older
+    /// version than the current one is named in the text, since the attachment is the item, not a version.
     public static func question(_ text: String, about artifact: Artifact, version: Int?) -> String {
-        let shown = version ?? artifact.currentVersion
-        return "\(text)\n\n(About the item “\(artifact.title)”, version \(shown), \(artifact.id).)"
+        guard let version, version != artifact.currentVersion else { return text }
+        return "\(text)\n\n(About version \(version) of this item.)"
     }
 
-    /// "Ask about this": posts the question to the main conversation, tagged with the item's project. It never waits
-    /// on Marcel; his answer arrives in Chat.
+    /// "Ask about this" in the viewer's own box (when no Chat is around to open): posts the question to the main
+    /// conversation with the item attached and tagged with its project. It never waits on Marcel; his answer arrives
+    /// in Chat.
     public func ask(about artifact: Artifact, version: Int? = nil) async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -192,7 +195,7 @@ public final class ItemViewerModel {
             let conversationId = try await mainConversation(service)
             let message = try await service.send(
                 text: Self.question(text, about: artifact, version: version), clientId: UUID().uuidString.lowercased(),
-                conversationId: conversationId, projectId: artifact.projectId)
+                conversationId: conversationId, projectId: artifact.projectId, artifactId: artifact.id)
             // Into the cache at once, so the main chat shows it before the stream brings it.
             try cache?.upsert(message)
             try cache?.save()
@@ -202,6 +205,41 @@ public final class ItemViewerModel {
         } catch {
             // The text stays in the box, so trying again is one tap.
             problem = "Not sent. " + ItemsError.words(for: error)
+        }
+    }
+
+    // MARK: Pin to project
+
+    /// Whether "Pin to project" is offered: a project's board stays with its project.
+    public static func canPin(_ artifact: Artifact) -> Bool {
+        artifact.kind != .board
+    }
+
+    /// The projects an item can be pinned to: live ones (not archived) other than its own, by name.
+    public static func pinTargets(_ artifact: Artifact, projects: [Project]) -> [Project] {
+        projects.filter { !$0.archived && $0.id != artifact.projectId }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// "Pin to project" (B-31): `POST /artifacts/{id}/move`. The answer goes into the cache at once, so the item moves
+    /// in the Items tab and the Map rooms before the stream's `artifact.moved` confirms it.
+    public func pin(_ artifact: Artifact, to project: Project) async {
+        problem = nil
+        sent = nil
+        guard let service else {
+            problem = ItemsError.notPaired.errorDescription
+            return
+        }
+        guard !pinning else { return }
+        pinning = true
+        defer { pinning = false }
+        do {
+            let moved = try await service.move(artifactId: artifact.id, to: project.id)
+            try cache?.upsert(moved)
+            try cache?.save()
+            sent = "Pinned to \(project.name)."
+        } catch {
+            problem = "Not pinned. " + ItemsError.words(for: error)
         }
     }
 

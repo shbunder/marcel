@@ -5,7 +5,7 @@ import SwiftUI
 
 /// One item, whatever its kind (wireframe 4B): Markdown natively, HTML in a locked-down web view, files in
 /// QuickLook, pull requests and links as cards, dashboards and boards drawn from their JSON. A version line on top,
-/// the history behind a chip, and "Ask about this" at the bottom.
+/// the history behind a chip, and "Ask about this" and "Pin to project" at the bottom.
 ///
 /// The item comes from the cache (`.modelContainer` must be set), which the live event stream keeps current: an
 /// `artifact.updated` changes the version on screen and the viewer loads the new bytes. The Chat, Map and Items tabs
@@ -13,10 +13,14 @@ import SwiftUI
 public struct ArtifactViewer: View {
     let artifactId: String
     @Query private var rows: [CachedArtifact]
+    /// The projects "Pin to project" offers.
+    @Query private var projects: [CachedProject]
     @State private var model: ItemViewerModel
     /// The version on screen; nil is the current one, which follows new versions as they arrive.
     @State private var shown: Int?
     @State private var showingHistory = false
+    @State private var choosingProject = false
+    @Environment(\.askInChat) private var askInChat
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
@@ -60,6 +64,8 @@ public struct ArtifactViewer: View {
         let body = model.body(artifact, version: shown)
         let historyCount = versions.isEmpty ? (artifact.currentVersion > 1 ? artifact.currentVersion : nil)
             : versions.count
+        let targets = ItemViewerModel.pinTargets(artifact, projects: ItemsInput.read(artifacts: [], projects: projects)
+            .projects)
         return VStack(spacing: 0) {
             ViewerHeader(title: artifact.title, line: VersionLine(artifact, showing: shown, versions: versions,
                                                                    now: now),
@@ -69,10 +75,20 @@ public struct ArtifactViewer: View {
             ViewerActions(
                 draft: $model.draft, asking: model.asking, sending: model.sending, sent: model.sent,
                 problem: model.problem, historyCount: historyCount, showingOld: shown != nil,
-                toggleAsk: { model.asking.toggle() },
+                // With Chat around (the app), the question is asked there with the item attached.
+                toggleAsk: { if let askInChat { askInChat(ItemAttachment(artifact)) } else { model.asking.toggle() } },
+                pin: ItemViewerModel.canPin(artifact) ? { choosingProject = true } : nil,
                 send: { Task { await model.ask(about: artifact, version: shown) } },
                 history: { showingHistory = true },
                 latest: { shown = nil })
+        }
+        .confirmationDialog("Pin to project", isPresented: $choosingProject, titleVisibility: .visible) {
+            ForEach(targets, id: \.id) { project in
+                Button(project.name) { Task { await model.pin(artifact, to: project) } }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(targets.isEmpty ? "There is no other project to pin it to." : "Where should this item live?")
         }
         .sheet(isPresented: $showingHistory) {
             ScrollView {

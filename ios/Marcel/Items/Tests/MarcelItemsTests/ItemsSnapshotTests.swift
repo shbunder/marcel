@@ -19,12 +19,14 @@ final class ItemsSnapshotTests: XCTestCase {
     /// The viewer for one item at its current version, with its bytes loaded.
     static func viewer(_ json: [String: Any], content: Data?, history: Int? = nil, asking: Bool = false,
                        draft: String = "", sent: String? = nil, problem: String? = nil) -> ViewerStill {
+        // A board stays with its project: no "Pin to project" (as `ItemViewerModel.canPin`).
+        let pinnable = json["kind"] as? String != "board"
         let artifact = Fx.artifact(json)
         return ViewerStill(
             title: artifact.title,
             line: VersionLine(artifact, showing: nil, versions: [], now: Fx.now, timeZone: Fx.utc),
             body_: ItemBody.make(artifact, contentType: nil, content: content.map(ContentState.loaded)),
-            historyCount: history, asking: asking, draft: draft, sent: sent, problem: problem)
+            historyCount: history, asking: asking, draft: draft, sent: sent, problem: problem, pinnable: pinnable)
     }
 
     /// Wireframe 4B: the mock hub's document at version 3, with the comparison a worker wrote.
@@ -64,6 +66,22 @@ final class ItemsSnapshotTests: XCTestCase {
     func testAPullRequest() {
         Snapshot.assert(Self.viewer(Fx.mockArtifact(Fx.prId), content: nil), named: "Viewer-pr",
                         variants: [.light, .dark], padding: 0)
+    }
+
+    /// S-12.11: the hub could not refresh the card from GitHub (`pr.note`).
+    func testAPullRequestThatMayBeOutOfDate() {
+        var pr = Fx.mockArtifact(Fx.prId)
+        var fields = pr["pr"] as! [String: Any]
+        fields["note"] = "GitHub refused the token."
+        pr["pr"] = fields
+        Snapshot.assert(Self.viewer(pr, content: nil), named: "Viewer-pr-note", variants: [.light, .dark], padding: 0)
+    }
+
+    /// S-12.11: an item just pinned to another project.
+    func testAnItemPinnedToAnotherProject() {
+        Snapshot.assert(Self.viewer(Fx.mockArtifact(Fx.docId), content: Fx.mockHub("doc-v3.md"), history: 3,
+                                    sent: "Pinned to Marcel dev."),
+                        named: "Viewer-pinned", variants: [.light, .dark], padding: 0)
     }
 
     func testAnHTMLPage() {
