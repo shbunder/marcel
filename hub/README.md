@@ -29,6 +29,8 @@ names the file.
 | `host` | `MARCEL_HOST` | `0.0.0.0` |
 | `port` | `MARCEL_PORT` | `7420` |
 | `owner_name` | `MARCEL_OWNER_NAME` | `Owner` (shown by `GET /api/me`) |
+| `runner_sock` | `MARCEL_RUNNER_SOCK` | `/run/marcel/runner.sock` (the runner's socket, mounted into the container) |
+| `worker_cwd` | `MARCEL_WORKER_CWD` | unset. Where workers without a repository run, e.g. `/home/<you>/marcel/workspaces/scratch` (a path on the NUC). Unset: such tasks fail with a reason |
 
 `MARCEL_CONFIG` moves the config file itself (tests use it).
 
@@ -47,8 +49,8 @@ A test fails if the models and the migrations disagree. Timestamps are timezone-
 ## GET /api/health
 
 Needs no token. Returns `ok` (false when the database does not answer), `version`, and
-`runner.reachable`. Until the runner client exists, `runner.reachable` is `false` with a reason.
-The app shows that as "the NUC is not reachable", so it is expected for now.
+`runner.reachable`: true while the hub's event stream from the runner is open. When it is false,
+`runner.reason` says why. The app shows that as "the NUC is not reachable".
 
 ## Pairing a phone
 
@@ -104,5 +106,28 @@ test learns how.
   listed only with `archived=true`.
 - **Hand-back** records a `note` and puts a `handback` event for Marcel's brain in the outbox.
 
-Not wired yet: the runner client and the channel gateway. Until they exist, starting or stopping a
-session answers that the runner is out of reach, and steer and hand-back messages wait in memory.
+Not wired yet: the channel gateway. Until it exists, steer and hand-back messages wait in memory.
+
+## Runner
+
+`src/marcel_hub/runner_client.py` talks to the runner over its unix socket
+(`contracts/runner-api.yaml`). It starts and stops worker sessions for the task registry, and a
+background watcher follows the runner's streams:
+
+- **State.** `GET /events` reports each session's state. The hub maps it onto the task states:
+  `working` → working; a permission prompt → `needs_you` ("Your approval: …"); a question, or a
+  session left idle after a refused step → `needs_you`; a usage limit → `needs_you` naming the
+  reset time (from `GET /usage`); `done` (with its one-line result as the summary), `failed`,
+  `stopped`. A report the state machine does not allow (a stopped task whose session shows `done`)
+  changes nothing. The session's `remote_url` is copied onto the task. Approval cards come from the
+  channel (S-04.6), not from here.
+- **Transcript.** Each task session's `GET /sessions/{id}/tail` is stored as task events (the app
+  gets them as `task.event`). `thinking` and `turn_end` are not stored. The hub remembers how far it
+  read each transcript in `<data_dir>/runner-offsets.json`, so a reconnect or a restart never stores
+  an event twice.
+- **Runner down.** When the runner does not answer, every NUC task that was live goes to `unknown`,
+  and one "something broke" alert is raised (logged until the notifier, S-08.1, exists). The hub
+  retries after 0.5 s, then 1, 2, 4 … up to 30 s. When the runner answers again the alert is
+  cleared, each task takes the state the runner reports, and queued tasks start if there is room.
+- **Bad input.** An event that does not match the contract is logged (`Ignored a bad runner event`)
+  and dropped; the stream carries on.

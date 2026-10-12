@@ -19,6 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from marcel_hub import __version__, auth, db, tasks
+from marcel_hub.runner_client import DEFAULT_SOCKET, OffsetStore, RunnerClient, RunnerWatch
 
 DEFAULT_CONFIG_PATH = Path('/data/marcel.toml')
 
@@ -34,6 +35,9 @@ class Settings:
     host: str = '0.0.0.0'
     port: int = 7420
     owner_name: str = 'Owner'
+    # None: no runner (tests). `load_settings` defaults it to the socket mounted into the hub.
+    runner_sock: Path | None = None
+    worker_cwd: str | None = None
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -52,7 +56,8 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         **{k[len('MARCEL_') :].lower(): v for k, v in env.items() if _is_setting(k)},
     }
 
-    unknown = set(values) - {'data_dir', 'db_path', 'host', 'port', 'owner_name'}
+    known = {'data_dir', 'db_path', 'host', 'port', 'owner_name', 'runner_sock', 'worker_cwd'}
+    unknown = set(values) - known
     if unknown:
         raise SettingsError(f'Unknown setting(s) {sorted(unknown)} in {config_path} or MARCEL_*.')
     try:
@@ -63,6 +68,8 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             host=str(values.get('host', '0.0.0.0')),
             port=int(values.get('port', 7420)),
             owner_name=str(values.get('owner_name', 'Owner')),
+            runner_sock=Path(values.get('runner_sock', DEFAULT_SOCKET)),
+            worker_cwd=str(values['worker_cwd']) if values.get('worker_cwd') else None,
         )
     except ValueError as exc:
         raise SettingsError(f'The port must be a number: {exc}.') from exc
@@ -79,6 +86,8 @@ def _is_setting(name: str) -> bool:
         'MARCEL_HOST',
         'MARCEL_PORT',
         'MARCEL_OWNER_NAME',
+        'MARCEL_RUNNER_SOCK',
+        'MARCEL_WORKER_CWD',
     }
 
 
@@ -94,14 +103,17 @@ def health(request: Request) -> dict[str, Any]:
         db_ok = True
     except Exception:  # health must answer, whatever is wrong
         db_ok = False
-    return {
-        'ok': db_ok,
-        'version': __version__,
-        'runner': {
+    watch: RunnerWatch | None = request.app.state.runner_watch
+    if watch is None:
+        runner = {
             'reachable': False,
-            'reason': 'The hub has no runner connection yet, so it cannot see the NUC.',
-        },
-    }
+            'reason': 'The hub has no runner set up, so it cannot see the NUC.',
+        }
+    elif watch.reachable:
+        runner = {'reachable': True}
+    else:
+        runner = {'reachable': False, 'reason': watch.reason}
+    return {'ok': db_ok, 'version': __version__, 'runner': runner}
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -112,7 +124,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         db.upgrade(engine)
         await app.state.tasks.drain()  # tasks queued before a restart start if there is room
+        if watch is not None:
+            watch.start()
         yield
+        if watch is not None:
+            await watch.close()
+            await watch.client.aclose()
         engine.dispose()
 
     # No /docs, /redoc or /openapi.json: every route but /health and /pair needs a token.
@@ -128,7 +145,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = engine
     app.include_router(router)
     auth.install(app)
-    tasks.install(app)
+    # The runner client (S-04.5) replaces the registry's NoRunner when a socket is configured.
+    client = (
+        RunnerClient(settings.runner_sock, worker_cwd=settings.worker_cwd)
+        if settings.runner_sock
+        else None
+    )
+    registry = tasks.install(app, runner=client)
+    watch = (
+        RunnerWatch(
+            client, registry, offsets=OffsetStore(settings.data_dir / 'runner-offsets.json')
+        )
+        if client
+        else None
+    )
+    app.state.runner_watch = watch
     return app
 
 
