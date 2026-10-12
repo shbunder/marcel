@@ -39,6 +39,9 @@ server `harry`:
   Code's own check. Harry's tools are not in the runner's `--allowedTools` list (`contracts/runner-api.yaml`);
   adding them is a contract change, asked for in `project/contract-requests/S-15.1.md`. NUC workers have
   the server but are never pre-allowed its tools, like Marcel's own brain tools.
+- **Workers can read the token.** The runner passes `MARCEL_HARRY_TOKEN` into every session it starts on the
+  NUC, so a worker (or text that misleads one) can print it. It only works against `localhost` on the NUC.
+  Giving it to the brain alone would take a runner contract change.
 - **Cloud workers** do not get the plugin's Harry: `localhost:7430` is the NUC, and the token never
   leaves it (a cloud session starts on claude.ai with its own environment). If the owner adds Harry as a
   claude.ai connector, cloud workers see it as `mcp__claude_ai_harry__<tool>`.
