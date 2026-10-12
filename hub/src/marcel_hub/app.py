@@ -33,6 +33,7 @@ from marcel_hub import (
     projects,
     task_threads,
     tasks,
+    usage,
     ws,
 )
 from marcel_hub.runner_client import DEFAULT_SOCKET, OffsetStore, RunnerClient, RunnerWatch
@@ -168,6 +169,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await app.state.tasks.drain()  # tasks queued before a restart start if there is room
         if watch is not None:
             watch.start()
+            guard.start()  # S-10.1: reads plan usage from the runner
         keeper.mark_all()  # every board is rebuilt once at start (S-04.11)
         keeper.start()
         avatars.prime()  # states that changed while the hub was down (S-04.8)
@@ -175,6 +177,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         await avatars.stop()
         await keeper.stop()
+        await guard.stop()
         if watch is not None:
             await watch.close()
             await watch.client.aclose()
@@ -207,6 +210,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # approval cards. The gateway is also the registry's Outbox.
     pusher = notify.install(app, settings.ntfy_server)
     gateway = channel.create(app, settings.data_dir, push=pusher, alerts=pusher)
+    # S-10.1: the usage guard sees limit hits in the registry's events once they are stored.
+    guard = usage.create(client, settings.data_dir, pusher, ws.OwnerPublisher(app.state.events))
     registry = tasks.install(
         app,
         runner=client,
@@ -214,7 +219,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Outermost the pusher: it pushes after the event is stored and the gateway has settled
         # any approval card the change affects.
         publisher=pusher.task_publisher(
-            gateway.task_publisher(ws.OwnerPublisher(app.state.events))
+            gateway.task_publisher(guard.task_publisher(ws.OwnerPublisher(app.state.events)))
         ),
     )
     watch = (
@@ -245,6 +250,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # the gateway, tasks, artifacts, memory and projects.
     brain_api.install(app)
     app.state.brain_ports.boards = boards.BrainBoards(keeper)  # the brain's board_note
+    # S-10.1: holds new spawns near the plan's limit; serves /api/usage and the brain's usage_get.
+    usage.install(app, guard, registry, watch)
     return app
 
 
