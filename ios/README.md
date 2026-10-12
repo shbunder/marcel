@@ -93,8 +93,8 @@ The shared `Marcel` scheme lists `MarcelKitTests` for Xcode's Test action. That 
   skipped. `resync.required` re-fetches over REST, then reconnects from the hub's last event. A refused
   token (403) unpairs the phone.
 - **Cache** — SwiftData rows for messages, tasks, projects and artifacts, plus the last event id, so a cold
-  start resumes with `since`. Tasks and artifacts are filed by `project_id`; `task.moved` refiles a task and
-  `artifact.updated` replaces the artifact with its new current version. Screens that need events the cache
+  start resumes with `since`. Tasks and artifacts are filed by `project_id`; `task.moved` refiles a task,
+  `artifact.moved` an item, and `artifact.updated` replaces the artifact with its new current version. Screens that need events the cache
   does not store (a quest's `task.event` and approval frames) listen with `observeFrames`.
 
 ## Talking to the mock hub

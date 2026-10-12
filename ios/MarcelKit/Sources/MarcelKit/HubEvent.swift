@@ -24,6 +24,8 @@ public enum HubEvent: Sendable {
     case projectCreated(Project)
     case projectUpdated(Project)
     case taskMoved(taskId: String, fromProjectId: String, toProjectId: String)
+    /// An item was pinned to another project (app API 0.5.0). Both projects follow with `project.updated`.
+    case artifactMoved(artifactId: String, fromProjectId: String, toProjectId: String)
     /// The brain session was replaced; `kept` says, for people, what the new one starts with.
     case brainRollover(agentId: String, reason: String, kept: String)
     case agentState(agentId: String, state: AgentState)
@@ -63,6 +65,12 @@ extension EventFrame {
     private struct ArtifactUpdatedData: Decodable {
         let artifact: Artifact
         let version: ArtifactVersion
+    }
+
+    private struct ArtifactMovedData: Decodable {
+        let artifact_id: String
+        let from_project_id: String
+        let to_project_id: String
     }
 
     private struct TaskMovedData: Decodable {
@@ -106,6 +114,10 @@ extension EventFrame {
             event = .artifactUpdated(update.artifact, version: update.version)
         case "project.created": event = .projectCreated(try payload(Project.self))
         case "project.updated": event = .projectUpdated(try payload(Project.self))
+        case "artifact.moved":
+            let move = try payload(ArtifactMovedData.self)
+            event = .artifactMoved(artifactId: move.artifact_id, fromProjectId: move.from_project_id,
+                                   toProjectId: move.to_project_id)
         case "task.moved":
             let move = try payload(TaskMovedData.self)
             event = .taskMoved(taskId: move.task_id, fromProjectId: move.from_project_id, toProjectId: move.to_project_id)
