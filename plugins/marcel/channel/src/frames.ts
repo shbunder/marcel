@@ -7,6 +7,10 @@ export interface Artifact {
   title: string;
   url?: string;
   path?: string;
+  /** Publish a new version of this artifact instead of a new one (B-34). */
+  artifact_id?: string;
+  /** What changed in this version, in one line (at most 200 characters). */
+  summary?: string;
 }
 
 export interface Hello {

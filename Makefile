@@ -1,5 +1,5 @@
 # Marcel v3 — one gate per lane. `make check` runs every lane that builds off a Mac.
-PY_LANES := contracts hub mock-hub runner plugins/marcel/tools shared/avatar/pixel
+PY_LANES := brain contracts hub mock-hub runner plugins/marcel/tools shared/avatar/pixel
 # `make mock-hub` runs the mock hub; its gate is mock-hub-check, so it is built apart from the rest.
 GATED    := $(filter-out mock-hub,$(PY_LANES))
 CHANNEL  := plugins/marcel/channel
