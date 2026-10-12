@@ -499,10 +499,12 @@ app's `/api/schedules` and the brain's `schedule_*` tools reach the same `Schedu
   and the schedule moves on to its next time. Everything one look found missed makes one message in
   the main conversation and one push (category `note`), e.g. "Marcel was off when 2 scheduled jobs
   were due, so they did not run: “Garden check” (3 times), “Weekly report”. …".
-- **"Did not run".** With `deadline_minutes`, a fire is watched until its run starts: the task
-  leaves `queued`, or the brain's channel takes the event. If that has not happened by the
-  deadline, one message and one push say so and why (waiting for a worker, held by the usage
-  guard, the brain has not picked it up, or it could not start). Watches live in
+- **"Did not run".** With `deadline_minutes`, every fire is watched on its own until its run
+  starts: the task leaves `queued` (a task that failed without ever getting a session, e.g. the
+  runner was down, did not start), or the brain's channel takes the event. If that has not
+  happened by the deadline, one message and one push say so and why (waiting for a worker, held
+  by the usage guard, the brain has not picked it up, or it could not start). Pausing or deleting
+  a schedule drops its watches: a paused job is never reported late. Watches live in
   `<data_dir>/scheduler.json`, so a restart keeps watching and never says it twice; an unreadable
   file is logged and the scheduler starts without watches.
 - **Pause, resume, change, delete** (`PATCH` / `DELETE /api/schedules/{id}`). A paused schedule has

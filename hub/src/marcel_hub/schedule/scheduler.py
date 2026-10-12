@@ -14,8 +14,9 @@
 - **Missed fires are not made up.** A fire more than `GRACE` late (the hub was down) is skipped:
   the schedule moves on to its next time, and all the fires one look found missed are reported
   in **one** message in the main conversation and one push, however many there were.
-- **"Did not run".** With `deadline_minutes`, a fire is watched: if the run has not started that
-  long after the fire time (the task is still queued, or the brain has not taken the event), one
+- **"Did not run".** With `deadline_minutes`, every fire is watched on its own: if its run has
+  not started that long after the fire time (the task is still queued or failed without a session,
+  or the brain has not taken the event), one
   message and one push say so, with the reason. Watches are kept in `<data_dir>/scheduler.json`,
   so a restart keeps watching and does not say it twice.
 - **Pause, resume, delete.** A paused schedule has no `next_run_at`; resuming starts from the next
@@ -94,8 +95,10 @@ class Pushes(Protocol):
 
 @dataclass
 class Watch:
-    """A fire with a deadline, until its run is seen starting or the alert is sent."""
+    """One fire with a deadline, until its run is seen starting or the alert is sent. Every fire
+    has its own, so a later fire never hides an earlier run that is still waiting."""
 
+    schedule_id: str
     fired_at: str  # ISO, UTC
     deadline_at: str
     ref: str  # the task id, `<outbox target>#<seq>` for the brain, or '' when the fire failed
@@ -145,7 +148,7 @@ class Scheduler:
         self.state_path = state_path
         self.clock = clock
         self.brain_frame: Callable[[Schedule, datetime], dict[str, Any]] = default_brain_frame
-        self.watches: dict[str, Watch] = {}
+        self.watches: list[Watch] = []
         self._job: asyncio.Task[None] | None = None
         self._stop: asyncio.Event | None = None
         self._load()
@@ -214,6 +217,7 @@ class Scheduler:
                 setattr(row, name, value)
             if row.paused:
                 row.next_run_at = None
+                self._drop_watches(schedule_id)  # a paused job is not "late"
             elif was_paused or {'cron', 'tz'} & set(changes) or row.next_run_at is None:
                 row.next_run_at = cron.next_after(self.clock())
             s.add(row)
@@ -236,9 +240,14 @@ class Scheduler:
                 )
             s.delete(row)
             s.commit()
-        if self.watches.pop(schedule_id, None) is not None:
-            self.save()
+        self._drop_watches(schedule_id)
         log.info('Schedule %s deleted.', schedule_id)
+
+    def _drop_watches(self, schedule_id: str) -> None:
+        kept = [w for w in self.watches if w.schedule_id != schedule_id]
+        if len(kept) != len(self.watches):
+            self.watches = kept
+            self.save()
 
     # The loop -----------------------------------------------------------------------------------
 
@@ -277,7 +286,7 @@ class Scheduler:
                 )
                 if t is not None
             ]
-        times += [_time(w.deadline_at) for w in self.watches.values()]
+        times += [_time(w.deadline_at) for w in self.watches]
         soonest = min(((t - now).total_seconds() for t in times), default=LOOK_EVERY)
         return min(LOOK_EVERY, max(soonest, 1.0))
 
@@ -362,7 +371,7 @@ class Scheduler:
             log.exception('Schedule %s "%s" could not start its run.', row.id, row.name)
         if row.deadline_minutes:
             deadline = at + timedelta(minutes=row.deadline_minutes)
-            self.watches[row.id] = Watch(iso(at), iso(deadline), ref)
+            self.watches.append(Watch(row.id, iso(at), iso(deadline), ref))
             self.save()
 
     # Deadlines --------------------------------------------------------------------------------
@@ -375,9 +384,12 @@ class Scheduler:
             waiting = self.frames.after(target, int(seq) - 1, 1)
             return not waiting or waiting[0].get('seq') != int(seq)
         try:
-            return self.registry.get(ref).state != TaskState.queued
+            task = self.registry.get(ref)
         except TaskNotFound:
             return False
+        # A task that failed without ever getting a session never started (the runner was down).
+        never_ran = task.state == TaskState.failed and task.session_id is None
+        return task.state != TaskState.queued and not never_ran
 
     def _why(self, ref: str) -> str:
         if not ref:
@@ -388,32 +400,34 @@ class Scheduler:
             task = self.registry.get(ref)
         except TaskNotFound:
             return 'its task is gone'
+        if task.state == TaskState.failed:
+            return 'it could not start (the task says why)'
         if task.queued_reason == QueuedReason.usage:
             return 'it is waiting because the plan’s usage is near its limit'
         return 'it is waiting for a free worker on the NUC'
 
     def _check_deadlines(self, now: datetime) -> None:
-        changed = False
-        for schedule_id, watch in list(self.watches.items()):
+        kept: list[Watch] = []
+        for watch in self.watches:
             with Session(self.engine) as s:
-                row = s.get(Schedule, schedule_id)
+                row = s.get(Schedule, watch.schedule_id)
             if row is None or self._started(watch.ref):
-                del self.watches[schedule_id]
-                changed = True
                 continue
-            if now < _time(watch.deadline_at):
+            deadline = _time(watch.deadline_at)
+            if now < deadline:
+                kept.append(watch)
                 continue
-            del self.watches[schedule_id]
-            changed = True
-            minutes = row.deadline_minutes or 0
-            fired = self._wall(_time(watch.fired_at), row.tz, now)
+            fired_at = _time(watch.fired_at)
+            minutes = int((deadline - fired_at).total_seconds() // 60)
             text = (
-                f'“{row.name}” did not run. It was due at {fired} and had not started '
-                f'{minutes} minutes later: {self._why(watch.ref)}.'
+                f'“{row.name}” did not run. It was due at {self._wall(fired_at, row.tz, now)} '
+                f'and had not started {minutes} minutes later: {self._why(watch.ref)}.'
             )
-            log.warning('Schedule %s did not run: %s', schedule_id, text)
-            self._say(row.agent_id, 'A scheduled job did not run', text, f'late:{schedule_id}')
-        if changed:
+            log.warning('Schedule %s did not run: %s', watch.schedule_id, text)
+            key = f'late:{watch.schedule_id}:{watch.fired_at}'
+            self._say(row.agent_id, 'A scheduled job did not run', text, key)
+        if kept != self.watches:
+            self.watches = kept
             self.save()
 
     # Saying so ----------------------------------------------------------------------------------
@@ -482,7 +496,7 @@ class Scheduler:
     def save(self) -> None:
         if self.state_path is None:
             return
-        data = {'watches': {k: asdict(w) for k, w in self.watches.items()}}
+        data = {'watches': [asdict(w) for w in self.watches]}
         tmp = self.state_path.with_suffix('.tmp')
         tmp.write_text(json.dumps(data))
         tmp.replace(self.state_path)
@@ -492,8 +506,8 @@ class Scheduler:
             return
         try:
             data = json.loads(self.state_path.read_text())
-            watches = {str(k): Watch(**v) for k, v in data['watches'].items()}
-            for w in watches.values():
+            watches = [Watch(**v) for v in data['watches']]
+            for w in watches:
                 for value in (w.fired_at, w.deadline_at):
                     _time(value)
         except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:

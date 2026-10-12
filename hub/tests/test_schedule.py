@@ -391,7 +391,7 @@ def test_a_run_that_started_in_time_says_nothing(
     sched.create(AGENT, {**DAILY, 'deadline_minutes': 30})
     clock.go(minutes=1)
     run(sched.tick())
-    assert sched.watches == {}  # seen starting on the same look
+    assert sched.watches == []  # seen starting on the same look
     clock.go(hours=1)
     run(sched.tick())
     assert said(engine) == [] and pushes.sent == []
@@ -432,6 +432,74 @@ def test_a_fire_that_failed_to_start_says_so_at_the_deadline(
     assert 'Marcel could not start it' in text
 
 
+def test_every_fire_keeps_its_own_deadline(
+    sched: Scheduler, clock: Clock, engine: Engine, registry: TaskRegistry, pushes: Pushes
+) -> None:
+    """An hourly job with a 90-minute deadline under a usage hold: each run that never started
+    says so, even though the next fire came before its deadline."""
+    registry.hold_new_work = lambda: 'Plan usage is at 91 %.'
+    sched.create(AGENT, {**DAILY, 'cron': '0 * * * *', 'deadline_minutes': 90})
+    clock.go(minutes=1)  # 08:00
+    run(sched.tick())
+    clock.go(hours=1)  # 09:00: the second fire
+    run(sched.tick())
+    assert said(engine) == []
+    clock.go(minutes=30)  # 09:30: the 08:00 run is 90 minutes late
+    run(sched.tick())
+    (first,) = said(engine)
+    assert 'It was due at 08:00 and had not started 90 minutes later' in first
+    clock.go(minutes=30)  # 10:00: the third fire
+    run(sched.tick())
+    clock.go(minutes=30)  # 10:30: the 09:00 run is late
+    run(sched.tick())
+    assert 'It was due at 09:00' in said(engine)[1]
+    keys = [n.collapse_key for n, _ in pushes.sent]
+    assert len(keys) == 2 and len(set(keys)) == 2  # one push per late run, neither replaced
+
+
+def test_a_run_that_failed_to_start_says_did_not_run(
+    sched: Scheduler, clock: Clock, engine: Engine, runner: FakeRunner
+) -> None:
+    runner.down = True
+    sched.create(AGENT, {**DAILY, 'deadline_minutes': 30})
+    clock.go(minutes=1)
+    run(sched.tick())
+    (task,) = tasks(engine)
+    assert task.state == TaskState.failed and task.session_id is None
+    clock.go(minutes=30)
+    run(sched.tick())
+    (text,) = said(engine)
+    assert text.endswith('it could not start (the task says why).')
+
+
+def test_a_run_that_started_and_then_failed_is_not_late(
+    sched: Scheduler, clock: Clock, engine: Engine, registry: TaskRegistry
+) -> None:
+    sched.create(AGENT, {**DAILY, 'deadline_minutes': 30})
+    clock.go(minutes=1)
+    run(sched.tick())
+    (task,) = tasks(engine)
+    run(registry.report_state(task.id, TaskState.failed, 'The worker crashed'))
+    clock.go(minutes=30)
+    run(sched.tick())
+    assert said(engine) == []  # it ran; its own failure push says the rest
+
+
+def test_pausing_drops_the_pending_deadline(
+    sched: Scheduler, clock: Clock, engine: Engine, runner: FakeRunner, pushes: Pushes
+) -> None:
+    runner.cap = 0
+    made = sched.create(AGENT, {**DAILY, 'deadline_minutes': 30})
+    clock.go(minutes=1)
+    run(sched.tick())
+    assert len(sched.watches) == 1
+    sched.update(made['id'], {'paused': True})
+    assert sched.watches == []
+    clock.go(hours=1)
+    run(sched.tick())
+    assert said(engine) == [] and pushes.sent == []
+
+
 def test_a_deadline_watch_survives_a_restart(
     engine: Engine,
     registry: TaskRegistry,
@@ -463,6 +531,7 @@ def test_deleting_a_watched_schedule_drops_its_watch(
     clock.go(minutes=1)
     run(sched.tick())
     sched.delete(AGENT, made['id'])
+    assert sched.watches == []
     clock.go(minutes=10)
     run(sched.tick())
     assert said(engine) == []
@@ -476,9 +545,14 @@ def test_an_unreadable_state_file_starts_without_watches(
     pushes: Pushes,
     tmp_path: Path,
 ) -> None:
-    for content in ('not json', json.dumps({'watches': {'sch_1': {'fired_at': 'soon'}}})):
+    bad_time = {'schedule_id': 'sch_1', 'fired_at': 'soon', 'deadline_at': 'later', 'ref': ''}
+    for content in (
+        'not json',
+        json.dumps({'watches': {'sch_1': {'fired_at': 'soon'}}}),
+        json.dumps({'watches': [bad_time]}),
+    ):
         (tmp_path / STATE_FILE).write_text(content)
-        assert make(engine, registry, frames, clock, pushes, tmp_path / STATE_FILE).watches == {}
+        assert make(engine, registry, frames, clock, pushes, tmp_path / STATE_FILE).watches == []
 
 
 # Odd rows and the loop ----------------------------------------------------------------------
