@@ -2,7 +2,7 @@
 
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, the task
-routes, conversations, the live event stream, artifacts and their versions, memory, projects and
+routes, conversations and task threads, the live event stream, artifacts and their versions, memory, projects and
 their boards, the avatar's state, push notifications, the channel gateway and approvals, and the brain tools' routes.
 
 ## Run
@@ -112,12 +112,32 @@ anyone else gets a 404 `conversation_not_found`.
   the message still goes to the main conversation, and `message.project_id` tells Marcel which
   project it is about.
 - `POST /api/messages/{id}/thread`: opens the side thread on a message (201), or returns the one it
-  already has (200). A thread on a milestone or approval gets that message's `task_id`.
+  already has (200). A thread on a milestone or approval gets that message's `task_id`, and
+  belongs to that task (see "Task threads" below).
 - `POST /api/conversations/{id}/send-to-main`: from a side thread, `{"message_id"}` quotes one of
   its messages into the main conversation (`kind: quote`); `{"text"}` posts your own text there.
 
 Other code posts messages (Marcel's answers, milestones) with `conversations.post_message(...)`,
 which also sends the `message.created` event.
+
+### Task threads
+
+A side thread opened on a task's milestone or approval card (`Conversation.task_id` set) is the
+task's own thread (`task_threads.py`, S-04.9).
+
+- **Your message steers the task, never the brain.** `POST /api/conversations/{id}/messages` there
+  works like `POST /api/tasks/{id}/messages`: the task gets a `note` event and a `steer` frame for
+  its session, and your message is stored in the thread (201). The brain's session gets nothing and
+  the avatar does not start "thinking". The same `client_id` steers once and stores once.
+- **A finished task says so.** A `stopped` or `failed` task answers 409 `task_finished` ("This task
+  has stopped, so it cannot take messages. Ask Marcel to retry it instead.") and nothing is stored.
+  A `done` task takes the message as a follow-up and goes back to `working`. A thread whose task is
+  not on the hub answers 404 `task_not_found`.
+- **The task's later milestones and approval cards show in the thread too.** They are still posted
+  in the main conversation; a copy goes into each thread of the task, with `client_id`
+  `mirror_<original message id>`. One original makes one copy per thread: copying again returns the
+  stored copy, a copy is never copied again, and a phone that reconnects with `?since=` gets each
+  copy once. A copy that cannot be made is logged; the original is never lost.
 
 ## Live events: `GET /api/ws`
 
@@ -445,8 +465,8 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
   that conversation's session. Only your own messages go: Marcel's replies are never sent back to
   it. A message sent from a project room carries its `project_id` on the `user_message`, so the
   brain knows which project it is about. A conversation with no session yet (`brain_session_id` unset) gets nothing queued: the
-  session that starts for it reads the conversation. A thread that belongs to a task is left to
-  the task threads (S-04.9).
+  session that starts for it reads the conversation. A thread that belongs to a task never goes to
+  a session: it steers its task (see "Task threads").
 
 ### Approvals
 
