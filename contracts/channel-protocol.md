@@ -50,7 +50,7 @@ channel server                                   hub
 
 | Frame | What the channel server does in the session |
 |---|---|
-| `user_message` | `notifications/claude/channel` with `content` = text, `meta` = `{kind: "user_message", message_id, conversation_id, quoted_message_id?, project_id?}` |
+| `user_message` | `notifications/claude/channel` with `content` = text, `meta` = `{kind: "user_message", message_id, conversation_id, quoted_message_id?, project_id?, artifact_id?}` |
 | `steer` | the same, `meta` = `{kind: "steer", task_id, note_id, author, handback?}` (`handback` as `"true"` when set) |
 | `system_event` | the same, `meta` = `{kind: "system_event", event: <kind>, task_id?}`; `data` goes in the content as a fenced JSON block |
 | `permission_decision` | `notifications/claude/channel/permission` `{request_id, behavior}` |

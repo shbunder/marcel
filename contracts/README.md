@@ -11,6 +11,7 @@
 | [transcript.schema.json](transcript.schema.json) | runner → hub (one normalised event per transcript line) | S-02.2 |
 | [channel-protocol.md](channel-protocol.md) + [channel.schema.json](channel.schema.json) | session's channel server ↔ hub (WebSocket, outside `/api`) | S-02.2 |
 | [session-api.yaml](session-api.yaml) | sessions → hub over the tunnel (`/api/session/adopt`, `/api/session/report`) | S-02.2 |
+| [brain-api.yaml](brain-api.yaml) | the brain's tools server (`plugins/marcel/tools`) → hub (`/brain/*`, NUC only) | S-05.3 |
 
 Only the lead changes these files (the guard hook enforces it). Implementers who find a contract
 wrong or missing something write `project/contract-requests/<story>.md` instead.
