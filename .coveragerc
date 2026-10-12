@@ -2,7 +2,7 @@
 [run]
 branch = true
 source = scripts, .claude/hooks
-omit = scripts/tests/*, scripts/plan_to_board.py
+omit = scripts/tests/*
 
 [report]
 fail_under = 90

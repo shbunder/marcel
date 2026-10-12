@@ -34,7 +34,7 @@ done`); the hub never has to invent a state in between.
 | queued | starting | A worker slot frees, or usage resets | hub queue, oldest first |
 | queued | stopped | Stopped before it ran | app or brain (`tasks_stop`) |
 | starting | working | The runner reports `working`, or the session's channel says hello | runner, channel |
-| starting | needs_you | The session asks for something before its first step (a permission, the dev-channel prompt, a login) | channel, runner |
+| starting | needs_you | The session asks for something before its first step (a permission, a login) | channel, runner |
 | starting | failed | The session could not be started | runner |
 | working, silent | needs_you | A permission request, or the runner reports `blocked` | channel, runner |
 | needs_you | working | The approval is answered (app or terminal), or a steer message arrives | app, terminal, channel |

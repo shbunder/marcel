@@ -127,6 +127,22 @@ BAD = [
             'data': {'text': 'no author'},
         },
     ),
+    *[
+        (
+            'TaskEvent',
+            {'task_id': 't', 'seq': 1, 'type': kind, 'at': '2026-10-04T18:00:00Z', 'data': {}},
+        )
+        for kind in (
+            'text',
+            'tool_call',
+            'tool_result',
+            'diff',
+            'subagent_start',
+            'subagent_stop',
+            'error',
+            'raw',
+        )
+    ],
     ('Me', {**example('Me'), 'push': {'apns': False, 'ntfy': True}}),
     ('Agent', {k: v for k, v in example('Agent').items() if k != 'main_conversation_id'}),
 ]

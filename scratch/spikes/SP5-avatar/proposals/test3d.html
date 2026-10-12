@@ -1,0 +1,10 @@
+<!doctype html><meta charset="utf-8"><title>3D test</title>
+<style>body{margin:0;background:#faf5f8;font:12px Helvetica} .grid{display:grid;grid-template-columns:repeat(4,260px);gap:6px;padding:8px} canvas{width:260px;height:260px;background:#f3eaef;display:block} span{color:#999}</style>
+<div class="grid" id="g"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="avatars3d.js"></script>
+<script>
+const kinds=["voxel","toon","clay","plush"], states=["idle","thinking","working","happy"], items=[];
+for (const k of kinds) for (const s of states) { const d=document.createElement("div"); d.innerHTML=`<span>${k} · ${s}</span>`; const c=document.createElement("canvas"); d.append(c); g.append(d); items.push([create3d(k,c),s]); }
+const t0=performance.now(); (function loop(n){ const t=(n-t0)/1000; items.forEach(([a,s])=>a.render(s, s==="happy"?0.25:t)); requestAnimationFrame(loop); })(t0);
+</script>

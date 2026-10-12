@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marcel.invalid/contracts/channel.schema.json",
+  "title": "Marcel channel frames",
+  "description": "Every WebSocket frame between the marcel plugin's channel server (one per Claude Code session) and the hub's `/channel` endpoint. Read channel-protocol.md for the flow. `ToHub` frames go session → hub, `ToSession` frames go hub → session.",
+  "oneOf": [{ "$ref": "#/$defs/ToHub" }, { "$ref": "#/$defs/ToSession" }],
+  "$defs": {
+    "ToHub": {
+      "oneOf": [
+        { "$ref": "#/$defs/Hello" },
+        { "$ref": "#/$defs/Reply" },
+        { "$ref": "#/$defs/Report" },
+        { "$ref": "#/$defs/PermissionRequest" },
+        { "$ref": "#/$defs/Ack" },
+        { "$ref": "#/$defs/Ping" }
+      ]
+    },
+    "ToSession": {
+      "oneOf": [
+        { "$ref": "#/$defs/Welcome" },
+        { "$ref": "#/$defs/Rejected" },
+        { "$ref": "#/$defs/UserMessage" },
+        { "$ref": "#/$defs/Steer" },
+        { "$ref": "#/$defs/SystemEvent" },
+        { "$ref": "#/$defs/PermissionDecision" },
+        { "$ref": "#/$defs/CallAck" },
+        { "$ref": "#/$defs/Pong" }
+      ]
+    },
+
+    "Hello": {
+      "description": "First frame after the WebSocket opens. `session_id` is `CLAUDE_CODE_SESSION_ID` from the server's environment (the only identity that reaches it, SP1/SP7). `secret` is the hub secret from `$CLAUDE_PLUGIN_DATA/hub-secret`.",
+      "type": "object",
+      "required": ["type", "session_id", "secret", "plugin_version"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "hello" },
+        "session_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+        "secret": { "type": "string", "minLength": 32 },
+        "plugin_version": { "type": "string" },
+        "resume_after": { "type": "integer", "minimum": 0, "description": "The last hub `seq` this server delivered, after a reconnect; the hub re-sends anything newer." }
+      },
+      "examples": [{ "type": "hello", "session_id": "3986e1fc-278e-4b56-ba17-ad79a8130252", "secret": "hs_9f2c41d07be84a6c9d3e1f5a2b7c8d90e1f2a3b4", "plugin_version": "0.1.0" }]
+    },
+    "Welcome": {
+      "description": "The hub knows this session: here is its role. For a worker, `task_id`; for brain and side, `conversation_id`.",
+      "type": "object",
+      "required": ["type", "role", "agent_id"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "welcome" },
+        "role": { "enum": ["brain", "side", "worker", "adopted"] },
+        "agent_id": { "type": "string" },
+        "conversation_id": { "type": "string" },
+        "task_id": { "type": "string" }
+      },
+      "allOf": [
+        { "if": { "properties": { "role": { "enum": ["brain", "side"] } } }, "then": { "required": ["conversation_id"] } },
+        { "if": { "properties": { "role": { "enum": ["worker", "adopted"] } } }, "then": { "required": ["task_id"] } }
+      ],
+      "examples": [{ "type": "welcome", "role": "worker", "agent_id": "agt_marcel", "task_id": "tsk_01J9ZQ6" }]
+    },
+    "Rejected": {
+      "description": "The hub refuses the hello. `unknown_session` (not started by the runner and not adopted): the server logs it and retries every 5 s for 2 minutes, because the runner may not have reported the spawn yet. `bad_secret` and `plugin_too_old`: the server logs it and does not retry, since only a redeploy fixes either; its tools then answer that Marcel is unreachable.",
+      "type": "object",
+      "required": ["type", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "rejected" },
+        "reason": { "enum": ["unknown_session", "bad_secret", "plugin_too_old"] },
+        "message": { "type": "string" }
+      },
+      "examples": [{ "type": "rejected", "reason": "unknown_session", "message": "No task or conversation is waiting for session 3986e1fc." }]
+    },
+    "UserMessage": {
+      "description": "A message for the brain or a side thread. The server turns it into `notifications/claude/channel` with `content` = `text` and `meta` = {kind: user_message, message_id, conversation_id}.",
+      "type": "object",
+      "required": ["type", "seq", "message_id", "conversation_id", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "user_message" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "message_id": { "type": "string" },
+        "conversation_id": { "type": "string" },
+        "text": { "type": "string" },
+        "quoted_message_id": { "type": "string" }
+      },
+      "examples": [{ "type": "user_message", "seq": 41, "message_id": "msg_01J9ZQZ1", "conversation_id": "cnv_main_marcel", "text": "Can you fix the flaky login test in shbunder/marcel?" }]
+    },
+    "Steer": {
+      "description": "Text for a worker, typed by the owner in a thread (`author: user`) or sent by the brain (`author: marcel`). Becomes `notifications/claude/channel` with meta {kind: steer, task_id, note_id, author}.",
+      "type": "object",
+      "required": ["type", "seq", "task_id", "note_id", "author", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "steer" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "task_id": { "type": "string" },
+        "note_id": { "type": "string" },
+        "author": { "enum": ["user", "marcel"] },
+        "text": { "type": "string" },
+        "handback": { "type": "boolean" }
+      },
+      "examples": [{ "type": "steer", "seq": 42, "task_id": "tsk_01J9ZQ6", "note_id": "note_01J9ZS1", "author": "user", "text": "Also include named volumes that are not in use." }]
+    },
+    "SystemEvent": {
+      "description": "Something only the brain is woken for (plan/02-architecture.md § Token economy): a task failed or went silent, a digest is due, a hand-back, a rollover. `data` carries the facts; the brain decides what to say.",
+      "type": "object",
+      "required": ["type", "seq", "kind", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "system_event" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "kind": { "enum": ["task_failed", "task_silent", "task_question", "handback", "digest_due", "schedule_fired", "rollover"] },
+        "text": { "type": "string", "description": "One line for the brain, in plain words." },
+        "task_id": { "type": "string" },
+        "data": { "type": "object" }
+      },
+      "examples": [{ "type": "system_event", "seq": 43, "kind": "digest_due", "text": "The evening digest is due. The facts bundle is attached.", "data": { "digest": "evening" } }]
+    },
+    "PermissionDecision": {
+      "description": "The owner answered an approval card. The server sends Claude Code `notifications/claude/channel/permission {request_id, behavior}`.",
+      "type": "object",
+      "required": ["type", "seq", "request_id", "behavior"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "permission_decision" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "request_id": { "type": "string", "pattern": "^[a-km-z]{5}$" },
+        "behavior": { "enum": ["allow", "deny"] }
+      },
+      "examples": [{ "type": "permission_decision", "seq": 44, "request_id": "qiwxo", "behavior": "allow" }]
+    },
+    "CallAck": {
+      "description": "The hub stored the `reply` or `report` with this `call_id`. The channel server's tool call returns when this arrives. The hub answers a repeated `call_id` with the same ack, so a server that reconnects re-sends every call it has no ack for. Not sequenced and never acked back.",
+      "type": "object",
+      "required": ["type", "call_id"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "call_ack" },
+        "call_id": { "type": "string" },
+        "duplicate": { "type": "boolean", "description": "True when the hub had already stored this `call_id`." }
+      },
+      "examples": [{ "type": "call_ack", "call_id": "c_01J9ZQZ3" }]
+    },
+    "Reply": {
+      "description": "The brain or a side thread called the `reply` tool. The hub stores it as an agent message in the session's conversation.",
+      "type": "object",
+      "required": ["type", "call_id", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "reply" },
+        "call_id": { "type": "string", "description": "Unique per tool call; the hub acks it, and ignores a repeat after a reconnect." },
+        "text": { "type": "string", "description": "Markdown." },
+        "in_reply_to": { "type": "string", "description": "The `message_id` being answered, when there is one." }
+      },
+      "examples": [{ "type": "reply", "call_id": "c_01J9ZQZ3", "text": "On it — started *Fix the flaky login test* in the cloud.", "in_reply_to": "msg_01J9ZQZ1" }]
+    },
+    "Report": {
+      "description": "A worker called the `report` tool. Same payload as session-api.yaml `Report`, plus `call_id`; NUC workers may also attach `file` artifacts by absolute path, which the hub copies into its store.",
+      "type": "object",
+      "required": ["type", "call_id", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "report" },
+        "call_id": { "type": "string" },
+        "kind": { "enum": ["started", "progress", "artifact", "done", "failed"] },
+        "text": { "type": "string" },
+        "summary": { "type": "string" },
+        "artifact": { "$ref": "#/$defs/Artifact" },
+        "artifacts": { "type": "array", "items": { "$ref": "#/$defs/Artifact" } }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "progress" } } }, "then": { "required": ["text"] } },
+        { "if": { "properties": { "kind": { "const": "artifact" } } }, "then": { "required": ["artifact"] } },
+        { "if": { "properties": { "kind": { "enum": ["done", "failed"] } } }, "then": { "required": ["summary"] } }
+      ],
+      "examples": [{ "type": "report", "call_id": "c_01J9ZT0", "kind": "done", "summary": "Five largest volumes listed; plex_media_cache is 38.2 GB.", "artifacts": [{ "kind": "dashboard", "title": "Docker volumes on the NUC", "path": "/home/shbunder/marcel/workspaces/scratch/volumes.dashboard.json" }] }]
+    },
+    "Artifact": {
+      "type": "object",
+      "required": ["kind", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["pr", "branch", "doc", "file", "dashboard", "link"] },
+        "title": { "type": "string" },
+        "url": { "type": "string", "format": "uri" },
+        "path": { "type": "string", "description": "Absolute path on the NUC, for doc, file and dashboard." }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "enum": ["pr", "branch", "link"] } } }, "then": { "required": ["url"] } },
+        { "if": { "properties": { "kind": { "enum": ["doc", "file", "dashboard"] } } }, "then": { "required": ["path"] } }
+      ]
+    },
+    "PermissionRequest": {
+      "description": "Claude Code relayed a permission prompt (`notifications/claude/channel/permission_request`, SP1). The hub opens an approval card. Answering in a terminal also works: the runner reports the session left the prompt, and the hub resolves the card as `approved` or `denied` with `answered_via: terminal`, from the transcript (a `tool_result` with `denied: true` means denied). The card is `expired` only when the prompt vanished because the session stopped or failed.",
+      "type": "object",
+      "required": ["type", "request_id", "tool_name", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "permission_request" },
+        "request_id": { "type": "string", "pattern": "^[a-km-z]{5}$" },
+        "tool_name": { "type": "string" },
+        "description": { "type": "string" },
+        "input_preview": { "type": "string" }
+      },
+      "examples": [{ "type": "permission_request", "request_id": "qiwxo", "tool_name": "Bash", "description": "Write and print UTC date", "input_preview": "{ \"command\": \"date -u > bg-relay.txt && cat bg-relay.txt\" }" }]
+    },
+    "Ack": {
+      "description": "The server delivered hub frame `seq` to Claude Code. The hub keeps unacked frames and re-sends them after a reconnect.",
+      "type": "object",
+      "required": ["type", "seq"],
+      "additionalProperties": false,
+      "properties": { "type": { "const": "ack" }, "seq": { "type": "integer", "minimum": 1 } },
+      "examples": [{ "type": "ack", "seq": 41 }]
+    },
+    "Ping": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": { "type": { "const": "ping" } },
+      "examples": [{ "type": "ping" }]
+    },
+    "Pong": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": { "type": { "const": "pong" } },
+      "examples": [{ "type": "pong" }]
+    }
+  }
+}
