@@ -1,0 +1,444 @@
+"""The task registry: creates tasks, moves them through the state machine, records their events.
+
+Every state change goes through `TaskRegistry.transition`, which refuses anything not in
+`contracts/task-states.md`, writes a `state` task event and publishes `task.updated`.
+
+The queue is the set of `queued` tasks with `queued_reason: cap`, oldest first. It lives in the
+database, so it survives a restart. A task's opening prompt is its first `note` event
+(`author: marcel`), which is how a queued task can still be started later. The queue is drained
+whenever a task leaves a slot (it finishes, fails or is stopped), and on `drain()`.
+"""
+
+import asyncio
+import logging
+from datetime import UTC, datetime
+from typing import Any
+
+from sqlalchemy import func
+from sqlalchemy.engine import Engine
+from sqlmodel import Session, col, select
+
+from marcel_hub.models import (
+    Approval,
+    ApprovalState,
+    Artifact,
+    QueuedReason,
+    Task,
+    TaskEvent,
+    TaskEventType,
+    TaskLocation,
+    TaskOrigin,
+    TaskState,
+    new_id,
+    utcnow,
+)
+from marcel_hub.tasks.ports import (
+    CapReached,
+    NullPublisher,
+    Outbox,
+    Publisher,
+    Runner,
+    RunnerUnavailable,
+    StartFailed,
+)
+from marcel_hub.tasks.states import FINISHED, check
+
+log = logging.getLogger(__name__)
+
+# Transcript event types the app does not show (transcript.schema.json): not stored.
+DROPPED_TRANSCRIPT = frozenset({'thinking', 'turn_end'})
+
+# Kept on a stored `note` for the hub's own use, never sent to the app: `NoteEventData` allows
+# only `author`, `text` and `handback`. `prompt` marks a task's opening prompt; `client_id` is
+# the app's retry key for a steer.
+HUB_ONLY_NOTE_KEYS = frozenset({'prompt', 'client_id'})
+
+
+class TaskNotFound(Exception):
+    def __init__(self, task_id: str) -> None:
+        super().__init__(f'There is no task {task_id}.')
+
+
+class TaskFinished(Exception):
+    """A stopped or failed task takes no more messages (409 `task_finished`)."""
+
+
+class NotArchivable(Exception):
+    """Only done, failed or stopped tasks can be archived (409 `task_not_finished`)."""
+
+
+def iso(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).isoformat().replace('+00:00', 'Z')
+
+
+def _parse_at(value: str | None) -> datetime:
+    if not value:
+        return utcnow()
+    return datetime.fromisoformat(value.replace('Z', '+00:00'))
+
+
+class TaskRegistry:
+    def __init__(
+        self,
+        engine: Engine,
+        runner: Runner,
+        outbox: Outbox,
+        publisher: Publisher | None = None,
+    ) -> None:
+        self.engine = engine
+        self.runner = runner
+        self.outbox = outbox
+        self.publisher = publisher or NullPublisher()
+        self._lock = asyncio.Lock()
+
+    # Reading ---------------------------------------------------------------------------------
+
+    def get(self, task_id: str) -> Task:
+        with Session(self.engine) as s:
+            task = s.get(Task, task_id)
+            if task is None:
+                raise TaskNotFound(task_id)
+            return task
+
+    def list_tasks(
+        self,
+        agent_id: str,
+        states: list[TaskState] | None = None,
+        archived: bool = False,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> tuple[list[Task], int | None]:
+        """One page, most recently changed first, and the offset of the next page (or None)."""
+        query = select(Task).where(Task.agent_id == agent_id)
+        if states:
+            query = query.where(col(Task.state).in_(states))
+        archived_at = col(Task.archived_at)
+        query = query.where(archived_at.is_not(None) if archived else archived_at.is_(None))
+        query = query.order_by(col(Task.updated_at).desc(), col(Task.id).desc())
+        with Session(self.engine) as s:
+            rows = list(s.exec(query.offset(offset).limit(limit + 1)))
+        more = len(rows) > limit
+        return rows[:limit], (offset + limit if more else None)
+
+    def queue(self) -> list[Task]:
+        """Tasks waiting for a worker slot, oldest first."""
+        with Session(self.engine) as s:
+            return list(
+                s.exec(
+                    select(Task)
+                    .where(Task.state == TaskState.queued)
+                    .where(Task.queued_reason == QueuedReason.cap)
+                    .order_by(col(Task.created_at), col(Task.id))
+                )
+            )
+
+    def events(self, task_id: str, after: int = 0, limit: int = 50) -> tuple[list[TaskEvent], bool]:
+        self.get(task_id)
+        with Session(self.engine) as s:
+            rows = list(
+                s.exec(
+                    select(TaskEvent)
+                    .where(TaskEvent.task_id == task_id)
+                    .where(TaskEvent.seq > after)
+                    .order_by(col(TaskEvent.seq))
+                    .limit(limit + 1)
+                )
+            )
+        return rows[:limit], len(rows) > limit
+
+    def to_api(self, task: Task) -> dict[str, Any]:
+        """The contract's `Task`: unset fields left out, plus open approvals and artifact count."""
+        body: dict[str, Any] = {}
+        for name, value in task.model_dump().items():
+            if value is None or name == 'worktree':
+                continue
+            body[name] = iso(value) if isinstance(value, datetime) else value
+        with Session(self.engine) as s:
+            body['approval_ids'] = list(
+                s.exec(
+                    select(Approval.id)
+                    .where(Approval.task_id == task.id)
+                    .where(Approval.state == ApprovalState.open)
+                )
+            )
+            body['artifact_count'] = s.exec(
+                select(func.count()).select_from(Artifact).where(Artifact.task_id == task.id)
+            ).one()
+        return body
+
+    @staticmethod
+    def event_to_api(event: TaskEvent) -> dict[str, Any]:
+        data = {k: v for k, v in event.data_json.items() if k not in HUB_ONLY_NOTE_KEYS}
+        return {
+            'task_id': event.task_id,
+            'seq': event.seq,
+            'type': event.type.value,
+            'at': iso(event.at),
+            'data': data,
+        }
+
+    # Creating --------------------------------------------------------------------------------
+
+    async def spawn(
+        self,
+        agent_id: str,
+        title: str,
+        prompt: str,
+        location: TaskLocation = TaskLocation.nuc,
+        model: str = 'sonnet',
+        origin: TaskOrigin = TaskOrigin.marcel,
+        **fields: Any,
+    ) -> Task:
+        """Start a task, or queue it when the worker cap is full (or others are already waiting)."""
+        task = Task(
+            agent_id=agent_id,
+            title=title,
+            location=location,
+            model=model,
+            origin=origin,
+            state=TaskState.starting,
+            **fields,
+        )
+        async with self._lock:
+            # The worker cap is the NUC's; cloud tasks never wait behind it.
+            if location == TaskLocation.nuc and self.queue():
+                self.create(task, prompt, TaskState.queued, 'Others are waiting first')
+            else:
+                return await self._start_new(task, prompt)
+        await self.drain()  # a slot may have freed while the runner was out of reach
+        return self.get(task.id)
+
+    async def _start_new(self, task: Task, prompt: str) -> Task:
+        try:
+            started = await self.runner.start(task, prompt)
+        except CapReached:
+            return self.create(task, prompt, TaskState.queued, 'The worker cap is reached')
+        except (StartFailed, RunnerUnavailable) as exc:
+            self.create(task, prompt, TaskState.starting, 'Spawn accepted')
+            return self._transition(task.id, TaskState.failed, f'Could not start: {exc}')
+        task.session_id = started.session_id
+        task.branch = started.branch or task.branch
+        return self.create(task, prompt, TaskState.starting, 'Spawn accepted')
+
+    def create(self, task: Task, prompt: str, state: TaskState, reason: str) -> Task:
+        """Store a new task in `starting` or `queued`, with its opening prompt as a note."""
+        check(task.id, None, state, reason)
+        task.state = state
+        task.queued_reason = QueuedReason.cap if state == TaskState.queued else None
+        with Session(self.engine) as s:
+            s.add(task)
+            s.commit()
+            s.refresh(task)
+        self._publish_task(task.id, 'task.created')
+        self._append(task.id, TaskEventType.state, {'to': state.value, 'reason': reason})
+        self._append(
+            task.id, TaskEventType.note, {'author': 'marcel', 'text': prompt, 'prompt': True}
+        )
+        return self.get(task.id)
+
+    # Moving ----------------------------------------------------------------------------------
+
+    async def transition(self, task_id: str, to: TaskState, reason: str, **fields: Any) -> Task:
+        """Move a task. Raises `IllegalTransition` for anything not in task-states.md."""
+        before = self.get(task_id).state
+        task = self._transition(task_id, to, reason, **fields)
+        if to in FINISHED and before != TaskState.queued:
+            await self.drain()
+        return task
+
+    async def report_state(self, task_id: str, to: TaskState, reason: str, **fields: Any) -> Task:
+        """A runner or channel state report. Repeats of the current state change nothing."""
+        if self.get(task_id).state == to:
+            return self.get(task_id)
+        return await self.transition(task_id, to, reason, **fields)
+
+    def _transition(self, task_id: str, to: TaskState, reason: str, **fields: Any) -> Task:
+        with Session(self.engine) as s:
+            task = s.get(Task, task_id)
+            if task is None:
+                raise TaskNotFound(task_id)
+            before = task.state
+            check(task_id, before, to, reason)
+            task.state = to
+            if to != TaskState.queued:
+                task.queued_reason = None
+            if to != TaskState.needs_you:
+                task.waiting_for = None
+            for name, value in fields.items():
+                setattr(task, name, value)
+            task.updated_at = utcnow()
+            s.add(task)
+            s.commit()
+        log.info('Task %s: %s → %s (%s)', task_id, before.value, to.value, reason)
+        self._append(
+            task_id, TaskEventType.state, {'from': before.value, 'to': to.value, 'reason': reason}
+        )
+        self._publish_task(task_id)
+        return self.get(task_id)
+
+    async def drain(self) -> None:
+        """Start queued tasks, oldest first, until the runner says the cap is full again."""
+        async with self._lock:
+            for task in self.queue():
+                try:
+                    started = await self.runner.start(task, self._prompt(task.id))
+                except (CapReached, RunnerUnavailable):
+                    return
+                except StartFailed as exc:
+                    self._transition(task.id, TaskState.starting, 'A worker slot freed')
+                    self._transition(task.id, TaskState.failed, f'Could not start: {exc}')
+                    continue
+                self._transition(
+                    task.id,
+                    TaskState.starting,
+                    'A worker slot freed',
+                    session_id=started.session_id,
+                    branch=started.branch or task.branch,
+                )
+
+    def _prompt(self, task_id: str) -> str:
+        with Session(self.engine) as s:
+            event = s.exec(
+                select(TaskEvent)
+                .where(TaskEvent.task_id == task_id)
+                .where(TaskEvent.type == TaskEventType.note)
+                .where(func.json_extract(TaskEvent.data_json, '$.prompt') == 1)
+                .order_by(col(TaskEvent.seq))
+            ).first()
+        return event.data_json['text'] if event else ''
+
+    def _note_with_client_id(self, task_id: str, client_id: str) -> TaskEvent | None:
+        with Session(self.engine) as s:
+            return s.exec(
+                select(TaskEvent)
+                .where(TaskEvent.task_id == task_id)
+                .where(TaskEvent.type == TaskEventType.note)
+                .where(func.json_extract(TaskEvent.data_json, '$.client_id') == client_id)
+            ).first()
+
+    # Events ----------------------------------------------------------------------------------
+
+    def append_transcript(self, task_id: str, event: dict[str, Any]) -> TaskEvent | None:
+        """Store one normalised transcript event (transcript.schema.json) as a task event."""
+        if event['type'] in DROPPED_TRANSCRIPT:
+            return None
+        self.get(task_id)
+        at = _parse_at(event.get('at'))
+        row = self._append(task_id, TaskEventType(event['type']), event['data'], at)
+        with Session(self.engine) as s:
+            task = s.get(Task, task_id)
+            assert task is not None
+            task.last_activity_at = at
+            s.add(task)
+            s.commit()
+        return row
+
+    def append_event(self, task_id: str, type: TaskEventType, data: dict[str, Any]) -> TaskEvent:
+        """A hub-written event (`progress`, `artifact`, `note`, `permission`)."""
+        self.get(task_id)
+        return self._append(task_id, type, data)
+
+    def _append(
+        self,
+        task_id: str,
+        type: TaskEventType,
+        data: dict[str, Any],
+        at: datetime | None = None,
+    ) -> TaskEvent:
+        with Session(self.engine) as s:
+            last = s.exec(select(func.max(TaskEvent.seq)).where(TaskEvent.task_id == task_id)).one()
+            row = TaskEvent(
+                task_id=task_id, seq=(last or 0) + 1, type=type, data_json=data, at=at or utcnow()
+            )
+            s.add(row)
+            s.commit()
+            s.refresh(row)
+        self.publisher.publish('task.event', self.event_to_api(row))
+        return row
+
+    def _publish_task(self, task_id: str, kind: str = 'task.updated') -> None:
+        self.publisher.publish(kind, self.to_api(self.get(task_id)))
+
+    # What the app can do ---------------------------------------------------------------------
+
+    async def steer(
+        self, task_id: str, text: str, author: str = 'user', client_id: str | None = None
+    ) -> Task:
+        """Record a note and hand it to the outbox. A repeated `client_id` changes nothing."""
+        task = self.get(task_id)
+        if client_id and self._note_with_client_id(task_id, client_id):
+            return task
+        if task.state in (TaskState.stopped, TaskState.failed):
+            raise TaskFinished(
+                f'This task has {task.state.value}, so it cannot take messages. '
+                'Ask Marcel to retry it instead.'
+            )
+        note: dict[str, Any] = {'author': author, 'text': text}
+        if client_id:
+            note['client_id'] = client_id
+        self._append(task_id, TaskEventType.note, note)
+        await self.outbox.to_task(
+            task_id,
+            {
+                'type': 'steer',
+                'task_id': task_id,
+                'note_id': new_id('note'),
+                'author': author,
+                'text': text,
+            },
+        )
+        if task.state == TaskState.done:
+            return await self.transition(task_id, TaskState.working, 'A follow-up was sent')
+        if task.state == TaskState.needs_you:
+            return await self.transition(task_id, TaskState.working, 'A steer message arrived')
+        return self.get(task_id)
+
+    async def stop(self, task_id: str, by: str = 'you') -> Task:
+        task = self.get(task_id)
+        if task.state in FINISHED:
+            return task
+        if task.state == TaskState.queued:
+            return await self.transition(
+                task_id, TaskState.stopped, f'Stopped by {by} before it ran'
+            )
+        if task.session_id:
+            await self.runner.stop(task.session_id)
+        return await self.transition(task_id, TaskState.stopped, f'Stopped by {by}')
+
+    def archive(self, task_id: str) -> Task:
+        with Session(self.engine) as s:
+            task = s.get(Task, task_id)
+            if task is None:
+                raise TaskNotFound(task_id)
+            if task.state not in FINISHED:
+                raise NotArchivable(
+                    f'This task is still {task.state.value}. '
+                    'Only done, failed or stopped tasks can be archived.'
+                )
+            if task.archived_at is None:
+                task.archived_at = utcnow()
+                task.updated_at = task.archived_at
+                s.add(task)
+                s.commit()
+        self._publish_task(task_id)
+        return self.get(task_id)
+
+    async def handback(self, task_id: str, note: str | None = None) -> Task:
+        task = self.get(task_id)
+        text = note or 'Handed back to Marcel.'
+        self._append(
+            task_id, TaskEventType.note, {'author': 'user', 'text': text, 'handback': True}
+        )
+        await self.outbox.to_brain(
+            task.agent_id,
+            {
+                'type': 'system_event',
+                'kind': 'handback',
+                'text': f'The owner handed the task "{task.title}" back to you.',
+                'task_id': task_id,
+                'data': {'title': task.title, 'state': task.state.value, 'note': note or ''},
+            },
+        )
+        return self.get(task_id)
