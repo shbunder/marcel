@@ -69,6 +69,29 @@ final class QuestDetailTests: XCTestCase {
         XCTAssertEqual(QuestStep.steps([], state: .done), [])
     }
 
+    /// S-12.11: the latest report's `next` steps follow as "· next" while the quest runs; each report replaces the
+    /// list, and a report without `next` shows none.
+    func testTheLatestReportsNextStepsFollowAsNext() {
+        var history = Fx.energyHistory
+        history[3] = Fx.event(4, "progress", ["text": "Fetched offers from 4 suppliers",
+                                               "next": ["Old plan that was replaced"]])
+        history[7] = Fx.event(8, "progress", ["text": "Modelling with and without solar",
+                                               "next": ["Compare the yearly totals", "Write up the advice"]])
+        let events = history.map(QuestEvent.init)
+        let working = QuestStep.steps(events, state: .needsYou)
+        XCTAssertEqual(working.map(\.text), ["Read the last 12 months of bills", "Fetched offers from 4 suppliers",
+                                             "Modelling with and without solar", "Compare the yearly totals",
+                                             "Write up the advice"])
+        XCTAssertEqual(working.map(\.mark), [.done, .done, .current, .next, .next])
+        XCTAssertEqual(Set(working.map(\.id)).count, working.count, "every line has its own id")
+        XCTAssertEqual(QuestStep.steps(events, state: .done).map(\.mark), [.done, .done, .done], "done: no plan left")
+        XCTAssertEqual(QuestStep.steps(events, state: .stopped).map(\.mark), [.done, .done, .stopped])
+
+        // A newer report without `next` replaces the plan with none.
+        let later = events + [QuestEvent(Fx.event(14, "progress", ["text": "Comparing totals"]))]
+        XCTAssertEqual(QuestStep.steps(later, state: .working).map(\.mark), [.done, .done, .done, .current])
+    }
+
     func testRowsFoldAToolsAnswerIntoItsCallAndKeepStepsOut() {
         let rows = QuestDetail.rows(Fx.energyHistory.map(QuestEvent.init), openIds: ["apr_engie"])
         XCTAssertEqual(rows.map(\.id), ["e1", "e2", "e5", "e6", "e9", "e10", "e12", "e13"],
