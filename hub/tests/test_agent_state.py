@@ -248,9 +248,11 @@ def test_a_side_thread_thinks_too_and_a_task_thread_does_not(a: Avatar) -> None:
     task, _ = a.hub.task(TaskState.done)
     thread, _ = a.hub.side(task_id=task)
     a.say(conversation_id=thread)
-    assert a.sent() == []
+    # The thread's message steers its task (S-04.9): the done task goes back to working.
+    assert a.sent() == [working(1)]
+    a.move(task, TaskState.done)
     a.say(conversation_id=side)
-    assert a.sent() == [THINKING]
+    assert a.sent() == [working(1), DONE, THINKING]
 
 
 def test_a_turn_that_never_ends_stops_thinking_after_the_timeout(a: Avatar) -> None:

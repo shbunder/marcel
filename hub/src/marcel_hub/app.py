@@ -31,6 +31,7 @@ from marcel_hub import (
     memory,
     notify,
     projects,
+    task_threads,
     tasks,
     ws,
 )
@@ -232,6 +233,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     artifacts.install(app)  # S-04.7, after tasks: an artifact is recorded on its task
     repo = memory.install(app)
     channel.install(app, gateway, registry, watch)  # after artifacts: reports store through it
+    # S-04.9: a task's own thread steers the task and shows its later milestones.
+    task_threads.install(app)
     # S-04.10: workers start with their project's notes; task changes update their project.
     projects.install(app, ws.OwnerPublisher(app.state.events), registry, repo)
     # S-04.11: every project's board follows its tasks, approvals and items.
