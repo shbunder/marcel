@@ -422,6 +422,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "fastapi" },
+    { name = "jsonschema" },
     { name = "segno" },
     { name = "sqlmodel" },
     { name = "uvicorn" },
@@ -442,6 +443,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.13" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "jsonschema", specifier = ">=4.23" },
     { name = "segno", specifier = ">=1.6" },
     { name = "sqlmodel", specifier = ">=0.0.22" },
     { name = "uvicorn", specifier = ">=0.30" },

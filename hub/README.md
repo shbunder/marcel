@@ -2,7 +2,7 @@
 
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, and the task
-routes.
+routes, artifacts and memory.
 
 ## Run
 
@@ -106,3 +106,47 @@ test learns how.
 
 Not wired yet: the runner client and the channel gateway. Until they exist, starting or stopping a
 session answers that the runner is out of reach, and steer and hand-back messages wait in memory.
+
+## Artifacts
+
+`/api/artifacts` lists items newest first (filters `task_id`, `kind`), reads one, and serves its
+content. The code is `src/marcel_hub/artifacts.py`.
+
+- **Handing one in.** A worker's `report` artifact (`channel.schema.json` `Artifact`) goes to
+  `ArtifactStore.publish_reported`. `pr`, `branch` and `link` need an `http(s)` URL; a `pr` URL must
+  end in `/pull/<n>`. `doc` (Markdown or HTML), `file` and `dashboard` need an absolute path, and the
+  hub copies the bytes to `<data_dir>/artifacts/<id>`, only from inside the workers' folder
+  (`files_root`) and never through a symlink out of it. Over 25 MB is refused. Until the channel
+  gateway sets `files_root`, file artifacts are refused with that reason.
+- **Dashboards** are checked against `contracts/dashboard.schema.json`, and every chart series must
+  have one value per label. A bad one is refused with a message that says where and what to fix.
+- **Trust.** HTML a worker hands in is stored with `trusted: false`. Only HTML the hub renders
+  itself (`publish_hub_html`) is trusted. The hub never renders content: it serves the bytes with
+  their own content type, `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`
+  (`sandbox allow-scripts` for trusted HTML).
+- **Recorded** on the task as an `artifact` event, and announced to the app as `artifact.created`.
+- **PR status.** `refresh_pr` asks a `PrStatusSource` for the PR's state, checks and review;
+  `pr_status_from_gh` maps `gh api` answers to them. Where `gh api` runs is not decided yet, so the
+  hub has no source and a refresh answers that it cannot ask GitHub. A PR starts as `open`.
+- Not yet: projects (`project_id` answers 400) and versions (every item is at version 1). They come
+  with S-04.10 and S-04.11.
+
+Needs `jsonschema` at run time and `contracts/dashboard.schema.json` next to `hub/`.
+
+## Memory
+
+Markdown files in a git working copy at `<data_dir>/memory` (B-20). The hub creates the repo on
+first use. The code is `src/marcel_hub/memory.py`.
+
+- `GET /api/memory` lists every `.md` file; `GET /api/memory/files/{path}` reads one, with its
+  `ETag` (the git blob id of the file on disk, so an edit made anywhere changes it).
+- `PUT` with `If-Match: <etag>` saves only if the file has not changed, else 409 with the current
+  version. Without `If-Match` it creates the file, and answers 409 if it exists. An `If-Match` for a
+  file that is gone answers 404. Over 1 MB is refused.
+- **Every save is one git commit**, `memory: <path> (app)` from the app, `(agent)` from the brain.
+  An unchanged save makes no commit. Only the saved file is committed. If git fails, the file is put
+  back and the answer is 503 `memory_unavailable`.
+- **Paths** must match the contract's pattern (no `..`, no leading `/`, no part starting with `.`,
+  ending in `.md`), and no part may be a symlink, so nothing outside the memory folder or in
+  `.git/` can be read or written. Anything else answers 400 `invalid_memory_path`.
+- Needs `git` on the path. Git runs without the host's global config or hooks.
