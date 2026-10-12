@@ -18,8 +18,10 @@ def install(
     memory: MemoryRepo | None = None,
 ) -> ProjectStore:
     """Put the store on `app.state.projects` and mount its routes. With a task registry, workers
-    start with their project's briefing, and task changes send `project.updated`."""
+    start with their project's briefing, and task changes send `project.updated`. Call after
+    `artifacts.install`: a moved task's items are announced through the artifact store."""
     store = ProjectStore(app.state.engine, memory=memory, publisher=publisher, tasks=tasks)
+    store.artifacts = getattr(app.state, 'artifacts', None)  # a moved task's items are announced
     if tasks is not None:
         tasks.briefing = store.briefing
         tasks.publisher = ProjectEcho(tasks.publisher, store)

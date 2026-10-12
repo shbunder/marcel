@@ -265,7 +265,14 @@ def test_moving_a_task_files_it_and_tells_the_app(api: Api, client: TestClient, 
         'task.updated',
         'project.updated',
         'project.updated',
+        'artifact.updated',  # its item moved with it (S-04.11)
     ]
+    moved = sent[4]['data']
+    assert moved['artifact']['project_id'] == energy['id']
+    assert moved['version'] == {**moved['version'], 'artifact_id': moved['artifact']['id'],
+                                'version': 1}  # fmt: skip
+    # Both projects' boards are marked for a rebuild.
+    assert {inbox['id'], energy['id']} <= set(client.app.state.boards.due())  # type: ignore[attr-defined]  # app is typed as ASGI
     assert sent[0]['data'] == {
         'task_id': task_id,
         'from_project_id': inbox['id'],
