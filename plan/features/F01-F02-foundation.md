@@ -6,13 +6,14 @@ Goal: a clean `main` with the v3 layout, a working gate for every lane, and the 
 depends: —   touches: everything (one-off)
 do:
 1. Tag the current `main` as `v2-final` and push branch `legacy/v2` from it.
-2. On `main`, remove the v2 tree except `docs/design/` (logo, palette, mascot), `.claude/hooks/`
-   (kept for reference) and `plan/`. Remove the v2 `.claude/rules` and `.claude/skills`; S-01.3
-   recreates them.
+2. On `main`, remove the v2 tree except `docs/design/` (logo, palette, mascot), `.claude/` and `CLAUDE.md`
+   (already rewritten for v3 on 2026-10-12), `plan/` and `scratch/spikes/`. Drop the v2-only entries
+   (`src/marcel_core/…`) from the guard hook.
 3. Add a README with v3's one-paragraph pitch, the logo, and a link to `plan/`.
 done when:
 - [ ] `git show v2-final:src/marcel_core/main.py` works.
-- [ ] `main` contains only `docs/design/`, `plan/`, `README.md`, `.gitignore`, `LICENSE`.
+- [ ] `main` contains only `docs/design/`, `plan/`, `scratch/spikes/`, `.claude/`, `CLAUDE.md`, `README.md`,
+  `.gitignore`, `LICENSE`.
 not in scope: deleting anything on the NUC (that is F14b).
 
 ### S-01.2  Monorepo skeleton and gates                      runs-on: cloud · size: M
@@ -28,24 +29,21 @@ done when:
 - [ ] `make check` passes on an empty skeleton, including one trivial test per lane.
 - [ ] Coverage below 90 % fails the gate (proved by a deliberately untested function on a throwaway branch).
 
-### S-01.3  CLAUDE.md, rules, board                          runs-on: cloud · size: M
-depends: S-01.1   touches: CLAUDE.md .claude/ project/ plan/
+### S-01.3  Wire the board and guard into the gate, project/ READMEs   runs-on: cloud · size: S
+depends: S-01.2   touches: Makefile project/ .claude/board/ .claude/hooks/
+Already done on 2026-10-12 (branch `plan/app-and-backend`): the v3 `CLAUDE.md`; rules `board`, `contracts`,
+`no-model-calls`, `inert-controls`, `self-modification`, `docs-in-impl`, `debugging`, `git-staging`; skills
+`/story`, `/finish-story`, `/merge-story`, `/board`, `/adr`; the four reviewer agents; the build board artifact
+with its helper scripts and tests in `.claude/board/`; the guard hook covering `contracts/` and env files.
 do:
-1. Write a short root `CLAUDE.md`:
-   - the core principles (Lightweight, Generic, Human-readable, Recoverable, plus "Claude Code does the thinking");
-   - the commands;
-   - the lanes table from `plan/04-agent-playbook.md`.
-2. Port these rules, rewritten for v3: `git-staging`, `debugging`, `docs-in-impl`, `inert-controls` (from
-   Harry), `self-modification` (flag-file restart), `no-model-calls` (no SDK or API key), `contracts`.
-3. Create `project/`. Convert every `plan/features/*` story into `project/stories/S-*.md` and every feature
-   into `project/features/F-*.md` (a script, `scripts/plan_to_board.py`). Add `lanes.md` and a lessons README.
-4. Port Harry's `scripts/board.py` (list, lanes, start, collision check on `touches:`), or keep a
-   simpler version.
-5. Restore the guard hook so that `CLAUDE.md`, `contracts/**` and `deploy/.env*` need an unlock.
+1. Add the board and guard tests to `make check` (`python3 -m unittest discover .claude/board` and `.claude/hooks`).
+2. Add `make board-sync-check`: fails when `plan/` has stories the last board export does not (a reminder to run
+   `/board sync`, not a network call).
+3. Create `project/decisions/README.md` and `project/lessons/README.md` (what goes there, one example each).
+4. Run `/story` and `/finish-story` end to end on this story itself; fix what the skills get wrong.
 done when:
-- [ ] `make board` lists all stories with their wave and status.
-- [ ] `make lanes` refuses to start a story whose `touches:` overlaps one in flight (a test proves it).
-- [ ] The guard hook blocks an edit to `contracts/app-api.yaml` without the unlock flag (a test proves it).
+- [ ] `make check` runs the board and guard tests (a broken `board.py overlap` makes it fail).
+- [ ] This story's own card went todo → doing → review → done through the skills, visible in the board log.
 
 # F02 — Contracts, fakes and mocks  (lead · wave 0)
 

@@ -238,9 +238,9 @@ ios/          Xcode project `Marcel` (app + MarcelKit + PixelKit + AvatarKit pac
 shared/avatar/pixel/   build.py + out/ sprite sheet and loops (consumed by iOS; reproducibility test in py)
 contracts/    app-api.yaml, runner-api.yaml, events.schema.json, transcript.schema.json, channel-protocol.md
 deploy/       docker-compose.yml, systemd units, cloudflared ingress, redeploy.sh, watchdog
-project/      board: features/, stories/, decisions/, lessons/ (Harry-style)
+project/      decisions/ (ADRs) and lessons/; status lives on the build board artifact (.claude/rules/board.md)
 docs/         operator + developer docs
-plan/         this plan (moves into project/ in F01)
+plan/         this plan; its stories feed the build board
 ```
 
 ## Tech choices (fixed; change only by an ADR)

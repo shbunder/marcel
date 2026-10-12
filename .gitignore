@@ -66,3 +66,6 @@ infra/.terraform/
 infra/*.auto.tfvars
 infra/.terraform.lock.hcl
 *.pem
+
+# Build board scratch (exports and sync files; status lives on the board, not in git)
+.board/

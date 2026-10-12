@@ -3,9 +3,9 @@
 
 Restricted paths:
 - CLAUDE.md (any directory) — project instructions
-- src/marcel_core/auth/** — auth module
-- src/marcel_core/config.py — core config
-- .env* — environment files
+- contracts/** — the contracts every lane builds against (lead only, see .claude/rules/contracts.md)
+- .env*, deploy/.env* — environment files
+- src/marcel_core/auth/**, src/marcel_core/config.py — v2 paths, gone after S-01.1
 
 Unlock: create .claude/.unlock-safety, make the edit, commit, delete the flag.
 
@@ -25,6 +25,7 @@ GUARDED_TOOLS = {'Edit', 'Write', 'NotebookEdit', 'MultiEdit'}
 
 RESTRICTED: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r'(^|/)CLAUDE\.md$'), 'project instructions (CLAUDE.md)'),
+    (re.compile(r'(^|/)contracts/'), 'contracts (lead only)'),
     (re.compile(r'(^|/)src/marcel_core/auth/'), 'auth module'),
     (re.compile(r'(^|/)src/marcel_core/config\.py$'), 'core config'),
     (re.compile(r'(^|/)\.env(\.|$)'), 'environment file'),
@@ -63,7 +64,7 @@ def main() -> int:
                 f'     touch {UNLOCK_FLAG}\n'
                 f'   then retry the edit, commit, and:\n'
                 f'     rm {UNLOCK_FLAG}\n'
-                f'   See docs/claude-code-setup.md for the full workflow.\n'
+                f'   See .claude/rules/contracts.md and CLAUDE.md.\n'
             )
             return 2
 

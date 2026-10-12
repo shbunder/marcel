@@ -7,7 +7,7 @@ When something is broken — a failing test, a 500 from a route, a skill returni
 1. **Reproduce.** Get the bug to happen reliably, on demand. If you cannot reproduce it, you cannot fix it; you can only guess. Capture the exact command, input, and expected-vs-actual output.
 2. **Localize.** Narrow the failure to one function, one call site, or one commit. Use `git bisect`, `pytest -k`, log statements, or a debugger — whichever is fastest for *this* bug. The goal is a single place to stare at, not a neighbourhood.
 3. **Reduce.** Shrink the repro to the smallest input that still fails. A three-line test beats a full integration run every time; a minimal repro often reveals the cause on its own.
-4. **Fix.** Change the code. Per the Marcel coding standards (`$MARCEL_ADMIN_DIR/WIKI/docs/coding-standards.md`, Tests), the minimal repro from step 3 becomes a failing test *before* you touch production code.
+4. **Fix.** Change the code. The minimal repro from step 3 becomes a failing test *before* you touch production code.
 5. **Guard.** Leave the regression test in place. If the bug revealed a class of problems wider than the single failure — e.g. unchecked `None`, missing timeout, silent swallow — add an assertion, type narrowing, or log so the next instance fails loud instead of quiet.
 
 ## Never
@@ -20,12 +20,12 @@ When something is broken — a failing test, a 500 from a route, a skill returni
 ## Always
 
 - **Always reproduce first.** Even if the bug "looks obvious". Obvious bugs that aren't reproduced are obvious bugs in the *wrong* place 20% of the time.
-- **Always write the regression test in the same commit as the fix.** Not in a follow-up. Per [docs-in-impl](./docs-in-impl.md) and [closing-commit-purity](./closing-commit-purity.md), the fix and its evidence ship together.
-- **Always note any wider guard you added in the Implementation Log.** "Fixed X, added assertion in Y because the same class of bug could recur there" is exactly the context the next reader needs.
+- **Always write the regression test in the same commit as the fix.** Not in a follow-up. Per [docs-in-impl](./docs-in-impl.md), the fix and its evidence ship together.
+- **Always note any wider guard you added in the PR description (and in `project/lessons/` if the next agent could hit it too).** "Fixed X, added assertion in Y because the same class of bug could recur there" is exactly the context the next reader needs.
 
 ## Why
 
-Marcel runs on a home server for a family. A bug that gets "fixed" by guessing is a bug that comes back — usually at dinner time on a Sunday, when the zoo keeper is not at a laptop. The five-step loop is slower than guessing for easy bugs and dramatically faster for hard ones; applying it uniformly means nobody has to decide which kind this is at the start, when that decision is unreliable.
+Marcel runs on a home server for a family. A bug that gets "fixed" by guessing is a bug that comes back — usually at dinner time on a Sunday, when the owner is not at a laptop. The five-step loop is slower than guessing for easy bugs and dramatically faster for hard ones; applying it uniformly means nobody has to decide which kind this is at the start, when that decision is unreliable.
 
 ## Common rationalizations
 

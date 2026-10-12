@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Claude Code status line for Marcel.
 # Reads session JSON on stdin (per Claude Code statusLine protocol),
-# emits a single compact line: branch • active-feature • uncommitted • safety-flag.
+# emits a single compact line: branch • active-story • uncommitted • safety-flag.
 
 set -uo pipefail
 
@@ -18,19 +18,10 @@ BRANCH="${BRANCH:-detached}"
 
 UNCOMMITTED="$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
 
-# Active work id parsed from the branch name:
-#   feat/FEAT-YYMMDD-hash-slug → FEAT-YYMMDD-hash   (marcel-admin board flow)
-#   issue/<hash>-slug          → ISSUE-<hash>        (retired flow; lingering branches only)
+# Active story parsed from the branch name: story/S-04.9 → S-04.9
 ACTIVE=""
 case "$BRANCH" in
-  feat/FEAT-*)
-    ACTIVE=" • $(printf '%s' "${BRANCH#feat/}" | cut -d- -f1-3)"
-    ;;
-  issue/*)
-    HASH="${BRANCH#issue/}"
-    HASH="${HASH%%-*}"
-    ACTIVE=" • ISSUE-${HASH}"
-    ;;
+  story/*) ACTIVE=" • ${BRANCH#story/}" ;;
 esac
 
 # Safety unlock flag — visible warning when present

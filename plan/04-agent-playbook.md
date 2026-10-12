@@ -46,8 +46,8 @@ Wave 3
   F15 Harry connector     F16 end-to-end acceptance (lead)
 ```
 
-A story may start once every story in its `depends:` list is merged to `main`. The lead keeps
-`project/lanes.md` up to date; it lists what is in flight and what each story touches.
+A story may start once every story in its `depends:` list is merged to `main`. The build board shows what is
+in flight and what each story touches; `/story` refuses a story whose `touches:` overlap one in flight.
 **At most 6 implementers run at once.** Past that, merge conflicts on shared files cost more than
 the parallelism saves.
 
@@ -77,7 +77,8 @@ Size guide:
 
 ## The implementer loop
 
-1. `git fetch && git worktree add ../marcel-S-NN.M -b story/S-NN.M origin/main`
+1. `/story` — claims the next ready story for this machine on the board and creates
+   `git worktree add ../marcel-S-NN.M -b story/S-NN.M origin/main`.
 2. Read the story, its `read first` files, and the relevant `project/lessons/`.
 3. **Write the failing tests first** from the "done when" list, then implement.
 4. Run the lane gate:
@@ -85,16 +86,17 @@ Size guide:
    - plugin-ts: `npm run check`;
    - iOS: `make ios-check` (`xcodebuild test`).
 5. Update the docs the story names, in the same commit.
-6. Commit and push: `[S-NN.M] impl: <what>`. Stage files by name only; never use `git add .` or `-A`.
-7. Hand over to a verifier and fix what it finds. The lead then merges with `--no-ff` in wave order.
+6. `/finish-story` — runs the gate and a fresh verifier, commits `[S-NN.M] impl: <what>` (files staged by name
+   only; never `git add .` or `-A`), opens the PR and moves the card to review. Fix what the verifier finds.
+7. The lead runs `/merge-story` in wave order: a merge commit, card → done.
 8. If you learned something the next agent needs, add `project/lessons/<topic>.md`.
 
 ### Hard rules (all lanes)
 
 - **No model calls in Marcel's own code.** Tokens are only ever spent by a `claude` process the runner
   starts. No `anthropic` SDK, no Agent SDK, no API key.
-- **Contracts are law.** If a contract is wrong, stop. Open `project/contract-requests/S-NN.M.md` and
-  carry on with another story.
+- **Contracts are law.** If a contract is wrong, stop: set the story `blocked` on the board, add a `log` row
+  with `kind: "contract-request"`, and carry on with another story.
 - **Tests never reach Claude or the network.** Use the fake `claude` shim, recorded fixtures and
   `respx`. Tests that need the real thing are marked `live`; they are never part of the gate.
 - **Every control has a test that fails without it.** This covers the concurrency cap, the usage guard, the approval
@@ -112,17 +114,18 @@ Size guide:
 - [ ] The lane gate is green, and coverage did not drop.
 - [ ] The degraded path is tested: runner down, hub down, session dead, push failed.
 - [ ] Docs are updated, and no TODO points at a board id.
-- [ ] Commits are staged by name; none mixes board files and code.
+- [ ] Commits are staged by name; no status is written into tracked files.
 
-## Board (Harry-style, in-repo)
+## Board  (decided 2026-10-12)
 
-F01 creates `project/` with:
+Work is tracked in two places, by how often it changes:
 
-- `features/`, `stories/` (one file each, generated from these plan files);
-- `decisions/` (ADRs);
-- `lessons/`;
-- `lanes.md`;
-- `contract-requests/`.
+- **Git holds definitions.** Stories and features in `plan/features/`, spikes in `plan/03-spikes.md`, decisions in
+  `project/decisions/` (`/adr`), lessons in `project/lessons/`. These change in reviewed PRs.
+- **The build board holds status.** https://claude.ai/artifact/1V2swuomSbb9r1cB23Y2eh — a claude.ai artifact
+  with a shared database: one row per story (status, owner, branch, PR, blocked reason) and a log. Sessions
+  read and write it with the `ArtifactData` tool; the owner watches it live on the phone. No status commits, no
+  shared status file to conflict on. `/board sync` copies plan changes onto it.
 
-A story's status comes from git: it is **Done** when its branch is merged with `--no-ff`. There
-is no separate status flip.
+A story is **done** when its PR is merged to `main`; `/merge-story` flips the card. The rules are in
+`.claude/rules/board.md`, the helper scripts and the page source in `.claude/board/`.

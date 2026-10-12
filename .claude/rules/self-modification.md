@@ -1,33 +1,28 @@
-# Rule — self-modification restart path
+# Rule — self-modification goes through a PR and the redeploy flag
 
-Marcel can rewrite its own code. The restart that deploys that code is the safety-critical boundary. Only **one** mechanism is allowed.
+Marcel v3 can change its own code (F11). The path is fixed:
 
-## The one legal restart
+1. The change is an ordinary task that ends with a **PR** against `shbunder/marcel`.
+2. A human (the owner) approves and merges it.
+3. The hub's `request_redeploy` writes `~/marcel/state/redeploy.flag` (the merged SHA).
+4. The host's `marcel-redeploy.path` unit runs the redeploy script, which pulls, rebuilds only what changed,
+   checks `/health`, and **rolls back** to the previous SHA if the check fails.
 
-```python
-from marcel_core.watchdog.flags import request_restart
-import subprocess
-sha = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip()
-request_restart(sha)
-```
-
-This writes the `restart_requested.{env}` flag file (where `{env}` is `dev` or `prod`, resolved from `MARCEL_ENV`). A host-side systemd path unit watches the matching flag — `marcel-redeploy.path` for prod, `marcel-dev-redeploy.path` for dev — and triggers `redeploy.sh --env {env}`, which clears the flag, rebuilds the Docker image, and recreates the container. In prod, a second layer — the in-container watchdog (PID 1) — then polls `/health` and **rolls back via `git revert HEAD` on failure**. Dev has no in-container watchdog by design (uvicorn is PID 1 for `--reload`), so dev self-mod has no automatic rollback. See [docs/self-modification.md](../../docs/self-modification.md) for the full mechanism.
-
-Dev and prod share one code path and one mechanism — only the flag suffix and compose file differ. There is no dev-mode exception.
+That is the only legal restart path. See `plan/features/F07-F11-platform.md` § F11.
 
 ## Never
 
-- `sudo systemctl restart marcel`
-- `docker restart marcel`
-- `os.execv(...)` from inside the container — there are no exceptions
-- `subprocess.run(['/path/to/redeploy.sh', ...])` — bypasses the flag and the rollback
-- Any new code path that invokes a restart without going through `request_restart()`
+- `docker restart …`, `docker compose restart …`, `systemctl restart …` from Marcel's code or a worker session.
+- `os.execv(...)`, killing the runner, or calling the redeploy script directly.
+- Any code path that treats the flag's SHA as something to execute (`git checkout $SHA` from user input).
+- A self-change merged without a PR, or a PR merged by Marcel itself.
 
 ## Why
 
-The flag-file mechanism gives automatic rollback on health-check failure. Direct restarts skip the rollback and can leave Marcel unreachable — which, for a family assistant running on a home server, means "the kids can't ask about dinner tonight" until the zoo keeper SSHes in.
+The flag file is the only path with an automatic rollback. A direct restart that fails leaves Marcel down on a home
+server until the owner gets to a laptop — "the kids can't ask about dinner tonight".
 
 ## Enforcement
 
-- [.claude/agents/pre-close-verifier.md](../agents/pre-close-verifier.md) flags any diff that adds a bypass path.
-- [.claude/agents/security-auditor.md](../agents/security-auditor.md) treats bypass as **Critical** — the flag file's contents are a pre-change git SHA written by `request_restart()` (currently used only for logging by the watchdog, but it sits on the restart boundary). Any future code path that treats that SHA as an execution parameter (e.g. `git checkout $SHA`) makes user-controllable input reaching `request_restart()` a remote-code-execution vector on the host. Gate every call site tightly.
+`security-auditor` treats any bypass as **Critical**. The F11 stories carry a test that deletes the rollback and
+expects a red build (see [inert-controls](./inert-controls.md)).
