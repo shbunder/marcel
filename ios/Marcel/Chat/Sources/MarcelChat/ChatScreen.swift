@@ -11,10 +11,13 @@ public struct ChatScreen: View {
     let model: ChatModel
     /// What the live stream says when it is down ("Lost the connection…"); nil while live.
     var offline: String?
+    /// A tap on the avatar header opens Settings.
+    var openSettings: (() -> Void)?
 
-    public init(model: ChatModel, offline: String? = nil) {
+    public init(model: ChatModel, offline: String? = nil, openSettings: (() -> Void)? = nil) {
         self.model = model
         self.offline = offline
+        self.openSettings = openSettings
     }
 
     @State private var path: [ChatRoute] = []
@@ -48,10 +51,10 @@ public struct ChatScreen: View {
             if let conversationId = model.conversationId {
                 // A new `limit` re-creates the query with the bigger window; the scroll state stays.
                 LiveFeed(model: model, conversationId: conversationId, limit: model.limit, offline: offline,
-                         actions: actions)
+                         actions: actions, openSettings: openSettings)
             } else {
                 ChatLayout(header: ChatHeaderState(offline: offline), collapsed: false, problem: model.problem,
-                           composer: { EmptyView() }) {
+                           onAvatar: openSettings, composer: { EmptyView() }) {
                     PixelText(model.problem == nil ? "Opening the conversation…" : "Nothing saved on this phone yet.",
                               role: .detail)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -73,6 +76,7 @@ struct LiveFeed: View {
     let conversationId: String
     let offline: String?
     let actions: ChatActions
+    var openSettings: (() -> Void)?
     @Query private var window: [CachedMessage]
     @Query private var tasks: [CachedTask]
     @Query private var artifacts: [CachedArtifact]
@@ -84,9 +88,11 @@ struct LiveFeed: View {
     @FocusState private var typing: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(model: ChatModel, conversationId: String, limit: Int, offline: String?, actions: ChatActions) {
+    init(model: ChatModel, conversationId: String, limit: Int, offline: String?, actions: ChatActions,
+         openSettings: (() -> Void)? = nil) {
         self.model = model
         self.actions = actions
+        self.openSettings = openSettings
         self.conversationId = conversationId
         self.offline = offline
         self.limit = limit
@@ -101,7 +107,7 @@ struct LiveFeed: View {
         // Big giraffe while you sit at the latest messages; small once you scroll back or start typing.
         let collapsed = distanceFromBottom > 24 || typing
         @Bindable var model = model
-        ChatLayout(header: header, collapsed: collapsed, problem: model.problem, composer: {
+        ChatLayout(header: header, collapsed: collapsed, problem: model.problem, onAvatar: openSettings, composer: {
             Composer(text: $model.draft,
                      placeholder: Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(items)),
                      focused: $typing) {
@@ -130,6 +136,19 @@ struct LiveFeed: View {
                         - geometry.contentOffset.y - geometry.containerSize.height
                 } action: { _, distance in
                     distanceFromBottom = max(0, distance)
+                }
+                // A message link: scroll to it once it is in the window, loading older pages until it is.
+                .onChange(of: FocusKey(focus: model.focus, ids: items.map(\.id)), initial: true) { _, key in
+                    guard let focus = key.focus else { return }
+                    if key.ids.contains(focus) {
+                        model.focus = nil
+                        withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(focus, anchor: .center) }
+                    } else if input.hasEarlier, model.limit < ChatModel.focusDepth {
+                        model.loadEarlier(shown: window.count)
+                    } else {
+                        // Not on this phone (or far back): stay at the latest messages.
+                        model.focus = nil
+                    }
                 }
                 .onChange(of: items.last?.id) { _, last in
                     // New messages follow you only when you are already at the bottom.
@@ -185,6 +204,12 @@ extension LiveFeed {
     }
 }
 
+/// What the feed watches to bring a linked message into view.
+struct FocusKey: Equatable {
+    var focus: String?
+    var ids: [String]
+}
+
 /// Header on top, the feed in the middle, a problem line under it. The composer and the tab bar go under this.
 /// The feed's spacing and margins (the wireframes' 8 and 10 px on a 290-pt phone, scaled to 390 pt).
 enum FeedMetrics {
@@ -196,16 +221,19 @@ struct ChatLayout<Feed: View, ComposerView: View>: View {
     var header: ChatHeaderState
     var collapsed: Bool
     var problem: String?
+    /// A tap on the header (Settings).
+    var onAvatar: (() -> Void)?
     var composer: ComposerView
     var feed: Feed
 
     @Environment(\.colorScheme) private var scheme
 
-    init(header: ChatHeaderState, collapsed: Bool, problem: String?, @ViewBuilder composer: () -> ComposerView,
-         @ViewBuilder feed: () -> Feed) {
+    init(header: ChatHeaderState, collapsed: Bool, problem: String?, onAvatar: (() -> Void)? = nil,
+         @ViewBuilder composer: () -> ComposerView, @ViewBuilder feed: () -> Feed) {
         self.header = header
         self.collapsed = collapsed
         self.problem = problem
+        self.onAvatar = onAvatar
         self.composer = composer()
         self.feed = feed()
     }
@@ -213,7 +241,16 @@ struct ChatLayout<Feed: View, ComposerView: View>: View {
     var body: some View {
         let theme = PixelTheme(scheme)
         VStack(spacing: 0) {
-            ChatHeader(state: header, collapsed: collapsed)
+            if let onAvatar {
+                ChatHeader(state: header, collapsed: collapsed)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onAvatar)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Opens Settings")
+                    .accessibilityAction(named: "Settings", onAvatar)
+            } else {
+                ChatHeader(state: header, collapsed: collapsed)
+            }
             feed
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             if let problem {

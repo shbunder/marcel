@@ -1,0 +1,258 @@
+import Foundation
+import MarcelKit
+import OpenAPIRuntime
+import OpenAPIURLSession
+
+public typealias Me = Components.Schemas.Me
+public typealias Device = Components.Schemas.Device
+public typealias Schedule = Components.Schemas.Schedule
+public typealias Health = Components.Schemas.Health
+public typealias Agent = Components.Schemas.Agent
+
+/// What Settings, the status screen and the link router ask of the hub. The live one talks to
+/// `contracts/app-api.yaml`; the tests use a fake hub.
+@MainActor
+public protocol SettingsService {
+    /// `GET /me`: who this phone is, the agents, and which push backends the hub has.
+    func me() async throws -> Me
+    /// `PATCH /agents/{id}` with a new name.
+    func rename(agentId: String, to name: String) async throws -> Agent
+    /// `GET /devices`.
+    func devices() async throws -> [Device]
+    /// `DELETE /devices/{id}`.
+    func revoke(deviceId: String) async throws
+    /// `PUT /devices/{id}/push`.
+    func setPush(deviceId: String, target: Components.Schemas.PushTarget) async throws -> Device
+    /// `GET /schedules?agent_id=…`.
+    func schedules(agentId: String) async throws -> [Schedule]
+    /// `PATCH /schedules/{id}` with `paused`.
+    func setPaused(scheduleId: String, _ paused: Bool) async throws -> Schedule
+    /// `DELETE /schedules/{id}`.
+    func delete(scheduleId: String) async throws
+    /// `GET /usage`.
+    func usage() async throws -> Usage
+    /// `GET /health`.
+    func health() async throws -> Health
+    /// `GET /approvals`.
+    func approvals() async throws -> [Approval]
+    /// `GET /projects?agent_id=…`.
+    func projects(agentId: String) async throws -> [Project]
+    /// `POST /approvals/{id}`.
+    func answer(approvalId: String, approve: Bool) async throws
+}
+
+/// Why something in Settings did not work, in words a family member reads on a phone.
+public enum SettingsError: Error, Equatable, LocalizedError {
+    /// The hub answered 404, 405 or 501 for a route the contract has but this hub has not built yet
+    /// (schedules: S-09.1, usage: S-10.1, renaming the agent).
+    case notAvailableYet
+    /// 409 on deleting a built-in digest: it can be paused, not deleted.
+    case builtIn
+    /// 409 on an approval: answered first (a terminal, another phone) or expired.
+    case alreadyAnswered
+    /// 400: the hub says what to change.
+    case refused(String)
+    case notFound
+    case unauthorized
+    /// A 5xx (other than 501): the hub is up but something on it failed.
+    case hubProblem
+    /// No hub address or no device token on this phone.
+    case notPaired
+    case offline
+    case unexpected(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .notAvailableYet: "Not available yet: the hub doesn't do this yet."
+        case .builtIn: "Built-in digests can be paused, not deleted."
+        case .alreadyAnswered: "That question was already answered, or it expired."
+        case .refused(let message): message
+        case .notFound: "The hub no longer has that. Pull down to refresh."
+        case .unauthorized: "The hub no longer accepts this phone. Pair it again."
+        case .hubProblem: "The hub had a problem. Try again in a minute."
+        case .notPaired: "This phone isn't paired with a hub."
+        case .offline: "Couldn't reach the hub. Check the connection and try again."
+        case .unexpected(let what): "The hub sent something the app doesn't understand (\(what))."
+        }
+    }
+
+    static func words(for error: any Error) -> String {
+        (error as? SettingsError)?.errorDescription
+            ?? "Something went wrong talking to the hub. Try again in a moment."
+    }
+
+    /// A status the contract does not list for this route. 404, 405 and 501 mean the hub has not built it yet;
+    /// any other 5xx means the hub hit a problem of its own.
+    static func undocumented(_ status: Int, _ what: String) -> SettingsError {
+        if [404, 405, 501].contains(status) { return .notAvailableYet }
+        if (500...599).contains(status) { return .hubProblem }
+        return .unexpected("\(what), HTTP \(status)")
+    }
+}
+
+/// The hub's REST API, signed with this phone's device token.
+public struct LiveSettingsService: SettingsService {
+    let client: Client
+
+    public init(client: Client) {
+        self.client = client
+    }
+
+    /// The hub this phone is paired with, as pairing left it (address in `hubStore`, token in `tokenStore`); nil
+    /// when either is missing. Read at the moment it is needed, so it also works when iOS starts the app in the
+    /// background for a notification action, before any screen exists.
+    public static func paired(hubStore: any PairedHubStore, tokenStore: any TokenStore,
+                              transport: any ClientTransport = URLSessionTransport()) -> (LiveSettingsService, PairedHub)? {
+        guard let hub = hubStore.load(), (try? tokenStore.token()) != nil else { return nil }
+        return (LiveSettingsService(client: HubClient.make(serverURL: hub.serverURL, tokenStore: tokenStore,
+                                                           transport: transport)), hub)
+    }
+
+    public func me() async throws -> Me {
+        switch try await call({ try await client.getMe() }) {
+        case .ok(let ok): return try ok.body.json
+        case .unauthorized: throw SettingsError.unauthorized
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "who you are")
+        }
+    }
+
+    public func rename(agentId: String, to name: String) async throws -> Agent {
+        let answer = try await call {
+            try await client.updateAgent(path: .init(agentId: agentId), body: .json(.init(name: name)))
+        }
+        switch answer {
+        case .ok(let ok): return try ok.body.json
+        case .badRequest(let bad):
+            throw SettingsError.refused((try? bad.body.json.message) ?? "The hub didn't accept that name.")
+        case .unauthorized: throw SettingsError.unauthorized
+        case .notFound: throw SettingsError.notFound
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "rename")
+        }
+    }
+
+    public func devices() async throws -> [Device] {
+        switch try await call({ try await client.listDevices() }) {
+        case .ok(let ok): return try ok.body.json
+        case .unauthorized: throw SettingsError.unauthorized
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "devices")
+        }
+    }
+
+    public func revoke(deviceId: String) async throws {
+        switch try await call({ try await client.revokeDevice(path: .init(deviceId: deviceId)) }) {
+        case .noContent: return
+        case .unauthorized: throw SettingsError.unauthorized
+        case .notFound: throw SettingsError.notFound
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "revoke")
+        }
+    }
+
+    public func setPush(deviceId: String, target: Components.Schemas.PushTarget) async throws -> Device {
+        let answer = try await call {
+            try await client.setDevicePush(path: .init(deviceId: deviceId), body: .json(target))
+        }
+        switch answer {
+        case .ok(let ok): return try ok.body.json
+        case .badRequest(let bad):
+            throw SettingsError.refused((try? bad.body.json.message) ?? "The hub didn't accept that.")
+        case .unauthorized: throw SettingsError.unauthorized
+        case .notFound: throw SettingsError.notFound
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "notifications")
+        }
+    }
+
+    public func schedules(agentId: String) async throws -> [Schedule] {
+        switch try await call({ try await client.listSchedules(query: .init(agentId: agentId)) }) {
+        case .ok(let ok): return try ok.body.json
+        case .unauthorized: throw SettingsError.unauthorized
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "schedules")
+        }
+    }
+
+    public func setPaused(scheduleId: String, _ paused: Bool) async throws -> Schedule {
+        let answer = try await call {
+            try await client.updateSchedule(path: .init(scheduleId: scheduleId), body: .json(.init(paused: paused)))
+        }
+        switch answer {
+        case .ok(let ok): return try ok.body.json
+        case .badRequest(let bad):
+            throw SettingsError.refused((try? bad.body.json.message) ?? "The hub didn't accept that.")
+        case .unauthorized: throw SettingsError.unauthorized
+        case .notFound: throw SettingsError.notFound
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "schedule")
+        }
+    }
+
+    public func delete(scheduleId: String) async throws {
+        switch try await call({ try await client.deleteSchedule(path: .init(scheduleId: scheduleId)) }) {
+        case .noContent: return
+        case .unauthorized: throw SettingsError.unauthorized
+        case .notFound: throw SettingsError.notFound
+        case .conflict: throw SettingsError.builtIn
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "schedule")
+        }
+    }
+
+    public func usage() async throws -> Usage {
+        switch try await call({ try await client.getUsage() }) {
+        case .ok(let ok): return try ok.body.json
+        case .unauthorized: throw SettingsError.unauthorized
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "usage")
+        }
+    }
+
+    public func health() async throws -> Health {
+        switch try await call({ try await client.getHealth() }) {
+        case .ok(let ok): return try ok.body.json
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "health")
+        }
+    }
+
+    public func approvals() async throws -> [Approval] {
+        switch try await call({ try await client.listApprovals() }) {
+        case .ok(let ok): return try ok.body.json
+        case .unauthorized: throw SettingsError.unauthorized
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "questions")
+        }
+    }
+
+    public func projects(agentId: String) async throws -> [Project] {
+        switch try await call({ try await client.listProjects(query: .init(agentId: agentId)) }) {
+        case .ok(let ok): return try ok.body.json
+        case .unauthorized: throw SettingsError.unauthorized
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "projects")
+        }
+    }
+
+    public func answer(approvalId: String, approve: Bool) async throws {
+        let answer = try await call {
+            try await client.answerApproval(path: .init(approvalId: approvalId),
+                                            body: .json(.init(decision: approve ? .approve : .deny)))
+        }
+        switch answer {
+        case .ok: return
+        case .conflict: throw SettingsError.alreadyAnswered
+        case .badRequest: throw SettingsError.unexpected("answer, HTTP 400")
+        case .unauthorized: throw SettingsError.unauthorized
+        case .notFound: throw SettingsError.alreadyAnswered
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "answer")
+        }
+    }
+
+    /// Runs a request; a transport failure (no network, hub down) becomes `.offline`. A hub that has not built a
+    /// route answers a bare 404 / 405 (`{"detail": "Not Found"}`, not the contract's `Error`), which fails to decode:
+    /// that, or a 501, is "not available yet".
+    private func call<T>(_ request: () async throws -> T) async throws -> T {
+        do {
+            return try await request()
+        } catch let error as ClientError where [404, 405, 501].contains(error.response?.status.code ?? 0) {
+            throw SettingsError.notAvailableYet
+        } catch let error as ClientError where (500...599).contains(error.response?.status.code ?? 0) {
+            throw SettingsError.hubProblem
+        } catch let error as ClientError where error.underlyingError is URLError {
+            throw SettingsError.offline
+        } catch is URLError {
+            throw SettingsError.offline
+        }
+    }
+}

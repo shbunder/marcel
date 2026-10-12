@@ -29,6 +29,10 @@ and shows `ChatScreen(model:offline:)`; the Xcode project keeps this folder out 
 - **Scrolling**: the newest 50 messages; reaching the top loads 50 more from the cache. "Latest ▼" jumps back.
   The giraffe is 120 pt at the latest messages and 44 pt once you scroll back or type (and always 44 pt at
   accessibility text sizes). Reduce Motion turns the animations off.
+- **Settings** open from a tap on the avatar header (`ChatScreen(openSettings:)`, S-12.10).
+- **A message link** (`marcel://message/<id>`) sets `ChatModel.focus`: the feed scrolls to that message, loading older
+  pages from the cache (up to 1,000 messages back) until it is in the window, then clears it. A message the phone
+  does not have leaves the feed at the latest messages.
 - Tapping an item opens the artifact viewer (`ArtifactViewer` from MarcelItems, S-12.8). A quest card opens the
   quest view (`QuestView` from MarcelQuest, S-12.6).
 

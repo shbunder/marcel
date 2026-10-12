@@ -21,6 +21,7 @@
         { "$ref": "#/$defs/ProjectCreated" },
         { "$ref": "#/$defs/ProjectUpdated" },
         { "$ref": "#/$defs/TaskMoved" },
+        { "$ref": "#/$defs/ArtifactMoved" },
         { "$ref": "#/$defs/BrainRollover" },
         { "$ref": "#/$defs/AgentStateChanged" },
         { "$ref": "#/$defs/UsageUpdated" }
@@ -325,6 +326,27 @@
       "unevaluatedProperties": false,
       "examples": [
         { "id": 2001, "type": "task.moved", "at": "2026-10-09T07:30:00Z", "data": { "task_id": "tsk_01JA0A9", "from_project_id": "prj_inbox", "to_project_id": "prj_01JA0A1" } }
+      ]
+    },
+    "ArtifactMoved": {
+      "description": "An item was pinned to another project (`POST /artifacts/{id}/move`, B-21). Both projects follow with `project.updated`. New in app API 0.5.0.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "artifact.moved" },
+        "data": {
+          "type": "object",
+          "required": ["artifact_id", "from_project_id", "to_project_id"],
+          "additionalProperties": false,
+          "properties": {
+            "artifact_id": { "type": "string" },
+            "from_project_id": { "type": "string" },
+            "to_project_id": { "type": "string" }
+          }
+        }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        { "id": 2002, "type": "artifact.moved", "at": "2026-10-09T07:31:00Z", "data": { "artifact_id": "art_01JA0B1", "from_project_id": "prj_inbox", "to_project_id": "prj_01JA0A1" } }
       ]
     },
     "BrainRollover": {

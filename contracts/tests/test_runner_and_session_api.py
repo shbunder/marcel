@@ -1,23 +1,24 @@
-"""runner-api.yaml and session-api.yaml: valid OpenAPI, every schema exemplified and consistent."""
+"""runner-api, session-api and brain-api: valid OpenAPI, every schema exemplified and consistent."""
 
 from __future__ import annotations
 
 from typing import Any
 
 import pytest
-from conftest import load_yaml
+from conftest import CONTRACTS, load_yaml
 from examples import schemas_with_examples, validator_for
 from jsonschema.exceptions import ValidationError
 from openapi_spec_validator import validate
 from referencing import Registry
 
-DOCS = ('runner-api.yaml', 'session-api.yaml')
+DOCS = ('runner-api.yaml', 'session-api.yaml', 'brain-api.yaml')
 CASES = [(doc, p, ex) for doc in DOCS for p, ex in schemas_with_examples(load_yaml(doc))]
 
 
 @pytest.mark.parametrize('doc', DOCS)
 def test_spec_is_valid_openapi_3_1(doc: str):
-    validate(load_yaml(doc))
+    # The base URI lets brain-api.yaml's `app-api.yaml#/…` references resolve from disk.
+    validate(load_yaml(doc), base_uri=(CONTRACTS / doc).as_uri())
 
 
 @pytest.mark.parametrize('doc', DOCS)

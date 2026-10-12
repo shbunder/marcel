@@ -577,7 +577,9 @@ second card, whatever state the card is in.
 ## Brain tools: `/brain`
 
 `brain_api.py` is the hub side of Marcel's brain tools (`plugins/marcel/tools`, which lists every
-tool and its route). The brain's MCP server calls these routes over plain HTTP on the NUC.
+tool and its route). The brain's MCP server calls these routes over plain HTTP on the NUC. The
+routes, bodies and error codes are the contract `contracts/brain-api.yaml`;
+`tests/test_contract_routes.py` fails when the routes and the contract drift apart.
 
 - **Outside `/api`.** The tunnel forwards only `/api/*`; a request with `cf-connecting-ip` answers
   404 anyway.

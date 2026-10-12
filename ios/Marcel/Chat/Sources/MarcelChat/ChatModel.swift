@@ -9,6 +9,8 @@ import Observation
 public final class ChatModel {
     /// How many messages one step up the feed loads from the cache.
     public static let pageSize = 50
+    /// How far back a message link looks in the cache before giving up: 20 pages.
+    public static let focusDepth = 1000
 
     public private(set) var conversationId: String?
     /// How many of the newest messages the feed shows; grows by `pageSize` as you scroll up.
@@ -20,6 +22,9 @@ public final class ChatModel {
 
     /// What you are typing.
     public var draft = ""
+    /// A message to bring into view (a `marcel://message/<id>` link). The feed scrolls to it, loading older pages
+    /// from the cache if needed, then clears it.
+    public var focus: String?
 
     @ObservationIgnored private var refreshing = false
     @ObservationIgnored private var lastAsked: Set<String> = []

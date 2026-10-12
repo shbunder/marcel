@@ -8,6 +8,9 @@ It is a Swift package (`MarcelMap`) so its tests run in the simulator like the o
 the tab bar shows `MapView` (`ios/Marcel/App/RootView.swift`). Xcode leaves a folder with a `Package.swift` out of
 the app target's own sources by itself.
 
+A `marcel://project/<slug>` link (S-12.10) opens a room through `MapView(opening:)`: the app sets the project id, the
+map opens that room and sets it back to nil.
+
 ## How it works
 
 - **Everything on screen comes from the cache** (`MarcelKit`'s SwiftData rows), which the live event stream keeps
