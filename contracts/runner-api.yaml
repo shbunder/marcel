@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel runner API
-  version: 0.1.1
+  version: 0.1.2
   description: |
     The runner is the only process that runs `claude` (native on the NUC, a systemd user unit). The
     hub (in Docker) talks to it over HTTP on a unix socket: `/run/user/<uid>/marcel/runner.sock` on
@@ -60,6 +60,13 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Session' }
+        '503':
+          description: |
+            `claude` could not be used: `claude_timeout` (it did not answer in time), `claude_unavailable`
+            (missing or not executable), or `roster_unavailable` (`claude agents --json` failed, so no session can be seen).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
     post:
       operationId: spawnSession
       summary: Start a background session.
@@ -78,6 +85,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Spawned' }
+        '400':
+          description: |
+            `bad_request`: the body does not match `SpawnRequest`, or `cwd` is not an absolute path to an
+            existing folder.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '409':
           description: 'The worker cap is reached (`code: cap_reached`). Nothing was started.'
           content:
@@ -88,6 +102,18 @@ paths:
             The session did not start properly. `code` is one of `not_trusted`, `channel_skipped`,
             `channel_timeout`, `exited` (with the session's own `detail`), `no_supervisor`,
             `clone_failed`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '501':
+          description: '`not_supported`: a `repo` spawn, until worktrees land (S-03.5).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: |
+            `claude` could not be used: `claude_timeout` (it did not answer in time), `claude_unavailable`
+            (missing or not executable). On a timeout the session may have started; the runner then records it (so it counts toward the cap) and stops it, and `message` says whether the stop worked.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -105,6 +131,13 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: |
+            `claude` could not be used: `claude_timeout` (it did not answer in time), `claude_unavailable`
+            (missing or not executable), or `roster_unavailable`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /sessions/{session_id}/stop:
     parameters:
@@ -119,6 +152,18 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '502':
+          description: '`stop_failed`: `claude stop` exited with an error; `detail` holds what it said.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: |
+            `claude` could not be used: `claude_timeout` (it did not answer in time), `claude_unavailable`
+            (missing or not executable), or `roster_unavailable`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /sessions/{session_id}/resume:
     parameters:
@@ -474,8 +519,8 @@ components:
       additionalProperties: false
       properties:
         role: { $ref: '#/components/schemas/Role' }
-        name: { type: string, pattern: '^[A-Za-z0-9._-]{1,60}$' }
-        model: { type: string, description: 'e.g. `opus`, `sonnet`.' }
+        name: { type: string, pattern: '^[A-Za-z0-9._][A-Za-z0-9._-]{0,59}$', description: 'Never starts with `-`, so `claude` cannot read it as a flag.' }
+        model: { type: string, pattern: '^[A-Za-z0-9._\[\]][A-Za-z0-9._\[\]-]{0,79}$', description: 'e.g. `opus`, `sonnet`, `opus[1m]`. Never starts with `-`.' }
         permission_mode:
           type: string
           enum: [auto, acceptEdits, manual, plan]
@@ -507,12 +552,12 @@ components:
       required: [name, prompt]
       additionalProperties: false
       properties:
-        name: { type: string, pattern: '^[A-Za-z0-9._-]{1,60}$' }
+        name: { type: string, pattern: '^[A-Za-z0-9._][A-Za-z0-9._-]{0,59}$', description: 'Never starts with `-`, so `claude` cannot read it as a flag.' }
         prompt:
           type: string
           minLength: 1
           description: The side thread's opening prompt.
-        model: { type: string }
+        model: { type: string, pattern: '^[A-Za-z0-9._\[\]][A-Za-z0-9._\[\]-]{0,79}$' }
       example: { name: side-cnv_side_01J9ZR0, prompt: 'You are now a side thread forked from the main conversation. Wait for channel messages.' }
 
     Spawned:
