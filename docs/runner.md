@@ -11,6 +11,8 @@ Transcripts (`GET /sessions/{id}/tail`): see [runner/transcript.md](runner/trans
 
 Resume, fork and `repo` spawns (worktrees): see [runner/workspaces.md](runner/workspaces.md).
 
+Cloud sessions on claude.ai/code (`/cloud/sessions`): see [runner/cloud.md](runner/cloud.md).
+
 ## Run it
 
 ```bash
