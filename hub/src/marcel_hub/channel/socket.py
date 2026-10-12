@@ -23,6 +23,7 @@ HELLO_TIMEOUT = 15.0
 MAX_FRAME = 256 * 1024
 POLICY_VIOLATION = 1008
 TOO_BIG = 1009
+TUNNEL_HEADER = 'cf-connecting-ip'
 REPLACED = 4000  # a newer connection for the same session took over
 
 router = APIRouter()
@@ -122,6 +123,12 @@ async def _handle(gateway: Gateway, peer: Peer, frame: dict[str, Any]) -> list[d
 @router.websocket('/channel')
 async def channel(ws: WebSocket) -> None:
     gateway: Gateway = ws.app.state.channel
+    if TUNNEL_HEADER in ws.headers:
+        # Came through Cloudflare: the channel is for the NUC's own sessions only. (A backstop:
+        # the tunnel's ingress forwards only /api/*.)
+        log.warning('Refused a /channel connection that came through the tunnel.')
+        await ws.close(code=POLICY_VIOLATION)
+        return
     await ws.accept()
     hello = await _hello(ws, gateway)
     if hello is None:

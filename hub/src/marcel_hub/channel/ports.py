@@ -1,24 +1,22 @@
-"""What the channel gateway needs from stories that are not built yet, as small interfaces.
+"""What the channel gateway needs from other parts of the hub, as small interfaces.
 
-- `Push`: the approval push notification. The real one is the notifier, S-08.1; until then
-  `LogPush` writes the push to the log.
-- `Artifacts`: where a worker's reported artifacts are stored. The real store (blobs, dashboard
-  checks, versions) is S-04.7 and S-04.11; until then `RowArtifacts` writes the `artifact` row.
+- `Push`: the approval push. The real one is the notifier's `Pusher` (S-08.1); `LogPush` only
+  records and logs, for tests and a hub built without it.
+- `Artifacts`: where a worker's reported artifacts are stored. The real one is S-04.7's
+  `ArtifactStore`, which copies files from the workers' folder.
 """
 
 import logging
 from typing import Any, Protocol
 
-from sqlmodel import Session
-
-from marcel_hub.models import Artifact, ArtifactKind, Task
+from marcel_hub.models import Artifact
 
 log = logging.getLogger(__name__)
 
 
 class Push(Protocol):
-    def approval(self, approval: dict[str, Any], task: Task) -> None:
-        """Send the `approval` push (`PushNotification`, category `approval`, level `urgent`)."""
+    def approval_opened(self, approval_id: str) -> None:
+        """Push the new approval card (category `approval`, level `urgent`)."""
         ...
 
 
@@ -26,35 +24,13 @@ class LogPush:
     def __init__(self) -> None:
         self.sent: list[str] = []
 
-    def approval(self, approval: dict[str, Any], task: Task) -> None:
-        self.sent.append(approval['id'])
-        log.info(
-            'Push (not sent until the notifier exists): "%s" needs your approval: %s',
-            task.title,
-            approval['summary'],
-        )
+    def approval_opened(self, approval_id: str) -> None:
+        self.sent.append(approval_id)
+        log.info('Approval %s needs the owner. (No push is set up.)', approval_id)
 
 
 class Artifacts(Protocol):
-    def store(self, engine: Any, task: Task, artifact: dict[str, Any]) -> Artifact:
-        """Store one reported artifact (channel.schema.json `Artifact`) for `task`."""
+    def publish_reported(self, spec: dict[str, Any], task_id: str | None = None) -> Artifact:
+        """Store one reported artifact (channel.schema.json `Artifact`) for the task, and record
+        it on the task. Raises `ArtifactRefused` with a readable reason."""
         ...
-
-
-class RowArtifacts:
-    """Stores the artifact row only; a `path` is kept in `meta_json` for S-04.7 to copy."""
-
-    def store(self, engine: Any, task: Task, artifact: dict[str, Any]) -> Artifact:
-        meta = {k: artifact[k] for k in ('path', 'summary', 'artifact_id') if k in artifact}
-        row = Artifact(
-            task_id=task.id,
-            kind=ArtifactKind(artifact['kind']),
-            title=artifact['title'],
-            url=artifact.get('url'),
-            meta_json=meta,
-        )
-        with Session(engine) as s:
-            s.add(row)
-            s.commit()
-            s.refresh(row)
-        return row

@@ -2,7 +2,8 @@
 
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, the task
-routes, conversations, the live event stream, the channel gateway and approvals.
+routes, conversations, the live event stream, artifacts, memory, push notifications, the
+channel gateway and approvals.
 
 ## Run
 
@@ -31,6 +32,7 @@ names the file.
 | `owner_name` | `MARCEL_OWNER_NAME` | `Owner` (shown by `GET /api/me`) |
 | `runner_sock` | `MARCEL_RUNNER_SOCK` | `/run/marcel/runner.sock` (the runner's socket, mounted into the container) |
 | `worker_cwd` | `MARCEL_WORKER_CWD` | unset. Where workers without a repository run, e.g. `/home/<you>/marcel/workspaces/scratch` (a path on the NUC). Unset: such tasks fail with a reason |
+| `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no pushes. The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
 
 `MARCEL_CONFIG` moves the config file itself (tests use it).
 
@@ -70,8 +72,8 @@ for **10 minutes**. The app sends it to `POST /api/pair` and gets a device token
   Without it, or with a revoked token, the answer is 401. `/docs` and `/openapi.json` are off.
 - `GET /api/devices` lists your devices; `DELETE /api/devices/{id}` revokes one, and its token
   stops working at once. `PUT /api/devices/{id}/push` stores an APNs token or ntfy topic.
-- `GET /api/me` reports `push` as off for both backends until S-08.1 and S-08.2 add them, and every
-  agent as `idle` until S-04.8.
+- `GET /api/me` reports `push.ntfy` (and `push.ntfy_server`) when `ntfy_server` is set, `push.apns`
+  as off until S-08.2, and every agent as `idle` until S-04.8.
 - After 10 unknown codes in a minute, `POST /api/pair` refuses every code (429,
   `too_many_tries`) until the minute is over. Expired or already-used codes do not count.
 - Every error has the contract's `Error` shape: a stable `code` and a `message` for people. A bad
@@ -177,11 +179,109 @@ background watcher follows the runner's streams:
   read each transcript in `<data_dir>/runner-offsets.json`, so a reconnect or a restart never stores
   an event twice.
 - **Runner down.** When the runner does not answer, every NUC task that was live goes to `unknown`,
-  and one "something broke" alert is raised (logged until the notifier, S-08.1, exists). The hub
+  and one "something broke" alert is pushed (see Push notifications). The hub
   retries after 0.5 s, then 1, 2, 4 … up to 30 s. When the runner answers again the alert is
   cleared, each task takes the state the runner reports, and queued tasks start if there is room.
 - **Bad input.** An event that does not match the contract is logged (`Ignored a bad runner event`)
   and dropped; the stream carries on.
+
+## Artifacts
+
+`/api/artifacts` lists items newest first (filters `task_id`, `kind`), reads one, and serves its
+content. The code is `src/marcel_hub/artifacts.py`.
+
+- **Handing one in.** A worker's `report` artifact (`channel.schema.json` `Artifact`) goes to
+  `ArtifactStore.publish_reported`. `pr`, `branch` and `link` need an `http(s)` URL; a `pr` URL must
+  end in `/pull/<n>`. `doc` (Markdown or HTML), `file` and `dashboard` need an absolute path, and the
+  hub copies the bytes to `<data_dir>/artifacts/<id>`, only from inside the workers' folder
+  (`files_root`). It opens the path one folder at a time and refuses any symlink on the way, so a
+  worker cannot swap a folder for a link while the hub reads. Over 25 MB is refused. Until the channel
+  gateway sets `files_root`, file artifacts are refused with that reason.
+- **Dashboards** are checked against `contracts/dashboard.schema.json`, and every chart series must
+  have one value per label. A bad one is refused with a message that says where and what to fix.
+- **Trust.** HTML a worker hands in is stored with `trusted: false`. Only HTML the hub renders
+  itself (`publish_hub_html`) is trusted. The hub never renders content: it serves the bytes with
+  their own content type, `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`
+  (`sandbox allow-scripts` for trusted HTML).
+- **Recorded** on the task as an `artifact` event, and announced to the app as `artifact.created`.
+- **PR status.** `refresh_pr` asks a `PrStatusSource` for the PR's state, checks and review;
+  `pr_status_from_gh` maps GitHub's REST answers to them. The hub reads GitHub itself with a
+  read-only token (ADR-002); that client comes with S-04.12. Until then a refresh answers that the
+  hub cannot ask GitHub. A PR starts as `open`.
+- Not yet: projects (`project_id` answers 400) and versions (every item is at version 1). They come
+  with S-04.10 and S-04.11.
+
+Needs `jsonschema` at run time and `contracts/dashboard.schema.json` next to `hub/`.
+
+## Memory
+
+Markdown files in the folder `<data_dir>/memory` (B-20), which the brain can reach. Their git
+database is `<data_dir>/memory.git`, next to it, which only the hub can reach. The hub creates both
+on first use. The code is `src/marcel_hub/memory.py`.
+
+- `GET /api/memory` lists every `.md` file; `GET /api/memory/files/{path}` reads one. Its `etag` is
+  the git blob id of the file on disk, so an edit made anywhere changes it. The `ETag` header is the
+  same value in quotes.
+- `PUT` with `If-Match: <etag>` (bare, quoted or `W/`) saves only if the file has not changed, else
+  409 with the current version. Without `If-Match` it creates the file, and answers 409 if it
+  exists. An `If-Match` for a file that is gone answers 404.
+- **Size.** A file over 1 MB is refused (400). The request body is read only up to 2 MB (JSON
+  escapes take room) and refused beyond that. A file written straight to disk that is over 1 MB is
+  never read whole; opening it answers 400 `memory_file_too_big`.
+- **Every save is one git commit**, `memory: <path> (app)` from the app. `(agent)` is for the brain's
+  saves through the hub, which arrive with its memory tools (S-05.3); a file the brain writes
+  straight to disk is not committed, but its etag changes, so the app cannot overwrite it unseen.
+  An unchanged save makes no commit. Only the saved file is committed. If git fails, the file is put
+  back and the answer is 503 `memory_unavailable`.
+- **Paths** must match the contract's pattern (no `..`, no leading `/`, no part starting with `.`,
+  ending in `.md`), and no part may be a symlink, so nothing outside the memory folder can be read
+  or written. Anything else answers 400 `invalid_memory_path`.
+- **Git cannot be made to run a program.** Anyone who can write the memory folder (the brain, a
+  prompt-injected brain) must not get code running in the hub. So git runs with `--git-dir` outside
+  that folder, with no global or system config (`GIT_CONFIG_GLOBAL=/dev/null`,
+  `GIT_CONFIG_NOSYSTEM=1`, `GIT_ATTR_NOSYSTEM=1`, other `GIT_*` variables dropped), and with hooks,
+  the file-system monitor and attribute files forced off on the command line. The hub refuses to
+  save while a `.gitattributes` file is anywhere in the memory folder (503, naming the file).
+- **One-time move.** A hub from before this kept `.git` inside the memory folder. On first start the
+  hub moves it to `memory.git`, keeps the history, writes a fresh config and drops its hooks and
+  `info/attributes`, since the brain could have edited them.
+- Needs `git` on the path.
+
+## Push notifications
+
+`src/marcel_hub/notify/` sends pushes to paired phones (B-16, B-18). Set `ntfy_server` to turn
+them on; the app then registers an ntfy topic with `PUT /api/devices/{id}/push`.
+
+| Event | Push | Opens |
+|---|---|---|
+| A task opens an approval | approval, urgent: "Marcel needs your OK" | the approval |
+| A task needs you (a question, a login) | task, urgent: "Marcel needs you" | the task |
+| A task is done / failed | task, normal: "Done: …" / "Failed: …" | the task |
+| A task went silent | broke, urgent: "A task went quiet" | the task |
+| The runner is unreachable / warns | broke, urgent: "Marcel cannot reach the NUC" | the task that changed last |
+| The runner answers again | broke, normal: "The NUC is back" | the same |
+| An urgent push could not be delivered | broke, urgent: "A notification did not arrive" | what it was about |
+| A digest (`pusher.digest(...)`) | digest, normal | the digest's message |
+
+Nothing else pushes: no progress, no `working`, `queued`, `unknown` or `stopped`.
+
+- **How events arrive.** The task registry's publisher is `pusher.task_publisher()`: each `state`
+  task event is one push at most. The runner watcher uses the pusher as its alerts. The channel
+  gateway can call `pusher.approval_opened(id)` when it opens an approval.
+- **ntfy.** A JSON POST to the server's root: `topic`, `title`, `message`, `tags` (the category),
+  `priority` (4 for urgent, 3 for normal) and `click` (the `marcel://` deep link). No token ever goes
+  to the ntfy server; the push only opens the app.
+- **Quiet repeats.** The same push for the same task is not sent twice within 10 minutes. An urgent
+  "broke" push goes out once per cause per hour; when its all-clear goes out, that hour starts over,
+  so a second outage is pushed again. Every push carries a collapse key (the task id, or the cause),
+  but only APNs uses it to replace the older push on the phone: on ntfy each push shows separately.
+- **A failed push never breaks the hub.** Pushes are sent in the background, tried three times
+  (after 2 s and 10 s), then given up and logged. A refused push (4xx other than 429) is not
+  retried. When an urgent push did not arrive, one "a notification did not arrive" push goes to
+  every device.
+- **Secrets.** An ntfy topic lets anyone read the pushes. Logs name the device id, never the topic.
+- **APNs** (S-08.2) is a second backend with `kind = 'apns'`; devices that registered an APNs token
+  get nothing until it exists, and the log says so.
 
 ## Channel gateway: `/channel` and approvals
 
@@ -191,41 +291,50 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
 `src/marcel_hub/channel/`.
 
 - **Outside `/api`.** The Cloudflare tunnel forwards only `/api/*`, so the channel is reachable
-  from the NUC alone. It takes no device token.
+  from the NUC alone. It takes no device token. As a backstop, a `/channel` request carrying
+  Cloudflare's `cf-connecting-ip` header is refused before it is accepted.
 - **Hub secret.** The hub reads it from `<data_dir>/hub-secret` (at least 32 characters; deploy
   writes the same value to the plugin's `hub-secret`). A session with another secret is rejected
-  `bad_secret`. With no secret file, every session is. Either raises one "something broke" alert
-  (logged until the notifier, S-08.1, exists).
+  `bad_secret`. With no secret file, every session is. Either raises one "something broke" push.
 - **Who a session is.** Only a session id the runner reported: a NUC task's `session_id` (role
   `worker`, or `adopted`) or a conversation's `brain_session_id` (`brain` for the main
   conversation, `side` for a side thread). Anything else is rejected `unknown_session`; the
   server retries for two minutes. A plugin older than 0.1.0 is rejected `plugin_too_old`.
 - **A session acts only for itself.** A worker's `report` lands on its own task; a brain's or side
-  thread's `reply` in its own conversation. A worker's `reply`, a brain's `report` and a brain's
-  permission request are dropped and logged. A session can never answer a prompt.
+  thread's `reply` in its own conversation. A worker's `reply` and a brain's `report` are dropped
+  and logged. A session can never answer a prompt.
+- **Brain and side-thread prompts are denied.** An approval card belongs to a task, so the brain
+  or a side thread cannot get one (`project/contract-requests/S-04.6.md`). Rather than wait at its
+  prompt for ever, the session gets `permission_decision deny` at once, and the log says which
+  tool it asked for. A re-sent prompt is denied again.
 - **Calls.** Each stored `reply` or `report` is answered `call_ack`; a repeated `call_id` is not
   stored again and is acked with `duplicate: true`. A call the hub fails to store is not acked, so
   the server sends it again after a reconnect.
 - **Reports.** `started` and `progress` become `progress` task events (and move the task to
-  `working`); artifacts are stored (the row only, until S-04.7 copies files) with an `artifact`
-  event; `done` and `failed` set the summary and the state. `started`, `done` and `failed` post a
+  `working`); artifacts go to the artifact store (files are copied from the workers' folder) and
+  get an `artifact` event; one the store refuses becomes an `error` event saying why, and the rest
+  of the report still counts; `done` and `failed` set the summary and the state. `started`, `done` and `failed` post a
   milestone in the main conversation. A report the state machine does not allow (for a task you
   stopped) is stored but changes no state.
 - **Outbox.** Frames for a session (user messages, steers, hand-backs, permission decisions) are
   numbered per task or conversation and kept in the database until the session acks them, so a
   session that is offline, or a task still `queued`, gets them after its hello, in order, and a
   restart loses nothing. The hub sends from the database a page at a time; a session that stops
-  reading costs nothing but memory for one flag. A newer socket for the same session replaces the
-  old one. A socket gets 15 s to say hello, and a frame over 256 KB closes it.
+  reading costs nothing but memory for one flag. Acked frames are deleted (the newest row of each
+  task or conversation stays, to keep the numbering). When a task stops or fails, frames it never
+  received are dropped. A newer socket for the same session replaces the old one. A socket gets
+  15 s to say hello, and a frame over 256 KB closes it (uvicorn's `ws_max_size` is the same cap).
 - **Owner messages.** A message you send in the main conversation, or in a side thread, goes to
-  that conversation's session. A thread that belongs to a task is left to the task threads
-  (S-04.9).
+  that conversation's session. Only your own messages go: Marcel's replies are never sent back to
+  it. A conversation with no session yet (`brain_session_id` unset) gets nothing queued: the
+  session that starts for it reads the conversation. A thread that belongs to a task is left to
+  the task threads (S-04.9).
 
 ### Approvals
 
 A worker's permission prompt becomes an approval card: the task goes to `needs_you`, a
 `permission` task event, an `approval` message in the main conversation, `approval.created` on
-the phone, and a push (logged until S-08.1). The same `request_id` on the same task never opens a
+the phone, and an approval push. The same `request_id` on the same task never opens a
 second card, whatever state the card is in.
 
 - `GET /api/approvals?state=` lists your cards, open ones first.
@@ -236,6 +345,10 @@ second card, whatever state the card is in.
 - **Answered in a terminal.** When the runner shows the session left the permission prompt and the
   transcript has the tool's result, the card becomes `approved` (or `denied`, when the result says
   `denied: true`) with `answered_via: terminal`. The first answer wins, from the app or the
-  terminal.
-- **Expired.** When a task stops or fails with an open card, the card becomes `expired`.
+  terminal. The answer is matched by tool name: the first result of a call to the same tool that
+  arrived after the card opened. Two prompts for the same tool at once can be matched the wrong
+  way round (a known limit).
+- **Expired.** When a task ends (`done`, `failed` or `stopped`) with an open card, the card is
+  resolved from the transcript if it can be, and otherwise becomes `expired`. At start the hub does
+  the same for cards left open while it was down.
 - Every change to a card sends `approval.resolved`.

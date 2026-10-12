@@ -9,17 +9,21 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from marcel_hub.channel.gateway import SECRET_FILE, Gateway, Peer, Rejection
+from marcel_hub.channel.ports import Push
 from marcel_hub.channel.routes import router as approvals_router
+from marcel_hub.channel.socket import MAX_FRAME
 from marcel_hub.channel.socket import router as socket_router
-from marcel_hub.runner_client import RunnerWatch
+from marcel_hub.runner_client import Alerts, RunnerWatch
 from marcel_hub.tasks.registry import TaskRegistry
 
-__all__ = ['SECRET_FILE', 'Gateway', 'Peer', 'Rejection', 'create', 'install']
+__all__ = ['MAX_FRAME', 'SECRET_FILE', 'Gateway', 'Peer', 'Rejection', 'create', 'install']
 
 
-def create(app: FastAPI, data_dir: Path) -> Gateway:
+def create(
+    app: FastAPI, data_dir: Path, push: Push | None = None, alerts: Alerts | None = None
+) -> Gateway:
     """The gateway, before the registry exists: its Outbox is handed to `tasks.install`."""
-    gateway = Gateway(app.state.engine, data_dir / SECRET_FILE)
+    gateway = Gateway(app.state.engine, data_dir / SECRET_FILE, push=push, alerts=alerts)
     app.state.channel = gateway
     return gateway
 
@@ -28,6 +32,7 @@ def install(
     app: FastAPI, gateway: Gateway, registry: TaskRegistry, watch: RunnerWatch | None
 ) -> None:
     gateway.registry = registry
+    gateway.artifacts = getattr(app.state, 'artifacts', None)
     gateway.events = app.state.events
     app.state.events.observers.append(gateway.on_app_event)
     if watch is not None:

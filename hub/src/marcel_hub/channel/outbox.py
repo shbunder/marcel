@@ -125,6 +125,25 @@ class ChannelOutbox:
             )
             s.commit()
 
+    def clear(self, target: str) -> int:
+        """Drop every unacked frame of `target` (its session is gone); keeps the numbering."""
+        with self._lock, Session(self.engine) as s:
+            newest = s.exec(
+                select(func.max(ChannelFrame.seq)).where(ChannelFrame.target == target)
+            ).one()
+            dropped = s.exec(  # type: ignore[call-overload]
+                update(ChannelFrame)
+                .where(col(ChannelFrame.target) == target, col(ChannelFrame.acked).is_(False))
+                .values(acked=True)
+            ).rowcount
+            s.exec(  # type: ignore[call-overload]
+                delete(ChannelFrame).where(
+                    col(ChannelFrame.target) == target, col(ChannelFrame.seq) < (newest or 0)
+                )
+            )
+            s.commit()
+        return dropped
+
     # Connections ------------------------------------------------------------------------------
 
     def attach(self, target: str, wake: Wake) -> Wake | None:

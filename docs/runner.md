@@ -59,6 +59,6 @@ Anything else on the socket gets a JSON `Error` (404 for another path, 405 for a
 | A file that is not a socket is at the path | Refuses to start and leaves the file. | The log names the path. |
 | The socket cannot get mode 0660, or `MARCEL_RUNNER_GROUP` does not exist | Refuses to start. | The log says what to fix. |
 
-`active_workers` is `0` until sessions are tracked (a later runner story).
+Sessions (spawn, list, get, stop, the worker cap, and what `active_workers` counts): [runner/sessions.md](runner/sessions.md).
 
 `claude daemon stop --keep-workers` shuts down the supervisor and leaves detached sessions running. Plain `claude daemon stop` terminates them.

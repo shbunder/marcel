@@ -15,16 +15,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
-from marcel_hub.channel.approvals import ApprovalBook, approval_json
+from marcel_hub.artifacts import ArtifactRefused
+from marcel_hub.channel.approvals import ApprovalBook
 from marcel_hub.channel.frames import version_tuple
 from marcel_hub.channel.outbox import ChannelOutbox, conversation_target, task_target
-from marcel_hub.channel.ports import Artifacts, LogPush, Push, RowArtifacts
+from marcel_hub.channel.ports import Artifacts, LogPush, Push
 from marcel_hub.conversations import ensure_main_conversation, post_message
 from marcel_hub.models import (
     Agent,
     AnsweredVia,
+    Approval,
     ApprovalState,
     ChannelCall,
     Conversation,
@@ -50,6 +52,7 @@ MIN_PLUGIN_VERSION = (0, 1, 0)
 SECRET_FILE = 'hub-secret'
 MIN_SECRET = 32  # channel.schema.json Hello.secret minLength
 
+FINAL = frozenset({'done', 'failed', 'stopped'})  # a prompt cannot outlive these
 PROMPT = 'permission prompt'  # runner-api.yaml Session.waiting_for
 WORKER_ROLES = frozenset({'worker', 'adopted'})
 CHAT_ROLES = frozenset({'brain', 'side'})
@@ -106,7 +109,7 @@ class Gateway:
         self.events: EventLog | None = None
         self.approvals = ApprovalBook(engine, lambda: self.events)
         self.push = push or LogPush()
-        self.artifacts = artifacts or RowArtifacts()
+        self.artifacts: Artifacts | None = artifacts
         self.alerts = alerts or LogAlerts()
         self.registry: TaskRegistry | None = None
         self._calls_lock = threading.Lock()
@@ -210,13 +213,28 @@ class Gateway:
             return await self._once(peer, frame, self._store_report)
         if kind == 'permission_request':
             if peer.task_id is None:
-                return self._refuse(
-                    peer, 'a permission request', 'an approval card belongs to a task'
-                )
+                self._deny_chat_prompt(peer, frame)
+                return []
             await self.permission_request(peer.task_id, frame)
             return []
         log.info('Ignored a %s frame from session %s after hello.', kind, peer.session_id[:8])
         return []
+
+    def _deny_chat_prompt(self, peer: Peer, frame: dict[str, Any]) -> None:
+        """An approval card belongs to a task, so the brain or a side thread cannot get one
+        (project/contract-requests/S-04.6.md). Rather than leave the session waiting at its
+        prompt for ever, the hub denies it at once; a re-sent prompt is denied again."""
+        log.warning(
+            'The %s asked to use %s ("%s"). Marcel cannot show an approval card for it, so it '
+            'was refused.',
+            'brain' if peer.role == 'brain' else 'side thread',
+            frame['tool_name'],
+            frame['description'],
+        )
+        self.outbox.put(
+            peer.target,
+            {'type': 'permission_decision', 'request_id': frame['request_id'], 'behavior': 'deny'},
+        )
 
     @staticmethod
     def _refuse(peer: Peer, what: str, why: str) -> list[dict[str, Any]]:
@@ -273,13 +291,14 @@ class Gateway:
         reported += frame.get('artifacts', [])
         artifact_ids = []
         for artifact in reported:
-            row = self.artifacts.store(self.engine, registry.get(task_id), artifact)
-            artifact_ids.append(row.id)
-            registry.append_event(
-                task_id,
-                TaskEventType.artifact,
-                {'artifact_id': row.id, 'kind': row.kind.value, 'title': row.title},
-            )
+            try:
+                if self.artifacts is None:
+                    raise ArtifactRefused('The artifact was not saved: this hub has no store.')
+                artifact_ids.append(self.artifacts.publish_reported(artifact, task_id).id)
+            except ArtifactRefused as exc:
+                # The report is still stored; the thread shows why the artifact is missing.
+                log.warning('Task %s: %s', task_id, exc)
+                registry.append_event(task_id, TaskEventType.error, {'message': str(exc)})
         if kind in ('started', 'progress') and frame.get('text'):
             registry.append_event(task_id, TaskEventType.progress, {'text': frame['text']})
         if kind == 'started':
@@ -365,14 +384,9 @@ class Gateway:
                     task_id=task_id,
                 )
         try:
-            self.push.approval(self._approval(row.id), task)
+            self.push.approval_opened(row.id)
         except Exception:  # a failed push never loses the card
             log.exception('Could not send the approval push for %s.', row.id)
-
-    def _approval(self, approval_id: str) -> dict[str, Any]:
-        row = self.approvals.get(approval_id)
-        assert row is not None
-        return approval_json(row)
 
     async def answer(self, approval_id: str, approve: bool, note: str | None) -> Any:
         """The owner answered in the app. Returns the closed card, or None if it was not open."""
@@ -416,6 +430,34 @@ class Gateway:
         self._left_prompt.add(task_id)
         self._settle_from_transcript(task_id)
 
+    def task_ended(self, task_id: str, state: str) -> None:
+        """A task reached a final state: no prompt of its can be answered any more. A card the
+        transcript shows answered is resolved from it; the rest expire. A stopped or failed
+        task's session is gone, so frames still waiting for it are dropped."""
+        self._left_prompt.discard(task_id)
+        self.approvals.resolve_from_transcript(task_id)
+        self.approvals.expire_task(task_id)
+        if state != TaskState.done.value:  # a done session can still take a follow-up
+            dropped = self.outbox.clear(task_target(task_id))
+            if dropped:
+                log.info('Task %s ended: dropped %d frame(s) it never received.', task_id, dropped)
+
+    def recheck(self) -> None:
+        """At hub start: settle open cards whose task ended, or whose answer is already in the
+        transcript, while the hub was down."""
+        with Session(self.engine) as s:
+            rows = s.exec(
+                select(Task.id, Task.state)
+                .join(Approval, col(Approval.task_id) == col(Task.id))
+                .where(Approval.state == ApprovalState.open)
+                .distinct()
+            ).all()
+        for task_id, state in rows:
+            if str(state) in FINAL:
+                self.task_ended(task_id, str(state))
+            else:
+                self.approvals.resolve_from_transcript(task_id)
+
     def _settle_from_transcript(self, task_id: str) -> None:
         _, still_open = self.approvals.resolve_from_transcript(task_id)
         if not still_open:
@@ -427,9 +469,8 @@ class Gateway:
         return _TaskWatch(self, inner or NullPublisher())
 
     def on_task_event(self, type_: str, data: dict[str, Any]) -> None:
-        if type_ == 'task.updated' and data.get('state') in ('stopped', 'failed'):
-            self._left_prompt.discard(data['id'])
-            self.approvals.expire_task(data['id'])
+        if type_ == 'task.updated' and data.get('state') in FINAL:
+            self.task_ended(data['id'], data['state'])
         elif (
             type_ == 'task.event'
             and data.get('type') == 'tool_result'
@@ -451,6 +492,11 @@ class Gateway:
                 conv = s.get(Conversation, data['conversation_id'])
             if conv is None or conv.task_id is not None:
                 return
+            if conv.brain_session_id is None:
+                # No session runs this conversation yet; the message is stored, and the session
+                # that starts for it reads the conversation, not a backlog of frames.
+                log.info('Message %s has no session to go to yet.', data['id'])
+                return
             frame: dict[str, Any] = {
                 'type': 'user_message',
                 'message_id': data['id'],
@@ -468,8 +514,11 @@ class _TaskWatch:
     def __init__(self, gateway: Gateway, inner: Publisher) -> None:
         self.gateway = gateway
         self.inner = inner
-        # The app event log the wrapped publisher writes to (`ws.OwnerPublisher.events`), if any.
-        self.events: EventLog | None = getattr(inner, 'events', None)
+        # The app event log at the end of the publisher chain (`ws.OwnerPublisher.events`).
+        found: Any = inner
+        while found is not None and not hasattr(found, 'events'):
+            found = getattr(found, 'inner', None)
+        self.events: EventLog | None = getattr(found, 'events', None)
 
     def publish(self, type: str, data: dict[str, Any]) -> None:
         self.inner.publish(type, data)

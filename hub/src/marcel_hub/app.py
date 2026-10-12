@@ -18,7 +18,18 @@ from fastapi import APIRouter, FastAPI, Request
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from marcel_hub import __version__, auth, channel, conversations, db, tasks, ws
+from marcel_hub import (
+    __version__,
+    artifacts,
+    auth,
+    channel,
+    conversations,
+    db,
+    memory,
+    notify,
+    tasks,
+    ws,
+)
 from marcel_hub.runner_client import DEFAULT_SOCKET, OffsetStore, RunnerClient, RunnerWatch
 
 DEFAULT_CONFIG_PATH = Path('/data/marcel.toml')
@@ -38,6 +49,8 @@ class Settings:
     # None: no runner (tests). `load_settings` defaults it to the socket mounted into the hub.
     runner_sock: Path | None = None
     worker_cwd: str | None = None
+    # None: no ntfy pushes. e.g. 'https://ntfy.sh' or a self-hosted server (S-08.1).
+    ntfy_server: str | None = None
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -56,7 +69,16 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         **{k[len('MARCEL_') :].lower(): v for k, v in env.items() if _is_setting(k)},
     }
 
-    known = {'data_dir', 'db_path', 'host', 'port', 'owner_name', 'runner_sock', 'worker_cwd'}
+    known = {
+        'data_dir',
+        'db_path',
+        'host',
+        'port',
+        'owner_name',
+        'runner_sock',
+        'worker_cwd',
+        'ntfy_server',
+    }
     unknown = set(values) - known
     if unknown:
         raise SettingsError(f'Unknown setting(s) {sorted(unknown)} in {config_path} or MARCEL_*.')
@@ -70,6 +92,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             owner_name=str(values.get('owner_name', 'Owner')),
             runner_sock=Path(values.get('runner_sock', DEFAULT_SOCKET)),
             worker_cwd=str(values['worker_cwd']) if values.get('worker_cwd') else None,
+            ntfy_server=_ntfy_server(values.get('ntfy_server')),
         )
     except ValueError as exc:
         raise SettingsError(f'The port must be a number: {exc}.') from exc
@@ -77,6 +100,17 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         raise SettingsError(
             f'A setting in {config_path} has the wrong type: {exc}. Use text for paths.'
         ) from exc
+
+
+def _ntfy_server(value: Any) -> str | None:
+    if not value:
+        return None
+    server = str(value).rstrip('/')
+    if not server.startswith(('https://', 'http://')):
+        raise SettingsError(
+            f'ntfy_server must be a web address such as https://ntfy.sh, not {server!r}.'
+        )
+    return server
 
 
 def _is_setting(name: str) -> bool:
@@ -88,6 +122,7 @@ def _is_setting(name: str) -> bool:
         'MARCEL_OWNER_NAME',
         'MARCEL_RUNNER_SOCK',
         'MARCEL_WORKER_CWD',
+        'MARCEL_NTFY_SERVER',
     }
 
 
@@ -123,6 +158,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         db.upgrade(engine)
+        app.state.channel.recheck()  # approval cards left open while the hub was down
+        pusher.start()
         await app.state.tasks.drain()  # tasks queued before a restart start if there is room
         if watch is not None:
             watch.start()
@@ -130,6 +167,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if watch is not None:
             await watch.close()
             await watch.client.aclose()
+        await pusher.aclose()
         engine.dispose()
 
     # No /docs, /redoc or /openapi.json: every route but /health and /pair needs a token.
@@ -153,18 +191,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     # One event log for the app's live stream (S-04.3); the task registry publishes into it.
     app.state.events = ws.EventLog(engine)
-    # The channel gateway (S-04.6) is the registry's Outbox, and watches the registry's events
-    # (on their way to the phone) to expire or settle approval cards.
-    gateway = channel.create(app, settings.data_dir)
+    # Pushes (S-08.1) and the channel gateway (S-04.6) both watch the registry's events on their way
+    # to the one event log: the pusher pushes on state changes; the gateway expires or settles
+    # approval cards. The gateway is also the registry's Outbox.
+    pusher = notify.install(app, settings.ntfy_server)
+    gateway = channel.create(app, settings.data_dir, push=pusher, alerts=pusher)
     registry = tasks.install(
         app,
         runner=client,
         outbox=gateway.outbox,
-        publisher=gateway.task_publisher(ws.OwnerPublisher(app.state.events)),
+        # Outermost the pusher: it pushes after the event is stored and the gateway has settled
+        # any approval card the change affects.
+        publisher=pusher.task_publisher(
+            gateway.task_publisher(ws.OwnerPublisher(app.state.events))
+        ),
     )
     watch = (
         RunnerWatch(
-            client, registry, offsets=OffsetStore(settings.data_dir / 'runner-offsets.json')
+            client,
+            registry,
+            alerts=pusher,
+            offsets=OffsetStore(settings.data_dir / 'runner-offsets.json'),
         )
         if client
         else None
@@ -172,7 +219,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.runner_watch = watch
     ws.install(app)
     app.include_router(conversations.router)
-    channel.install(app, gateway, registry, watch)
+    artifacts.install(app)  # S-04.7, after tasks: an artifact is recorded on its task
+    memory.install(app)
+    channel.install(app, gateway, registry, watch)  # after artifacts: reports store through it
     return app
 
 
@@ -193,4 +242,9 @@ def main(argv: list[str] | None = None) -> None:
         settings = load_settings()
     except SettingsError as exc:
         raise SystemExit(f'Marcel hub did not start. {exc}') from exc
-    uvicorn.run(create_app(settings), host=settings.host, port=settings.port)
+    uvicorn.run(
+        create_app(settings),
+        host=settings.host,
+        port=settings.port,
+        ws_max_size=channel.MAX_FRAME,  # no socket frame is read past the channel's cap
+    )

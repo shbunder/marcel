@@ -10,6 +10,7 @@ dependencies = [
     "alembic>=1.13",
     "segno>=1.6",
     "httpx>=0.27",
+    "jsonschema>=4.23",
 ]
 
 [project.scripts]

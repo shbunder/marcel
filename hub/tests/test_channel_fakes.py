@@ -14,12 +14,14 @@ from typing import Any
 from fastapi.testclient import TestClient
 from sqlmodel import Session, col, select
 from starlette.testclient import WebSocketTestSession
+from test_runner_client_fakes import RecordingAlerts
 from test_tasks_fakes import FakeRunner, validator
 
 from marcel_hub import conversations
 from marcel_hub.app import Settings, create_app
 from marcel_hub.auth import tokens
 from marcel_hub.channel import Gateway
+from marcel_hub.channel.ports import LogPush
 from marcel_hub.models import (
     Agent,
     AppEvent,
@@ -141,6 +143,16 @@ class ChannelHub:
         self.registry: TaskRegistry = app.state.tasks
         self.runner = FakeRunner()
         self.registry.runner = self.runner
+        # The real app pushes and alerts through the notifier (test_the_gateway_uses_the_
+        # notifier_and_the_artifact_store); here they are recorded instead.
+        self.pushes = LogPush()
+        self.gateway.push = self.pushes
+        self.alerts = RecordingAlerts()
+        self.gateway.alerts = self.alerts
+        # Workers' files, as the hub sees them: reported doc/file/dashboard paths are read here.
+        self.workers = tmp_path / 'workers'
+        self.workers.mkdir()
+        app.state.artifacts.files_root = self.workers
         with Session(self.engine) as s:
             agent = Agent(owner_user_id=OWNER, name='Marcel', animal='giraffe', palette='pink',
                           seed='1')  # fmt: skip
@@ -168,7 +180,7 @@ class ChannelHub:
         task = Task(
             agent_id=self.agent_id,
             title=fields.pop('title', 'Check disk usage'),
-            location=TaskLocation.nuc,
+            location=fields.pop('location', TaskLocation.nuc),
             state=state,
             model='sonnet',
             origin=fields.pop('origin', TaskOrigin.marcel),

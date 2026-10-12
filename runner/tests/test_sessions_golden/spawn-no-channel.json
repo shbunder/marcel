@@ -1,0 +1,17 @@
+[
+  "{claude}",
+  "--bg",
+  "--name",
+  "brain",
+  "--model",
+  "opus",
+  "--permission-mode",
+  "auto",
+  "--allowedTools",
+  "mcp__plugin_marcel_marcel__reply",
+  "mcp__plugin_marcel_marcel__report",
+  "--debug-file",
+  "{state}/debug/brain-token1.log",
+  "--",
+  "Wait for channel messages."
+]

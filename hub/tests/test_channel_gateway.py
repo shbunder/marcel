@@ -66,9 +66,7 @@ def test_an_unknown_session_is_rejected(hub: ChannelHub) -> None:
     assert frame['type'] == 'rejected' and frame['reason'] == 'unknown_session'
 
 
-def test_a_wrong_secret_is_rejected_and_raises_one_alert(
-    hub: ChannelHub, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_a_wrong_secret_is_rejected_and_raises_one_alert(hub: ChannelHub) -> None:
     _, sid = hub.task()
     for _ in range(2):
         with hub.connect() as ch:
@@ -78,8 +76,7 @@ def test_a_wrong_secret_is_rejected_and_raises_one_alert(
             'reason': 'bad_secret',
             'message': 'The secret does not match this hub.',
         }
-    assert hub.gateway.alerts.open.keys() == {'channel_bad_secret'}  # type: ignore[attr-defined]
-    assert caplog.text.count('Something broke') == 1
+    assert [cause for cause, _, _ in hub.alerts.raised] == ['channel_bad_secret']
 
 
 def test_a_hub_without_a_secret_rejects_every_session(tmp_path: Path) -> None:
@@ -210,7 +207,7 @@ def test_approve_flow_end_to_end(hub: ChannelHub) -> None:
         assert created['data'] == card
         [message] = hub.messages()
         assert message.body_json == {'approval_id': card['id']} and message.task_id == task_id
-        assert hub.gateway.push.sent == [card['id']]  # type: ignore[attr-defined]
+        assert hub.pushes.sent == [card['id']]
 
         res = hub.answer(card['id'], 'approve')
         assert res.status_code == 200, res.text
@@ -248,7 +245,7 @@ def test_a_repeated_permission_request_opens_no_second_card(hub: ChannelHub) -> 
         ch.until_pong()
     assert [a['state'] for a in hub.approvals()] == ['approved']
     assert len(hub.events('approval.created')) == 1
-    assert len(hub.gateway.push.sent) == 1  # type: ignore[attr-defined]
+    assert len(hub.pushes.sent) == 1
 
 
 def test_the_same_request_id_on_another_task_is_another_card(hub: ChannelHub) -> None:
@@ -385,16 +382,38 @@ def test_a_session_cannot_answer_its_own_prompt(hub: ChannelHub) -> None:
     assert [a['state'] for a in hub.approvals()] == ['open']
 
 
-def test_the_brain_cannot_open_an_approval_card(
+def test_a_brain_prompt_is_denied_at_once_and_again_after_a_reconnect(
     hub: ChannelHub, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """An approval card belongs to a task, so the brain cannot get one; it must not wait at its
+    prompt for ever either (project/contract-requests/S-04.6.md)."""
     brain = hub.brain()
     with hub.connect() as ch:
         ch.hello(brain)
         ch.send(**permission())
-        ch.until_pong()
+        decision = ch.deliver()
+    assert decision == {
+        'type': 'permission_decision',
+        'seq': 1,
+        'request_id': 'qiwxo',
+        'behavior': 'deny',
+    }
+    assert 'The brain asked to use Bash ("Run docker system df -v")' in caplog.text
+    # The server re-sends every prompt it has no decision for after a reconnect.
+    with hub.connect() as ch:
+        ch.hello(brain, resume_after=1)
+        ch.send(**permission())
+        again = ch.deliver()
+    assert (again['seq'], again['behavior']) == (2, 'deny')
     assert hub.approvals() == []
-    assert 'Dropped a permission request from brain session' in caplog.text
+
+
+def test_a_side_thread_prompt_is_denied_too(hub: ChannelHub) -> None:
+    _, side = hub.side()
+    with hub.connect() as ch:
+        ch.hello(side)
+        ch.send(**permission('sidee'))
+        assert ch.deliver()['behavior'] == 'deny'
 
 
 def test_open_cards_are_listed_first(hub: ChannelHub) -> None:
@@ -532,15 +551,16 @@ def test_reports_become_task_events_artifacts_and_milestones(hub: ChannelHub) ->
             kind='artifact',
             artifact={'kind': 'link', 'title': 'Docker docs', 'url': 'https://docs.docker.com/'},
         )
+        (hub.workers / 'volumes.txt').write_text('plex_media_cache 38.2 GB\n')
         ch.call(
             'report',
             kind='done',
             summary='plex_media_cache is 38.2 GB.',
             artifacts=[
                 {
-                    'kind': 'dashboard',
+                    'kind': 'file',
                     'title': 'Docker volumes',
-                    'path': '/home/owner/marcel/workspaces/scratch/volumes.dashboard.json',
+                    'path': str(hub.workers / 'volumes.txt'),
                 }
             ],
         )
@@ -554,9 +574,11 @@ def test_reports_become_task_events_artifacts_and_milestones(hub: ChannelHub) ->
         artifacts = s.exec(select(Artifact).order_by(Artifact.created_at)).all()  # pyright: ignore[reportArgumentType]
     assert [(a.kind.value, a.title, a.task_id) for a in artifacts] == [
         ('link', 'Docker docs', task_id),
-        ('dashboard', 'Docker volumes', task_id),
+        ('file', 'Docker volumes', task_id),
     ]
-    assert artifacts[1].meta_json['path'].endswith('volumes.dashboard.json')
+    # The file was copied into the hub's store (S-04.7), not just named.
+    data, _, trusted = hub.app.state.artifacts.content(artifacts[1].id)
+    assert data == b'plex_media_cache 38.2 GB\n' and trusted is False
     assert [e.data_json['title'] for e in hub.task_events(task_id, 'artifact')] == [
         'Docker docs',
         'Docker volumes',
@@ -573,6 +595,26 @@ def test_reports_become_task_events_artifacts_and_milestones(hub: ChannelHub) ->
     }
     for event in hub.events('message.created'):
         MESSAGE.validate(event['data'])
+
+
+def test_a_refused_artifact_is_shown_in_the_thread_and_the_report_still_counts(
+    hub: ChannelHub,
+) -> None:
+    task_id, sid = hub.task()
+    with hub.connect() as ch:
+        ch.hello(sid)
+        answer = ch.call(
+            'report',
+            kind='done',
+            summary='Listed the volumes.',
+            artifact={'kind': 'file', 'title': 'Secrets', 'path': '/etc/passwd'},
+        )
+    assert answer['type'] == 'call_ack'
+    assert hub.registry.get(task_id).state == TaskState.done
+    [error] = hub.task_events(task_id, 'error')
+    assert 'outside the workers' in error.data_json['message']
+    with Session(hub.engine) as s:
+        assert s.exec(select(Artifact)).all() == []
 
 
 def test_a_report_after_the_owner_stopped_the_task_keeps_it_stopped(hub: ChannelHub) -> None:
@@ -727,3 +769,144 @@ def test_a_message_that_cannot_be_queued_is_still_stored(
     res = hub.client.post(f'/api/conversations/{hub.main_id}/messages', json={'text': 'Hi'})
     assert res.status_code == 201
     assert 'Could not queue message' in caplog.text
+
+
+# Ending tasks, restarts, loops and the tunnel ---------------------------------------------------
+
+
+def test_a_done_task_expires_its_open_card(hub: ChannelHub) -> None:
+    task_id, sid = hub.task()
+    with hub.connect() as ch:
+        ch.hello(sid)
+        ch.send(**permission())
+        ch.until_pong()
+        ch.call('report', kind='done', summary='Gave up on that command.')
+    [card] = hub.approvals()
+    assert card['state'] == 'expired'
+    res = hub.answer(card['id'], 'approve')
+    assert res.status_code == 409 and res.json()['state'] == 'expired'
+    assert hub.gateway.outbox.pending(f'task:{task_id}') == []  # no decision for a dead prompt
+
+
+def test_the_hub_settles_cards_left_open_when_it_starts(hub: ChannelHub, tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from marcel_hub.app import Settings, create_app
+    from marcel_hub.models import Approval, TaskEvent, TaskEventType
+
+    ended, _ = hub.task(TaskState.done)
+    answered, _ = hub.task(TaskState.needs_you)
+    waiting, _ = hub.task(TaskState.needs_you)
+    with Session(hub.engine) as s:
+        for task_id in (ended, answered, waiting):
+            s.add(Approval(task_id=task_id, request_id='qiwxo', tool='Bash', summary='df'))
+        s.commit()
+        call = {'tool_use_id': 'tu_1', 'tool': 'Bash', 'summary': 'df'}
+        result = {'tool_use_id': 'tu_1', 'is_error': True, 'denied': True, 'text': 'No.'}
+        s.add(TaskEvent(task_id=answered, seq=1, type=TaskEventType.tool_call, data_json=call))
+        s.add(TaskEvent(task_id=answered, seq=2, type=TaskEventType.tool_result, data_json=result))
+        s.commit()
+    # The hub restarts on the same data folder.
+    app = create_app(Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db'))
+    with TestClient(app):
+        pass
+    states = {a['task_id']: (a['state'], a.get('answered_via')) for a in hub.approvals()}
+    assert states == {
+        ended: ('expired', None),
+        answered: ('denied', 'terminal'),
+        waiting: ('open', None),
+    }
+
+
+def test_an_agent_reply_is_never_queued_back_to_the_brain(hub: ChannelHub) -> None:
+    brain = hub.brain()
+    with hub.connect() as ch:
+        ch.hello(brain)
+        ch.call('reply', text='Checking now.')
+        ch.call('reply', text='Done.')
+    assert hub.gateway.outbox.pending(f'conversation:{hub.main_id}') == []
+
+
+def test_a_message_for_a_conversation_with_no_session_is_not_queued(hub: ChannelHub) -> None:
+    res = hub.client.post(f'/api/conversations/{hub.main_id}/messages', json={'text': 'Hi'})
+    assert res.status_code == 201
+    assert hub.gateway.outbox.pending(f'conversation:{hub.main_id}') == []
+
+
+def test_acked_frames_are_deleted_but_the_numbering_is_kept(hub: ChannelHub) -> None:
+    from marcel_hub.models import ChannelFrame
+
+    task_id, sid = hub.task()
+    for text in ('One.', 'Two.', 'Three.'):
+        hub.client.post(f'/api/tasks/{task_id}/messages', json={'text': text})
+    with hub.connect() as ch:
+        ch.hello(sid)
+        for _ in range(3):
+            ch.deliver()
+        ch.until_pong()
+    with Session(hub.engine) as s:
+        rows = s.exec(select(ChannelFrame).where(ChannelFrame.target == f'task:{task_id}')).all()
+    assert [(r.seq, r.acked) for r in rows] == [(3, True)]
+    hub.client.post(f'/api/tasks/{task_id}/messages', json={'text': 'Four.'})
+    with hub.connect() as ch:
+        ch.hello(sid)
+        assert ch.deliver()['seq'] == 4
+
+
+def test_stopping_a_task_drops_the_frames_it_never_received(hub: ChannelHub) -> None:
+    from marcel_hub.models import ChannelFrame
+
+    task_id, _ = hub.task()
+    for text in ('One.', 'Two.'):
+        hub.client.post(f'/api/tasks/{task_id}/messages', json={'text': text})
+    assert hub.client.post(f'/api/tasks/{task_id}/stop').status_code == 200
+    assert hub.gateway.outbox.pending(f'task:{task_id}') == []
+    with Session(hub.engine) as s:
+        rows = s.exec(select(ChannelFrame).where(ChannelFrame.target == f'task:{task_id}')).all()
+    assert [r.seq for r in rows] == [2]  # kept only for the numbering
+
+
+def test_a_cloud_tasks_session_id_is_refused(hub: ChannelHub) -> None:
+    from marcel_hub.models import TaskLocation
+
+    _, sid = hub.task(location=TaskLocation.cloud)
+    with hub.connect() as ch:
+        assert ch.hello(sid)['reason'] == 'unknown_session'
+
+
+def test_a_channel_connection_through_the_tunnel_is_refused(hub: ChannelHub) -> None:
+    from starlette.websockets import WebSocketDisconnect
+
+    _, sid = hub.task()
+    with (
+        pytest.raises(WebSocketDisconnect),
+        hub.client.websocket_connect('/channel', headers={'cf-connecting-ip': '203.0.113.9'}),
+    ):
+        pass
+    with hub.connect() as ch:  # the same hello from the NUC is fine
+        assert ch.hello(sid)['type'] == 'welcome'
+
+
+def test_the_server_reads_no_socket_frame_past_the_channel_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import uvicorn
+
+    from marcel_hub import app as app_module
+    from marcel_hub.channel import MAX_FRAME
+
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(uvicorn, 'run', lambda _app, **kw: seen.update(kw))
+    monkeypatch.setenv('MARCEL_CONFIG', str(tmp_path / 'none.toml'))
+    monkeypatch.setenv('MARCEL_DATA_DIR', str(tmp_path))
+    app_module.main([])
+    assert seen['ws_max_size'] == MAX_FRAME
+
+
+def test_the_gateway_uses_the_notifier_and_the_artifact_store(tmp_path: Path) -> None:
+    from marcel_hub.app import Settings, create_app
+
+    app = create_app(Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db'))
+    gateway = app.state.channel
+    assert gateway.push is app.state.pusher and gateway.alerts is app.state.pusher
+    assert gateway.artifacts is app.state.artifacts
