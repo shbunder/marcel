@@ -11,6 +11,17 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Build board: https://claude.ai/artifact/1V2swuomSbb9r1cB23Y2eh  (/board for status, /story to start one)'",
+            "timeout": 2
+          }
+        ]
+      }
     ]
   }
 }
