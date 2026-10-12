@@ -151,7 +151,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.runner_sock
         else None
     )
-    registry = tasks.install(app, runner=client)
+    # One event log for the app's live stream (S-04.3); the task registry publishes into it.
+    app.state.events = ws.EventLog(engine)
+    registry = tasks.install(app, runner=client, publisher=ws.OwnerPublisher(app.state.events))
     watch = (
         RunnerWatch(
             client, registry, offsets=OffsetStore(settings.data_dir / 'runner-offsets.json')

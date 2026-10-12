@@ -26,7 +26,7 @@ from sqlalchemy import delete, func
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, col, select
 
-from marcel_hub.auth.tokens import hash_secret
+from marcel_hub.auth.tokens import OWNER_USER_ID, hash_secret
 from marcel_hub.models import AppEvent, Device, utcnow
 
 # Enough for a phone that was offline for a day or two; older gaps ask for a resync.
@@ -250,6 +250,22 @@ async def event_stream(ws: WebSocket) -> None:
         events.unsubscribe(device.user_id, listener)
 
 
+class OwnerPublisher:
+    """Carries events from code that publishes without a database session of its own (the task
+    registry, and through it the runner client) into the event log, for the hub's one owner
+    (plan/02-architecture.md: v1 has one owner)."""
+
+    def __init__(self, events: EventLog, user_id: str = OWNER_USER_ID) -> None:
+        self.events = events
+        self.user_id = user_id
+
+    def publish(self, type: str, data: dict[str, Any]) -> None:
+        with Session(self.events.engine) as session:
+            self.events.publish(session, self.user_id, type, data)
+
+
 def install(app: FastAPI) -> None:
-    app.state.events = EventLog(app.state.engine)
+    """Mount `/ws`. Reuses `app.state.events` when the app made it earlier for other publishers."""
+    if getattr(app.state, 'events', None) is None:
+        app.state.events = EventLog(app.state.engine)
     app.include_router(router)
