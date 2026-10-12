@@ -7,8 +7,10 @@
   (the registry publishes `task.updated` and `task.event` to the app), and copies `remote_url`.
 - When the runner cannot be reached, every NUC task that was live goes to `unknown` and one
   "something broke" alert is raised. Reconnecting backs off from 0.5 s to 30 s. When the runner
-  answers again the alert is cleared, the runner's first burst of `session.state` events gives each
-  task its real state back, and the worker-cap queue is drained.
+  answers again the alert is cleared and the worker-cap queue is drained. Every connect ends with a
+  fresh view (one `session.state` per known session, after any missed events), which gives each
+  task its real state back and restarts its transcript tail, even if its session did not change.
+- A `runner.warning` raises the `runner_warning` alert; `runner.recovered` clears it.
 - Tails resume from the last transcript offset the hub stored, so a reconnect never stores an event
   twice. Offsets are kept in a small JSON file in the data folder, so a hub restart does not either.
 - Anything from the runner that does not match the contract is logged and dropped, never stored.
@@ -225,7 +227,10 @@ async def sse(lines: AsyncIterator[str]) -> AsyncIterator[SSE]:
 
 # Checking what the runner sends ----------------------------------------------------------------
 
-RUNNER_EVENT_TYPES = frozenset({'session.state', 'session.gone', 'runner.warning'})
+RUNNER_EVENT_TYPES = frozenset(
+    {'session.state', 'session.gone', 'runner.warning', 'runner.recovered'}
+)
+WARNING = 'runner_warning'  # the alert cause of a runner warning
 SESSION_STATES = frozenset({'working', 'blocked', 'done', 'failed', 'stopped'})
 # transcript.schema.json `$defs`, field by field: what each event type's `data` may hold. A field
 # is (kind, required). A test checks this table against the contract file, so they cannot drift.
@@ -330,9 +335,9 @@ def check_runner_event(raw: str) -> dict[str, Any]:
     if kind not in RUNNER_EVENT_TYPES:
         raise BadEvent(f'unknown runner event type {kind!r}')
     _check_time(event.get('at'), f'runner event {event["seq"]}')
-    if kind == 'runner.warning':
+    if kind in ('runner.warning', 'runner.recovered'):
         if not isinstance(event.get('message'), str):
-            raise BadEvent('a runner warning has no message')
+            raise BadEvent(f'a {kind} event has no message')
         return event
     session = event.get('session')
     if not isinstance(session, dict):
@@ -707,7 +712,11 @@ class RunnerWatch:
         self.last_seq = event['seq']
         if event['type'] == 'runner.warning':
             log.warning('The runner warns: %s', event['message'])
-            self.alerts.broke('runner_warning', 'The NUC has a problem', event['message'])
+            self.alerts.broke(WARNING, 'The NUC has a problem', event['message'])
+            return
+        if event['type'] == 'runner.recovered':
+            log.info('The runner recovered: %s', event['message'])
+            self.alerts.resolved(WARNING)
             return
         session = event['session']
         task = self._task_for(session['id'])

@@ -81,7 +81,6 @@ from marcel_hub.models import (
     TaskState,
     utcnow,
 )
-from marcel_hub.notify.message import BODY_MAX, TITLE_MAX, PushNotification, clip, message_link
 from marcel_hub.projects.store import ProjectArchived, ProjectStore, SlugTaken
 from marcel_hub.tasks.ports import RunnerUnavailable
 from marcel_hub.tasks.registry import TaskFinished, TaskNotFound, TaskRegistry
@@ -807,8 +806,10 @@ class Notify(BaseModel):
 
 @router.post('/notify')
 async def notify(request: Request, brain: BrainDep) -> Any:
-    """Post `text` in the main conversation and push it to the owner's phones. `urgent` is for
-    something broken (category `broke`); `normal` for news that can wait (category `digest`)."""
+    """Post `text` in the main conversation and push it to the owner's phones as Marcel's own
+    notice (category `note`; `level` decides how loud). At most 6 pushes per hour per agent; past
+    that the message is still posted, the push is dropped and logged, and `pushed` is false.
+    `broke` stays for the hub's own system faults."""
     body = await _body(request, Notify)
     if isinstance(body, JSONResponse):
         return body
@@ -826,16 +827,16 @@ async def notify(request: Request, brain: BrainDep) -> Any:
             body={'text': body.text},
         )
         message_id, name = message.id, agent.name
-    push = PushNotification(
-        title=clip(name, TITLE_MAX),
-        body=clip(body.text, BODY_MAX),
-        category='broke' if body.level == 'urgent' else 'digest',
-        level=body.level,
-        deep_link=message_link(message_id),
-        collapse_key=message_id,  # each notice is its own: never held back as a repeat
-    )
     pusher = getattr(request.app.state, 'pusher', None)
-    pushed = bool(pusher.push(push, brain.owner_user_id)) if pusher is not None else False
+    pushed = (
+        bool(
+            pusher.note(
+                brain.agent_id, message_id, name, body.text, body.level, brain.owner_user_id
+            )
+        )
+        if pusher is not None
+        else False
+    )
     return {'message_id': message_id, 'pushed': pushed}
 
 

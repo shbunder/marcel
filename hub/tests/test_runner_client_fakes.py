@@ -2,9 +2,10 @@
 real runner, a socket or the network.
 
 `FakeRunnerServer` answers the runner API (contracts/runner-api.yaml) from memory: spawn, stop,
-health, usage, the `/events` stream (a `session.state` per known session on connect, then live
-events) and per-session `tail` streams that honour `offset`. `kill()` breaks every open stream and
-refuses new connections; `revive()` brings it back.
+health, usage, the `/events` stream (on every connect: the missed events after `Last-Event-ID`,
+then a fresh view of one `session.state` per known session, then live events) and per-session
+`tail` streams that honour `offset`. `kill()` breaks every open stream and refuses new
+connections; `revive()` brings it back.
 """
 
 import asyncio
@@ -144,15 +145,20 @@ class FakeRunnerServer:
             raise httpx.ReadError('The fake runner was killed.')
 
     async def _events(self, after: int) -> AsyncIterator[bytes]:
-        for session in list(self.sessions.values()):  # one session.state per known session
-            body = {
-                'seq': max(self.seq, 1),
-                'type': 'session.state',
-                'at': now(),
-                'session': session,
-            }
-            yield sse(max(self.seq, 1), json.dumps(body))
+        """The real runner's order (runner-api.yaml `/events`): with a resumable `Last-Event-ID`
+        the events after it come first; then one `session.state` per known session, all carrying
+        the newest seq, so the hub rebuilds its view even for sessions that did not change; then
+        live events."""
+        self._check_alive()
         cursor = len(self.events)
+        if after:  # without a Last-Event-ID there is nothing to resume
+            for seq, data in self.events[:cursor]:
+                if seq > after:
+                    yield sse(seq, data)
+        newest = max(self.seq, 1)
+        for session in list(self.sessions.values()):
+            body = {'seq': newest, 'type': 'session.state', 'at': now(), 'session': session}
+            yield sse(newest, json.dumps(body))
         while True:
             self._check_alive()
             while cursor < len(self.events):

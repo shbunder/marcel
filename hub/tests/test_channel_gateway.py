@@ -498,11 +498,15 @@ def test_a_session_acts_only_for_its_own_role(
     with hub.connect() as ch:
         ch.hello(sid)
         ch.send(type='reply', call_id='c_w', text='I am the brain now.')
-        assert ch.until_pong() == []  # dropped, and not acked
+        # Refused with a reason, so the session drops the call instead of re-sending it forever.
+        [refused] = ch.until_pong()
+        assert refused['call_id'] == 'c_w' and refused['error']['code'] == 'not_allowed'
+        assert 'only the brain and side threads reply' in refused['error']['message']
     with hub.connect() as ch:
         ch.hello(brain)
         ch.send(type='report', call_id='c_b', kind='done', summary='Pretending to be a worker.')
-        assert ch.until_pong() == []
+        [refused] = ch.until_pong()
+        assert refused['call_id'] == 'c_b' and refused['error']['code'] == 'not_allowed'
     assert hub.messages() == []
     assert hub.registry.get(task_id).state == TaskState.working
     with Session(hub.engine) as s:
@@ -719,6 +723,24 @@ def test_the_owners_message_reaches_the_brain_and_its_reply_reaches_the_phone(
         'How full is the disk?',
         'Checking now.',
     ]
+
+
+def test_a_message_from_a_project_room_tells_the_brain_its_project(hub: ChannelHub) -> None:
+    brain = hub.brain()
+    res = hub.client.post('/api/projects', json={'agent_id': hub.agent_id, 'name': 'Energy'})
+    assert res.status_code == 201, res.text
+    project_id = res.json()['id']
+    sent = hub.client.post(
+        f'/api/conversations/{hub.main_id}/messages',
+        json={'text': 'How much did the panels make?', 'project_id': project_id},
+    )
+    assert sent.status_code == 201, sent.text
+    hub.client.post(f'/api/conversations/{hub.main_id}/messages', json={'text': 'And today?'})
+    with hub.connect() as ch:
+        ch.hello(brain)
+        from_room, from_main = ch.deliver(), ch.deliver()
+    assert from_room['project_id'] == project_id
+    assert 'project_id' not in from_main
 
 
 def test_a_quote_sent_to_main_reaches_the_brain(hub: ChannelHub) -> None:

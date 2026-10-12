@@ -565,14 +565,25 @@ def test_notify_posts_in_the_main_chat_and_pushes(brain: Brain) -> None:
     assert n.to_api() == {
         'title': 'Marcel',
         'body': 'The NAS is almost full.',
-        'category': 'broke',
+        'category': 'note',
         'level': 'urgent',
         'deep_link': f'marcel://message/{message_id}',
         'collapse_key': message_id,
     }
     validator('app-api.yaml#/components/schemas/PushNotification').validate(n.to_api())
     brain.post('/notify', {'text': 'The digest is ready.'})
-    assert pushed[-1][0].category == 'digest' and pushed[-1][0].level == 'normal'
+    assert pushed[-1][0].category == 'note' and pushed[-1][0].level == 'normal'
+
+
+def test_a_looping_brain_cannot_flood_the_phone(brain: Brain) -> None:
+    pushed: list[Any] = []
+    pusher = brain.hub.app.state.pusher
+    pusher.push = lambda n, user_id: pushed.append(n) or True
+    answers = [brain.post('/notify', {'text': f'Notice {i}.'}).json() for i in range(8)]
+    assert [a['pushed'] for a in answers] == [True] * 6 + [False, False]
+    assert len(pushed) == 6
+    with Session(brain.hub.engine) as s:  # every notice is still in the chat
+        assert all(s.get(Message, a['message_id']) is not None for a in answers)
 
 
 def test_notify_validates_its_input(brain: Brain) -> None:
