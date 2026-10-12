@@ -38,7 +38,7 @@ def test_without_a_socket_the_hub_runs_with_no_runner(tmp_path: Path) -> None:
     app = create_app(Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db'))
     with TestClient(app) as client:
         runner = client.get('/api/health').json()['runner']
-    assert isinstance(app.state.tasks.runner, NoRunner)
+    assert isinstance(app.state.tasks.runner.nuc, NoRunner)  # cloud tasks: S-07.1
     assert runner == {
         'reachable': False,
         'reason': 'The hub has no runner set up, so it cannot see the NUC.',
@@ -74,7 +74,7 @@ def test_an_absent_runner_shows_in_health_with_a_reason(tmp_path: Path, short_di
     with TestClient(app) as client:
         runner = wait_for_health(client, reachable=False)
         assert app.state.runner_watch.reachable is False
-    assert isinstance(app.state.tasks.runner, RunnerClient)
+    assert isinstance(app.state.tasks.runner.nuc, RunnerClient)  # cloud tasks: S-07.1
     assert runner['reachable'] is False
     assert 'not answering' in runner['reason']
 

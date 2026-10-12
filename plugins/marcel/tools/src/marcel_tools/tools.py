@@ -477,8 +477,9 @@ TOOLS: list[Tool] = [
         'artifacts_publish',
         'Save something worth keeping in the owner’s Items: a link, PR or branch (give "url"), or '
         'a Markdown/HTML doc, file or dashboard JSON on the NUC (give "path"). With "artifact_id" '
-        'it becomes a new version of that artifact instead of a new one. Workers save their own '
-        'results; use this for what you made yourself.',
+        'it becomes a new version of that artifact instead of a new one. A digest passes the '
+        'digest_due event’s digest_id as "in_reply_to". Workers save their own results; use this '
+        'for what you made yourself.',
         obj(
             ['kind', 'title'],
             kind={'type': 'string', 'enum': ARTIFACT_KINDS},
@@ -488,6 +489,7 @@ TOOLS: list[Tool] = [
             project=PROJECT,
             artifact_id={**ID, 'description': 'Make this a new version of that artifact.'},
             summary=text('What changed in this version, in one line.', 200),
+            in_reply_to=text('The digest_id of the digest_due event this doc answers.', 80),
         ),
         artifacts_publish,
     ),

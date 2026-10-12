@@ -30,6 +30,7 @@ from marcel_hub import (
     brain,
     brain_api,
     channel,
+    cloud,
     conversations,
     db,
     digest,
@@ -257,7 +258,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if keeper_of_brains is not None and keeper_of_brains.runner is not None:
             keeper_of_brains.start()  # S-06.2: one brain per agent, from the first second
         sides.start()  # S-06.3: does nothing until the hub has a runner
+        clouds.start_watchdog()  # S-07.1: overdue cloud tasks go silent
         yield
+        await clouds.stop_watchdog()
         await sides.stop()
         if keeper_of_brains is not None:
             await keeper_of_brains.stop()
@@ -335,6 +338,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     prs = github.install(app, settings.github_token)
     repo = memory.install(app)
     channel.install(app, gateway, registry, watch)  # after artifacts: reports store through it
+    # S-07.1: cloud tasks open claude.ai/code sessions; their reports and a deadline watchdog.
+    clouds = cloud.install(app, registry, gateway, client, settings.data_dir)
     # S-05.4: `/marcel-adopt` hands a session Marcel did not start to it, as an adopted task.
     adopt.install(app, registry, gateway, watch)
     # S-04.9: a task's own thread steers the task and shows its later milestones.
