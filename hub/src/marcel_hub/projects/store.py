@@ -7,7 +7,8 @@ projects; the database enforces that too (`ix_project_live_slug`). Each project 
 `memory/projects/<slug>.md` in the memory folder (B-33), made with the project.
 
 Events: `project.created`, `project.updated` (any change to a project or its counts, including a
-task in it changing), `task.moved`, and `artifact.updated` for each item of a moved task.
+task in it changing), `task.moved`, and `artifact.updated` for each item of a moved task (but not
+an item the owner pinned to a project of its own: it stays where it was pinned).
 """
 
 import logging
@@ -318,9 +319,10 @@ class ProjectStore:
         return project
 
     def move(self, task_id: str, project_id: str, user_id: str) -> Task:
-        """File a task under another project of the same agent (B-31). Its artifacts go with it.
+        """File a task under another project of the same agent (B-31). Its artifacts go with it,
+        except those the owner pinned to a project of their own (`Artifact.pinned`).
         Sends `task.moved`, then `task.updated`, then `project.updated` for both projects, then
-        `artifact.updated` for each of its items, now filed under the new project."""
+        `artifact.updated` for each of its unpinned items, now filed under the new project."""
         with Session(self.engine) as s:
             task = s.get(Task, task_id)
             agent = s.get(Agent, task.agent_id) if task else None
@@ -344,6 +346,7 @@ class ProjectStore:
             s.exec(  # type: ignore[call-overload]
                 update(Artifact)
                 .where(col(Artifact.task_id) == task_id)
+                .where(col(Artifact.pinned) == False)  # noqa: E712  a pinned item stays put
                 .values(project_id=target.id)
             )
             s.commit()

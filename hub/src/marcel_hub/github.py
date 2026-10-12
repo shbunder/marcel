@@ -14,8 +14,9 @@ logs), never logged, never put in an error message or an artifact, and hidden fr
 is open. The refresh that sees it merged or closed is its last. At start it finds every open PR
 artifact again, so a hub restart loses none. A rate-limit answer pauses all GitHub calls (one
 token, one limit) until GitHub says, at most `MAX_BACKOFF_S`. When a refresh fails, the last known
-status stays and the reason is kept on the artifact as `meta_json['pr_note']`; the app hears of a
-PR only when its state, checks or review really change (`ArtifactStore.refresh_pr`).
+status stays and the reason is kept on the artifact as `meta_json['pr_note']`, which the card shows
+as `pr.note` (null again once a refresh works). The app hears of a PR when its state, checks or
+review really change (`ArtifactStore.refresh_pr`), and when its note changes.
 """
 
 import asyncio
@@ -343,6 +344,7 @@ class PrRefresher:
             if art.meta_json.get('pr_note') == text:
                 return
             self.store.set_meta(artifact_id, pr_note=text)
+            self.store.announce_updated(artifact_id)  # the card's `pr.note` changed
         except ArtifactNotFound:
             return
         if text is None:

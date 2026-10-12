@@ -20,7 +20,7 @@ from sqlmodel import Session, col, select
 
 from marcel_hub.artifacts import ArtifactRefused, UnknownArtifact
 from marcel_hub.channel.approvals import ApprovalBook
-from marcel_hub.channel.frames import version_tuple
+from marcel_hub.channel.frames import next_steps_problem, version_tuple
 from marcel_hub.channel.outbox import ChannelOutbox, conversation_target, task_target
 from marcel_hub.channel.ports import Artifacts, LogPush, Push
 from marcel_hub.conversations import ensure_main_conversation, post_message
@@ -308,6 +308,13 @@ class Gateway:
         assert peer.task_id is not None
         registry = self.tasks()
         task_id, kind = peer.task_id, frame['kind']
+        # A progress report's `next` past the contract's bounds refuses the report: cutting it
+        # short would quietly drop steps the worker meant the owner to see. The schema allows
+        # `next` on any report but gives it meaning only for `progress`; on another kind it is
+        # ignored, unread.
+        steps = frame.get('next') if kind == 'progress' else None
+        if steps is not None and (problem := next_steps_problem(steps)) is not None:
+            raise CallRefused('bad_next', f'Marcel did not take this report: {problem}.')
         reported = [frame['artifact']] if 'artifact' in frame else []
         reported += frame.get('artifacts', [])
         # A new version of an artifact the task may not update refuses the whole report, before
@@ -332,7 +339,10 @@ class Gateway:
                 log.warning('Task %s: %s', task_id, exc)
                 registry.append_event(task_id, TaskEventType.error, {'message': str(exc)})
         if kind in ('started', 'progress') and frame.get('text'):
-            registry.append_event(task_id, TaskEventType.progress, {'text': frame['text']})
+            progress: dict[str, Any] = {'text': frame['text']}
+            if steps is not None:  # the steps still planned (wireframe 2A)
+                progress['next'] = list(steps)
+            registry.append_event(task_id, TaskEventType.progress, progress)
         if kind == 'started':
             await self._move(task_id, TaskState.working, 'The worker reports started')
             self.milestone(task_id, 'started')
@@ -539,6 +549,8 @@ class Gateway:
                 frame['quoted_message_id'] = data['quoted_message_id']
             if data.get('project_id'):  # sent from a project room (B-32)
                 frame['project_id'] = data['project_id']
+            if data.get('artifact_id'):  # "Ask about this" on an item (B-21)
+                frame['artifact_id'] = data['artifact_id']
             self.outbox.to_conversation(conv.id, frame)
         except Exception:  # the message is stored; it must not fail because of the channel
             log.exception('Could not queue message %s for its session.', data.get('id'))

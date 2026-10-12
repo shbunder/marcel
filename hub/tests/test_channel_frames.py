@@ -31,9 +31,7 @@ def fields_of(definition: dict[str, Any]) -> dict[str, bool]:
 # Fields the contract added before the hub reads them, with the work that adds them. The hub still
 # refuses a frame that carries one. The last test below fails as soon as one is in the hub's
 # tables, so this list can only shrink.
-PENDING_FIELDS: dict[str, set[str]] = {
-    'Report': {'next'},  # channel progress steps (app API 0.5.0): hub follow-up
-}
+PENDING_FIELDS: dict[str, set[str]] = {}
 
 
 def test_the_field_tables_match_the_contract() -> None:
