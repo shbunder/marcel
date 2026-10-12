@@ -22,7 +22,7 @@ def case_named(case_id: str) -> dict[str, Any]:
 
 def projects_like_the_eval(world: World) -> None:
     """The projects the eval's canned `projects_list` shows, made for real."""
-    world.ok('projects_create', {'name': 'Marcel', 'goal': 'Marcel itself',
+    world.ok('projects_create', {'name': 'Marcel', 'goal': 'The home assistant the family talks to',
                                  'repo': 'shbunder/marcel'})  # fmt: skip
     world.ok('projects_create', {'name': 'Energy contracts',
                                  'goal': 'Cheaper gas and electricity for the house'})  # fmt: skip
@@ -35,13 +35,16 @@ class Replay:
     def __init__(self, world: World, tmp_path: Path, case_id: str) -> None:
         self.case = case_named(case_id)
         self.calls: list[dict[str, Any]] = []
+        self.answers: dict[str, str] = {}
         self.config = tmp_path / 'mcp.json'
         self.config.write_text(json.dumps(mcp_config(case_id, tmp_path / 'calls.jsonl')))
         out: list[str] = []
 
         def caller(name: str, args: Any) -> tuple[str, bool]:
             self.calls.append({'tool': name, 'args': args})
-            return ('Sent.', False) if name == 'reply' else world.call(name, args)
+            text, is_error = ('Sent.', False) if name == 'reply' else world.call(name, args)
+            self.answers[name] = text
+            return text, is_error
 
         self.server = EvalServer(caller, out.append)
         self.out = out
@@ -72,6 +75,20 @@ def test_a_sample_request_is_filed_in_the_expected_project(
     spawn = next(s for s in replay.case['expect'] if s['tool'] == 'tasks_spawn')
     title = next(c['args']['title'] for c in replay.calls if c['tool'] == 'tasks_spawn')
     assert filed_in(world) == [(title, spawn['args']['project'])]
+
+
+def test_only_the_repo_field_ties_the_repo_request_to_its_project(
+    world: World, tmp_path: Path
+) -> None:
+    projects_like_the_eval(world)
+    replay = Replay(world, tmp_path, 'project-by-repo')
+    replay.run()
+    (line,) = [x for x in replay.answers['projects_list'].splitlines() if x.startswith('- marcel ')]
+    assert line.endswith('(repo shbunder/marcel) [working 0, needs you 0, done this week 0]')
+    assert 'shbunder/marcel' not in line.split(' (repo ')[0]
+    canned = case_named('project-by-repo')['answers']['projects_list']
+    (eval_line,) = [x for x in canned.splitlines() if x.startswith('- marcel ')]
+    assert eval_line.split(' — ')[1].split(' [')[0] == line.split(' — ')[1].split(' [')[0]
 
 
 def test_every_project_case_has_a_recorded_turn() -> None:

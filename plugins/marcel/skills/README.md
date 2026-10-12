@@ -4,7 +4,7 @@ Claude Code loads every `<name>/SKILL.md` here for each session the plugin runs 
 
 | Skill | Read by | What it says |
 |---|---|---|
-| `orchestrate` | the brain and its side threads | Answer or start a thread, never ask first (B-03), where it runs (B-04), follow-ups to the right thread (B-05), milestones only (B-06), status from `tasks_list` (B-07), model choice (B-13), and which project each thread goes in (B-31): repo, goal or recent threads, else the Inbox; propose a project when three Inbox threads share a goal; add `board_note` lines, never rebuild a board. |
+| `orchestrate` | the brain and its side threads | Answer or start a thread, never ask first (B-03), where it runs (B-04), follow-ups to the right thread (B-05), milestones only (B-06), status from `tasks_list` (B-07), model choice (B-13), and which project each thread goes in (B-31): repo, goal or recent threads, else the Inbox; propose a project once when three Inbox threads share a goal; save facts from finished threads to the project notes; add `board_note` lines, never rebuild a board. |
 | `worker-protocol` | every worker thread | `report`: `started`, `progress` at milestones with the remaining steps in `next`, `artifact`, and always `done` or `failed` with a summary. A cloud thread posts the same fields to `/api/session/report`. |
 | `digest` | the brain | The four digests of B-17 (morning, evening, usage, weekly), written from the hub's facts bundle. |
 

@@ -15,12 +15,12 @@ a worker's call is refused by the hub.
 | Tool | Hub route | What it does |
 |---|---|---|
 | `tasks_spawn(title, prompt, location, project?, repo?, model?, expected_minutes?, message_id?)` | `POST /brain/tasks` | Start a thread. `project` is the slug or id it is filed in (`inbox` for the Inbox, also the default). `location` is `nuc` or `cloud`; `auto` is refused with a hint to choose, so the choice shows in the brain's turn. A cloud task needs `repo` (`owner/name`, no leading `-`, no `..`). `message_id` must be a message in the brain's own conversation. |
-| `tasks_list(state?, project?, archived?)` | `GET /brain/tasks` | Threads, most recent first (50). |
-| `tasks_get(id)` | `GET /brain/tasks/{id}` | One thread and its last ten events. |
+| `tasks_list(state?, project?, archived?)` | `GET /brain/tasks` | Threads, most recent first (50), each with the slug of its project. |
+| `tasks_get(id)` | `GET /brain/tasks/{id}` | One thread (with its project's slug) and its last ten events. |
 | `tasks_send(id, text)` | `POST /brain/tasks/{id}/messages` | Steer a thread (`author: marcel`). |
 | `tasks_stop(id)` | `POST /brain/tasks/{id}/stop` | Stop a thread. |
-| `tasks_move(id, project)` | `POST /brain/tasks/{id}/move` | File a thread under another project. |
-| `projects_list(archived?)` | `GET /brain/projects` | Projects with counts. |
+| `tasks_move(id, project)` | `POST /brain/tasks/{id}/move` | File a thread under another project; the answer names it by slug. |
+| `projects_list(archived?)` | `GET /brain/projects` | Projects with goal, repo and counts. |
 | `projects_create(name, …)` | `POST /brain/projects` | A new project and its notes file. |
 | `projects_update(project, …)` | `PATCH /brain/projects/{project}` | Change a project. |
 | `board_note(project, text)` | `POST /brain/projects/{project}/notes` | A line on the project's board. |

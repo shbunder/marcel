@@ -129,8 +129,18 @@ def _where(task: dict[str, Any]) -> str:
     return 'on the NUC' if task.get('location') == 'nuc' else 'in the cloud'
 
 
-def _task_line(task: dict[str, Any]) -> str:
-    line = f'{task["id"]} “{task["title"]}” — {task["state"]} {_where(task)}'
+def _project_slugs(hub: Hub) -> dict[str, str]:
+    """Project id → slug, live projects and archived ones, so a thread can name its project."""
+    found: dict[str, str] = {}
+    for params in (None, {'archived': 'true'}):
+        for p in hub.call('GET', '/projects', params=params):
+            found[p['id']] = p['slug']
+    return found
+
+
+def _task_line(task: dict[str, Any], slugs: dict[str, str]) -> str:
+    project = slugs.get(task['project_id'], task['project_id'])
+    line = f'{task["id"]} “{task["title"]}” — {task["state"]} {_where(task)}, in {project}'
     if task.get('waiting_for'):
         line += f'; waiting for: {task["waiting_for"]}'
     return line
@@ -164,14 +174,15 @@ def tasks_list(hub: Hub, args: Args) -> str:
     items = page['items']
     if not items:
         return 'No tasks match.'
-    lines = '\n'.join(f'- {_task_line(t)}' for t in items)
+    slugs = _project_slugs(hub)
+    lines = '\n'.join(f'- {_task_line(t, slugs)}' for t in items)
     more = '\n(More exist; narrow by state or project.)' if page.get('more') else ''
     return f'{len(items)} task{"s" if len(items) != 1 else ""}:\n{lines}{more}'
 
 
 def tasks_get(hub: Hub, args: Args) -> str:
     task = hub.call('GET', f'/tasks/{segment(args["id"])}')
-    return answer(_task_line(task), task)
+    return answer(_task_line(task, _project_slugs(hub)), task)
 
 
 def tasks_send(hub: Hub, args: Args) -> str:
@@ -186,7 +197,8 @@ def tasks_stop(hub: Hub, args: Args) -> str:
 
 def tasks_move(hub: Hub, args: Args) -> str:
     task = hub.call('POST', f'/tasks/{segment(args["id"])}/move', {'project': args['project']})
-    return answer(f'Moved “{task["title"]}” to project {task["project_id"]}.')
+    project = _project_slugs(hub).get(task['project_id'], task['project_id'])
+    return answer(f'Moved “{task["title"]}” to project {project}.')
 
 
 # Projects -----------------------------------------------------------------------------------
@@ -203,6 +215,8 @@ def projects_list(hub: Hub, args: Args) -> str:
         line = f'- {p["slug"]} ({p["id"]}): {p["name"]}'
         if p.get('goal'):
             line += f' — {p["goal"]}'
+        if p.get('repo'):
+            line += f' (repo {p["repo"]})'
         line += (
             f' [working {c["working"]}, needs you {c["needs_you"]}, done this week {c["done_7d"]}]'
         )

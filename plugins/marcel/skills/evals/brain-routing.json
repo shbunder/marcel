@@ -62,7 +62,7 @@
       "request": "The README in shbunder/marcel still describes v2. Bring it up to date.",
       "answers": {
         "tasks_list": "No threads yet.",
-        "projects_list": "- marcel (prj_eval1): Marcel — Marcel itself, in shbunder/marcel [working 0, needs you 0, done this week 2]\n- energy-contracts (prj_eval2): Energy contracts — Cheaper gas and electricity for the house [working 0, needs you 0, done this week 1]\n- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
+        "projects_list": "- marcel (prj_eval1): Marcel — The home assistant the family talks to (repo shbunder/marcel) [working 0, needs you 0, done this week 2]\n- energy-contracts (prj_eval2): Energy contracts — Cheaper gas and electricity for the house [working 0, needs you 0, done this week 1]\n- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
         "tasks_spawn": "Started “Update the Marcel README” in the cloud (tsk_eval6)."
       },
       "expect": [
@@ -77,7 +77,7 @@
       "request": "Engie sent us a new offer for gas. Is it cheaper than what we pay Luminus now?",
       "answers": {
         "tasks_list": "No threads yet.",
-        "projects_list": "- marcel (prj_eval1): Marcel — Marcel itself, in shbunder/marcel [working 0, needs you 0, done this week 2]\n- energy-contracts (prj_eval2): Energy contracts — Cheaper gas and electricity for the house [working 0, needs you 0, done this week 1]\n- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
+        "projects_list": "- marcel (prj_eval1): Marcel — The home assistant the family talks to (repo shbunder/marcel) [working 0, needs you 0, done this week 2]\n- energy-contracts (prj_eval2): Energy contracts — Cheaper gas and electricity for the house [working 0, needs you 0, done this week 1]\n- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
         "tasks_spawn": "Started “Compare Engie's gas offer with Luminus” on the NUC (tsk_eval7)."
       },
       "expect": [
@@ -92,7 +92,7 @@
       "request": "Find three good banana bread recipes and save the best one for me.",
       "answers": {
         "tasks_list": "No threads yet.",
-        "projects_list": "- marcel (prj_eval1): Marcel — Marcel itself, in shbunder/marcel [working 0, needs you 0, done this week 2]\n- energy-contracts (prj_eval2): Energy contracts — Cheaper gas and electricity for the house [working 0, needs you 0, done this week 1]\n- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
+        "projects_list": "- marcel (prj_eval1): Marcel — The home assistant the family talks to (repo shbunder/marcel) [working 0, needs you 0, done this week 2]\n- energy-contracts (prj_eval2): Energy contracts — Cheaper gas and electricity for the house [working 0, needs you 0, done this week 1]\n- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
         "tasks_spawn": "Started “Find a banana bread recipe” on the NUC (tsk_eval8)."
       },
       "expect": [

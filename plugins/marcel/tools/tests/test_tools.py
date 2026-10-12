@@ -111,11 +111,20 @@ def test_tasks_list_and_get(world: World) -> None:
     assert world.ok('tasks_list') == 'No tasks match.'
     tid = task_id(spawn(world))
     listed = world.ok('tasks_list', {'state': 'starting working'})
-    assert listed == f'1 task:\n- {tid} “Check disk usage” — starting on the NUC'
+    assert listed == f'1 task:\n- {tid} “Check disk usage” — starting on the NUC, in inbox'
     assert world.ok('tasks_list', {'state': 'done', 'archived': True}) == 'No tasks match.'
     got = world.ok('tasks_get', {'id': tid})
-    assert got.startswith(f'{tid} “Check disk usage” — starting on the NUC')
+    assert got.startswith(f'{tid} “Check disk usage” — starting on the NUC, in inbox')
     assert '"recent_events"' in got
+
+
+def test_each_thread_names_its_project(world: World) -> None:
+    world.ok('projects_create', {'name': 'Garden'})
+    tid = task_id(spawn(world, project='garden'))
+    assert world.ok('tasks_list').endswith(
+        f'{tid} “Check disk usage” — starting on the NUC, in garden'
+    )
+    assert ', in garden' in world.ok('tasks_get', {'id': tid}).splitlines()[0]
 
 
 def test_tasks_list_says_when_there_are_more(world: World) -> None:
@@ -155,7 +164,7 @@ def test_tasks_move(world: World) -> None:
     tid = task_id(spawn(world))
     world.ok('projects_create', {'name': 'Garden'})
     text = world.ok('tasks_move', {'id': tid, 'project': 'garden'})
-    assert text.startswith('Moved “Check disk usage” to project prj_')
+    assert text == 'Moved “Check disk usage” to project garden.'
     with Session(world.app.state.engine) as s:
         garden = s.exec(select(Project).where(Project.slug == 'garden')).one()
     assert tasks(world)[0].project_id == garden.id
@@ -186,6 +195,9 @@ def test_projects_create_list_and_update(world: World) -> None:
                               'done this week 0]')  # fmt: skip
     assert listed[1].startswith('- inbox (')
     assert world.ok('projects_list', {'archived': True}) == 'No projects.'
+    world.ok('projects_create', {'name': 'Site', 'goal': 'The family website',
+                                 'repo': 'shbunder/site'})  # fmt: skip
+    assert '— The family website (repo shbunder/site) [' in world.ok('projects_list')
     updated = world.ok('projects_update', {'project': 'energy-contracts',
                                            'instructions': 'Show yearly totals.'})  # fmt: skip
     assert updated.startswith('Updated “Energy contracts”: instructions.')
