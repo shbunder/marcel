@@ -115,4 +115,6 @@ usage: usage/usage-p-text.txt
 `claude --bg` records the session and starts a detached player (`claude __play <short-id>`) that
 walks the steps over time and exits when they are done or a gate gives up. `stop` ends the player.
 Scenario timings are fractions of a second, so a whole scenario plays in under a second. The shim is
-standard-library Python 3.11+ and imports no network module (a test checks this).
+standard-library Python 3.11+. `bin/claude` switches the network off before the shim runs
+(`netguard.py`), so the fake process and its players cannot open a connection; a test plants a
+request inside `claude --bg` and checks it is refused.

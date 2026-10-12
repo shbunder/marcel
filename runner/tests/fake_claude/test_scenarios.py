@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -15,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from fake_claude import FIXTURES, FakeClaude
+from fake_claude import EXECUTABLE, FIXTURES, FakeClaude
 from fake_claude.shim import load_scenario
 
 REPO = Path(__file__).resolve().parents[3]
@@ -183,9 +184,46 @@ def test_the_shim_never_imports_a_network_module() -> None:
     sources = [*Path(__file__).parent.glob('*.py'), Path(__file__).parent / 'bin' / 'claude']
     banned = ('socket', 'urllib', 'http', 'ssl', 'requests', 'httpx', 'anthropic')
     for path in sources:
-        if path.name.startswith(('test_', 'conftest')):
-            continue
+        if path.name.startswith(('test_', 'conftest')) or path.name == 'netguard.py':
+            continue  # netguard imports socket only to switch it off
         for line in path.read_text('utf-8').splitlines():
             words = line.split()
             if words[:1] in (['import'], ['from']) and len(words) > 1:
                 assert words[1].split('.')[0] not in banned, f'{path.name}: {line}'
+
+
+# The fake run as its own process, with a network call planted inside `claude --bg`, the way a
+# careless change to the shim would add one. bin/claude's guard must stop it.
+PLANTED = """
+import runpy, socket, sys, urllib.request
+sys.path.insert(0, sys.argv[1])
+from fake_claude import shim
+
+def phone_home(*_args):
+    try:
+        urllib.request.urlopen('http://127.0.0.1:9/', timeout=2)
+    except OSError as e:
+        print('REFUSED' if 'fake claude: no network' in str(e) else f'OTHER {e!r}')
+    try:
+        socket.create_connection(('127.0.0.1', 9), timeout=2)
+    except OSError as e:
+        print('REFUSED' if 'fake claude: no network' in str(e) else f'OTHER {e!r}')
+
+shim.start_player = lambda *_args: phone_home()
+sys.argv = [sys.argv[2], '--bg', '--', 'go']
+runpy.run_path(sys.argv[0], run_name='__main__')
+"""
+
+
+def test_the_fake_process_refuses_the_network(fake: FakeClaude) -> None:
+    done = subprocess.run(
+        [sys.executable, '-c', PLANTED, str(EXECUTABLE.parents[2]), str(EXECUTABLE)],
+        env=fake.env(),
+        cwd=fake.home,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.splitlines()[:2] == ['REFUSED', 'REFUSED']

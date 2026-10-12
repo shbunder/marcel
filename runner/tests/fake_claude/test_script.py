@@ -41,3 +41,16 @@ def test_an_unknown_scenario_lists_the_real_ones(tmp_path: Path) -> None:
     assert done.returncode == 1
     assert "no scenario 'no-such-scenario'" in done.stderr
     assert 'worker-happy-path' in done.stderr
+
+
+def test_refuses_a_real_claude_home(tmp_path: Path) -> None:
+    real = tmp_path / 'real-home' / '.claude'
+    real.mkdir(parents=True)
+    (real / 'settings.json').write_text('{"model": "opus"}\n')
+    before = {p.name: p.read_bytes() for p in real.iterdir()}
+
+    done = run('worker-happy-path', 'true', home=real.parent)
+
+    assert done.returncode == 1
+    assert 'looks like a real Claude Code home' in done.stderr
+    assert {p.name: p.read_bytes() for p in real.iterdir()} == before

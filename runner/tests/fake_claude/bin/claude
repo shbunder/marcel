@@ -9,6 +9,10 @@ if sys.version_info < (3, 11):
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from fake_claude import netguard  # noqa: E402
+
+netguard.forbid()  # before the shim runs: this process never reaches the network
+
 from fake_claude.shim import main  # noqa: E402
 
 sys.exit(main(sys.argv[1:]))
