@@ -1,0 +1,323 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		4DE100000000000000000001 /* MarcelKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000001 /* MarcelKit */; };
+		4DE100000000000000000002 /* PixelKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000002 /* PixelKit */; };
+		4DE100000000000000000003 /* AvatarKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000003 /* AvatarKit */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		4DA100000000000000000001 /* Marcel.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Marcel.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4DA100000000000000000002 /* Marcel-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Marcel-Info.plist"; sourceTree = "<group>"; };
+		4DE300000000000000000001 /* MarcelKit */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = MarcelKit; sourceTree = "<group>"; };
+		4DE300000000000000000002 /* PixelKit */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = PixelKit; sourceTree = "<group>"; };
+		4DE300000000000000000003 /* AvatarKit */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = AvatarKit; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		4DA200000000000000000001 /* Marcel */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Marcel;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		4DA300000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4DE100000000000000000001 /* MarcelKit in Frameworks */,
+				4DE100000000000000000002 /* PixelKit in Frameworks */,
+				4DE100000000000000000003 /* AvatarKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		4DA400000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				4DA200000000000000000001 /* Marcel */,
+				4DE300000000000000000001 /* MarcelKit */,
+				4DE300000000000000000002 /* PixelKit */,
+				4DE300000000000000000003 /* AvatarKit */,
+				4DA400000000000000000003 /* Config */,
+				4DA400000000000000000002 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		4DA400000000000000000002 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				4DA100000000000000000001 /* Marcel.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4DA400000000000000000003 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				4DA100000000000000000002 /* Marcel-Info.plist */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4DA600000000000000000001 /* Marcel */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4DB100000000000000000001 /* Build configuration list for PBXNativeTarget "Marcel" */;
+			buildPhases = (
+				4DA700000000000000000001 /* Sources */,
+				4DA300000000000000000001 /* Frameworks */,
+				4DA800000000000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				4DA200000000000000000001 /* Marcel */,
+			);
+			name = Marcel;
+			packageProductDependencies = (
+				4DE200000000000000000001 /* MarcelKit */,
+				4DE200000000000000000002 /* PixelKit */,
+				4DE200000000000000000003 /* AvatarKit */,
+			);
+			productName = Marcel;
+			productReference = 4DA100000000000000000001 /* Marcel.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		4DA900000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					4DA600000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = 4DB100000000000000000002 /* Build configuration list for PBXProject "Marcel" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 4DA400000000000000000001;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				4DE400000000000000000001 /* XCLocalSwiftPackageReference "MarcelKit" */,
+				4DE400000000000000000002 /* XCLocalSwiftPackageReference "PixelKit" */,
+				4DE400000000000000000003 /* XCLocalSwiftPackageReference "AvatarKit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 4DA400000000000000000002 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				4DA600000000000000000001 /* Marcel */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		4DA800000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		4DA700000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		4DC100000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		4DC100000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		4DC100000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/Marcel-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Marcel;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Marcel uses the camera once, to read the pairing code your hub shows.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shbunder.marcel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		4DC100000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/Marcel-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Marcel;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Marcel uses the camera once, to read the pairing code your hub shows.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shbunder.marcel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		4DB100000000000000000001 /* Build configuration list for PBXNativeTarget "Marcel" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4DC100000000000000000003 /* Debug */,
+				4DC100000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4DB100000000000000000002 /* Build configuration list for PBXProject "Marcel" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4DC100000000000000000001 /* Debug */,
+				4DC100000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		4DE400000000000000000001 /* XCLocalSwiftPackageReference "MarcelKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = MarcelKit;
+		};
+		4DE400000000000000000002 /* XCLocalSwiftPackageReference "PixelKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = PixelKit;
+		};
+		4DE400000000000000000003 /* XCLocalSwiftPackageReference "AvatarKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = AvatarKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4DE200000000000000000001 /* MarcelKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4DE400000000000000000001 /* XCLocalSwiftPackageReference "MarcelKit" */;
+			productName = MarcelKit;
+		};
+		4DE200000000000000000002 /* PixelKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4DE400000000000000000002 /* XCLocalSwiftPackageReference "PixelKit" */;
+			productName = PixelKit;
+		};
+		4DE200000000000000000003 /* AvatarKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4DE400000000000000000003 /* XCLocalSwiftPackageReference "AvatarKit" */;
+			productName = AvatarKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 4DA900000000000000000001 /* Project object */;
+}

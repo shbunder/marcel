@@ -1,5 +1,14 @@
-# shared/avatar/ — avatar recipes and palettes
+# shared/avatar/ — Marcel's avatar
 
-An avatar is built from an animal **recipe** (`recipes/<animal>.json`), a **palette**
-(`palettes.json`) and a **seed** (the agent's name), and comes out the same every time. The iOS
-`AvatarKit` package reads these files, and a Python test validates them. Filled in by S-13.1.
+Marcel is a pixel-art pink giraffe (decided in spike SP5, 2026-10-12). The sprite is **built, not drawn by hand**:
+the parts, colour ramps and choreography live in a script, and the app plays the sheet the script writes.
+
+| Path | What |
+|---|---|
+| [`pixel/build.py`](pixel/build.py) | The sprite builder. Pure Python, no packages: it writes the PNG and GIFs itself. |
+| [`pixel/out/`](pixel/out/) | Its committed output: `giraffe.png` (the sheet), `giraffe.json` (the loops), preview GIFs per state. |
+| [`../../contracts/avatar-sheet.schema.json`](../../contracts/avatar-sheet.schema.json) | The shape of `giraffe.json`, shared with the app's AvatarKit (S-13.2). |
+
+One loop per avatar state (B-28): `idle`, `thinking`, `working1`…`working3` (1–3 glowing spots, one per active
+thread), `needs_you`, `done`. Rebuild with `make -C shared/avatar/pixel build`; the lane's tests fail when the
+committed output differs from what the script makes. See [`pixel/README.md`](pixel/README.md).

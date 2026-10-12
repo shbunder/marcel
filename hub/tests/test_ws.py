@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import anyio
 import pytest
 import yaml
 from fastapi.testclient import TestClient
@@ -38,8 +39,27 @@ FRAME = Draft202012Validator(
 )
 
 
+# A frame that never comes fails the test after this long instead of hanging the gate.
+RECEIVE_TIMEOUT = 5.0
+
+
+def receive(ws: Any, timeout: float = RECEIVE_TIMEOUT) -> Any:
+    """`ws.receive_json()` with a deadline. Raises `WebSocketDisconnect` if the hub closed."""
+
+    async def next_message() -> Any:
+        with anyio.fail_after(timeout):
+            return await ws._send_rx.receive()
+
+    try:
+        message = ws.portal.call(next_message)
+    except TimeoutError:
+        pytest.fail(f'No frame from the hub within {timeout} s.')
+    ws._raise_on_close(message)
+    return json.loads(message['text'])
+
+
 def frame(ws: Any) -> dict[str, Any]:
-    body = ws.receive_json()
+    body = receive(ws)
     FRAME.validate(body)
     return body
 
@@ -184,7 +204,7 @@ def test_a_device_revoked_while_connected_is_cut_off_before_the_next_event(
         client.delete(f'/api/devices/{phone.device_id}', headers=other.headers)
         send(client, other, main, 'not for the removed phone')
         with pytest.raises(WebSocketDisconnect) as closed:
-            ws.receive_json()
+            receive(ws)
         assert closed.value.code == 1008
 
 
@@ -323,3 +343,10 @@ def test_frames_from_the_app_are_ignored(client: TestClient, phone: Phone, main:
         ws.send_text('anything')
         send(client, phone, main, 'still live')
         assert frame(ws)['type'] == 'message.created'
+
+
+def test_a_missing_frame_fails_fast_instead_of_hanging(client: TestClient, phone: Phone) -> None:
+    with connect(client, phone) as ws:
+        frame(ws)
+        with pytest.raises(pytest.fail.Exception, match='No frame from the hub'):
+            receive(ws, timeout=0.2)

@@ -18,7 +18,7 @@ from fastapi import APIRouter, FastAPI, Request
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from marcel_hub import __version__, auth, conversations, db, ws
+from marcel_hub import __version__, auth, conversations, db, tasks, ws
 
 DEFAULT_CONFIG_PATH = Path('/data/marcel.toml')
 
@@ -111,6 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         db.upgrade(engine)
+        await app.state.tasks.drain()  # tasks queued before a restart start if there is room
         yield
         engine.dispose()
 
@@ -127,6 +128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = engine
     app.include_router(router)
     auth.install(app)
+    tasks.install(app)
     ws.install(app)
     app.include_router(conversations.router)
     return app

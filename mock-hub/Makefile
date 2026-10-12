@@ -16,6 +16,6 @@ fmt: sync
 test: sync
 	uv run pytest
 
-# The mock hub on 127.0.0.1:7499. Pass MOCK_DELAY=0 for an instant scenario.
+# The mock hub on 127.0.0.1:7499 (MOCK_HUB_PORT=7488 for another). MOCK_DELAY=0 for an instant scenario.
 run: sync
 	uv run python -m marcel_mock_hub
