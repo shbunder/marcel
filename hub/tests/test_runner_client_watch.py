@@ -3,6 +3,7 @@
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlmodel import Session, col, select
@@ -392,6 +393,88 @@ def test_a_runner_warning_is_raised_as_an_alert(
         assert alerts.raised == [
             ('runner_warning', 'The NUC has a problem', 'The supervisor went away.')
         ]
+
+    run(scenario())
+
+
+def test_runner_recovered_clears_the_warning_alert(
+    registry: TaskRegistry, fake: FakeRunnerServer, alerts: RecordingAlerts, sleeps: Sleeps
+) -> None:
+    def event(kind: str, message: str) -> str:
+        at = '2026-10-04T09:05:02Z'
+        return json.dumps({'seq': fake.seq + 1, 'type': kind, 'at': at, 'message': message})
+
+    async def scenario() -> None:
+        watch = watch_for(fake, registry, alerts, sleeps)
+        watch.start()
+        await until(lambda: watch.reachable is True)
+        fake.push_raw(event('runner.warning', 'Listing sessions failed three times.'))
+        await until(lambda: bool(alerts.raised))
+        fake.push_raw(json.dumps({'seq': fake.seq + 1, 'type': 'runner.recovered', 'at': 'x'}))
+        fake.push_raw(event('runner.rebooted', 'Not in the contract.'))  # dropped safely
+        fake.push_raw(event('runner.recovered', 'The NUC can list its sessions again.'))
+        await until(lambda: bool(alerts.cleared))
+        await settle()
+        await watch.close()
+        assert watch.reachable is True
+
+    run(scenario())
+    assert [cause for cause, _, _ in alerts.raised] == ['runner_warning']
+    assert alerts.cleared == ['runner_warning']
+
+
+def test_a_short_outage_where_nothing_changed_brings_the_task_back(
+    registry: TaskRegistry, fake: FakeRunnerServer, alerts: RecordingAlerts, sleeps: Sleeps
+) -> None:
+    """The runner resumes from the hub's Last-Event-ID: the missed events come first, then the
+    fresh view. A task whose session did not change has no missed event, so only that closing
+    view takes it back from `unknown` and restarts its transcript tail."""
+
+    async def scenario() -> None:
+        watch = watch_for(fake, registry, alerts, sleeps)
+        watch.start()
+        await until(lambda: watch.reachable is True)
+        quiet = await registry.spawn(AGENT, 'Quiet', prompt='Work.')
+        busy = await registry.spawn(AGENT, 'Busy', prompt='Work.')
+        assert quiet.session_id and busy.session_id
+        await until(lambda: registry.get(quiet.id).state == TaskState.working)
+        fake.write(quiet.session_id, (100, 0, *TEXT))
+        await until(lambda: len(transcript(registry, quiet.id)) == 1)
+        resumed_from = watch.last_seq
+        seen: list[dict[str, Any]] = []
+        handle = watch._on_runner_event
+
+        async def recording(raw: str) -> None:
+            seen.append(json.loads(raw))
+            await handle(raw)
+
+        watch._on_runner_event = recording  # type: ignore[method-assign]
+        tails_before = len(fake.tail_offsets(quiet.session_id))
+
+        fake.kill()
+        await until(lambda: registry.get(quiet.id).state == TaskState.unknown)
+        fake.push_state(busy.session_id, state='done', result='Finished meanwhile.')  # missed
+        fake.revive()
+        await until(lambda: registry.get(quiet.id).state == TaskState.working)
+        await until(lambda: registry.get(busy.id).state == TaskState.done)
+        fake.write(quiet.session_id, (200, 0, *CALL))
+        await until(lambda: len(transcript(registry, quiet.id)) == 2)
+        await watch.close()
+
+        events = [r for r in fake.requests if r.url.path == '/events']
+        assert events[-1].headers['Last-Event-ID'] == str(resumed_from)
+        assert watch.last_seq == fake.seq  # the fresh view carries the newest seq
+        # On reconnect: the missed change first, then the fresh view (one state per session).
+        after = [(e['session']['id'], 'previous_state' in e) for e in seen[:3]]
+        assert after == [
+            (busy.session_id, True),
+            (quiet.session_id, False),
+            (busy.session_id, False),
+        ]
+        assert len(fake.tail_offsets(quiet.session_id)) > tails_before  # the tail restarted
+        assert transcript(registry, quiet.id) == ['Looking at the disk.', 'df -h']
+        reasons = [e.data_json['reason'] for e in stored(registry, quiet.id, 'state')]
+        assert reasons[-2:] == ['The runner is unreachable', 'The runner reports working']
 
     run(scenario())
 

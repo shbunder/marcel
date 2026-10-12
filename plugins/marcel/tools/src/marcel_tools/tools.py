@@ -294,7 +294,10 @@ def notify(hub: Hub, args: Args) -> str:
     sent = hub.call('POST', '/notify', args)
     if sent['pushed']:
         return 'Posted in the chat and pushed to the owner’s phone.'
-    return 'Posted in the chat. No push went out (a repeat, or no push is set up).'
+    return (
+        'Posted in the chat. No push went out: Marcel already pushed 6 notices this hour, or no '
+        'push is set up.'
+    )
 
 
 def usage_get(hub: Hub, args: Args) -> str:
@@ -533,8 +536,9 @@ TOOLS: list[Tool] = [
     Tool(
         'notify',
         'Interrupt the owner: posts in the chat and pushes to their phone. Only when they would '
-        'want to know now — something broke ("urgent") or news that can wait ("normal"). For a '
-        'normal answer use reply; task milestones are pushed already.',
+        'want to know now; "urgent" for what needs them soon, "normal" for news that can wait. '
+        'At most 6 pushes an hour; past that the message is only posted. For a normal answer '
+        'use reply; task milestones are pushed already.',
         obj(
             ['text'],
             text=text('One or two short sentences, the outcome first.', 2000),

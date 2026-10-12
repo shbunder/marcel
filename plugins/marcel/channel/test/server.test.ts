@@ -372,6 +372,37 @@ describe('reply', () => {
     expect(text(res)).toBe('Sent.');
   });
 
+  it('returns an error naming the hub’s reason when the hub refuses the reply, and does not re-send it', async () => {
+    const h = await connected();
+    const refusal = { code: 'not_allowed', message: 'Marcel did not take a reply from this session: workers use report.' };
+    h.hub.onFrame = (f) => (f.type === 'reply' ? { type: 'call_ack', call_id: f.call_id, error: refusal } : undefined);
+    const res = await h.callTool('reply', { text: 'Done.' });
+    expect(res.result?.isError).toBe(true);
+    expect(text(res)).not.toBe('Sent.');
+    expect(text(res)).toContain(refusal.message);
+    expect(text(res)).toContain('not_allowed');
+    expect(h.server.hub?.pendingCallCount).toBe(0);
+    h.hub.drop();
+    await vi.advanceTimersByTimeAsync(1000); // reconnected: nothing is re-sent
+    expect(h.hub.hellos).toHaveLength(2);
+    expect(h.hub.of('reply')).toHaveLength(1);
+  });
+
+  it('logs a refusal that arrives after the tool already said "queued", and drops the call', async () => {
+    const h = await connected();
+    const p = h.callTool('reply', { text: 'slow' });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(text(await p)).toMatch(/^Queued/);
+    const { call_id } = h.hub.of('reply')[0]!;
+    h.hub.push({ type: 'call_ack', call_id, error: { code: 'not_allowed', message: 'Workers use report.' } });
+    await flush();
+    expect(h.server.hub?.pendingCallCount).toBe(0);
+    expect(h.logs.some((l) => l.includes('refused a reply') && l.includes('Workers use report.'))).toBe(true);
+    h.hub.drop();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.hub.of('reply')).toHaveLength(1);
+  });
+
   it('refuses empty text and bad arguments, and sends nothing', async () => {
     const h = await connected();
     expect(text(await h.callTool('reply', { text: '  ' }))).toMatch(/non-empty/);
@@ -439,6 +470,17 @@ describe('report', () => {
       expect(text(res)).toMatch(pattern);
     }
     expect(h.hub.of('report')).toHaveLength(0);
+  });
+
+  it('returns an error when the hub refuses an artifact it does not know', async () => {
+    const h = await connected();
+    const refusal = { code: 'unknown_artifact', message: 'There is no artifact art_404.' };
+    h.hub.onFrame = (f) => (f.type === 'report' ? { type: 'call_ack', call_id: f.call_id, error: refusal } : undefined);
+    const res = await h.callTool('report', { kind: 'artifact', artifact: { kind: 'link', title: 'x', url: 'https://example.com' } });
+    expect(res.result?.isError).toBe(true);
+    expect(text(res)).toContain('unknown_artifact');
+    expect(text(res)).toContain(refusal.message);
+    expect(h.server.hub?.pendingCallCount).toBe(0);
   });
 
   it('keeps only the fields the contract has', async () => {

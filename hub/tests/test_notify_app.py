@@ -91,7 +91,7 @@ def test_the_runner_alert_is_pushed_and_cleared(engine: Engine) -> None:
     registry = registry_with(engine, pusher, RecordingPublisher())
     fake = FakeRunnerServer()
 
-    async def go() -> str:
+    async def go() -> None:
         watch = watch_for(fake, registry, pusher, Sleeps())  # type: ignore[arg-type]
         watch.start()
         await until(lambda: watch.reachable is True)
@@ -105,12 +105,11 @@ def test_the_runner_alert_is_pushed_and_cleared(engine: Engine) -> None:
         await until(lambda: len(ntfy.requests) == 2)
         await watch.close()
         await pusher.wait()
-        return task.id
 
-    task_id = run(go())
+    run(go())
     assert [(b['title'], b['priority'], b['click']) for b in ntfy.bodies] == [
-        ('Marcel cannot reach the NUC', 4, f'marcel://task/{task_id}'),
-        ('The NUC is back', 3, f'marcel://task/{task_id}'),
+        ('Marcel cannot reach the NUC', 4, 'marcel://status'),
+        ('The NUC is back', 3, 'marcel://status'),
     ]
 
 

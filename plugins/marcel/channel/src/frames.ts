@@ -95,6 +95,8 @@ export interface CallAck {
   type: 'call_ack';
   call_id: string;
   duplicate?: boolean;
+  /** The hub refused the call and stored nothing. The tool returns `message`; the call is not re-sent. */
+  error?: { code: string; message: string };
 }
 export interface Pong {
   type: 'pong';

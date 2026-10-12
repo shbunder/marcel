@@ -23,7 +23,7 @@ from marcel_hub.models import (
 from marcel_hub.models import TaskState as S
 from marcel_hub.notify import Pusher, PushNotification
 from marcel_hub.notify.message import clip
-from marcel_hub.notify.routing import for_state
+from marcel_hub.notify.routing import for_note, for_state
 
 PUSH = validator('app-api.yaml#/components/schemas/PushNotification')
 
@@ -75,8 +75,8 @@ def test_the_routing_table(engine: Engine, setup: tuple[Pusher, RecordingNotifie
         ('task', 'normal', f'marcel://task/{done}'),
         ('task', 'normal', f'marcel://task/{failed}'),
         ('broke', 'urgent', f'marcel://task/{silent}'),
-        # No task is about the runner: the push opens the task that changed last.
-        ('broke', 'urgent', f'marcel://task/{silent}'),
+        # No task is about the runner: the push opens the app's status screen.
+        ('broke', 'urgent', 'marcel://status'),
         ('digest', 'normal', 'marcel://message/msg_digest'),
     ]
     for _, n in notifier.sent:
@@ -155,26 +155,43 @@ def test_the_model_refuses_what_the_contract_refuses() -> None:
         PushNotification(**{**ok, 'token': 'mrc_x'})
 
 
-def test_a_runner_alert_with_only_a_message_links_to_it(engine: Engine) -> None:
+def test_a_runner_alert_opens_the_status_screen_not_a_task_or_message(engine: Engine) -> None:
     add_device(engine)
     notifier = RecordingNotifier()
     pusher = pusher_for(engine, notifier, clock=Clock())
     add_agent(engine)
+    put_task(engine, S.working)  # a task and a message exist: neither is what the push is about
     with Session(engine) as s:
         s.add(Conversation(id='cnv_1', agent_id='agt_marcel', kind=ConversationKind.main))
         s.add(Message(id='msg_1', conversation_id='cnv_1', role=MessageRole.user,
                       kind=MessageKind.text, body_json={'text': 'hi'}))  # fmt: skip
         s.commit()
     drive(pusher, lambda: pusher.broke('runner_warning', 'The NUC has a problem', 'Disk full.'))
-    assert [n.deep_link for _, n in notifier.sent] == ['marcel://message/msg_1']
+    drive(pusher, lambda: pusher.resolved('runner_warning'))
+    assert [(n.title, n.deep_link) for _, n in notifier.sent] == [
+        ('The NUC has a problem', 'marcel://status'),
+        ('The NUC is fine again', 'marcel://status'),
+    ]
+    for _, n in notifier.sent:
+        PUSH.validate(n.to_api())
 
 
-def test_a_runner_alert_with_nothing_to_link_is_logged_not_sent(
-    engine: Engine, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_a_runner_alert_on_an_empty_hub_still_goes_out(engine: Engine) -> None:
     add_device(engine)
     notifier = RecordingNotifier()
     pusher = pusher_for(engine, notifier)
     drive(pusher, lambda: pusher.broke('runner_unreachable', 'Marcel cannot reach the NUC', 'x'))
-    assert notifier.sent == []
-    assert 'no push went out' in caplog.text
+    assert [n.deep_link for _, n in notifier.sent] == ['marcel://status']
+
+
+def test_a_notice_is_its_own_push_on_its_message() -> None:
+    n = for_note('msg_1', 'Marcel', 'The NAS is almost full.', 'urgent')
+    assert n.to_api() == {
+        'title': 'Marcel',
+        'body': 'The NAS is almost full.',
+        'category': 'note',
+        'level': 'urgent',
+        'deep_link': 'marcel://message/msg_1',
+        'collapse_key': 'msg_1',
+    }
+    PUSH.validate(n.to_api())

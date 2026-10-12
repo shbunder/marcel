@@ -4,7 +4,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-Category = Literal['approval', 'task', 'broke', 'digest']
+Category = Literal['approval', 'task', 'broke', 'digest', 'note']
 Level = Literal['normal', 'urgent']
 
 TITLE_MAX = 80
@@ -20,7 +20,7 @@ class PushNotification(BaseModel):
     body: str = Field(max_length=BODY_MAX)
     category: Category
     level: Level
-    deep_link: str = Field(pattern=r'^marcel://(task|message|approval)/[A-Za-z0-9_-]+$')
+    deep_link: str = Field(pattern=r'^marcel://((task|message|approval)/[A-Za-z0-9_-]+|status)$')
     collapse_key: str | None = None
     task_id: str | None = None
     approval_id: str | None = None
@@ -46,6 +46,10 @@ def approval_link(approval_id: str) -> str:
 
 def message_link(message_id: str) -> str:
     return f'marcel://message/{message_id}'
+
+
+# The app's system status screen: the link of a push about no one task (the runner, a fault).
+STATUS_LINK = 'marcel://status'
 
 
 def clip(text: str, limit: int) -> str:

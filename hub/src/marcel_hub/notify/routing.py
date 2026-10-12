@@ -5,11 +5,13 @@
 | an open approval | approval | urgent | `marcel://approval/<id>` |
 | a task `needs_you` without an approval (a question, a login) | task | urgent | the task |
 | a task `done` or `failed` | task | normal | the task |
-| a task `silent`, the runner down, an urgent push lost | broke | urgent | a task, see below |
+| a task `silent` | broke | urgent | the task |
+| the runner down or warning | broke | urgent | `marcel://status` |
+| an urgent push lost | broke | urgent | what it was about |
 | a digest | digest | normal | the digest's message |
+| Marcel's own notice (the brain's `notify` tool) | note | normal or urgent | its message |
 
-A push about no one task (the runner) opens the task that changed last, else the newest message:
-the contract has no link for "the system" yet (project/contract-requests/S-08.1.md).
+A push about no one task (the runner) opens the app's status screen, `marcel://status`.
 
 Anything else (progress, `working`, `queued`, `unknown`, `stopped`) sends nothing. Texts are read on
 a lock screen: the outcome first, in short plain words.
@@ -115,6 +117,19 @@ def for_failed_push(failed: PushNotification) -> PushNotification:
         deep_link=failed.deep_link,
         collapse_key='push_failed',
         task_id=failed.task_id,
+    )
+
+
+def for_note(message_id: str, title: str, body: str, level: str) -> PushNotification:
+    """Marcel's own notice (the brain's `notify` tool), posted as a message: the push opens it.
+    Each notice is its own (keyed by its message), so none replaces another on the phone."""
+    return _push(
+        title,
+        body,
+        category='note',
+        level=level,
+        deep_link=message_link(message_id),
+        collapse_key=message_id,
     )
 
 

@@ -183,7 +183,12 @@ background watcher follows the runner's streams:
 - **Runner down.** When the runner does not answer, every NUC task that was live goes to `unknown`,
   and one "something broke" alert is pushed (see Push notifications). The hub
   retries after 0.5 s, then 1, 2, 4 … up to 30 s. When the runner answers again the alert is
-  cleared, each task takes the state the runner reports, and queued tasks start if there is room.
+  cleared and queued tasks start if there is room. The hub reconnects with `Last-Event-ID`; the
+  runner sends the events it missed, then always closes with a fresh view (one `session.state`
+  per session), so every task takes the state the runner reports and its transcript tail
+  restarts, even when its session did not change during the outage.
+- **Runner warnings.** `runner.warning` raises the "The NUC has a problem" alert;
+  `runner.recovered` clears it (and the phone gets "The NUC is fine again").
 - **Bad input.** An event that does not match the contract is logged (`Ignored a bad runner event`)
   and dropped; the stream carries on.
 
@@ -365,8 +370,9 @@ them on; the app then registers an ntfy topic with `PUT /api/devices/{id}/push`.
 | A task needs you (a question, a login) | task, urgent: "Marcel needs you" | the task |
 | A task is done / failed | task, normal: "Done: …" / "Failed: …" | the task |
 | A task went silent | broke, urgent: "A task went quiet" | the task |
-| The runner is unreachable / warns | broke, urgent: "Marcel cannot reach the NUC" | the task that changed last |
-| The runner answers again | broke, normal: "The NUC is back" | the same |
+| The runner is unreachable / warns | broke, urgent: "Marcel cannot reach the NUC" / "The NUC has a problem" | the status screen (`marcel://status`) |
+| The runner answers again / recovers | broke, normal: "The NUC is back" / "The NUC is fine again" | the same |
+| Marcel's own notice (the brain's `notify` tool) | note, normal or urgent | its message |
 | An urgent push could not be delivered | broke, urgent: "A notification did not arrive" | what it was about |
 | A digest (`pusher.digest(...)`) | digest, normal | the digest's message |
 
@@ -380,7 +386,8 @@ Nothing else pushes: no progress, no `working`, `queued`, `unknown` or `stopped`
   to the ntfy server; the push only opens the app.
 - **Quiet repeats.** The same push for the same task is not sent twice within 10 minutes. An urgent
   "broke" push goes out once per cause per hour; when its all-clear goes out, that hour starts over,
-  so a second outage is pushed again. Every push carries a collapse key (the task id, or the cause),
+  so a second outage is pushed again. Marcel's own notices are capped at 6 per hour per agent; the
+  rest are posted in the chat but not pushed, and the log says so. Every push carries a collapse key (the task id, or the cause),
   but only APNs uses it to replace the older push on the phone: on ntfy each push shows separately.
 - **A failed push never breaks the hub.** Pushes are sent in the background, tried three times
   (after 2 s and 10 s), then given up and logged. A refused push (4xx other than 429) is not
@@ -408,8 +415,9 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
   conversation, `side` for a side thread). Anything else is rejected `unknown_session`; the
   server retries for two minutes. A plugin older than 0.1.0 is rejected `plugin_too_old`.
 - **A session acts only for itself.** A worker's `report` lands on its own task; a brain's or side
-  thread's `reply` in its own conversation. A worker's `reply` and a brain's `report` are dropped
-  and logged. A session can never answer a prompt.
+  thread's `reply` in its own conversation. A worker's `reply` and a brain's `report` are stored
+  nowhere, logged, and answered `call_ack` with `error` (`not_allowed`), so the session drops the
+  call instead of re-sending it after every reconnect. A session can never answer a prompt.
 - **Brain and side-thread prompts are denied.** An approval card belongs to a task, so the brain
   or a side thread cannot get one (`project/contract-requests/S-04.6.md`). Rather than wait at its
   prompt for ever, the session gets `permission_decision deny` at once, and the log says which
@@ -435,7 +443,8 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
   15 s to say hello, and a frame over 256 KB closes it (uvicorn's `ws_max_size` is the same cap).
 - **Owner messages.** A message you send in the main conversation, or in a side thread, goes to
   that conversation's session. Only your own messages go: Marcel's replies are never sent back to
-  it. A conversation with no session yet (`brain_session_id` unset) gets nothing queued: the
+  it. A message sent from a project room carries its `project_id` on the `user_message`, so the
+  brain knows which project it is about. A conversation with no session yet (`brain_session_id` unset) gets nothing queued: the
   session that starts for it reads the conversation. A thread that belongs to a task is left to
   the task threads (S-04.9).
 
@@ -484,8 +493,10 @@ tool and its route). The brain's MCP server calls these routes over plain HTTP o
   item of another project, or a board, is refused (400).
 - Memory writes go through `MemoryRepo.write` (one commit, `memory: <path> (agent)`, paths that
   cannot leave the memory folder, etag conflicts answered with the current etag).
-- `notify` posts the text in the main conversation and pushes it (`urgent` → category `broke`,
-  `normal` → `digest`), linking to that message.
+- `notify` posts the text in the main conversation and pushes it as category `note` (its `level`
+  decides how loud), linking to that message. At most 6 pushes per hour per agent: past that the
+  message is still posted, the push is dropped and logged, and the answer says `pushed: false`.
+  `broke` stays for the hub's own system faults.
 - Parts built by other stories sit behind `app.state.brain_ports` (`boards`, `schedules`,
   `usage`, `artifacts`). `boards` is plugged in (`boards.BrainBoards`, S-04.11); until a story plugs its own in, the default answers 503 `not_set_up` with
   what is missing, and stores nothing.

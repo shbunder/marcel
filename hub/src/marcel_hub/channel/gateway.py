@@ -3,7 +3,8 @@
 A session proves itself with the hub secret, and is known only by the session id the runner
 reported: a task's `session_id` (worker, or adopted) or a conversation's `brain_session_id`
 (brain for the main conversation, side for a side thread). A session acts only for that task or
-conversation: a worker's `reply`, or a brain's `report`, is dropped, never stored.
+conversation: a worker's `reply`, or a brain's `report`, is refused and never stored; the hub
+answers it with `call_ack` + `error`, so the session drops the call instead of re-sending it.
 """
 
 import contextlib
@@ -214,11 +215,11 @@ class Gateway:
             return []
         if kind == 'reply':
             if peer.role not in CHAT_ROLES:
-                return self._refuse(peer, 'a reply', 'only the brain and side threads reply')
+                return self._refuse(peer, frame, 'a reply', 'only the brain and side threads reply')
             return await self._once(peer, frame, self._store_reply)
         if kind == 'report':
             if peer.role not in WORKER_ROLES:
-                return self._refuse(peer, 'a report', 'only workers report')
+                return self._refuse(peer, frame, 'a report', 'only workers report')
             return await self._once(peer, frame, self._store_report)
         if kind == 'permission_request':
             if peer.task_id is None:
@@ -246,9 +247,15 @@ class Gateway:
         )
 
     @staticmethod
-    def _refuse(peer: Peer, what: str, why: str) -> list[dict[str, Any]]:
+    def _refuse(peer: Peer, frame: dict[str, Any], what: str, why: str) -> list[dict[str, Any]]:
+        """A call this session may not make: store nothing, and say so in the ack, so the
+        session's tool returns the reason and the call is not re-sent after every reconnect."""
         log.warning('Dropped %s from %s session %s: %s.', what, peer.role, peer.session_id[:8], why)
-        return []
+        error = {
+            'code': 'not_allowed',
+            'message': f'Marcel did not take {what} from this session: {why}.',
+        }
+        return [{'type': 'call_ack', 'call_id': frame['call_id'], 'error': error}]
 
     async def _once(
         self, peer: Peer, frame: dict[str, Any], store: Callable[..., Any]
@@ -530,6 +537,8 @@ class Gateway:
             }
             if 'quoted_message_id' in data:
                 frame['quoted_message_id'] = data['quoted_message_id']
+            if data.get('project_id'):  # sent from a project room (B-32)
+                frame['project_id'] = data['project_id']
             self.outbox.to_conversation(conv.id, frame)
         except Exception:  # the message is stored; it must not fail because of the channel
             log.exception('Could not queue message %s for its session.', data.get('id'))

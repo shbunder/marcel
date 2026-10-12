@@ -7,6 +7,8 @@ Plan usage (`GET /usage`): see [runner/usage.md](runner/usage.md).
 
 Session state changes (`GET /events`): see [runner/watch.md](runner/watch.md).
 
+Transcripts (`GET /sessions/{id}/tail`): see [runner/transcript.md](runner/transcript.md).
+
 ## Run it
 
 ```bash

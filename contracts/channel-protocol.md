@@ -38,7 +38,7 @@ channel server                                   hub
      |                                             |
      | -- reply {call_id, text} -----------------> |  brain and side threads (the `reply` tool)
      | -- report {call_id, kind, …} -------------> |  workers (the `report` tool)
-     | <-- call_ack {call_id} ------------------  |  stored; the tool call returns
+     | <-- call_ack {call_id, error?} ----------  |  stored (or refused); the tool call returns
      |                                             |
      | -- permission_request {request_id, …} ----> |  Claude Code relayed a prompt → approval card + push
      | <-- permission_decision {request_id, …} --  |  the owner tapped Approve or Deny
@@ -55,7 +55,7 @@ channel server                                   hub
 | `system_event` | the same, `meta` = `{kind: "system_event", event: <kind>, task_id?}`; `data` goes in the content as a fenced JSON block |
 | `permission_decision` | `notifications/claude/channel/permission` `{request_id, behavior}` |
 | Claude Code's `notifications/claude/channel/permission_request` | → `permission_request` frame, fields unchanged |
-| the `reply` tool call | → `reply` frame; the tool returns when `call_ack` arrives (or after 10 s with "queued") |
+| the `reply` tool call | → `reply` frame; the tool returns when `call_ack` arrives (or after 10 s with "queued"); a `call_ack` with `error` returns as a tool error carrying its code and message |
 | the `report` tool call | → `report` frame; same |
 
 `meta` keys must be identifiers (letters, digits, underscores): Claude Code silently drops other keys.
@@ -83,7 +83,9 @@ and a short settle delay has passed: the session registers its channel handler a
 - **Session → hub:** `reply` and `report` carry a `call_id`, and the hub answers each with
   `call_ack {call_id}` once it is stored. The server keeps every call without an ack and re-sends
   it after a reconnect. The hub stores each `call_id` once and acks a repeat again (`duplicate:
-  true`), so a re-send is harmless.
+  true`), so a re-send is harmless. A call the hub will not take (a worker's `reply`, a brain's
+  `report`, an artifact it does not know) gets `call_ack {call_id, error: {code, message}}` and
+  nothing is stored; the server drops that call and never re-sends it.
 - **Session not connected:** the hub queues its frames (the Outbox, S-04.6). A worker's frames for a
   `queued` or `starting` task wait for its hello.
 - **Approvals answered elsewhere:** a prompt can also be answered in a terminal attached to the
@@ -102,6 +104,7 @@ and a short settle delay has passed: the session registers its channel handler a
 | Failure | Behaviour |
 |---|---|
 | Hub down | The server retries the WebSocket with backoff (1 s → 30 s). While it is not connected, `reply` and `report` return at once with "queued, Marcel is reconnecting" (or "connecting" before the first welcome), and the call goes out after the next welcome. While connected, they wait up to 10 s for `call_ack`, then return "queued". |
+| Hub refuses a call | `call_ack` carries `error`. If the tool is still waiting, it returns an error with the hub's code and message; if it already returned "queued", the server logs the refusal. Either way the call is dropped, not re-sent. |
 | Hub silent | The hub accepts the socket but answers no hello within 15 s, or sends nothing for 60 s after welcome: the server closes the socket and reconnects with backoff. |
 | Server gives up | After a rejection it does not retry, or the end of the `unknown_session` window: tools return an error, "Marcel is unreachable", and the server logs how many queued calls it dropped. |
 | Unknown session id | `rejected unknown_session`; retried every 5 s for 2 minutes, then the server logs it and stops. The runner's spawn check (`channel_registered`) and the hub's watchdog surface it as a task that never said hello. |

@@ -1,5 +1,5 @@
-"""The runner's HTTP server on a unix socket: `GET /health`, `GET /usage`, `/sessions` and
-`GET /events`."""
+"""The runner's HTTP server on a unix socket: `GET /health`, `GET /usage`, `/sessions`,
+`GET /sessions/{id}/tail` and `GET /events`."""
 
 import grp
 import json
@@ -12,10 +12,11 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from marcel_runner.health import Settings, cgroup_of, collect_health
 from marcel_runner.sessions import Sessions, StateFileError, state_dir_from_env
+from marcel_runner.transcript import Tails
 from marcel_runner.usage import UsageProbe
 from marcel_runner.watch import Watcher
 
@@ -89,6 +90,7 @@ class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
         usage: UsageProbe,
         sessions: Sessions | None = None,
         watcher: Watcher | None = None,
+        tails: Tails | None = None,
     ) -> None:
         # bind_socket() has already bound `sock`; skip UnixStreamServer's own bind.
         socketserver.BaseServer.__init__(self, sock.getsockname(), Handler)
@@ -97,6 +99,7 @@ class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
         self.usage = usage
         self.sessions = sessions
         self.watcher = watcher
+        self.tails = tails
         sock.listen(16)
 
 
@@ -124,7 +127,14 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         path = url.path
         sessions = self.server.sessions
-        if sessions is not None and (path == '/sessions' or path.startswith('/sessions/')):
+        parts = path.strip('/').split('/')
+        if self.server.tails is not None and len(parts) == 3 and parts[::2] == ['sessions', 'tail']:
+            # A transcript stream, not a JSON answer, so it is not one of `Sessions.route`'s.
+            if self.command != 'GET':
+                self._error(405, 'method_not_allowed', f'{path} only answers GET.')
+            else:  # holds the connection until the client leaves
+                self.server.tails.handle(self, unquote(parts[1]), parse_qs(url.query))
+        elif sessions is not None and (path == '/sessions' or path.startswith('/sessions/')):
             length = int(self.headers.get('content-length') or 0)
             body = self.rfile.read(length) if length > 0 else b''
             self._send(*sessions.route(self.command, path, parse_qs(url.query), body))
@@ -154,6 +164,7 @@ def serve(
     usage: UsageProbe | None = None,
     sessions: Sessions | None = None,
     watcher: Watcher | None = None,
+    tails: Tails | None = None,
 ) -> UnixHTTPServer:
     """Check the supervisor, bind the socket and return a server ready for `serve_forever()`."""
     if sessions is not None:
@@ -171,7 +182,7 @@ def serve(
     probe = usage if usage is not None else UsageProbe(settings.claude)
     if sessions is not None:
         sessions.refresh_usage = probe.refresh  # a fresh usage reading before each worker spawn
-    return UnixHTTPServer(bind_socket(path, group), health, probe, sessions, watcher)
+    return UnixHTTPServer(bind_socket(path, group), health, probe, sessions, watcher, tails)
 
 
 def settings_from_env() -> tuple[Settings, Path, str | None]:
@@ -196,7 +207,8 @@ def main() -> int:
         settings, sock, group = settings_from_env()
         sessions = Sessions(settings, state_dir_from_env())
         watcher = Watcher(sessions)
-        srv = serve(sock, settings, group, sessions=sessions, watcher=watcher)
+        tails = Tails(sessions.roster, sessions.home)
+        srv = serve(sock, settings, group, sessions=sessions, watcher=watcher, tails=tails)
     except (StartupError, StateFileError) as e:
         print(f'marcel-runner: {e}', file=sys.stderr)
         return 1
@@ -209,6 +221,7 @@ def main() -> int:
         pass
     finally:
         watcher.stop()
+        tails.close()
         srv.server_close()
         sock.unlink(missing_ok=True)
     return 0

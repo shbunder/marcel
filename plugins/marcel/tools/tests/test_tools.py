@@ -203,10 +203,10 @@ def test_projects_create_explains_a_bad_slug(world: World) -> None:
     assert 'lowercase letters, digits and dashes' in text
 
 
-def test_board_note_says_plainly_that_boards_are_not_built_yet(world: World) -> None:
-    text = world.error('board_note', {'project': 'inbox', 'text': 'All quiet.'})
-    assert text == ('board_note did not work: Project boards are not built yet, so the note was '
-                    'not kept.')  # fmt: skip
+def test_board_note_lands_on_the_real_board(world: World) -> None:
+    assert world.ok('board_note', {'project': 'inbox', 'text': 'All quiet.'}) == (
+        'The note is on the board.'
+    )
 
 
 def test_board_note_reaches_the_boards_port(world: World) -> None:
@@ -236,7 +236,15 @@ def test_artifacts_publish_checks_url_and_path(world: World) -> None:
     )
     text = world.error('artifacts_publish', {'kind': 'link', 'title': 'x', 'url': 'https://x.be',
                                              'artifact_id': 'art_1'})  # fmt: skip
-    assert 'cannot store a new version' in text
+    assert 'there is no artifact art_1' in text
+
+
+def test_artifacts_publish_a_new_version(world: World) -> None:
+    link = {'kind': 'link', 'title': 'Engie offer', 'url': 'https://engie.be/offer'}
+    first = world.ok('artifacts_publish', link)
+    art_id = first.split('(', 1)[1].split(',', 1)[0]
+    again = world.ok('artifacts_publish', {**link, 'artifact_id': art_id})
+    assert f'({art_id}, version 2)' in again
 
 
 def test_memory_write_and_read(world: World) -> None:
@@ -312,12 +320,25 @@ def test_notify_posts_and_pushes(world: World) -> None:
     world.app.state.pusher.push = lambda n, user: sent.append(n) or True
     text = world.ok('notify', {'text': 'The NAS is almost full.', 'level': 'urgent'})
     assert text == 'Posted in the chat and pushed to the owner’s phone.'
-    assert sent[0].category == 'broke' and sent[0].level == 'urgent'
+    assert sent[0].category == 'note' and sent[0].level == 'urgent'
     with Session(world.app.state.engine) as s:
         messages = s.exec(select(Message).where(Message.conversation_id == world.main_id)).all()
     assert messages[-1].body_json == {'text': 'The NAS is almost full.'}
     world.app.state.pusher.push = lambda n, user: False
     assert 'No push went out' in world.ok('notify', {'text': 'Again.'})
+
+
+def test_notify_past_six_an_hour_posts_but_does_not_push(world: World) -> None:
+    sent: list[Any] = []
+    world.app.state.pusher.push = lambda n, user: sent.append(n) or True
+    for i in range(6):
+        assert world.ok('notify', {'text': f'Notice {i}.'}).endswith('pushed to the owner’s phone.')
+    text = world.ok('notify', {'text': 'One too many.'})
+    assert text.startswith('Posted in the chat. No push went out')
+    assert len(sent) == 6
+    with Session(world.app.state.engine) as s:
+        messages = s.exec(select(Message).where(Message.conversation_id == world.main_id)).all()
+    assert messages[-1].body_json == {'text': 'One too many.'}
 
 
 def test_usage_get(world: World) -> None:
