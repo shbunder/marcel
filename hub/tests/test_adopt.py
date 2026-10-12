@@ -27,8 +27,11 @@ from test_tasks_fakes import (  # noqa: F401  (fixtures)
 from marcel_hub import adopt
 from marcel_hub.adopt import Adopter, AdoptRequest, TokenCheck, new_adopt_token
 from marcel_hub.app import main
+from marcel_hub.auth.errors import ApiError
 from marcel_hub.models import (
     Agent,
+    Conversation,
+    ConversationKind,
     Message,
     MessageKind,
     Task,
@@ -180,6 +183,48 @@ def test_a_session_marcel_started_is_already_tracked(hub: ChannelHub, token: str
     assert milestones(hub) == []
 
 
+@pytest.mark.parametrize('kind', [ConversationKind.main, ConversationKind.side])
+def test_marcels_own_brain_or_side_session_cannot_be_adopted(
+    hub: ChannelHub, token: str, kind: ConversationKind
+) -> None:
+    sid = str(uuid.uuid4())
+    with Session(hub.engine) as s:
+        if kind == ConversationKind.main:
+            conv = s.get(Conversation, hub.main_id)
+            assert conv is not None
+        else:
+            conv = Conversation(agent_id=hub.agent_id, kind=kind)
+        conv.brain_session_id = sid
+        s.add(conv)
+        s.commit()
+    res = post(hub, local(session_id=sid), token)
+    assert res.status_code == 400
+    assert res.json()['code'] == 'not_adoptable'
+    assert "Marcel's own conversations" in res.json()['message']
+    assert tasks(hub) == [] and milestones(hub) == []
+
+
+@pytest.mark.parametrize('state', [TaskState.done, TaskState.failed, TaskState.stopped])
+def test_a_finished_worker_session_is_not_followed_again(
+    hub: ChannelHub, token: str, state: TaskState
+) -> None:
+    task_id, sid = hub.task(state=state)
+    watch = FakeWatch([sid])
+    hub.app.state.adopter.watch = watch
+    res = post(hub, local(session_id=sid), token)
+    assert res.status_code == 200
+    assert res.json() == {'task_id': task_id, 'tracked': 'links_only'}
+    assert watch.followed == []
+
+
+def test_a_live_worker_session_adopted_again_is_still_followed(hub: ChannelHub, token: str) -> None:
+    task_id, sid = hub.task()
+    watch = FakeWatch([sid])
+    hub.app.state.adopter.watch = watch
+    assert post(hub, local(session_id=sid), token).json()['tracked'] == 'live'
+    assert watch.followed == [(task_id, sid)]
+
+
 def test_a_cloud_session_keeps_its_link_and_is_not_tailed(hub: ChannelHub, token: str) -> None:
     watch = FakeWatch(['session_0168oBNCs8Q2BrHDFu6tYUdh'])
     hub.app.state.adopter.watch = watch
@@ -254,17 +299,79 @@ def test_a_hub_without_an_adopt_token_refuses_every_call(
     assert caplog.text.count('marcel-hub adopt-token') == 1  # said once, not per call
 
 
-def test_too_many_wrong_tokens_lock_the_route_for_a_minute(hub: ChannelHub, token: str) -> None:
-    clock = [1000.0]
-    hub.app.state.adopter.tokens.clock = lambda: clock[0]
+def from_ip(hub: ChannelHub, ip: str, token: str) -> Any:
+    headers = {'Authorization': f'Bearer {token}', 'cf-connecting-ip': ip}
+    return hub.client.post(URL, json=local(), headers=headers)
+
+
+def test_the_right_token_gets_in_while_its_address_is_locked_out(
+    hub: ChannelHub, token: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    for _ in range(adopt.MAX_WRONG_TOKENS + 3):
+        res = from_ip(hub, '203.0.113.9', 'mra_guess')
+        assert res.status_code == 404 and res.json() == hidden_404(hub)  # a lockout too
+    assert hub.app.state.adopter.tokens.locked('203.0.113.9')
+    assert caplog.text.count('Too many wrong adopt tokens from 203.0.113.9') == 1
+    assert from_ip(hub, '203.0.113.9', token).status_code == 201
+
+
+def test_one_address_guessing_does_not_lock_out_another(hub: ChannelHub, token: str) -> None:
+    checks: TokenCheck = hub.app.state.adopter.tokens
     for _ in range(adopt.MAX_WRONG_TOKENS):
-        assert post(hub, local(), 'mra_guess').status_code == 404
-    locked = post(hub, local(), token)
-    assert locked.status_code == 429
-    assert locked.json()['code'] == 'too_many_tries'
-    assert locked.headers['Retry-After'] == '60'
-    clock[0] += adopt.WRONG_TOKEN_WINDOW
+        from_ip(hub, '203.0.113.9', 'mra_guess')
+    assert checks.locked('203.0.113.9')
+    assert not checks.locked('198.51.100.7')
+    assert from_ip(hub, '198.51.100.7', token).status_code == 201
+
+
+def test_without_cloudflare_the_peer_address_is_the_caller(hub: ChannelHub, token: str) -> None:
+    for _ in range(adopt.MAX_WRONG_TOKENS):
+        post(hub, local(), 'mra_guess')
+    assert hub.app.state.adopter.tokens.locked('testclient')
     assert post(hub, local(), token).status_code == 201
+
+
+def test_a_lockout_ends_after_a_minute(tmp_path: Path, token: str) -> None:
+    clock = [1000.0]
+    checks = TokenCheck(tmp_path / adopt.TOKEN_FILE, clock=lambda: clock[0])
+    for _ in range(adopt.MAX_WRONG_TOKENS):
+        with pytest.raises(ApiError):
+            checks.check('Bearer mra_guess', 'a')
+    assert checks.locked('a')
+    clock[0] += adopt.WRONG_TOKEN_WINDOW
+    assert not checks.locked('a') and checks.failures == {}
+
+
+def test_the_overall_ceiling_counts_only_wrong_tokens(
+    tmp_path: Path, token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(adopt, 'WRONG_TOKEN_CEILING', 5)
+    monkeypatch.setattr(adopt, 'MAX_CALLERS', 3)
+    checks = TokenCheck(tmp_path / adopt.TOKEN_FILE)
+    for i in range(5):
+        with pytest.raises(ApiError):
+            checks.check('Bearer mra_guess', f'10.0.0.{i}')
+    assert len(checks.failures) == 3  # no more callers remembered than MAX_CALLERS
+    assert checks.locked('10.0.0.99')  # everyone's wrong tokens, past the ceiling
+    checks.check(f'Bearer {token}', '10.0.0.99')  # the right one still gets in
+
+
+@pytest.mark.parametrize('method', ['GET', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'])
+def test_every_other_method_on_the_address_looks_absent(
+    hub: ChannelHub, token: str, method: str
+) -> None:
+    res = hub.client.request(method, URL, headers={'Authorization': f'Bearer {token}'})
+    assert res.status_code == 404
+    if method != 'HEAD':
+        assert res.json() == hidden_404(hub)
+
+
+def test_a_trailing_slash_looks_absent_too(hub: ChannelHub, token: str) -> None:
+    res = hub.client.post(
+        URL + '/', json=local(), headers={'Authorization': f'Bearer {token}'},
+        follow_redirects=False,
+    )  # fmt: skip
+    assert res.status_code == 404 and res.json() == hidden_404(hub)
 
 
 def test_a_new_token_replaces_the_old_one_and_only_its_hash_is_kept(
@@ -288,7 +395,7 @@ def test_marcel_hub_adopt_token_prints_a_working_token_once(
     assert done.value.code == 0
     out = capsys.readouterr().out
     [token] = [w for w in out.split() if w.startswith('mra_')]
-    TokenCheck(tmp_path / adopt.TOKEN_FILE).check(f'Bearer {token}')
+    TokenCheck(tmp_path / adopt.TOKEN_FILE).check(f'Bearer {token}', 'owner')
     assert '~/.marcel/adopt-token' in out and 'umask 077' in out
 
 
@@ -327,6 +434,11 @@ def test_marcel_hub_adopt_token_says_when_settings_are_broken(
         (local(title='   '), 'title'),
         (local(title='x' * 121), 'title'),
         (local(title='two\nlines'), 'one line'),
+        (local(title='two\u2028lines'), 'one line'),
+        (local(title='para\u2029graph'), 'one line'),
+        (local(title='evil\u202etxt.exe'), 'one line'),
+        (local(title='isolate\u2066x\u2069'), 'one line'),
+        (local(title='mark\u200fx'), 'one line'),
         (local(machine='bad host!'), 'host name'),
         (local(url='http://claude.ai/code/x'), 'https'),
         (local(kind='laptop'), 'kind'),

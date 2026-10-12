@@ -119,13 +119,22 @@ session has no such file: give it the token as the `MARCEL_ADOPT_TOKEN` secret o
   `<data_dir>/adopt-token.sha256` (owner-only), and reads it on every call: a new token works at
   once and the previous one stops. It is not a device token, and a device token does not work here.
 - **Hidden.** Without the right token the answer is exactly the hub's 404 for an unknown address,
-  even for a broken body. After 10 wrong tokens in a minute every call gets 429 until the minute is
-  over. A hub with no adopt token yet refuses every call and says so once in its log.
+  even for a broken body; so is any other method on the address, or a trailing slash.
+- **Nobody can lock you out.** The token is checked first, in constant time, and the right one
+  always gets in. Wrong tokens are counted per caller (Cloudflare's `cf-connecting-ip`, else the
+  peer address): past 10 in a minute that caller is locked out, and past 1000 in a minute from
+  everyone together all wrong tokens are. A lockout answers the same 404 (a 429 would show the
+  route exists) and is said once in the log. A hub with no adopt token yet refuses every call and
+  says so once in its log.
+- **Not Marcel's own.** A session that is a brain's or a side thread's (`brain_session_id` on a
+  conversation) answers 400 `not_adoptable`.
 - **Checks.** A local session id is a UUID and needs `cwd`, a full path; a cloud one is
-  `session_…`. The title is one line of 1 to 120 characters; `url` is https; `machine` a host
+  `session_…`. The title is one line of 1 to 120 characters, without control characters, line or
+  paragraph separators or bidi controls; `url` is https; `machine` a host
   name; no other fields. Each failure is a 400 that says what to change.
 - **Once per session.** The first call makes the task (201); any later call for that session, or
-  for a session Marcel started itself, returns its task (200) and changes nothing.
+  for a session Marcel started itself, returns its task (200) and changes nothing. A finished
+  task's transcript is not followed again.
 - **What it makes.** A task with origin `adopted`, model `unknown`, already `working`, with a note
   "Handed over with /marcel-adopt from <machine> in <cwd>"; filed in the inbox of the owner's first
   agent; and an `adopted` milestone in that agent's main conversation. A local session is a `nuc`

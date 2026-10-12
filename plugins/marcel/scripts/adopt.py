@@ -9,13 +9,17 @@ It runs inside any Claude Code session on any of the owner's computers, so it us
 Python standard library. It never prints or logs the token, talks only HTTPS to the configured
 hub, follows no redirects, and gives every failure as one plain sentence that says what to do.
 
-Settings, all optional:
+Settings live in files in `~/.marcel/`, where `~` is the account's home from the password
+database, never `$HOME`. The environment cannot change where the token goes or which file it is
+read from: a cloned repository's `.claude/settings.json` can set environment variables for every
+command Claude runs, and must not be able to point the token at its own server.
 
-- `MARCEL_HUB_URL`: the hub's API (default `https://marcel-bot.com/api`). Must be https.
-- `MARCEL_ADOPT_TOKEN_FILE`: where the token is (default `~/.marcel/adopt-token`). The file must
-  be readable by its owner only.
-- `MARCEL_ADOPT_TOKEN`: the token itself, for a cloud session, where there is no token file
-  (set it as a secret of the cloud environment). The file wins when both exist.
+- `~/.marcel/adopt-token`: the token. Must belong to you and be readable by you only.
+- `~/.marcel/hub-url` (optional): another hub, e.g. `https://hub.example.org`. Same checks; must
+  be https. Default `https://marcel-bot.com`.
+- `MARCEL_ADOPT_TOKEN` (environment): the token itself, only when there is no token file, for a
+  cloud session (set it as a secret of the cloud environment). It can only send a token to the
+  hub above, never elsewhere.
 
 Run by the command as
 `python3 adopt.py --session-id "${CLAUDE_SESSION_ID}" --title '<title>'`; without
@@ -36,18 +40,23 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-DEFAULT_HUB = 'https://marcel-bot.com/api'
-DEFAULT_TOKEN_FILE = '~/.marcel/adopt-token'
+DEFAULT_HUB = 'https://marcel-bot.com'
+TOKEN_FILE = '.marcel/adopt-token'  # under the home directory
+HUB_FILE = '.marcel/hub-url'
+ADOPT_PATH = '/api/session/adopt'
 TIMEOUT = 15.0  # seconds
 MAX_TITLE = 120
 
 LOCAL_ID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
 CLOUD_ID = re.compile(r'^session_[A-Za-z0-9]{8,64}$')
 HOSTNAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$')
+# Control characters, line and paragraph separators and bidi controls: dropped from a title.
+UNSAFE = re.compile(r'[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]')
 
 GET_A_TOKEN = (
     'On the NUC, run `docker compose exec hub marcel-hub adopt-token` to make one, then save it '
-    'on this computer: `mkdir -p ~/.marcel && (umask 077 && cat > ~/.marcel/adopt-token)`, '
+    'from a terminal on this computer: '
+    '`mkdir -p ~/.marcel && (umask 077 && cat > ~/.marcel/adopt-token)`, '
     'paste the token, press Enter and then Ctrl-D. Then run /marcel-adopt again.'
 )
 
@@ -67,7 +76,7 @@ def is_cloud(env: Mapping[str, str]) -> bool:
 
 
 def clean_title(title: str, cwd: str) -> str:
-    title = ' '.join(title.split())
+    title = ' '.join(UNSAFE.sub(' ', title).split())
     if not title:
         title = f'Session in {Path(cwd).name or cwd}'
     return title if len(title) <= MAX_TITLE else title[: MAX_TITLE - 1].rstrip() + '…'
@@ -111,33 +120,50 @@ def request_body(
 # The token ------------------------------------------------------------------------------------
 
 
-def read_token(env: Mapping[str, str]) -> str:
-    """The adopt token, from the owner-only file or (cloud) the environment. Never printed."""
-    path = Path(env.get('MARCEL_ADOPT_TOKEN_FILE') or DEFAULT_TOKEN_FILE).expanduser()
+def home_dir() -> Path:
+    """The account's own home, from the password database: `$HOME` can be set by a repository."""
+    try:
+        import pwd
+
+        return Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except (ImportError, KeyError):  # pragma: no cover - not a POSIX system
+        return Path.home()
+
+
+def read_private(path: Path, what: str) -> str | None:
+    """The stripped text of an owner-only file of yours, or None when there is none."""
     try:
         info = path.stat()
     except FileNotFoundError:
-        token = env.get('MARCEL_ADOPT_TOKEN', '').strip()
-        if token:
-            return token
-        raise AdoptError(f'Marcel has no adopt token on this computer yet. {GET_A_TOKEN}') from None
+        return None
     except OSError as exc:
         raise AdoptError(f'Could not read {path}: {exc.strerror}.') from None
     if stat.S_IMODE(info.st_mode) & 0o077:
         raise AdoptError(
-            f'Your adopt token in {path} can be read by other people on this computer, so '
+            f'Your {what} in {path} can be read by other people on this computer, so '
             f'/marcel-adopt will not use it. Make it private with `chmod 600 {path}`, '
             'then run /marcel-adopt again.'
         )
     if hasattr(os, 'getuid') and info.st_uid != os.getuid():
         raise AdoptError(
             f'{path} belongs to another user, so /marcel-adopt will not use it. '
-            'Save your own copy of the token there.'
+            'Save your own copy there.'
         )
     try:
-        token = path.read_text().strip()
+        return path.read_text().strip()
     except OSError as exc:
         raise AdoptError(f'Could not read {path}: {exc.strerror}.') from None
+
+
+def read_token(env: Mapping[str, str], home: Path) -> str:
+    """The adopt token, from the owner-only file or (cloud) the environment. Never printed."""
+    path = home / TOKEN_FILE
+    token = read_private(path, 'adopt token')
+    if token is None:
+        token = env.get('MARCEL_ADOPT_TOKEN', '').strip()
+        if token:
+            return token
+        raise AdoptError(f'Marcel has no adopt token on this computer yet. {GET_A_TOKEN}')
     if not token:
         raise AdoptError(f'{path} is empty. {GET_A_TOKEN}')
     return token
@@ -146,15 +172,17 @@ def read_token(env: Mapping[str, str]) -> str:
 # Talking to the hub ---------------------------------------------------------------------------
 
 
-def hub_url(env: Mapping[str, str]) -> str:
-    url = (env.get('MARCEL_HUB_URL') or DEFAULT_HUB).strip().rstrip('/')
+def hub_url(home: Path) -> str:
+    """The adopt address: on the default hub, or the one in `~/.marcel/hub-url`."""
+    path = home / HUB_FILE
+    url = (read_private(path, 'hub address') or DEFAULT_HUB).rstrip('/').removesuffix('/api')
     parts = urlsplit(url)
-    if parts.scheme != 'https' or not parts.hostname:
+    if parts.scheme != 'https' or not parts.hostname or parts.query or parts.fragment:
         raise AdoptError(
-            f'MARCEL_HUB_URL must be an https:// address, such as {DEFAULT_HUB}. '
-            'Fix it or unset it.'
+            f'{path} must hold an https:// address, such as {DEFAULT_HUB}. '
+            'Fix it or remove the file.'
         )
-    return url
+    return url + ADOPT_PATH
 
 
 class NoRedirects(urllib.request.HTTPRedirectHandler):
@@ -163,7 +191,7 @@ class NoRedirects(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str):  # type: ignore[override]
         raise AdoptError(
             'The hub address answered with a redirect, so the token was not sent on. '
-            'Check MARCEL_HUB_URL.'
+            'Check ~/.marcel/hub-url.'
         )
 
 
@@ -252,6 +280,7 @@ def run(
     send: Poster = post,
     cwd: str | None = None,
     machine: str | None = None,
+    home: Path | None = None,
 ) -> int:
     parser = argparse.ArgumentParser(
         prog='marcel-adopt', description='Hand this Claude Code session to Marcel.'
@@ -268,8 +297,9 @@ def run(
             cwd or os.getcwd(),
             socket.gethostname() if machine is None else machine,
         )
-        url = hub_url(env) + '/session/adopt'
-        token = read_token(env)
+        home = home or home_dir()
+        url = hub_url(home)
+        token = read_token(env, home)
         status, answer = send(url, token, body, TIMEOUT)
         print(outcome(status, answer, body['title']))
     except AdoptError as exc:

@@ -22,16 +22,24 @@ session you want to hand over.
 
 ## `scripts/adopt.py`
 
-Standard library only: it runs in any session, on any computer. It refuses a token file that other
-users can read (fix: `chmod 600 ~/.marcel/adopt-token`) or that belongs to someone else, never
-prints the token, talks only HTTPS, follows no redirects and gives up after 15 seconds. Every
-outcome is one line starting with what happened ("Marcel has taken over …", "Not adopted. …").
+Standard library only: it runs in any session, on any computer. It never prints the token, talks
+only HTTPS, follows no redirects and gives up after 15 seconds. Every outcome is one line starting
+with what happened ("Marcel has taken over …", "Not adopted. …").
+
+**Where the token goes is not up to the environment.** A cloned repository's
+`.claude/settings.json` can set environment variables for every command Claude runs. So the script
+reads its settings only from files in `~/.marcel/`, with `~` taken from the account's password
+entry, not `$HOME`, and uses each file only when it belongs to you and nobody else can read it
+(fix: `chmod 600 <file>`).
 
 | Setting | Default | What for |
 |---|---|---|
-| `MARCEL_HUB_URL` | `https://marcel-bot.com/api` | Another hub; must be https |
-| `MARCEL_ADOPT_TOKEN_FILE` | `~/.marcel/adopt-token` | Another token file |
-| `MARCEL_ADOPT_TOKEN` | — | The token itself, for a cloud session (the file wins) |
+| `~/.marcel/adopt-token` | — | The token (required, owner-only) |
+| `~/.marcel/hub-url` | `https://marcel-bot.com` | Another hub, e.g. a test hub; must be https (owner-only) |
+| `MARCEL_ADOPT_TOKEN` (environment) | — | The token itself, only when there is no token file: for a cloud session. It can only go to the hub above |
+
+The command's permission rule lets Claude run exactly
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/adopt.py --session-id …` without asking, nothing else.
 
 Its tests live in the tools lane (`plugins/marcel/tools/tests/test_adopt_script.py`), whose gate
 also lints, type-checks and measures coverage of `scripts/`.

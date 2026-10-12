@@ -40,18 +40,24 @@ CWD = '/home/owner/projects/harry'
 
 
 def token_file(tmp_path: Path, token: str = TOKEN, mode: int = 0o600) -> Path:
-    path = tmp_path / 'adopt-token'
+    path = tmp_path / '.marcel' / 'adopt-token'
+    path.parent.mkdir(exist_ok=True)
     path.write_text(token + '\n')
     path.chmod(mode)
     return path
 
 
-def env_for(tmp_path: Path, **extra: str) -> dict[str, str]:
-    return {
-        'CLAUDE_CODE_SESSION_ID': SID,
-        'MARCEL_ADOPT_TOKEN_FILE': str(tmp_path / 'adopt-token'),
-        **extra,
-    }
+class Env(dict[str, str]):
+    """The session's environment, and the home directory the test gives the script (the
+    script itself reads it from the password database, never from the environment)."""
+
+    def __init__(self, home: Path, values: dict[str, str]) -> None:
+        super().__init__(values)
+        self.home = home
+
+
+def env_for(tmp_path: Path, **extra: str) -> Env:
+    return Env(tmp_path, {'CLAUDE_CODE_SESSION_ID': SID, **extra})
 
 
 class Recorder:
@@ -70,9 +76,9 @@ class Recorder:
 
 
 def run(
-    argv: list[str], env: dict[str, str], send: Any, capsys: pytest.CaptureFixture[str]
+    argv: list[str], env: Env, send: Any, capsys: pytest.CaptureFixture[str]
 ) -> tuple[int, str]:
-    code = adopt.run(argv, env=env, send=send, cwd=CWD, machine='bunderserver')
+    code = adopt.run(argv, env=env, send=send, cwd=CWD, machine='bunderserver', home=env.home)
     out = capsys.readouterr()
     assert TOKEN not in out.out + out.err  # never, in any outcome
     return code, out.out
@@ -136,10 +142,8 @@ def test_an_unreadable_token_file_says_so(
 def test_a_token_path_that_cannot_be_looked_at_says_so(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    blocker = tmp_path / 'file'
-    blocker.write_text('')
-    env = env_for(tmp_path, MARCEL_ADOPT_TOKEN_FILE=str(blocker / 'adopt-token'))
-    code, out = run([], env, Recorder(), capsys)
+    (tmp_path / '.marcel').write_text('')  # a file where the folder should be
+    code, out = run([], env_for(tmp_path), Recorder(), capsys)
     assert code == 1 and 'Could not read' in out
 
 
@@ -215,7 +219,7 @@ def test_without_a_title_the_folder_names_it_and_a_long_one_is_cut(
 def test_an_odd_host_name_is_left_out(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     token_file(tmp_path)
     send = Recorder()
-    adopt.run([], env=env_for(tmp_path), send=send, cwd=CWD, machine='my laptop!')
+    adopt.run([], env=env_for(tmp_path), send=send, cwd=CWD, machine='my laptop!', home=tmp_path)
     assert 'machine' not in send.calls[0][2]
 
 
@@ -251,15 +255,103 @@ def test_a_cloud_session_without_its_id_says_so(
     assert code == 1 and 'This is a cloud session' in out
 
 
-def test_the_hub_url_must_be_https(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def hub_file(home: Path, url: str, mode: int = 0o600) -> None:
+    path = home / '.marcel' / 'hub-url'
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(url + '\n')
+    path.chmod(mode)
+
+
+def test_the_hub_address_comes_from_an_owner_only_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     token_file(tmp_path)
     send = Recorder()
-    for url in ('http://marcel-bot.com/api', 'marcel-bot.com', 'https://'):
-        code, out = run([], env_for(tmp_path, MARCEL_HUB_URL=url), send, capsys)
-        assert code == 1 and 'must be an https:// address' in out
+    hub_file(tmp_path, 'https://hub.test/api/')
+    run([], env_for(tmp_path), send, capsys)
+    hub_file(tmp_path, 'https://hub.test')
+    run([], env_for(tmp_path), send, capsys)
+    assert [c[0] for c in send.calls] == ['https://hub.test/api/session/adopt'] * 2
+
+
+@pytest.mark.parametrize(
+    'url', ['http://marcel-bot.com', 'marcel-bot.com', 'https://', 'https://x.test/?a=1']
+)
+def test_the_hub_address_must_be_https(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], url: str
+) -> None:
+    token_file(tmp_path)
+    hub_file(tmp_path, url)
+    send = Recorder()
+    code, out = run([], env_for(tmp_path), send, capsys)
+    assert code == 1 and 'must hold an https:// address' in out
     assert send.calls == []
-    run([], env_for(tmp_path, MARCEL_HUB_URL='https://hub.test/api/'), send, capsys)
-    assert send.calls[0][0] == 'https://hub.test/api/session/adopt'
+
+
+def test_a_hub_address_file_others_can_write_or_read_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    token_file(tmp_path)
+    hub_file(tmp_path, 'https://hub.test', mode=0o644)
+    send = Recorder()
+    code, out = run([], env_for(tmp_path), send, capsys)
+    assert code == 1 and 'can be read by other people' in out
+    assert send.calls == []
+
+
+def test_the_environment_cannot_move_the_token_or_the_hub(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cloned repository's .claude/settings.json can set any environment variable."""
+    token_file(tmp_path)
+    evil = tmp_path / 'evil'
+    evil.mkdir()
+    token_file(evil, token='mra_' + 'bad0' * 16)
+    hub_file(evil, 'https://evil.test')
+    monkeypatch.setenv('HOME', str(evil))
+    monkeypatch.setenv('MARCEL_HUB_URL', 'https://evil.test/api')
+    monkeypatch.setenv('MARCEL_ADOPT_TOKEN_FILE', str(evil / '.marcel' / 'adopt-token'))
+    env = env_for(
+        tmp_path,
+        HOME=str(evil),
+        MARCEL_HUB_URL='https://evil.test/api',
+        MARCEL_ADOPT_TOKEN_FILE=str(evil / '.marcel' / 'adopt-token'),
+    )
+    send = Recorder()
+    run([], env, send, capsys)
+    assert send.calls[0][:2] == ('https://marcel-bot.com/api/session/adopt', TOKEN)
+
+
+def test_the_home_directory_comes_from_the_password_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pwd
+
+    monkeypatch.setenv('HOME', '/tmp/somewhere-a-repo-chose')
+    assert adopt.home_dir() == Path(pwd.getpwuid(adopt.os.getuid()).pw_dir)
+
+
+def test_unsafe_characters_are_dropped_from_the_title(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    token_file(tmp_path)
+    send = Recorder()
+    title = 'fix\u2028the\u2029renderer \u202eexe.txt\u2066x\u2069\u200f'
+    run(['--title', title], env_for(tmp_path), send, capsys)
+    assert send.calls[0][2]['title'] == 'fix the renderer exe.txt x'
+
+
+COMMAND = SCRIPT.parents[1] / 'commands' / 'marcel-adopt.md'
+
+
+def test_the_command_may_run_only_the_plugins_own_script() -> None:
+    text = COMMAND.read_text()
+    [rule] = [line for line in text.splitlines() if line.startswith('allowed-tools:')]
+    prefix = 'python3 ${CLAUDE_PLUGIN_ROOT}/scripts/adopt.py --session-id'
+    assert rule == f'allowed-tools: Bash({prefix}:*)'
+    [line] = [x.strip() for x in text.splitlines() if 'scripts/adopt.py --session-id' in x
+              and not x.startswith('allowed-tools')]  # fmt: skip
+    assert line.startswith(prefix + ' ')  # the command it asks for is the one the rule allows
 
 
 # What the hub answered ------------------------------------------------------------------------
@@ -395,11 +487,12 @@ def test_end_to_end_the_hub_adopts_the_session_once(
     files.mkdir()
     token_file(files, token=hub_token)
     env = env_for(files)
+    run_e2e = adopt.run
     send = hub_send(world)
 
-    assert adopt.run(['--title', 'Harry renderer'], env=env, send=send, cwd=CWD) == 0
+    assert run_e2e(['--title', 'Harry renderer'], env=env, send=send, cwd=CWD, home=files) == 0
     assert 'Marcel has taken over “Harry renderer”' in capsys.readouterr().out
-    assert adopt.run(['--title', 'Harry renderer'], env=env, send=send, cwd=CWD) == 0
+    assert run_e2e(['--title', 'Harry renderer'], env=env, send=send, cwd=CWD, home=files) == 0
     assert 'already follows' in capsys.readouterr().out
 
     with Session(world.app.state.engine) as s:
