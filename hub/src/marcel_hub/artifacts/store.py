@@ -32,9 +32,10 @@ Without a token the store keeps `NoPrStatus`, which says plainly that the token 
 When a refresh fails, `github.py` keeps the reason as `meta_json['pr_note']`; the card shows it as
 `pr.note` (null once a refresh works again).
 
-`move` pins an item to another project of the same agent (`POST /api/artifacts/{id}/move`): only
-its `project_id` changes. A board stays with its project (`ArtifactIsBoard`), nothing goes into an
-archived project (`MoveTargetArchived`), and a move into the project it is in changes nothing.
+`move` pins an item to another project of the same agent (`POST /api/artifacts/{id}/move`): its
+`project_id` changes and it is marked `pinned`, so a later move of its task leaves it there. A
+board stays with its project (`ArtifactIsBoard`), nothing goes into an archived project
+(`MoveTargetArchived`), and a move into the project it is in changes nothing.
 """
 
 import json
@@ -736,6 +737,7 @@ class ArtifactStore:
             if target.archived:
                 raise MoveTargetArchived(target.name)
             target_id = row.project_id = target.id
+            row.pinned = True  # from now on it stays here when its task moves
             s.add(row)
             s.commit()
             s.refresh(row)
@@ -753,10 +755,16 @@ class ArtifactStore:
         self._updated(art, self.version(art.id, art.current_version))
 
     def announce_moved(self, task_id: str) -> None:
-        """A task moved to another project (S-04.10): its items moved with it. Send
+        """A task moved to another project (S-04.10): its unpinned items moved with it. Send
         `artifact.updated` for each, with its current version, so the app files it again."""
         with Session(self.engine) as s:
-            rows = list(s.exec(select(Artifact).where(Artifact.task_id == task_id)))
+            rows = list(
+                s.exec(
+                    select(Artifact)
+                    .where(Artifact.task_id == task_id)
+                    .where(Artifact.pinned == False)  # noqa: E712
+                )
+            )
         for art in rows:
             self._updated(art, self.version(art.id, art.current_version))
 

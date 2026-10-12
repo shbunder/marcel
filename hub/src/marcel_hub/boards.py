@@ -61,6 +61,7 @@ MAX_ITEMS = 20  # per list in a section
 MAX_NOTES = 5
 NOTE_MAX = 400  # dashboard.schema.json Note.text maxLength
 SUMMARY = 'Rebuilt after a change in the project.'
+PINNED_TITLE = 'Pinned here'
 
 STATE_WORDS = {
     TaskState.queued: 'Waiting for a free slot',
@@ -98,6 +99,14 @@ def _list(items: list[dict[str, Any]], title: str | None = None) -> list[dict[st
     if title is not None:
         widget['title'] = title
     return [widget]
+
+
+def _item(art: Artifact) -> dict[str, Any]:
+    item: dict[str, Any] = {'text': f'{art.title} · v{art.current_version}',
+                            'detail': KIND_WORDS.get(art.kind, art.kind.value)}  # fmt: skip
+    if art.kind in URL_KINDS and art.url:
+        item['url'] = art.url
+    return item
 
 
 def board_content(s: Session, project: Project, notes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -148,18 +157,28 @@ def board_content(s: Session, project: Project, notes: list[dict[str, Any]]) -> 
         reverse=True,
     )[:MAX_RESULTS]
     results: list[dict[str, Any]] = []
+    shown: set[str] = set()
     for t in done:
         items: list[dict[str, Any]] = []
         if t.summary:
             items.append({'text': t.summary})
-        for art in s.exec(select(Artifact).where(Artifact.task_id == t.id)
-                          .order_by(col(Artifact.created_at), col(Artifact.id))):  # fmt: skip
-            item: dict[str, Any] = {'text': f'{art.title} · v{art.current_version}',
-                                    'detail': KIND_WORDS.get(art.kind, art.kind.value)}  # fmt: skip
-            if art.kind in URL_KINDS and art.url:
-                item['url'] = art.url
-            items.append(item)
+        # Only the items filed here: one pinned to another project shows on that board.
+        arts = s.exec(select(Artifact).where(Artifact.task_id == t.id)
+                      .where(Artifact.project_id == project.id)
+                      .order_by(col(Artifact.created_at), col(Artifact.id))).all()  # fmt: skip
+        shown |= {art.id for art in arts}
+        items += [_item(art) for art in arts]
         results += _list(items, title=t.title)
+
+    # Items the owner pinned here that no recent result above lists (their task is elsewhere,
+    # still running, or older), newest change first.
+    pinned = [_item(art) for art in s.exec(
+        select(Artifact).where(Artifact.project_id == project.id)
+        .where(Artifact.pinned == True)  # noqa: E712
+        .order_by(desc(col(Artifact.updated_at)), desc(col(Artifact.id)))
+    ) if art.id not in shown]  # fmt: skip
+    if pinned:
+        results += _list(pinned, title=PINNED_TITLE)
 
     widgets: list[dict[str, Any]] = [
         _section('Waiting on you', 'Nothing waiting on you.', _list(waiting)),

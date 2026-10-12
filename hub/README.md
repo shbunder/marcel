@@ -268,8 +268,9 @@ code is in `src/marcel_hub/artifacts/` (`store.py`, `routes.py`). Boards are lis
   `artifact.updated` for each, with its current version). One with no task goes to the inbox of
   the hub's first agent.
 - **Pinning an item** (B-21, B-31). `POST /api/artifacts/{id}/move` with `{"project_id"}` files one
-  item under another live project of the same agent; only its `project_id` changes (it keeps its
-  task and versions). The app gets `artifact.moved`, `artifact.updated`, then `project.updated` for
+  item under another live project of the same agent; its `project_id` changes (it keeps its task
+  and versions) and it is marked `pinned`. **An item follows its task only until it is pinned:** a
+  task move takes along the items never moved on their own and leaves pinned ones where they are. The app gets `artifact.moved`, `artifact.updated`, then `project.updated` for
   the new and the old project, and both boards are rebuilt. Moving it to the project it is in
   answers 200 and sends nothing. A board stays with its project (409 `artifact_is_board`), an
   archived project takes nothing (409 `project_archived`), another agent's or a missing project is
@@ -278,6 +279,8 @@ code is in `src/marcel_hub/artifacts/` (`store.py`, `routes.py`). Boards are lis
   version on `artifact`, `artifact_id` on `message`, and a board for every project. Its downgrade
   drops boards and `artifact` messages and keeps every other row. Older code reads only `<id>`, so
   after a downgrade an item that had reached version 2 or later shows its version 1 bytes.
+- **Migration 0007** added `artifact.pinned` (false for every existing item). Its downgrade drops
+  the column, so pinned items follow their task again.
 
 ## PR status refresh
 
@@ -319,7 +322,9 @@ content itself, with no brain turn. The code is `src/marcel_hub/boards.py`.
 - **What it shows.** A dashboard (`contracts/dashboard.schema.json`, checked before it is stored)
   with four sections: *Waiting on you* (open approvals, and tasks that need you without a card),
   *In flight* (each running task with its state and the last step it reported), *Recent results*
-  (the newest 5 tasks done in the past 7 days, each with its summary and items at their version),
+  (the newest 5 tasks done in the past 7 days, each with its summary and those of its items filed
+  in this project, at their version, then *Pinned here*: items pinned to this project that no
+  result above lists, newest change first),
   *Upcoming* (empty until schedules exist), then Marcel's notes, the newest 5.
 - **When.** `BoardKeeper` watches the app event log. Any task, approval or artifact change in a
   project (and a project created, renamed or moved into), and any step a worker reports with
@@ -421,9 +426,10 @@ on first use. The code is `src/marcel_hub/memory.py`.
 - **Archive** refuses the inbox (409 `project_is_inbox`) and a project with any task that is not
   done, failed or stopped (409 `project_busy`).
 - **Move.** Only into a live project of the same agent (409 `project_archived`, 404
-  `project_not_found`). The task's items move with it. The app gets `task.moved`, `task.updated`,
-  then `project.updated` for the new and the old project, then `artifact.updated` for each item
-  (now in the new project). Both boards are rebuilt. Moving into the same project sends
+  `project_not_found`). The task's items move with it, except those the owner pinned to a project
+  of their own (see *Pinning an item*). The app gets `task.moved`, `task.updated`, then
+  `project.updated` for the new and the old project, then `artifact.updated` for each item that
+  moved (now in the new project). Both boards are rebuilt. Moving into the same project sends
   nothing. No brain turn.
 - **Counts** on each project: `working` (queued, starting, working, silent, unknown), `needs_you`,
   and `done_7d` (done, last changed in the past 7 days). `updated_at` is the latest change to the
@@ -548,8 +554,10 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
   `working`); a `progress` report's `next` (the steps the worker still plans) is copied into its
   event as `next`. A `next` past the contract (more than 20 steps, an empty step, one over 200
   characters, or not a list of text) refuses the whole report with `call_ack.error` (`bad_next`)
-  saying what to fix: it is never cut short, and nothing of the report is stored; artifacts go to the artifact store (files are copied from the workers' folder) and
-  get an `artifact` event; one the store refuses becomes an `error` event saying why, and the rest
+  saying what to fix: it is never cut short, and nothing of the report is stored. `next` on any
+  other kind of report is ignored, unread (the contract gives it meaning only for `progress`).
+  Artifacts go to the artifact store (files are copied from the workers' folder) and get an
+  `artifact` event; one the store refuses becomes an `error` event saying why, and the rest
   of the report still counts; `done` and `failed` set the summary and the state. `started`, `done` and `failed` post a
   milestone in the main conversation. A report the state machine does not allow (for a task you
   stopped) is stored but changes no state.

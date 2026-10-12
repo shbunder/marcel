@@ -308,9 +308,12 @@ class Gateway:
         assert peer.task_id is not None
         registry = self.tasks()
         task_id, kind = peer.task_id, frame['kind']
-        # A `next` list past the contract's bounds refuses the report: cutting it short would
-        # quietly drop steps the worker meant the owner to see.
-        if 'next' in frame and (problem := next_steps_problem(frame['next'])) is not None:
+        # A progress report's `next` past the contract's bounds refuses the report: cutting it
+        # short would quietly drop steps the worker meant the owner to see. The schema allows
+        # `next` on any report but gives it meaning only for `progress`; on another kind it is
+        # ignored, unread.
+        steps = frame.get('next') if kind == 'progress' else None
+        if steps is not None and (problem := next_steps_problem(steps)) is not None:
             raise CallRefused('bad_next', f'Marcel did not take this report: {problem}.')
         reported = [frame['artifact']] if 'artifact' in frame else []
         reported += frame.get('artifacts', [])
@@ -337,8 +340,8 @@ class Gateway:
                 registry.append_event(task_id, TaskEventType.error, {'message': str(exc)})
         if kind in ('started', 'progress') and frame.get('text'):
             progress: dict[str, Any] = {'text': frame['text']}
-            if kind == 'progress' and 'next' in frame:  # the steps still planned (wireframe 2A)
-                progress['next'] = list(frame['next'])
+            if steps is not None:  # the steps still planned (wireframe 2A)
+                progress['next'] = list(steps)
             registry.append_event(task_id, TaskEventType.progress, progress)
         if kind == 'started':
             await self._move(task_id, TaskState.working, 'The worker reports started')

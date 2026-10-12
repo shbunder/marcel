@@ -5,15 +5,18 @@ Each control here has a test that fails without it: only the owner's messages, a
 items are read or moved; a board never moves; nothing moves into an archived project; an unknown
 item on a message is refused; a worker's `next` past the contract's bounds is refused, not cut."""
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy import text
 from sqlmodel import Session
 from test_channel_fakes import APPROVAL, MESSAGE, ChannelHub, channel_hub, permission
 from test_tasks_fakes import validator
 
+from marcel_hub import db
 from marcel_hub.models import Agent, Artifact, ChannelCall, MessageKind, TaskState, inbox_id
 
 ARTIFACT = validator('app-api.yaml#/components/schemas/Artifact')
@@ -223,6 +226,70 @@ def hub_owner(hub: ChannelHub) -> str:
         return agent.owner_user_id
 
 
+def board_text(hub: ChannelHub, project: dict[str, Any]) -> str:
+    """The project's board as it is rebuilt now, as JSON text."""
+    hub.app.state.boards.build(project['id'])
+    data, _, _ = hub.app.state.artifacts.content(project['board_artifact_id'])
+    return json.dumps(json.loads(data), ensure_ascii=False)
+
+
+def done_task_with_items(hub: ChannelHub, *titles: str) -> tuple[str, list[str]]:
+    """A done task in the inbox with one link item per title: (task id, item ids)."""
+    task_id, _ = hub.task(TaskState.done, title='Find the race', summary='Found it.')
+    store = hub.app.state.artifacts
+    ids = [
+        store.publish_reported({'kind': 'link', 'title': t, 'url': 'https://a.b/'}, task_id).id
+        for t in titles
+    ]
+    return task_id, ids
+
+
+def test_a_pinned_item_shows_on_its_new_board_not_under_its_task_on_the_old(
+    hub: ChannelHub,
+) -> None:
+    inbox = projects(hub)[-1]
+    energy = new_project(hub, 'Energy')
+    _, (pinned, stays) = done_task_with_items(hub, 'Race fix PR', 'Race notes')
+    assert 'Race fix PR' in board_text(hub, inbox)
+    hub.client.post(f'/api/artifacts/{pinned}/move', json={'project_id': energy['id']})
+    old, new = board_text(hub, inbox), board_text(hub, energy)
+    assert 'Race fix PR' not in old and 'Race notes' in old  # the task stays; its pin does not
+    assert 'Race fix PR' in new and 'Pinned here' in new
+    assert 'Race notes' not in new
+
+
+def test_a_task_move_takes_its_unpinned_items_and_leaves_pinned_ones(hub: ChannelHub) -> None:
+    energy = new_project(hub, 'Energy')
+    garden = new_project(hub, 'Garden')
+    task_id, (pinned, follows) = done_task_with_items(hub, 'Race fix PR', 'Race notes')
+    hub.client.post(f'/api/artifacts/{pinned}/move', json={'project_id': energy['id']})
+    before = last_event(hub)
+    res = hub.client.post(f'/api/tasks/{task_id}/move', json={'project_id': garden['id']})
+    assert res.status_code == 200, res.text
+    with Session(hub.engine) as s:
+        left, moved = s.get(Artifact, pinned), s.get(Artifact, follows)
+        assert left is not None and moved is not None
+        assert (left.project_id, left.pinned) == (energy['id'], True)
+        assert (moved.project_id, moved.pinned) == (garden['id'], False)
+    updated = [e['data']['artifact']['id'] for e in since(hub, before)
+               if e['type'] == 'artifact.updated']  # fmt: skip
+    assert updated == [follows]  # the app hears only of the item that moved
+
+
+def test_the_pinned_column_comes_and_goes_with_its_migration(tmp_path: Path) -> None:
+    engine = db.make_engine(tmp_path / 'old.db')
+    db.upgrade(engine, '0006')
+    db.upgrade(engine)
+    with engine.connect() as conn:
+        columns = {r[1]: r for r in conn.execute(text('PRAGMA table_info(artifact)'))}
+    assert columns['pinned'][3] == 1 and columns['pinned'][4] == '0'  # NOT NULL DEFAULT 0
+    db.downgrade(engine, '0006')
+    with engine.connect() as conn:
+        names = {r[1] for r in conn.execute(text('PRAGMA table_info(artifact)'))}
+        assert conn.execute(text('PRAGMA foreign_keys')).scalar_one() == 1
+    assert 'pinned' not in names and 'current_version' in names
+
+
 # 3. NewMessage.artifact_id --------------------------------------------------------------------
 
 
@@ -317,6 +384,18 @@ def test_next_steps_past_the_contract_are_refused_not_cut(
     assert hub.registry.get(task_id).state == TaskState.starting
     with Session(hub.engine) as s:
         assert s.get(ChannelCall, 'c_next') is None
+
+
+def test_next_on_a_report_other_than_progress_is_ignored_unread(hub: ChannelHub) -> None:
+    """channel.schema.json allows `next` on any report but gives it meaning only for progress."""
+    task_id, sid = hub.task(TaskState.starting)
+    with hub.connect() as ch:
+        ch.hello(sid)
+        ack = ch.call('report', kind='started', text='Starting.', next=['x' * 300] * 30)
+    assert 'error' not in ack
+    [event] = hub.task_events(task_id, 'progress')
+    assert event.data_json == {'text': 'Starting.'}
+    assert hub.registry.get(task_id).state == TaskState.working
 
 
 def test_twenty_steps_of_two_hundred_characters_are_taken(hub: ChannelHub) -> None:
