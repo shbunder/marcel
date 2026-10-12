@@ -1,5 +1,5 @@
 ---
-id: ADR-003
+id: ADR-004
 title: The hub schedules from its own schedule table, without APScheduler
 status: Accepted
 date: 2026-10-12
@@ -7,7 +7,7 @@ decided_by: implementer (S-09.1), for the lead to confirm at review
 evidence: S-09.1; hub/tests/test_schedule_cron.py, hub/tests/test_schedule.py
 ---
 
-# ADR-003 — The hub schedules from its own schedule table, without APScheduler
+# ADR-004 — The hub schedules from its own schedule table, without APScheduler
 
 ## Context
 

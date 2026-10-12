@@ -68,7 +68,7 @@ The source of truth. It holds:
 | Channel gateway | One WebSocket endpoint, `/channel`, that every session's channel server connects to. Messages for a session are pushed down it; replies, progress, artifacts and permission requests come up it. |
 | Brain lifecycle | Asks the runner to keep exactly one brain session alive per agent, restarts it, and triggers rollovers (F06). |
 | Task state machine | Nine states (`queued`, `starting`, `working`, `needs_you`, `done`, `failed`, `stopped`, `silent`, `unknown`), every transition listed in `contracts/task-states.md`, driven by runner and channel events. |
-| Scheduler | The hub's own loop over the `schedule` table (SQLite) and a five-field cron reader (ADR-003); digests, user schedules, watchdogs. |
+| Scheduler | The hub's own loop over the `schedule` table (SQLite) and a five-field cron reader (ADR-004); digests, user schedules, watchdogs. |
 | Push | Notifier interface with APNs and ntfy backends. |
 | Memory | A git working copy at `~/marcel/memory`, including `projects/<slug>.md` project notes. The app edits through the API; the hub commits. |
 | Project boards | One board artifact per project, rebuilt by the hub (no brain turn) whenever a task, approval or artifact in the project changes (B-35). |
