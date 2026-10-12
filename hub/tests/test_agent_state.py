@@ -18,7 +18,16 @@ from test_tasks_fakes import run, validator
 
 from marcel_hub import agent_state
 from marcel_hub.agent_state import DONE_S, THINKING_S, AgentStates, derive
-from marcel_hub.models import Agent, Task, TaskEventType, TaskState
+from marcel_hub.conversations import post_message
+from marcel_hub.models import (
+    Agent,
+    Conversation,
+    MessageKind,
+    MessageRole,
+    Task,
+    TaskEventType,
+    TaskState,
+)
 
 STATE = validator('app-api.yaml#/components/schemas/AgentState')
 ME = validator('app-api.yaml#/components/schemas/Me')
@@ -208,6 +217,30 @@ def test_the_brain_thinks_from_a_message_until_it_replies(a: Avatar) -> None:
         ch.deliver()  # the user_message
         assert ch.call('reply', text='40 % full.')['type'] == 'call_ack'
     assert a.sent() == [THINKING, IDLE]
+
+
+def test_a_tasks_milestone_or_approval_in_the_main_chat_does_not_end_the_turn(a: Avatar) -> None:
+    """Only the brain's own reply ends its turn. A task posts milestones and approval cards in
+    the same main conversation as agent messages; those must leave the avatar thinking."""
+    task, _ = a.hub.task(TaskState.done)
+    a.say()
+    a.hub.gateway.milestone(task, 'done', summary='12 GB free.')
+    with Session(a.hub.engine) as s:
+        main = s.get(Conversation, a.hub.main_id)
+        assert main is not None
+        post_message(
+            s,
+            a.hub.app.state.events,
+            main,
+            role=MessageRole.agent,
+            kind=MessageKind.approval,
+            body={'approval_id': 'apr_01'},
+            task_id=task,
+        )
+    kinds = [m.kind for m in a.hub.messages() if m.role == MessageRole.agent]
+    assert kinds == [MessageKind.milestone, MessageKind.approval]
+    assert a.sent() == [THINKING]
+    assert a.me() == THINKING
 
 
 def test_a_side_thread_thinks_too_and_a_task_thread_does_not(a: Avatar) -> None:
