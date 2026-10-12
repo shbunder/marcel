@@ -91,3 +91,23 @@ final class ComponentSnapshotTests: XCTestCase {
         Snapshot.assert(PixelGallery(), named: "Gallery", padding: 0)
     }
 }
+
+/// Real Dutch and French phrases, with every character that needs a fallback, in body text and in labels. Look at
+/// `__Snapshots__/SampleSheet.*.png` after a font change: every phrase must read clearly.
+@MainActor
+final class SampleSheetSnapshotTests: XCTestCase {
+    static let phrases = ["€486", "−€486/jaar", "l’été", "één", "Ça va", "Taak ✓", "Klaar ✔", "→ volgende",
+                          "← terug", "ĳs", "« Oui » „ja” “yes” — 18° …", "Brûlé, naïef, œuvre"]
+
+    func testSampleSheet() {
+        Snapshot.assert(
+            VStack(alignment: .leading, spacing: 6) {
+                PixelText("Body", role: .smallLabel, capitals: true)
+                ForEach(Self.phrases, id: \.self) { PixelText($0, role: .body) }
+                PixelText("Labels", role: .smallLabel)
+                ForEach(Self.phrases, id: \.self) { PixelText($0, role: .label) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading),
+            named: "SampleSheet")
+    }
+}

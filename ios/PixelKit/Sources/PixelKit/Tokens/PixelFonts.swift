@@ -122,7 +122,8 @@ struct PixelTextModifier: ViewModifier {
 }
 
 extension View {
-    /// Sets the pixel font for a type role. Labels are drawn in capitals unless `capitals` is false; VoiceOver
+    /// Sets the pixel font for a type role on any view (e.g. a container of `Text`s you build yourself). Prefer
+    /// `PixelText`, which also keeps characters the font lacks in pixel style; this modifier cannot. Labels are drawn in capitals unless `capitals` is false; VoiceOver
     /// still reads the words as written, so pass sentence-case text ("Needs you", not "NEEDS YOU").
     public func pixelText(_ role: PixelTextRole, capitals: Bool = true) -> some View {
         modifier(PixelTextModifier(role: role, capitals: capitals))

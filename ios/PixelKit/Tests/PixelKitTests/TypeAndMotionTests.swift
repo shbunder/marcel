@@ -63,6 +63,45 @@ final class TypeAndMotionTests: XCTestCase {
         }
     }
 
+    /// The system's Reduce Motion setting (not only the tests' override) reaches the ▼. The blink's clock is pinned
+    /// to its hidden half and only the system setting changes: with Reduce Motion the ▼ is drawn, without it it is
+    /// not (so the check can fail).
+    @MainActor
+    func testTheSystemReduceMotionSettingStopsTheBlink() throws {
+        let hiddenHalf = Date(timeIntervalSinceReferenceDate: 0.75)
+        XCTAssertFalse(MoreMarker.isVisible(at: hiddenHalf, reduceMotion: false))
+
+        func markerPixels(systemReduceMotion: Bool) throws -> Int {
+            var environment = EnvironmentValues()
+            environment._accessibilityReduceMotion = systemReduceMotion
+            XCTAssertEqual(environment.accessibilityReduceMotion, systemReduceMotion, "the public setting reads this")
+
+            let renderer = ImageRenderer(content: DialogBox(speaker: "Marcel", text: "More.", showsMore: true)
+                .environment(\._accessibilityReduceMotion, systemReduceMotion)
+                .environment(\.pixelBlinkDate, hiddenHalf)
+                .environment(\.pixelRendersOffscreen, true)
+                .environment(\.colorScheme, .light)
+                .frame(width: 200))
+            renderer.scale = 1
+            let image = try XCTUnwrap(renderer.cgImage)
+            // Count dark pixels in a strip at the box's right side, where the ▼ sits. The box's top and bottom
+            // borders cross the whole strip, so rows that are dark all the way across are skipped.
+            let bytes = Snapshot.rgba(image)
+            var count = 0
+            for y in 0..<image.height {
+                var row = 0
+                for x in (image.width - 30)..<(image.width - 10) {
+                    let i = (y * image.width + x) * 4
+                    if bytes[i] < 140, bytes[i + 1] < 140, bytes[i + 2] < 140 { row += 1 }
+                }
+                if row < 15 { count += row }
+            }
+            return count
+        }
+        XCTAssertGreaterThan(try markerPixels(systemReduceMotion: true), 4, "Reduce Motion: the ▼ should stay drawn")
+        XCTAssertEqual(try markerPixels(systemReduceMotion: false), 0, "without Reduce Motion the ▼ should blink off")
+    }
+
     // MARK: Choice prompt keyboard
 
     func testArrowKeysMoveTheMarkerAndStopAtTheEnds() {

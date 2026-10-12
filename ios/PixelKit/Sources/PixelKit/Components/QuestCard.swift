@@ -43,8 +43,7 @@ public struct QuestCard: View {
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
             HStack(alignment: .center, spacing: PixelMetrics.steps(4)) {
                 StateBadge(state, text: stateText)
-                Text(title)
-                    .pixelText(.label)
+                PixelText(title, role: .label)
                     .foregroundStyle(theme.text.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -56,8 +55,7 @@ public struct QuestCard: View {
                 layout {
                     if let project { ProjectChip(project, tone: tone) }
                     if let detail {
-                        Text(detail)
-                            .pixelText(.detail)
+                        PixelText(detail, role: .detail)
                             .foregroundStyle(theme.muted.color)
                             .fixedSize(horizontal: false, vertical: true)
                     }

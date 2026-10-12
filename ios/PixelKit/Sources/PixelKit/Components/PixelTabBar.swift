@@ -37,8 +37,7 @@ public struct PixelTabBar: View {
                 Button {
                     selection = tab.id
                 } label: {
-                    Text(tab.title)
-                        .pixelText(.smallLabel)
+                    PixelText(tab.title, role: .smallLabel)
                         .lineLimit(1)
                         .fixedSize()
                         .foregroundStyle((isSelected ? theme.accent : theme.muted).color)

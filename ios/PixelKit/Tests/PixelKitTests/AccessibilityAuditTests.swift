@@ -11,6 +11,8 @@ import XCTest
 /// accessibility tree SwiftUI builds for VoiceOver:
 /// - every element has a label (`sufficientElementDescription`), written as plain words: no ▶ ▼ ♥, no ALL CAPS;
 /// - every button is at least 44 × 44 pt (`hitRegion`);
+/// - nothing is clipped: no element runs off the screen or over another (`textClipped`), also at the largest
+///   Dynamic Type size;
 /// - the tabs say which one is selected, headers are marked as headers (`trait`);
 /// - body text grows at the largest Dynamic Type size (`dynamicType`);
 /// - contrast is checked numerically in `ContrastTests` (`contrast`).
@@ -97,43 +99,95 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertNotNil(Self.plainWordsProblem(in: " "))
     }
 
-    func testTheGalleryPassesTheAuditInBothThemes() {
-        for scheme in [ColorScheme.light, .dark] {
-            let found = elements(of: PixelGallery(), scheme: scheme)
-            XCTAssertGreaterThanOrEqual(found.count, 15, "\(scheme): the accessibility tree is missing elements")
+    /// The audit runs in light, dark, and at the largest Dynamic Type size (Accessibility 5) in both themes.
+    static let runs: [(name: String, scheme: ColorScheme, dynamicType: DynamicTypeSize)] = [
+        ("light", .light, .large), ("dark", .dark, .large),
+        ("light, largest text", .light, .accessibility5), ("dark, largest text", .dark, .accessibility5),
+    ]
 
-            for element in found {
-                if let problem = Self.plainWordsProblem(in: element.label) {
-                    XCTFail("\(scheme): \"\(element.label)\": \(problem)")
-                }
-                if element.traits.contains(.button) {
-                    XCTAssertGreaterThanOrEqual(element.frame.height, 44, "\(scheme): \"\(element.label)\" is too short to tap")
-                    XCTAssertGreaterThanOrEqual(element.frame.width, 44, "\(scheme): \"\(element.label)\" is too narrow to tap")
-                }
-            }
-
-            let labels = found.map(\.label)
-            for expected in ["Yes", "Not now", "Details", "Chat", "Quests", "Map", "Items",
-                             "Marcel says: Supplier A is cheapest: €486 a year less with solar, no exit fee. Switch now?",
-                             "You got: Energy comparison! Saved to Home energy.", "Needs your OK", "Project: Family"] {
-                XCTAssertTrue(labels.contains(expected), "\(scheme): no element reads \"\(expected)\"")
-            }
-
-            let choices = found.filter { ["Yes", "Not now", "Details"].contains($0.label) }
-            XCTAssertTrue(choices.allSatisfy { $0.traits.contains(.button) }, "answers must be buttons")
-
-            let tabs = found.filter { ["Chat", "Quests", "Map", "Items"].contains($0.label) }
-            XCTAssertEqual(tabs.filter { $0.traits.contains(.selected) }.map(\.label), ["Chat"])
-            XCTAssertTrue(tabs.allSatisfy { $0.traits.contains(.button) })
-
-            let headers = found.filter { $0.traits.contains(.header) }.map(\.label)
-            XCTAssertTrue(headers.contains("Marcel. Morning · nothing running. 2 things need you"))
-            XCTAssertTrue(headers.contains("Artifact: Energy comparison. Updated now"))
-
-            let quest = found.first { $0.label.hasPrefix("Energy contracts.") }
-            XCTAssertEqual(quest?.label, "Energy contracts. Working. Project: Home energy. step 1 of 4")
-            XCTAssertEqual(quest?.value, "22 percent done")
+    func testTheGalleryPassesTheAudit() {
+        for run in Self.runs {
+            let found = elements(of: PixelGallery(), scheme: run.scheme, dynamicType: run.dynamicType)
+            audit(found, run: run.name)
         }
+    }
+
+    private func audit(_ found: [Element], run: String) {
+        XCTAssertGreaterThanOrEqual(found.count, 15, "\(run): the accessibility tree is missing elements")
+
+        for element in found {
+            if let problem = Self.plainWordsProblem(in: element.label) {
+                XCTFail("\(run): \"\(element.label)\": \(problem)")
+            }
+            if element.traits.contains(.button) {
+                XCTAssertGreaterThanOrEqual(element.frame.height, 44, "\(run): \"\(element.label)\" is too short to tap")
+                XCTAssertGreaterThanOrEqual(element.frame.width, 44, "\(run): \"\(element.label)\" is too narrow to tap")
+            }
+        }
+        if let problem = Self.clippingProblem(in: found, screenWidth: 390) {
+            XCTFail("\(run): \(problem)")
+        }
+
+        let labels = found.map(\.label)
+        for expected in ["Yes", "Not now", "Details", "Chat", "Quests", "Map", "Items",
+                         "Marcel says: Supplier A is cheapest: €486 a year less with solar, no exit fee. Switch now?",
+                         "You got: Energy comparison! Saved to Home energy.", "Needs your OK", "Project: Family"] {
+            XCTAssertTrue(labels.contains(expected), "\(run): no element reads \"\(expected)\"")
+        }
+
+        let choices = found.filter { ["Yes", "Not now", "Details"].contains($0.label) }
+        XCTAssertTrue(choices.allSatisfy { $0.traits.contains(.button) }, "\(run): answers must be buttons")
+
+        let tabs = found.filter { ["Chat", "Quests", "Map", "Items"].contains($0.label) }
+        XCTAssertEqual(tabs.filter { $0.traits.contains(.selected) }.map(\.label), ["Chat"], run)
+        XCTAssertTrue(tabs.allSatisfy { $0.traits.contains(.button) }, run)
+
+        let headers = found.filter { $0.traits.contains(.header) }.map(\.label)
+        XCTAssertTrue(headers.contains("Marcel. Morning · nothing running. 2 things need you"), run)
+        XCTAssertTrue(headers.contains("Artifact: Energy comparison. Updated now"), run)
+
+        let quest = found.first { $0.label.hasPrefix("Energy contracts.") }
+        XCTAssertEqual(quest?.label, "Energy contracts. Working. Project: Home energy. step 1 of 4", run)
+        XCTAssertEqual(quest?.value, "22 percent done", run)
+    }
+
+    /// Clipped or truncated text shows up in the tree as an element pushed past the screen edge or drawn over a
+    /// neighbour: every single-line label in PixelKit is `fixedSize()` (it cannot truncate to "…"; it can only
+    /// overflow) and every paragraph wraps with `fixedSize(vertical:)`. So: every element must lie inside the
+    /// screen, and no two may overlap.
+    static func clippingProblem(in elements: [Element], screenWidth: CGFloat) -> String? {
+        for element in elements {
+            let frame = element.frame
+            if frame.minX < -0.5 || frame.maxX > screenWidth + 0.5 {
+                return "\"\(element.label)\" runs off the screen (x \(Int(frame.minX))–\(Int(frame.maxX)))"
+            }
+            if frame.width < 1 || frame.height < 1 {
+                return "\"\(element.label)\" has no room to draw"
+            }
+        }
+        for (index, a) in elements.enumerated() {
+            for b in elements[(index + 1)...] {
+                let overlap = a.frame.intersection(b.frame)
+                if !overlap.isNull, overlap.width > 1, overlap.height > 1 {
+                    return "\"\(a.label)\" and \"\(b.label)\" are drawn over each other"
+                }
+            }
+        }
+        return nil
+    }
+
+    func testTheClippingCheckCatchesOverflowAndOverlap() {
+        func element(_ label: String, _ frame: CGRect) -> Element {
+            Element(label: label, value: "", traits: .staticText, frame: frame)
+        }
+        XCTAssertNil(Self.clippingProblem(in: [element("a", CGRect(x: 0, y: 0, width: 100, height: 20)),
+                                               element("b", CGRect(x: 0, y: 20, width: 100, height: 20))],
+                                          screenWidth: 390))
+        XCTAssertNotNil(Self.clippingProblem(in: [element("wide", CGRect(x: 300, y: 0, width: 200, height: 20))],
+                                             screenWidth: 390))
+        XCTAssertNotNil(Self.clippingProblem(in: [element("a", CGRect(x: 0, y: 0, width: 100, height: 20)),
+                                                  element("b", CGRect(x: 50, y: 10, width: 100, height: 20))],
+                                             screenWidth: 390))
     }
 
     func testEveryComponentReadsAsPlainWords() {

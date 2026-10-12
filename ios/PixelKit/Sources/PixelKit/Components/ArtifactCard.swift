@@ -23,14 +23,13 @@ public struct ArtifactCard<Content: View>: View {
         let theme = PixelTheme(scheme)
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: PixelMetrics.steps(4)) {
-                Text(title)
+                PixelText(title, role: .smallLabel)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 if let badge {
-                    Text(badge).multilineTextAlignment(.trailing)
+                    PixelText(badge, role: .smallLabel).multilineTextAlignment(.trailing)
                 }
             }
-            .pixelText(.smallLabel)
             .foregroundStyle(theme.onHeader.color)
             .padding(.horizontal, PixelMetrics.padding)
             .padding(.vertical, PixelMetrics.steps(3))
@@ -75,10 +74,10 @@ public struct ArtifactRow: View {
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
             : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
         layout {
-            Text(label).fixedSize(horizontal: false, vertical: true)
+            PixelText(label, role: .detail).fixedSize(horizontal: false, vertical: true)
             if !dynamicType.isAccessibilitySize { Spacer(minLength: PixelMetrics.steps(4)) }
             if let value {
-                Text(value).fontWeight(emphasised ? .semibold : .regular)
+                PixelText(value, role: .detail).fontWeight(emphasised ? .semibold : .regular)
             }
         }
         .accessibilityElement(children: .combine)

@@ -1,6 +1,7 @@
 import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 import XCTest
 @testable import PixelKit
 
@@ -51,12 +52,34 @@ enum Snapshot {
         return renderer.cgImage
     }
 
+    /// The simulator runtime the references were drawn on (`__Snapshots__/runtime.txt`). Text rendering changes
+    /// between iOS versions, so comparing on another runtime would fail for reasons that are not a design change.
+    static var runtime: String { UIDevice.current.systemVersion }
+
+    static func checkRuntime(file: StaticString, line: UInt) -> Bool {
+        let marker = referenceFolder.appendingPathComponent("runtime.txt")
+        if isRecording {
+            try? FileManager.default.createDirectory(at: referenceFolder, withIntermediateDirectories: true)
+            try? Data((runtime + "\n").utf8).write(to: marker)
+            return true
+        }
+        let recorded = (try? String(contentsOf: marker, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let recorded, recorded == runtime else {
+            XCTFail("The reference snapshots were drawn on iOS \(recorded ?? "(unknown)"), this simulator runs iOS "
+                + "\(runtime). Re-record them with `make -C ios pixelkit-record` and look at them.", file: file, line: line)
+            return false
+        }
+        return true
+    }
+
     /// Checks `view` in every variant against its reference images.
     @MainActor
     static func assert<V: View>(
         _ view: V, named name: String, variants: [Variant] = Variant.allCases, width: CGFloat = width,
         padding: CGFloat = 16, file: StaticString = #filePath, line: UInt = #line
     ) {
+        guard checkRuntime(file: file, line: line) else { return }
         for variant in variants {
             let fileName = "\(name).\(variant.rawValue).png"
             guard let image = render(view, variant: variant, width: width, padding: padding) else {
@@ -101,8 +124,9 @@ enum Snapshot {
         var message: String
     }
 
-    /// Pixels count as changed when any channel moves by more than 8 of 255; more than 0.02 % changed fails.
-    /// (Rendering is deterministic on one machine; the slack only absorbs anti-aliasing noise.)
+    /// A pixel counts as changed when any channel moves by more than 8 of 255, and one changed pixel fails.
+    /// Rendering is deterministic for one simulator runtime, so a single changed digit is caught; the per-channel
+    /// slack only absorbs rounding. References are tied to that runtime (see README.md).
     static func difference(_ expected: CGImage, _ actual: CGImage) -> Difference {
         guard expected.width == actual.width, expected.height == actual.height else {
             return Difference(differs: true, message: "the size changed from \(expected.width)×\(expected.height) "
@@ -119,7 +143,7 @@ enum Snapshot {
             index += 4
         }
         let total = expected.width * expected.height
-        let allowed = total / 5000
+        let allowed = 0
         return Difference(differs: changed > allowed,
                           message: "\(changed) of \(total) pixels changed (allowed: \(allowed))")
     }

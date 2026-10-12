@@ -3,8 +3,8 @@
 # Why not `xcodebuild test`: on this Mac's Xcode the iOS platform component is not installed, so
 # xcodebuild lists no simulator as a destination for any scheme ("iOS 26.5 is not installed"). This lane
 # needs no destination: it builds the app with `-target … -sdk iphonesimulator`, builds MarcelKit's,
-# AvatarKit's and PixelKit's tests with SwiftPM for the simulator, and runs them on a booted simulator through a small runner
-# that carries the Keychain entitlement an app has. See README.md.
+# AvatarKit's and PixelKit's tests with SwiftPM for the simulator, and runs them on a booted simulator
+# through a small runner that carries the Keychain entitlement an app has. See README.md.
 
 DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 export DEVELOPER_DIR

@@ -67,8 +67,7 @@ public struct StateBadge: View {
     public var accessibilityText: String { text ?? kind.spokenTitle }
 
     public var body: some View {
-        Text(text ?? kind.title)
-            .pixelText(.smallLabel)
+        PixelText(text ?? kind.title, role: .smallLabel)
             .foregroundStyle(kind.foreground.color)
             .lineLimit(1)
             .padding(.horizontal, PixelMetrics.steps(3))

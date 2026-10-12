@@ -46,6 +46,10 @@ though the iOS 18 and 26.x simulators work. `xcodebuild test` and `-destination`
    refuses one added to a code signature, so the runner carries it the way simulator apps do: in a
    `__TEXT,__entitlements` section. That makes the Keychain tests use the simulator's real Keychain.
 
+**Pending the iOS 26.5 platform install:** XCUITest's `performAccessibilityAudit()` on PixelKit's gallery (story
+S-12.2). Until then `PixelKitTests/AccessibilityAuditTests` runs the same checks on SwiftUI's accessibility tree
+(see PixelKit/README.md).
+
 The shared `Marcel` scheme lists `MarcelKitTests` for Xcode's Test action. That path is untested here
 (no destination), and unhosted tests there would hit the same Keychain error; `make -C ios check` is the gate.
 

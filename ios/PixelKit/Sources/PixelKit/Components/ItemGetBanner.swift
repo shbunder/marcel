@@ -7,6 +7,7 @@ public struct ItemGetBanner: View {
     public var savedTo: String?
 
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.dynamicTypeSize) private var dynamicType
 
     public init(item: String, savedTo: String? = nil) {
         self.item = item
@@ -20,11 +21,11 @@ public struct ItemGetBanner: View {
     public var body: some View {
         let theme = PixelTheme(scheme)
         VStack(spacing: PixelMetrics.steps(2)) {
-            Text("You got: \(Text(item).foregroundStyle(theme.bannerHighlight.color))!")
-                .pixelText(.smallLabel)
+            let label = { (text: String) in PixelText.text(text, role: .smallLabel, dynamicType: dynamicType) }
+            Text("\(label("You got: "))\(label(item).foregroundStyle(theme.bannerHighlight.color))\(label("!"))")
+                .lineSpacing(PixelTextRole.smallLabel.size(for: dynamicType) * 0.2)
             if let savedTo {
-                Text("Saved to \(savedTo)")
-                    .pixelText(.smallLabel, capitals: false)
+                PixelText("Saved to \(savedTo)", role: .smallLabel, capitals: false)
             }
         }
         .foregroundStyle(theme.onBanner.color)

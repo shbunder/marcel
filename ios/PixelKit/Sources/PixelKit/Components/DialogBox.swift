@@ -28,11 +28,9 @@ public struct DialogBox<Accessory: View>: View {
         let theme = PixelTheme(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
             VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
-                Text(speaker)
-                    .pixelText(.smallLabel)
+                PixelText(speaker, role: .smallLabel)
                     .foregroundStyle(theme.accent.color)
-                Text(text)
-                    .pixelText(.body)
+                PixelText(text, role: .body)
                     .foregroundStyle(theme.text.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -68,6 +66,7 @@ struct MoreMarker: View {
     var color: PixelColor
     var pixel: CGFloat
     var reduceMotion: Bool
+    @Environment(\.pixelBlinkDate) private var pinnedDate
 
     static let period: TimeInterval = 1
 
@@ -85,7 +84,7 @@ struct MoreMarker: View {
         if Self.animates(reduceMotion: reduceMotion) {
             TimelineView(.periodic(from: .distantPast, by: Self.period / 2)) { timeline in
                 PixelGlyph(.more, color: color, pixel: pixel)
-                    .opacity(Self.isVisible(at: timeline.date, reduceMotion: reduceMotion) ? 1 : 0)
+                    .opacity(Self.isVisible(at: pinnedDate ?? timeline.date, reduceMotion: reduceMotion) ? 1 : 0)
             }
         } else {
             PixelGlyph(.more, color: color, pixel: pixel)
@@ -96,6 +95,8 @@ struct MoreMarker: View {
 extension EnvironmentValues {
     /// Tests pin Reduce Motion with this; the system setting is read-only.
     @Entry var pixelReduceMotionOverride: Bool? = nil
+    /// Tests pin the blink's clock with this, so a render shows a known half of the blink.
+    @Entry var pixelBlinkDate: Date? = nil
 }
 
 #Preview("Dialog box") {

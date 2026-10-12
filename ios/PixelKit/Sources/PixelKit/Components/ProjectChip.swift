@@ -14,7 +14,7 @@ public struct ProjectChip: View {
             case .teal: return isDark ? PixelColor(0x8CC2BF) : .teal
             case .rose: return isDark ? PixelColor(0xE89AAE) : .deep
             case .blue: return isDark ? PixelColor(0xA9B8E6) : PixelColor(0x4F6396)
-            // The wireframe's sage (#6f8a55) is 3.6:1 on cream; darkened to pass AA.
+            // The wireframe's sage (#6f8a55) is 3.38:1 on cream; darkened to pass AA.
             case .green: return isDark ? PixelColor(0xAFCB8F) : PixelColor(0x4E6A38)
             case .gold: return isDark ? .gold : PixelColor(0x8A5A0B)
             }
@@ -34,8 +34,7 @@ public struct ProjectChip: View {
 
     public var body: some View {
         let ink = tone.color(in: PixelTheme(scheme)).color
-        Text(name)
-            .pixelText(.smallLabel)
+        PixelText(name, role: .smallLabel)
             .lineLimit(1)
             .foregroundStyle(ink)
             .padding(.horizontal, PixelMetrics.steps(4))

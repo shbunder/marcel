@@ -52,8 +52,7 @@ public struct HeartsHeader<Avatar: View>: View {
                 avatar
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
-                    Text(title)
-                        .pixelText(.title)
+                    PixelText(title, role: .title)
                         .foregroundStyle(theme.text.color)
                     if !stacked { subtitleText(theme) }
                 }
@@ -68,8 +67,7 @@ public struct HeartsHeader<Avatar: View>: View {
                             }
                         }
                         if let needsYouText {
-                            Text(needsYouText)
-                                .pixelText(.smallLabel)
+                            PixelText(needsYouText, role: .smallLabel)
                                 .foregroundStyle(theme.accent.color)
                                 .multilineTextAlignment(.trailing)
                         }
@@ -94,8 +92,7 @@ public struct HeartsHeader<Avatar: View>: View {
 
     @ViewBuilder private func subtitleText(_ theme: PixelTheme) -> some View {
         if let subtitle {
-            Text(subtitle)
-                .pixelText(.detail)
+            PixelText(subtitle, role: .detail)
                 .foregroundStyle(theme.muted.color)
                 .fixedSize(horizontal: false, vertical: true)
         }

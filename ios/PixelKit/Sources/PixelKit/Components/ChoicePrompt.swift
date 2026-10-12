@@ -83,8 +83,7 @@ public struct ChoicePrompt: View {
                     PixelGlyph(.pointer, color: isEnabled ? theme.accent : theme.muted,
                                pixel: PixelGlyph.pixel(for: dynamicType))
                         .opacity(choice.id == markedChoice ? 1 : 0)
-                    Text(choice.title)
-                        .pixelText(.label)
+                    PixelText(choice.title, role: .label)
                         .foregroundStyle(ink.color)
                         .lineLimit(1)
                         .fixedSize()
