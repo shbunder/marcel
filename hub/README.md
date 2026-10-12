@@ -720,6 +720,42 @@ second card, whatever state the card is in.
   the same for cards left open while it was down.
 - Every change to a card sends `approval.resolved`.
 
+### Side threads
+
+Every other side thread runs in its own fork of the brain (`side.py`, S-06.3, B-08): a second
+`claude` session that knows the main chat up to the moment it was forked, and answers only in its
+thread.
+
+- **Opening a thread forks the brain.** `POST /api/messages/{id}/thread` (not on a task's card)
+  makes the hub ask the runner to fork the main brain (`POST /sessions/{brain}/fork`, role `side`,
+  name `side-<conversation id>`, same model and permission mode as the brain). The fork's first
+  prompt says it is a side thread and quotes the message it was opened on. Its session id is stored
+  as the thread's `brain_session_id`.
+- **What you write there reaches the fork only.** The channel gateway sends a thread's messages to
+  the session stored on that thread, never to the main brain, and takes a `reply` from the fork
+  into the thread. A message written before the fork runs (or while it is stopped) waits in the
+  Outbox and is delivered when it says hello: nothing is lost.
+- **"Send to main" is the way back.** `POST /api/conversations/{id}/send-to-main` posts a quote (or
+  your own text) in the main conversation as your message, so the main brain gets it like anything
+  else you write there.
+- **Idle forks stop after 30 minutes.** A fork whose thread has been quiet for 30 minutes, that is
+  between turns and has nothing waiting for it, is stopped. Its id stays on the thread. The next
+  message wakes the same session (`runner.resume`, with its own history); if that session cannot be
+  woken, the brain is forked afresh and the new fork is given the thread so far.
+- **At most 3 forks run at once.** Each one is a whole `claude` process on the NUC and the runner's
+  worker cap never counts it, so the hub caps them. A fourth stops the fork that has been quiet the
+  longest. When all three are in a turn, the new thread waits, says so once ("Marcel is busy in 3
+  other side threads right now…"), and starts as soon as one is free.
+- **A fork that fails says so in the thread.** The first failure posts the runner's reason in the
+  thread as a note from the hub. The hub tries 3 times in all (after 15 s, then 1 min), then posts
+  a last note and stops until you write there again. A main brain that is not running counts as a
+  failure too.
+- **A brain rollover leaves forks alone.** A fork is its own session: when the nightly rollover
+  stops the old brain, its forks keep running until they go idle, and a later fork comes from the
+  new brain. The brain keeper only counts sessions with the role `brain`.
+- Like the brain, forks are started through the runner directly: the usage guard never holds them
+  back. A turn in a side thread shows the avatar "thinking", like one in the main conversation.
+
 ## The brain: keep-alive and rollover
 
 `brain.py` keeps exactly one brain session per agent (S-06.2, B-01). It runs only when `brain_cwd`
