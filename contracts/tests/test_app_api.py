@@ -90,3 +90,46 @@ def test_only_health_and_pair_are_public(api: dict[str, Any]):
         if isinstance(op, dict) and op.get('security') == []
     )
     assert public == ['/health', '/pair']
+
+
+def response_examples(api: dict[str, Any]) -> Iterator[tuple[str, Any]]:
+    """Examples given on a response's media type rather than on its schema."""
+    for path, item in api['paths'].items():
+        for method, op in item.items():
+            if not isinstance(op, dict) or 'responses' not in op:
+                continue
+            for code, response in op['responses'].items():
+                for media, body in response.get('content', {}).items():
+                    if 'example' in body:
+                        pointer = '/'.join(
+                            ['', 'paths', escape(path), method, 'responses', code, 'content']
+                            + [escape(media), 'schema']
+                        )
+                        yield pointer, body['example']
+
+
+RESPONSE_EXAMPLES = list(response_examples(load_api()))
+
+
+@pytest.mark.parametrize(
+    ('pointer', 'example'), RESPONSE_EXAMPLES, ids=[p for p, _ in RESPONSE_EXAMPLES]
+)
+def test_response_example_matches_its_schema(pointer: str, example: Any, registry: Registry):
+    validator_for(pointer, registry).validate(example)
+
+
+def test_project_list_example_has_one_inbox():
+    projects = dict(RESPONSE_EXAMPLES)[
+        '/paths/~1projects/get/responses/200/content/application~1json/schema'
+    ]
+    assert [p['slug'] for p in projects].count('inbox') == 1
+
+
+@pytest.mark.parametrize(
+    'operation',
+    ['listMessages', 'listTasks', 'listTaskEvents', 'listArtifacts', 'getArtifactContent'],
+)
+def test_operations_with_numbers_in_the_query_answer_400(api: dict[str, Any], operation: str):
+    ops = [op for item in api['paths'].values() for op in item.values() if isinstance(op, dict)]
+    op = next(o for o in ops if o.get('operationId') == operation)
+    assert '400' in op['responses']
