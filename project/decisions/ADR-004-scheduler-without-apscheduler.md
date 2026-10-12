@@ -41,6 +41,9 @@ clocks jump past it, a time that happens twice in autumn fires at its first occu
 ## Consequences
 
 - `plan/02-architecture.md` (Scheduler row and the tech list) is updated to match.
+- Unlike standard cron, a repeating cron such as `*/15 * * * *` does **not** fire during the hour that repeats when
+  the clocks go back: each wall-clock time fires at its first occurrence only, so 02:00–02:45 run once, not twice,
+  and the second pass through that hour is quiet (an hour with no fires). Vixie cron would run them again.
 - No "interval" schedules: the contract's `Schedule` has only `cron`. One can be added to `cron.py`'s caller later.
 - If the hub ever needs many kinds of timed jobs (watchdogs, digests), they are rows in `schedule` or loops of
   their own; reconsider a library then.
