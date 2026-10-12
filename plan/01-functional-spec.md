@@ -8,7 +8,7 @@ and this page disagree, this page wins until the owner changes it.
 
 Marcel is **one continuous conversation on my iPhone** with an agent that runs on my NUC,
 starts and steers Claude Code sessions (on the NUC or in the cloud) to do the actual work,
-and keeps me posted — with a living 3D giraffe at the top of the screen showing what it is doing.
+and keeps me posted — with a living pixel-art giraffe at the top of the screen showing what it is doing.
 
 ## Who and what
 
@@ -38,7 +38,7 @@ and keeps me posted — with a living 3D giraffe at the top of the screen showin
   when none fits, and always says which one it chose.
 - **B-06 Milestones only.** The main chat gets only milestones: *started*, *needs you*,
   *done + summary + artifacts*, *failed + why*. Detailed progress lives in the thread view and the
-  Activity tab.
+  Quests tab.
 - **B-07 Status questions.** "What's going on?" or "where is the Harry thing?" gets an answer from the task
   registry. Marcel does not re-read transcripts to answer it.
 - **B-08 Side threads (Slack-style).** I can **reply in thread** on any message, by long-press or a reply
@@ -115,40 +115,75 @@ and keeps me posted — with a living 3D giraffe at the top of the screen showin
 
 ## The app (iOS only, native Swift)
 
-- **B-25 Tabs:**
-  - **Chat** (main conversation, with the avatar on top);
-  - **Activity** (one card per thread, **needs-you pinned on top**, then working, then done/failed);
-  - **Library**;
-  - **Memory**;
-  - **Settings**.
-- **B-26 Thread view.** This is the live transcript described in B-11. It opens from a milestone message, an Activity card or a push notification.
+- **B-25 Tabs** (renamed 2026-10-12 to match the pixel-classic UI; see the wireframes in
+  `scratch/spikes/SP5-avatar/wireframes/`):
+  - **Chat** (the one conversation with Marcel, with the avatar on top);
+  - **Quests** (one card per thread, grouped *waiting on you* (pinned), *working*, *ready for review*, *done*;
+    filterable by project) — the Activity tab of earlier drafts;
+  - **Map** (projects, B-30);
+  - **Items** (the Library, B-21, grouped by project);
+  - **Marcel's notebook** (memory, B-20) and **Settings** open from the avatar header.
+- **B-26 Thread view.** This is the live transcript described in B-11. It opens from a milestone message, a quest card or a push notification.
 - **B-27 Access.** The app reaches the NUC hub through the Cloudflare tunnel (`marcel-bot.com`) and signs in
   with a device token, paired once with a QR code shown by the hub.
 
 ## The avatar
 
-- **B-28 Living status indicator.** A 3D low-poly giraffe, faithful to the logo, sits at the top of
-  the chat. It animates the agent's state:
+- **B-28 Living status indicator.** The **pixel-classic giraffe** (chosen 2026-10-12 after spike SP5; see
+  `scratch/spikes/SP5-avatar/RESULT.md`) sits at the top of the chat and in every Marcel message header. It is a
+  hand-tuned 48 × 54 sprite played frame by frame, and it animates the agent's state:
 
   | State | Animation |
   |---|---|
-  | idle | breathing and blinking |
-  | thinking | head tilts, ossicones wobble |
-  | working(n) | **n spots glow, one per active thread** |
-  | needs-you | looks at the camera, orange pulse |
-  | done | nod |
+  | idle | breathing, blinking, an ear flick, a glance |
+  | thinking | thought dots, eyes up |
+  | working(n) | at the laptop, typing; **n spots glow, one per active thread (max 3 shown)** |
+  | needs-you | looks at you, a "!" above the head, hearts pulse |
+  | done | a nod and a small sparkle |
 
-- **B-29 Made for you.** An avatar is generated, not modelled: **animal + palette + name/seed → avatar**,
-  the same way every time (a 3D take on boring-avatars). v1 ships the giraffe with a few palettes. The builder accepts new
-  animal recipes without code changes.
+- **B-29 Made for you.** The sprite comes out of a script (`build.py`): parts, colour ramps and choreography are
+  data, so other animals and palettes are new recipes, not new code. v1 ships the giraffe in the Marcel rose palette.
+- **B-29a The look.** The whole app uses the same pixel-classic language: dialogue boxes for Marcel,
+  approvals as choice prompts (▶ YES / NOT NOW / DETAILS), a "YOU GOT: …!" banner when an artifact arrives,
+  a quest log, pixel fonts for labels and a readable pixel-style body font. Body text must stay readable at
+  Dynamic Type sizes; the pixel font is for labels and headings only.
+
+## Projects  (added 2026-10-12)
+
+- **B-30 Projects group the work.** A project is a goal plus, optionally, a repo or folder, standing instructions,
+  project notes and its items. Every thread belongs to exactly one project ("Inbox" when nothing fits).
+- **B-31 Marcel files, I can move.** Marcel picks the project for each new thread and says it in the "started"
+  line. I can move a thread to another project from its card. Marcel creates a project when I ask, or proposes one
+  when several threads share a goal.
+- **B-32 Still one conversation.** A project room has no chat of its own. Typing there goes to the main
+  conversation, tagged with the project, so Marcel's one thread of thought (B-01) stays intact.
+- **B-33 Project notes are shared memory.** Each project has a notes file in memory
+  (`memory/projects/<slug>.md`). Every thread in the project starts with it, and threads append what later threads
+  need to know (as in Claude Code's redesigned Projects).
+- **B-33a Claude Code Projects later.** A project can carry a link to a Claude Code Project. In v1 the link is
+  informational; when Claude Code Projects can be driven from outside, coding threads of that project may run
+  there instead of on the NUC or as single cloud sessions.
+
+## Living artifacts  (added 2026-10-12)
+
+- **B-34 Artifacts are versioned documents.** A thread can publish an artifact and update it in place later
+  (v1, v2, v3…). The app shows the latest version, when it changed and by whom, and keeps the history.
+- **B-35 Every project has a board.** The board is an artifact the hub keeps current without a brain turn:
+  open decisions (waiting on you), threads in flight, recent results with their items, and upcoming schedules.
+  Marcel adds the "what this means" lines during its normal turns and digests. Following a project means reading
+  its board, not the chat.
+- **B-36 Item get.** When a thread finishes with an artifact, the "done" milestone carries a "YOU GOT: <title>!"
+  banner and a preview card; tapping opens the artifact. The morning digest (B-17) is itself a board artifact.
 
 ## v1 is done when
 
 1. **Chat + spawn + report:** on the iPhone I ask, Marcel starts NUC and cloud threads, reports
    milestones, and answers "what's the status of…".
 2. **Thread view + approvals:** I can watch and steer a worker live, and approve escalations from a push.
-3. **Library + memory:** artifacts are collected per task, and memory is editable in the app.
-4. **Avatar + digest:** the living giraffe works, and the daily digests arrive.
+3. **Items + memory:** artifacts are collected per project and per thread, living artifacts update in place, and
+   memory (including project notes) is editable in the app.
+4. **Projects:** threads are filed in projects; each project room shows its board, quests and items.
+5. **Avatar + digest:** the pixel giraffe reflects Marcel's state, and the daily digests arrive as boards.
 
 ## Explicitly not in v1
 

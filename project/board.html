@@ -1,0 +1,188 @@
+<title>Marcel Build Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen&family=Pixelify+Sans:wght@400;600&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Layout: a status strip and "ready to start" on top, then one column per status; a detail panel slides over on tap. */
+:root {
+  --bg: #f4ede4; --paper: #fbf7f0; --ink: #2a1d24; --muted: #75656c; --line: #d8c9bd;
+  --rose: #d87990; --deep: #9c3e5a; --teal: #3f6b6a; --gold: #e2a43a; --sky: #6a9bcc; --red: #b0413e;
+  --pixel: "Silkscreen", "Courier New", monospace;
+  --pix: "Pixelify Sans", "Trebuchet MS", sans-serif;
+  --body: "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #1c1618; --paper: #272022; --ink: #f2e8e1; --muted: #b5a5a0; --line: #463a3c; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #1c1618; --paper: #272022; --ink: #f2e8e1; --muted: #b5a5a0; --line: #463a3c; color-scheme: dark; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1400px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 60px; display: grid; gap: 18px; }
+header { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 22px; }
+h1 { font-family: var(--pixel); font-size: clamp(1.4rem, 4vw, 2rem); margin: 0; letter-spacing: 1px; }
+.sub { color: var(--muted); font-size: 13px; }
+.strip { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill { font: 11px/1 var(--pixel); padding: 7px 10px; border: 2px solid var(--ink); background: var(--paper); box-shadow: 3px 3px 0 var(--ink); }
+.pill b { font-size: 14px; margin-right: 4px; }
+.bar { height: 10px; border: 2px solid var(--ink); background: var(--paper); width: min(320px, 100%); }
+.bar i { display: block; height: 100%; background: var(--teal); }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.filters label { font: 11px/1 var(--pixel); color: var(--muted); }
+select { font: 13px var(--body); padding: 5px 8px; border: 2px solid var(--ink); background: var(--paper); color: var(--ink); }
+.feats { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.feat { border: 2px solid var(--line); background: var(--paper); padding: 6px 8px; font-size: 12px; cursor: pointer; text-align: left; color: var(--ink); }
+.feat b { font: 10px/1.2 var(--pixel); display: block; }
+.feat .bar { width: 100%; height: 7px; margin-top: 4px; border-width: 1.5px; }
+.feat[aria-pressed="true"] { border-color: var(--deep); box-shadow: 3px 3px 0 var(--deep); }
+h2 { font: 13px/1 var(--pixel); margin: 6px 0 8px; color: var(--deep); }
+.ready { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; }
+.ready .card { min-width: 220px; }
+.board { display: grid; grid-template-columns: repeat(5, minmax(220px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.col { background: color-mix(in srgb, var(--paper) 70%, transparent); border: 2px solid var(--line); padding: 8px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.col h3 { font: 11px/1 var(--pixel); margin: 2px 0 4px; display: flex; justify-content: space-between; }
+.card { border: 2px solid var(--ink); background: var(--paper); box-shadow: 3px 3px 0 var(--ink); padding: 7px 8px; display: grid; gap: 4px; cursor: pointer; text-align: left; color: var(--ink); font: inherit; }
+.card:focus-visible, .feat:focus-visible, button:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+.card .id { font: 10px/1 var(--pixel); color: var(--deep); display: flex; justify-content: space-between; gap: 6px; }
+.card .t { font-family: var(--pix); font-size: 14px; line-height: 1.25; }
+.card .m { font-size: 11.5px; color: var(--muted); }
+.tag { font: 9px/1 var(--pixel); padding: 3px 5px; border: 1.5px solid currentColor; }
+.s-backlog { color: var(--muted); } .s-in-progress { color: var(--rose); } .s-review { color: var(--sky); } .s-done { color: var(--teal); } .s-blocked { color: var(--red); }
+.empty { color: var(--muted); font-size: 13px; padding: 8px; }
+.panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100%); background: var(--paper); border-left: 3px solid var(--ink); box-shadow: -8px 0 30px rgba(0, 0, 0, .18);
+  padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px 24px; overflow-y: auto; z-index: 10; display: grid; gap: 10px; align-content: start; }
+.panel h3 { font-family: var(--pix); font-size: 20px; margin: 0; }
+.panel dl { display: grid; grid-template-columns: 90px 1fr; gap: 4px 8px; margin: 0; font-size: 13px; }
+.panel dt { font: 10px/1.6 var(--pixel); color: var(--muted); }
+.panel dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; }
+button.st { font: 10px/1 var(--pixel); padding: 7px 9px; border: 2px solid var(--ink); background: var(--bg); color: var(--ink); cursor: pointer; }
+button.st[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+button.close { justify-self: end; font: 12px var(--pixel); background: none; border: 2px solid var(--ink); color: var(--ink); padding: 5px 9px; cursor: pointer; }
+.log { display: grid; gap: 6px; }
+.log div { font-size: 12.5px; border-left: 3px solid var(--line); padding-left: 8px; }
+.log small { color: var(--muted); display: block; font-size: 11px; }
+textarea { font: 13px var(--body); border: 2px solid var(--ink); background: var(--bg); color: var(--ink); padding: 6px; min-height: 54px; width: 100%; box-sizing: border-box; }
+.note { font-size: 12.5px; color: var(--muted); }
+@media (max-width: 760px) { .board { grid-template-columns: repeat(5, 82%); scroll-snap-type: x mandatory; } .col { scroll-snap-align: start; } }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div><h1>MARCEL BUILD BOARD</h1><div class="sub" id="sub">Loading the board…</div></div>
+    <div class="strip" id="strip"></div>
+    <div style="display:grid;gap:4px"><span class="sub" id="pct">0% done</span><div class="bar"><i id="pctbar" style="width:0"></i></div></div>
+  </header>
+  <div class="filters">
+    <label for="f-lane">RUNS ON</label><select id="f-lane"><option value="">anywhere</option></select>
+    <label for="f-q">FIND</label><select id="f-wave"><option value="">all waves</option></select>
+    <span class="note" id="who"></span>
+  </div>
+  <section aria-label="Features"><div class="feats" id="feats"></div></section>
+  <section><h2>READY TO START</h2><p class="note" style="margin:0 0 6px">Not started, and everything it depends on is done.</p><div class="ready" id="ready"></div></section>
+  <section><div class="board" id="board"></div></section>
+</div>
+<aside class="panel" id="panel" hidden aria-label="Story detail"></aside>
+
+<script>
+(async function () {
+  const STATES = [["Backlog", "TO DO"], ["In Progress", "DOING"], ["Review", "IN REVIEW"], ["Blocked", "BLOCKED"], ["Done", "DONE"]];
+  const cls = (st) => "s-" + String(st || "").toLowerCase().replace(/ /g, "-");
+  const el = (id) => document.getElementById(id);
+  let stories = [], logs = [], feature = "", lane = "", wave = "", openId = null, canWrite = false;
+  const db = await (window.claude?.use?.("db") ?? null);
+  const user = await (window.claude?.use?.("user") ?? null);
+  canWrite = !!(user && (user.isOwner() || user.canEdit()));
+  if (!db) { el("sub").textContent = "The board's data isn't available in this view. Open it on claude.ai while signed in."; return; }
+  el("who").textContent = canWrite ? "You can change statuses." : "Read-only view.";
+
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const ago = (iso) => { if (!iso) return ""; const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+    return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago"; };
+  const doneIds = () => new Set(stories.filter((s) => s.status === "Done").map((s) => s.id));
+  const visible = (s) => (!feature || s.feature === feature) && (!lane || s.runs_on === lane) && (!wave || String(s.wave).includes(wave));
+
+  function card(s) {
+    const deps = (s.depends || []);
+    const open = deps.filter((d) => !doneIds().has(d)).length;
+    return `<button class="card" data-id="${esc(s.id)}"><span class="id"><span>${esc(s.id)} · ${esc(s.feature)}</span><span class="tag ${cls(s.status)}">${esc(s.size)} · ${esc(s.runs_on)}</span></span>
+      <span class="t">${esc(s.title)}</span>
+      <span class="m">${s.owner ? "▶ " + esc(s.owner) + " · " : ""}${s.pr ? "PR " + esc(s.pr) + " · " : ""}${open ? open + " open dependenc" + (open > 1 ? "ies" : "y") : deps.length ? "dependencies done" : "no dependencies"}${s.updated_at ? " · " + ago(s.updated_at) : ""}</span>
+      ${s.blocked_reason && s.status === "Blocked" ? `<span class="m" style="color:var(--red)">${esc(s.blocked_reason)}</span>` : ""}</button>`;
+  }
+
+  function render() {
+    const n = (st) => stories.filter((s) => s.status === st).length;
+    const total = stories.length, done = n("Done");
+    el("sub").textContent = `${total} stories in ${new Set(stories.map((s) => s.feature)).size} features · defined in project/stories in the repo`;
+    el("strip").innerHTML = STATES.map(([k, l]) => `<span class="pill ${cls(k)}"><b>${n(k)}</b>${l}</span>`).join("");
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    el("pct").textContent = `${pct}% done`; el("pctbar").style.width = pct + "%";
+    const feats = [...new Map(stories.map((s) => [s.feature, s.feature_title])).entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
+    el("feats").innerHTML = feats.map(([f, t]) => {
+      const fs = stories.filter((s) => s.feature === f), d = fs.filter((s) => s.status === "Done").length;
+      return `<button class="feat" data-f="${esc(f)}" aria-pressed="${feature === f}"><b>${esc(f)} · ${d}/${fs.length}</b>${esc(t)}<div class="bar"><i style="width:${Math.round((d / fs.length) * 100)}%"></i></div></button>`;
+    }).join("");
+    const dn = doneIds();
+    const ready = stories.filter((s) => s.status === "Backlog" && visible(s) && (s.depends || []).every((d) => dn.has(d)));
+    el("ready").innerHTML = ready.length ? ready.map(card).join("") : `<div class="empty">Nothing ready with these filters.</div>`;
+    el("board").innerHTML = STATES.map(([k, l]) => {
+      const items = stories.filter((s) => s.status === k && visible(s));
+      return `<div class="col"><h3><span class="${cls(k)}">${l}</span><span>${items.length}</span></h3>${items.length ? items.map(card).join("") : `<div class="empty">None.</div>`}</div>`;
+    }).join("");
+    if (openId) showPanel(openId);
+  }
+
+  function showPanel(id) {
+    const s = stories.find((x) => x.id === id); if (!s) return;
+    openId = id; const p = el("panel"); p.hidden = false;
+    const mine = logs.filter((l) => l.story === id).sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    p.innerHTML = `<button class="close" id="close">CLOSE ✕</button>
+      <span class="tag ${cls(s.status)}" style="justify-self:start">${esc((STATES.find(([k]) => k === s.status) || [0, s.status])[1])}</span>
+      <h3>${esc(s.id)} · ${esc(s.title)}</h3>
+      <dl><dt>FEATURE</dt><dd>${esc(s.feature)} ${esc(s.feature_title)}</dd><dt>RUNS ON</dt><dd>${esc(s.runs_on)} · size ${esc(s.size)} · wave ${esc(s.wave)}</dd>
+      <dt>DEPENDS</dt><dd>${(s.depends || []).map(esc).join(", ") || "—"}</dd><dt>TOUCHES</dt><dd>${esc(s.touches) || "—"}</dd>
+      <dt>BEHAVIOURS</dt><dd>${esc(s.behaviours) || "—"}</dd><dt>WHO</dt><dd>${esc(s.owner) || "—"}</dd>
+      <dt>BRANCH</dt><dd>${esc(s.branch) || "—"}</dd><dt>PR</dt><dd>${esc(s.pr) || "—"}</dd><dt>SPEC</dt><dd>${esc(s.source)}</dd></dl>
+      ${canWrite ? `<div class="btns" role="group" aria-label="Set status">${STATES.map(([k, l]) => `<button class="st" data-st="${k}" aria-pressed="${s.status === k}">${l}</button>`).join("")}</div>
+      <label class="note" for="note">Add a note to the log</label><textarea id="note" placeholder="What changed, or why it is blocked"></textarea><button class="st" id="addnote" style="justify-self:start">ADD NOTE</button>` : ""}
+      <h2>LOG</h2><div class="log">${mine.length ? mine.map((l) => `<div>${esc(l.text)}<small>${esc(l.by || "")} · ${ago(l.at)}</small></div>`).join("") : `<div class="empty">No entries yet.</div>`}</div>`;
+    el("close").onclick = () => { openId = null; p.hidden = true; };
+    p.querySelectorAll("button.st[data-st]").forEach((b) => b.onclick = async () => {
+      const st = b.dataset.st; if (st === s.status) return;
+      const at = new Date().toISOString();
+      try {
+        await db.doc("stories/" + id).update({ status: st, updated_at: at });
+        await db.collection("log").add({ at, story: id, kind: "status", text: `Status → ${st}`, by: "owner (board)" });
+      } catch (e) { b.textContent = "COULD NOT SAVE"; }
+    });
+    const add = el("addnote");
+    if (add) add.onclick = async () => {
+      const t = el("note").value.trim(); if (!t) return;
+      try { await db.collection("log").add({ at: new Date().toISOString(), story: id, kind: "note", text: t, by: "owner (board)" }); el("note").value = ""; }
+      catch (e) { add.textContent = "COULD NOT SAVE"; }
+    };
+  }
+
+  document.addEventListener("click", (e) => {
+    const c = e.target.closest(".card"); if (c) return showPanel(c.dataset.id);
+    const f = e.target.closest(".feat"); if (f) { feature = feature === f.dataset.f ? "" : f.dataset.f; render(); }
+  });
+  el("f-lane").onchange = (e) => { lane = e.target.value; render(); };
+  el("f-wave").onchange = (e) => { wave = e.target.value; render(); };
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { openId = null; el("panel").hidden = true; } });
+
+  let filtersBuilt = false;
+  db.collection("stories").onSnapshot((snap) => {
+    stories = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+    if (!filtersBuilt && stories.length) {
+      filtersBuilt = true;
+      [...new Set(stories.map((s) => s.runs_on))].sort().forEach((l) => el("f-lane").insertAdjacentHTML("beforeend", `<option>${esc(l)}</option>`));
+      ["0", "1", "2", "3"].forEach((w) => el("f-wave").insertAdjacentHTML("beforeend", `<option value="${w}">wave ${w}</option>`));
+    }
+    if (!stories.length) { el("sub").textContent = "No stories yet. Claude fills this board from project/stories (/board sync)."; }
+    render();
+  }, () => { el("sub").textContent = "Lost the connection to the board's data. Reload to try again."; });
+  db.collection("log").orderBy("at", "desc").limit(400).onSnapshot((snap) => { logs = snap.docs.map((d) => d.data()); if (openId) showPanel(openId); });
+})();
+</script>

@@ -46,8 +46,8 @@ Wave 3
   F15 Harry connector     F16 end-to-end acceptance (lead)
 ```
 
-A story may start once every story in its `depends:` list is merged to `main`. The lead keeps
-the board honest: `make lanes` shows what is in flight, what each story touches, and what is ready.
+A story may start once every story in its `depends:` list is merged to `main`. The build board shows
+what is in flight, what each story touches, and what is ready (`make lanes` after an export).
 **At most 6 implementers run at once.** Past that, merge conflicts on shared files cost more than
 the parallelism saves.
 
@@ -77,8 +77,8 @@ Size guide:
 
 ## The implementer loop
 
-1. `make start S=S-NN.M` (the board refuses if it is blocked), then
-   `git fetch && git worktree add ../marcel-S-NN.M -b story/S-NN.M origin/main`
+1. `/story` — checks the board (`scripts/board.py start`), claims the story there, and runs
+   `git worktree add ../marcel-S-NN.M -b story/S-NN.M origin/main`.
 2. Read the story, its `read first` files, and the relevant `project/lessons/`.
 3. **Write the failing tests first** from the "done when" list, then implement.
 4. Run the lane gate:
@@ -86,8 +86,9 @@ Size guide:
    - plugin-ts: `npm run check`;
    - iOS: `make ios-check` (`xcodebuild test`).
 5. Update the docs the story names, in the same commit.
-6. Commit and push: `[S-NN.M] impl: <what>`. Stage files by name only; never use `git add .` or `-A`.
-7. Hand over to a verifier and fix what it finds. The lead then merges with `--no-ff` in wave order.
+6. `/finish-story` — gate, `story-verifier`, commit `[S-NN.M] impl: <what>` staged by name (never
+   `git add .` or `-A`), PR, card → Review. Fix what the verifier finds.
+7. The lead runs `/merge-story` in wave order: a merge commit, card → Done. No board commit.
 8. If you learned something the next agent needs, add `project/lessons/<topic>.md`.
 
 ### Hard rules (all lanes)
@@ -113,19 +114,19 @@ Size guide:
 - [ ] The lane gate is green, and coverage did not drop.
 - [ ] The degraded path is tested: runner down, hub down, session dead, push failed.
 - [ ] Docs are updated, and no TODO points at a board id.
-- [ ] Commits are staged by name; none mixes board files and code.
+- [ ] Commits are staged by name; none mixes plan files and code; no status is written to git.
 
-## Board (Harry-style, in-repo)
+## Board  (changed 2026-10-12)
 
-F01 creates `project/` with:
+Two homes, by how often things change:
 
-- `features/` and `stories/`: one file each, generated from the plan by `scripts/plan_to_board.py`;
-- `decisions/` (ADRs);
-- `lessons/`;
-- `contract-requests/`.
+- **Git — `project/`:** `stories/` and `features/` (the definitions), `decisions/` (ADRs), `lessons/`,
+  `contract-requests/`. Changed in reviewed commits (`plan: …`).
+- **The build board — https://claude.ai/artifact/1V2swuomSbb9r1cB23Y2eh:** a claude.ai artifact with a
+  shared database. One row per story with its status (`Backlog`, `In Progress`, `Review`, `Blocked`, `Done`),
+  owner, branch and PR, plus a log. Sessions write it with the `ArtifactData` tool; the owner watches it live.
 
-A story's status lives in its frontmatter: `Backlog`, `In Progress` or `Done`.
-- `make start S=…` moves it to In Progress, and refuses when a dependency is not Done, when
-  `touches:` overlaps a story in progress, or when 6 stories are already running.
-- After merging a story, the lead marks it Done in a separate board commit:
-  `python3 scripts/board.py set S-… status Done`, committed as `board: S-… done`.
+`scripts/board.py` joins the two: definitions from `project/stories/`, status from the latest board export in
+`.board/export/`. It refuses a story whose dependency is not Done, whose `touches:` overlap one In Progress
+or in Review, or when 6 stories are in flight. The skills `/story`, `/finish-story`, `/merge-story`, `/board`
+and `/adr` do the board writes; `.claude/rules/board.md` has the details. A story is Done when it is merged.
