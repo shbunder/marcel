@@ -27,6 +27,7 @@ from marcel_hub import (
     db,
     memory,
     notify,
+    projects,
     tasks,
     ws,
 )
@@ -220,8 +221,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ws.install(app)
     app.include_router(conversations.router)
     artifacts.install(app)  # S-04.7, after tasks: an artifact is recorded on its task
-    memory.install(app)
+    repo = memory.install(app)
     channel.install(app, gateway, registry, watch)  # after artifacts: reports store through it
+    # S-04.10: workers start with their project's notes; task changes update their project.
+    projects.install(app, ws.OwnerPublisher(app.state.events), registry, repo)
     return app
 
 

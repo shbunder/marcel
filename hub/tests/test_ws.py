@@ -489,17 +489,21 @@ def test_task_events_reach_the_phone(client: TestClient, phone: Phone) -> None:
     with connect(client, phone) as socket:
         assert frame(socket)['type'] == 'hello'
         client.portal.call(registry.spawn, agent_id, 'Check the disk', 'df -h')  # type: ignore[union-attr]
-        # Frames are not checked against the contract here: Task.project_id is still pending
-        # (S-04.10, see test_contract.py), so these events lack it until projects exist.
-        types = [receive(socket)['type']]
-        while 'task.updated' not in types and len(types) < 10:
-            types.append(receive(socket)['type'])
+        # Every frame, `task.created` first, matches the contract in full, project_id included.
+        frames = [frame(socket)]
+        while 'task.updated' not in [f['type'] for f in frames] and len(frames) < 10:
+            frames.append(frame(socket))
+        frames.append(frame(socket))  # the task's project follows its change
+    types = [f['type'] for f in frames]
     assert types[0] == 'task.created'
+    assert frames[0]['data']['project_id'].startswith('prj_')  # filed in the inbox
     assert 'task.event' in types  # the opening prompt
-    assert types[-1] == 'task.updated'  # NoRunner: the start fails and the task says so
+    assert 'project.updated' in types
+    assert 'task.updated' in types  # NoRunner: the start fails and the task says so
 
 
 def test_the_task_registry_and_the_socket_share_one_event_log(client: TestClient) -> None:
     registry = client.app.state.tasks  # type: ignore[attr-defined]
-    # The pusher (S-08.1) wraps the event log's publisher and passes every event on to it.
-    assert registry.publisher.inner.events is log(client)
+    # Projects (S-04.10) wrap the pusher (S-08.1), which wraps the event log's publisher; each
+    # passes every event on.
+    assert registry.publisher.inner.inner.events is log(client)

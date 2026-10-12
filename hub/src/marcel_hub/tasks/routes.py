@@ -80,6 +80,7 @@ def list_tasks(
     agent_id: str | None = None,
     state: Annotated[list[str] | None, Query()] = None,
     archived: str = 'false',
+    project_id: str | None = None,
     cursor: str | None = None,
     limit: str = '50',
 ) -> Any:
@@ -97,7 +98,7 @@ def list_tasks(
         return bad_request('That page cursor is not valid. Start again without it.')
     registry = _registry(request)
     tasks, nxt = registry.list_tasks(
-        agent_id, states, archived == 'true', int(cursor or 0), int(limit)
+        agent_id, states, archived == 'true', int(cursor or 0), int(limit), project_id
     )
     page: dict[str, Any] = {'items': [registry.to_api(t) for t in tasks]}
     if nxt is not None:

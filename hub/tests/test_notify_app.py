@@ -143,7 +143,7 @@ def test_the_app_pushes_to_a_registered_ntfy_topic(settings: Settings) -> None:
         app = client.app
         pusher: Pusher = app.state.pusher  # type: ignore[attr-defined]
         registry: TaskRegistry = app.state.tasks  # type: ignore[attr-defined]
-        assert isinstance(registry.publisher, TaskPushes)
+        assert isinstance(registry.publisher.inner, TaskPushes)  # type: ignore[attr-defined]
         old = pusher.notifiers['ntfy'].client  # type: ignore[attr-defined]
         pusher.notifiers['ntfy'].client = httpx.AsyncClient(  # type: ignore[attr-defined]
             transport=httpx.MockTransport(ntfy.handle)

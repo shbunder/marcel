@@ -10,7 +10,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, Column
+from sqlalchemy import JSON, Column, Index, event, insert, select, text
+from sqlalchemy.engine import Connection
 from sqlmodel import Field, SQLModel
 
 
@@ -158,6 +159,42 @@ class PairingCode(SQLModel, table=True):
     used_at: datetime | None = None
 
 
+INBOX_SLUG = 'inbox'
+
+
+class Project(SQLModel, table=True):
+    """A goal that groups threads (B-30). Every agent has one `inbox` project, made with the agent
+    (see `_file_new_agents` below). A slug is unique among an agent's live projects; an archived
+    project's slug can be used again.
+
+    `board_artifact_id` is reserved when the project is made; the board artifact itself is built
+    under that id by S-04.11."""
+
+    __table_args__ = (
+        Index(
+            'ix_project_live_slug',
+            'agent_id',
+            'slug',
+            unique=True,
+            sqlite_where=text('archived = 0'),
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: new_id('prj'), primary_key=True)
+    agent_id: str = Field(foreign_key='agent.id', index=True)
+    slug: str
+    name: str
+    goal: str | None = None
+    repo: str | None = None
+    folder: str | None = None
+    instructions: str | None = None
+    claude_project_url: str | None = None
+    board_artifact_id: str = Field(default_factory=lambda: new_id('art'))
+    archived: bool = False
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class Conversation(SQLModel, table=True):
     id: str = Field(default_factory=lambda: new_id('cnv'), primary_key=True)
     agent_id: str = Field(foreign_key='agent.id', index=True)
@@ -176,6 +213,8 @@ class Message(SQLModel, table=True):
     kind: MessageKind
     body_json: dict[str, Any] = _json()
     task_id: str | None = Field(default=None, index=True)
+    # The project a user message was sent from (B-32); the message stays in the main conversation.
+    project_id: str | None = Field(default=None, foreign_key='project.id')
     client_id: str | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utcnow, index=True)
 
@@ -197,6 +236,9 @@ class AppEvent(SQLModel, table=True):
 class Task(SQLModel, table=True):
     id: str = Field(default_factory=lambda: new_id('tsk'), primary_key=True)
     agent_id: str = Field(foreign_key='agent.id', index=True)
+    # Required: a task inserted without one is filed in its agent's inbox (`_file_in_inbox`), and
+    # the database refuses a task with none (triggers in migration 0005).
+    project_id: str | None = Field(default=None, foreign_key='project.id', index=True)
     title: str
     location: TaskLocation
     state: TaskState = Field(index=True)
@@ -274,6 +316,8 @@ class ChannelCall(SQLModel, table=True):
 class Artifact(SQLModel, table=True):
     id: str = Field(default_factory=lambda: new_id('art'), primary_key=True)
     task_id: str | None = Field(default=None, foreign_key='task.id', index=True)
+    # Its task's project, or the inbox for an artifact with no task (`_file_artifact`).
+    project_id: str | None = Field(default=None, foreign_key='project.id', index=True)
     kind: ArtifactKind
     title: str
     url: str | None = None
@@ -309,3 +353,62 @@ class UsageSnapshot(SQLModel, table=True):
     used_pct: float
     resets_at: datetime | None = None
     source: str
+
+
+# Filing -------------------------------------------------------------------------------------
+# These run inside the flush that writes the row, so whatever code inserts an agent, a task or an
+# artifact, the inbox exists and the row is filed under a project.
+
+
+def inbox_id(connection: Connection, agent_id: str) -> str:
+    """The id of the agent's inbox project, made now if the agent has none."""
+    table = Project.__table__  # type: ignore[attr-defined]
+    found = connection.execute(
+        select(table.c.id).where(table.c.agent_id == agent_id, table.c.slug == INBOX_SLUG)
+    ).first()
+    if found is not None:
+        return found[0]
+    now = utcnow()
+    project_id = new_id('prj')
+    connection.execute(
+        insert(table).values(
+            id=project_id,
+            agent_id=agent_id,
+            slug=INBOX_SLUG,
+            name='Inbox',
+            board_artifact_id=new_id('art'),
+            archived=False,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    return project_id
+
+
+@event.listens_for(Agent, 'after_insert')
+def _file_new_agents(_mapper: Any, connection: Connection, agent: Agent) -> None:
+    inbox_id(connection, agent.id)
+
+
+@event.listens_for(Task, 'before_insert')
+def _file_in_inbox(_mapper: Any, connection: Connection, task: Task) -> None:
+    if task.project_id is None:
+        task.project_id = inbox_id(connection, task.agent_id)
+
+
+@event.listens_for(Artifact, 'before_insert')
+def _file_artifact(_mapper: Any, connection: Connection, art: Artifact) -> None:
+    """An artifact belongs to its task's project. One with no task goes to the inbox of the
+    hub's first agent (v1 has one owner); with no agent at all it stays unfiled."""
+    if art.project_id is not None:
+        return
+    if art.task_id is not None:
+        tasks = Task.__table__  # type: ignore[attr-defined]
+        art.project_id = connection.execute(
+            select(tasks.c.project_id).where(tasks.c.id == art.task_id)
+        ).scalar()
+        return
+    agents = Agent.__table__  # type: ignore[attr-defined]
+    first = connection.execute(select(agents.c.id).order_by(agents.c.id).limit(1)).scalar()
+    if first is not None:
+        art.project_id = inbox_id(connection, first)

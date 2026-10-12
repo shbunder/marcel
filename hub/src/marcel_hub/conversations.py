@@ -25,6 +25,7 @@ from marcel_hub.models import (
     Message,
     MessageKind,
     MessageRole,
+    Project,
 )
 from marcel_hub.ws import EventLog
 
@@ -40,7 +41,7 @@ class NewMessage(BaseModel):
     model_config = ConfigDict(extra='forbid')
     text: str = Field(min_length=1, max_length=20000)
     client_id: str | None = Field(default=None, max_length=200)
-    # Accepted as the contract says; stored once projects exist (S-04.10).
+    # Sent from a project room (B-32): stored on the message, which stays in this conversation.
     project_id: str | None = None
 
 
@@ -73,6 +74,8 @@ def message_json(msg: Message, thread: dict[str, Any] | None = None) -> dict[str
             body[key] = msg.body_json[key]
     if msg.task_id is not None:
         body['task_id'] = msg.task_id
+    if msg.project_id is not None:
+        body['project_id'] = msg.project_id
     if msg.client_id is not None:
         body['client_id'] = msg.client_id
     if thread is not None:
@@ -151,6 +154,7 @@ def post_message(
     kind: MessageKind,
     body: dict[str, Any],
     task_id: str | None = None,
+    project_id: str | None = None,
     client_id: str | None = None,
 ) -> Message:
     """Store a message and send `message.created` to every device of the owner.
@@ -174,6 +178,7 @@ def post_message(
             kind=kind,
             body_json=body,
             task_id=task_id,
+            project_id=project_id,
             client_id=client_id,
         )
         session.add(msg)
@@ -266,8 +271,15 @@ def list_messages(
 def send_message(
     conversation_id: str, body: NewMessage, request: Request, session: DbSession
 ) -> dict[str, Any]:
-    """Store and return at once: never waits for Marcel (B-02)."""
+    """Store and return at once: never waits for Marcel (B-02).
+
+    A `project_id` (sent from a project room, B-32) is stored on the message; whatever hands user
+    messages to the brain passes `message.project_id` along with the text."""
     conv = own_conversation(session, conversation_id, current_device(request))
+    if body.project_id is not None:
+        project = session.get(Project, body.project_id)
+        if project is None or project.agent_id != conv.agent_id:
+            raise ApiError(400, 'bad_request', 'project_id: that project is not this agent’s.')
     msg = post_message(
         session,
         events_of(request),
@@ -275,6 +287,7 @@ def send_message(
         role=MessageRole.user,
         kind=MessageKind.text,
         body={'text': body.text},
+        project_id=body.project_id,
         client_id=body.client_id,
     )
     return message_json(msg, threads_of(session, [msg.id]).get(msg.id))
