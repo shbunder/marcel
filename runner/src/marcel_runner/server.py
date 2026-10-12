@@ -1,5 +1,6 @@
 """The runner's HTTP server on a unix socket: `GET /health`, `GET /usage`, `/sessions`
-(with resume, fork and `repo` spawns), `GET /sessions/{id}/tail` and `GET /events`."""
+(with resume, fork and `repo` spawns), `GET /sessions/{id}/tail`, `GET /events` and
+`/cloud/sessions` (cloud spawn and send)."""
 
 import grp
 import json
@@ -15,6 +16,7 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from marcel_runner import fork, resume
+from marcel_runner.cloud import Cloud
 from marcel_runner.health import Settings, cgroup_of, collect_health
 from marcel_runner.sessions import SessionError, Sessions, StateFileError, state_dir_from_env
 from marcel_runner.transcript import Tails
@@ -94,6 +96,7 @@ class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
         watcher: Watcher | None = None,
         tails: Tails | None = None,
         workspaces: Workspaces | None = None,
+        cloud: Cloud | None = None,
     ) -> None:
         # bind_socket() has already bound `sock`; skip UnixStreamServer's own bind.
         socketserver.BaseServer.__init__(self, sock.getsockname(), Handler)
@@ -104,6 +107,7 @@ class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
         self.watcher = watcher
         self.tails = tails
         self.workspaces = workspaces
+        self.cloud = cloud
         sock.listen(16)
 
 
@@ -145,6 +149,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(
                 *route_sessions(sessions, self.server.workspaces, self.command, path, query, body)
             )
+        elif self.server.cloud is not None and path.startswith('/cloud/'):
+            # Cloud sessions are not in Claude's roster, so `Cloud` routes them on its own.
+            length = int(self.headers.get('content-length') or 0)
+            body = self.rfile.read(length) if length > 0 else b''
+            self._send(*self.server.cloud.route(self.command, path, body))
         elif path == '/events' and self.server.watcher is not None:
             if self.command != 'GET':
                 self._error(405, 'method_not_allowed', f'{path} only answers GET.')
@@ -200,6 +209,7 @@ def serve(
     watcher: Watcher | None = None,
     tails: Tails | None = None,
     workspaces: Workspaces | None = None,
+    cloud: Cloud | None = None,
 ) -> UnixHTTPServer:
     """Check the supervisor, bind the socket and return a server ready for `serve_forever()`."""
     if sessions is not None:
@@ -218,7 +228,7 @@ def serve(
     if sessions is not None:
         sessions.refresh_usage = probe.refresh  # a fresh usage reading before each worker spawn
     sock = bind_socket(path, group)
-    return UnixHTTPServer(sock, health, probe, sessions, watcher, tails, workspaces)
+    return UnixHTTPServer(sock, health, probe, sessions, watcher, tails, workspaces, cloud)
 
 
 def settings_from_env() -> tuple[Settings, Path, str | None]:
@@ -253,6 +263,7 @@ def main() -> int:
             watcher=watcher,
             tails=tails,
             workspaces=workspaces,
+            cloud=Cloud(settings.claude, sessions.home),
         )
     except (StartupError, StateFileError) as e:
         print(f'marcel-runner: {e}', file=sys.stderr)
