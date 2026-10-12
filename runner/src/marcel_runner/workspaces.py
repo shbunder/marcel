@@ -4,6 +4,8 @@
 trust prompt there (worktrees inherit trust from their main repo, SP2) and installs the marcel
 plugin at **local** scope, so nothing tracked in someone else's repo changes. Each task gets a
 worktree, `~/marcel/workspaces/<repo>-wt/<task-id>`, on branch `marcel/<task-id>-<slug>`.
+A cloud create (`POST /cloud/sessions` with `repo`) borrows `~/marcel/workspaces/<repo>-wt/.cloud`,
+a worktree on the base branch, only while `claude --cloud` runs (`Workspaces.cloud_checkout`).
 
 Repo URLs, task ids, slugs and base branches come from users. Every one is checked against a
 narrow pattern before git sees it, every git call puts `--` before its paths, and every path is
@@ -21,7 +23,7 @@ import shutil
 import subprocess
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,6 +48,8 @@ GIT_SAFE = (
 )
 
 REPO_KEYS = {'url', 'base', 'task_id', 'slug'}
+CLOUD_REPO_KEYS = {'url', 'base'}
+CLOUD_DIR = '.cloud'  # under `<repo>-wt/`; a task id never starts with a dot, so never collides
 HOST = re.compile(r'[A-Za-z0-9](?:[A-Za-z0-9.-]{0,252}[A-Za-z0-9])?(?::[0-9]{1,5})?')
 SEGMENT = re.compile(r'[A-Za-z0-9_.~-]{1,100}')
 REPO_NAME = re.compile(r'[A-Za-z0-9_][A-Za-z0-9._-]{0,99}')
@@ -70,9 +74,20 @@ def _bad(message: str) -> SessionError:
 
 
 @dataclass(frozen=True)
-class RepoSpec:
+class Repo:
     url: str
     name: str  # the folder under the workspaces root, from the URL's last part
+
+
+@dataclass(frozen=True)
+class CloudRepo(Repo):
+    """`CloudRepo` in runner-api 0.1.7: the repo and branch a cloud session starts on."""
+
+    base: str | None
+
+
+@dataclass(frozen=True)
+class RepoSpec(Repo):
     task_id: str
     slug: str
     base: str | None
@@ -105,6 +120,22 @@ def parse_repo(value: Any) -> RepoSpec:
     if base is not None and not _good_base(base):
         raise _bad('repo.base must be a branch name like "main".')
     return RepoSpec(url, name, task_id, slug, base)
+
+
+def parse_cloud_repo(value: Any) -> CloudRepo:
+    """Check a `CloudRepo`: the same `url` and `base` rules as `parse_repo`."""
+    if not isinstance(value, dict):
+        raise _bad('repo must be an object with url and, if you like, base.')
+    unknown = sorted(set(value) - CLOUD_REPO_KEYS)
+    if unknown:
+        raise _bad(f'Unknown repo field(s): {", ".join(unknown)}.')
+    if 'url' not in value:
+        raise _bad('Missing repo field(s): url.')
+    name = _repo_name(value['url'])
+    base = value.get('base')
+    if base is not None and not _good_base(base):
+        raise _bad('repo.base must be a branch name like "main".')
+    return CloudRepo(value['url'], name, base)
 
 
 def _repo_name(url: Any) -> str:
@@ -305,13 +336,13 @@ class Workspaces:
             )
         return path
 
-    def clone_dir(self, spec: RepoSpec) -> Path:
+    def clone_dir(self, spec: Repo) -> Path:
         return self._checked(self.root / spec.name)
 
     def worktree_dir(self, spec: RepoSpec) -> Path:
         return self._checked(self.root / f'{spec.name}-wt' / spec.task_id)
 
-    def _lock_for(self, spec: RepoSpec) -> threading.Lock:
+    def _lock_for(self, spec: Repo) -> threading.Lock:
         with self._locks_guard:
             return self._locks.setdefault(spec.name, threading.Lock())
 
@@ -351,12 +382,12 @@ class Workspaces:
 
     # --- the clone ------------------------------------------------------------------------
 
-    def ensure(self, spec: RepoSpec) -> Path:
+    def ensure(self, spec: Repo) -> Path:
         """The clone for `spec`, made, trusted and given the plugin once."""
         with self._lock_for(spec):
             return self._ensure(spec)
 
-    def _ensure(self, spec: RepoSpec) -> Path:
+    def _ensure(self, spec: Repo) -> Path:
         clone = self.clone_dir(spec)
         if clone.exists():
             origin = self.git(
@@ -449,6 +480,78 @@ class Workspaces:
             self.git(clone, 'worktree', 'prune', what='Pruning worktrees')
             if delete_branch and self._has_branch(clone, spec.branch):
                 self.git(clone, 'branch', '-D', '--', spec.branch, what='Deleting the branch')
+
+    # --- a cloud create -------------------------------------------------------------------
+
+    @contextlib.contextmanager
+    def cloud_checkout(self, repo: CloudRepo) -> Iterator[Path]:
+        """A folder of `repo`'s clone on its base branch (the default branch when `repo.base` is
+        None), at what origin has now, for one `claude --cloud`, which reads the repo and branch
+        from the folder it runs in.
+
+        The folder is `<repo>-wt/.cloud`, a worktree on a local branch named like the base and
+        reset to `origin/<base>`. It exists only inside the `with`: the whole block runs under the
+        repo's lock (a `repo` spawn of the same repo waits, at most the create's 60 s), and the
+        worktree is removed when it ends, however it ends. A folder left there by a crash is
+        removed first. The clone's own checkout lets go of the branch (it is detached at the same
+        commit; no file changes) so the worktree can have it."""
+        with self._lock_for(repo):
+            clone = self._ensure(repo)
+            path = self._checked(self.root / f'{repo.name}-wt' / CLOUD_DIR)
+            self._drop_cloud(clone, path)
+            try:
+                self.git(clone, 'fetch', '--prune', 'origin', what='Fetching')
+                base = repo.base or self._default_branch(clone)
+                head = self._exec(
+                    ['git', *GIT_SAFE, 'symbolic-ref', '-q', 'HEAD'], clone, 'Reading the clone'
+                )
+                if head.returncode == 0 and head.stdout.strip() == f'refs/heads/{base}':
+                    self.git(clone, 'checkout', '-q', '--detach', what='Freeing the base branch')
+                path.parent.mkdir(parents=True, exist_ok=True)
+                self.git(
+                    clone,
+                    'worktree',
+                    'add',
+                    '-B',
+                    base,
+                    '--',
+                    str(path),
+                    f'origin/{base}',
+                    what=f'Checking out {base}',
+                )
+                yield path
+            finally:
+                with contextlib.suppress(SessionError, OSError):  # the next create retries it
+                    self._drop_cloud(clone, path)
+
+    def _default_branch(self, clone: Path) -> str:
+        """The branch `origin/HEAD` points at, as a clone sets it."""
+        argv = ['git', *GIT_SAFE, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']
+        p = self._exec(argv, clone, 'Reading the default branch')
+        if p.returncode != 0:
+            self.git(clone, 'remote', 'set-head', 'origin', '--auto', what='Reading the default')
+            p = self._exec(argv, clone, 'Reading the default branch')
+        branch = p.stdout.strip().removeprefix('origin/')
+        if p.returncode != 0 or not _good_base(branch):
+            said = (p.stderr or p.stdout).strip() or None
+            raise SessionError(
+                422,
+                'clone_failed',
+                f'The runner could not tell the default branch of {clone}.',
+                said,
+            )
+        return branch
+
+    def _drop_cloud(self, clone: Path, path: Path) -> None:
+        """Remove the cloud folder, whether git still knows it as a worktree or not."""
+        if path.is_symlink():
+            path.unlink()
+        elif path.exists():
+            argv = ['git', *GIT_SAFE, 'worktree', 'remove', '--force', '--', str(path)]
+            self._exec(argv, clone, 'Removing the cloud folder')
+            if path.exists():  # not a worktree git knows: a leftover folder
+                shutil.rmtree(path)
+        self.git(clone, 'worktree', 'prune', what='Pruning worktrees')
 
     # --- a `repo` spawn -------------------------------------------------------------------
 

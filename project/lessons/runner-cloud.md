@@ -15,3 +15,18 @@
   moment before `claude` exits, and a helper `claude` leaves behind can hold the pty open after it
   exits. `cloud.py` waits for the exit after EOF, stops reading once claude has exited and gone
   quiet, and always kills the whole process group.
+- **A `repo` cloud create starting on the right branch is still unproven (S-03.9).** No real
+  `claude --cloud` has been run from the `.cloud` worktree; the tests use a fake that only records
+  the folder, its branch, its commit and `@{u}`. The runner gives claude a worktree of the clone on a
+  local branch named like `base`, tracking `origin/<base>`, with `origin` set to the https URL. On
+  the NUC, once:
+  1. `POST /cloud/sessions` with `repo: {url: "https://github.com/shbunder/marcel", base: "<a branch
+     other than main>"}` and a prompt that asks the session to print `git branch --show-current` and
+     `git log -1 --format=%H`.
+  2. At the session's claude.ai page: is the repo `shbunder/marcel`, and do the branch and commit
+     match `origin/<base>`? Note the result here.
+  3. If claude.ai started on the default branch instead, check by hand in a worktree whether
+     `claude --cloud` reads the branch from `HEAD`, from the upstream, or needs the branch pushed.
+  4. Whether the trust dialog appears in the worktree (SP2 says worktrees inherit trust from the
+     clone). If it does, the create hangs to its 60 s limit and answers `claude_timeout`; the
+     pty output in `detail` would show the dialog.

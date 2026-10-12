@@ -68,6 +68,7 @@ claude --bg --resume <uuid> --fork-session --name <name> [--model <model>]
 |---|---|
 | `~/marcel/workspaces/<repo>` | One clone per repo, made once. `<repo>` is the URL's last part, without `.git`. |
 | `~/marcel/workspaces/<repo>-wt/<task-id>` | One worktree per task, on branch `marcel/<task-id>-<slug>`. |
+| `~/marcel/workspaces/<repo>-wt/.cloud` | Only while a cloud create on this repo runs `claude --cloud` (see [cloud](cloud.md)). |
 
 `MARCEL_WORKSPACES` moves the root (default `~/marcel/workspaces`).
 
@@ -120,7 +121,9 @@ The rest of the body is checked as an ordinary spawn before any git work. Git ru
 `GIT_TERMINAL_PROMPT=0`, so a private repo fails instead of waiting for a password, and with
 `-c core.hooksPath=/dev/null -c core.fsmonitor=false -c protocol.ext.allow=never` on every call:
 workers share the clone's `.git`, and the runner never runs a hook or command one planted there.
-Each repo has its own lock, so a slow clone of one repo never holds up another.
+Each repo has its own lock, so a slow clone of one repo never holds up another. A cloud create
+holds its repo's lock while `claude --cloud` runs (at most 60 s), so a task spawn on the same repo
+waits that long at most.
 
 ## Errors
 
