@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel runner API
-  version: 0.1.4
+  version: 0.1.5
   description: |
     The runner is the only process that runs `claude` (native on the NUC, a systemd user unit). The
     hub (in Docker) talks to it over HTTP on a unix socket: `/run/user/<uid>/marcel/runner.sock` on
@@ -250,6 +250,18 @@ paths:
         One stream reads one file, so one offset is always enough. Without `subagent` it is the
         session's main transcript; a `subagent_start` event there gives the `agent_id` to tail with
         `subagent=<agent_id>`, whose events carry `subagent_id` and offsets into that file.
+
+        One tail per file: a new tail of the same file (same session, same `subagent` or none) ends
+        the older stream. The newest tail wins, so a hub that reconnects before the runner noticed the
+        old connection drop is never refused.
+
+        An `offset` past the end of the file, or a file truncated or replaced while tailed, is streamed
+        again from byte 0, so offsets can go backwards. A client that sees an offset below the one it
+        resumed from treats the file as started over and resets its position. Claude Code is not known
+        to rewrite a transcript in place (a fork or copy starts a new file, SP2); this is an edge case.
+
+        A 503 is passing (the runner could not ask `claude` for its sessions just then): the client
+        retries with backoff, it does not give up on the tail.
       parameters:
         - name: subagent
           in: query
@@ -270,7 +282,20 @@ paths:
           content:
             text/event-stream:
               schema: { type: string }
+        '400':
+          description: '`bad_request`: `offset` is not a whole number of bytes, or `subagent` is not an agent id.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: |
+            `claude` could not be used just then: `claude_timeout` (it did not answer in time),
+            `claude_unavailable` (missing or not executable), or `roster_unavailable` (`claude agents --json`
+            failed). Passing: retry with backoff.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /events:
     get:
