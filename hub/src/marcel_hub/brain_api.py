@@ -35,6 +35,9 @@ Some tools reach parts of the hub that are built elsewhere. Each sits behind a s
 
 Every request body is read only up to a cap (`MAX_BODY_BYTES`, more for a memory write), and
 every text field has a maximum length.
+- `digests` (`artifacts_publish` with `in_reply_to`): which `digest_id`s the hub knows, from the
+  digests (`digest.Digests`, S-04.14), plugged in by `digest.install`. Until then every id is
+  unknown: 404 `digest_not_found`, and nothing is stored.
 - `schedules` (`schedule_*`): the scheduler (`schedule.Scheduler`, S-09.1), plugged in by
   `schedule.install`.
 - `usage` (`usage_get`): the usage guard (`usage.UsageGuard`, S-10.1), plugged in by
@@ -72,6 +75,7 @@ from marcel_hub.memory import (
 from marcel_hub.models import (
     Agent,
     Artifact,
+    ArtifactVersion,
     Message,
     MessageKind,
     MessageRole,
@@ -219,10 +223,24 @@ class Usage(Protocol):
 
 
 class BrainArtifacts(Protocol):
-    def publish(self, spec: dict[str, Any], project_id: str) -> dict[str, Any]:
+    def publish(
+        self, spec: dict[str, Any], project_id: str, in_reply_to: str | None = None
+    ) -> dict[str, Any]:
         """Store an artifact Marcel hands in (channel.schema.json `Artifact`), filed under
-        `project_id`. Returns the app-api `Artifact`. Raises `ArtifactRefused`."""
+        `project_id`, with the `digest_id` it answers kept on the new version. Returns the
+        app-api `Artifact`. Raises `ArtifactRefused`."""
         ...
+
+
+class DigestIds(Protocol):
+    def knows(self, agent_id: str, digest_id: str) -> bool:
+        """Whether `digest_id` names a `digest_due` event the hub sent this agent's brain."""
+        ...
+
+
+class NoDigests:
+    def knows(self, agent_id: str, digest_id: str) -> bool:
+        return False
 
 
 class NoBoards:
@@ -268,15 +286,24 @@ class ReportedArtifacts:
     def __init__(self, store: ArtifactStore | None) -> None:
         self.store = store
 
-    def publish(self, spec: dict[str, Any], project_id: str) -> dict[str, Any]:
+    def publish(
+        self, spec: dict[str, Any], project_id: str, in_reply_to: str | None = None
+    ) -> dict[str, Any]:
         if self.store is None:
             raise NotSetUp('This hub has no artifact store, so nothing was saved.')
         token = _filing.set(project_id)
         try:
             art = self.store.publish_reported(spec, project_id=project_id, author='Marcel')
-            return self.store.to_api(art)
         finally:
             _filing.reset(token)
+        if in_reply_to is not None:
+            with Session(self.store.engine) as s:
+                version = s.get(ArtifactVersion, (art.id, art.current_version))
+                assert version is not None
+                version.in_reply_to = in_reply_to
+                s.add(version)
+                s.commit()
+        return self.store.to_api(art)
 
 
 @dataclass
@@ -285,6 +312,7 @@ class BrainPorts:
     boards: Boards = field(default_factory=NoBoards)
     schedules: Schedules = field(default_factory=NoSchedules)
     usage: Usage = field(default_factory=NoUsage)
+    digests: DigestIds = field(default_factory=NoDigests)
 
 
 # Helpers ------------------------------------------------------------------------------------
@@ -645,6 +673,7 @@ class NewArtifact(BaseModel):
     project: str | None = Field(default=None, min_length=1, max_length=MAX_REF)
     artifact_id: str | None = Field(default=None, min_length=1, max_length=MAX_REF)
     summary: str | None = Field(default=None, max_length=200)
+    in_reply_to: str | None = Field(default=None, min_length=1, max_length=MAX_REF)
 
 
 @router.post('/artifacts')
@@ -655,9 +684,17 @@ async def publish_artifact(request: Request, brain: BrainDep) -> Any:
     project = _live_project(request, brain, body.project)
     if isinstance(project, JSONResponse):
         return project
-    spec = body.model_dump(exclude_none=True, exclude={'project'})
+    ports = _ports(request)
+    if body.in_reply_to is not None and not ports.digests.knows(brain.agent_id, body.in_reply_to):
+        return error(
+            404,
+            'digest_not_found',
+            f'There is no digest {body.in_reply_to} to answer. Use the digest_id of the '
+            'digest_due event, or leave in_reply_to out.',
+        )
+    spec = body.model_dump(exclude_none=True, exclude={'project', 'in_reply_to'})
     try:
-        art = _ports(request).artifacts.publish(spec, project.id)
+        art = ports.artifacts.publish(spec, project.id, body.in_reply_to)
     except NotSetUp as exc:
         return not_set_up(exc)
     except ArtifactRefused as exc:
@@ -869,6 +906,7 @@ __all__ = [
     'Brain',
     'BrainArtifacts',
     'BrainPorts',
+    'DigestIds',
     'NotSetUp',
     'Schedules',
     'Usage',

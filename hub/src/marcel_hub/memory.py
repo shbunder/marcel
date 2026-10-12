@@ -2,7 +2,8 @@
 
 The brain reads and writes the files directly (they are symlinked into its workspace); the app
 reads and edits them through `/api/memory`. Every save through the hub is one git commit with the
-message `memory: <path> (app|agent)`.
+message `memory: <path> (app|agent)`; a worker's note (`append`) is `memory: <path> (worker <task
+id>)`, which the app reads as `agent`.
 
 - **Etag.** A file's etag is the git blob id of its bytes on disk, so an edit made anywhere (the
   app, the brain, a person over SSH) changes it. A save with a stale etag is refused with the
@@ -45,7 +46,9 @@ SLICE_MAX_BYTES = 8_000
 # The request body may be longer than the file: JSON escapes (`\n`, `\/`, `\u00e9`) take room.
 MAX_BODY_BYTES = 2 * MAX_FILE_BYTES
 PATH_PATTERN = re.compile(r'^(?!/)(?!.*\.\.)(?!(.*/)?\.)[A-Za-z0-9._/-]+\.md$')  # the contract's
-SUBJECT = re.compile(r'^memory: .+ \((app|agent)\)$')
+SUBJECT = re.compile(r'^memory: .+ \((app|agent|worker)(?: [^)]*)?\)$')
+# Who `append` names in its commit subject, e.g. `worker tsk_019a2b3c4d5e1f2a3b4c`.
+APPENDER = re.compile(r'^[a-z]+ [A-Za-z0-9_-]{1,80}$')
 
 Writer = Literal['app', 'agent']
 
@@ -68,6 +71,10 @@ class MemoryConflict(Exception):
 
 class MemoryFileTooBig(Exception):
     """A file on disk over `MAX_FILE_BYTES`: the app cannot open it (400 `memory_file_too_big`)."""
+
+
+class TooManyAppends(Exception):
+    """The writer already made as many appends as it may (`append`'s `max_appends`)."""
 
 
 class MemoryUnavailable(Exception):
@@ -247,7 +254,9 @@ class MemoryRepo:
             at, subject = commits[rel]
             body: dict[str, Any] = {'updated_at': _iso(datetime.fromisoformat(at))}
             if match := SUBJECT.fullmatch(subject):
-                body['updated_by'] = match.group(1)
+                # A worker is one of the agent's sessions: the contract's `updated_by` is
+                # `app` or `agent`.
+                body['updated_by'] = 'app' if match.group(1) == 'app' else 'agent'
             return body
         mtime = datetime.fromtimestamp(path.stat().st_mtime, UTC)
         return {'updated_at': _iso(mtime)}
@@ -335,23 +344,61 @@ class MemoryRepo:
             elif if_match is not None:
                 raise MemoryFileNotFound(rel)
 
-            self._refuse_attribute_files()
-            path = self.resolve(rel)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            self.resolve(rel)  # a folder made just now cannot be a symlink, but check anyway
-            _write_file(path, data)
-            try:
-                self._git('add', '--', rel)
-                self._git('commit', '-q', '--only', '-m', f'memory: {rel} ({by})', '--', rel)
-            except MemoryUnavailable:
-                if found is None:
-                    path.unlink()
-                    self._git_quiet('rm', '-q', '--cached', '--ignore-unmatch', '--', rel)
-                else:
-                    _write_file(path, found[1])
-                    self._git_quiet('add', '--', rel)
-                raise
-            return self._describe(rel, data, path)
+            return self._save(rel, data, found, f'memory: {rel} ({by})')
+
+    def append(self, rel: str, line: str, by: str, max_appends: int | None = None) -> None:
+        """Add `line` at the end of `rel` (made if missing) and commit it as
+        `memory: <rel> (<by>)`, e.g. a worker's note (`by` = `worker <task id>`).
+
+        Under the write lock, so appends at the same time never lose one another. `line` must be
+        one line. With `max_appends`, raises `TooManyAppends` once git already holds that many
+        commits by `by` (in any file); `MemoryFileTooBig` when the file would pass 1 MB.
+        """
+        if '\n' in line or '\r' in line or not line.strip():
+            raise ValueError('append takes one line of text')
+        if not APPENDER.fullmatch(by):
+            raise ValueError(f'append cannot name {by!r} in a commit')
+        with self._lock:
+            self._ensure()
+            if max_appends is not None and self._appends_by(by) >= max_appends:
+                raise TooManyAppends(by)
+            found = self._read_bytes(rel)
+            before = found[1] if found is not None else b''
+            if before and not before.endswith(b'\n'):
+                before += b'\n'
+            data = before + line.encode('utf-8') + b'\n'
+            if len(data) > MAX_FILE_BYTES:
+                raise MemoryFileTooBig(rel)
+            self._save(rel, data, found, f'memory: {rel} ({by})')
+
+    def _appends_by(self, by: str) -> int:
+        if not self._has_commits():
+            return 0
+        tail = f' ({by})'
+        out = self._out('log', '--format=%s', '--fixed-strings', f'--grep={tail}')
+        return sum(1 for subject in out.splitlines() if subject.endswith(tail))
+
+    def _save(
+        self, rel: str, data: bytes, found: tuple[Path, bytes] | None, subject: str
+    ) -> dict[str, Any]:
+        """Write `data` and commit it; on a git failure put the file back as it was (`found`)."""
+        self._refuse_attribute_files()
+        path = self.resolve(rel)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.resolve(rel)  # a folder made just now cannot be a symlink, but check anyway
+        _write_file(path, data)
+        try:
+            self._git('add', '--', rel)
+            self._git('commit', '-q', '--only', '-m', subject, '--', rel)
+        except MemoryUnavailable:
+            if found is None:
+                path.unlink()
+                self._git_quiet('rm', '-q', '--cached', '--ignore-unmatch', '--', rel)
+            else:
+                _write_file(path, found[1])
+                self._git_quiet('add', '--', rel)
+            raise
+        return self._describe(rel, data, path)
 
     def _git_quiet(self, *args: str) -> None:
         """Best effort while undoing a failed save: the file on disk is already put back."""

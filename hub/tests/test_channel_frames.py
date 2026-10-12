@@ -86,6 +86,11 @@ HELLO = {
         ('{"type": "report", "call_id": "c", "kind": "progress"}', 'needs text'),
         ('{"type": "report", "call_id": "c", "kind": "artifact"}', 'needs an artifact'),
         ('{"type": "report", "call_id": "c", "kind": "done"}', 'needs a summary'),
+        ('{"type": "report", "call_id": "c", "kind": "note"}', 'note report needs text'),
+        ('{"type": "report", "call_id": "c", "kind": "note", "text": ""}',
+         'note report needs text of 1 to 1000'),
+        ('{"type": "report", "call_id": "c", "kind": "note", "text": "' + 'x' * 1001 + '"}',
+         'note report needs text of 1 to 1000'),
         ('{"type": "report", "call_id": "c", "kind": "done", "summary": "s", "artifacts": {}}',
          'not a list'),
         ('{"type": "report", "call_id": "c", "kind": "artifact", "artifact": 1}', 'not an object'),
@@ -103,6 +108,11 @@ HELLO = {
 def test_bad_frames_are_refused(frame: str, why: str) -> None:
     with pytest.raises(BadFrame, match=why):
         parse(frame)
+
+
+def test_a_note_of_a_thousand_characters_is_taken() -> None:
+    frame = {'type': 'report', 'call_id': 'c', 'kind': 'note', 'text': 'é' * 1000}
+    assert parse(json.dumps(frame)) == frame
 
 
 def test_not_json_is_refused() -> None:

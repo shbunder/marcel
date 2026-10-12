@@ -145,8 +145,9 @@ def test_a_pr_card_follows_github_from_open_to_merged(rig: Rig, gh: FakeGitHub) 
     art = rig.add_pr()
 
     assert rig.later(0) == [art]  # refreshed as soon as it is made
-    assert rig.pr(art) == {'number': 14, 'state': 'open', 'checks': 'pending',
-                           'review': 'requested', 'note': None}  # fmt: skip
+    assert {k: v for k, v in rig.pr(art).items() if k != 'refreshed_at'} == {
+        'number': 14, 'state': 'open', 'checks': 'pending', 'review': 'requested', 'note': None,
+    }  # fmt: skip
     assert len(rig.events.updates()) == 1
 
     assert rig.later(60) == []  # not due yet: every 5 minutes

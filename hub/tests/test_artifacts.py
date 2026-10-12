@@ -456,6 +456,7 @@ def test_refreshing_a_pr_stores_its_checks_and_review(hub: Hub) -> None:
 
     got = hub.get(f'/artifacts/{art["id"]}').json()
     ARTIFACT.validate(got)
+    assert got['pr'].pop('refreshed_at').endswith('Z')  # 0.6: every good refresh is stamped
     assert got['pr'] == {
         'number': 14,
         'state': 'open',

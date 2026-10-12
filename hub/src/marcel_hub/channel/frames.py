@@ -10,13 +10,15 @@ from typing import Any
 
 SESSION_ID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
 REQUEST_ID = re.compile(r'^[a-km-z]{5}$')
-REPORT_KINDS = frozenset({'started', 'progress', 'artifact', 'done', 'failed'})
+REPORT_KINDS = frozenset({'started', 'progress', 'artifact', 'done', 'failed', 'note'})
 ARTIFACT_KINDS = frozenset({'pr', 'branch', 'doc', 'file', 'dashboard', 'link'})
 URL_KINDS = frozenset({'pr', 'branch', 'link'})
 PATH_KINDS = frozenset({'doc', 'file', 'dashboard'})
 # A progress report's `next` steps (channel.schema.json `Report.next`).
 MAX_NEXT_STEPS = 20
 MAX_NEXT_STEP_CHARS = 200
+# A `note` report's text: one fact for the project's notes (channel.schema.json `Report`).
+MAX_NOTE_CHARS = 1000
 
 # Every field each `ToHub` frame may carry, and whether it is required. `type` is implied.
 FIELDS: dict[str, dict[str, bool]] = {
@@ -102,6 +104,8 @@ def _check_report(frame: dict[str, Any]) -> None:
         raise BadFrame(f'unknown report kind {kind!r}')
     if kind == 'progress' and 'text' not in frame:
         raise BadFrame('a progress report needs text')
+    if kind == 'note' and not 1 <= len(frame.get('text', '')) <= MAX_NOTE_CHARS:
+        raise BadFrame(f'a note report needs text of 1 to {MAX_NOTE_CHARS} characters')
     if kind == 'artifact' and 'artifact' not in frame:
         raise BadFrame('an artifact report needs an artifact')
     if kind in ('done', 'failed') and 'summary' not in frame:

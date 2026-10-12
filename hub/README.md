@@ -315,6 +315,10 @@ only ever sends `GET` requests to `https://api.github.com`.
   of reach (network down or a timeout). The card shows it as `pr.note` (cut at 200 characters), and
   the app gets `artifact.updated` when the note appears, changes or clears. It clears (`pr.note`
   null) on the next good refresh.
+- **`pr.refreshed_at`** (app-api 0.6) is the time of the last good refresh, absent before the first
+  one. Every good refresh sets it; a failed one leaves it. A refresh that changes nothing else
+  sends no event of its own: the new time rides on the next `artifact.updated` and is in every
+  read. It lives in `meta_json.pr` next to `state`, `checks` and `review`.
 - **The token** is sent only in the `Authorization` header, never in a URL (httpx logs URLs), an
   error message, an artifact or a `repr`. An httpx error (which holds the request, and so the
   header) is dropped: the hub raises its own error outside the `except`, with no `__context__` or
@@ -391,6 +395,12 @@ on first use. The code is `src/marcel_hub/memory.py`.
   straight to disk is not committed, but its etag changes, so the app cannot overwrite it unseen.
   An unchanged save makes no commit. Only the saved file is committed. If git fails, the file is put
   back and the answer is 503 `memory_unavailable`.
+- **Workers' notes.** `MemoryRepo.append(path, line, by, max_appends)` adds one line at the end of
+  a file (made if missing) and commits it as `memory: <path> (<by>)`, under the same lock as every
+  save, so notes sent at the same time never lose one another. It refuses more than one line, a
+  `by` that is not `<word> <id>`, a file that would pass 1 MB (`MemoryFileTooBig`), and, with
+  `max_appends`, a writer that already has that many commits (`TooManyAppends`, counted from git,
+  so a restart forgets nothing). The app reads such a file's `updated_by` as `agent`.
 - **Paths** must match the contract's pattern (no `..`, no leading `/`, no part starting with `.`,
   ending in `.md`), and no part may be a symlink, so nothing outside the memory folder can be read
   or written. Anything else answers 400 `invalid_memory_path`.
@@ -432,6 +442,17 @@ on first use. The code is `src/marcel_hub/memory.py`.
   instructions adds nothing. The stored opening note (what the app shows) is the prompt alone. If
   the briefing cannot be built, the task starts without it and the log says
   `starts without its project briefing` and why.
+- **Notes from workers** (`report(note)`, session-api 0.1.2). A worker sends one lasting fact (1 to
+  1000 characters; anything else is a bad frame and dropped). The gateway appends
+  `- <date> <text> (from <task title>)` to `memory/projects/<slug>.md` of the task's own project
+  (`projects/inbox.md` for one in the Inbox), with the date in the owner's time zone, and commits it
+  as `memory: projects/<slug>.md (worker <task id>)`. The file name comes from the project's slug
+  in the database, never from the worker, and a slug that is not a slug is refused before any path
+  is made. Text and title are put on one line, so a note cannot add a heading or another item.
+  No milestone, no state change, nothing in the main chat. A task may send 10 notes; the 11th is
+  answered `call_ack` error `too_many_notes` ("this thread already sent 10 notes … Put the fact in
+  your done summary instead."). A full notes file (1 MB) is `notes_full`; no memory folder, or git
+  failing, is `memory_unavailable`. A refused note stores nothing and is not re-sent.
 - **Archive** refuses the inbox (409 `project_is_inbox`) and a project with any task that is not
   done, failed or stopped (409 `project_busy`).
 - **Move.** Only into a live project of the same agent (409 `project_archived`, 404
@@ -572,10 +593,16 @@ with the plugin's `digest` skill. The hub never writes a digest itself.
   run of 32+ hex characters such as the hub secret) become `[hidden]`, as does the value of
   `NAME=value` when NAME ends in secret, token, key or password (`MARCEL_HUB_SECRET=[hidden]`).
 - **Delivery.** The bundle goes as a `digest_due` system event (`data: {digest, title, facts,
-  artifact_id?}`) through the channel outbox, so it waits there while the brain restarts.
+  digest_id, artifact_id?}`) through the channel outbox, so it waits there while the brain
+  restarts. `digest_id` (`dig_…`) names this one event.
 - **The digest board.** The brain publishes with the event's `title` ("Evening digest — Monday 12
-  October"). The hub takes as the digest a new version of the board, or a doc by Marcel in the
-  inbox with exactly that title; any other doc published meanwhile is ignored. The first one
+  October") and `in_reply_to: <digest_id>` (`POST /brain/artifacts`, brain-api 0.1.1). The hub
+  keeps `in_reply_to` on the version (`artifact_version.in_reply_to`, migration 0008) and takes
+  that version as the digest, whatever its title or project. Without it, the hub takes a new
+  version of the board, or a doc by Marcel in the inbox with exactly that title, unless that
+  version answers another digest; any other doc published meanwhile is ignored. An
+  `in_reply_to` the hub never sent this agent's brain (or one older than the last 50 answered)
+  is refused 404 `digest_not_found`, and nothing is stored. The first one
   becomes the agent's digest board; later events name it (`artifact_id`), so each digest is a new
   version.
   When it gets a new version, the hub posts it as a card in the main conversation and pushes it
@@ -586,7 +613,8 @@ with the plugin's `digest` skill. The hub never writes a digest itself.
   wait for you; 3 threads are working." The owner is never left guessing, and nothing waits on the
   brain. A digest published later (until the next digest of its kind) is still recognised: it
   becomes the board and gets its card, without a second push.
-- **Restart.** The board ids, the digests waiting to be published and the usage baselines are kept
+- **Restart.** The board ids, the digests waiting to be published, the answered digest ids and the
+  usage baselines are kept
   in `<data_dir>/digests.json`; an unreadable file is logged and digests start afresh.
 - **Live test** (`tests/test_digest_live.py`, marked `live`, never in a gate): on the NUC, with
   `MARCEL_LIVE_URL`, `MARCEL_LIVE_TOKEN` (a paired device's token) and `MARCEL_LIVE_AGENT`, it moves
