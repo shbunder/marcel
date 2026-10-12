@@ -3,6 +3,8 @@
 The runner is the only process that runs `claude`. It runs natively on the NUC as a systemd user
 service and talks to the hub over HTTP on a unix socket. Today it answers `GET /health`.
 
+Plan usage (`GET /usage`): see [runner/usage.md](runner/usage.md).
+
 ## Run it
 
 ```bash
