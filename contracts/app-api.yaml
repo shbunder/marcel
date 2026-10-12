@@ -96,6 +96,13 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/PairResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '429':
+          description: |
+            Too many wrong codes in the last minute (code `too_many_tries`). Pairing is refused for the
+            rest of that minute, so a code cannot be guessed. Wait and scan a fresh code.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /me:
     get:
@@ -229,6 +236,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MessagePage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
     post:
@@ -340,6 +348,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TaskPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /tasks/{task_id}:
@@ -377,6 +386,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TaskEventPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -570,6 +580,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ArtifactPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /artifacts/{artifact_id}:
@@ -606,6 +617,7 @@ paths:
           content:
             '*/*':
               schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -632,6 +644,10 @@ paths:
       tags: [projects]
       operationId: listProjects
       summary: The Map (B-30). The `inbox` project always exists.
+      description: |
+        Every agent has exactly one project with slug `inbox`, named "Inbox", created with the agent. Threads
+        that fit no other project land there (B-31). It cannot be archived. The examples use the id
+        `prj_inbox`; real ids are chosen by the hub.
       parameters:
         - name: agent_id
           in: query
@@ -649,6 +665,37 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Project' }
+              example:
+                - id: prj_01JA0A1
+                  agent_id: agt_marcel
+                  slug: energy
+                  name: Energy contracts
+                  goal: Find a cheaper gas and electricity contract before the renewal on 1 December.
+                  board_artifact_id: art_01JA0A2
+                  archived: false
+                  counts: { working: 1, needs_you: 1, done_7d: 2 }
+                  created_at: '2026-10-08T19:00:00Z'
+                  updated_at: '2026-10-12T08:14:00Z'
+                - id: prj_01J9ZM1
+                  agent_id: agt_marcel
+                  slug: marcel-dev
+                  name: Marcel dev
+                  goal: Build and look after Marcel itself.
+                  repo: shbunder/marcel
+                  board_artifact_id: art_01J9ZM2
+                  archived: false
+                  counts: { working: 1, needs_you: 0, done_7d: 4 }
+                  created_at: '2026-10-04T18:00:00Z'
+                  updated_at: '2026-10-12T07:50:00Z'
+                - id: prj_inbox
+                  agent_id: agt_marcel
+                  slug: inbox
+                  name: Inbox
+                  board_artifact_id: art_01J9ZM0
+                  archived: false
+                  counts: { working: 0, needs_you: 1, done_7d: 3 }
+                  created_at: '2026-10-04T17:00:00Z'
+                  updated_at: '2026-10-12T08:00:00Z'
         '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [projects]
