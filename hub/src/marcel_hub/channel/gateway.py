@@ -51,6 +51,7 @@ from marcel_hub.runner_client import Alerts, LogAlerts
 from marcel_hub.tasks.ports import NullPublisher, Publisher
 from marcel_hub.tasks.registry import TaskRegistry
 from marcel_hub.tasks.states import TRANSITIONS, IllegalTransition
+from marcel_hub.triage import BrainTurn, Direct, Event, Kind
 from marcel_hub.ws import EventLog
 
 log = logging.getLogger(__name__)
@@ -64,6 +65,15 @@ FINAL = frozenset({'done', 'failed', 'stopped'})  # a prompt cannot outlive thes
 PROMPT = 'permission prompt'  # runner-api.yaml Session.waiting_for
 WORKER_ROLES = frozenset({'worker', 'adopted'})
 CHAT_ROLES = frozenset({'brain', 'side'})
+# runner_client.map_session's reason for a session that asked something an approval cannot answer.
+QUESTION = 'The session asked a question'
+# A task entering one of these states is a triage event (S-06.5); the system event that wakes the
+# brain for it, if the triage decides so.
+STATE_EVENTS = {
+    TaskState.done.value: (Kind.worker_done, None),
+    TaskState.failed.value: (Kind.worker_failed, 'task_failed'),
+    TaskState.silent.value: (Kind.worker_silent, 'task_silent'),
+}
 
 
 @dataclass(frozen=True)
@@ -357,6 +367,9 @@ class Gateway:
                 # The report is still stored; the thread shows why the artifact is missing.
                 log.warning('Task %s: %s', task_id, exc)
                 registry.append_event(task_id, TaskEventType.error, {'message': str(exc)})
+        if kind in ('started', 'progress', 'artifact'):
+            # A finished or failed report is decided when the task's state changes.
+            self.outbox.decide(Event(Kind.worker_progress, peer.agent_id, task_id=task_id))
         if kind in ('started', 'progress') and frame.get('text'):
             progress: dict[str, Any] = {'text': frame['text']}
             if steps is not None:  # the steps still planned (wireframe 2A)
@@ -455,9 +468,10 @@ class Gateway:
         row = self.approvals.resolve(approval_id, state, AnsweredVia.app)
         if row is None:
             return None
-        if row.request_id is not None:
+        decision = self.outbox.decide(Event(Kind.approval_answer, task_id=row.task_id))
+        if row.request_id is not None and isinstance(decision, Direct):
             self.outbox.put(
-                task_target(row.task_id),
+                decision.target,
                 {
                     'type': 'permission_decision',
                     'request_id': row.request_id,
@@ -519,6 +533,48 @@ class Gateway:
             else:
                 self.approvals.resolve_from_transcript(task_id)
 
+    def task_moved(self, task_id: str, change: dict[str, Any]) -> None:
+        """A task changed state. Done, failed, silent and a question are triage events: the
+        brain is woken (a `system_event` in its conversation) only if the triage says so."""
+        to, reason = change.get('to'), str(change.get('reason', ''))
+        if to == TaskState.needs_you.value and reason == QUESTION:
+            kind, frame_kind = Kind.worker_question, 'task_question'
+        elif to in STATE_EVENTS:
+            kind, frame_kind = STATE_EVENTS[to]
+        else:
+            return
+        with Session(self.engine) as s:
+            task = s.get(Task, task_id)
+            if task is None:
+                return
+            agent_id, title, waiting = task.agent_id, task.title, task.waiting_for
+        main = self.outbox.main_conversation(agent_id)
+        if frame_kind is None:
+            decision = self.outbox.decide(Event(kind, agent_id, main, task_id))
+            if isinstance(decision, BrainTurn):
+                log.warning(
+                    'The triage woke the brain for task %s (%s), but the channel has no event '
+                    'for that; nothing was sent.',
+                    task_id,
+                    kind.value,
+                )
+            return
+        said = {
+            'task_failed': f'The task "{title}" failed: {reason}.',
+            'task_silent': f'The task "{title}" has gone quiet: {reason}.',
+            'task_question': f'The task "{title}" asks: {waiting or "an answer"}',
+        }[frame_kind]
+        self.outbox.put(  # the outbox asks the triage before it queues a system event
+            conversation_target(main),
+            {
+                'type': 'system_event',
+                'kind': frame_kind,
+                'text': said + ' Decide: retry, re-route, or ask the owner.',
+                'task_id': task_id,
+                'data': {'title': title, 'state': to, 'reason': reason},
+            },
+        )
+
     def _settle_from_transcript(self, task_id: str) -> None:
         _, still_open = self.approvals.resolve_from_transcript(task_id)
         if not still_open:
@@ -532,6 +588,8 @@ class Gateway:
     def on_task_event(self, type_: str, data: dict[str, Any]) -> None:
         if type_ == 'task.updated' and data.get('state') in FINAL:
             self.task_ended(data['id'], data['state'])
+        elif type_ == 'task.event' and data.get('type') == TaskEventType.state.value:
+            self.task_moved(data['task_id'], data['data'])
         elif (
             type_ == 'task.event'
             and data.get('type') == 'tool_result'
@@ -542,8 +600,13 @@ class Gateway:
     # User messages ----------------------------------------------------------------------------
 
     def on_app_event(self, _user_id: str, type_: str, data: dict[str, Any]) -> None:
-        """`EventLog` observer: a message the owner wrote goes to the session of its conversation.
-        A thread that belongs to a task is left to S-04.9's steer path."""
+        """`EventLog` observer: a message the owner wrote goes where the triage sends it — the
+        session of its conversation (the brain, or a side thread's fork), or, in a task's thread,
+        the task (S-04.9's steer path has already sent it there). An artifact or board change
+        never wakes the brain; it is decided and logged too."""
+        if type_ in ('artifact.created', 'artifact.updated'):
+            self.outbox.decide(Event(Kind.hub_update, task_id=data.get('task_id')))
+            return
         if type_ != 'message.created' or data.get('role') != MessageRole.user.value:
             return
         if data.get('kind') not in (MessageKind.text.value, MessageKind.quote.value):
@@ -551,7 +614,17 @@ class Gateway:
         try:
             with Session(self.engine) as s:
                 conv = s.get(Conversation, data['conversation_id'])
-            if conv is None or conv.task_id is not None:
+            if conv is None:
+                return
+            if conv.task_id is not None:
+                kind = Kind.thread_message
+            elif conv.kind == ConversationKind.main:
+                kind = Kind.main_message
+            else:
+                kind = Kind.side_message
+            event = Event(kind, conv.agent_id, conv.id, conv.task_id, data.get('text', ''))
+            decision = self.outbox.decide(event)
+            if not isinstance(decision, BrainTurn):
                 return
             if conv.brain_session_id is None and conv.kind == ConversationKind.main:
                 # No brain runs yet; the message is stored, and the brain that starts reads the
