@@ -24,6 +24,21 @@ and shows `ChatScreen(model:offline:)`; the Xcode project keeps this folder out 
 - **A message sent from a project room** (`project_id`, B-32; the Map tab) shows that project's chip under it, and
   VoiceOver says "You said, about Home energy: …". The Map package reuses the chat's `Composer` and
   `ArtifactPreview.dashboardRows`, so both are public.
+- **"Ask about this" on an item** (S-12.11, app API 0.5) comes back to the chat with the item attached
+  (`ChatModel.attach`; the viewer calls the `askInChat` environment value, which `ChatScreen` sets for viewers it
+  opens and the app sets for the others). The item shows above the composer (X removes it) and goes with the next
+  message only, as `artifact_id`, tagged with the item's project. The sent bubble shows the item under it, by its
+  title from the cache ("An item" when the phone does not have it); VoiceOver says "You said, with the item …".
+  If the hub no longer has the item (404 `artifact_not_found`), the bubble says "Item gone · tap to send without it"
+  and a tap sends the message without it; a 404 for the conversation itself (`conversation_not_found`) says that.
+- **"+ New" on the map** never overwrites what you typed: `ChatModel.propose` fills an empty composer, and otherwise
+  adds the request on a new line after your words (once).
+- **The agent's name is never hard-coded**: the header, Marcel's dialogue boxes, the composer ("Talk to <name>…", and
+  its VoiceOver label) and "<name>'s notebook" read it from `GET /me` (`ChatService.mainAgent`), `AgentName.fallback`
+  until the hub has said. `ChatScreen` puts it in the environment (`agentName`, from MarcelItems) for everything it
+  opens; the app does the same for the other tabs.
+  The app passes a rename in Settings on (`SettingsModel.nameChanged` → `ChatModel.agentName`).
+- **PR item cards** add "May be out of date: …" when the hub could not refresh the card from GitHub (`pr.note`).
 - **Sending** never waits on Marcel: the message shows at once ("Sending…"), and if the hub cannot be reached it
   stays, marked "Not sent · tap to try again". A retry reuses the `client_id`, so the hub keeps one copy.
 - **Scrolling**: the newest 50 messages; reaching the top loads 50 more from the cache. "Latest ▼" jumps back.
@@ -43,6 +58,10 @@ and shows `ChatScreen(model:offline:)`; the Xcode project keeps this folder out 
 - `FeedTests`, `CardTests`, `ComposerTests` — the feed, the cards and sending, driven through a real in-memory
   cache fed with event frames. `CardTests.testTheScenarioFromSendToItemGet` is the story's scenario: send → two
   started cards → a routed follow-up → the approval → approve → item get + artifact card.
+- `CatchUpTests` — app API 0.5 and the review follow-ups: a message with an item attached (sent, shown, retried),
+  "+ New" never overwriting a draft, the header and the dialogue boxes following the agent's name, a message whose
+  item is gone sent without it on a tap, a send's 404 told apart by its code, and a scan of Chat's, Items' and Map's
+  sources for user-facing words that hard-code "Marcel".
 - `ChatSnapshotTests` — the main states in light and dark (and the largest text size for two), compared pixel for
   pixel with `Tests/MarcelChatTests/__Snapshots__/` like PixelKit's. After a deliberate change run
   `make -C ios chat-record`, look at the PNGs, and commit them.

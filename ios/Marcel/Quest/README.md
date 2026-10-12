@@ -11,8 +11,9 @@ MarcelKit and PixelKit, so any tab can open it without a dependency cycle; keep 
 - **Header:** ◀ back, the quest's name, its state, its project and "NUC · sonnet".
 - **Progress first:** the worker's `report(progress)` events as a checklist. Every report but the last is ✓ done;
   the last is ▶ what it is doing now, ✓ once the quest is done, × where it stopped if it failed or was stopped.
-  The contract carries no planned steps, so "· next" only shows before the first report
-  (`project/contract-requests/S-12.6.md`).
+  While the quest runs, the latest report's `next` steps (app API 0.5) follow as "· next". Each report replaces that
+  list; a report without `next` shows none (the worker gave none, which is not "nothing left"). A finished quest shows
+  no plan. Before the first report, "· Waiting for its turn" for a queued quest.
 - **Live detail** (folds away as a whole): Claude's text, Marcel's and your notes as dialogue boxes, tool calls as
   one-line rows that open to show what came back (30 lines, then "…and N more lines"), diffs that open to their lines
   with + and − in the margin and the code in syntax colours (60 lines), approval prompts with Approve / Deny in place,
@@ -53,7 +54,8 @@ Errors are one plain sentence above the steps; tap it to dismiss.
 
 ## Tests (`make -C ios quest-test`, part of `make ios-check`)
 
-- `QuestDetailTests` — every contract example reads as its kind, malformed data is one line, steps, how rows fold,
+- `QuestDetailTests` — every contract example reads as its kind, malformed data is one line, steps and the latest
+  report's "· next" steps, how rows fold,
   approval states, capping, syntax colours, untrusted text stays inert, Open in Claude is https only.
 - `QuestLiveTests` — the story's UI test ("steer and approve") one layer down: the model with a fake hub, fed with
   frames through a real in-memory cache. Also: history and live merged without duplicates or gaps, paging, a

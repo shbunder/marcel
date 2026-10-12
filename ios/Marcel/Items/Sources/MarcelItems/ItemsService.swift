@@ -16,8 +16,11 @@ public protocol ItemsService {
     func versions(id: String) async throws -> [ArtifactVersion]
     /// The agent's main conversation (`GET /me`): "Ask about this" goes there.
     func mainConversationId() async throws -> String
-    /// `POST /conversations/{id}/messages`, tagged with the item's project.
-    func send(text: String, clientId: String, conversationId: String, projectId: String) async throws -> Message
+    /// `POST /conversations/{id}/messages`, tagged with the item's project and with the item attached (`artifact_id`).
+    func send(text: String, clientId: String, conversationId: String, projectId: String, artifactId: String)
+        async throws -> Message
+    /// `POST /artifacts/{id}/move`: pins the item to another project. Returns it as it now stands.
+    func move(artifactId: String, to projectId: String) async throws -> Artifact
 }
 
 /// Why something in the Items tab did not work, in words a family member reads on a phone.
@@ -31,6 +34,10 @@ public enum ItemsError: Error, Equatable, LocalizedError {
     case offline
     /// The content is bigger than the app will hold in memory.
     case tooBig
+    /// 409 `project_archived` on a pin: the target project was archived.
+    case projectArchived
+    /// 409 `artifact_is_board` on a pin: a project's board stays with its project.
+    case isBoard
     case unexpected(String)
 
     public var errorDescription: String? {
@@ -41,6 +48,8 @@ public enum ItemsError: Error, Equatable, LocalizedError {
         case .notPaired: "This phone isn't paired with a hub yet."
         case .offline: "Couldn't reach the hub. Check the connection and try again."
         case .tooBig: "This item is too big to open on the phone."
+        case .projectArchived: "That project is archived, so nothing can be pinned to it."
+        case .isBoard: "This is a project's board. It stays with its own project."
         case .unexpected(let what): "The hub sent something the app doesn't understand (\(what))."
         }
     }
@@ -142,21 +151,40 @@ public struct LiveItemsService: ItemsService {
         return agent.mainConversationId
     }
 
-    public func send(text: String, clientId: String, conversationId: String, projectId: String) async throws
-        -> Message
+    public func send(text: String, clientId: String, conversationId: String, projectId: String, artifactId: String)
+        async throws -> Message
     {
         let answer = try await call {
             try await client.sendMessage(
                 path: .init(conversationId: conversationId),
-                body: .json(.init(text: text, clientId: clientId, projectId: projectId)))
+                body: .json(.init(text: text, clientId: clientId, projectId: projectId, artifactId: artifactId)))
         }
         switch answer {
         case .created(let created): return try created.body.json
         case .badRequest: throw ItemsError.unknownProject
         case .unauthorized: throw ItemsError.unauthorized
-        case .notFound: throw ItemsError.unexpected("send, HTTP 404")
+        // 404 `artifact_not_found`: the attached item is gone.
+        case .notFound: throw ItemsError.gone
         case .conflict: throw ItemsError.unexpected("send, HTTP 409")
         case .undocumented(let status, _): throw ItemsError.unexpected("send, HTTP \(status)")
+        }
+    }
+
+    public func move(artifactId: String, to projectId: String) async throws -> Artifact {
+        let answer = try await call {
+            try await client.moveArtifact(path: .init(artifactId: artifactId), body: .json(.init(projectId: projectId)))
+        }
+        switch answer {
+        case .ok(let ok): return try ok.body.json
+        case .conflict(let conflict):
+            switch try? conflict.body.json.code {
+            case "artifact_is_board": throw ItemsError.isBoard
+            default: throw ItemsError.projectArchived
+            }
+        case .badRequest: throw ItemsError.unexpected("pin, HTTP 400")
+        case .notFound: throw ItemsError.gone
+        case .unauthorized: throw ItemsError.unauthorized
+        case .undocumented(let status, _): throw ItemsError.unexpected("pin, HTTP \(status)")
         }
     }
 

@@ -174,6 +174,7 @@ final class ViewerLiveTests: XCTestCase {
 
     // MARK: Ask about this
 
+    /// S-12.11: the item travels as the message's `artifact_id` (app API 0.5), no longer as words in the text.
     func testAskAboutThisPostsToTheMainConversationWithTheItemAndItsProject() async throws {
         let fed = try FedCache.seeded()
         let hub = FakeItemsService()
@@ -187,20 +188,63 @@ final class ViewerLiveTests: XCTestCase {
         XCTAssertNil(model.problem)
         XCTAssertEqual(hub.sent.first?.conversationId, Fx.conversation, "to the main conversation")
         XCTAssertEqual(hub.sent.first?.projectId, Fx.energy, "tagged with the item's project")
-        XCTAssertEqual(hub.sent.first?.text, "Is Engie cheaper with solar?\n\n(About the item “Energy offers "
-                       + "compared”, version 3, art_01JA0B1.)")
+        XCTAssertEqual(hub.sent.first?.artifactId, Fx.docId, "the item is attached")
+        XCTAssertEqual(hub.sent.first?.text, "Is Engie cheaper with solar?", "just the question")
         XCTAssertEqual(model.draft, "")
         XCTAssertFalse(model.asking)
-        XCTAssertEqual(model.sent, "Sent to Marcel. His answer comes in Chat.")
+        XCTAssertEqual(model.sent, "Sent to Marcel. The answer comes in Chat.")
 
         // The main chat shows it at once (it is in the cache the Chat tab reads).
         let messages = try fed.cache.container.mainContext.fetch(FetchDescriptor<CachedMessage>())
         XCTAssertEqual(messages.map(\.conversationId), [Fx.conversation])
+        let stored: Message = try ItemsJSON.decoder().decode(Message.self, from: XCTUnwrap(messages.first?.payload))
+        XCTAssertEqual(stored.artifactId, Fx.docId, "the chat's bubble can show the attachment")
     }
 
     func testAQuestionAboutAnOldVersionSaysWhichVersion() {
         let doc = Fx.artifact(Fx.mockArtifact(Fx.docId))
-        XCTAssertTrue(ItemViewerModel.question("Why?", about: doc, version: 2).contains("version 2,"))
+        XCTAssertEqual(ItemViewerModel.question("Why?", about: doc, version: 2),
+                       "Why?\n\n(About version 2 of this item.)")
+        XCTAssertEqual(ItemViewerModel.question("Why?", about: doc, version: nil), "Why?")
+        XCTAssertEqual(ItemViewerModel.question("Why?", about: doc, version: doc.currentVersion), "Why?")
+    }
+
+    // MARK: Pin to project (S-12.11)
+
+    /// "Pin to project": a picker of the live projects other than the item's own; the move goes into the cache at once
+    /// (the item changes project before `artifact.moved` arrives); the hub's 409s in plain words.
+    func testPinToProjectMovesTheItemAndSaysWhyItCouldNot() async throws {
+        let fed = try FedCache.seeded()
+        var archived = Fx.mockProjects[2]
+        archived["id"] = "prj_old"
+        archived["slug"] = "old"
+        archived["name"] = "Old garden"
+        archived["archived"] = true
+        try fed.apply("project.created", archived)
+        let hub = FakeItemsService()
+        let model = ItemViewerModel(service: hub, cache: fed.cache)
+        let doc = try XCTUnwrap(try fed.artifact(Fx.docId))
+
+        let targets = ItemViewerModel.pinTargets(doc, projects: try fed.input.projects)
+        XCTAssertEqual(targets.map(\.name), ["Inbox", "Marcel dev"], "live projects only, not its own, by name")
+        XCTAssertTrue(ItemViewerModel.canPin(doc))
+        XCTAssertFalse(ItemViewerModel.canPin(try XCTUnwrap(try fed.artifact(Fx.boardId))), "a board stays put")
+
+        await model.pin(doc, to: targets[1])
+        XCTAssertEqual(hub.asked.last, "move \(Fx.docId) prj_01J9ZM1")
+        XCTAssertEqual(try fed.artifact(Fx.docId)?.projectId, "prj_01J9ZM1", "moved in the cache at once")
+        XCTAssertEqual(model.sent, "Pinned to Marcel dev.")
+        XCTAssertNil(model.problem)
+        XCTAssertFalse(model.pinning)
+
+        hub.moveError = .projectArchived
+        await model.pin(doc, to: targets[0])
+        XCTAssertEqual(model.problem, "Not pinned. That project is archived, so nothing can be pinned to it.")
+        XCTAssertNil(model.sent)
+        hub.moveError = .isBoard
+        await model.pin(doc, to: targets[0])
+        XCTAssertEqual(model.problem, "Not pinned. This is a project's board. It stays with its own project.")
+        XCTAssertEqual(try fed.artifact(Fx.docId)?.projectId, "prj_01J9ZM1", "a refused pin changes nothing")
     }
 
     func testAQuestionThatDidNotGetThroughStaysInTheBox() async throws {

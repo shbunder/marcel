@@ -67,7 +67,7 @@ struct StatusContent: View {
                 switch model.health {
                 case .loading: SettingsNote(text: "Asking the hub…")
                 case .notAvailableYet: SettingsNote(text: "Not available yet.")
-                case .failed(let words): SettingsNote(text: words, accent: true)
+                case .failed(let words), .unavailable(let words): SettingsNote(text: words, accent: true)
                 case .loaded(let health):
                     ForEach(text.statusLines(health), id: \.label) { line in
                         HStack(alignment: .firstTextBaseline, spacing: PixelMetrics.steps(4)) {

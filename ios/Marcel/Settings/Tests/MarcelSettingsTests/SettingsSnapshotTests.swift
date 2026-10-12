@@ -60,6 +60,14 @@ final class SettingsSnapshotTests: XCTestCase {
                         padding: 0)
     }
 
+    /// S-12.11: the runner has not read plan usage yet (503 `no_reading`): "usage unavailable".
+    func testSettingsWithNoUsageReadingYet() async {
+        let hub = FakeHub()
+        hub["GET /usage"] = (503, Fx.error("no_reading", "No usage reading yet."))
+        Snapshot.assert(SettingsStill(model: await model(hub)), named: "Settings-usage-unavailable",
+                        variants: Self.both, padding: 0)
+    }
+
     /// `marcel://status` from a `broke` push: the runner unreachable, and that push as the last alert.
     func testStatus() async {
         let alert = PushAlert(title: "Something broke", body: "The NUC runner stopped answering.", category: "broke",

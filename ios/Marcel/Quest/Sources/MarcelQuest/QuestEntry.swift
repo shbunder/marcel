@@ -24,8 +24,9 @@ public enum QuestEntry: Equatable, Sendable {
     /// `raw`: a transcript line the runner did not recognise.
     case raw(entryType: String)
     case state(from: String?, to: String, reason: String)
-    /// `progress`: the worker's `report(progress)`, one step of the checklist.
-    case progress(text: String)
+    /// `progress`: the worker's `report(progress)`, one step of the checklist, and the steps it still plans after it
+    /// (`next`, app API 0.5; empty when it gave none).
+    case progress(text: String, next: [String])
     case artifact(artifactId: String, kind: String, title: String)
     /// `note`: a steer message (`user`), Marcel's message or the opening prompt (`marcel`).
     case note(author: String, text: String, handback: Bool, prompt: Bool)
@@ -110,7 +111,7 @@ extension QuestEntry {
                 .state(from: read.string("from"), to: $0, reason: read.string("reason") ?? "")
             }
         case .progress:
-            entry = read.string("text").map { .progress(text: $0) }
+            entry = read.string("text").map { .progress(text: $0, next: read.strings("next")) }
         case .artifact:
             entry = read.string("artifact_id").map {
                 .artifact(artifactId: $0, kind: read.string("kind") ?? "file", title: read.string("title") ?? "An item")

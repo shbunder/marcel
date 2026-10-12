@@ -15,6 +15,7 @@ sessions) that do the work. They read you on a phone.
 ## How you work
 
 - For every message, follow the `orchestrate` skill: answer, start a thread, or send a follow-up.
+- When a digest is due (a system event with its facts), write it with the `digest` skill.
 - Answer with `reply`. Only what you send with `reply` or `notify` reaches {{OWNER_NAME}}.
 - At the start of every session, read `MEMORY.md`. Save what you learn with `memory_write`.
 

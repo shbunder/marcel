@@ -31,12 +31,15 @@ public struct QuestStep: Equatable, Sendable, Identifiable {
 
     /// The steps are the worker's `report(progress)` events, oldest first. Every report but the last is done; the
     /// last one is what it is doing now, done once the quest is done, and where it stopped if it failed or was
-    /// stopped. The contract carries no planned steps, so "· next" only shows before the first report.
+    /// stopped. While the quest runs, the latest report's `next` steps follow as "· next" (wireframe 2A); each report
+    /// replaces the list, and a report without `next` shows none (the worker gave none, not "nothing left").
     public static func steps(_ events: [QuestEvent], state: Components.Schemas.TaskState?) -> [QuestStep] {
         var steps: [QuestStep] = []
+        var planned: [String] = []
         for event in events {
-            if case .progress(let text) = event.entry {
+            if case .progress(let text, let next) = event.entry {
                 steps.append(QuestStep(id: event.seq, text: text, mark: .done))
+                planned = next
             }
         }
         guard let state else { return steps }
@@ -52,7 +55,10 @@ public struct QuestStep: Equatable, Sendable, Identifiable {
         switch state {
         case .done: break
         case .failed, .stopped: steps[steps.count - 1].mark = .stopped
-        case .queued, .starting, .working, .needsYou, .silent, .unknown: steps[steps.count - 1].mark = .current
+        case .queued, .starting, .working, .needsYou, .silent, .unknown:
+            steps[steps.count - 1].mark = .current
+            // Planned steps have no seq of their own: negative ids keep them apart from the reports.
+            steps += planned.enumerated().map { QuestStep(id: -1 - $0.offset, text: $0.element, mark: .next) }
         }
         return steps
     }

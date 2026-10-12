@@ -30,6 +30,7 @@ from marcel_hub import (
     channel,
     conversations,
     db,
+    digest,
     github,
     memory,
     notify,
@@ -41,6 +42,7 @@ from marcel_hub import (
     ws,
 )
 from marcel_hub.runner_client import DEFAULT_SOCKET, OffsetStore, RunnerClient, RunnerWatch
+from marcel_hub.schedule.cron import zone
 
 DEFAULT_CONFIG_PATH = Path('/data/marcel.toml')
 
@@ -141,7 +143,7 @@ def _ntfy_server(value: Any) -> str | None:
 
 def _tz(value: Any) -> str:
     try:
-        schedule.cron.zone(str(value))
+        zone(str(value))
     except schedule.CronError as exc:
         raise SettingsError(f'tz: {exc}') from exc
     return str(value)
@@ -206,6 +208,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         avatars.prime()  # states that changed while the hub was down (S-04.8)
         avatars.start()
         prs.start()  # S-04.12: open PRs found again, then refreshed every 5 minutes
+        digests.ensure_builtins()  # S-09.2: before the scheduler's first look
+        digests.start()
         scheduler.start()  # S-09.1: missed fires are reported once, on its first look
         if keeper_of_brains is not None and keeper_of_brains.runner is not None:
             keeper_of_brains.start()  # S-06.2: one brain per agent, from the first second
@@ -213,6 +217,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if keeper_of_brains is not None:
             await keeper_of_brains.stop()
         await scheduler.stop()  # a look in progress finishes first
+        await digests.stop()
         await prs.stop()
         await avatars.stop()
         await keeper.stop()
@@ -250,7 +255,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     pusher = notify.install(app, settings.ntfy_server)
     gateway = channel.create(app, settings.data_dir, push=pusher, alerts=pusher)
     # S-10.1: the usage guard sees limit hits in the registry's events once they are stored.
-    guard = usage.create(client, settings.data_dir, pusher, ws.OwnerPublisher(app.state.events))
+    guard = usage.create(
+        client,
+        settings.data_dir,
+        pusher,
+        ws.OwnerPublisher(app.state.events),
+        zone(settings.tz),  # the owner's time zone, never the process's
+    )
     registry = tasks.install(
         app,
         runner=client,
@@ -295,6 +306,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     usage.install(app, guard, registry, watch)
     # S-09.1: schedules fire through the registry (so the guard and the cap apply) or the outbox.
     scheduler = schedule.install(app, registry, gateway.outbox, pusher, settings.data_dir)
+    # S-09.2: the digest schedules' events carry the facts bundle; the brain writes the digest.
+    digests = digest.install(app, scheduler, pusher, guard, settings.data_dir, settings.tz)
     # S-06.2: keeps one brain session per agent, and rolls it over nightly. It starts the brain
     # through the runner directly, never through the task registry, so the worker cap and the
     # usage guard never hold it back: the brain must always answer.
@@ -306,7 +319,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             events=app.state.events,
             alerts=pusher,
             memory=repo,
-            tz=schedule.cron.zone(settings.tz),  # 04:00 in the owner's time zone
+            tz=zone(settings.tz),  # 04:00 in the owner's time zone, never the process's
         )
         if settings.brain_cwd
         else None

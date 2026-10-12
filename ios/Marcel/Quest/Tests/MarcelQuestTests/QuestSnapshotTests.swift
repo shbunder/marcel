@@ -125,6 +125,15 @@ final class QuestSnapshotTests: XCTestCase {
         }, named: "Event-progress", variants: Self.both)
     }
 
+    /// S-12.11: the latest report's planned steps as "· next" (wireframe 2A).
+    func testProgressWithNextSteps() {
+        var history = Fx.energyHistory
+        history[7] = Fx.event(8, "progress", ["text": "Modelling with and without solar",
+                                               "next": ["Compare the yearly totals", "Write up the advice"]])
+        Snapshot.assert(StepsList(steps: QuestStep.steps(history.map(QuestEvent.init), state: .working)),
+                        named: "Event-progress-next", variants: Self.both)
+    }
+
     func testOneLineKinds() {
         Snapshot.assert(RowsStill(events: [
             Fx.event(1, "state", ["from": "working", "to": "needs_you", "reason": "Permission request: Bash"]),
