@@ -11,7 +11,7 @@ sessions (`claude --bg`). The fields are in `contracts/runner-api.yaml` (`SpawnR
 | `GET /sessions/{id}` | One session. The full id or the 8-digit short id both work. |
 | `POST /sessions/{id}/stop` | `claude stop <short-id>`. Answers the stopped session. |
 
-`repo` spawns are not supported yet (`501 not_supported`); pass `cwd`.
+A `repo` spawn, resume and fork: see [workspaces.md](workspaces.md).
 
 ## How a spawn runs
 
@@ -36,6 +36,8 @@ sessions (`claude --bg`). The fields are in `contracts/runner-api.yaml` (`SpawnR
      --debug-file <state>/debug/<name>-<token>.log -- "<prompt>"
    ```
 
+   `brain` and `side` sessions also get Marcel's brain tools, by name, after `report`
+   (`sessions.BRAIN_TOOLS`, the list in `contracts/runner-api.yaml`); workers never do.
    `--channels …` is left out with `channel: false`. The prompt goes after `--`, because
    `--channels` and `--allowedTools` take several values and would swallow it (SP1). The exact lines
    are pinned in `runner/tests/test_sessions_golden/`.
@@ -71,7 +73,7 @@ whether the stop worked. A session older than the spawn is never touched.
 | `exited` | 422 | Claude refused to start, or printed something the runner cannot read. `detail` is what it said. |
 | `channel_skipped` | 422 | The channel was skipped. The session was stopped. `detail` is the debug line. |
 | `channel_timeout` | 422 | No channel line within 30 s. The session was stopped. |
-| `not_supported` | 501 | A `repo` spawn. |
+| `not_supported` | 501 | A `repo` spawn on a server started without workspaces (tests only). |
 
 `list`, `get` and `stop` answer `404 not_found` for an unknown id, `503 roster_unavailable` when
 Claude cannot list its sessions, and `stop` answers `502 stop_failed` with Claude's words.
