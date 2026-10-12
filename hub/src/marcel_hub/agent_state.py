@@ -122,6 +122,13 @@ class AgentStates:
                 self._sent[agent_id] = state
             return state
 
+    def turn_open(self, agent_id: str, conversation_id: str) -> bool:
+        """True while a brain turn runs in that conversation: the owner's message reached it and
+        no reply came yet (S-06.2 hands a conversation to a new brain only between turns)."""
+        with self.events.lock:
+            deadline = self._thinking.get(agent_id, {}).get(conversation_id)
+            return deadline is not None and deadline > self.clock()
+
     def _derive(self, agent_id: str) -> dict[str, Any]:
         now = self.clock()
         with Session(self.engine) as s:
