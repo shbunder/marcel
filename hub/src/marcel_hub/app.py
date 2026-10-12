@@ -20,6 +20,7 @@ from sqlalchemy.engine import Engine
 
 from marcel_hub import (
     __version__,
+    agent_state,
     artifacts,
     auth,
     boards,
@@ -168,7 +169,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             watch.start()
         keeper.mark_all()  # every board is rebuilt once at start (S-04.11)
         keeper.start()
+        avatars.prime()  # states that changed while the hub was down (S-04.8)
+        avatars.start()
         yield
+        await avatars.stop()
         await keeper.stop()
         if watch is not None:
             await watch.close()
@@ -232,6 +236,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     projects.install(app, ws.OwnerPublisher(app.state.events), registry, repo)
     # S-04.11: every project's board follows its tasks, approvals and items.
     keeper = boards.install(app)
+    # S-04.8: what each avatar shows, from its tasks and its brain's turns, sent on change.
+    avatars = agent_state.install(app)
     # S-05.3: the brain's tools, outside /api (the tunnel never forwards them); last, as they use
     # the gateway, tasks, artifacts, memory and projects.
     brain_api.install(app)
