@@ -1,4 +1,4 @@
-import type { Deliverable, Hello, PermissionRequest, RejectReason, Reply, Report, ToHub, ToSession, Welcome } from './frames.js';
+import type { CallAck, Deliverable, Hello, PermissionRequest, RejectReason, Reply, Report, ToHub, ToSession, Welcome } from './frames.js';
 
 /** The slice of the WebSocket API used here; Node's global WebSocket satisfies it. */
 export interface SocketLike {
@@ -32,7 +32,7 @@ export interface HubOptions {
 }
 
 export interface CallOutcome {
-  status: 'sent' | 'queued' | 'unreachable';
+  status: 'sent' | 'queued' | 'refused' | 'unreachable';
   text: string;
 }
 
@@ -277,11 +277,8 @@ export class HubClient {
         return this.onWelcome(frame);
       case 'rejected':
         return this.onRejected(frame.reason, frame.message);
-      case 'call_ack': {
-        const call = this.calls.get(frame.call_id);
-        if (call) this.settle(call, { status: 'sent', text: 'Sent.' });
-        return;
-      }
+      case 'call_ack':
+        return this.onCallAck(frame);
       case 'pong':
         return;
       case 'user_message':
@@ -351,6 +348,19 @@ export class HubClient {
 
   // --- tool calls -------------------------------------------------------------------------------------------
 
+  private onCallAck(ack: CallAck): void {
+    const call = this.calls.get(ack.call_id);
+    if (!call) return;
+    if (ack.error) {
+      const { code, message } = ack.error;
+      // Told before the ack arrived ("queued"), the session never hears the reason: the log keeps it.
+      if (call.settled) this.o.log(`The hub refused a ${call.frame.type} that was already reported as queued (${code}): ${message}`);
+      this.settle(call, { status: 'refused', text: `The hub refused this ${call.frame.type} and stored nothing (${code}): ${message}` });
+      return;
+    }
+    this.settle(call, { status: 'sent', text: 'Sent.' });
+  }
+
   private settle(call: PendingCall, outcome: CallOutcome): void {
     if (call.timer) clearTimeout(call.timer);
     call.timer = undefined;
@@ -358,8 +368,8 @@ export class HubClient {
       call.settled = true;
       call.settle(outcome);
     }
-    // Only an ack ends the call. A queued call stays here to be re-sent after a reconnect.
-    if (outcome.status === 'sent') this.calls.delete(call.frame.call_id);
+    // Only an ack ends the call, a refusal included. A queued call stays here to be re-sent after a reconnect.
+    if (outcome.status === 'sent' || outcome.status === 'refused') this.calls.delete(call.frame.call_id);
   }
 
   private failAllCalls(text: string): void {
