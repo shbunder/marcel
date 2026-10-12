@@ -143,7 +143,9 @@ first use. The code is `src/marcel_hub/memory.py`.
 - `PUT` with `If-Match: <etag>` saves only if the file has not changed, else 409 with the current
   version. Without `If-Match` it creates the file, and answers 409 if it exists. An `If-Match` for a
   file that is gone answers 404. Over 1 MB is refused.
-- **Every save is one git commit**, `memory: <path> (app)` from the app, `(agent)` from the brain.
+- **Every save is one git commit**, `memory: <path> (app)` from the app. `(agent)` is for the brain's
+  saves through the hub, which arrive with its memory tools (S-05.3); a file the brain writes
+  straight to disk is not committed, but its etag changes, so the app cannot overwrite it unseen.
   An unchanged save makes no commit. Only the saved file is committed. If git fails, the file is put
   back and the answer is 503 `memory_unavailable`.
 - **Paths** must match the contract's pattern (no `..`, no leading `/`, no part starting with `.`,

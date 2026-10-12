@@ -136,7 +136,9 @@ def pr_status_from_gh(
 @cache
 def _dashboard_validator() -> Draft202012Validator:
     schema = json.loads((CONTRACTS_DIR / 'dashboard.schema.json').read_text())
-    return Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
+    # No format checker: its date and URI checks need optional packages, so they would run in
+    # tests and be skipped in production. The app draws these strings; it never runs them.
+    return Draft202012Validator(schema)
 
 
 def _charts(widgets: list[dict[str, Any]]) -> list[dict[str, Any]]:

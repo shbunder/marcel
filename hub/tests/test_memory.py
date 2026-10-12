@@ -270,6 +270,17 @@ def test_git_missing_answers_503_with_a_reason(
     assert 'not saved' in res.json()['message']
 
 
+def test_reading_without_git_answers_503(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = create_app(Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db'))
+    with TestClient(app) as c:
+        c.headers['Authorization'] = f'Bearer {pair(c, app.state.engine)}'
+        monkeypatch.setattr(memory, 'GIT', 'git-that-does-not-exist')
+        for res in (c.get('/api/memory'), c.get(url('MEMORY.md'))):
+            assert res.status_code == 503
+            assert res.json()['code'] == 'memory_unavailable'
+            assert 'cannot be read' in res.json()['message']
+
+
 def test_an_agent_write_is_named_in_the_commit(repo: MemoryRepo) -> None:
     repo.write('MEMORY.md', 'x\n', None, 'agent')
     assert git_log(repo.root) == ['memory: MEMORY.md (agent)']
