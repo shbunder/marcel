@@ -119,4 +119,15 @@ final class ChatSnapshotTests: XCTestCase {
             ]),
             named: "Chat-digest", variants: twoModes, padding: 0)
     }
+
+    // MARK: Composer
+
+    func testSendingAndNotSent() {
+        Snapshot.assert(
+            ChatStill(header: ChatHeaderState(), items: [
+                .user(UserLine(id: "u1", text: "Book the dentist for Tuesday", status: .failed, clientId: "c1")),
+                .user(UserLine(id: "u2", text: "What's the weather Sunday?", status: .sending, clientId: "c2")),
+            ], collapsed: true, draft: "Also check solar"),
+            named: "Chat-composer", variants: twoModes, padding: 0)
+    }
 }

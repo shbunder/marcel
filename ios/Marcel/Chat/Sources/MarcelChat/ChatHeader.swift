@@ -83,6 +83,6 @@ struct ChatAvatar: View {
 }
 
 extension EnvironmentValues {
-    /// Snapshot tests draw every avatar as its state's first frame.
+    /// Snapshot tests draw every avatar as its state's first frame, and the composer's field as plain text.
     @Entry var chatStillAvatars = false
 }

@@ -37,6 +37,7 @@ public struct ChatScreen: View {
         actions.openItem = { path.append(.item($0)) }
         actions.answer = { id, approve in Task { await model.answer(approvalId: id, approve: approve) } }
         actions.toggleDetails = { model.toggleDetails(approvalId: $0) }
+        actions.retry = { id in Task { await model.retry(clientId: id) } }
         return actions
     }
 
@@ -47,7 +48,8 @@ public struct ChatScreen: View {
                 LiveFeed(model: model, conversationId: conversationId, limit: model.limit, offline: offline,
                          actions: actions)
             } else {
-                ChatLayout(header: ChatHeaderState(offline: offline), collapsed: false, problem: model.problem) {
+                ChatLayout(header: ChatHeaderState(offline: offline), collapsed: false, problem: model.problem,
+                           composer: { EmptyView() }) {
                     PixelText(model.problem == nil ? "Opening the conversation…" : "Nothing saved on this phone yet.",
                               role: .detail)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -77,6 +79,7 @@ struct LiveFeed: View {
 
     @State private var distanceFromBottom: CGFloat = 0
     @State private var scrolledTo: String?
+    @FocusState private var typing: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(model: ChatModel, conversationId: String, limit: Int, offline: String?, actions: ChatActions) {
@@ -93,9 +96,16 @@ struct LiveFeed: View {
                                      projects: projects)
         let items = ChatFeed.items(input, local: model.local)
         let header = ChatHeaderState(tasks: input.tasks.values, offline: offline)
-        // Big giraffe while you sit at the latest messages; small once you scroll back.
-        let collapsed = distanceFromBottom > 24
-        ChatLayout(header: header, collapsed: collapsed, problem: model.problem) {
+        // Big giraffe while you sit at the latest messages; small once you scroll back or start typing.
+        let collapsed = distanceFromBottom > 24 || typing
+        @Bindable var model = model
+        ChatLayout(header: header, collapsed: collapsed, problem: model.problem, composer: {
+            Composer(text: $model.draft,
+                     placeholder: Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(items)),
+                     focused: $typing) {
+                Task { await model.send() }
+            }
+        }) {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: FeedMetrics.spacing) {
@@ -137,6 +147,8 @@ struct LiveFeed: View {
         .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: collapsed)
         // Approvals are not in the cache: fetch them when one shows up or its task moves on.
         .task(id: Self.approvalKey(input)) { await model.reconcile(input) }
+        // Your messages that came back over the stream show from the cache now.
+        .onChange(of: window.count, initial: true) { model.prune(input) }
         // Items on screen get their first lines, once per version.
         .task(id: Self.itemKeys(input)) {
             for artifact in Self.itemArtifacts(input) { await model.loadPreview(artifact) }
@@ -168,18 +180,21 @@ enum FeedMetrics {
     static let inset: CGFloat = PixelMetrics.steps(7)
 }
 
-struct ChatLayout<Feed: View>: View {
+struct ChatLayout<Feed: View, ComposerView: View>: View {
     var header: ChatHeaderState
     var collapsed: Bool
     var problem: String?
+    var composer: ComposerView
     var feed: Feed
 
     @Environment(\.colorScheme) private var scheme
 
-    init(header: ChatHeaderState, collapsed: Bool, problem: String?, @ViewBuilder feed: () -> Feed) {
+    init(header: ChatHeaderState, collapsed: Bool, problem: String?, @ViewBuilder composer: () -> ComposerView,
+         @ViewBuilder feed: () -> Feed) {
         self.header = header
         self.collapsed = collapsed
         self.problem = problem
+        self.composer = composer()
         self.feed = feed()
     }
 
@@ -197,6 +212,7 @@ struct ChatLayout<Feed: View>: View {
                     .padding(.bottom, PixelMetrics.steps(2))
                     .accessibilityLabel("Problem: \(problem)")
             }
+            composer
         }
         .background(theme.background.color)
     }

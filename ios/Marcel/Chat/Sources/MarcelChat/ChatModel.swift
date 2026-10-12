@@ -18,6 +18,9 @@ public final class ChatModel {
     /// Approvals, answers on their way, open details and item previews (see `ChatLocalState`).
     public private(set) var local = ChatLocalState()
 
+    /// What you are typing.
+    public var draft = ""
+
     @ObservationIgnored private var refreshing = false
     @ObservationIgnored private var lastAsked: Set<String> = []
     @ObservationIgnored private var previewsAsked: Set<String> = []
@@ -52,6 +55,60 @@ public final class ChatModel {
     public func loadEarlier(shown: Int) {
         guard shown >= limit else { return }
         limit += Self.pageSize
+    }
+
+    // MARK: Sending
+
+    /// Sends what you typed. The composer is never locked: you can send while Marcel or any thread is busy
+    /// (B-02). The message shows at once; if the hub cannot be reached it stays, marked "not sent".
+    public func send() async {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        draft = ""
+        let clientId = UUID().uuidString.lowercased()
+        local.pending.append(PendingMessage(clientId: clientId, text: text, failed: false))
+        await deliver(clientId)
+    }
+
+    /// Sends a message that did not get through again, with the same client id (the hub keeps one copy).
+    public func retry(clientId: String) async {
+        guard let index = local.pending.firstIndex(where: { $0.clientId == clientId }), local.pending[index].failed
+        else { return }
+        local.pending[index].failed = false
+        await deliver(clientId)
+    }
+
+    /// Forgets messages the hub's stream has delivered (they show from the cache now).
+    public func prune(_ input: FeedInput) {
+        let arrived = Set(input.messages.compactMap(\.clientId))
+        if local.pending.contains(where: { arrived.contains($0.clientId) }) {
+            local.pending.removeAll { arrived.contains($0.clientId) }
+        }
+    }
+
+    private func deliver(_ clientId: String) async {
+        guard let message = local.pending.first(where: { $0.clientId == clientId }) else { return }
+        guard let conversationId else {
+            mark(clientId, failed: true)
+            problem = "Not sent: the conversation has not loaded yet. Tap the message to try again."
+            return
+        }
+        do {
+            _ = try await service.send(text: message.text, clientId: clientId, conversationId: conversationId)
+            if let index = local.pending.firstIndex(where: { $0.clientId == clientId }) {
+                local.pending[index].stored = true
+            }
+            problem = nil
+        } catch {
+            mark(clientId, failed: true)
+            problem = Self.say(error)
+        }
+    }
+
+    private func mark(_ clientId: String, failed: Bool) {
+        if let index = local.pending.firstIndex(where: { $0.clientId == clientId }) {
+            local.pending[index].failed = failed
+        }
     }
 
     // MARK: Approvals

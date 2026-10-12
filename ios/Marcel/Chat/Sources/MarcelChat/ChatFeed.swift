@@ -29,8 +29,38 @@ public enum FeedItem: Identifiable, Equatable, Sendable {
 }
 
 public struct UserLine: Equatable, Sendable {
+    public enum Status: Equatable, Sendable {
+        /// Stored by the hub.
+        case sent
+        /// On its way.
+        case sending
+        /// Not stored; tap to send it again.
+        case failed
+    }
+
     public var id: String
     public var text: String
+    public var status: Status = .sent
+    /// For a message not yet back from the hub: the id that makes a retry safe.
+    public var clientId: String?
+
+    /// What VoiceOver reads.
+    public var accessibilityText: String {
+        switch status {
+        case .sent: "You said: \(text)"
+        case .sending: "Sending: \(text)"
+        case .failed: "Not sent: \(text). Double-tap to try again."
+        }
+    }
+}
+
+/// A message you sent that the cache does not hold yet.
+public struct PendingMessage: Equatable, Sendable {
+    public var clientId: String
+    public var text: String
+    public var failed: Bool
+    /// The hub has it; it shows from the cache once the stream brings it.
+    public var stored = false
 }
 
 public struct MarcelLine: Equatable, Sendable {
@@ -125,6 +155,8 @@ public struct ChatLocalState: Sendable {
     public var expanded: Set<String> = []
     /// Preview rows by `ArtifactPreview.key` (id and version).
     public var previews: [String: [PreviewRow]] = [:]
+    /// Your messages on their way, oldest first.
+    public var pending: [PendingMessage] = []
 
     public init() {}
 }
@@ -167,7 +199,19 @@ public enum ChatFeed {
                 items.append(.item(item(message: message, artifactId: artifactId, input: input, local: local)))
             }
         }
+        // Your messages on their way go last, until the hub's copy (same client id) arrives.
+        let arrived = Set(input.messages.compactMap(\.clientId))
+        for message in local.pending where !arrived.contains(message.clientId) {
+            items.append(.user(UserLine(id: "pending-\(message.clientId)", text: message.text,
+                                        status: message.failed ? .failed : message.stored ? .sent : .sending,
+                                        clientId: message.clientId)))
+        }
         return items
+    }
+
+    /// True while a question in the window waits for you (the composer then says "Or say something…").
+    public static func hasOpenQuestion(_ items: [FeedItem]) -> Bool {
+        items.contains { if case .approval(let line) = $0 { line.status.isOpen } else { false } }
     }
 
     // MARK: Threads

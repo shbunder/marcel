@@ -8,6 +8,7 @@ public struct ChatActions {
     public var openItem: (ItemLine) -> Void = { _ in }
     public var answer: (_ approvalId: String, _ approve: Bool) -> Void = { _, _ in }
     public var toggleDetails: (_ approvalId: String) -> Void = { _ in }
+    public var retry: (_ clientId: String) -> Void = { _ in }
 
     public init() {}
 }
@@ -34,7 +35,13 @@ struct FeedRow: View {
     var body: some View {
         switch item {
         case .user(let line):
-            UserBubble(text: line.text)
+            if line.status == .failed, let clientId = line.clientId {
+                Button { actions.retry(clientId) } label: { UserBubble(line: line) }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(line.accessibilityText)
+            } else {
+                UserBubble(line: line)
+            }
         case .marcel(let line):
             VStack(alignment: .leading, spacing: PixelMetrics.steps(4)) {
                 MarcelSays(body: line.body, actions: actions)
@@ -54,26 +61,45 @@ struct FeedRow: View {
     }
 }
 
-/// Your message: a teal box on the right, at most four fifths of the width.
+/// Your message: a teal box on the right, at most four fifths of the width. One on its way says "Sending…"
+/// under it; one that did not get through says so, and tapping it sends it again.
 struct UserBubble: View {
-    var text: String
+    var line: UserLine
 
     @Environment(\.colorScheme) private var scheme
 
+    init(line: UserLine) {
+        self.line = line
+    }
+
+    init(text: String) {
+        self.init(line: UserLine(id: "", text: text))
+    }
+
     var body: some View {
         let theme = PixelTheme(scheme)
-        HStack {
-            Spacer(minLength: 56)
-            PixelText(text, role: .body)
-                .foregroundStyle(UserBubble.ink(scheme).color)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, PixelMetrics.padding)
-                .padding(.vertical, PixelMetrics.steps(4))
-                .pixelBox(fill: .teal, line: theme.line, shadow: theme.shadow, border: PixelMetrics.thinBorder,
-                          offset: PixelMetrics.smallShadow)
+        VStack(alignment: .trailing, spacing: PixelMetrics.steps(2)) {
+            HStack {
+                Spacer(minLength: 56)
+                PixelText(line.text, role: .body)
+                    .foregroundStyle(UserBubble.ink(scheme).color)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, PixelMetrics.padding)
+                    .padding(.vertical, PixelMetrics.steps(4))
+                    .pixelBox(fill: .teal, line: theme.line, shadow: theme.shadow, border: PixelMetrics.thinBorder,
+                              offset: PixelMetrics.smallShadow)
+            }
+            switch line.status {
+            case .sent: EmptyView()
+            case .sending:
+                PixelText("Sending…", role: .smallLabel).foregroundStyle(theme.muted.color)
+            case .failed:
+                PixelText("Not sent · tap to try again", role: .smallLabel).foregroundStyle(theme.accent.color)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("You said: \(text)")
+        .accessibilityLabel(line.accessibilityText)
     }
 
     /// White on teal in light (5.9:1), cream in dark (5.3:1): both pass AA for the small pixel font.

@@ -11,6 +11,15 @@ final class FakeService: ChatService {
     var contents: [String: Data] = [:]
     private(set) var answers: [(id: String, approve: Bool)] = []
     private(set) var approvalFetches = 0
+    private(set) var sent: [(text: String, clientId: String)] = []
+    /// Holds a send until the test lets it go, to see the message while it is on its way.
+    var holdSends = false
+    private var held: [CheckedContinuation<Void, Never>] = []
+
+    func release() {
+        held.forEach { $0.resume() }
+        held = []
+    }
 
     init(failing: Bool = false) {
         self.failing = failing
@@ -19,6 +28,14 @@ final class FakeService: ChatService {
     func mainConversationId() async throws -> String {
         if failing { throw ChatError.unreachable }
         return Fx.conversation
+    }
+
+    func send(text: String, clientId: String, conversationId: String) async throws -> Message {
+        sent.append((text, clientId))
+        if holdSends { await withCheckedContinuation { held.append($0) } }
+        if failing { throw ChatError("Not sent: can't reach the hub. Tap the message to try again.") }
+        return Fx.decode(Fx.message("msg_\(clientId)", at: 100, role: "user", text: text,
+                                    extra: ["client_id": clientId]))
     }
 
     func approvals() async throws -> [Approval] {

@@ -8,6 +8,9 @@ import OpenAPIRuntime
 public protocol ChatService {
     /// The agent's main conversation (`GET /me`).
     func mainConversationId() async throws -> String
+    /// Stores your message (`POST /conversations/{id}/messages`). It never waits for Marcel; the same
+    /// `clientId` sent again returns the same message, so a retry never doubles it.
+    func send(text: String, clientId: String, conversationId: String) async throws -> Message
     /// Every approval, open ones first (`GET /approvals`).
     func approvals() async throws -> [Approval]
     /// Approve or deny. An approval already answered elsewhere comes back as it stands.
@@ -46,6 +49,24 @@ public struct LiveChatService: ChatService {
             return agent.mainConversationId
         case .unauthorized: throw ChatError.unpaired
         case .undocumented(let status, _): throw ChatError.unexpected("me, HTTP \(status)")
+        }
+    }
+
+    public func send(text: String, clientId: String, conversationId: String) async throws -> Message {
+        let output: Operations.SendMessage.Output
+        do {
+            output = try await client.sendMessage(
+                path: .init(conversationId: conversationId), body: .json(.init(text: text, clientId: clientId)))
+        } catch {
+            throw ChatError("Not sent: can't reach the hub. Tap the message to try again.")
+        }
+        switch output {
+        case .created(let created): return try created.body.json
+        case .unauthorized: throw ChatError.unpaired
+        case .notFound: throw ChatError("Not sent: the hub does not know this conversation.")
+        case .badRequest: throw ChatError("Not sent: the hub refused the message.")
+        case .conflict: throw ChatError("Not sent: that thread has finished.")
+        case .undocumented(let status, _): throw ChatError.unexpected("send, HTTP \(status)")
         }
     }
 

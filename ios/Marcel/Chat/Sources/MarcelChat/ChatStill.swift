@@ -8,6 +8,7 @@ struct ChatStill: View {
     var items: [FeedItem]
     var collapsed = false
     var actions = ChatActions()
+    var draft = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +18,9 @@ struct ChatStill: View {
             }
             .padding(FeedMetrics.inset)
             .frame(maxWidth: .infinity, alignment: .leading)
+            Composer(text: .constant(draft),
+                     placeholder: Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(items)),
+                     focused: nil, send: {})
             PixelTabBar(selection: .constant("chat"))
         }
     }
