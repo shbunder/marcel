@@ -2,6 +2,11 @@
 
 The hub has no JSON Schema library at run time, so each frame type is checked field by field
 here. A test checks these tables against the contract file, so they cannot drift.
+
+A bad `reply` or `report` that still carries a `call_id` raises `BadCall`: the socket answers it
+with `call_ack` + `error`, so the session's tool returns the reason and the call is not re-sent
+for ever (channel-protocol.md: every refused call is answered). Any other bad frame is logged
+and dropped. A note's text is checked by the gateway (`bad_note`), like a progress report's `next`.
 """
 
 import json
@@ -10,13 +15,16 @@ from typing import Any
 
 SESSION_ID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
 REQUEST_ID = re.compile(r'^[a-km-z]{5}$')
-REPORT_KINDS = frozenset({'started', 'progress', 'artifact', 'done', 'failed'})
+REPORT_KINDS = frozenset({'started', 'progress', 'artifact', 'done', 'failed', 'note'})
 ARTIFACT_KINDS = frozenset({'pr', 'branch', 'doc', 'file', 'dashboard', 'link'})
 URL_KINDS = frozenset({'pr', 'branch', 'link'})
 PATH_KINDS = frozenset({'doc', 'file', 'dashboard'})
 # A progress report's `next` steps (channel.schema.json `Report.next`).
 MAX_NEXT_STEPS = 20
 MAX_NEXT_STEP_CHARS = 200
+# A `note` report's text: one fact for the project's notes (channel.schema.json `Report`).
+MAX_NOTE_CHARS = 1000
+CALLS = frozenset({'reply', 'report'})  # the frames a session waits on a `call_ack` for
 
 # Every field each `ToHub` frame may carry, and whether it is required. `type` is implied.
 FIELDS: dict[str, dict[str, bool]] = {
@@ -42,6 +50,30 @@ STRINGS = frozenset(
 
 class BadFrame(ValueError):
     """A frame that does not match the contract. It is logged and dropped."""
+
+
+class BadCall(BadFrame):
+    """A `reply` or `report` that does not match the contract but names its `call_id`: it is
+    answered with `call_ack` + `error` (`ack`), never stored."""
+
+    def __init__(self, call_id: str, kind: str, why: str) -> None:
+        super().__init__(why)
+        self.call_id = call_id
+        self.code = f'bad_{kind}'
+        self.message = f'Marcel did not take this {kind}: {why}. Fix it and call again.'
+
+    def ack(self) -> dict[str, Any]:
+        return {'type': 'call_ack', 'call_id': self.call_id,
+                'error': {'code': self.code, 'message': self.message}}  # fmt: skip
+
+
+def note_problem(text: Any) -> str | None:
+    """Why a `note` report's text breaks the contract, in plain words; None when it is fine."""
+    if not isinstance(text, str) or not text:
+        return 'a note needs the fact as text'
+    if len(text) > MAX_NOTE_CHARS:
+        return f'the note is {len(text)} characters; keep it to {MAX_NOTE_CHARS}'
+    return None
 
 
 def _is_int(value: Any) -> bool:
@@ -127,6 +159,15 @@ def parse(raw: str) -> dict[str, Any]:
     if kind not in FIELDS:
         raise BadFrame(f'unknown frame type {kind!r}')
     body = {k: v for k, v in frame.items() if k != 'type'}
+    call_id = body.get('call_id')
+    if kind in CALLS and isinstance(call_id, str) and call_id:
+        try:
+            _check_fields(kind, body, FIELDS[kind])
+            if kind == 'report':
+                _check_report(body)
+        except BadFrame as exc:
+            raise BadCall(call_id, kind, str(exc)) from None
+        return frame
     _check_fields(kind, body, FIELDS[kind])
     if kind == 'hello':
         if not SESSION_ID.match(body['session_id']):

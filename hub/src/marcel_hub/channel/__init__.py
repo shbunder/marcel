@@ -15,6 +15,7 @@ from marcel_hub.channel.routes import router as approvals_router
 from marcel_hub.channel.socket import MAX_FRAME
 from marcel_hub.channel.socket import router as socket_router
 from marcel_hub.runner_client import Alerts, RunnerWatch
+from marcel_hub.schedule.cron import zone
 from marcel_hub.tasks.registry import TaskRegistry
 
 TRIAGE_LOG = 'triage.log'
@@ -38,6 +39,8 @@ def install(
     gateway.registry = registry
     gateway.artifacts = getattr(app.state, 'artifacts', None)
     gateway.events = app.state.events
+    gateway.memory = getattr(app.state, 'memory', None)  # workers' notes (S-04.14)
+    gateway.tz = zone(app.state.settings.tz)
     app.state.events.observers.append(gateway.on_app_event)
     if watch is not None:
         watch.listeners.append(gateway)

@@ -815,9 +815,10 @@ class ArtifactStore:
     # PR status -----------------------------------------------------------------------------
 
     async def refresh_pr(self, artifact_id: str) -> Artifact:
-        """Ask the PR status source and store the PR's state, checks and review. When any of
-        them changed, send `artifact.updated` with the current version (no new version: the
-        artifact is the same PR); when nothing changed, send nothing.
+        """Ask the PR status source and store the PR's state, checks and review, and the time of
+        this good refresh as `pr.refreshed_at`. When state, checks or review changed, send
+        `artifact.updated` with the current version (no new version: the artifact is the same
+        PR); when nothing else changed, send nothing.
 
         Raises `PrStatusUnavailable` (the last known status stays), `ArtifactNotFound`, or
         `ArtifactRefused` for an artifact that is not a PR.
@@ -838,11 +839,14 @@ class ArtifactStore:
                 raise ArtifactNotFound(artifact_id)
             before = dict(row.meta_json.get('pr', {}))
             pr = {**before, **{k: status[k] for k in allowed if k in status}}
-            if pr == before:
-                return row  # nothing changed: no event
+            changed = pr != before
+            # Every good refresh is stamped; a refresh that changes nothing else sends no event,
+            # so the new time rides on the next `artifact.updated` (or the next read).
+            pr['refreshed_at'] = iso(utcnow())
             row.meta_json = {**row.meta_json, 'pr': pr}
             s.add(row)
             s.commit()
             s.refresh(row)
-        self._updated(row, self.version(row.id, row.current_version))
+        if changed:
+            self._updated(row, self.version(row.id, row.current_version))
         return row

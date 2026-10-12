@@ -354,6 +354,8 @@ class ArtifactVersion(SQLModel, table=True):
     summary: str | None = None
     author: str | None = None
     task_id: str | None = None
+    # The `digest_id` of the `digest_due` event this version answers (brain-api `in_reply_to`).
+    in_reply_to: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
 
