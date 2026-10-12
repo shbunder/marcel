@@ -2,6 +2,7 @@ import MarcelChat
 import MarcelItems
 import MarcelKit
 import MarcelMap
+import MarcelQuest
 import MarcelQuests
 import PixelKit
 import SwiftUI
@@ -63,6 +64,8 @@ struct MainTabs: View {
                 .accessibilityAction(named: "Unpair this phone", unpair)
         }
         .background(PixelTheme(scheme).background.color)
+        // An open quest view follows its transcript and approvals through the live stream's cache.
+        .environment(\.liveEvents, connection.cache)
     }
 
     private func unpair() {

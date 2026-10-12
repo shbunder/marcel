@@ -14,6 +14,7 @@
 		4DE100000000000000000005 /* MarcelQuests in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000005 /* MarcelQuests */; };
 		4DE100000000000000000006 /* MarcelMap in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000006 /* MarcelMap */; };
 		4DE100000000000000000007 /* MarcelItems in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000007 /* MarcelItems */; };
+		4DE100000000000000000008 /* MarcelQuest in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE200000000000000000008 /* MarcelQuest */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -57,6 +58,7 @@
 				4DE100000000000000000005 /* MarcelQuests in Frameworks */,
 				4DE100000000000000000006 /* MarcelMap in Frameworks */,
 				4DE100000000000000000007 /* MarcelItems in Frameworks */,
+				4DE100000000000000000008 /* MarcelQuest in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +120,7 @@
 				4DE200000000000000000005 /* MarcelQuests */,
 				4DE200000000000000000006 /* MarcelMap */,
 				4DE200000000000000000007 /* MarcelItems */,
+				4DE200000000000000000008 /* MarcelQuest */,
 			);
 			productName = Marcel;
 			productReference = 4DA100000000000000000001 /* Marcel.app */;
@@ -155,6 +158,7 @@
 				4DE400000000000000000005 /* XCLocalSwiftPackageReference "Marcel/Quests" */,
 				4DE400000000000000000006 /* XCLocalSwiftPackageReference "Marcel/Map" */,
 				4DE400000000000000000007 /* XCLocalSwiftPackageReference "Marcel/Items" */,
+				4DE400000000000000000008 /* XCLocalSwiftPackageReference "Marcel/Quest" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4DA400000000000000000002 /* Products */;
@@ -344,6 +348,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Marcel/Items;
 		};
+		4DE400000000000000000008 /* XCLocalSwiftPackageReference "Marcel/Quest" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Marcel/Quest;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -381,6 +389,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4DE400000000000000000007 /* XCLocalSwiftPackageReference "Marcel/Items" */;
 			productName = MarcelItems;
+		};
+		4DE200000000000000000008 /* MarcelQuest */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4DE400000000000000000008 /* XCLocalSwiftPackageReference "Marcel/Quest" */;
+			productName = MarcelQuest;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

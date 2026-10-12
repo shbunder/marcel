@@ -29,8 +29,8 @@ and shows `ChatScreen(model:offline:)`; the Xcode project keeps this folder out 
 - **Scrolling**: the newest 50 messages; reaching the top loads 50 more from the cache. "Latest ▼" jumps back.
   The giraffe is 120 pt at the latest messages and 44 pt once you scroll back or type (and always 44 pt at
   accessibility text sizes). Reduce Motion turns the animations off.
-- Tapping an item opens the artifact viewer (`ArtifactViewer` from MarcelItems, S-12.8). A quest card opens a
-  placeholder until the quest view exists.
+- Tapping an item opens the artifact viewer (`ArtifactViewer` from MarcelItems, S-12.8). A quest card opens the
+  quest view (`QuestView` from MarcelQuest, S-12.6).
 
 ## Tests (`make -C ios chat-test`, part of `make ios-check`)
 
