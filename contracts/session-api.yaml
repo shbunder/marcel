@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — session API
-  version: 0.1.1
+  version: 0.1.2
   description: |
     The two hub endpoints that Claude Code sessions call themselves, over HTTPS through the tunnel.
     They sit under the same `/api` server as the app API but use their own tokens, never a device
@@ -70,6 +70,11 @@ paths:
                 example: { task_id: tsk_01J9ZQ5 }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/Hidden' }
+        '409':
+          description: '`too_many_notes`: this task already sent 10 `note` reports. Nothing was stored. New in 0.1.2.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '429': { $ref: '#/components/responses/TooMany' }
 
 components:
@@ -147,15 +152,28 @@ components:
 
     Report:
       type: object
+      description: |
+        What a worker reports (the same payload reaches the hub as a channel `report` frame from a
+        NUC worker). Each kind but `note` becomes a milestone on the task.
+
+        `note` (new in 0.1.2) is one durable fact that later threads in the same project need ("The
+        Luminus contract ends on 1 March 2027"), in plain words, at most 1000 characters. The hub
+        appends `- <date> <text> (from <task title>)` to `memory/projects/<slug>.md` of the task's
+        project (the Inbox's notes, `memory/projects/inbox.md`, for an unfiled task), commits it as
+        `memory: projects/<slug>.md (worker <task id>)`, and posts nothing in the main chat. A note never
+        changes the task's state. At most 10 notes per task: past that the hub answers
+        `too_many_notes` (409 here, a `call_ack` error on the channel) and stores nothing.
       required: [kind]
       additionalProperties: false
       properties:
         kind:
           type: string
-          enum: [started, progress, artifact, done, failed]
+          enum: [started, progress, artifact, done, failed, note]
         text:
           type: string
-          description: For `progress`, one line. Reports are milestones, not a running commentary.
+          description: |
+            For `progress`, one line. Reports are milestones, not a running commentary. For `note`,
+            the fact (1 to 1000 characters).
         next:
           type: array
           maxItems: 20
@@ -174,6 +192,10 @@ components:
       allOf:
         - if: { properties: { kind: { const: progress } } }
           then: { required: [text] }
+        - if: { properties: { kind: { const: note } } }
+          then:
+            required: [text]
+            properties: { text: { minLength: 1, maxLength: 1000 } }
         - if: { properties: { kind: { const: artifact } } }
           then: { required: [artifact] }
         - if: { properties: { kind: { enum: [done, failed] } } }
