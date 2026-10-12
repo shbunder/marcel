@@ -29,6 +29,13 @@ A PR's CI and review status is refreshed from a `PrStatusSource`; `pr_status_fro
 GitHub's REST answers into the contract's `pr` fields. Per ADR-002 the hub reads GitHub itself with
 a read-only token: `github.py` (S-04.12) installs that client and the loop that refreshes open PRs.
 Without a token the store keeps `NoPrStatus`, which says plainly that the token is missing.
+When a refresh fails, `github.py` keeps the reason as `meta_json['pr_note']`; the card shows it as
+`pr.note` (null once a refresh works again).
+
+`move` pins an item to another project of the same agent (`POST /api/artifacts/{id}/move`): its
+`project_id` changes and it is marked `pinned`, so a later move of its task leaves it there. A
+board stays with its project (`ArtifactIsBoard`), nothing goes into an archived project
+(`MoveTargetArchived`), and a move into the project it is in changes nothing.
 """
 
 import json
@@ -51,7 +58,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import desc
 from sqlmodel import Session, col, select
 
-from marcel_hub.conversations import ensure_main_conversation, post_message
+from marcel_hub.conversations import agent_of_artifact, ensure_main_conversation, post_message
 from marcel_hub.models import (
     BOARD_AUTHOR,
     Agent,
@@ -60,8 +67,10 @@ from marcel_hub.models import (
     ArtifactVersion,
     MessageKind,
     MessageRole,
+    Project,
     Task,
     TaskEventType,
+    inbox_id,
     utcnow,
 )
 from marcel_hub.tasks.ports import NullPublisher, Publisher
@@ -83,6 +92,7 @@ DOC_TYPES = {'.md': 'text/markdown', '.markdown': 'text/markdown', '.html': 'tex
 PR_STATES = {'open', 'draft', 'merged', 'closed'}
 PR_CHECKS = {'pending', 'passing', 'failing', 'none'}
 PR_REVIEWS = {'none', 'requested', 'approved', 'changes_requested'}
+PR_NOTE_MAX = 200  # app-api.yaml `Artifact.pr.note` maxLength
 
 # Only the standard table, never /etc/mime.types: the same file gets the same type everywhere.
 _MIME = mimetypes.MimeTypes()
@@ -107,6 +117,18 @@ class VersionNotFound(Exception):
 
 class NoContent(Exception):
     """The artifact lives at a URL, not in the hub (404). The message says so."""
+
+
+class ArtifactIsBoard(Exception):
+    """A project's board stays with its project (409 `artifact_is_board`)."""
+
+
+class MoveTargetNotFound(Exception):
+    """No such project, or not one of the item's agent (404 `project_not_found`)."""
+
+
+class MoveTargetArchived(Exception):
+    """Nothing new is filed in an archived project (409 `project_archived`)."""
 
 
 class PrStatusUnavailable(Exception):
@@ -384,7 +406,8 @@ class ArtifactStore:
             if (value := getattr(art, name)) is not None:
                 body[name] = value
         if 'pr' in art.meta_json:
-            body['pr'] = art.meta_json['pr']
+            note = art.meta_json.get('pr_note')
+            body['pr'] = {**art.meta_json['pr'], 'note': note[:PR_NOTE_MAX] if note else None}
         return body
 
     @staticmethod
@@ -688,11 +711,60 @@ class ArtifactStore:
             s.refresh(row)
             return row
 
+    def move(self, artifact_id: str, project_id: str, user_id: str) -> tuple[Artifact, str | None]:
+        """Pin an item to another live project of its agent's. Returns the item and the project
+        it came from, or None as that project when nothing changed (it was there already). Sends
+        `artifact.moved`, then `artifact.updated` with its current version; the caller announces
+        both projects.
+
+        Raises `ArtifactNotFound` (also for someone else's item), `MoveTargetNotFound`,
+        `ArtifactIsBoard`, `MoveTargetArchived`."""
+        with self._lock, Session(self.engine) as s:
+            row = s.get(Artifact, artifact_id)
+            agent_id = agent_of_artifact(s, row) if row is not None else None
+            agent = s.get(Agent, agent_id) if agent_id is not None else None
+            if row is None or agent is None or agent.owner_user_id != user_id:
+                raise ArtifactNotFound(artifact_id)
+            target = s.get(Project, project_id)
+            if target is None or target.agent_id != agent.id:
+                raise MoveTargetNotFound(project_id)
+            # An item filed nowhere counts as in the inbox, where `_file_artifact` puts those.
+            source = row.project_id or inbox_id(s.connection(), agent.id)
+            if source == target.id:
+                return row, None
+            if row.kind is ArtifactKind.board:
+                raise ArtifactIsBoard(artifact_id)
+            if target.archived:
+                raise MoveTargetArchived(target.name)
+            target_id = row.project_id = target.id
+            row.pinned = True  # from now on it stays here when its task moves
+            s.add(row)
+            s.commit()
+            s.refresh(row)
+        self._publisher().publish(
+            'artifact.moved',
+            {'artifact_id': row.id, 'from_project_id': source, 'to_project_id': target_id},
+        )
+        self._updated(row, self.version(row.id, row.current_version))
+        return row, source
+
+    def announce_updated(self, artifact_id: str) -> None:
+        """Send `artifact.updated` with the item as it is now (no new version), e.g. when its
+        PR note changed."""
+        art = self.get(artifact_id)
+        self._updated(art, self.version(art.id, art.current_version))
+
     def announce_moved(self, task_id: str) -> None:
-        """A task moved to another project (S-04.10): its items moved with it. Send
+        """A task moved to another project (S-04.10): its unpinned items moved with it. Send
         `artifact.updated` for each, with its current version, so the app files it again."""
         with Session(self.engine) as s:
-            rows = list(s.exec(select(Artifact).where(Artifact.task_id == task_id)))
+            rows = list(
+                s.exec(
+                    select(Artifact)
+                    .where(Artifact.task_id == task_id)
+                    .where(Artifact.pinned == False)  # noqa: E712
+                )
+            )
         for art in rows:
             self._updated(art, self.version(art.id, art.current_version))
 

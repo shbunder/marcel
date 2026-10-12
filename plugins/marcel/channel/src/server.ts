@@ -114,6 +114,8 @@ export class ChannelServer {
       case 'user_message': {
         const meta: Record<string, string> = { kind: 'user_message', message_id: frame.message_id, conversation_id: frame.conversation_id };
         if (frame.quoted_message_id) meta.quoted_message_id = frame.quoted_message_id;
+        if (frame.project_id) meta.project_id = frame.project_id;
+        if (frame.artifact_id) meta.artifact_id = frame.artifact_id;
         this.mcp.notify('notifications/claude/channel', { content: frame.text, meta });
         break;
       }

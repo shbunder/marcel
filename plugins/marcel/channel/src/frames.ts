@@ -7,6 +7,10 @@ export interface Artifact {
   title: string;
   url?: string;
   path?: string;
+  /** Publish a new version of this artifact instead of a new one (B-34). */
+  artifact_id?: string;
+  /** What changed in this version, in one line (at most 200 characters). */
+  summary?: string;
 }
 
 export interface Hello {
@@ -27,6 +31,8 @@ export interface Report {
   call_id: string;
   kind: ReportKind;
   text?: string;
+  /** For `progress`: the steps still planned, in order. At most 20, each 1–200 characters. */
+  next?: string[];
   summary?: string;
   artifact?: Artifact;
   artifacts?: Artifact[];
@@ -67,6 +73,10 @@ export interface UserMessage {
   conversation_id: string;
   text: string;
   quoted_message_id?: string;
+  /** Sent from a project room: the project the message is about. */
+  project_id?: string;
+  /** The item the owner attached ("Ask about this"). */
+  artifact_id?: string;
 }
 export interface Steer {
   type: 'steer';

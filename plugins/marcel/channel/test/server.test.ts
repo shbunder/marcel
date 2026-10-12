@@ -258,8 +258,27 @@ describe('inbound messages', () => {
     expect(c).not.toHaveProperty('handback');
   });
 
+  it('passes project_id and artifact_id in meta when present, and leaves them out otherwise', async () => {
+    const h = await connected();
+    const base = { type: 'user_message', conversation_id: 'c', text: 'about this' } as const;
+    h.hub.push({ ...base, seq: 1, message_id: 'm1', project_id: 'prj_kitchen', artifact_id: 'art_plan' });
+    h.hub.push({ ...base, seq: 2, message_id: 'm2', project_id: 'prj_kitchen' });
+    h.hub.push({ ...base, seq: 3, message_id: 'm3', artifact_id: 'art_plan' });
+    h.hub.push({ ...base, seq: 4, message_id: 'm4' });
+    await flush();
+    const metas = h.notifications('notifications/claude/channel').map((n) => (n.params as { meta: Record<string, string> }).meta);
+    expect(metas).toEqual([
+      { kind: 'user_message', message_id: 'm1', conversation_id: 'c', project_id: 'prj_kitchen', artifact_id: 'art_plan' },
+      { kind: 'user_message', message_id: 'm2', conversation_id: 'c', project_id: 'prj_kitchen' },
+      { kind: 'user_message', message_id: 'm3', conversation_id: 'c', artifact_id: 'art_plan' },
+      { kind: 'user_message', message_id: 'm4', conversation_id: 'c' },
+    ]);
+    expect(h.hub.of('ack').map((a) => a.seq)).toEqual([1, 2, 3, 4]);
+  });
+
   it('uses meta keys that are identifiers only', async () => {
     const h = await connected();
+    h.hub.push({ type: 'user_message', seq: 3, message_id: 'm', conversation_id: 'c', text: 'x', quoted_message_id: 'q', project_id: 'p', artifact_id: 'a' });
     h.hub.push({ type: 'steer', seq: 1, task_id: 't', note_id: 'n', author: 'marcel', text: 'x' });
     h.hub.push({ type: 'system_event', seq: 2, kind: 'digest_due', text: 'x', task_id: 't' });
     await flush();
@@ -476,11 +495,106 @@ describe('report', () => {
     const h = await connected();
     const refusal = { code: 'unknown_artifact', message: 'There is no artifact art_404.' };
     h.hub.onFrame = (f) => (f.type === 'report' ? { type: 'call_ack', call_id: f.call_id, error: refusal } : undefined);
-    const res = await h.callTool('report', { kind: 'artifact', artifact: { kind: 'link', title: 'x', url: 'https://example.com' } });
+    const res = await h.callTool('report', {
+      kind: 'artifact',
+      artifact: { kind: 'link', title: 'x', url: 'https://example.com', artifact_id: 'art_404' },
+    });
+    expect(h.hub.of('report')[0]?.artifact?.artifact_id).toBe('art_404');
     expect(res.result?.isError).toBe(true);
     expect(text(res)).toContain('unknown_artifact');
     expect(text(res)).toContain(refusal.message);
     expect(h.server.hub?.pendingCallCount).toBe(0);
+  });
+
+  it('sends artifact_id and summary so the hub adds a version, and leaves them out for a new item', async () => {
+    const h = await connected();
+    ack(h);
+    const board = { kind: 'doc', title: 'Garden plan', path: '/home/shbunder/marcel/workspaces/garden/plan.md' };
+    const version = { ...board, artifact_id: 'art_01J9ZT7', summary: 'Added the autumn bulbs.' };
+    expect(text(await h.callTool('report', { kind: 'artifact', artifact: version }))).toBe('Sent.');
+    expect(text(await h.callTool('report', { kind: 'artifact', artifact: board }))).toBe('Sent.');
+    expect(text(await h.callTool('report', { kind: 'done', summary: 'Done.', artifacts: [version, board] }))).toBe('Sent.');
+    const [withId, without, done] = h.hub.of('report');
+    expect(withId?.artifact).toEqual(version);
+    expect(without?.artifact).toEqual(board);
+    expect(without?.artifact).not.toHaveProperty('artifact_id');
+    expect(without?.artifact).not.toHaveProperty('summary');
+    expect(done?.artifacts).toEqual([version, board]);
+    const emoji = { ...version, summary: '🦒'.repeat(200) };
+    expect(text(await h.callTool('report', { kind: 'artifact', artifact: emoji }))).toBe('Sent.');
+  });
+
+  it('refuses a bad artifact_id or summary in plain words, and sends nothing', async () => {
+    const h = await connected();
+    ack(h);
+    const link = { kind: 'link', title: 't', url: 'https://example.com' };
+    const bad: [Record<string, unknown>, RegExp][] = [
+      [{ ...link, artifact_id: 5 }, /"artifact_id" must be a string/],
+      [{ ...link, summary: 5 }, /"summary" must be a string/],
+      [{ ...link, summary: 'x'.repeat(201) }, /"summary" is longer than 200 characters/],
+    ];
+    for (const [artifact, pattern] of bad) {
+      const res = await h.callTool('report', { kind: 'artifact', artifact });
+      expect(res.result?.isError, JSON.stringify(artifact)).toBe(true);
+      expect(text(res)).toMatch(pattern);
+    }
+    expect(h.hub.of('report')).toHaveLength(0);
+  });
+
+  it('describes artifact_id and summary in the report tool', async () => {
+    const h = await connected();
+    const tools = (await h.request('tools/list')).result?.tools as { name: string; description: string; inputSchema: { properties: Record<string, { properties?: Record<string, unknown> }> } }[];
+    const report = tools.find((t) => t.name === 'report')!;
+    expect(report.description).toContain('artifact_id');
+    expect(Object.keys(report.inputSchema.properties.artifact!.properties!)).toEqual(expect.arrayContaining(['artifact_id', 'summary']));
+  });
+
+  it('sends next with a progress report, and leaves it out when absent', async () => {
+    const h = await connected();
+    ack(h);
+    const steps = ['Fix the flaky wait', 'Run the login tests', 'Open a PR'];
+    expect(text(await h.callTool('report', { kind: 'progress', text: 'Found the cause.', next: steps }))).toBe('Sent.');
+    expect(text(await h.callTool('report', { kind: 'progress', text: 'Tests pass.' }))).toBe('Sent.');
+    const max = Array.from({ length: 20 }, (_, i) => `${'s'.repeat(199)}${i % 10}`);
+    expect(text(await h.callTool('report', { kind: 'progress', text: 'At the limits.', next: max }))).toBe('Sent.');
+    expect(text(await h.callTool('report', { kind: 'progress', text: 'Nothing left.', next: [] }))).toBe('Sent.');
+    // 200 emoji are 200 characters, as JSON Schema and the hub count them, though JavaScript sees 400
+    expect(text(await h.callTool('report', { kind: 'progress', text: 'Emoji.', next: ['🦒'.repeat(200)] }))).toBe('Sent.');
+    const [a, b, c, d, e] = h.hub.of('report');
+    expect(a?.next).toEqual(steps);
+    expect(b).not.toHaveProperty('next');
+    expect(c?.next).toEqual(max);
+    expect(d?.next).toEqual([]);
+    expect(e?.next).toEqual(['🦒'.repeat(200)]);
+  });
+
+  it('refuses a next the contract would refuse, in plain words, and sends nothing', async () => {
+    const h = await connected();
+    ack(h);
+    const progress = { kind: 'progress', text: 'Working.' };
+    const bad: [Record<string, unknown>, RegExp][] = [
+      [{ ...progress, next: 'one step' }, /"next" must be a list of steps/],
+      [{ ...progress, next: ['ok', 3] }, /"next" must be a list of steps/],
+      [{ ...progress, next: Array.from({ length: 21 }, () => 'step') }, /"next" has 21 steps; send at most 20/],
+      [{ ...progress, next: ['ok', ''] }, /a step in "next" is empty/],
+      [{ ...progress, next: ['ok', 'x'.repeat(201)] }, /step 2 of "next" is longer than 200 characters; shorten it\./],
+      [{ ...progress, next: ['x'.repeat(201), 'ok', '🦒'.repeat(201)] }, /steps 1, 3 of "next" are longer than 200 characters; shorten them/],
+      [{ kind: 'started', next: ['a'] }, /"next" goes with a progress report only/],
+      [{ kind: 'done', summary: 'Done.', next: ['a'] }, /"next" goes with a progress report only/],
+    ];
+    for (const [args, pattern] of bad) {
+      const res = await h.callTool('report', args);
+      expect(res.result?.isError, JSON.stringify(args)).toBe(true);
+      expect(text(res)).toMatch(pattern);
+    }
+    expect(h.hub.of('report')).toHaveLength(0);
+  });
+
+  it('describes next in the report tool', async () => {
+    const res = await new Harness().request('tools/list');
+    const report = (res.result as { tools: { name: string; description: string; inputSchema: { properties: Record<string, unknown> } }[] }).tools.find((t) => t.name === 'report')!;
+    expect(report.description).toContain('"next"');
+    expect(report.inputSchema.properties.next).toMatchObject({ type: 'array', maxItems: 20, items: { type: 'string', minLength: 1, maxLength: 200 } });
   });
 
   it('keeps only the fields the contract has', async () => {

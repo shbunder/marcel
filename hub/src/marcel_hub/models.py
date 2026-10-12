@@ -335,6 +335,9 @@ class Artifact(SQLModel, table=True):
     current_version: int = 1
     updated_by: str | None = None  # in plain words: a task's title, "Marcel" or "the hub"
     updated_at: datetime = Field(default_factory=utcnow)
+    # Moved to its project by the owner (`POST /api/artifacts/{id}/move`, migration 0007): a
+    # pinned item stays where it is when its task moves; an unpinned one follows its task.
+    pinned: bool = False
 
 
 class ArtifactVersion(SQLModel, table=True):

@@ -1,13 +1,24 @@
-"""`/api/artifacts`: the Items tab, one artifact, its content (by version) and its versions."""
+"""`/api/artifacts`: the Items tab, one artifact, its content (by version), its versions, and
+pinning it to another project (`POST /api/artifacts/{id}/move`)."""
 
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, ConfigDict
 
-from marcel_hub.artifacts.store import ArtifactNotFound, ArtifactStore, NoContent, VersionNotFound
-from marcel_hub.auth import require_device
+from marcel_hub.artifacts.store import (
+    ArtifactIsBoard,
+    ArtifactNotFound,
+    ArtifactStore,
+    MoveTargetArchived,
+    MoveTargetNotFound,
+    NoContent,
+    VersionNotFound,
+)
+from marcel_hub.auth import current_device, require_device
 from marcel_hub.models import ArtifactKind
+from marcel_hub.tasks.routes import _body  # pyright: ignore[reportPrivateUsage]
 
 router = APIRouter(prefix='/api', dependencies=[Depends(require_device)])
 
@@ -86,3 +97,39 @@ def get_artifact_content(
         'Content-Security-Policy': 'sandbox allow-scripts' if art.trusted else 'sandbox',
     }
     return FileResponse(path, media_type=content_type, headers=headers)
+
+
+class ArtifactMove(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    project_id: str
+
+
+@router.post('/artifacts/{artifact_id}/move')
+async def move_artifact(request: Request, artifact_id: str) -> Any:
+    """Pin an item to another project of its agent (B-21, B-31). Marcel is not woken. Both
+    projects are announced (`project.updated`), which also rebuilds both boards."""
+    body = await _body(request, ArtifactMove, required=True)
+    if isinstance(body, JSONResponse):
+        return body
+    store = _store(request)
+    user_id = current_device(request).user_id
+    try:
+        art, source = store.move(artifact_id, body.project_id, user_id)
+    except ArtifactNotFound:
+        return _not_found(artifact_id)
+    except MoveTargetNotFound:
+        return _error(404, 'project_not_found', 'That project is not on this hub.')
+    except ArtifactIsBoard:
+        return _error(409, 'artifact_is_board', 'A project’s board stays with its project.')
+    except MoveTargetArchived as exc:
+        return _error(
+            409,
+            'project_archived',
+            f'“{exc}” is archived, so nothing new can be filed there. Pick a live project.',
+        )
+    if source is not None:
+        projects = getattr(request.app.state, 'projects', None)
+        if projects is not None:
+            projects.announce(art.project_id)
+            projects.announce(source)
+    return store.to_api(art)

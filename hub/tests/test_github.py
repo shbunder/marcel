@@ -146,7 +146,7 @@ def test_a_pr_card_follows_github_from_open_to_merged(rig: Rig, gh: FakeGitHub) 
 
     assert rig.later(0) == [art]  # refreshed as soon as it is made
     assert rig.pr(art) == {'number': 14, 'state': 'open', 'checks': 'pending',
-                           'review': 'requested'}  # fmt: skip
+                           'review': 'requested', 'note': None}  # fmt: skip
     assert len(rig.events.updates()) == 1
 
     assert rig.later(60) == []  # not due yet: every 5 minutes
@@ -369,7 +369,11 @@ def test_without_a_token_the_card_says_so_and_github_is_not_asked(
         "this PR's checks and reviews."
     )
     assert gh.requests == []
-    assert rig.events.updates() == []  # nothing changed on the card's status
+    # The card's status is as it was; only its note says why it cannot be checked (`pr.note`).
+    [update] = rig.events.updates()
+    assert update['artifact']['pr'] == {'number': 14, 'state': 'open', 'note': rig.note(art)}
+    rig.later()
+    assert len(rig.events.updates()) == 1  # the same note again: no second event
 
 
 def test_a_client_made_without_a_token_says_so(gh: FakeGitHub) -> None:
@@ -401,7 +405,10 @@ def test_each_failure_gets_its_own_plain_message(
     note = rig.note(art) or ''
     assert says in note
     assert rig.pr(art)['checks'] == 'none'  # the last known status stays
-    assert len(rig.events.updates()) == 1  # a failure is not a change
+    assert rig.pr(art)['note'] == note
+    updates = rig.events.updates()
+    assert len(updates) == 2  # only the note changed on the card (`pr.note`)
+    assert updates[-1]['artifact']['pr'] == {**updates[0]['artifact']['pr'], 'note': note}
     assert art in rig.refresher.due()  # tried again in 5 minutes
     assert rig.refresher.paused_until == 0.0  # only a rate limit pauses everything
 
@@ -441,6 +448,10 @@ def test_a_note_is_logged_once_and_cleared_when_github_answers(
     rig.later()
     assert rig.note(art) is None
     assert 'up to date with GitHub again' in caplog.text
+    # The card hears both: the note, then null once the refresh worked.
+    notes = [u['artifact']['pr']['note'] for u in rig.events.updates()]
+    assert notes[0] is not None and 'GitHub is having trouble' in notes[0]
+    assert notes[-1] is None
 
 
 # Only GitHub's API host is ever called: PR URLs are untrusted. -----------------------------

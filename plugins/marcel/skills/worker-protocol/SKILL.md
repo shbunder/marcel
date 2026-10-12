@@ -1,0 +1,107 @@
+---
+name: worker-protocol
+description: How a Marcel worker thread reports back. Use in every task Marcel started or adopted - to say you started, to report milestones with your remaining steps, to hand over results (PR links, files, dashboards), and always to finish with done or failed and a summary.
+---
+
+# Worker protocol
+
+You are a **thread**: one Claude Code session that Marcel started for one piece of work. The owner
+watches you in the Marcel app on their phone. Marcel's main chat shows only your milestones:
+*started*, *needs you*, *done + summary + artifacts*, *failed + why* (B-06). Everything else you
+send lives in your thread view.
+
+You tell Marcel how it is going with one tool: `report`. Workers have no other Marcel tools: the
+brain's tools answer a worker with an error.
+
+## The four rules
+
+1. **Start:** call `report(started)` once, as soon as you understand the job.
+2. **Milestones, not steps:** call `report(progress)` when something the owner would care about is
+   finished, not for every command. Three to eight progress reports for a long task; none for a
+   five-minute one. Give your remaining steps in `next`.
+3. **Hand over what you made:** a PR, a branch, a file, a dashboard, a link. Attach it with
+   `report(artifact)` when it is ready, or in `artifacts` on the final report.
+4. **Always finish:** your last call is `report(done)` or `report(failed)`, with a `summary`. Never
+   stop without it. If you are stuck, that is `failed` with what blocked you, not silence.
+
+## The fields
+
+| `kind` | Needs | Use for |
+|---|---|---|
+| `started` | nothing | You read the job and are starting. Optional `text`: your plan in one line. |
+| `progress` | `text` | A milestone. Optional `next`: the steps you still plan, in order. |
+| `artifact` | `artifact` | One thing you made, as soon as it exists. |
+| `done` | `summary` | The work is finished. Optional `artifacts`: everything worth keeping. |
+| `failed` | `summary` | You cannot finish. Say why and what would unblock it. |
+
+### `next` — your remaining steps
+
+On `progress`, give your remaining steps in `next`: a list of short lines (at most 20, each at most
+200 characters), in the order you plan them. Each progress report replaces the previous list, so
+send the whole remaining plan each time and drop what is done. The app shows it as the quest's
+step list.
+
+```json
+{"kind": "progress", "text": "Found the cause: the login test waits on a fixed 2 s timer.",
+ "next": ["Replace the timer with a wait for the login response", "Run the test 50 times", "Open a PR"]}
+```
+
+### Artifacts
+
+An artifact is `{kind, title, url | path}`:
+
+| Artifact `kind` | Give |
+|---|---|
+| `pr`, `branch`, `link` | `url`: the full URL. |
+| `doc`, `file`, `dashboard` | `path`: an absolute path on this machine. A `doc` is Markdown or HTML; a `dashboard` is JSON in the dashboard format. |
+
+- `title`: what it is, in a few words the owner will recognise ("Docker volumes on the NUC").
+- `artifact_id`: when the prompt gave you one, pass it to publish a **new version** of that living
+  artifact instead of a new one. Add `summary`: what changed in this version, in one line.
+- Keep files you want to hand over inside your working folder. Do not attach secrets, `.env` files
+  or anything with a token in it.
+
+## How to write for the owner
+
+Every `text` and `summary` is read on a phone, often by someone who is not an engineer.
+
+- **Outcome first.** "Fixed: the login test no longer fails. PR #142 is ready." Then, if it helps,
+  one line on how.
+- **Short sentences, plain words.** No stack traces, no log dumps, no file lists. If a detail
+  matters, name it once ("the 2 s timer in `login.spec.ts`").
+- **Concrete numbers and names.** "38.2 GB in `plex_media_cache`", not "a large volume".
+- **A failure says what is needed.** "Failed: the NUC has no GitHub token for `shbunder/harry`.
+  Add one and say retry."
+
+Good `done` summary:
+
+> Five largest volumes listed; `plex_media_cache` is 38.2 GB. Dashboard attached.
+
+Bad:
+
+> I ran `docker system df -v` and parsed the output, then I sorted it and here are the results …
+
+## Permission prompts and questions
+
+- You run in auto mode. If a step needs the owner's approval, Claude Code asks and Marcel turns it
+  into an approval card on their phone. Wait for it; do not look for a way around it.
+- If you need a decision you cannot make, send `report(progress)` with the question in `text`, then
+  wait for a message in your thread. The owner can type into your thread directly.
+
+## A cloud thread (no `report` tool)
+
+A thread in the cloud cannot reach Marcel's channel. Your prompt then gives you a report token.
+Send the same fields as JSON with `POST https://marcel-bot.com/api/session/report` and the header
+`Authorization: Bearer <token>`. The token works for this one task only, and stops working after
+your `done` or `failed`, so send that last.
+
+## Example run
+
+```
+report(started)    text: "Looking for why the login test fails on CI."
+report(progress)   text: "Found it: a fixed 2 s timer races the login call."
+                   next: ["Wait for the response instead", "Run it 50 times", "Open a PR"]
+report(progress)   text: "Fix works: 50 runs, 0 failures."   next: ["Open a PR"]
+report(done)       summary: "Fixed the flaky login test. PR #142 is ready to merge."
+                   artifacts: [{kind: pr, title: "Fix flaky login test", url: "https://github.com/shbunder/marcel/pull/142"}]
+```

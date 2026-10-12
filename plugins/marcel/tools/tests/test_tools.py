@@ -274,10 +274,16 @@ MONDAYS = {'name': 'Dependency report', 'cron': '0 8 * * 1', 'tz': 'Europe/Bruss
            'location': 'cloud', 'prompt': 'List outdated dependencies.'}  # fmt: skip
 
 
-def test_schedules_say_plainly_the_scheduler_is_not_built_yet(world: World) -> None:
-    for name, args in (('schedule_create', MONDAYS), ('schedule_list', None),
-                       ('schedule_delete', {'id': 'sch_1'})):  # fmt: skip
-        assert 'The scheduler is not built yet' in world.error(name, args)
+def test_schedules_with_the_real_scheduler(world: World) -> None:
+    assert world.ok('schedule_list') == 'No schedules.'
+    made = world.ok('schedule_create', MONDAYS)
+    assert made.startswith('Scheduled “Dependency report” (sch_')
+    schedule_id = json.loads(made.split('\n\n', 1)[1])['id']
+    assert world.ok('schedule_list') == (
+        f'- {schedule_id} “Dependency report”: 0 8 * * 1 Europe/Brussels, cloud'
+    )
+    assert world.ok('schedule_delete', {'id': schedule_id}) == f'Deleted schedule {schedule_id}.'
+    assert 'There is no schedule' in world.error('schedule_delete', {'id': schedule_id})
 
 
 def test_schedule_create_checks_the_cron(world: World) -> None:

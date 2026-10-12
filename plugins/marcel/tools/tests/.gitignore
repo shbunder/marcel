@@ -1,0 +1,2 @@
+# The live brain-routing eval writes its tool-call logs here (test_skills_eval_live.py).
+.eval/

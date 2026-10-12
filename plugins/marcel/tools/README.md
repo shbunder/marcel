@@ -69,3 +69,6 @@ make -C plugins/marcel/tools check   # ruff, pyright, pytest with coverage ≥ 9
 The tests drive every tool, as an MCP `tools/call` line, against the real hub app in-process (the
 hub is a dev dependency, `[tool.uv.sources]`), with a fake runner. Nothing reaches a network or
 `claude`. The server needs Python 3.12 or newer on the host.
+
+The same gate lints the plugin's skills (`tests/test_skills.py`, see `plugins/marcel/skills/README.md`).
+`make -C plugins/marcel/tools test-live` runs the brain-routing eval against a real `claude` (NUC only).

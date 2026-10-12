@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 from test_channel_fakes import SECRET, ChannelHub, channel_hub, session_id
 from test_tasks_fakes import validator
 
-from marcel_hub.brain_api import NoBoards, NotSetUp
+from marcel_hub.brain_api import NoBoards, NoSchedules, NotSetUp
 from marcel_hub.models import (
     Agent,
     Artifact,
@@ -34,6 +34,7 @@ TASK = validator('app-api.yaml#/components/schemas/Task')
 PROJECT = validator('app-api.yaml#/components/schemas/Project')
 ARTIFACT = validator('app-api.yaml#/components/schemas/Artifact')
 MEMORY_FILE = validator('app-api.yaml#/components/schemas/MemoryFile')
+SCHEDULE = validator('app-api.yaml#/components/schemas/Schedule')
 
 
 class Brain:
@@ -498,7 +499,24 @@ MONDAYS = {'name': 'Dependency report', 'cron': '0 8 * * 1', 'tz': 'Europe/Bruss
            'location': 'cloud', 'prompt': 'List outdated dependencies.'}  # fmt: skip
 
 
-def test_schedules_say_the_scheduler_is_not_built_yet(brain: Brain) -> None:
+def test_schedules_reach_the_real_scheduler(brain: Brain) -> None:
+    created = brain.post('/schedules', {**MONDAYS, 'deadline_minutes': 120})
+    assert created.status_code == 201, created.text
+    SCHEDULE.validate(created.json())
+    body = created.json()
+    assert body['agent_id'] == brain.hub.agent_id and body['next_run_at'].endswith(':00Z')
+    assert [s['id'] for s in brain.get('/schedules').json()] == [body['id']]
+    assert brain.delete(f'/schedules/{body["id"]}').json() == {'deleted': body['id']}
+    assert brain.get('/schedules').json() == []
+
+
+def test_schedule_create_refuses_a_field_out_of_range(brain: Brain) -> None:
+    res = brain.post('/schedules', {**MONDAYS, 'cron': '61 8 * * 1'})
+    assert res.status_code == 400 and 'minute' in res.json()['message']
+
+
+def test_without_a_scheduler_schedules_say_so(brain: Brain) -> None:
+    brain.hub.app.state.brain_ports.schedules = NoSchedules()
     for res in (brain.post('/schedules', MONDAYS), brain.get('/schedules'),
                 brain.delete('/schedules/sch_1')):  # fmt: skip
         assert res.status_code == 503

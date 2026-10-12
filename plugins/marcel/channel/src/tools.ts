@@ -4,6 +4,12 @@ import type { Artifact, Reply, Report, ReportKind } from './frames.js';
 export const TOOL_REPLY = 'reply';
 export const TOOL_REPORT = 'report';
 
+/** channel.schema.json `Report.next` bounds. */
+export const MAX_NEXT_STEPS = 20;
+export const MAX_NEXT_STEP_CHARS = 200;
+/** channel.schema.json `Artifact.summary` bound. */
+export const MAX_ARTIFACT_SUMMARY_CHARS = 200;
+
 const ARTIFACT_SCHEMA = {
   type: 'object',
   properties: {
@@ -11,6 +17,11 @@ const ARTIFACT_SCHEMA = {
     title: { type: 'string' },
     url: { type: 'string', description: 'Required for pr, branch and link.' },
     path: { type: 'string', description: 'Absolute path on this machine. Required for doc, file and dashboard.' },
+    artifact_id: {
+      type: 'string',
+      description: 'To update an item you were given, its id: this becomes a new version of it instead of a new item.',
+    },
+    summary: { type: 'string', maxLength: MAX_ARTIFACT_SUMMARY_CHARS, description: 'What changed in this version, in one line.' },
   },
   required: ['kind', 'title'],
 };
@@ -34,12 +45,21 @@ export const TOOLS = [
     name: TOOL_REPORT,
     description:
       'Tell Marcel how a task is going. Workers use it: started, progress (needs text), artifact (needs artifact), ' +
-      'done or failed (need summary). Lead with the outcome, in short sentences.',
+      'done or failed (need summary). Lead with the outcome, in short sentences. With progress, also send "next": ' +
+      'the steps you still plan, in order (at most 20, each under 200 characters); each progress report replaces the list. ' +
+      'To update an item you were given, put its artifact_id on the artifact (and a one-line summary of the change): ' +
+      'it becomes a new version of that item instead of a new one.',
     inputSchema: {
       type: 'object',
       properties: {
         kind: { enum: ['started', 'progress', 'artifact', 'done', 'failed'] },
         text: { type: 'string', description: 'A progress note.' },
+        next: {
+          type: 'array',
+          maxItems: MAX_NEXT_STEPS,
+          items: { type: 'string', minLength: 1, maxLength: MAX_NEXT_STEP_CHARS },
+          description: 'With progress only: the steps you still plan, in order. Replaces the list from the last progress report.',
+        },
         summary: { type: 'string', description: 'The outcome, for done or failed.' },
         artifact: ARTIFACT_SCHEMA,
         artifacts: { type: 'array', items: ARTIFACT_SCHEMA },
@@ -66,6 +86,9 @@ export function buildReply(args: Args): Built<Reply> {
 const KINDS: readonly string[] = ['started', 'progress', 'artifact', 'done', 'failed'];
 const ARTIFACT_KINDS: readonly string[] = ['pr', 'branch', 'doc', 'file', 'dashboard', 'link'];
 
+/** Characters as JSON Schema counts them (code points), so an emoji is one, as the hub counts it. */
+const charCount = (s: string): number => [...s].length;
+
 function buildArtifact(raw: unknown): Built<Artifact> {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ok: false, error: 'an artifact must be an object.' };
   const a = raw as Args;
@@ -80,9 +103,28 @@ function buildArtifact(raw: unknown): Built<Artifact> {
     if (!isString(a.path)) return { ok: false, error: 'an artifact "path" must be a string.' };
     artifact.path = a.path;
   }
+  if (a.artifact_id !== undefined) {
+    if (!isString(a.artifact_id)) return { ok: false, error: 'an artifact "artifact_id" must be a string.' };
+    artifact.artifact_id = a.artifact_id;
+  }
+  if (a.summary !== undefined) {
+    if (!isString(a.summary)) return { ok: false, error: 'an artifact "summary" must be a string.' };
+    if (charCount(a.summary) > MAX_ARTIFACT_SUMMARY_CHARS) return { ok: false, error: `an artifact "summary" is longer than ${MAX_ARTIFACT_SUMMARY_CHARS} characters; shorten it.` };
+    artifact.summary = a.summary;
+  }
   if (['pr', 'branch', 'link'].includes(artifact.kind) && !artifact.url) return { ok: false, error: `a ${artifact.kind} artifact needs a "url".` };
   if (['doc', 'file', 'dashboard'].includes(artifact.kind) && !artifact.path) return { ok: false, error: `a ${artifact.kind} artifact needs a "path".` };
   return { ok: true, frame: artifact };
+}
+
+function buildNext(raw: unknown): Built<string[]> {
+  if (!Array.isArray(raw) || !raw.every(isString)) return { ok: false, error: '"next" must be a list of steps, each one a piece of text.' };
+  if (raw.length > MAX_NEXT_STEPS) return { ok: false, error: `"next" has ${raw.length} steps; send at most ${MAX_NEXT_STEPS}.` };
+  if (raw.some((step) => step === '')) return { ok: false, error: 'a step in "next" is empty.' };
+  const long = raw.flatMap((step, i) => (charCount(step) > MAX_NEXT_STEP_CHARS ? [i + 1] : []));
+  if (long.length === 1) return { ok: false, error: `step ${long[0]} of "next" is longer than ${MAX_NEXT_STEP_CHARS} characters; shorten it.` };
+  if (long.length > 1) return { ok: false, error: `steps ${long.join(', ')} of "next" are longer than ${MAX_NEXT_STEP_CHARS} characters; shorten them.` };
+  return { ok: true, frame: [...raw] };
 }
 
 export function buildReport(args: Args): Built<Report> {
@@ -93,6 +135,12 @@ export function buildReport(args: Args): Built<Report> {
     if (args[key] === undefined) continue;
     if (!isString(args[key])) return { ok: false, error: `"${key}" must be a string.` };
     frame[key] = args[key];
+  }
+  if (args.next !== undefined) {
+    if (kind !== 'progress') return { ok: false, error: '"next" goes with a progress report only.' };
+    const built = buildNext(args.next);
+    if (!built.ok) return built;
+    frame.next = built.frame;
   }
   if (args.artifact !== undefined) {
     const built = buildArtifact(args.artifact);

@@ -18,14 +18,6 @@ METHODS = {'get', 'post', 'put', 'patch', 'delete'}
 PENDING_OPERATIONS: dict[tuple[str, str], str] = {
     ('GET', '/api/agents/{}'): 'agent settings: no story yet',
     ('PATCH', '/api/agents/{}'): 'agent settings: no story yet',
-    ('GET', '/api/schedules'): 'S-09.1 scheduler',
-    ('POST', '/api/schedules'): 'S-09.1 scheduler',
-    ('PATCH', '/api/schedules/{}'): 'S-09.1 scheduler',
-    ('DELETE', '/api/schedules/{}'): 'S-09.1 scheduler',
-    # Added by app API 0.5.0.
-    ('GET', '/api/approvals/{}'): 'app API 0.5.0 hub follow-up',
-    ('GET', '/api/messages/{}'): 'app API 0.5.0 hub follow-up',
-    ('POST', '/api/artifacts/{}/move'): 'app API 0.5.0 hub follow-up',
 }
 
 

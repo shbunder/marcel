@@ -19,6 +19,7 @@ from marcel_hub.auth import ApiError, current_device, require_device
 from marcel_hub.auth.deps import DbSession
 from marcel_hub.models import (
     Agent,
+    Artifact,
     Conversation,
     ConversationKind,
     Device,
@@ -26,6 +27,7 @@ from marcel_hub.models import (
     MessageKind,
     MessageRole,
     Project,
+    Task,
 )
 from marcel_hub.ws import EventLog
 
@@ -43,6 +45,8 @@ class NewMessage(BaseModel):
     client_id: str | None = Field(default=None, max_length=200)
     # Sent from a project room (B-32): stored on the message, which stays in this conversation.
     project_id: str | None = None
+    # "Ask about this" on an item (B-21): stored on the message and passed to the brain.
+    artifact_id: str | None = None
 
 
 class SendToMain(BaseModel):
@@ -214,6 +218,27 @@ def own_message(session: Session, message_id: str, me: Device) -> tuple[Message,
     return msg, conv
 
 
+def agent_of_artifact(session: Session, art: Artifact) -> str | None:
+    """The agent an item belongs to: its project's, else its task's; None for neither."""
+    if art.project_id is not None:
+        project = session.get(Project, art.project_id)
+        if project is not None:
+            return project.agent_id
+    if art.task_id is not None:
+        task = session.get(Task, art.task_id)
+        if task is not None:
+            return task.agent_id
+    return None
+
+
+def own_artifact(session: Session, artifact_id: str, agent_id: str) -> Artifact:
+    """An item of this agent's, or 404 `artifact_not_found` (also for another agent's item)."""
+    art = session.get(Artifact, artifact_id)
+    if art is None or agent_of_artifact(session, art) != agent_id:
+        raise ApiError(404, 'artifact_not_found', 'That item is not on this hub. It may be gone.')
+    return art
+
+
 def events_of(request: Request) -> EventLog:
     return request.app.state.events
 
@@ -277,17 +302,25 @@ async def send_message(
 ) -> dict[str, Any]:
     """Store and return at once: never waits for Marcel (B-02).
 
-    A `project_id` (sent from a project room, B-32) is stored on the message; whatever hands user
-    messages to the brain passes `message.project_id` along with the text. In a task's own thread
-    the message steers that task instead (`task_threads`, S-04.9)."""
+    A `project_id` (sent from a project room, B-32) and an `artifact_id` ("Ask about this", B-21)
+    are stored on the message; the channel gateway passes both to the brain with the text. An
+    item that is not this agent's answers 404 `artifact_not_found`. In a task's own thread the
+    message steers that task instead (`task_threads`, S-04.9)."""
     conv = own_conversation(session, conversation_id, current_device(request))
     if body.project_id is not None:
         project = session.get(Project, body.project_id)
         if project is None or project.agent_id != conv.agent_id:
             raise ApiError(400, 'bad_request', 'project_id: that project is not this agent’s.')
+    if body.artifact_id is not None:
+        own_artifact(session, body.artifact_id, conv.agent_id)
     if conv.task_id is not None:
         msg = await request.app.state.task_threads.send(
-            session, conv, body.text, client_id=body.client_id, project_id=body.project_id
+            session,
+            conv,
+            body.text,
+            client_id=body.client_id,
+            project_id=body.project_id,
+            artifact_id=body.artifact_id,
         )
         return message_json(msg, threads_of(session, [msg.id]).get(msg.id))
     msg = post_message(
@@ -299,6 +332,7 @@ async def send_message(
         body={'text': body.text},
         project_id=body.project_id,
         client_id=body.client_id,
+        artifact_id=body.artifact_id,
     )
     return message_json(msg, threads_of(session, [msg.id]).get(msg.id))
 
@@ -309,6 +343,14 @@ def thread_title(msg: Message) -> str | None:
         return first_line[0][:TITLE_LENGTH] if first_line else None
     milestone = msg.body_json.get('milestone')
     return milestone.get('task_title') if isinstance(milestone, dict) else None
+
+
+@router.get('/messages/{message_id}')
+def get_message(message_id: str, request: Request, session: DbSession) -> dict[str, Any]:
+    """One message by id, for a `marcel://message/<id>` deep link. Someone else's message
+    answers 404 `message_not_found`, as one that does not exist."""
+    msg, _ = own_message(session, message_id, current_device(request))
+    return message_json(msg, threads_of(session, [msg.id]).get(msg.id))
 
 
 @router.post('/messages/{message_id}/thread')
