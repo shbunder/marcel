@@ -151,11 +151,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.runner_sock
         else None
     )
-    # The channel gateway (S-04.6) is the registry's Outbox, and follows its events to expire or
-    # settle approval cards.
+    # One event log for the app's live stream (S-04.3); the task registry publishes into it.
+    app.state.events = ws.EventLog(engine)
+    # The channel gateway (S-04.6) is the registry's Outbox, and watches the registry's events
+    # (on their way to the phone) to expire or settle approval cards.
     gateway = channel.create(app, settings.data_dir)
     registry = tasks.install(
-        app, runner=client, outbox=gateway.outbox, publisher=gateway.task_publisher()
+        app,
+        runner=client,
+        outbox=gateway.outbox,
+        publisher=gateway.task_publisher(ws.OwnerPublisher(app.state.events)),
     )
     watch = (
         RunnerWatch(

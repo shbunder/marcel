@@ -1,0 +1,92 @@
+import SwiftUI
+
+/// The sizes the app shows the avatar at, in points. The box is square; the sprite sits in its middle.
+public enum AvatarSize: CGFloat, CaseIterable, Sendable {
+    case tiny = 24
+    case small = 32
+    case medium = 44
+    case large = 120
+
+    public var points: CGFloat { rawValue }
+
+    /// Screen pixels per sprite pixel: the largest whole number that fits the frame in the box, and at least 1 so
+    /// a sprite pixel is never dropped. Whole numbers keep every sprite pixel a crisp square.
+    public func zoom(frameWidth: Int, frameHeight: Int, displayScale: CGFloat) -> Int {
+        let box = points * displayScale
+        let fit = min(box / CGFloat(frameWidth), box / CGFloat(frameHeight))
+        return max(1, Int(fit.rounded(.down)))
+    }
+}
+
+/// Marcel's giraffe, animated for `state`. Pauses while off screen or in the background; with Reduce Motion it
+/// shows each state's first frame and does not move.
+public struct AvatarView: View {
+    let state: AvatarState
+    let size: AvatarSize
+    let sheet: SpriteSheet
+
+    @State private var player: AvatarPlayer
+    @State private var onScreen = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+
+    public init(state: AvatarState, size: AvatarSize, sheet: SpriteSheet = .giraffe) {
+        self.state = state
+        self.size = size
+        self.sheet = sheet
+        _player = State(initialValue: AvatarPlayer(sheet: sheet, state: state, at: Date.timeIntervalSinceReferenceDate))
+    }
+
+    /// Whether the timeline ticks. Off screen, in the background or with Reduce Motion, nothing redraws.
+    static func animates(onScreen: Bool, reduceMotion: Bool, scenePhase: ScenePhase) -> Bool {
+        onScreen && !reduceMotion && scenePhase == .active
+    }
+
+    /// The frame to draw at `time`: the player's frame, or with Reduce Motion the first frame of `state`.
+    static func frame(player: AvatarPlayer, state: AvatarState, reduceMotion: Bool, at time: TimeInterval) -> Int {
+        reduceMotion ? player.sheet.loop(for: state).firstFrame : player.frame(at: time)
+    }
+
+    public var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30,
+                                paused: !Self.animates(onScreen: onScreen, reduceMotion: reduceMotion,
+                                                       scenePhase: scenePhase))) { context in
+            AvatarFrameView(sheet: sheet,
+                            frame: Self.frame(player: player, state: state, reduceMotion: reduceMotion,
+                                              at: context.date.timeIntervalSinceReferenceDate),
+                            size: size)
+        }
+        .onAppear { onScreen = true }
+        .onDisappear { onScreen = false }
+        .onChange(of: state) { _, new in player.setState(new, at: Date.timeIntervalSinceReferenceDate) }
+        .accessibilityElement()
+        .accessibilityLabel(state.accessibilityDescription)
+    }
+}
+
+/// One frame of the sheet in a `size` box, at a whole-number zoom with nearest-neighbour scaling. No animation:
+/// `AvatarView` draws it every frame, and it is what the snapshot tests render.
+public struct AvatarFrameView: View {
+    let sheet: SpriteSheet
+    let frame: Int
+    let size: AvatarSize
+    @Environment(\.displayScale) private var displayScale
+
+    public init(sheet: SpriteSheet = .giraffe, frame: Int, size: AvatarSize) {
+        self.sheet = sheet
+        self.frame = frame
+        self.size = size
+    }
+
+    public var body: some View {
+        let zoom = CGFloat(size.zoom(frameWidth: sheet.frameWidth, frameHeight: sheet.frameHeight,
+                                     displayScale: displayScale))
+        Image(decorative: sheet.image(frame: frame), scale: displayScale)
+            .interpolation(.none)
+            .antialiased(false)
+            .resizable()
+            .frame(width: CGFloat(sheet.frameWidth) * zoom / displayScale,
+                   height: CGFloat(sheet.frameHeight) * zoom / displayScale)
+            .frame(width: size.points, height: size.points)
+    }
+}

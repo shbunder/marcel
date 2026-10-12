@@ -9,7 +9,7 @@ ios/
   Config/               the app's Info.plist additions (local-network HTTP for the mock hub)
   MarcelKit/            Swift package: API client, pairing, Keychain, WebSocket stream, SwiftData cache
   PixelKit/             Swift package: the pixel-classic design system (placeholder until S-12.2)
-  AvatarKit/            Swift package: the giraffe sprite player (placeholder until S-13.2)
+  AvatarKit/            Swift package: the giraffe sprite player (see AvatarKit/README.md)
   Tools/APIGenerator/   pins swift-openapi-generator for `make -C ios generate`
   Tools/SimTestRunner/  runs the tests inside the simulator with Keychain access
   scripts/              generate-api.sh, strip_conditionals.py, pick-simulator.py
@@ -20,7 +20,7 @@ ios/
 ```bash
 make ios-check              # the lane gate (from the repo root) = make -C ios check
 make -C ios app             # build the app for the simulator
-make -C ios test            # MarcelKit's tests on a simulator (stubs only, no network)
+make -C ios test            # MarcelKit's and AvatarKit's tests on a simulator (stubs only, no network)
 make -C ios integration     # one test against the mock hub; start it first with `make mock-hub`
 make -C ios generate        # regenerate the API client after contracts/app-api.yaml changes
 SIM=<udid> make -C ios test # pick the simulator yourself (default: an iPhone on the newest iOS runtime)
@@ -38,7 +38,7 @@ though the iOS 18 and 26.x simulators work. `xcodebuild test` and `-destination`
 
 1. **App:** `xcodebuild -target Marcel -sdk iphonesimulator` with `SWIFT_ENABLE_EXPLICIT_MODULES=NO`
    (target builds otherwise fail to order the package modules: "unable to resolve module dependency").
-2. **Tests:** SwiftPM builds `MarcelKitTests` for the simulator (`--triple arm64-apple-ios18.0-simulator`).
+2. **Tests:** SwiftPM builds `MarcelKitTests` and `AvatarKitTests` for the simulator (`--triple arm64-apple-ios18.0-simulator`).
 3. **Run:** `simctl spawn` runs the bundle in a booted simulator through `Tools/SimTestRunner`. Apple's own
    `xctest` agent has no Keychain entitlement (every Keychain call fails with -34018), and the simulator
    refuses one added to a code signature, so the runner carries it the way simulator apps do: in a

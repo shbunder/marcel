@@ -468,6 +468,8 @@ class _TaskWatch:
     def __init__(self, gateway: Gateway, inner: Publisher) -> None:
         self.gateway = gateway
         self.inner = inner
+        # The app event log the wrapped publisher writes to (`ws.OwnerPublisher.events`), if any.
+        self.events: EventLog | None = getattr(inner, 'events', None)
 
     def publish(self, type: str, data: dict[str, Any]) -> None:
         self.inner.publish(type, data)
