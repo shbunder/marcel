@@ -1,0 +1,21 @@
+# SP4's table: an unknown API error ends the job as `failed` with needs "API error".
+# The transcript is SP2 t2's opening plus one synthesised isApiErrorMessage entry (status 500).
+description: A worker hits an API error and fails.
+transcript: transcripts/synth-api-error.jsonl
+job: t2-done
+steps:
+  - wait: 0.05
+    state: working
+  - wait: 0.1
+    state: working
+    status: busy
+    transcript: 26
+    job:
+      detail: Creating file and listing directory
+  - wait: 0.1
+    state: failed
+    transcript: end
+    job:
+      state: failed
+      tempo: idle
+      needs: API error

@@ -4,7 +4,7 @@ PY_LANES := contracts hub mock-hub runner plugins/marcel/tools
 GATED    := $(filter-out mock-hub,$(PY_LANES))
 CHANNEL  := plugins/marcel/channel
 
-.PHONY: check test ios-check board lanes start scripts $(PY_LANES) channel mock-hub-check
+.PHONY: check test ios-check board lanes start scripts $(PY_LANES) channel mock-hub-check fake-claude
 
 check: scripts $(GATED) mock-hub-check channel
 
@@ -25,6 +25,10 @@ mock-hub-check:
 # The mock hub for building the app, on 127.0.0.1:7499. Walk it with mock-hub/scripts/walk.sh.
 mock-hub:
 	$(MAKE) -C mock-hub run
+
+# A shell with the fake claude first on PATH and a scratch HOME. SCENARIO=worker-needs-approval etc.
+fake-claude:
+	@scripts/fake-claude $(SCENARIO)
 
 channel:
 	cd $(CHANNEL) && npm ci --silent && npm run check

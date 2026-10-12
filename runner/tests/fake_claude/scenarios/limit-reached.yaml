@@ -1,0 +1,23 @@
+# SP4: a usage-limit hit is `blocked` WITHOUT waitingFor; the job's `needs` says why, and the
+# transcript carries an isApiErrorMessage entry starting with a limit prefix (status 429).
+# Synthesised from SP4's table and the 2.1.289 binary's strings: never observed live.
+description: A worker runs into the plan's usage limit.
+transcript: transcripts/synth-limit-reached.jsonl
+job: t2-done
+steps:
+  - wait: 0.05
+    state: working
+  - wait: 0.1
+    state: working
+    status: busy
+    transcript: 26
+    job:
+      detail: Creating file and listing directory
+  - wait: 0.1
+    state: blocked
+    status: idle
+    transcript: end
+    job:
+      state: blocked
+      tempo: blocked
+      needs: usage limit reached — check plan

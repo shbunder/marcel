@@ -1,0 +1,47 @@
+# SP2 t2: manual mode, one Bash call that needs approval.
+# While the prompt is open the pending tool_use is NOT in the transcript (SP2), so it stops at line 26.
+# The session holds at the gate until it is answered: FakeClaude.answer(short, 'allow' | 'deny').
+description: A worker asks to run a Bash command and waits for approval.
+transcript: transcripts/t2-permission-approved.jsonl
+job: t2-done
+steps:
+  - wait: 0.05
+    state: working
+  - wait: 0.1
+    state: working
+    status: busy
+    transcript: 26
+    job:
+      detail: Creating file and listing directory
+  - wait: 0.1
+    state: blocked
+    status: waiting
+    waiting_for: permission prompt     # agents/blocked-permission.json
+    job:
+      tempo: blocked
+      needs: "approve Bash: touch made-by-t2.txt && ls"
+  - gate: permission
+  - wait: 0.05
+    state: working
+    status: busy
+    transcript: 28                     # the tool call and its result, with their original timestamps
+    job:
+      tempo: working
+      needs: null
+  - wait: 0.1
+    state: done
+    status: idle
+    transcript: end
+    text: "The command ran in the worktree and printed: calc.py, made-by-t2.txt, README.md."
+    job:
+      state: done
+      tempo: idle
+      detail: command executed; made-by-t2.txt created, ls output reported
+      result: made-by-t2.txt created; ls shows calc.py, made-by-t2.txt, README.md
+denied:                                # SP2 t3 after "No": idle + working, waiting for direction
+  - wait: 0.05
+    state: working
+    status: idle
+    job:
+      tempo: idle
+      needs: null
