@@ -101,6 +101,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Rebuilding `artifact`, `message` and `task` drops each table while other rows point at it;
+    # with foreign keys on, SQLite refuses that. Off for the rebuild: this runs before the
+    # migration's transaction begins, so it takes effect. Inside the transaction, turning them
+    # back on would be ignored, so `db.downgrade` drops the connection afterwards instead.
+    op.execute('PRAGMA foreign_keys=OFF')
     op.execute('DROP TRIGGER IF EXISTS task_needs_project_insert')
     op.execute('DROP TRIGGER IF EXISTS task_needs_project_update')
     for table, indexed in (('artifact', True), ('message', False), ('task', True)):

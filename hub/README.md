@@ -257,7 +257,9 @@ on first use. The code is `src/marcel_hub/memory.py`.
 - **Inbox.** Every agent has one project with slug `inbox`, made in the same write as the agent
   (`models.inbox_id`), whoever inserts it. A task stored without a project is filed there, and the
   database refuses a task with none (triggers `task_needs_project_*`). Migration 0004 gave every
-  existing agent its inbox and filed existing tasks and artifacts there.
+  existing agent its inbox and filed existing tasks and artifacts there. Its downgrade keeps every
+  row: it turns foreign keys off while it rebuilds the tables, and `db.downgrade` then drops the
+  pooled connections so the next one has them on again.
 - **Slugs** match `^[a-z0-9][a-z0-9-]{0,39}$` (400 otherwise). Without one, the slug is made from
   the name (`Energy contracts` → `energy-contracts`, then `-2`, `-3` … if taken). A slug asked for
   that a live project of the agent already has answers 409 `slug_taken`; the database index
@@ -267,8 +269,12 @@ on first use. The code is `src/marcel_hub/memory.py`.
   fails, the project is still made, and the log says the notes file was not.
 - **Briefing.** A worker's opening prompt starts with its project: name, goal, repo, folder,
   standing instructions and notes, each cut at `memory.SLICE_MAX_BYTES` (8 KB) with a line that
-  says where the rest is. An inbox with no notes or instructions adds nothing. The stored opening
-  note (what the app shows) is the prompt alone.
+  says where the rest is. Instructions and notes sit between markers
+  (`<<<project-notes slug=…>>>` … `<<<end project-notes>>>`); any `<<<` inside them is broken up,
+  so notes a worker wrote cannot close the block and pass as the task. An inbox with no notes or
+  instructions adds nothing. The stored opening note (what the app shows) is the prompt alone. If
+  the briefing cannot be built, the task starts without it and the log says
+  `starts without its project briefing` and why.
 - **Archive** refuses the inbox (409 `project_is_inbox`) and a project with any task that is not
   done, failed or stopped (409 `project_busy`).
 - **Move.** Only into a live project of the same agent (409 `project_archived`, 404

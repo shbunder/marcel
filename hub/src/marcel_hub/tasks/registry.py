@@ -221,7 +221,7 @@ class TaskRegistry:
 
     async def _start_new(self, task: Task, prompt: str) -> Task:
         try:
-            started = await self.runner.start(task, self.briefing(task) + prompt)
+            started = await self.runner.start(task, self._briefed(task, prompt))
         except CapReached:
             return self.create(task, prompt, TaskState.queued, 'The worker cap is reached')
         except (StartFailed, RunnerUnavailable) as exc:
@@ -293,7 +293,7 @@ class TaskRegistry:
             for task in self.queue():
                 try:
                     started = await self.runner.start(
-                        task, self.briefing(task) + self._prompt(task.id)
+                        task, self._briefed(task, self._prompt(task.id))
                     )
                 except (CapReached, RunnerUnavailable):
                     return
@@ -308,6 +308,19 @@ class TaskRegistry:
                     session_id=started.session_id,
                     branch=started.branch or task.branch,
                 )
+
+    def _briefed(self, task: Task, prompt: str) -> str:
+        """The prompt with the project briefing in front. The briefing is extra context: if it
+        cannot be built, the task starts without it and the log says why."""
+        try:
+            return self.briefing(task) + prompt
+        except Exception as exc:  # any failure here must not stop the work itself
+            log.warning(
+                'Task %s starts without its project briefing, which could not be built: %s',
+                task.id,
+                exc,
+            )
+            return prompt
 
     def _prompt(self, task_id: str) -> str:
         with Session(self.engine) as s:

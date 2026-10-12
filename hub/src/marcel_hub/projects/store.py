@@ -100,6 +100,13 @@ def _first_notes(project: Project) -> str:
     return '\n'.join(lines)
 
 
+def _fenced(kind: str, slug: str, text: str) -> str:
+    """`text` between `<<<kind slug=…>>>` and `<<<end kind>>>`. Any `<<<` inside it is broken
+    up, so text written by a worker can never close the block early or open another one."""
+    safe = text.replace('<<<', '<< <')
+    return f'<<<{kind} slug={slug}>>>\n{safe}\n<<<end {kind}>>>'
+
+
 def _capped(text: str, cap: int) -> tuple[str, bool]:
     data = text.encode('utf-8')
     if len(data) <= cap:
@@ -383,13 +390,19 @@ class ProjectStore:
         if project.instructions:
             text, cut = _capped(project.instructions, SLICE_MAX_BYTES)
             more = '\n\n(The instructions are cut here; they are too long.)' if cut else ''
-            parts.append('## Standing instructions\n\n' + text.strip() + more)
+            parts.append(
+                '## Standing instructions\n\n'
+                + _fenced('project-instructions', project.slug, text.strip() + more)
+            )
         if notes is not None and has_notes:
             text, cut = notes
             more = f'\n\n(Cut here; the rest is in memory/{rel}.)' if cut else ''
-            parts.append(f'## Project notes (memory/{rel})\n\n' + text.strip() + more)
+            parts.append(
+                f'## Project notes (memory/{rel})\n\n'
+                + _fenced('project-notes', project.slug, text.strip() + more)
+            )
         parts.append(
-            f'Add what later threads in this project need to know to memory/{rel}.\n\n---\n'
+            f'Add what later threads in this project need to know to memory/{rel}.\n\n# The task\n'
         )
         return '\n\n'.join(parts) + '\n'
 
