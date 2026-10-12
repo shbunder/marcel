@@ -15,6 +15,12 @@ public final class ChatModel {
     public private(set) var limit = ChatModel.pageSize
     /// A problem to show above the composer, in plain words. Nil when all is well.
     public private(set) var problem: String?
+    /// Approvals, answers on their way, open details and item previews (see `ChatLocalState`).
+    public private(set) var local = ChatLocalState()
+
+    @ObservationIgnored private var refreshing = false
+    @ObservationIgnored private var lastAsked: Set<String> = []
+    @ObservationIgnored private var previewsAsked: Set<String> = []
 
     @ObservationIgnored let service: any ChatService
     @ObservationIgnored private let remember: (String) -> Void
@@ -46,6 +52,69 @@ public final class ChatModel {
     public func loadEarlier(shown: Int) {
         guard shown >= limit else { return }
         limit += Self.pageSize
+    }
+
+    // MARK: Approvals
+
+    /// Keeps the approvals on screen current. The live stream fills the cache with messages and tasks, not
+    /// approvals, so fetch them when an approval message shows one we do not have, or when a task no longer lists
+    /// an approval we hold as open (it was answered, here or in a terminal, or it expired).
+    public func reconcile(_ input: FeedInput) async {
+        let shown = Set(input.messages.compactMap { $0.kind == .approval ? $0.approvalId : nil })
+        let missing = shown.subtracting(local.approvals.keys)
+        let settled = local.approvals.values.filter { approval in
+            guard approval.state == .open, shown.contains(approval.id), let task = input.tasks[approval.taskId]
+            else { return false }
+            return !(task.approvalIds ?? []).contains(approval.id)
+        }.map(\.id)
+        let ask = Set(missing.map { "missing \($0)" } + settled.map { "settled \($0)" })
+        // Ask once per reason: an approval the hub does not have is not fetched in a loop, but one that was
+        // missing and is now settled is fetched again.
+        guard !ask.isEmpty, ask != lastAsked, !refreshing else { return }
+        lastAsked = ask
+        await refreshApprovals()
+    }
+
+    public func refreshApprovals() async {
+        refreshing = true
+        defer { refreshing = false }
+        do {
+            for approval in try await service.approvals() where !local.answering.contains(approval.id) {
+                local.approvals[approval.id] = approval
+            }
+        } catch {
+            problem = Self.say(error)
+        }
+    }
+
+    /// Sends your answer. Only an approval that is open, and not already being answered, can be answered: a
+    /// resolved card is greyed out and a second tap sends nothing.
+    public func answer(approvalId: String, approve: Bool) async {
+        guard local.approvals[approvalId]?.state == .open, !local.answering.contains(approvalId) else { return }
+        local.answering.insert(approvalId)
+        defer { local.answering.remove(approvalId) }
+        do {
+            local.approvals[approvalId] = try await service.answer(approvalId: approvalId, approve: approve)
+            problem = nil
+        } catch {
+            problem = Self.say(error)
+        }
+    }
+
+    /// "Details": shows or hides the full command under the question.
+    public func toggleDetails(approvalId: String) {
+        if local.expanded.remove(approvalId) == nil { local.expanded.insert(approvalId) }
+    }
+
+    // MARK: Item previews
+
+    /// Fetches an item's first lines once per version. Without them the card shows what the hub says about it.
+    public func loadPreview(_ artifact: Artifact) async {
+        let key = ArtifactPreview.key(artifact)
+        guard ArtifactPreview.fetchesContent(artifact), previewsAsked.insert(key).inserted else { return }
+        guard let data = try? await service.artifactContent(id: artifact.id),
+              let rows = ArtifactPreview.contentRows(artifact, data: data) else { return }
+        local.previews[key] = rows
     }
 
     static func say(_ error: any Error) -> String {

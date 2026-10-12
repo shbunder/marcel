@@ -43,10 +43,7 @@ struct MainTabs: View {
                 case "map": ComingSoonView(title: "Map")
                 case "items": ComingSoonView(title: "Items")
                 default:
-                    NavigationStack {
-                        ChatScreen(model: chat, offline: offlineText)
-                            .toolbar(.hidden, for: .navigationBar)
-                    }
+                    ChatScreen(model: chat, offline: offlineText)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

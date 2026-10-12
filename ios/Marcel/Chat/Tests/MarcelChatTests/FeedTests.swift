@@ -124,18 +124,3 @@ final class MarkdownTests: XCTestCase {
         XCTAssertEqual(ChatMarkdown.render("−€486/jaar, l’été").text, "−€486/jaar, l’été")
     }
 }
-
-/// A hub that answers from memory.
-@MainActor
-final class FakeService: ChatService {
-    var failing: Bool
-
-    init(failing: Bool = false) {
-        self.failing = failing
-    }
-
-    func mainConversationId() async throws -> String {
-        if failing { throw ChatError.unreachable }
-        return Fx.conversation
-    }
-}

@@ -15,11 +15,37 @@ public struct ChatScreen: View {
         self.offline = offline
     }
 
+    @State private var path: [ChatRoute] = []
+
     public var body: some View {
+        NavigationStack(path: $path) {
+            content
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationDestination(for: ChatRoute.self) { route in
+                    switch route {
+                    case .quest(let line): QuestPlaceholder(line: line)
+                    case .item(let line): ItemPlaceholder(line: line)
+                    }
+                }
+        }
+        .task { await model.start() }
+    }
+
+    private var actions: ChatActions {
+        var actions = ChatActions()
+        actions.openQuest = { path.append(.quest($0)) }
+        actions.openItem = { path.append(.item($0)) }
+        actions.answer = { id, approve in Task { await model.answer(approvalId: id, approve: approve) } }
+        actions.toggleDetails = { model.toggleDetails(approvalId: $0) }
+        return actions
+    }
+
+    private var content: some View {
         Group {
             if let conversationId = model.conversationId {
                 // A new `limit` re-creates the query with the bigger window; the scroll state stays.
-                LiveFeed(model: model, conversationId: conversationId, limit: model.limit, offline: offline)
+                LiveFeed(model: model, conversationId: conversationId, limit: model.limit, offline: offline,
+                         actions: actions)
             } else {
                 ChatLayout(header: ChatHeaderState(offline: offline), collapsed: false, problem: model.problem) {
                     PixelText(model.problem == nil ? "Opening the conversation…" : "Nothing saved on this phone yet.",
@@ -28,8 +54,13 @@ public struct ChatScreen: View {
                 }
             }
         }
-        .task { await model.start() }
     }
+}
+
+/// Where a tap in the feed leads.
+enum ChatRoute: Hashable {
+    case quest(QuestLine)
+    case item(ItemLine)
 }
 
 /// The screen once the conversation is known: queries the cache and lays the feed out.
@@ -37,6 +68,7 @@ struct LiveFeed: View {
     let model: ChatModel
     let conversationId: String
     let offline: String?
+    let actions: ChatActions
     @Query private var window: [CachedMessage]
     @Query private var tasks: [CachedTask]
     @Query private var artifacts: [CachedArtifact]
@@ -47,8 +79,9 @@ struct LiveFeed: View {
     @State private var scrolledTo: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(model: ChatModel, conversationId: String, limit: Int, offline: String?) {
+    init(model: ChatModel, conversationId: String, limit: Int, offline: String?, actions: ChatActions) {
         self.model = model
+        self.actions = actions
         self.conversationId = conversationId
         self.offline = offline
         self.limit = limit
@@ -58,7 +91,7 @@ struct LiveFeed: View {
     var body: some View {
         let input = FeedInput.decode(newestMessages: window, limit: limit, tasks: tasks, artifacts: artifacts,
                                      projects: projects)
-        let items = ChatFeed.items(input)
+        let items = ChatFeed.items(input, local: model.local)
         let header = ChatHeaderState(tasks: input.tasks.values, offline: offline)
         // Big giraffe while you sit at the latest messages; small once you scroll back.
         let collapsed = distanceFromBottom > 24
@@ -73,7 +106,7 @@ struct LiveFeed: View {
                                     model.loadEarlier(shown: window.count)
                                 }
                         }
-                        FeedStack(items: items, actions: ChatActions())
+                        FeedStack(items: items, actions: actions)
                     }
                     .padding(FeedMetrics.inset)
                     .scrollTargetLayout()
@@ -102,6 +135,29 @@ struct LiveFeed: View {
             }
         }
         .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: collapsed)
+        // Approvals are not in the cache: fetch them when one shows up or its task moves on.
+        .task(id: Self.approvalKey(input)) { await model.reconcile(input) }
+        // Items on screen get their first lines, once per version.
+        .task(id: Self.itemKeys(input)) {
+            for artifact in Self.itemArtifacts(input) { await model.loadPreview(artifact) }
+        }
+    }
+}
+
+extension LiveFeed {
+    /// Changes when an approval message arrives or a task's open approvals change.
+    static func approvalKey(_ input: FeedInput) -> String {
+        let shown = input.messages.compactMap { $0.kind == .approval ? $0.approvalId : nil }
+        let open = input.tasks.values.flatMap { $0.approvalIds ?? [] }.sorted()
+        return (shown + ["|"] + open).joined(separator: ",")
+    }
+
+    static func itemArtifacts(_ input: FeedInput) -> [Artifact] {
+        input.messages.compactMap { $0.kind == .artifact ? $0.artifactId.flatMap { input.artifacts[$0] } : nil }
+    }
+
+    static func itemKeys(_ input: FeedInput) -> String {
+        itemArtifacts(input).map(ArtifactPreview.key).joined(separator: ",")
     }
 }
 

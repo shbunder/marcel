@@ -44,10 +44,13 @@ struct ChatHeader: View {
     var collapsed: Bool
 
     @Environment(\.chatStillAvatars) private var still
+    @Environment(\.dynamicTypeSize) private var dynamicType
 
     var body: some View {
+        // At accessibility text sizes the big giraffe would squeeze the title; it stays at 44 pt there.
+        let small = collapsed || dynamicType.isAccessibilitySize
         HeartsHeader(title: "Marcel", subtitle: state.subtitle, needsYou: state.needsYou) {
-            ChatAvatar(state: state.avatar, size: collapsed ? .medium : .large, still: still)
+            ChatAvatar(state: state.avatar, size: small ? .medium : .large, still: still)
         }
         .accessibilityLabel(accessibilityText)
     }

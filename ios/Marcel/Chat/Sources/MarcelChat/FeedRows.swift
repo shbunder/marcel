@@ -4,7 +4,10 @@ import SwiftUI
 
 /// What the feed's rows can ask the screen to do.
 public struct ChatActions {
-    public var openLink: (URL) -> Void = { _ in }
+    public var openQuest: (QuestLine) -> Void = { _ in }
+    public var openItem: (ItemLine) -> Void = { _ in }
+    public var answer: (_ approvalId: String, _ approve: Bool) -> Void = { _, _ in }
+    public var toggleDetails: (_ approvalId: String) -> Void = { _ in }
 
     public init() {}
 }
@@ -26,13 +29,27 @@ struct FeedStack: View {
 struct FeedRow: View {
     var item: FeedItem
     var actions: ChatActions
+    @Environment(\.dynamicTypeSize) private var dynamicType
 
     var body: some View {
         switch item {
         case .user(let line):
             UserBubble(text: line.text)
         case .marcel(let line):
-            MarcelSays(body: line.body, actions: actions)
+            VStack(alignment: .leading, spacing: PixelMetrics.steps(4)) {
+                MarcelSays(body: line.body, actions: actions)
+                if let quest = line.quest {
+                    // The thread Marcel routed this to, live: the same card as where it started.
+                    QuestRow(line: quest, actions: actions)
+                        .padding(.leading, dynamicType.isAccessibilitySize ? 0 : MarcelSays<EmptyView>.indent)
+                }
+            }
+        case .quest(let line):
+            QuestRow(line: line, actions: actions)
+        case .approval(let line):
+            ApprovalRow(line: line, actions: actions)
+        case .item(let line):
+            ItemRow(line: line, actions: actions)
         }
     }
 }
@@ -72,6 +89,10 @@ struct MarcelSays<Accessory: View>: View {
     var accessory: Accessory
 
     @Environment(\.chatStillAvatars) private var still
+    @Environment(\.dynamicTypeSize) private var dynamicType
+
+    /// How far the box sits from the left edge: the 32-pt giraffe and the gap after it.
+    static var indent: CGFloat { AvatarSize.small.points + PixelMetrics.steps(3) }
 
     init(text: String, links: [ChatMarkdown.Link] = [], @ViewBuilder accessory: () -> Accessory) {
         self.text = text
@@ -81,9 +102,12 @@ struct MarcelSays<Accessory: View>: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: PixelMetrics.steps(3)) {
-            ChatAvatar(state: .idle, size: .small, still: still)
-                .padding(.top, PixelMetrics.steps(1))
-                .accessibilityHidden(true)
+            // At accessibility text sizes the text gets the whole width.
+            if !dynamicType.isAccessibilitySize {
+                ChatAvatar(state: .idle, size: .small, still: still)
+                    .padding(.top, PixelMetrics.steps(1))
+                    .accessibilityHidden(true)
+            }
             DialogBox(speaker: "Marcel", text: text) {
                 if !links.isEmpty || Accessory.self != EmptyView.self {
                     VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
