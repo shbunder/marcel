@@ -72,9 +72,12 @@ class Tail:
         return out
 
     def take(self, n: int) -> list[dict[str, Any]]:
-        out = [self.next() for _ in range(n)]
-        assert None not in out, out
-        return out  # type: ignore[return-value]
+        out = []
+        for _ in range(n):
+            event = self.next()
+            assert event is not None, f'the stream ended after {out}'
+            out.append(event)
+        return out
 
     def close(self) -> None:
         self.f.close()
@@ -305,6 +308,7 @@ def test_closing_ends_every_tail_and_refuses_to_hang_new_ones(rig: Rig) -> None:
         ('', 'nope', 404, 'not_found', 'There is no session nope on this machine.'),
         ('offset=-4', SID, 400, 'bad_request', 'whole number of bytes, not "-4"'),
         ('offset=ten', SID, 400, 'bad_request', 'whole number of bytes, not "ten"'),
+        ('offset=%C2%B2', SID, 400, 'bad_request', 'whole number of bytes, not "²"'),
         ('subagent=../../etc', SID, 400, 'bad_request', 'is not a subagent id'),
     ],
 )

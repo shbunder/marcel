@@ -41,6 +41,7 @@ CHUNK = 64 * 1024  # bytes read at a time when skipping a long line or looking b
 POLL = 0.25  # seconds between two looks at a quiet file
 KEEPALIVE = 15.0  # seconds between SSE comments on a quiet stream, to notice a client that left
 SUBAGENT_ID = re.compile(r'^[0-9a-f]+$')
+OFFSET = re.compile(r'^[0-9]+$')  # not str.isdigit(): that also takes '²', which int() refuses
 GLOB_SAFE = re.compile(r'^[A-Za-z0-9-]+$')
 
 # Lines of these types carry no conversation content and give no event (SP2).
@@ -640,7 +641,7 @@ def _params(
         )
     raw = last_event_id.strip() if last_event_id and last_event_id.strip() else None
     raw = raw or (query.get('offset') or ['0'])[-1]
-    if not raw.isdigit():
+    if not OFFSET.match(raw):
         raise SessionError(
             400, 'bad_request', f'The offset must be a whole number of bytes, not "{raw}".'
         )
