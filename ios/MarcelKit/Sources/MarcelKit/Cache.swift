@@ -100,6 +100,8 @@ public final class MarcelCache: EventSink {
 
     public let container: ModelContainer
     public var refresher: (any CacheRefresher)?
+    /// Screens that follow live-only events (a quest's transcript, its approvals), by the token `observeFrames` gave.
+    private var frameObservers: [UUID: @MainActor (EventFrame) -> Void] = [:]
     private var context: ModelContext { container.mainContext }
     private let encoder = HubDates.encoder()
     private let decoder = HubDates.decoder()
@@ -128,12 +130,30 @@ public final class MarcelCache: EventSink {
         }
         setLastEventId(frame.id)
         try context.save()
+        for observer in frameObservers.values { observer(frame) }
+    }
+
+    /// Calls `observer` with every numbered frame after the cache has applied it, including the ones it does not store
+    /// (`task.event`, `approval.*`), and with a `resync.required` frame once a re-sync has refreshed the cache: the
+    /// frames missed before it are never replayed, so the observer must re-read what it shows. Keep the token and pass it to `stopObservingFrames` when the screen goes away.
+    @discardableResult
+    public func observeFrames(_ observer: @escaping @MainActor (EventFrame) -> Void) -> UUID {
+        let token = UUID()
+        frameObservers[token] = observer
+        return token
+    }
+
+    public func stopObservingFrames(_ token: UUID) {
+        frameObservers[token] = nil
     }
 
     public func resync(upTo lastEventId: Int) async throws {
         try await refresher?.refresh(into: self)
         setLastEventId(lastEventId)
         try context.save()
+        // Frames were missed and will not be replayed: observers re-read what they show over REST.
+        let frame = EventFrame(id: 0, at: Date(), event: .resyncRequired(lastEventId: lastEventId))
+        for observer in frameObservers.values { observer(frame) }
     }
 
     // MARK: Writes

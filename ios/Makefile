@@ -22,16 +22,17 @@ CHAT_TESTS := $(BUILD)/chat-sim/$(ARCH)-apple-ios-simulator/debug/MarcelChatPack
 QUESTS_TESTS := $(BUILD)/quests-sim/$(ARCH)-apple-ios-simulator/debug/MarcelQuestsPackageTests.xctest
 MAP_TESTS := $(BUILD)/map-sim/$(ARCH)-apple-ios-simulator/debug/MarcelMapPackageTests.xctest
 ITEMS_TESTS := $(BUILD)/items-sim/$(ARCH)-apple-ios-simulator/debug/MarcelItemsPackageTests.xctest
+QUEST_TESTS := $(BUILD)/quest-sim/$(ARCH)-apple-ios-simulator/debug/MarcelQuestPackageTests.xctest
 RUNNER  := $(BUILD)/runner/SimTestRunner
 SIM     ?= $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun simctl list devices available -j | python3 scripts/pick-simulator.py $(SDK_VER))
 MOCK_HUB ?= http://127.0.0.1:7499/api
 
 .PHONY: check app test tests-bundle avatar-tests-bundle pixelkit-test pixelkit-bundle pixelkit-record integration \
   chat-test chat-bundle chat-record chat-integration quests-test quests-bundle quests-record quests-integration \
-  map-test map-bundle map-record map-integration items-test items-bundle items-record items-integration generate boot \
-  clean
+  map-test map-bundle map-record map-integration items-test items-bundle items-record items-integration quest-test \
+  quest-bundle quest-record generate boot clean
 
-check: app test pixelkit-test chat-test quests-test map-test items-test
+check: app test pixelkit-test chat-test quests-test map-test items-test quest-test
 
 # The app and its packages, for the simulator.
 app:
@@ -164,6 +165,22 @@ items-record: items-bundle $(RUNNER) boot
 # Items and the viewer against the mock hub (start it first: MOCK_HUB_PORT=7488 make mock-hub). Not part of the gate.
 items-integration: items-bundle $(RUNNER) boot
 	SIMCTL_CHILD_MARCEL_MOCK_HUB=$(MOCK_HUB) xcrun simctl spawn $(SIM) $(RUNNER) $(ITEMS_TESTS) ItemsMockHubTests
+
+# The quest view (Marcel/Quest, the MarcelQuest package): steps, the transcript merged from history and the live
+# stream, every event kind, steering and approvals, the toolbar, 5,000 events in under a second, and snapshots
+# compared with Marcel/Quest/Tests/MarcelQuestTests/__Snapshots__.
+quest-bundle:
+	swift build --quiet --package-path Marcel/Quest --scratch-path $(BUILD)/quest-sim --build-tests \
+	  --triple $(TRIPLE) --sdk $(SDK) -Xswiftc -F -Xswiftc $(PLAT)/Library/Frameworks \
+	  -Xlinker -F -Xlinker $(PLAT)/Library/Frameworks
+
+quest-test: quest-bundle $(RUNNER) boot
+	xcrun simctl spawn $(SIM) $(RUNNER) $(QUEST_TESTS)
+
+# Re-record the quest view's snapshots after a deliberate change (the recording run fails by design), then check them.
+quest-record: quest-bundle $(RUNNER) boot
+	-SIMCTL_CHILD_MARCELQUEST_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(QUEST_TESTS) QuestSnapshotTests
+	xcrun simctl spawn $(SIM) $(RUNNER) $(QUEST_TESTS)
 
 # Regenerate MarcelKit/Sources/MarcelAPI from contracts/app-api.yaml after the contract changes.
 generate:

@@ -1,5 +1,6 @@
 import Foundation
 import MarcelKit
+import MarcelQuest
 import PixelKit
 import SwiftData
 import SwiftUI
@@ -15,6 +16,8 @@ public struct QuestsView: View {
     @Query private var artifacts: [CachedArtifact]
     @Query private var projects: [CachedProject]
     @State private var model: QuestsModel
+    /// The quest opened by tapping its card.
+    @State private var opened: [String] = []
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var scheme
 
@@ -24,6 +27,14 @@ public struct QuestsView: View {
     }
 
     public var body: some View {
+        NavigationStack(path: $opened) {
+            log
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationDestination(for: String.self) { QuestView(taskId: $0) }
+        }
+    }
+
+    private var log: some View {
         // Ages on the cards ("active 5m ago") move on once a minute.
         TimelineView(.periodic(from: .now, by: 60)) { timeline in
             let board = QuestBoard.read(tasks: tasks, artifacts: artifacts, projects: projects, filter: model.filter,
@@ -73,6 +84,11 @@ public struct QuestsView: View {
                     if open {
                         ForEach(section.rows) { row in
                             QuestRowView(row: row, busy: model.busy.contains(row.id))
+                                .contentShape(Rectangle())
+                                .onTapGesture { opened.append(row.id) }
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityHint("Opens the quest")
+                                .accessibilityAction { opened.append(row.id) }
                                 .questListRow()
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) { swipes(for: row) }
                         }

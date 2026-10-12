@@ -17,6 +17,8 @@ dist/
 
 # iOS / Xcode
 ios/**/xcuserdata/
+# Written by xcodebuild on every app build (the packages' own Package.resolved files are the pins)
+ios/Marcel.xcodeproj/project.xcworkspace/
 ios/**/DerivedData/
 *.xcuserstate
 .build/

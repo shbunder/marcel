@@ -64,4 +64,27 @@ final class CacheTests: XCTestCase {
         XCTAssertEqual(artifact.currentVersion, 3)
         XCTAssertEqual(try cache.artifacts(inProject: "prj_other"), [])
     }
+
+    func testObserversSeeEveryAppliedFrameIncludingOnesTheCacheDoesNotStore() throws {
+        let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
+        var seen: [Int] = []
+        let token = cache.observeFrames { seen.append($0.id) }
+        try cache.apply(try EventFrame.decode(try Frames.contractExample("TaskEventAppended")))
+        try cache.apply(try EventFrame.decode(try Frames.contractExample("ApprovalCreated")))
+        XCTAssertEqual(seen, [1294, 1296], "a quest view needs task.event and approval frames, which are not stored")
+
+        cache.stopObservingFrames(token)
+        try cache.apply(try EventFrame.decode(try Frames.contractExample("ApprovalResolved")))
+        XCTAssertEqual(seen, [1294, 1296], "a stopped observer hears nothing more")
+    }
+
+    func testObserversHearAboutAResyncSoTheyCanReRead() async throws {
+        let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
+        var heard: [String] = []
+        cache.observeFrames { frame in
+            if case .resyncRequired(let last) = frame.event { heard.append("resync \(last)") }
+        }
+        try await cache.resync(upTo: 1288)
+        XCTAssertEqual(heard, ["resync 1288"])
+    }
 }

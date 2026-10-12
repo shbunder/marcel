@@ -11,6 +11,8 @@ let package = Package(
     dependencies: [
         .package(path: "../../MarcelKit"),
         .package(path: "../../PixelKit"),
+        // A tapped card opens the quest view.
+        .package(path: "../Quest"),
     ],
     targets: [
         .target(
@@ -18,6 +20,7 @@ let package = Package(
             dependencies: [
                 .product(name: "MarcelKit", package: "MarcelKit"),
                 .product(name: "PixelKit", package: "PixelKit"),
+                .product(name: "MarcelQuest", package: "Quest"),
             ]
         ),
         .testTarget(name: "MarcelQuestsTests", dependencies: ["MarcelQuests"], exclude: ["__Snapshots__"]),
