@@ -49,7 +49,36 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertEqual(model.usage, .failed("Couldn't reach the hub. Check the connection and try again."))
     }
 
+    /// S-12.11: 503 `no_reading` (the runner has not read usage yet) is "usage unavailable", a note and not a
+    /// problem; any other 503 is still the hub's own trouble.
+    func testUsageWithNoReadingYetSaysUsageUnavailable() async {
+        let hub = FakeHub()
+        hub["GET /usage"] = (503, Fx.error("no_reading", "No usage reading yet."))
+        let model = await loaded(hub)
+        XCTAssertEqual(model.usage, .unavailable(
+            "Usage unavailable: the hub hasn't read the plan's usage yet. It shows here once it has."))
+        XCTAssertNil(model.problem)
+        XCTAssertNotNil(model.schedules.value, "the other sections still load")
+
+        hub["GET /usage"] = (503, Fx.error("runner_unreachable", "No runner."))
+        await model.loadUsage()
+        XCTAssertEqual(model.usage, .failed("The hub had a problem. Try again in a minute."))
+    }
+
     // MARK: Name
+
+    /// S-12.11: the chat header follows the agent's name: told on load and after a rename.
+    func testTheNameIsPassedOnForTheChatHeader() async {
+        let hub = FakeHub()
+        hub["PATCH /agents/agt_marcel"] = (200, Fx.json(Fx.agent.merging(["name": "Marcella"]) { $1 }))
+        var told: [String] = []
+        let model = SettingsModel(service: hub.service, tokens: FakeTokens(), topics: NtfyTopicStore(defaults: .scratch()))
+        model.nameChanged = { told.append($0) }
+        await model.load()
+        model.name = "Marcella"
+        await model.saveName()
+        XCTAssertEqual(told, ["Marcel", "Marcella"])
+    }
 
     func testRenamingTheAgent() async {
         let hub = FakeHub()

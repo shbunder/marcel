@@ -30,10 +30,11 @@ final class LinkRoutingTests: XCTestCase {
         ("marcel://message/msg_main", .chat(messageId: "msg_main")),
         // A message in a quest's own thread opens that quest (the app has no other thread view).
         ("marcel://message/msg_side", .quest(taskId: "tsk_energy")),
-        // Not on this phone yet (the push outran the stream): the chat, which scrolls to it if it comes.
-        ("marcel://message/msg_new", .chat(messageId: "msg_new")),
-        // The contract has no GET /approvals/{id}: the task is found in GET /approvals.
+        // Not on this phone yet (the push outran the stream): `GET /messages/{id}` says it is a quest's thread.
+        ("marcel://message/msg_fresh", .quest(taskId: "tsk_garden")),
+        // `GET /approvals/{id}` names the task, open or already answered (no longer in `GET /approvals`).
         ("marcel://approval/apr_engie", .quest(taskId: "tsk_energy")),
+        ("marcel://approval/apr_done", .quest(taskId: "tsk_garden")),
         // A cached project, and one only the hub knows yet.
         ("marcel://project/garden", .room(projectId: "prj_garden")),
         ("marcel://project/energy", .room(projectId: "prj_energy")),
@@ -158,6 +159,8 @@ final class LinkRoutingTests: XCTestCase {
         await router.attach(try lookup(hub))
         await router.handle(URL(string: "marcel://approval/apr_gone")!)
         XCTAssertEqual(router.notice, "That question has gone: it was answered or it expired.")
+        await router.handle(URL(string: "marcel://message/msg_gone")!)
+        XCTAssertEqual(router.notice, "That message isn't on the hub any more, so there's nothing to open.")
         await router.handle(URL(string: "marcel://project/no-such")!)
         XCTAssertEqual(router.notice, "Marcel has no project at that link any more. It may have been archived.")
         hub.offline = true
@@ -167,6 +170,31 @@ final class LinkRoutingTests: XCTestCase {
         // A good link clears the notice.
         await router.handle(URL(string: "marcel://task/tsk_energy")!)
         XCTAssertNil(router.notice)
+    }
+
+    /// S-12.11: links are read by id from the hub (`GET /messages/{id}`, `GET /approvals/{id}`), not searched for in
+    /// the cache or the open approvals; a hub from before app API 0.5 (a bare 404) still opens them the old way.
+    func testLinksAreReadByIdFromTheHub() async throws {
+        let hub = FakeHub()
+        let router = LinkRouter()
+        await router.attach(try lookup(hub))
+        await router.handle(URL(string: "marcel://message/msg_side")!)
+        await router.handle(URL(string: "marcel://approval/apr_done")!)
+        XCTAssertEqual(router.destination, .quest(taskId: "tsk_garden"))
+        XCTAssertEqual(hub.requests, ["GET /messages/msg_side", "GET /approvals/apr_done"],
+                       "one read by id each; no list of approvals")
+
+        let old = FakeHub()
+        for route in ["GET /messages/msg_side", "GET /messages/msg_new", "GET /approvals/apr_engie"] { old[route] = nil }
+        let before = LinkRouter()
+        await before.attach(try lookup(old))
+        await before.handle(URL(string: "marcel://message/msg_side")!)
+        XCTAssertEqual(before.destination, .quest(taskId: "tsk_energy"), "the cached thread message")
+        await before.handle(URL(string: "marcel://message/msg_new")!)
+        XCTAssertEqual(before.destination, .chat(messageId: "msg_new"), "unknown on an old hub: the chat")
+        await before.handle(URL(string: "marcel://approval/apr_engie")!)
+        XCTAssertEqual(before.destination, .quest(taskId: "tsk_energy"), "found among the open approvals")
+        XCTAssertNil(before.notice)
     }
 
     // MARK: Push categories and actions
@@ -350,7 +378,7 @@ final class LinkRoutingTests: XCTestCase {
         ]
         for (answer, offline, words) in cases {
             let hub = FakeHub()
-            hub["GET /approvals"] = answer
+            hub["GET /approvals/apr_engie"] = answer
             hub.offline = offline
             let router = LinkRouter()
             await router.attach(try lookup(hub))

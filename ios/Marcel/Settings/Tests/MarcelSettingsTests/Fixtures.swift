@@ -111,6 +111,18 @@ final class FakeHub: ClientTransport, @unchecked Sendable {
         self["GET /health"] = (200, Fx.json(Fx.health))
         self["GET /approvals"] = (200, Fx.json(Fx.approvals))
         self["GET /projects"] = (200, Fx.json([Fx.project("prj_energy", slug: "energy", name: "Energy contracts")]))
+        // By id (app API 0.5): one open approval, one answered (no longer in `GET /approvals`), and messages the
+        // phone has cached and one it has not.
+        self["GET /approvals/apr_engie"] = (200, Fx.json(Fx.approvals[0]))
+        self["GET /approvals/apr_done"] = (200, Fx.json(Fx.approvals[0].merging(
+            ["id": "apr_done", "task_id": "tsk_garden", "state": "approved"]) { $1 }))
+        self["GET /approvals/apr_gone"] = (404, Fx.error("approval_not_found", "No such approval."))
+        self["GET /messages/msg_main"] = (200, Fx.json(Fx.message("msg_main", conversation: "cnv_main")))
+        self["GET /messages/msg_side"] = (200, Fx.json(Fx.message("msg_side", conversation: "cnv_side_1",
+                                                                  task: "tsk_energy")))
+        self["GET /messages/msg_fresh"] = (200, Fx.json(Fx.message("msg_fresh", conversation: "cnv_side_2",
+                                                                   task: "tsk_garden")))
+        self["GET /messages/msg_gone"] = (404, Fx.error("message_not_found", "No such message."))
     }
 
     subscript(route: String) -> (Int, String)? {

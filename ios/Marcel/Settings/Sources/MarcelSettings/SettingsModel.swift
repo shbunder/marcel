@@ -8,6 +8,8 @@ public enum Loadable<Value: Equatable>: Equatable {
     case loaded(Value)
     /// The hub answered 404 / 405 / 501: the contract has the route, this hub has not built it yet.
     case notAvailableYet
+    /// The hub is fine but has nothing to show yet (usage before the first reading): a plain note, not a problem.
+    case unavailable(String)
     case failed(String)
 
     public var value: Value? {
@@ -16,7 +18,11 @@ public enum Loadable<Value: Equatable>: Equatable {
     }
 
     static func from(_ error: any Error) -> Loadable {
-        (error as? SettingsError) == .notAvailableYet ? .notAvailableYet : .failed(SettingsError.words(for: error))
+        switch error as? SettingsError {
+        case .notAvailableYet: .notAvailableYet
+        case .noReading: .unavailable(SettingsError.words(for: error))
+        default: .failed(SettingsError.words(for: error))
+        }
     }
 }
 
@@ -56,6 +62,8 @@ public final class SettingsModel {
     @ObservationIgnored let topics: NtfyTopicStore
     /// This phone's device id as pairing saved it, for when `/me` could not be read.
     @ObservationIgnored let thisDevice: String?
+    /// Told the agent's name whenever the hub gives it (on load and after a rename), so the chat header can follow.
+    @ObservationIgnored public var nameChanged: (String) -> Void = { _ in }
 
     public init(service: any SettingsService, tokens: any PushTokenSource, topics: NtfyTopicStore = NtfyTopicStore(),
                 thisDevice: String? = nil) {
@@ -73,6 +81,7 @@ public final class SettingsModel {
             let me = try await service.me()
             self.me = me
             if name.isEmpty || name == agent?.name { name = me.agents.first?.name ?? "" }
+            if let agentName = me.agents.first?.name { nameChanged(agentName) }
             problem = nil
         } catch {
             problem = SettingsError.words(for: error)
@@ -144,6 +153,7 @@ public final class SettingsModel {
                 self.me = me
             }
             name = updated.name
+            nameChanged(updated.name)
             problem = nil
         } catch {
             problem = (error as? SettingsError) == .notAvailableYet
