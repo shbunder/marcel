@@ -1,5 +1,6 @@
 import MarcelChat
 import MarcelKit
+import MarcelMap
 import MarcelQuests
 import PixelKit
 import SwiftUI
@@ -41,7 +42,12 @@ struct MainTabs: View {
             Group {
                 switch tab {
                 case "quests": QuestsView()
-                case "map": ComingSoonView(title: "Map")
+                case "map":
+                    // "+ new" on the map asks Marcel for a project in the chat.
+                    MapView(conversationId: chat.conversationId) { request in
+                        chat.draft = request
+                        tab = "chat"
+                    }
                 case "items": ComingSoonView(title: "Items")
                 default:
                     ChatScreen(model: chat, offline: offlineText)

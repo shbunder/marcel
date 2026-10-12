@@ -17,6 +17,21 @@ final class FeedTests: XCTestCase {
         ])
     }
 
+    // S-12.7 (B-32): a message sent from a project room is in the main chat, tagged with that project.
+    func testAMessageSentFromAProjectRoomIsTaggedWithItsProject() throws {
+        let fed = try FedCache()
+        try fed.send("project.created", Fx.project("prj_energy", name: "Home energy"))
+        try fed.send("message.created", Fx.message("msg_1", at: 1, role: "user", text: "Ask about the solar quote",
+                                                   extra: ["project_id": "prj_energy"]))
+        try fed.send("message.created", Fx.message("msg_2", at: 2, role: "user", text: "And the weather?"))
+
+        let users = try fed.items().compactMap { if case .user(let line) = $0 { line } else { nil } }
+        XCTAssertEqual(users.map(\.project), ["Home energy", nil])
+        XCTAssertEqual(users[0].tone, ChatFeed.tone(for: "prj_energy"), "the project keeps its colour")
+        XCTAssertEqual(users[0].accessibilityText, "You said, about Home energy: Ask about the solar quote")
+        XCTAssertEqual(users[1].accessibilityText, "You said: And the weather?")
+    }
+
     func testAnotherConversationsMessagesStayOut() throws {
         let fed = try FedCache()
         var side = Fx.message("msg_side", at: 1, role: "user", text: "In a side thread")

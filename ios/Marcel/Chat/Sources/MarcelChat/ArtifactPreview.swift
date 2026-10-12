@@ -57,8 +57,9 @@ public enum ArtifactPreview {
     }
 
     /// A dashboard's first entries (`contracts/dashboard.schema.json`): list and checklist lines, stats, notes. A
-    /// board with nothing in it shows each section's "empty" line instead.
-    static func dashboardRows(_ data: Data) -> [PreviewRow]? {
+    /// board with nothing in it shows each section's "empty" line instead. A project room's pinned board shows more
+    /// of them (`limit`).
+    public static func dashboardRows(_ data: Data, limit: Int = maxRows) -> [PreviewRow]? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let widgets = root["widgets"] as? [[String: Any]] else { return nil }
         var rows: [PreviewRow] = []
@@ -86,7 +87,7 @@ public enum ArtifactPreview {
         }
         widgets.forEach(visit)
         let chosen = rows.isEmpty ? empties : rows
-        return chosen.isEmpty ? nil : Array(chosen.prefix(maxRows))
+        return chosen.isEmpty ? nil : Array(chosen.prefix(limit))
     }
 
     private static func prState(_ state: String) -> String {
