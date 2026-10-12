@@ -47,7 +47,7 @@ API = 'https://api.github.com'
 REFRESH_S = 5 * 60  # while a PR is open (ADR-002)
 TICK_S = 5.0  # how often the loop looks for due PRs
 TIMEOUT_S = 10.0
-DEFAULT_BACKOFF_S = 60.0  # a rate-limit answer that says nothing about when to come back
+DEFAULT_BACKOFF_S = 60.0  # no hint when to come back; also the shortest wait
 MAX_BACKOFF_S = 60 * 60  # GitHub's primary limit resets within the hour
 OPEN_STATES = {'open', 'draft'}
 
@@ -89,7 +89,9 @@ def parse_pr_url(url: str) -> tuple[str, str, int]:
     try:
         parts = urlsplit(url)
     except ValueError:
-        raise refused from None
+        parts = None
+    if parts is None:  # raised out here, so the error has no context
+        raise refused
     if (
         parts.scheme != 'https'
         or parts.netloc.lower() != 'github.com'  # exactly: no other host, user, password or port
@@ -169,11 +171,13 @@ class GitHubPrStatus:
             'X-GitHub-Api-Version': '2022-11-28',
             'User-Agent': 'marcel-hub',
         }
-        try:
+        # The httpx error holds the request, and the request holds the token: it is dropped, and
+        # the hub's own error is raised outside the `except`, so it has no `__context__` at all.
+        res: httpx.Response | None = None
+        with contextlib.suppress(httpx.HTTPError):
             res = await self.client.get(API + path, headers=headers, auth=self._auth)
-        except httpx.HTTPError:
-            # No `from`: the httpx error holds the request, and the request holds the token.
-            raise PrStatusUnavailable(NETWORK_DOWN) from None
+        if res is None:
+            raise PrStatusUnavailable(NETWORK_DOWN)
         code = res.status_code
         if code == 429 or (code == 403 and self._rate_limited(res)):
             raise RateLimited(self.backoff(res))
@@ -199,20 +203,26 @@ class GitHubPrStatus:
             )
         if code >= 300:
             raise PrStatusUnavailable(f'GitHub did not answer about this PR (it answered {code}).')
-        try:
-            return res.json()
-        except ValueError:
-            raise PrStatusUnavailable(
-                'GitHub sent an answer about this PR the hub cannot read.'
-            ) from None
+        unread = object()
+        body: Any = unread
+        with contextlib.suppress(ValueError):
+            body = res.json()
+        if body is unread:
+            raise PrStatusUnavailable('GitHub sent an answer about this PR the hub cannot read.')
+        return body
 
     @staticmethod
     def _rate_limited(res: httpx.Response) -> bool:
-        return 'retry-after' in res.headers or res.headers.get('x-ratelimit-remaining') == '0'
+        """A 403 that is GitHub's primary or secondary rate limit, not a refusal of the token."""
+        if 'retry-after' in res.headers or res.headers.get('x-ratelimit-remaining') == '0':
+            return True
+        return 'rate limit' in res.text[:2000].lower()
 
     def backoff(self, res: httpx.Response) -> float:
         """Seconds to wait, from `Retry-After` (seconds or a date), else `X-RateLimit-Reset`,
-        else `DEFAULT_BACKOFF_S`; never more than `MAX_BACKOFF_S`, never less than 1."""
+        else `DEFAULT_BACKOFF_S`; never more than `MAX_BACKOFF_S`, and never less than
+        `DEFAULT_BACKOFF_S` (a reset time in the past, from clock skew, must not mean a retry on
+        every tick)."""
         wait: float | None = None
         retry_after = res.headers.get('retry-after', '').strip()
         if retry_after.isdigit():
@@ -226,7 +236,7 @@ class GitHubPrStatus:
                 wait = float(reset) - self.wall()
         if wait is None:
             wait = DEFAULT_BACKOFF_S
-        return min(max(wait, 1.0), MAX_BACKOFF_S)
+        return min(max(wait, DEFAULT_BACKOFF_S), MAX_BACKOFF_S)
 
     async def aclose(self) -> None:
         await self.client.aclose()

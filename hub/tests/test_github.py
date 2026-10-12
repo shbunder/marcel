@@ -44,6 +44,7 @@ class FakeGitHub:
         self.reviews: list[dict[str, Any]] = []
         self.answer: int | str = 200
         self.headers: dict[str, str] = {}
+        self.message = 'no'
         self.requests: list[httpx.Request] = []
 
     def handle(self, request: httpx.Request) -> httpx.Response:
@@ -54,7 +55,7 @@ class FakeGitHub:
             raise httpx.ReadTimeout('timed out', request=request)
         if self.answer != 200:
             assert isinstance(self.answer, int)
-            return httpx.Response(self.answer, headers=self.headers, json={'message': 'no'})
+            return httpx.Response(self.answer, headers=self.headers, json={'message': self.message})
         path = request.url.path
         if path == '/repos/shbunder/marcel/pulls/14':
             return httpx.Response(200, json=self.pull)
@@ -309,7 +310,8 @@ def test_only_pr_artifacts_and_their_new_versions_are_watched(rig: Rig, gh: Fake
     ('status', 'headers', 'wait'),
     [
         (429, {'retry-after': '120'}, 120),
-        (403, {'retry-after': '30'}, 30),
+        (403, {'retry-after': '90'}, 90),
+        (429, {'retry-after': '5'}, github.DEFAULT_BACKOFF_S),  # never less than 60 s
         (403, {'x-ratelimit-remaining': '0', 'x-ratelimit-reset': str(int(NOW) + 900)}, 900),
         (429, {}, github.DEFAULT_BACKOFF_S),
         (429, {'retry-after': '999999'}, MAX_BACKOFF_S),  # capped
@@ -319,7 +321,7 @@ def test_only_pr_artifacts_and_their_new_versions_are_watched(rig: Rig, gh: Fake
             MAX_BACKOFF_S,
         ),  # fmt: skip
         (429, {'retry-after': 'Fri, 15 Jan 2027 08:20:00 GMT'}, 1200),  # a date
-        (429, {'x-ratelimit-reset': str(int(NOW) - 50)}, 1),  # already past: a moment
+        (429, {'x-ratelimit-reset': str(int(NOW) - 50)}, github.DEFAULT_BACKOFF_S),  # clock skew
         (429, {'retry-after': 'soon'}, github.DEFAULT_BACKOFF_S),
     ],
 )
@@ -526,8 +528,8 @@ def test_an_httpx_error_does_not_carry_the_authorization_header(gh: FakeGitHub) 
     gh.answer = 'down'
     with pytest.raises(PrStatusUnavailable) as err:
         run(gh.source().fetch(PR))
-    assert err.value.__context__ is not None  # what httpx raised, hidden by `from None`
-    assert TOKEN not in str(err.value.__context__) and TOKEN not in repr(err.value.__context__)
+    assert err.value.__context__ is None  # what httpx raised (it holds the request) is dropped
+    assert err.value.__cause__ is None
     assert gh.requests[0].headers['authorization'] == f'Bearer {TOKEN}'
     assert TOKEN not in repr(gh.requests[0].headers)  # httpx masks it
 
@@ -556,3 +558,80 @@ def test_the_app_wires_the_refresher(tmp_path: Path) -> None:
 
     app = create_app(Settings(data_dir=data, db_path=data / 'marcel.db', github_token=TOKEN))
     assert isinstance(app.state.artifacts.pr_source, GitHubPrStatus)
+
+
+def _holds_token(value: Any, seen: set[int], depth: int = 0) -> bool:
+    """True when `value`, or anything reachable from it (attributes, exception chain, traceback
+    frames' locals, containers, an httpx request's headers), holds the token."""
+    if id(value) in seen or depth > 8:
+        return False
+    seen.add(id(value))
+    if isinstance(value, str):
+        return TOKEN in value
+    if isinstance(value, bytes):
+        return TOKEN.encode() in value
+    if isinstance(value, httpx.Request | httpx.Response):
+        return True  # a request or response carries the Authorization header
+    if isinstance(value, httpx.Headers):
+        return any(_holds_token(v, seen, depth + 1) for v in value.raw)
+    if isinstance(value, dict):
+        items = list(value.keys()) + list(value.values())
+        return any(_holds_token(v, seen, depth + 1) for v in items)
+    if isinstance(value, list | tuple | set | frozenset):
+        return any(_holds_token(v, seen, depth + 1) for v in value)
+    found = []
+    if isinstance(value, BaseException):
+        found += [value.__cause__, value.__context__, value.args]
+        tb = value.__traceback__
+        while tb is not None:
+            found.append(tb.tb_frame.f_locals)
+            tb = tb.tb_next
+    found.append(getattr(value, '__dict__', {}))
+    return any(_holds_token(v, seen, depth + 1) for v in found if v is not None)
+
+
+@pytest.mark.parametrize('answer', [401, 403, 404, 429, 500, 302, 'down', 'timeout'])
+def test_no_error_holds_the_token_anywhere_in_its_chain(gh: FakeGitHub, answer: int | str) -> None:
+    gh.answer = answer
+    try:
+        run(gh.source().fetch(PR))
+    except PrStatusUnavailable as exc:
+        assert exc.__context__ is None and exc.__cause__ is None
+        exc.__traceback__ = None  # what a log record keeps is the error, not our test's frames
+        assert not _holds_token(exc, set())
+    else:
+        pytest.fail('the fetch should have failed')
+
+
+def test_an_unreadable_answer_has_no_context(gh: FakeGitHub) -> None:
+    gh.handle = lambda request: httpx.Response(200, content=b'<html>')  # type: ignore[method-assign]
+    with pytest.raises(PrStatusUnavailable) as err:
+        run(gh.source().fetch(PR))
+    assert err.value.__context__ is None
+
+
+def test_a_bad_address_error_has_no_context(gh: FakeGitHub) -> None:
+    with pytest.raises(PrStatusUnavailable) as err:
+        run(gh.source().fetch('https://[::1/a/b/pull/1'))
+    assert err.value.__context__ is None
+
+
+def test_a_secondary_rate_limit_403_pauses_every_pr(rig: Rig, gh: FakeGitHub) -> None:
+    art = rig.add_pr()
+    other = rig.add_pr('https://github.com/shbunder/marcel/pull/15')
+    gh.answer = 403
+    gh.message = 'You have exceeded a secondary rate limit. Please wait a few minutes.'
+    rig.later(0)
+    assert len(gh.requests) == 1  # every PR paused, not just this one
+    assert rig.refresher.paused_until == rig.clock.now + github.DEFAULT_BACKOFF_S
+    asked = min(art, other)
+    assert 'GitHub asked the hub to wait' in (rig.note(asked) or '')
+
+
+def test_a_plain_403_is_a_refused_token_not_a_rate_limit(rig: Rig, gh: FakeGitHub) -> None:
+    art = rig.add_pr()
+    gh.answer = 403
+    gh.message = 'Resource not accessible by personal access token'
+    rig.later(0)
+    assert rig.refresher.paused_until == 0.0
+    assert 'not be allowed to read pull requests' in (rig.note(art) or '')

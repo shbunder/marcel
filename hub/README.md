@@ -280,16 +280,20 @@ only ever sends `GET` requests to `https://api.github.com`.
 - **Untrusted URLs.** A PR URL comes from a worker. Only `https://github.com/<owner>/<repo>/pull/<n>`
   is read, with GitHub's own rules for owner and repository names; anything else (another host, a
   port, a login, a query, `..`) is refused in plain words and no request is sent.
-- **Rate limits.** A `429`, or a `403` with `Retry-After` or `X-RateLimit-Remaining: 0`, pauses
-  every GitHub call (one token, one limit) for `Retry-After` (seconds or a date), else until
-  `X-RateLimit-Reset`, else 60 s; never longer than an hour.
+- **Rate limits.** A `429`, or a `403` that is a primary or secondary rate limit (`Retry-After`,
+  `X-RateLimit-Remaining: 0`, or "rate limit" in GitHub's message), pauses every GitHub call (one
+  token, one limit) for `Retry-After` (seconds or a date), else until `X-RateLimit-Reset`, else
+  60 s; never shorter than 60 s (a reset time in the past, from clock skew, would otherwise retry
+  every tick) and never longer than an hour. Any other `403` means the token is not allowed.
 - **When it fails** the last known status stays and the reason, in plain words, is kept on the
   artifact as `meta_json.pr_note` and logged once: no token, a revoked token (`401`), a token not
   allowed there (`403`), a private or missing PR (`404`), GitHub in trouble (`5xx`), or GitHub out
   of reach (network down or a timeout). The contract has no field to send it to the app yet
   (`project/contract-requests/S-04.12.md`). It clears on the next good refresh.
 - **The token** is sent only in the `Authorization` header, never in a URL (httpx logs URLs), an
-  error message, an artifact or a `repr`; errors from httpx are not chained onto the hub's own.
+  error message, an artifact or a `repr`. An httpx error (which holds the request, and so the
+  header) is dropped: the hub raises its own error outside the `except`, with no `__context__` or
+  `__cause__`, built from the status or the kind of failure only.
   `tests/test_github.py` captures every logger at DEBUG and fails if the token shows up.
 
 ## Project boards
