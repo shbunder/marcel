@@ -1,0 +1,60 @@
+{
+  "about": "Five canned requests to the brain and the tool calls the orchestrate skill should lead to. Run on the NUC with `make -C plugins/marcel/tools test-live` (tests/test_skills_eval_live.py). `answers` are the canned tool results; `expect` lists calls that must appear in this order (argument values match when the expected text is in the actual value, ignoring case); `forbid` lists tools that must not be called.",
+  "cases": [
+    {
+      "id": "cloud-fix",
+      "behaviours": ["B-03", "B-04"],
+      "request": "The login test in shbunder/marcel keeps failing on CI. Can you fix it?",
+      "answers": {
+        "tasks_list": "No threads yet.",
+        "tasks_spawn": "Started “Fix flaky login test” in the cloud (tsk_eval1)."
+      },
+      "expect": [{ "tool": "tasks_spawn", "args": { "location": "cloud", "repo": "shbunder/marcel" } }],
+      "forbid": ["tasks_send"]
+    },
+    {
+      "id": "nuc-docker",
+      "behaviours": ["B-03", "B-04"],
+      "request": "How much space are the Docker volumes taking up on the NUC?",
+      "answers": {
+        "tasks_list": "No threads yet.",
+        "tasks_spawn": "Started “Measure Docker volumes” on the NUC (tsk_eval2)."
+      },
+      "expect": [{ "tool": "tasks_spawn", "args": { "location": "nuc" } }],
+      "forbid": ["tasks_send"]
+    },
+    {
+      "id": "follow-up",
+      "behaviours": ["B-05"],
+      "request": "Also add tests to that.",
+      "answers": {
+        "tasks_list": "1 thread:\n- tsk_login: “Fix flaky login test” — working in the cloud (shbunder/marcel), 12 min in.",
+        "tasks_get": "tsk_login: “Fix flaky login test” — working in the cloud. Last event: progress “Found the cause: a fixed 2 s timer.”",
+        "tasks_send": "Sent to “Fix flaky login test”."
+      },
+      "expect": [{ "tool": "tasks_list", "args": {} }, { "tool": "tasks_send", "args": { "id": "tsk_login" } }],
+      "forbid": ["tasks_spawn"]
+    },
+    {
+      "id": "status",
+      "behaviours": ["B-07"],
+      "request": "What's going on?",
+      "answers": {
+        "tasks_list": "3 threads:\n- tsk_login: “Fix flaky login test” — needs you: approve a push to main.\n- tsk_docker: “Measure Docker volumes” — working on the NUC, 10 min in.\n- tsk_photos: “Back up the photos” — done."
+      },
+      "expect": [{ "tool": "tasks_list", "args": {} }],
+      "forbid": ["tasks_spawn", "tasks_send", "tasks_stop"]
+    },
+    {
+      "id": "opus-override",
+      "behaviours": ["B-03", "B-13"],
+      "request": "Use opus for this: redesign how the template cache works in shbunder/harry.",
+      "answers": {
+        "tasks_list": "No threads yet.",
+        "tasks_spawn": "Started “Redesign Harry's template cache” in the cloud on opus (tsk_eval5)."
+      },
+      "expect": [{ "tool": "tasks_spawn", "args": { "location": "cloud", "repo": "shbunder/harry", "model": "opus" } }],
+      "forbid": ["tasks_send"]
+    }
+  ]
+}
