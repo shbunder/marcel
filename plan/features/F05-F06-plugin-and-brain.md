@@ -97,6 +97,7 @@ do:
    - open tasks;
    - `MEMORY.md`.
    Retire the old brain only after the new one has said hello.
+Also: log every rollover as a `brain.rollover` event (time, reason, what was kept); the app shows it in Marcel's notebook (S-12.9), so a rollover is never silent.
 done when:
 - [ ] Test: kill the brain → a new one within 10 s, and messages sent during the gap are delivered.
 - [ ] Test: rollover never leaves zero brains, and never two answering at once.
@@ -132,3 +133,17 @@ do: A live run of three scenarios:
 3. "status?" lists the task.
 done when:
 - [ ] All three pass, with the transcripts in the PR.
+
+### S-06.6  Project-aware routing                             runs-on: cloud · size: S
+depends: S-06.1, S-04.9   touches: plugins/marcel/skills/orchestrate/ brain/CLAUDE.md
+behaviours: B-31, B-33
+do:
+1. The `orchestrate` skill: pick the project for every new thread (match on goal, repo and recent threads; Inbox
+   if nothing fits), name it in the "started" line, and propose a new project when three or more threads in Inbox
+   share a goal.
+2. Workers are told (worker-protocol) to append durable facts to their project notes through `report(note)`,
+   which the hub writes to `memory/projects/<slug>.md`.
+3. Marcel adds "what this means" lines to a board with `board_note` during its normal turns; it never rebuilds a
+   board itself.
+done when:
+- [ ] A scripted brain test (fake claude replay) files three sample requests in the expected projects.

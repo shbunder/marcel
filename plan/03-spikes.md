@@ -85,7 +85,11 @@ fixtures committed in `runner/tests/fixtures/`.
 
 **Pass:** a reliable source of `used_pct` and `resets_at`, or a documented "detect on hit" fallback.
 
-### SP5 — RealityKit giraffe  ·  Mac  ·  blocks F13
+### SP5 — RealityKit giraffe  ·  Mac  ·  blocks F13  ·  **DONE 2026-10-12: pixel-classic sprite chosen**
+
+> Result (`scratch/spikes/SP5-avatar/RESULT.md`, branch `spikes/sp5`): after five rounds (RealityKit boxes, plush 3D,
+> pixel art, Clawd style, vector, Blender renders, a Dot-style head) the owner chose the **pixel-classic** sprite and its
+> Zelda-like UI. F13 is now a sprite pipeline (no RealityKit). The original steps are kept below for the record.
 
 **Steps:**
 1. Build the giraffe from rounded boxes in a `RealityView` with `.virtual` camera:

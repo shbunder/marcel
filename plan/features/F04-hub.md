@@ -90,10 +90,44 @@ depends: S-04.4, S-04.6   touches: hub/src/marcel_hub/agent_state.py hub/tests/
 behaviours: B-28
 do: Derive `agent.state` from the brain's activity and the tasks:
 - `needs_you` if any approval is open;
-- else `working(n)` with n = working tasks;
+- else `working(n)` with n = working tasks (the app shows at most 3 glowing spots);
 - else `thinking` while the brain turn is running;
 - else `done` for 5 s after a completion;
 - else `idle`.
 Emit on change only.
 done when:
 - [ ] A table test covers every precedence case.
+
+### S-04.9  Projects                                          runs-on: cloud · size: M
+depends: S-04.4, S-04.7   touches: hub/src/marcel_hub/projects/ hub/migrations/ hub/tests/
+behaviours: B-30, B-31, B-32, B-33, B-33a
+do:
+1. `project` model and migration; an `Inbox` project per agent, created on first start. `task.project_id` and
+   `message.project_id` (nullable for messages).
+2. App API: `GET /projects`, `POST /projects`, `PATCH /projects/{id}`, `POST /projects/{id}/archive`,
+   `POST /tasks/{id}/move`. Posting a message with `project_id` stores the tag and forwards it to the brain as part
+   of the channel message (B-32).
+3. Project notes: creating a project creates `memory/projects/<slug>.md`; the worker spawn prompt includes the
+   project's instructions and notes (with the size cap used for memory slices).
+4. WS events `project.created|updated`, `task.moved`.
+done when:
+- [ ] Spawning without a project files the task in Inbox; moving it emits `task.moved` and fixes both boards.
+- [ ] A spawned worker's prompt contains its project's notes (fake-runner test).
+
+### S-04.10  Living artifacts and project boards               runs-on: cloud · size: M
+depends: S-04.7, S-04.9   touches: hub/src/marcel_hub/artifacts/ hub/src/marcel_hub/boards.py hub/tests/
+behaviours: B-34, B-35, B-36
+do:
+1. `artifact` + `artifact_version`. `report(artifact)` and `artifacts_publish` without an id create an artifact
+   (v1); with an id they add a version. `GET /artifacts/{id}/versions`, `GET /artifacts/{id}?version=n`.
+   WS `artifact.created` (v1) and `artifact.updated` (v2+).
+2. The first version of an artifact produced by a task adds an `artifact` message to the main chat (the item-get
+   milestone); later versions do not (the existing cards show "updated").
+3. **Boards:** every project has a `board` artifact (dashboard JSON). The hub rebuilds it, debounced to once per
+   10 s per project, on any task, approval or artifact change in that project: *waiting on you*, *in flight*
+   (with step progress), *recent results* (with their items), *upcoming schedules*, and Marcel's notes added through
+   `board_note`. A rebuild is a new version only when the content changed.
+4. The morning digest (S-09.2) is published as a board artifact of the agent, not a long message.
+done when:
+- [ ] A version bump does not post a second item-get message; an unchanged rebuild does not create a version.
+- [ ] Board test: an open approval appears under "waiting on you" and disappears when answered.

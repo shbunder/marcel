@@ -54,7 +54,7 @@ plan**, so the lead writes it carefully and the owner reviews it.
 
 ### S-02.1  Data model and app API                           runs-on: cloud · size: M
 depends: S-01.2   touches: contracts/app-api.yaml contracts/events.schema.json
-behaviours: B-01…B-29
+behaviours: B-01…B-36
 do:
 1. Write the OpenAPI 3.1 spec for the app:
    - `POST /pair`, `GET /me`;
@@ -62,16 +62,20 @@ do:
    - `POST /conversations/{id}/messages`, `POST /messages/{id}/thread` (open a side thread);
    - tasks: list, get, events with cursor, `POST /tasks/{id}/messages` (steer), `/stop`, `/handback`;
    - `POST /approvals/{id}` (approve or deny);
-   - artifacts: list, get, content;
+   - projects: list, create, update, archive; `POST /tasks/{id}/move`; messages accept an optional `project_id`;
+   - artifacts: list (by project), get (latest or `?version=n`), versions, content;
    - memory: tree, get, put with an etag;
    - schedules: CRUD, pause;
    - `GET /usage`;
    - agents: get, put palette and name;
    - devices: list, register an APNs token or ntfy topic.
 2. Define WebSocket `/ws` events in a JSON Schema: `message.created`, `task.created`, `task.updated`,
-   `task.event`, `approval.created`, `approval.resolved`, `artifact.created`, `agent.state`
+   `task.event`, `task.moved`, `approval.created`, `approval.resolved`, `artifact.created`, `artifact.updated`,
+   `project.created`, `project.updated`, `brain.rollover`, `agent.state`
    (`idle|thinking|working(n)|needs_you|done`), `usage.updated`.
 3. Define the task state machine (states, transitions, and who triggers each) in `contracts/task-states.md`.
+4. Define `contracts/dashboard.schema.json` (stat, list, checklist, table, bar chart, note) — used for dashboards
+   and project boards.
 done when:
 - [ ] The spec validates (`openapi-spec-validator`), and every schema has an example.
 - [ ] A contract test in `contracts/tests/` round-trips every example through the schema.
@@ -88,7 +92,7 @@ do:
 3. Specify the channel protocol between the plugin channel server and the hub's `/channel` WS:
    - hello (role, agent_id, conversation_id | task_id, session_id);
    - inbound `user_message` / `steer` / `system_event`;
-   - outbound `reply` / `report{progress|artifact|done|failed}` / `permission_request` /
+   - outbound `reply` / `report{progress|artifact(artifact_id?)|note|done|failed}` / `permission_request` /
      `permission_result`;
    - heartbeat;
    - auth with a per-session token minted by the hub.
@@ -106,7 +110,9 @@ done when:
 
 ### S-02.4  Mock hub for the app                              runs-on: cloud · size: M
 depends: S-02.1   touches: contracts/mock-hub/
-do: Build a small FastAPI app generated from the OpenAPI examples. It has a scripted scenario player: a user
-message → "started" milestone → task events → approval card → done + artifact. Run it with `make mock-hub`.
+do: Build a small FastAPI app generated from the OpenAPI examples. It has a scripted scenario player that walks
+the wireframe flows: a user message → two "started" cards in two projects → a follow-up routed to one of them →
+task events with step progress → approval → done + artifact (item get) → a v2 of that artifact → board updates →
+a rollover event. Seed data: four projects (Inbox, Home energy, Family, Marcel dev). Run it with `make mock-hub`.
 done when:
 - [ ] The iOS lane can build every screen against it. A curl script walks the whole scenario.

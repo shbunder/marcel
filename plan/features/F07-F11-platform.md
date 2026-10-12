@@ -70,7 +70,8 @@ do:
 2. The hub assembles a **facts bundle**: open approvals, threads in flight, done today, PRs ready, failures,
    usage by task, stale threads, and schedules today.
 3. The bundle goes to the brain as a `digest_due` system event. The brain writes the digest with the
-   `digest` skill → main chat + push.
+   `digest` skill and publishes it as the agent's **morning board** artifact (a new version each day, S-04.10);
+   the main chat gets one line plus the board card, and a push.
 done when:
 - [ ] Test: the facts bundle is correct for a seeded DB.
 - [ ] Live test (NUC): one digest written end to end.
