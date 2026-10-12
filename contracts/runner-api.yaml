@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel runner API
-  version: 0.1.3
+  version: 0.1.4
   description: |
     The runner is the only process that runs `claude` (native on the NUC, a systemd user unit). The
     hub (in Docker) talks to it over HTTP on a unix socket: `/run/user/<uid>/marcel/runner.sock` on
@@ -278,9 +278,13 @@ paths:
       summary: Session state changes and runner warnings (Server-Sent Events).
       description: |
         Each SSE message has `id:` = `RunnerEvent.seq` and `data:` = one `RunnerEvent`. Reconnect
-        with `Last-Event-ID` to resume; the runner keeps the last 1000 events in memory. On connect
-        the runner first sends one `session.state` per known session, so a reconnecting hub can
-        always rebuild its view.
+        with `Last-Event-ID` to resume; the runner keeps the last 1000 events in memory. On every
+        connect: with a resumable `Last-Event-ID`, the events after it come first; then the runner
+        always sends one `session.state` per known session, all carrying the newest `seq`, so a
+        reconnecting hub rebuilds its view even for sessions that did not change. That closing view
+        is a deliberate repeat; the hub ignores a state it already has. Event ids do not start at 1
+        (they are based on the runner's start time), so an id from before a runner restart is never
+        mistaken for a new one.
       parameters:
         - name: Last-Event-ID
           in: header
@@ -592,19 +596,21 @@ components:
         seq: { type: integer, minimum: 1 }
         type:
           type: string
-          enum: [session.state, session.gone, runner.warning]
+          enum: [session.state, session.gone, runner.warning, runner.recovered]
           description: |
             `session.state`: a session appeared or changed (any field of `Session`).
             `session.gone`: it left `agents --json --all`. `runner.warning`: something a person
             should hear about (the supervisor went away, a poll failed three times).
+            `runner.recovered`: the cause of the last warning is gone (sent once, on the first good
+            poll after a warning); the hub clears its warning alert.
         at: { type: string, format: date-time }
         session: { $ref: '#/components/schemas/Session' }
         previous_state: { $ref: '#/components/schemas/SessionState' }
-        message: { type: string, description: For `runner.warning`. }
+        message: { type: string, description: For `runner.warning` and `runner.recovered`, in plain words. }
       allOf:
         - if: { properties: { type: { enum: [session.state, session.gone] } } }
           then: { required: [session] }
-        - if: { properties: { type: { const: runner.warning } } }
+        - if: { properties: { type: { enum: [runner.warning, runner.recovered] } } }
           then: { required: [message] }
       example:
         seq: 412
