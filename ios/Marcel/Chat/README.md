@@ -30,7 +30,8 @@ and shows `ChatScreen(model:offline:)`; the Xcode project keeps this folder out 
   The giraffe is 120 pt at the latest messages and 44 pt once you scroll back or type (and always 44 pt at
   accessibility text sizes). Reduce Motion turns the animations off.
 - **Settings** and **Marcel's notebook** open from a tap on the avatar header (`ChatScreen(openSettings:)`, S-12.10):
-  the app asks which (`ios/Marcel/App/RootView.swift`, S-12.9).
+  `AvatarLinks` opens the only one or asks which, and gives VoiceOver the hint "Opens Marcel's notebook or Settings" and
+  one named action per screen (S-12.9; `AvatarLinksTests`).
 - **A message link** (`marcel://message/<id>`) sets `ChatModel.focus`: the feed scrolls to that message, loading older
   pages from the cache (up to 1,000 messages back) until it is in the window, then clears it. A message the phone
   does not have leaves the feed at the latest messages.

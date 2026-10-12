@@ -35,11 +35,25 @@ public final class RolloverLog {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var token: UUID?
     @ObservationIgnored private weak var cache: MarcelCache?
+    @ObservationIgnored private var unpairToken: UUID?
+    @ObservationIgnored private weak var connection: HubConnection?
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         rollovers = defaults.data(forKey: Self.key)
             .flatMap { try? JSONDecoder().decode([Rollover].self, from: $0) } ?? []
+    }
+
+    /// The app's wiring: follows the connection's cache, and when the phone is unpaired (by the person or because the
+    /// hub refused it) forgets this log and every notebook draft, which belong to that hub.
+    public func attach(to connection: HubConnection, drafts: DraftStore = DraftStore()) {
+        attach(to: connection.cache)
+        if let unpairToken { self.connection?.removeOnUnpair(unpairToken) }
+        self.connection = connection
+        unpairToken = connection.onUnpair { [weak self] in
+            self?.clear()
+            drafts.discardAll()
+        }
     }
 
     /// Follows `cache`'s frames. Attaching again (or to another cache) replaces the earlier one.

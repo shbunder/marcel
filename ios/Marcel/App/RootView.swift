@@ -54,8 +54,6 @@ struct MainTabs: View {
     private let notebook: LiveNotebookService
     /// "What Marcel carries": the brain's rollovers, followed from the moment the tabs are up.
     @State private var rollovers = RolloverLog()
-    /// The avatar header asks: the notebook or Settings (wireframe 6B: both open from the header).
-    @State private var choosing = false
     @State private var chat: ChatModel
     @State private var tab: PixelTabBar.Tab.ID = "chat"
     @State private var over: OverTabs?
@@ -90,8 +88,9 @@ struct MainTabs: View {
                     }
                 case "items": ItemsView(conversationId: chat.conversationId)
                 default:
-                    // Marcel's notebook and Settings open from the avatar header.
-                    ChatScreen(model: chat, offline: offlineText, openSettings: { choosing = true })
+                    // Marcel's notebook and Settings open from the avatar header (it asks which).
+                    ChatScreen(model: chat, offline: offlineText, openSettings: { over = .settings },
+                               openNotebook: { over = .notebook })
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -103,11 +102,6 @@ struct MainTabs: View {
             if let notice = router.notice {
                 LinkNoticeView(text: notice) { router.notice = nil }
             }
-        }
-        .confirmationDialog("Marcel", isPresented: $choosing) {
-            Button("Marcel's notebook") { over = .notebook }
-            Button("Settings") { over = .settings }
-            Button("Cancel", role: .cancel) {}
         }
         .sheet(item: $over) { over in
             NavigationStack { screen(over) }
@@ -121,7 +115,8 @@ struct MainTabs: View {
             router.consume()
         }
         .task {
-            rollovers.attach(to: connection.cache)
+            // Also forgets the log and the notebook's drafts when the phone is unpaired.
+            rollovers.attach(to: connection)
             APNsRegistrar.shared.onToken = { [settings, hub] token in
                 Task { _ = try? await settings.setPush(deviceId: hub.deviceId, target: .init(kind: .apns, apnsToken: token)) }
             }
@@ -175,9 +170,6 @@ struct MainTabs: View {
         over = nil
         router.notice = note
         UserDefaults.standard.removeObject(forKey: Self.conversationKey)
-        // The notebook's unsaved drafts and rollover log belong to this hub.
-        DraftStore().discardAll()
-        rollovers.clear()
         connection.unpair()
     }
 

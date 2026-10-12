@@ -6,7 +6,8 @@ Wireframe 6B in `scratch/spikes/SP5-avatar/wireframes/`. Drawn with PixelKit com
 It is a Swift package (`MarcelNotebook`) so its tests run in the simulator like the other packages'. It depends on
 MarcelKit, PixelKit and MarcelItems (for the Markdown preview; Items depends only on MarcelKit and PixelKit, so there
 is no cycle). The app opens `NotebookView` from the avatar header: a tap on the giraffe asks "Marcel's notebook" or
-"Settings" (`ios/Marcel/App/RootView.swift`).
+"Settings" (`AvatarLinks` in MarcelChat; VoiceOver hears "Opens Marcel's notebook or Settings" and gets both as named
+actions), wired in `ios/Marcel/App/RootView.swift`.
 
 ## The list
 
@@ -38,10 +39,15 @@ A row with unsaved changes on this phone says so ("Updated yesterday 18:40 · un
   etag it started from, until it is saved or thrown away. So unsaved text survives leaving the screen, closing the app
   and a save that failed. Opening a note that has a draft brings it back ("Your unsaved changes from … are back");
   if the note changed on the hub since the draft began, the conflict shows at once, and keeps showing until you
-  choose. Offline, a draft still opens; the later save still checks its version.
+  choose. Offline, a draft still opens ("Not saved yet: the hub can't be reached. Your draft from …"); the later save
+  still checks its version. A draft whose words are what the hub now has is thrown away (when the list loads, and when
+  the note opens), whatever version it started from, so it never shows "unsaved changes" for nothing.
+- **Bounded.** At most 50 drafts, each at most 1 MB (the hub's own limit). A longer text is not kept, and the note
+  says so; a 51st draft throws away the oldest one, and the note names it.
 - **Removed elsewhere** (404 `memory_file_not_found` on a save): "This note was removed since you opened it. Your text
   is still here: save again to create it." The next save creates it.
-- **Unpairing** forgets every draft and the rollover log.
+- **Unpairing** forgets every draft and the rollover log: `RolloverLog.attach(to: connection)` registers that with
+  `HubConnection.onUnpair`, so it also happens when the hub refuses the phone.
 
 ## Paths are untrusted
 
@@ -91,6 +97,8 @@ follow Dynamic Type (the list is also snapshotted at Accessibility 5).
 - `RolloverLogTests` — rollovers from an in-memory cache's frames, newest first, replays ignored, the last ten kept
   across launches, reasons in words.
 - `LineDiffTests` — order and folding, and what VoiceOver reads.
+- `ReviewFixTests` — unpairing forgets drafts and rollovers; a draft equal to the hub's words is dropped; an offline
+  draft's header line; the 1 MB and 50-draft bounds.
 - `NotebookSnapshotTests` — the notebook (light, dark, Accessibility 5), a hub without the notebook, a note's preview,
   editing, and "changed elsewhere" (light and dark), compared pixel for pixel (no changed pixel allowed) with
   `Tests/MarcelNotebookTests/__Snapshots__/`. They render the content without the scroll view and the editor's text as

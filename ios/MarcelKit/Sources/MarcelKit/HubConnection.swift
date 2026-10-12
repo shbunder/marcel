@@ -21,6 +21,8 @@ public final class HubConnection {
     @ObservationIgnored private let transport: any ClientTransport
     @ObservationIgnored private let connectorFactory: @MainActor (PairedHub) -> any EventSocketConnector
     @ObservationIgnored private var streaming: Task<Void, Never>?
+    /// What screens keep of their own from this hub (the notebook's drafts and rollover log), forgotten on unpair.
+    @ObservationIgnored private var forgetters: [UUID: @MainActor () -> Void] = [:]
 
     public init(
         tokenStore: any TokenStore,
@@ -83,12 +85,26 @@ public final class HubConnection {
         streaming = nil
     }
 
-    /// Forgets the hub and everything cached from it.
+    /// Forgets the hub and everything cached from it, including what was registered with `onUnpair`. Runs when the
+    /// person unpairs and when the hub refuses this phone.
     public func unpair() {
         stop()
         pairing.unpair()
         try? cache.clear()
+        for forget in forgetters.values { forget() }
         stream = nil
         phase = .unpaired
+    }
+
+    /// Runs `forget` every time this phone is unpaired: for data a screen keeps on the phone outside the cache.
+    @discardableResult
+    public func onUnpair(_ forget: @escaping @MainActor () -> Void) -> UUID {
+        let token = UUID()
+        forgetters[token] = forget
+        return token
+    }
+
+    public func removeOnUnpair(_ token: UUID) {
+        forgetters[token] = nil
     }
 }

@@ -102,6 +102,7 @@ public final class NotebookModel {
         state = .loaded
         problem = nil
 
+        await dropDraftsTheHubAlreadyHas(listing)
         aboutYouPreview = []
         if aboutYou.updatedAt != nil {
             do {
@@ -110,6 +111,18 @@ public final class NotebookModel {
                 problem = NotebookError.words(for: error)
             }
         }
+    }
+
+    /// A draft whose words are what the hub now has (saved from another phone, or Marcel wrote the same) is not
+    /// "unsaved changes": it is thrown away, whatever version it started from. Reads only notes that have a draft.
+    private func dropDraftsTheHubAlreadyHas(_ listing: MemoryListing) async {
+        let listed = Set(listing.files.map(\.path))
+        for path in drafts.paths where listed.contains(path) {
+            guard let draft = drafts.draft(for: path),
+                  let current = try? await service.file(path), current.content == draft.text else { continue }
+            drafts.discard(path)
+        }
+        refreshDrafts()
     }
 
     /// Marks the rows that have a draft (after coming back from a note).
@@ -173,6 +186,8 @@ public final class NoteEditorModel {
     /// A plain note: "Saved.", "Your unsaved changes from yesterday 18:12 are back."
     public var notice: String?
     public private(set) var saving = false
+    /// The note was opened from its draft because the hub could not be reached: when that draft was last kept.
+    public private(set) var draftOnly: Date?
 
     @ObservationIgnored let service: any NotebookService
     @ObservationIgnored let drafts: DraftStore
@@ -198,8 +213,14 @@ public final class NoteEditorModel {
 
     public var canSave: Bool { state == .ready && hasChanges && conflict == nil && !saving }
 
-    /// "Updated yesterday 18:12 by Marcel" / "New note".
-    public var line: String { file.map(words.updated) ?? "New note: saving creates it" }
+    /// "Updated yesterday 18:12 by Marcel", "Not saved yet: the hub can't be reached…", "New note…".
+    public var line: String {
+        if let file { return words.updated(file) }
+        if let draftOnly {
+            return "Not saved yet: the hub can't be reached. Your draft from \(words.when(draftOnly))."
+        }
+        return "New note: saving creates it"
+    }
 
     /// The diff shown under "changed elsewhere": the hub's lines against yours.
     public var diff: [LineDiff.Line] {
@@ -207,14 +228,14 @@ public final class NoteEditorModel {
     }
 
     public func load() async {
-        let draft = drafts.draft(for: path)
+        let stored = drafts.draft(for: path)
         var current: MemoryFile?
         do {
             current = try await service.file(path)
         } catch NotebookError.notFound {
             current = nil
         } catch {
-            guard let draft else {
+            guard let draft = stored else {
                 state = .failed(NotebookError.words(for: error))
                 return
             }
@@ -222,6 +243,7 @@ public final class NoteEditorModel {
             // checks against the version the draft started from.
             file = nil
             base = draft.base
+            draftOnly = draft.at
             text = draft.text
             state = .ready
             mode = .edit
@@ -230,7 +252,11 @@ public final class NoteEditorModel {
         }
         file = current
         base = current?.etag
-        guard let draft else {
+        draftOnly = nil
+        if let stored, let current, stored.text == current.content {
+            drafts.discard(path)  // the hub already has these words (saved elsewhere, or typed back): nothing unsaved
+        }
+        guard let draft = drafts.draft(for: path) else {
             text = current?.content ?? ""
             state = .ready
             mode = current == nil ? .edit : .preview
@@ -315,8 +341,8 @@ public final class NoteEditorModel {
     private func keepDraft() {
         if text == saved {
             drafts.discard(path)
-        } else {
-            drafts.keep(Draft(text: text, base: base, at: clock()), for: path)
+        } else if let words = drafts.keep(Draft(text: text, base: base, at: clock()), for: path).words {
+            problem = words
         }
     }
 }
