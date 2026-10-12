@@ -1,0 +1,414 @@
+<title>Marcel App Wireframes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen&family=Pixelify+Sans:wght@400;600&family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700&display=swap">
+<style>
+/* Layout: a short model of the app, then six flows; each flow is a row of phone screens with numbered notes under them. */
+:root {
+  --bg: #f4ede4; --paper: #fbf7f0; --ink: #2a1d24; --muted: #7a6a6f; --line: #d8c9bd;
+  --rose: #d87990; --deep: #9c3e5a; --teal: #3f6b6a; --gold: #e2a43a; --sage: #6f8a55; --sky: #6a9bcc;
+  --pixel: "Silkscreen", "Courier New", monospace;
+  --pix: "Pixelify Sans", "Trebuchet MS", sans-serif;
+  --body: "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
+  --display: "Bricolage Grotesque", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #1d1719; --paper: #282023; --ink: #f2e8e1; --muted: #b8a7a2; --line: #4a3c3f; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #1d1719; --paper: #282023; --ink: #f2e8e1; --muted: #b8a7a2; --line: #4a3c3f; color-scheme: dark; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.55; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 70px; display: grid; gap: 54px; }
+h1 { font-family: var(--display); font-size: clamp(2.2rem, 6vw, 3.4rem); line-height: 1; margin: 0; letter-spacing: -0.02em; }
+.lede { color: var(--muted); max-width: 66ch; margin: 12px 0 0; }
+h2 { font-family: var(--display); font-size: 1.7rem; margin: 0 0 6px; }
+h2 small { font-family: var(--pixel); font-size: 12px; color: var(--deep); display: block; letter-spacing: 1px; margin-bottom: 4px; }
+section > p { max-width: 70ch; margin: 0 0 14px; color: var(--muted); }
+nav.flows { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+nav.flows a { font: 12px/1 var(--pixel); color: var(--ink); text-decoration: none; padding: 7px 10px; border: 2px solid var(--ink); background: var(--paper); box-shadow: 3px 3px 0 var(--ink); }
+nav.flows a:focus-visible { outline: 3px solid var(--teal); outline-offset: 3px; }
+
+/* model diagram */
+.model { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.box { background: var(--paper); border: 3px solid var(--ink); box-shadow: 5px 5px 0 var(--ink); padding: 14px 16px; min-width: 0; }
+.box h3 { font: 14px/1.2 var(--pixel); margin: 0 0 8px; color: var(--deep); }
+.box p { margin: 0; font-size: 15px; }
+.box ul { margin: 6px 0 0; padding-left: 18px; font-size: 14.5px; }
+.flowline { font: 12px/1.6 var(--pixel); color: var(--muted); margin-top: 10px; }
+
+/* decisions */
+.qa { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.qa .box b { font-family: var(--pixel); font-size: 11px; color: var(--teal); display: block; margin-top: 8px; }
+
+/* screens */
+.row { display: flex; gap: 26px; overflow-x: auto; padding: 6px 4px 16px; scroll-snap-type: x proximity; }
+.shot { flex: none; width: 290px; scroll-snap-align: start; display: grid; gap: 10px; align-content: start; }
+.shot .cap { font: 12px/1.3 var(--pixel); color: var(--deep); }
+.notes { margin: 0; padding-left: 20px; font-size: 14px; color: var(--ink); }
+.notes li { margin-bottom: 4px; }
+.phone { width: 290px; height: 600px; border-radius: 40px; padding: 9px; background: #17110f; box-shadow: 0 16px 40px rgba(40, 20, 15, .22); }
+.scr { width: 100%; height: 100%; border-radius: 32px; overflow: hidden; position: relative; display: flex; flex-direction: column;
+  background: #f6efe4; color: #2a1d24; font-family: var(--pix); font-size: 13px; line-height: 1.35; }
+.island { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 86px; height: 24px; background: #000; border-radius: 16px; z-index: 4; }
+.sb { height: 40px; flex: none; display: flex; justify-content: space-between; align-items: center; padding: 0 22px; font: 600 12px/1 -apple-system, system-ui, sans-serif; }
+.top { display: flex; align-items: center; gap: 8px; padding: 2px 12px 8px; border-bottom: 3px solid #2a1d24; background: #efe4d6; }
+.top .sprite { width: 44px; height: 50px; flex: none; image-rendering: pixelated; }
+.top b { font-family: var(--pixel); font-size: 13px; display: block; }
+.top small { font-size: 11px; color: #6f5f63; }
+.hearts { margin-left: auto; font: 10px/1 var(--pixel); color: #9c3e5a; text-align: right; }
+.feed { flex: 1; overflow: hidden; padding: 10px 10px 6px; display: flex; flex-direction: column; gap: 8px; justify-content: flex-end; }
+.me { align-self: flex-end; max-width: 78%; background: #3f6b6a; color: #fff; padding: 7px 10px; border: 2px solid #2a1d24; box-shadow: 2px 2px 0 #2a1d24; }
+.dlg { background: #fff; border: 3px solid #2a1d24; box-shadow: 3px 3px 0 #2a1d24; padding: 7px 9px; position: relative; }
+.dlg .who { font: 10px/1 var(--pixel); color: #9c3e5a; display: block; margin-bottom: 3px; }
+.dlg .more { position: absolute; right: 6px; bottom: 3px; font-size: 9px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.choice { display: flex; gap: 12px; margin-top: 6px; font: 10.5px/1 var(--pixel); }
+.choice .on::before { content: "▶ "; }
+.card { border: 2px solid #2a1d24; background: #fffaf2; padding: 6px 8px; display: grid; gap: 3px; }
+.card .t { display: flex; align-items: center; gap: 6px; font: 10.5px/1.2 var(--pixel); }
+.card small { color: #6f5f63; font-size: 11px; }
+.chip { font: 9px/1 var(--pixel); padding: 3px 5px; border: 1.5px solid currentColor; white-space: nowrap; }
+.chip.home { color: #3f6b6a; } .chip.fam { color: #9c3e5a; } .chip.dev { color: #5a6fa0; } .chip.health { color: #6f8a55; }
+.bar { height: 8px; border: 2px solid #2a1d24; background: #f0e2d6; } .bar i { display: block; height: 100%; background: #d87990; }
+.state { font: 9px/1 var(--pixel); padding: 3px 5px; color: #fff; }
+.state.work { background: #d87990; } .state.wait { background: #e2a43a; color: #2a1d24; } .state.done { background: #3f6b6a; } .state.ready { background: #6a9bcc; }
+.itemget { background: #2a1d24; color: #f6efe4; text-align: center; padding: 6px; font: 10px/1.3 var(--pixel); border: 3px double #e2a43a; }
+.itemget b { color: #e2a43a; }
+.art { border: 3px solid #2a1d24; background: #fff; box-shadow: 3px 3px 0 #2a1d24; }
+.art .h { background: #e2a43a; padding: 4px 7px; font: 10px/1.2 var(--pixel); display: flex; justify-content: space-between; }
+.art .b { padding: 6px 8px; font-size: 11.5px; display: grid; gap: 3px; }
+.art .mini { display: grid; grid-template-columns: 1fr auto; gap: 1px 8px; font-size: 11px; }
+.input { margin: 0 10px 18px; border: 3px solid #2a1d24; background: #fff; padding: 8px 10px; font: 11px/1 var(--pixel); color: #8a7a7e; display: flex; justify-content: space-between; }
+.tabs { display: flex; justify-content: space-around; border-top: 3px solid #2a1d24; background: #efe4d6; padding: 7px 0 16px; font: 9px/1 var(--pixel); color: #6f5f63; }
+.tabs .on { color: #9c3e5a; text-decoration: underline; text-underline-offset: 3px; }
+.push { position: absolute; top: 40px; left: 8px; right: 8px; z-index: 5; background: rgba(255, 255, 255, .96); border-radius: 16px; padding: 8px 10px; box-shadow: 0 6px 16px rgba(0, 0, 0, .18); font: 12px/1.3 -apple-system, system-ui, sans-serif; }
+.push b { font-size: 11px; display: block; color: #6f5f63; }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 150px; background: #f6efe4; border-top: 3px solid #2a1d24; box-shadow: 0 -6px 20px rgba(0, 0, 0, .15); z-index: 3; display: flex; flex-direction: column; }
+.dim { position: absolute; inset: 0; background: rgba(42, 29, 36, .35); z-index: 2; }
+.step { display: grid; grid-template-columns: 16px 1fr; gap: 4px; font-size: 11.5px; }
+.sec { font: 10px/1 var(--pixel); color: #7a6a6f; margin: 6px 0 2px; }
+.tile { border: 3px solid #2a1d24; background: #fffaf2; box-shadow: 3px 3px 0 #2a1d24; padding: 8px; display: grid; gap: 4px; }
+.tile b { font: 11.5px/1.2 var(--pixel); }
+.map { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; }
+.note-tag { font: 9px/1 var(--pixel); background: #e2a43a; color: #2a1d24; padding: 2px 4px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Marcel App Wireframes</h1>
+    <p class="lede">How you would use Marcel day to day: one conversation with Marcel, threads that do the work (shown as quests), projects that group them, and artifacts you read instead of scrolling. Drawn in the pixel-classic style. Screens scroll sideways inside each flow.</p>
+    <nav class="flows" aria-label="Flows">
+      <a href="#model">The model</a><a href="#answers">Your 4 questions</a><a href="#f1">1 One chat</a><a href="#f2">2 Threads</a>
+      <a href="#f3">3 Needs you</a><a href="#f4">4 Artifacts</a><a href="#f5">5 Projects</a><a href="#f6">6 Staying aware</a>
+    </nav>
+  </header>
+
+  <section id="model">
+    <h2><small>THE MODEL</small>Four things, one hierarchy</h2>
+    <p>This is the same shape as Anthropic's new Claude Code Projects (a coordinator conversation that hands work to threads), with Marcel's main chat sitting one level above projects.</p>
+    <div class="model">
+      <div class="box"><h3>MARCEL · the main chat</h3><p>One conversation that never resets. Marcel answers small things itself and turns anything substantial into a thread. It shows only milestones and rich cards.</p></div>
+      <div class="box"><h3>THREADS · quests</h3><p>Each thread is its own Claude Code session doing one job. You can open it, watch it and talk to it. It reports back: started, needs you, done (with artifacts), failed.</p></div>
+      <div class="box"><h3>PROJECTS · the map</h3><p>A project groups threads, artifacts, notes and instructions around a goal ("Home energy", "Marcel dev"). Coding projects can later be backed by a Claude Code Project.</p></div>
+      <div class="box"><h3>ARTIFACTS · items</h3><p>The things threads produce: comparisons, plans, status boards, PRs. Living documents that update in place, so you read the latest state instead of the chat.</p></div>
+    </div>
+    <p class="flowline">YOU ▸ MARCEL (main chat) ▸ PROJECT ▸ THREAD ▸ ARTIFACT &nbsp;·&nbsp; reports flow back up as milestones; the full detail stays in the thread</p>
+  </section>
+
+  <section id="answers">
+    <h2><small>YOUR QUESTIONS</small>What I recommend</h2>
+    <div class="qa">
+      <div class="box"><h3>1 · One continuous chat?</h3><p>Yes. One chat with Marcel is home, as the plan says (B-01). Rich content lives in it as cards: thread cards, approvals as choice prompts, artifact cards, digests.</p><b>SEE FLOW 1</b></div>
+      <div class="box"><h3>2 · Interactive threads? Is Marcel aware?</h3><p>Yes, threads are interactive: open one to watch it and type to it, or reply-in-thread on any message. Marcel stays aware the way Claude Code Projects do: from each thread's reports, a task registry and project notes, not by rereading transcripts. Its own context rolls over; your transcript never changes. Muse doesn't publish how it does this; its chat is a single stream with an activity trail.</p><b>SEE FLOWS 2 AND 6</b></div>
+      <div class="box"><h3>3 · Claude projects?</h3><p>Give Marcel the same project model and map it to Claude where Claude allows it. Today claude.ai Projects can't be used by another app, and Claude Code Projects are web and desktop only (beta). So v1 keeps projects in Marcel (goal, repo or folder, instructions, notes, library), and later hands coding work to a linked Claude Code Project.</p><b>SEE FLOW 5</b></div>
+      <div class="box"><h3>4 · Artifacts?</h3><p>Every "done" milestone carries its artifacts. Status boards and overviews are living artifacts: republished in place when things change, pinned on their project, and collected in the Library. Following a project means reading its board, not the chat.</p><b>SEE FLOW 4</b></div>
+    </div>
+  </section>
+
+  <!-- FLOW 1 -->
+  <section id="f1">
+    <h2><small>FLOW 1</small>One chat with Marcel</h2>
+    <p>You talk to one Marcel. Small things get answered on the spot; bigger things become threads that start right away.</p>
+    <div class="row">
+      <div class="shot"><span class="cap">1A · MORNING</span>
+        <div class="phone"><div class="scr"><div class="island"></div><div class="sb"><span>8:02</span><span>●●●</span></div>
+          <div class="top"><canvas class="sprite" data-loop="idle"></canvas><div><b>MARCEL</b><small>Morning · nothing running</small></div><div class="hearts">♥♥♥<br>2 NEED YOU</div></div>
+          <div class="feed">
+            <div class="dlg"><span class="who">MARCEL</span>Good morning. Today: swim class 16:30, paper bins tonight. Two things wait for you.</div>
+            <div class="art"><div class="h"><span>MORNING BOARD</span><span>ARTIFACT</span></div><div class="b"><div class="mini"><span>Approve dentist Tue 9:10</span><span>▶</span><span>Sunday lunch: pick 1 of 2</span><span>▶</span><span>3 threads finished overnight</span><span>▶</span></div></div></div>
+            <div class="me">Compare energy contracts and plan Sunday lunch</div>
+          </div>
+          <div class="input"><span>TALK TO MARCEL…</span><span>▶</span></div>
+          <div class="tabs"><span class="on">CHAT</span><span>QUESTS</span><span>MAP</span><span>ITEMS</span></div>
+        </div></div>
+        <ol class="notes"><li>The avatar is the status light (here: idle).</li><li>The morning digest arrives as a board artifact, not a wall of text.</li><li>Tabs: Chat, Quests (threads), Map (projects), Items (library).</li></ol>
+      </div>
+      <div class="shot"><span class="cap">1B · MARCEL STARTS THREADS</span>
+        <div class="phone"><div class="scr"><div class="island"></div><div class="sb"><span>8:03</span><span>●●●</span></div>
+          <div class="top"><canvas class="sprite" data-loop="working"></canvas><div><b>MARCEL</b><small>2 quests running</small></div><div class="hearts">♥♥♥</div></div>
+          <div class="feed">
+            <div class="me">Compare energy contracts and plan Sunday lunch</div>
+            <div class="dlg"><span class="who">MARCEL</span>Started two quests. I'll come back when they need you.</div>
+            <div class="card"><div class="t"><span class="state work">WORKING</span>ENERGY CONTRACTS</div><small>Home energy · on the NUC · step 1 of 4</small><div class="bar"><i style="width:22%"></i></div></div>
+            <div class="card"><div class="t"><span class="state work">WORKING</span>SUNDAY LUNCH</div><small>Family · in the cloud · step 1 of 3</small><div class="bar"><i style="width:30%"></i></div></div>
+          </div>
+          <div class="input"><span>TALK TO MARCEL…</span><span>▶</span></div>
+          <div class="tabs"><span class="on">CHAT</span><span>QUESTS</span><span>MAP</span><span>ITEMS</span></div>
+        </div></div>
+        <ol class="notes"><li>Marcel starts work without asking and says where it runs (B-03, B-04).</li><li>Each thread card lives on in the chat and updates in place.</li><li>The project chip (Home energy, Family) tells you where it is filed.</li><li>Working: one glowing spot per active thread.</li></ol>
+      </div>
+      <div class="shot"><span class="cap">1C · FOLLOW-UPS FIND THEIR THREAD</span>
+        <div class="phone"><div class="scr"><div class="island"></div><div class="sb"><span>8:10</span><span>●●●</span></div>
+          <div class="top"><canvas class="sprite" data-loop="working"></canvas><div><b>MARCEL</b><small>2 quests running</small></div><div class="hearts">♥♥♥</div></div>
+          <div class="feed">
+            <div class="me">Also check whether solar panels change the picture</div>
+            <div class="dlg"><span class="who">MARCEL</span>Added to <u>Energy contracts</u>. It will model with and without solar.</div>
+            <div class="card"><div class="t"><span class="state work">WORKING</span>ENERGY CONTRACTS</div><small>+ new instruction: compare with solar</small></div>
+            <div class="me">What's the weather Sunday?</div>
+            <div class="dlg"><span class="who">MARCEL</span>18° and dry. Good for the garden lunch option.</div>
+          </div>
+          <div class="input"><span>TALK TO MARCEL…</span><span>▶</span></div>
+          <div class="tabs"><span class="on">CHAT</span><span>QUESTS</span><span>MAP</span><span>ITEMS</span></div>
+        </div></div>
+        <ol class="notes"><li>You never pick the thread: Marcel routes follow-ups and says which one (B-05).</li><li>Quick questions are answered in place, while threads keep running (B-02).</li></ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- FLOW 2 -->
+  <section id="f2">
+    <h2><small>FLOW 2</small>Threads are interactive</h2>
+    <p>Tap a thread card to open the quest. You see its progress as steps, and you can talk to it directly, stop it, or hand it back to Marcel. Or reply-in-thread on any message for a quick side conversation.</p>
+    <div class="row">
+      <div class="shot"><span class="cap">2A · INSIDE A QUEST</span>
+        <div class="phone"><div class="scr"><div class="island"></div><div class="sb"><span>8:24</span><span>●●●</span></div>
+          <div class="top" style="background:#e9dccd"><span style="font:18px var(--pixel)">◀</span><div><b>ENERGY CONTRACTS</b><small><span class="chip home">HOME ENERGY</span> · NUC · sonnet</small></div></div>
+          <div class="feed" style="justify-content:flex-start">
+            <div class="sec">PROGRESS</div>
+            <div class="step"><span>✓</span><span>Read the last 12 months of bills</span></div>
+            <div class="step"><span>✓</span><span>Fetched offers from 4 suppliers</span></div>
+            <div class="step"><span>▶</span><span>Modelling with and without solar…</span></div>
+            <div class="step" style="color:#9a8a8e"><span>·</span><span>Write the comparison artifact</span></div>
+            <div class="sec">LIVE DETAIL ▾</div>
+            <div class="card" style="font-family:monospace;font-size:10.5px">$ python model.py --solar 4.2kWp<br>yearly saving: €212 → €486</div>
+            <div class="dlg"><span class="who">YOU → THIS QUEST</span>Use 4 kWp, the roof is small</div>
+          </div>
+          <div style="display:flex;gap:8px;padding:0 10px 6px;font:10px var(--pixel)"><span class="chip" style="color:#9c3e5a">STOP</span><span class="chip" style="color:#3f6b6a">HAND BACK TO MARCEL</span></div>
+          <div class="input"><span>TALK TO THIS QUEST…</span><span>▶</span></div>
+        </div></div>
+        <ol class="notes"><li>Steps first, raw detail folded away (tool calls, diffs, logs) (B-11).</li><li>What you type here goes only to this thread.</li><li>Marcel sees the thread's report, not this chatter.</li></ol>
+      </div>
+      <div class="shot"><span class="cap">2B · REPLY IN THREAD (SIDE CHAT)</span>
+        <div class="phone"><div class="scr"><div class="island"></div><div class="sb"><span>9:12</span><span>●●●</span></div>
+          <div class="top"><canvas class="sprite" data-loop="idle"></canvas><div><b>MARCEL</b><small>2 quests running</small></div></div>
+          <div class="feed"><div class="dlg"><span class="who">MARCEL</span>Started two quests…</div></div>
+          <div class="dim"></div>
+          <div class="sheet"><div class="top" style="background:#e9dccd"><b>SIDE CHAT</b><small style="margin-left:auto">sees the main chat</small></div>
+            <div class="feed" style="justify-content:flex-start">
+              <div class="dlg" style="opacity:.7"><span class="who">ON: MARCEL</span>18° and dry. Good for the garden lunch option.</div>
+              <div class="me">And if it rains after three?</div>
+              <div class="dlg"><span class="who">MARCEL · SIDE</span>Then the covered terrace: same plan, ten metres closer to the kitchen.</div>
+            </div>
+            <div style="display:flex;gap:8px;padding:0 10px 6px"><span class="chip" style="color:#3f6b6a">SEND RESULT TO MAIN CHAT</span></div>
+            <div class="input"><span>REPLY IN SIDE CHAT…</span><span>▶</span></div>
+          </div>
+        </div></div>
+        <ol class="notes"><li>Long-press any message ▸ Reply in thread (B-08).</li><li>The side chat sees the main context; the main chat doesn't see it back unless you send the result.</li><li>Good for "explain this" without cluttering the main chat.</li></ol>
+      </div>
+      <div class="shot"><span class="cap">2C · QUEST LOG (ALL THREADS)</span>
+        <div class="phone"><div class="scr"><div class="island"></div><div class="sb"><span>9:20</span><span>●●●</span></div>
+          <div class="top"><b style="font-family:var(--pixel)">QUEST LOG</b><small style="margin-left:auto">ALL PROJECTS ▾</small></div>
+          <div class="feed" style="justify-content:flex-start">
+            <div class="sec">WAITING ON YOU</div>
+            <div class="card"><div class="t"><span class="state wait">YOUR OK</span>DENTIST BOOKING</div><small><span class="chip fam">FAMILY</span> pick Tue 9:10 or Thu 8:30</small></div>
+            <div class="sec">WORKING</div>
+            <div class="card"><div class="t"><span class="state work">WORKING</span>ENERGY CONTRACTS</div><small><span class="chip home">HOME ENERGY</span> step 3 of 4</small></div>
+            <div class="card"><div class="t"><span class="state work">WORKING</span>SUNDAY LUNCH</div><small><span class="chip fam">FAMILY</span> step 2 of 3</small></div>
+            <div class="sec">READY FOR REVIEW</div>
+            <div class="card"><div class="t"><span class="state ready">PR</span>AVATAR SPRITE IN APP</div><small><span class="chip dev">MARCEL DEV</span> PR #41 · CI green</small></div>
+            <div class="sec">DONE · THIS WEEK (5)</div>
+          </div>
+          <div class="tabs"><span>CHAT</span><span class="on">QUESTS</span><span>MAP</span><span>ITEMS</span></div>
+        </div></div>
+        <ol class="notes"><li>The Activity tab from the plan (B-25), grouped by state like Claude Code Projects: waiting on you, working, ready for review, done.</li><li>Filter by project at the top.</li></ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- FLOW 3 -->
+  <section id="f3">
+    <h2><small>FLOW 3</small>When Marcel needs you</h2>
+    <p>Any decision a thread can't take alone becomes a choice prompt: in the chat, in the quest and as a push notification. Answering anywhere unblocks the thread.</p>
+    <div class="row">
+      <div class="shot"><span class="cap">3A · PUSH</span>
+        <div class="phone"><div class="scr" style="background:linear-gradient(160deg,#5a3a48,#d87990)"><div class="island"></div><div class="sb" style="color:#fff"><span>11:40</span><span>●●●</span></div>
+          <div class="push"><b>MARCEL · ENERGY CONTRACTS</b>Switch to Supplier A? Saves €486 a year with solar. Tap to decide.</div>
+          <div style="margin:auto;text-align:center;color:#fff;font:64px/1 -apple-system,system-ui">11:40</div>
+        </div></div>
+        <ol class="notes"><li>Push only for: needs you, done, broken, digest (B-16).</li></ol>
+      </div>
+      <div class="shot"><span class="cap">3B · CHOICE PROMPT IN CHAT</span>
+        <div class="phone"><div class="scr"><div class="island"></div><div class="sb"><span>11:41</span><span>●●●</span></div>
+          <div class="top"><canvas class="sprite" data-loop="idle"></canvas><div><b>MARCEL</b><small>needs you</small></div><div class="hearts">♥♥♥<br>1 NEEDS YOU</div></div>
+          <div class="feed">
+            <div class="card"><div class="t"><span class="state wait">YOUR OK</span>ENERGY CONTRACTS</div><small><span class="chip home">HOME ENERGY</span></small></div>
+            <div class="dlg"><span class="who">MARCEL</span>Supplier A is cheapest: €486 a year less with solar, no exit fee. Switch now?<div class="choice"><span class="on">YES</span><span>NOT NOW</span><span>DETAILS</span></div><span class="more">▼</span></div>
+          </div>
+          <div class="input"><span>OR SAY SOMETHING…</span><span>▶</span></div>
+          <div class="tabs"><span class="on">CHAT</span><span>QUESTS</span><span>MAP</span><span>ITEMS</span></div>
+        </div></div>
+        <ol class="notes"><li>Approval as a dialogue choice, Zelda style (B-12).</li><li>Details opens the comparison artifact.</li><li>Pinned at the top of the quest log until answered.</li></ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- FLOW 4 -->
+  <section id="f4">
+    <h2><small>FLOW 4</small>Artifacts: read the state, not the chat</h2>
+    <p>Threads finish with an artifact. Marcel announces it in one line; the artifact holds the substance and keeps updating when the thread learns more.</p>
+    <div class="row">
+      <div class="shot"><span class="cap">4A · DONE, WITH AN ITEM</span>
+        <div class="phone"><div class="scr"><div class="island"></div><div class="sb"><span>11:52</span><span>●●●</span></div>
+          <div class="top"><canvas class="sprite" data-loop="idle"></canvas><div><b>MARCEL</b><small>1 quest running</small></div></div>
+          <div class="feed">
+            <div class="itemget">YOU GOT: <b>ENERGY COMPARISON</b>!<br>Saved to Home energy</div>
+            <div class="dlg"><span class="who">MARCEL</span>Done. Switched to Supplier A from 1 November; the comparison stays up to date as prices change.</div>
+            <div class="art"><div class="h"><span>ENERGY COMPARISON</span><span>UPDATED NOW</span></div><div class="b"><div class="mini"><span>Supplier A + solar</span><b>€1,010</b><span>Supplier A</span><span>€1,284</span><span>Current</span><span>€1,496</span></div></div></div>
+          </div>
+          <div class="input"><span>TALK TO MARCEL…</span><span>▶</span></div>
+          <div class="tabs"><span class="on">CHAT</span><span>QUESTS</span><span>MAP</span><span>ITEMS</span></div>
+        </div></div>
+        <ol class="notes"><li>The "done" milestone: one line plus the artifact (B-06).</li><li>"You got" banner when a new item lands.</li><li>The card previews the artifact; tap to open it.</li></ol>
+      </div>
+      <div class="shot"><span class="cap">4B · A LIVING ARTIFACT</span>
+        <div class="phone"><div class="scr" style="background:#fff"><div class="island"></div><div class="sb"><span>11:53</span><span>●●●</span></div>
+          <div class="top" style="background:#e2a43a"><span style="font:18px var(--pixel)">◀</span><div><b>ENERGY COMPARISON</b><small style="color:#2a1d24">Updated 2 min ago by the quest · v3</small></div></div>
+          <div class="feed" style="justify-content:flex-start;font-family:var(--body);font-size:12px">
+            <b style="font-size:15px">Switch to Supplier A</b>
+            <span>Cheapest of 4 offers on our address. With 4 kWp solar the yearly bill drops to €1,010.</span>
+            <div style="display:grid;gap:4px">
+              <div style="display:flex;gap:6px;align-items:center"><span style="width:70px">Current</span><i style="height:10px;width:150px;background:#9c3e5a"></i></div>
+              <div style="display:flex;gap:6px;align-items:center"><span style="width:70px">A</span><i style="height:10px;width:128px;background:#d87990"></i></div>
+              <div style="display:flex;gap:6px;align-items:center"><span style="width:70px">A + solar</span><i style="height:10px;width:101px;background:#3f6b6a"></i></div>
+            </div>
+            <b>Open questions</b><span>· Solar quote expected Friday</span>
+            <b>History</b><span>v1 offers · v2 solar added · v3 switch done</span>
+          </div>
+          <div style="display:flex;gap:8px;padding:0 10px 18px"><span class="chip" style="color:#3f6b6a">ASK ABOUT THIS</span><span class="chip" style="color:#9c3e5a">PIN TO PROJECT</span></div>
+        </div></div>
+        <ol class="notes"><li>A document, not a chat: decision, numbers, open questions, history.</li><li>Republished in place (v1, v2, v3) when the thread learns more.</li><li>Rendered natively in the app; built the same way Claude publishes artifacts.</li></ol>
+      </div>
+      <div class="shot"><span class="cap">4C · THE ITEMS TAB (LIBRARY)</span>
+        <div class="phone"><div class="scr"><div class="island"></div><div class="sb"><span>12:00</span><span>●●●</span></div>
+          <div class="top"><b style="font-family:var(--pixel)">ITEMS</b><small style="margin-left:auto">BY PROJECT ▾</small></div>
+          <div class="map" style="grid-template-columns:1fr 1fr">
+            <div class="tile"><b>ENERGY COMPARISON</b><small>Home energy · board · v3</small></div>
+            <div class="tile"><b>MORNING BOARD</b><small>Daily · updates 07:00</small></div>
+            <div class="tile"><b>LUNCH OPTIONS</b><small>Family · 2 choices</small></div>
+            <div class="tile"><b>PR #41</b><small>Marcel dev · CI green</small></div>
+            <div class="tile"><b>BILLS 2026.PDF</b><small>Home energy · file</small></div>
+            <div class="tile"><b>USAGE THIS WEEK</b><small>Marcel · live widget</small></div>
+          </div>
+          <div class="tabs" style="margin-top:auto"><span>CHAT</span><span>QUESTS</span><span>MAP</span><span class="on">ITEMS</span></div>
+        </div></div>
+        <ol class="notes"><li>The Library (B-21): every artifact, file, PR and live widget, by project.</li><li>Living boards show their update time.</li></ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- FLOW 5 -->
+  <section id="f5">
+    <h2><small>FLOW 5</small>Projects: follow a goal, not a chat</h2>
+    <p>Marcel files every thread under a project. The project room is where you follow a goal: a pinned board artifact, its quests by state, its items and its notes.</p>
+    <div class="row">
+      <div class="shot"><span class="cap">5A · THE MAP</span>
+        <div class="phone"><div class="scr"><div class="island"></div><div class="sb"><span>12:05</span><span>●●●</span></div>
+          <div class="top"><b style="font-family:var(--pixel)">MAP · PROJECTS</b></div>
+          <div class="map">
+            <div class="tile"><b>HOME ENERGY</b><small>1 working · board updated 11:52</small><span class="state wait" style="justify-self:start">1 NEEDS YOU</span></div>
+            <div class="tile"><b>FAMILY</b><small>1 working · 4 items</small></div>
+            <div class="tile"><b>MARCEL DEV</b><small>3 threads · PR ready</small><span class="chip dev" style="justify-self:start">CLAUDE CODE ↗</span></div>
+            <div class="tile"><b>HEALTH</b><small>quiet · 2 items</small></div>
+            <div class="tile" style="border-style:dashed;box-shadow:none"><b>+ NEW</b><small>or just ask Marcel</small></div>
+          </div>
+          <div class="tabs" style="margin-top:auto"><span>CHAT</span><span>QUESTS</span><span class="on">MAP</span><span>ITEMS</span></div>
+        </div></div>
+        <ol class="notes"><li>A project = goal + repo or folder + instructions + notes + items.</li><li>"Marcel dev" is linked to a Claude Code Project: its coding threads can run there once that's possible.</li><li>Marcel picks the project for each thread; you can move it.</li></ol>
+      </div>
+      <div class="shot"><span class="cap">5B · A PROJECT ROOM</span>
+        <div class="phone"><div class="scr"><div class="island"></div><div class="sb"><span>12:06</span><span>●●●</span></div>
+          <div class="top" style="background:#e9dccd"><span style="font:18px var(--pixel)">◀</span><div><b>HOME ENERGY</b><small>Lower the bill by 20% this year</small></div></div>
+          <div class="feed" style="justify-content:flex-start">
+            <div class="art"><div class="h"><span>PROJECT BOARD</span><span>PINNED · v7</span></div><div class="b"><span>✓ Contract switched (−€486/yr)</span><span>▶ Solar quote Friday</span><span>? Heat pump: wait for subsidy news</span></div></div>
+            <div class="sec">QUESTS</div>
+            <div class="card"><div class="t"><span class="state work">WORKING</span>SOLAR QUOTES</div><small>2 of 3 installers replied</small></div>
+            <div class="card"><div class="t"><span class="state done">DONE</span>ENERGY CONTRACTS</div><small>Supplier A from 1 Nov</small></div>
+            <div class="sec">ITEMS · NOTES</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip home">COMPARISON</span><span class="chip home">BILLS 2026</span><span class="chip home">NOTES (4)</span></div>
+          </div>
+          <div class="input"><span>TELL MARCEL ABOUT THIS PROJECT…</span><span>▶</span></div>
+        </div></div>
+        <ol class="notes"><li>The board artifact is the project's front page; Marcel keeps it current.</li><li>Typing here goes to the main Marcel, tagged with this project, so there is still one conversation.</li><li>Project notes are the memory every thread in it starts with.</li></ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- FLOW 6 -->
+  <section id="f6">
+    <h2><small>FLOW 6</small>How Marcel stays aware</h2>
+    <p>Marcel's own context stays small: it reads thread reports, a task registry and project notes, never full transcripts. It rolls its context over when it gets long; your chat history does not change.</p>
+    <div class="row">
+      <div class="shot"><span class="cap">6A · "WHERE IS THE DENTIST THING?"</span>
+        <div class="phone"><div class="scr"><div class="island"></div><div class="sb"><span>15:10</span><span>●●●</span></div>
+          <div class="top"><canvas class="sprite" data-loop="idle"></canvas><div><b>MARCEL</b><small>2 quests running</small></div></div>
+          <div class="feed">
+            <div class="me">Where's the dentist thing?</div>
+            <div class="dlg"><span class="who">MARCEL</span>Waiting on you since 9:20: pick Tue 9:10 or Thu 8:30.<div class="choice"><span class="on">TUE 9:10</span><span>THU 8:30</span></div></div>
+            <div class="card"><div class="t"><span class="state wait">YOUR OK</span>DENTIST BOOKING</div><small><span class="chip fam">FAMILY</span> started yesterday 17:02</small></div>
+          </div>
+          <div class="input"><span>TALK TO MARCEL…</span><span>▶</span></div>
+        </div></div>
+        <ol class="notes"><li>Status answers come from the task registry, instantly (B-07).</li><li>The answer is the live card, so you can act right there.</li></ol>
+      </div>
+      <div class="shot"><span class="cap">6B · MARCEL'S NOTEBOOK</span>
+        <div class="phone"><div class="scr"><div class="island"></div><div class="sb"><span>15:12</span><span>●●●</span></div>
+          <div class="top"><b style="font-family:var(--pixel)">MARCEL'S NOTEBOOK</b><small style="margin-left:auto">EDIT</small></div>
+          <div class="feed" style="justify-content:flex-start">
+            <div class="sec">ABOUT YOU</div><span>· Prefers mornings for appointments</span><span>· Approves energy switches over €150</span>
+            <div class="sec">PROJECT NOTES · HOME ENERGY</div><span>· Roof fits 4 kWp, not 6</span><span>· Heat pump waits for subsidy news</span>
+            <div class="sec">WHAT MARCEL CARRIES</div>
+            <div class="card"><small>Context rolled over yesterday 23:00. Kept: open threads, decisions, today's plan. Your chat history is unchanged.</small></div>
+          </div>
+          <div class="tabs"><span>CHAT</span><span>QUESTS</span><span>MAP</span><span>ITEMS</span></div>
+        </div></div>
+        <ol class="notes"><li>Memory is plain notes you can read and edit (B-20).</li><li>Project notes are shared by every thread in that project, like Claude Code Projects' shared memory.</li><li>Rollovers are visible, never silent.</li></ol>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+/*SPRITE_DATA*/
+</script>
+<script>
+(function () {
+  // The pixel-classic Marcel in every header: idle, or working when quests run.
+  const sheet = new Image(); sheet.src = SPRITE_PNG;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const canvases = [...document.querySelectorAll("canvas.sprite")];
+  function frameAt(loop, ms) {
+    const steps = SPRITE_INFO.loops[loop] || SPRITE_INFO.loops.idle, total = steps.reduce((a, s) => a + s[1], 0);
+    let t = ms % total; for (const s of steps) { if (t < s[1]) return s[0]; t -= s[1]; } return steps[0][0];
+  }
+  function draw(now) {
+    if (!sheet.complete) { requestAnimationFrame(draw); return; }
+    const fw = SPRITE_INFO.frameWidth, fh = SPRITE_INFO.frameHeight;
+    canvases.forEach((c) => {
+      if (c.width !== fw) { c.width = fw; c.height = fh; }
+      const g = c.getContext("2d"); g.imageSmoothingEnabled = false; g.clearRect(0, 0, fw, fh);
+      g.drawImage(sheet, frameAt(c.dataset.loop, reduce ? 0 : now) * fw, 0, fw, fh, 0, 0, fw, fh);
+    });
+    if (!reduce) requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+</script>
