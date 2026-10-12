@@ -29,7 +29,7 @@ def flat(text: str) -> str:
 def test_the_versions_were_bumped() -> None:
     assert load_yaml('app-api.yaml')['info']['version'] == '0.6.0'
     assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.7'
-    assert load_yaml('session-api.yaml')['info']['version'] == '0.1.2'
+    assert load_yaml('session-api.yaml')['info']['version'] == '0.1.3'
     assert load_yaml('brain-api.yaml')['info']['version'] == '0.1.1'
 
 
@@ -306,3 +306,8 @@ def test_an_apns_token_is_hex(registry: Registry, token: str, ok: bool) -> None:
             check.validate(target)
     put = load_yaml('app-api.yaml')['paths']['/devices/{device_id}/push']['put']
     assert '400' in put['responses']
+
+
+def test_adopt_never_answers_429_so_the_route_stays_hidden():
+    responses = load_yaml('session-api.yaml')['paths']['/session/adopt']['post']['responses']
+    assert '429' not in responses and '404' in responses
