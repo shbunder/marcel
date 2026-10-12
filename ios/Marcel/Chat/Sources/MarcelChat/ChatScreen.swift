@@ -42,6 +42,20 @@ public struct ChatScreen: View {
             path.removeAll()
         }
         .task { await model.start() }
+        // Reply in thread (B-08): the side chat as a sheet over the feed.
+        .sheet(item: Binding(get: { model.sideChat }, set: { model.sideChat = $0 })) { side in
+            SideChatSheet(
+                model: side, rowActions: actions, approvals: model.local,
+                openQuest: { taskId in path.append(.quest(Self.questLine(taskId))) },
+                startOver: { words in if !words.isEmpty { model.propose(words) } })
+                .environment(\.agentName, model.agentName ?? AgentName.fallback)
+        }
+    }
+
+    /// The quest a side chat talks to, for the quest view (which reads the rest from the cache).
+    static func questLine(_ taskId: String) -> QuestLine {
+        QuestLine(id: "side-\(taskId)", taskId: taskId, title: "", state: .working, project: nil, tone: .teal,
+                  detail: nil)
     }
 
     private var actions: ChatActions {
@@ -89,7 +103,11 @@ struct LiveFeed: View {
     @Query private var tasks: [CachedTask]
     @Query private var artifacts: [CachedArtifact]
     @Query private var projects: [CachedProject]
+    /// Messages of side threads, counted for "n replies" (the live stream adds each reply).
+    @Query private var sideRows: [CachedMessage]
     private let limit: Int
+    @State private var observer: UUID?
+    @Environment(\.liveEvents) private var live
 
     @State private var distanceFromBottom: CGFloat = 0
     @State private var scrolledTo: String?
@@ -105,6 +123,22 @@ struct LiveFeed: View {
         self.offline = offline
         self.limit = limit
         _window = Query(FeedInput.messageWindow(conversationId: conversationId, limit: limit))
+        _sideRows = Query(filter: #Predicate<CachedMessage> { $0.conversationId != conversationId })
+    }
+
+    /// The feed's actions plus "Reply in thread" and "n replies", when the hub does side chats.
+    private func threaded(_ input: FeedInput, name: String) -> ChatActions {
+        var actions = actions
+        guard model.canReplyInThread else { return actions }
+        let messages = Dictionary(input.messages.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        actions.reply = { [model] item in
+            if let parent = SideChatParent.of(item, message: messages[item.id], agentName: name) {
+                model.openSideChat(parent)
+            }
+        }
+        actions.threads = model.sideChats.summaries(
+            for: input.messages, counts: Dictionary(grouping: sideRows, by: \.conversationId).mapValues(\.count))
+        return actions
     }
 
     var body: some View {
@@ -138,7 +172,7 @@ struct LiveFeed: View {
                                     model.loadEarlier(shown: window.count)
                                 }
                         }
-                        FeedStack(items: items, actions: actions)
+                        FeedStack(items: items, actions: threaded(input, name: header.name))
                     }
                     .padding(FeedMetrics.inset)
                     .scrollTargetLayout()
@@ -189,6 +223,16 @@ struct LiveFeed: View {
         // Back online: answers may have come in while the stream was down.
         .onChange(of: offline) { old, new in
             if old != nil, new == nil { Task { await model.reconnected(input) } }
+        }
+        // A side thread opened on another device: its "n replies" shows here too.
+        .task {
+            if let live, observer == nil {
+                observer = live.observeFrames { [sideChats = model.sideChats] frame in sideChats.receive(frame) }
+            }
+        }
+        .onDisappear {
+            if let observer { live?.stopObservingFrames(observer) }
+            observer = nil
         }
         // Items on screen get their first lines, once per version.
         .task(id: Self.itemKeys(input)) {

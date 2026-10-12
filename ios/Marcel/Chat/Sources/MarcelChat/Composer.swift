@@ -9,10 +9,13 @@ public struct Composer: View {
     var placeholder: String
     var focused: FocusState<Bool>.Binding?
     var send: () -> Void
+    /// What VoiceOver calls the text field; "Message to <name>" when nil.
+    var fieldLabel: String?
 
     /// Also used by a project room (MarcelMap), whose messages go to the same conversation.
     public init(text: Binding<String>, placeholder: String, focused: FocusState<Bool>.Binding? = nil,
-                send: @escaping () -> Void) {
+                fieldLabel: String? = nil, send: @escaping () -> Void) {
+        self.fieldLabel = fieldLabel
         _text = text
         self.placeholder = placeholder
         self.focused = focused
@@ -70,7 +73,7 @@ public struct Composer: View {
         .pixelText(.body)
         .foregroundStyle(theme.text.color)
         .tint(theme.accent.color)
-        .accessibilityLabel("Message to \(agentName)")
+        .accessibilityLabel(fieldLabel ?? "Message to \(agentName)")
         if let focused {
             base.focused(focused)
         } else {
