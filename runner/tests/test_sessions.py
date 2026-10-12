@@ -24,6 +24,8 @@ from marcel_runner.claude_env import scrubbed_env
 from marcel_runner.health import Settings, collect_health
 from marcel_runner.server import UnixHTTPServer, serve
 from marcel_runner.sessions import (
+    ALLOWED_TOOLS,
+    BRAIN_TOOLS,
     SessionError,
     Sessions,
     StateFileError,
@@ -225,6 +227,21 @@ def test_spawn_without_channel_matches_its_golden_file(up: Rig) -> None:
     assert body['channel_registered'] is False
     (call,) = up.calls_with('--bg')
     assert call['argv'] == up.golden('spawn-no-channel.json')
+
+
+@pytest.mark.parametrize(
+    ('role', 'brain_tools'), [('brain', True), ('side', True), ('worker', False)]
+)
+def test_brain_and_side_spawns_get_the_brain_tools_by_name_and_workers_do_not(
+    up: Rig, role: str, brain_tools: bool
+) -> None:
+    status, body = up.spawn(role=role, name=role)
+    assert status == 201, body
+    (call,) = up.calls_with('--bg')
+    argv = call['argv']
+    tools = argv[argv.index('--allowedTools') + 1 : argv.index('--debug-file')]
+    expected = list(ALLOWED_TOOLS) + (list(BRAIN_TOOLS) if brain_tools else [])
+    assert tools == expected
 
 
 def test_list_and_stop_command_lines_match_their_golden_files(up: Rig) -> None:

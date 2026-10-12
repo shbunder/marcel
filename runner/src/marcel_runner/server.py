@@ -1,5 +1,5 @@
-"""The runner's HTTP server on a unix socket: `GET /health`, `GET /usage`, `/sessions`,
-`GET /sessions/{id}/tail` and `GET /events`."""
+"""The runner's HTTP server on a unix socket: `GET /health`, `GET /usage`, `/sessions`
+(with resume, fork and `repo` spawns), `GET /sessions/{id}/tail` and `GET /events`."""
 
 import grp
 import json
@@ -8,17 +8,19 @@ import socket
 import socketserver
 import stat
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from marcel_runner import fork, resume
 from marcel_runner.health import Settings, cgroup_of, collect_health
-from marcel_runner.sessions import Sessions, StateFileError, state_dir_from_env
+from marcel_runner.sessions import SessionError, Sessions, StateFileError, state_dir_from_env
 from marcel_runner.transcript import Tails
 from marcel_runner.usage import UsageProbe
 from marcel_runner.watch import Watcher
+from marcel_runner.workspaces import Workspaces, root_from_env
 
 SOCKET_MODE = 0o660
 DIR_MODE = 0o750
@@ -91,6 +93,7 @@ class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
         sessions: Sessions | None = None,
         watcher: Watcher | None = None,
         tails: Tails | None = None,
+        workspaces: Workspaces | None = None,
     ) -> None:
         # bind_socket() has already bound `sock`; skip UnixStreamServer's own bind.
         socketserver.BaseServer.__init__(self, sock.getsockname(), Handler)
@@ -100,6 +103,7 @@ class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
         self.sessions = sessions
         self.watcher = watcher
         self.tails = tails
+        self.workspaces = workspaces
         sock.listen(16)
 
 
@@ -137,7 +141,10 @@ class Handler(BaseHTTPRequestHandler):
         elif sessions is not None and (path == '/sessions' or path.startswith('/sessions/')):
             length = int(self.headers.get('content-length') or 0)
             body = self.rfile.read(length) if length > 0 else b''
-            self._send(*sessions.route(self.command, path, parse_qs(url.query), body))
+            query = parse_qs(url.query)
+            self._send(
+                *route_sessions(sessions, self.server.workspaces, self.command, path, query, body)
+            )
         elif path == '/events' and self.server.watcher is not None:
             if self.command != 'GET':
                 self._error(405, 'method_not_allowed', f'{path} only answers GET.')
@@ -155,6 +162,33 @@ class Handler(BaseHTTPRequestHandler):
     do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = _dispatch
 
 
+def route_sessions(
+    sessions: Sessions,
+    workspaces: Workspaces | None,
+    method: str,
+    path: str,
+    query: Mapping[str, list[str]],
+    body: bytes,
+) -> tuple[int, Any]:
+    """Answer one request under `/sessions`. Resume, fork and spawns with a `repo` have their own
+    modules (S-03.5); this only picks the module. Everything else is `Sessions.route`'s."""
+    parts = [unquote(p) for p in path.strip('/').split('/')]
+    try:
+        if len(parts) == 3 and parts[2] in ('resume', 'fork'):
+            if method != 'POST':
+                return 405, {'code': 'method_not_allowed', 'message': f'{path} only answers POST.'}
+            if parts[2] == 'resume':
+                return 200, resume.resume(sessions, parts[1], body)
+            return 201, fork.fork(sessions, parts[1], body)
+        if workspaces is not None and parts == ['sessions'] and method == 'POST':
+            spawned = workspaces.spawn(sessions, body)  # None: no `repo`, an ordinary spawn
+            if spawned is not None:
+                return 201, spawned
+    except SessionError as e:
+        return e.status, e.body()
+    return sessions.route(method, path, query, body)
+
+
 def serve(
     path: Path,
     settings: Settings,
@@ -165,6 +199,7 @@ def serve(
     sessions: Sessions | None = None,
     watcher: Watcher | None = None,
     tails: Tails | None = None,
+    workspaces: Workspaces | None = None,
 ) -> UnixHTTPServer:
     """Check the supervisor, bind the socket and return a server ready for `serve_forever()`."""
     if sessions is not None:
@@ -182,7 +217,8 @@ def serve(
     probe = usage if usage is not None else UsageProbe(settings.claude)
     if sessions is not None:
         sessions.refresh_usage = probe.refresh  # a fresh usage reading before each worker spawn
-    return UnixHTTPServer(bind_socket(path, group), health, probe, sessions, watcher, tails)
+    sock = bind_socket(path, group)
+    return UnixHTTPServer(sock, health, probe, sessions, watcher, tails, workspaces)
 
 
 def settings_from_env() -> tuple[Settings, Path, str | None]:
@@ -208,7 +244,16 @@ def main() -> int:
         sessions = Sessions(settings, state_dir_from_env())
         watcher = Watcher(sessions)
         tails = Tails(sessions.roster, sessions.home)
-        srv = serve(sock, settings, group, sessions=sessions, watcher=watcher, tails=tails)
+        workspaces = Workspaces(root_from_env(), settings.claude, sessions.home)
+        srv = serve(
+            sock,
+            settings,
+            group,
+            sessions=sessions,
+            watcher=watcher,
+            tails=tails,
+            workspaces=workspaces,
+        )
     except (StartupError, StateFileError) as e:
         print(f'marcel-runner: {e}', file=sys.stderr)
         return 1
