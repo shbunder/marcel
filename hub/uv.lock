@@ -422,6 +422,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "jsonschema" },
     { name = "segno" },
     { name = "sqlmodel" },
@@ -430,7 +431,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "jsonschema", extra = ["format"] },
     { name = "pyright" },
     { name = "pytest" },
@@ -443,6 +443,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.13" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "jsonschema", specifier = ">=4.23" },
     { name = "segno", specifier = ">=1.6" },
     { name = "sqlmodel", specifier = ">=0.0.22" },
@@ -451,7 +452,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.27" },
     { name = "jsonschema", extras = ["format"], specifier = ">=4.23" },
     { name = "pyright", specifier = ">=1.1.380" },
     { name = "pytest", specifier = ">=8" },
