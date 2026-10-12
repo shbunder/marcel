@@ -4,8 +4,10 @@ real runner, a socket or the network.
 `FakeRunnerServer` answers the runner API (contracts/runner-api.yaml) from memory: spawn, stop,
 health, usage, the `/events` stream (on every connect: the missed events after `Last-Event-ID`,
 then a fresh view of one `session.state` per known session, then live events) and per-session
-`tail` streams that honour `offset`. `kill()` breaks every open stream and refuses new
-connections; `revive()` brings it back.
+`tail` streams that honour `offset` (one past the end of the file streams it again from 0, as the
+runner does). `start_over()` replaces a transcript file, and open tails stream the new one from 0.
+`tail_refusals` answers the next tail requests with those statuses. `kill()` breaks every open
+stream and refuses new connections; `revive()` brings it back.
 """
 
 import asyncio
@@ -41,6 +43,8 @@ class FakeRunnerServer:
         self.spawned: list[dict[str, Any]] = []
         self.stopped: list[str] = []
         self.tail_drop_after: int | None = None  # break the next tail after this many events
+        self.tail_refusals: list[int] = []  # statuses for the next tail requests, in order
+        self.generations: dict[str, int] = {}  # bumped when a transcript file starts over
         self.seq = 0
         self._waiters: list[asyncio.Event] = []
 
@@ -81,8 +85,13 @@ class FakeRunnerServer:
         self.events.append((self.seq, data))
         self._wake()
 
-    def write(self, session_id: str, *events: tuple[int, int, str, dict[str, Any]]) -> None:
-        """Append transcript events: (offset, index, type, data)."""
+    def write(
+        self,
+        session_id: str,
+        *events: tuple[int, int, str, dict[str, Any]],
+        at: str | None = None,
+    ) -> None:
+        """Append transcript events: (offset, index, type, data), all at `at` when given."""
         rows = self.transcripts.setdefault(session_id, [])
         for offset, index, kind, data in events:
             rows.append(
@@ -90,12 +99,20 @@ class FakeRunnerServer:
                     'session_id': session_id,
                     'offset': offset,
                     'index': index,
-                    'at': now(),
+                    'at': at or now(),
                     'type': kind,
                     'data': data,
                 }
             )
         self._wake()
+
+    def start_over(
+        self, session_id: str, *events: tuple[int, int, str, dict[str, Any]], at: str | None = None
+    ) -> None:
+        """Replace the transcript file (truncated or rewritten); open tails read it from 0."""
+        self.transcripts[session_id] = []
+        self.generations[session_id] = self.generations.get(session_id, 0) + 1
+        self.write(session_id, *events, at=at)
 
     def write_raw(self, session_id: str, offset: int, raw: str) -> None:
         self.transcripts.setdefault(session_id, []).append({'raw': raw, 'offset': offset})
@@ -171,8 +188,14 @@ class FakeRunnerServer:
     async def _tail(self, session_id: str, offset: int, follow: bool) -> AsyncIterator[bytes]:
         cursor = 0
         budget: int | None = None  # events left before this stream breaks
+        generation = self.generations.get(session_id, 0)
+        rows = self.transcripts.get(session_id, [])
+        if rows and offset > rows[-1]['offset']:
+            offset = 0  # past the end of the file: the runner streams it again from 0
         while True:
             self._check_alive()
+            if self.generations.get(session_id, 0) != generation:
+                generation, cursor, offset = self.generations[session_id], 0, 0
             rows = self.transcripts.get(session_id, [])
             while cursor < len(rows):
                 row = rows[cursor]
@@ -243,6 +266,12 @@ class FakeRunnerServer:
                 self.push_state(sid, state='stopped')
                 return httpx.Response(200, json=self.sessions[sid])
             if action == 'tail':
+                if self.tail_refusals:
+                    status = self.tail_refusals.pop(0)
+                    codes = {400: 'bad_request', 503: 'claude_timeout'}
+                    return httpx.Response(
+                        status, json={'code': codes.get(status, 'error'), 'message': 'Refused.'}
+                    )
                 offset = int(request.url.params.get('offset', 0))
                 follow = request.url.params.get('follow', 'true') == 'true'
                 return httpx.Response(

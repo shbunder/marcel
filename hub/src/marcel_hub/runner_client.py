@@ -13,6 +13,10 @@
 - A `runner.warning` raises the `runner_warning` alert; `runner.recovered` clears it.
 - Tails resume from the last transcript offset the hub stored, so a reconnect never stores an event
   twice. Offsets are kept in a small JSON file in the data folder, so a hub restart does not either.
+  A tail the runner answers with 503 (passing) is retried with backoff; 404 and 400 end it.
+- A transcript file can start over (truncated or replaced): its offsets then go backwards. The hub
+  resets its position for that session and reads the file again, skipping events it already stored
+  (same type, time and data), so nothing is dropped and nothing is stored twice.
 - Anything from the runner that does not match the contract is logged and dropped, never stored.
 """
 
@@ -22,14 +26,14 @@ import logging
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
 from sqlmodel import Session, col, select
 
-from marcel_hub.models import Task, TaskLocation, TaskState
+from marcel_hub.models import Task, TaskEvent, TaskLocation, TaskState
 from marcel_hub.tasks.ports import CapReached, RunnerUnavailable, Started, StartFailed
 from marcel_hub.tasks.registry import TaskRegistry
 from marcel_hub.tasks.states import TRANSITIONS, IllegalTransition
@@ -386,11 +390,16 @@ class TailPosition:
     `line` is the offset of the newest line seen and `index` the last event taken from it; one
     line can give several events. `committed` is the end of the line before it, which is known to
     be complete, so a tail resumes from `committed` and skips what it already has of `line`.
+
+    `replay_until` is set when the file started over: up to that offset the new file may repeat
+    events the hub already stored, so they are checked against the stored ones. It is kept in
+    memory only.
     """
 
     committed: int = 0
     line: int = 0
     index: int = -1
+    replay_until: int = 0
 
     def is_new(self, offset: int, index: int) -> bool:
         return offset > self.line or (offset == self.line and index > self.index)
@@ -399,6 +408,14 @@ class TailPosition:
         if offset > self.line:
             self.committed, self.line = self.line, offset
         self.index = index
+
+    def start_over(self) -> None:
+        """The file started over: read it again from byte 0, checking what may be a repeat."""
+        self.replay_until = max(self.replay_until, self.line)
+        self.committed, self.line, self.index = 0, 0, -1
+
+    def may_repeat(self, offset: int) -> bool:
+        return offset <= self.replay_until
 
 
 def _parse_positions(stored: Any) -> dict[str, TailPosition]:
@@ -482,6 +499,15 @@ class Report:
     state: TaskState
     reason: str
     fields: dict[str, Any] = field(default_factory=dict)
+
+
+def _same_time(stored: datetime, when: datetime) -> bool:
+    """A stored time (SQLite may drop the zone; the hub stores UTC) against a parsed one."""
+    if stored.tzinfo is None and when.tzinfo is not None:
+        when = when.astimezone(UTC).replace(tzinfo=None)
+    elif stored.tzinfo is not None and when.tzinfo is None:
+        stored = stored.astimezone(UTC).replace(tzinfo=None)
+    return stored == when
 
 
 def _clock(value: str) -> str:
@@ -569,6 +595,25 @@ FINISHED_SESSION = frozenset({TaskState.done, TaskState.failed, TaskState.stoppe
 class _Tail:
     follow: bool
     job: asyncio.Task[None]
+
+
+@dataclass
+class _Stream:
+    """One connection of a transcript tail: where it resumed and the last offset it gave."""
+
+    resumed_from: int
+    last: int | None = None
+
+    def started_over(self, offset: int) -> bool:
+        """True when `offset` goes backwards (runner-api.yaml tailSession): the first event is at
+        or below where the tail resumed (every line read from there ends past it), or a later one
+        is below the one before it."""
+        if self.last is None:
+            backwards = self.resumed_from > 0 and offset <= self.resumed_from
+        else:
+            backwards = offset < self.last
+        self.last = offset
+        return backwards
 
 
 class SessionListener(Protocol):
@@ -809,13 +854,30 @@ class RunnerWatch:
             try:
                 res = await self.client.open_stream(f'/sessions/{session_id}/tail', params=params)
             except StreamRefused as exc:
-                log.warning('Cannot read the transcript of task %s: %s', task_id, exc)
-                return
+                if exc.status != 503:  # 404 (no such session) and 400 (bad request) are final
+                    log.warning(
+                        'Stopped reading the transcript of task %s: the runner answered %s (%s)',
+                        task_id,
+                        exc.status,
+                        exc,
+                    )
+                    return
+                # Passing (runner-api.yaml): the runner could not ask `claude` just then.
+                log.info(
+                    'The runner cannot give the transcript of task %s yet (%s). Retrying in %s s.',
+                    task_id,
+                    exc,
+                    delay,
+                )
+                await self.sleep(delay)
+                delay = min(delay * 2, self.max_delay)
+                continue
             except RunnerUnavailable:
                 return  # the event stream notices too; tails restart when the runner is back
+            stream = _Stream(resumed_from=position.committed)
             try:
                 async for message in sse(res.aiter_lines()):
-                    await self._on_transcript(task_id, session_id, message.data)
+                    await self._on_transcript(task_id, session_id, message.data, stream)
                 if not follow:
                     return
             except httpx.TransportError as exc:
@@ -825,7 +887,29 @@ class RunnerWatch:
             await self.sleep(delay)
             delay = min(delay * 2, self.max_delay)
 
-    async def _on_transcript(self, task_id: str, session_id: str, raw: str) -> None:
+    def _already_stored(self, task_id: str, event: dict[str, Any]) -> bool:
+        """Whether the task already has this event: same type, time and data.
+
+        Only asked while a file that started over is read again, where a repeat of the old file is
+        possible. Transcript events are stored without their offset, so content is the only key;
+        two different events with the same time and data cannot be told apart, and would look the
+        same in the app anyway.
+        """
+        at = event.get('at')
+        if not isinstance(at, str):
+            return False
+        when = datetime.fromisoformat(at.replace('Z', '+00:00'))
+        with Session(self.registry.engine) as s:
+            rows = s.exec(
+                select(TaskEvent)
+                .where(TaskEvent.task_id == task_id)
+                .where(TaskEvent.type == event['type'])
+            ).all()
+        return any(_same_time(r.at, when) and r.data_json == event['data'] for r in rows)
+
+    async def _on_transcript(
+        self, task_id: str, session_id: str, raw: str, stream: _Stream
+    ) -> None:
         try:
             event = check_transcript_event(raw, session_id)
         except BadEvent as exc:
@@ -833,11 +917,25 @@ class RunnerWatch:
             return
         offset, index = event['offset'], event.get('index', 0)
         position = self.offsets.get(session_id)
+        before = stream.resumed_from if stream.last is None else stream.last
+        if stream.started_over(offset):
+            log.info(
+                'The transcript of task %s started over (offset %s after %s). Reading it again; '
+                'events the hub already has are not stored twice.',
+                task_id,
+                offset,
+                before,
+            )
+            position.start_over()
         if not position.is_new(offset, index):
             return  # already stored before a reconnect
-        self.registry.append_transcript(task_id, event)
+        repeat = position.may_repeat(offset) and self._already_stored(task_id, event)
+        if not repeat:
+            self.registry.append_transcript(task_id, event)
         position.advance(offset, index)
         self.offsets.save()
+        if repeat:
+            return
         if event['type'] == 'error' and event['data'].get('usage_limit'):
             usage = await self.client.usage()
             await self._report(

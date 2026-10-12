@@ -28,7 +28,7 @@ from test_tasks_fakes import (  # noqa: F401  (fixtures)
 )
 
 from marcel_hub.models import TaskEvent, TaskState
-from marcel_hub.runner_client import UNREACHABLE, OffsetStore, RunnerWatch
+from marcel_hub.runner_client import UNREACHABLE, OffsetStore, RunnerWatch, TailPosition
 from marcel_hub.tasks.registry import TaskRegistry
 
 TASK_EVENT = validator('app-api.yaml#/components/schemas/TaskEvent')
@@ -606,3 +606,104 @@ def test_a_failing_alert_still_leaves_the_runner_marked_unreachable(
 
     watch = run(scenario())
     assert (watch.reachable, watch.reason) == (False, 'The hub could not follow the runner: boom.')
+
+
+# Tail retries and files that start over (runner-api.yaml 0.1.5) -------------------------------
+
+
+def test_a_tail_answered_503_is_retried_with_backoff_until_it_streams(
+    registry: TaskRegistry, fake: FakeRunnerServer, alerts: RecordingAlerts, sleeps: Sleeps
+) -> None:
+    sid = fake.add_session('done')
+    task_id = put_task(registry.engine, TaskState.done, session_id=sid)
+    fake.write(sid, (100, 0, *TEXT), (200, 0, *CALL))
+    fake.tail_refusals = [503, 503]  # `claude` did not answer in time, twice
+
+    async def scenario() -> None:
+        watch = watch_for(fake, registry, alerts, sleeps)
+        await watch._read_tail(task_id, sid, follow=False)
+        await watch.close()
+
+    run(scenario())
+    assert transcript(registry, task_id) == ['Looking at the disk.', 'df -h']
+    assert sleeps.delays == [0.5, 1.0]
+    assert len(fake.tail_offsets(sid)) == 3
+
+
+@pytest.mark.parametrize('status', [400, 404])
+def test_a_tail_answered_400_or_404_ends_with_a_plain_log_line(
+    registry: TaskRegistry,
+    fake: FakeRunnerServer,
+    alerts: RecordingAlerts,
+    sleeps: Sleeps,
+    caplog: pytest.LogCaptureFixture,
+    status: int,
+) -> None:
+    sid = fake.add_session('working')
+    task_id = put_task(registry.engine, TaskState.working, session_id=sid)
+    fake.write(sid, (100, 0, *TEXT))
+    fake.tail_refusals = [status]
+
+    async def scenario() -> None:
+        watch = watch_for(fake, registry, alerts, sleeps)
+        with caplog.at_level(logging.WARNING):
+            await watch._read_tail(task_id, sid, follow=True)
+        await watch.close()
+
+    run(scenario())
+    assert transcript(registry, task_id) == []
+    assert sleeps.delays == []
+    assert f'Stopped reading the transcript of task {task_id}: the runner answered {status}' in (
+        caplog.text
+    )
+
+
+def test_a_file_that_starts_over_while_tailed_is_read_again(
+    registry: TaskRegistry, fake: FakeRunnerServer, alerts: RecordingAlerts, sleeps: Sleeps
+) -> None:
+    async def scenario() -> str:
+        watch = watch_for(fake, registry, alerts, sleeps)
+        watch.start()
+        await until(lambda: watch.reachable is True)
+        task = await registry.spawn(AGENT, 'Tail', prompt='Go.')
+        sid = task.session_id
+        assert sid is not None
+        await until(lambda: registry.get(task.id).state == TaskState.working)
+        fake.write(sid, (100, 0, *TEXT), (200, 0, *CALL))
+        await until(lambda: len(transcript(registry, task.id)) == 2)
+
+        # The file is truncated and written anew: its offsets start again below 200.
+        fake.start_over(sid, (80, 0, 'text', {'role': 'assistant', 'text': 'fresh start'}))
+        await until(lambda: len(transcript(registry, task.id)) == 3)
+        await watch.close()
+        return task.id
+
+    task_id = run(scenario())
+    assert transcript(registry, task_id) == ['Looking at the disk.', 'df -h', 'fresh start']
+
+
+def test_a_resume_past_the_end_resets_and_skips_what_the_old_file_gave(
+    registry: TaskRegistry, fake: FakeRunnerServer, alerts: RecordingAlerts, sleeps: Sleeps
+) -> None:
+    """The hub resumes from 150, but the file was replaced by a shorter one: the runner streams it
+    from 0. Its first line repeats an event the hub stored from the old file (same time and data):
+    that one is not stored again; the new line is."""
+    sid = fake.add_session('done')
+    task_id = put_task(registry.engine, TaskState.done, session_id=sid)
+    at = '2026-10-12T09:00:00.000Z'
+    old = {'session_id': sid, 'offset': 300, 'index': 0, 'at': at, 'type': TEXT[0], 'data': TEXT[1]}
+    registry.append_transcript(task_id, old)
+    offsets = OffsetStore()
+    offsets.positions[sid] = TailPosition(committed=150, line=300, index=0)
+    fake.write(sid, (60, 0, *TEXT), at=at)
+    fake.write(sid, (120, 0, 'text', {'role': 'assistant', 'text': 'after the rewrite'}))
+
+    async def scenario() -> None:
+        watch = watch_for(fake, registry, alerts, sleeps, offsets=offsets)
+        await watch._read_tail(task_id, sid, follow=False)
+        await watch.close()
+
+    run(scenario())
+    assert fake.tail_offsets(sid) == [150]
+    assert transcript(registry, task_id) == ['Looking at the disk.', 'after the rewrite']
+    assert offsets.positions[sid].line == 120
