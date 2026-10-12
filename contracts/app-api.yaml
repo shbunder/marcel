@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — app API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     The API the iPhone app uses to talk to the hub on the NUC. **Every path, including `/health`,
     `/pair` and `/ws`, sits under the server URL** (`https://marcel-bot.com/api/...`); the tunnel
