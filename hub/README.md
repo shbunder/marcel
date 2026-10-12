@@ -486,7 +486,7 @@ app's `/api/schedules` and the brain's `schedule_*` tools reach the same `Schedu
 
 - **The store is the `schedule` table.** Each row keeps its five-field cron, its time zone (`tz`),
   `paused`, and `next_run_at` / `last_run_at`, in UTC. A restart finds every schedule where it was.
-  No APScheduler: see `project/decisions/ADR-003-scheduler-without-apscheduler.md`.
+  No APScheduler: see `project/decisions/ADR-004-scheduler-without-apscheduler.md`.
 - **Times are wall-clock times in `tz`** (`cron.py`). Each matching time fires once, across the
   clock changes: a time skipped in spring (02:30 when 02:00 jumps to 03:00) fires once at 03:30; a
   time that happens twice in autumn fires at its first occurrence only.
