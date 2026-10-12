@@ -9,8 +9,11 @@ from pathlib import Path
 
 import pytest
 from fastapi import APIRouter, FastAPI
-from fastapi.routing import APIRoute, iter_route_contexts
+from fastapi.routing import APIRoute, APIWebSocketRoute, iter_route_contexts
 from fastapi.testclient import TestClient
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from marcel_hub.app import Settings, create_app
 from marcel_hub.auth import tokens
@@ -25,11 +28,15 @@ def unprotected_routes(app: FastAPI) -> list[str]:
     # A route that forgot the dependency may crash instead of answering: count that as a leak.
     with TestClient(app, raise_server_exceptions=False) as client:
         for route in iter_route_contexts(app.routes):  # included routers, flattened
-            path = str(route.path)
+            # A WebSocket route's context has no path of its own; its original route has it.
+            path = str(route.path or getattr(route.original_route, 'path', ''))
+            url = re.sub(r'\{[^}]+\}', 'x', path)
+            if isinstance(route.original_route, APIWebSocketRoute):
+                leaks += socket_leaks(client, path, url)
+                continue
             if not isinstance(route.original_route, APIRoute):
                 leaks.append(f'{path} is not an API route: teach this test how to call it')
                 continue
-            url = re.sub(r'\{[^}]+\}', 'x', path)
             for method in sorted(route.methods or ()):
                 if (method, path) in PUBLIC:
                     continue
@@ -39,6 +46,20 @@ def unprotected_routes(app: FastAPI) -> list[str]:
                         leaks.append(f'{method} {path} -> {status}')
                         break
     return leaks
+
+
+def socket_leaks(client: TestClient, path: str, url: str) -> list[str]:
+    """A socket must refuse (close before accepting, so the server answers 403) without a token
+    and with an unknown one."""
+    for headers in ({}, {'Authorization': f'Bearer {tokens.new_token()}'}):
+        try:
+            with client.websocket_connect(url, headers=headers):
+                return [f'WS {path} -> accepted']
+        except WebSocketDisconnect:
+            continue  # refused, as it should be
+        except Exception as exc:  # a crash is not a refusal
+            return [f'WS {path} -> {type(exc).__name__}']
+    return []
 
 
 @pytest.fixture
@@ -73,15 +94,37 @@ def test_the_check_catches_a_router_without_the_auth_dependency(settings: Settin
     assert unprotected_routes(app) == ['GET /api/leak/{thing} -> 200']
 
 
-def test_the_check_catches_routes_it_cannot_call(settings: Settings) -> None:
+def test_the_check_catches_a_socket_without_the_token_check(settings: Settings) -> None:
     app = create_app(settings)
 
     @app.websocket('/api/socket')
-    async def socket(ws: object) -> None:  # pyright: ignore[reportUnusedFunction]
-        pass
+    async def socket(ws: WebSocket) -> None:  # pyright: ignore[reportUnusedFunction]
+        await ws.accept()
+        await ws.close()
+
+    assert unprotected_routes(app) == ['WS /api/socket -> accepted']
+
+
+def test_the_check_catches_a_socket_that_crashes(settings: Settings) -> None:
+    app = create_app(settings)
+
+    @app.websocket('/api/socket')
+    async def socket(ws: WebSocket) -> None:  # pyright: ignore[reportUnusedFunction]
+        raise RuntimeError('forgot the token check and crashed')
+
+    assert unprotected_routes(app) == ['WS /api/socket -> RuntimeError']
+
+
+def test_the_check_catches_routes_it_cannot_call(settings: Settings) -> None:
+    app = create_app(settings)
+
+    async def raw(request: Request) -> PlainTextResponse:  # pragma: no cover - never called
+        return PlainTextResponse('raw')
+
+    app.add_route('/api/raw', raw)
 
     assert unprotected_routes(app) == [
-        '/api/socket is not an API route: teach this test how to call it'
+        '/api/raw is not an API route: teach this test how to call it'
     ]
 
 

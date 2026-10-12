@@ -18,7 +18,7 @@ from fastapi import APIRouter, FastAPI, Request
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from marcel_hub import __version__, auth, db, tasks
+from marcel_hub import __version__, auth, conversations, db, tasks, ws
 
 DEFAULT_CONFIG_PATH = Path('/data/marcel.toml')
 
@@ -129,6 +129,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(router)
     auth.install(app)
     tasks.install(app)
+    ws.install(app)
+    app.include_router(conversations.router)
     return app
 
 
