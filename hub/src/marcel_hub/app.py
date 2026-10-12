@@ -18,7 +18,7 @@ from fastapi import APIRouter, FastAPI, Request
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from marcel_hub import __version__, artifacts, auth, conversations, db, memory, tasks, ws
+from marcel_hub import __version__, artifacts, auth, conversations, db, memory, notify, tasks, ws
 from marcel_hub.runner_client import DEFAULT_SOCKET, OffsetStore, RunnerClient, RunnerWatch
 
 DEFAULT_CONFIG_PATH = Path('/data/marcel.toml')
@@ -38,6 +38,8 @@ class Settings:
     # None: no runner (tests). `load_settings` defaults it to the socket mounted into the hub.
     runner_sock: Path | None = None
     worker_cwd: str | None = None
+    # None: no ntfy pushes. e.g. 'https://ntfy.sh' or a self-hosted server (S-08.1).
+    ntfy_server: str | None = None
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -56,7 +58,16 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         **{k[len('MARCEL_') :].lower(): v for k, v in env.items() if _is_setting(k)},
     }
 
-    known = {'data_dir', 'db_path', 'host', 'port', 'owner_name', 'runner_sock', 'worker_cwd'}
+    known = {
+        'data_dir',
+        'db_path',
+        'host',
+        'port',
+        'owner_name',
+        'runner_sock',
+        'worker_cwd',
+        'ntfy_server',
+    }
     unknown = set(values) - known
     if unknown:
         raise SettingsError(f'Unknown setting(s) {sorted(unknown)} in {config_path} or MARCEL_*.')
@@ -70,6 +81,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             owner_name=str(values.get('owner_name', 'Owner')),
             runner_sock=Path(values.get('runner_sock', DEFAULT_SOCKET)),
             worker_cwd=str(values['worker_cwd']) if values.get('worker_cwd') else None,
+            ntfy_server=_ntfy_server(values.get('ntfy_server')),
         )
     except ValueError as exc:
         raise SettingsError(f'The port must be a number: {exc}.') from exc
@@ -77,6 +89,17 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         raise SettingsError(
             f'A setting in {config_path} has the wrong type: {exc}. Use text for paths.'
         ) from exc
+
+
+def _ntfy_server(value: Any) -> str | None:
+    if not value:
+        return None
+    server = str(value).rstrip('/')
+    if not server.startswith(('https://', 'http://')):
+        raise SettingsError(
+            f'ntfy_server must be a web address such as https://ntfy.sh, not {server!r}.'
+        )
+    return server
 
 
 def _is_setting(name: str) -> bool:
@@ -88,6 +111,7 @@ def _is_setting(name: str) -> bool:
         'MARCEL_OWNER_NAME',
         'MARCEL_RUNNER_SOCK',
         'MARCEL_WORKER_CWD',
+        'MARCEL_NTFY_SERVER',
     }
 
 
@@ -123,6 +147,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         db.upgrade(engine)
+        pusher.start()
         await app.state.tasks.drain()  # tasks queued before a restart start if there is room
         if watch is not None:
             watch.start()
@@ -130,6 +155,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if watch is not None:
             await watch.close()
             await watch.client.aclose()
+        await pusher.aclose()
         engine.dispose()
 
     # No /docs, /redoc or /openapi.json: every route but /health and /pair needs a token.
@@ -153,10 +179,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     # One event log for the app's live stream (S-04.3); the task registry publishes into it.
     app.state.events = ws.EventLog(engine)
-    registry = tasks.install(app, runner=client, publisher=ws.OwnerPublisher(app.state.events))
+    # Pushes (S-08.1): the pusher passes every task event on to the event log, and pushes on
+    # state changes.
+    pusher = notify.install(app, settings.ntfy_server)
+    registry = tasks.install(
+        app, runner=client, publisher=pusher.task_publisher(ws.OwnerPublisher(app.state.events))
+    )
     watch = (
         RunnerWatch(
-            client, registry, offsets=OffsetStore(settings.data_dir / 'runner-offsets.json')
+            client,
+            registry,
+            alerts=pusher,
+            offsets=OffsetStore(settings.data_dir / 'runner-offsets.json'),
         )
         if client
         else None

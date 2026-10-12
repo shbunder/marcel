@@ -2,7 +2,7 @@
 
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, the task
-routes, conversations and the live event stream, artifacts and memory.
+routes, conversations, the live event stream, artifacts, memory and push notifications.
 
 ## Run
 
@@ -31,6 +31,7 @@ names the file.
 | `owner_name` | `MARCEL_OWNER_NAME` | `Owner` (shown by `GET /api/me`) |
 | `runner_sock` | `MARCEL_RUNNER_SOCK` | `/run/marcel/runner.sock` (the runner's socket, mounted into the container) |
 | `worker_cwd` | `MARCEL_WORKER_CWD` | unset. Where workers without a repository run, e.g. `/home/<you>/marcel/workspaces/scratch` (a path on the NUC). Unset: such tasks fail with a reason |
+| `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no pushes. The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
 
 `MARCEL_CONFIG` moves the config file itself (tests use it).
 
@@ -70,8 +71,8 @@ for **10 minutes**. The app sends it to `POST /api/pair` and gets a device token
   Without it, or with a revoked token, the answer is 401. `/docs` and `/openapi.json` are off.
 - `GET /api/devices` lists your devices; `DELETE /api/devices/{id}` revokes one, and its token
   stops working at once. `PUT /api/devices/{id}/push` stores an APNs token or ntfy topic.
-- `GET /api/me` reports `push` as off for both backends until S-08.1 and S-08.2 add them, and every
-  agent as `idle` until S-04.8.
+- `GET /api/me` reports `push.ntfy` (and `push.ntfy_server`) when `ntfy_server` is set, `push.apns`
+  as off until S-08.2, and every agent as `idle` until S-04.8.
 - After 10 unknown codes in a minute, `POST /api/pair` refuses every code (429,
   `too_many_tries`) until the minute is over. Expired or already-used codes do not count.
 - Every error has the contract's `Error` shape: a stable `code` and a `message` for people. A bad
@@ -176,7 +177,7 @@ background watcher follows the runner's streams:
   read each transcript in `<data_dir>/runner-offsets.json`, so a reconnect or a restart never stores
   an event twice.
 - **Runner down.** When the runner does not answer, every NUC task that was live goes to `unknown`,
-  and one "something broke" alert is raised (logged until the notifier, S-08.1, exists). The hub
+  and one "something broke" alert is pushed (see Push notifications). The hub
   retries after 0.5 s, then 1, 2, 4 … up to 30 s. When the runner answers again the alert is
   cleared, each task takes the state the runner reports, and queued tasks start if there is room.
 - **Bad input.** An event that does not match the contract is logged (`Ignored a bad runner event`)
@@ -243,3 +244,39 @@ on first use. The code is `src/marcel_hub/memory.py`.
   hub moves it to `memory.git`, keeps the history, writes a fresh config and drops its hooks and
   `info/attributes`, since the brain could have edited them.
 - Needs `git` on the path.
+
+## Push notifications
+
+`src/marcel_hub/notify/` sends pushes to paired phones (B-16, B-18). Set `ntfy_server` to turn
+them on; the app then registers an ntfy topic with `PUT /api/devices/{id}/push`.
+
+| Event | Push | Opens |
+|---|---|---|
+| A task opens an approval | approval, urgent: "Marcel needs your OK" | the approval |
+| A task needs you (a question, a login) | task, urgent: "Marcel needs you" | the task |
+| A task is done / failed | task, normal: "Done: …" / "Failed: …" | the task |
+| A task went silent | broke, urgent: "A task went quiet" | the task |
+| The runner is unreachable / warns | broke, urgent: "Marcel cannot reach the NUC" | the task that changed last |
+| The runner answers again | broke, normal: "The NUC is back" | the same |
+| An urgent push could not be delivered | broke, urgent: "A notification did not arrive" | what it was about |
+| A digest (`pusher.digest(...)`) | digest, normal | the digest's message |
+
+Nothing else pushes: no progress, no `working`, `queued`, `unknown` or `stopped`.
+
+- **How events arrive.** The task registry's publisher is `pusher.task_publisher()`: each `state`
+  task event is one push at most. The runner watcher uses the pusher as its alerts. The channel
+  gateway can call `pusher.approval_opened(id)` when it opens an approval.
+- **ntfy.** A JSON POST to the server's root: `topic`, `title`, `message`, `tags` (the category),
+  `priority` (4 for urgent, 3 for normal) and `click` (the `marcel://` deep link). No token ever goes
+  to the ntfy server; the push only opens the app.
+- **Quiet repeats.** The same push for the same task is not sent twice within 10 minutes. An urgent
+  "broke" push goes out once per cause per hour; when its all-clear goes out, that hour starts over,
+  so a second outage is pushed again. Every push carries a collapse key (the task id, or the cause),
+  but only APNs uses it to replace the older push on the phone: on ntfy each push shows separately.
+- **A failed push never breaks the hub.** Pushes are sent in the background, tried three times
+  (after 2 s and 10 s), then given up and logged. A refused push (4xx other than 429) is not
+  retried. When an urgent push did not arrive, one "a notification did not arrive" push goes to
+  every device.
+- **Secrets.** An ntfy topic lets anyone read the pushes. Logs name the device id, never the topic.
+- **APNs** (S-08.2) is a second backend with `kind = 'apns'`; devices that registered an APNs token
+  get nothing until it exists, and the log says so.
