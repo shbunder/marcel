@@ -17,6 +17,11 @@
         { "$ref": "#/$defs/ApprovalCreated" },
         { "$ref": "#/$defs/ApprovalResolved" },
         { "$ref": "#/$defs/ArtifactCreated" },
+        { "$ref": "#/$defs/ArtifactUpdated" },
+        { "$ref": "#/$defs/ProjectCreated" },
+        { "$ref": "#/$defs/ProjectUpdated" },
+        { "$ref": "#/$defs/TaskMoved" },
+        { "$ref": "#/$defs/BrainRollover" },
         { "$ref": "#/$defs/AgentStateChanged" },
         { "$ref": "#/$defs/UsageUpdated" }
       ]
@@ -122,7 +127,7 @@
           "type": "task.created",
           "at": "2026-10-04T18:06:00Z",
           "data": {
-            "id": "tsk_01J9ZQ6", "agent_id": "agt_marcel", "title": "Check disk usage of all Docker volumes",
+            "id": "tsk_01J9ZQ6", "agent_id": "agt_marcel", "project_id": "prj_inbox", "title": "Check disk usage of all Docker volumes",
             "location": "nuc", "state": "starting", "model": "sonnet", "origin": "marcel",
             "created_at": "2026-10-04T18:06:00Z", "updated_at": "2026-10-04T18:06:00Z"
           }
@@ -143,7 +148,7 @@
           "type": "task.updated",
           "at": "2026-10-04T18:06:40Z",
           "data": {
-            "id": "tsk_01J9ZQ6", "agent_id": "agt_marcel", "title": "Check disk usage of all Docker volumes",
+            "id": "tsk_01J9ZQ6", "agent_id": "agt_marcel", "project_id": "prj_inbox", "title": "Check disk usage of all Docker volumes",
             "location": "nuc", "state": "needs_you", "model": "sonnet", "origin": "marcel",
             "waiting_for": "Permission to run `docker system df -v`.", "approval_ids": ["apr_01J9ZR2"],
             "created_at": "2026-10-04T18:06:00Z", "updated_at": "2026-10-04T18:06:40Z"
@@ -216,10 +221,140 @@
           "type": "artifact.created",
           "at": "2026-10-04T18:31:00Z",
           "data": {
-            "id": "art_01J9ZT1", "task_id": "tsk_01J9ZQ5", "kind": "pr", "title": "Fix flaky login test: wait on the session cookie",
+            "id": "art_01J9ZT1", "task_id": "tsk_01J9ZQ5", "project_id": "prj_01J9ZM1", "kind": "pr", "title": "Fix flaky login test: wait on the session cookie", "current_version": 1,
             "url": "https://github.com/shbunder/marcel/pull/14", "pr": { "number": 14, "state": "open", "checks": "pending" },
-            "created_at": "2026-10-04T18:31:00Z"
+            "created_at": "2026-10-04T18:31:00Z", "updated_at": "2026-10-04T18:31:00Z"
           }
+        }
+      ]
+    },
+    "ArtifactUpdated": {
+      "description": "A living artifact got a new version (B-34): v2 and later. The app refreshes every card and open viewer of it; it never shows a second item-get banner.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "artifact.updated" },
+        "data": {
+          "type": "object",
+          "required": ["artifact", "version"],
+          "additionalProperties": false,
+          "properties": {
+            "artifact": { "$ref": "app-api.yaml#/components/schemas/Artifact" },
+            "version": { "$ref": "app-api.yaml#/components/schemas/ArtifactVersion" }
+          }
+        }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 2104,
+          "type": "artifact.updated",
+          "at": "2026-10-12T08:14:00Z",
+          "data": {
+            "artifact": {
+              "id": "art_01JA0B1", "task_id": "tsk_01JA0A9", "project_id": "prj_01JA0A1", "kind": "doc", "title": "Energy offers compared",
+              "current_version": 3, "updated_by": "Energy contracts", "content_type": "text/markdown", "size_bytes": 3120,
+              "created_at": "2026-10-09T20:00:00Z", "updated_at": "2026-10-12T08:14:00Z"
+            },
+            "version": {
+              "artifact_id": "art_01JA0B1", "version": 3, "summary": "Added the Engie offer; Luminus is still the cheapest.",
+              "author": "Energy contracts", "task_id": "tsk_01JA0A9", "content_type": "text/markdown", "size_bytes": 3120,
+              "created_at": "2026-10-12T08:14:00Z"
+            }
+          }
+        }
+      ]
+    },
+    "ProjectCreated": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "project.created" },
+        "data": { "$ref": "app-api.yaml#/components/schemas/Project" }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 1990,
+          "type": "project.created",
+          "at": "2026-10-08T19:00:00Z",
+          "data": {
+            "id": "prj_01JA0A1", "agent_id": "agt_marcel", "slug": "energy", "name": "Energy contracts",
+            "goal": "Find a cheaper gas and electricity contract before the renewal on 1 December.",
+            "board_artifact_id": "art_01JA0A2", "archived": false, "counts": { "working": 0, "needs_you": 0, "done_7d": 0 },
+            "created_at": "2026-10-08T19:00:00Z", "updated_at": "2026-10-08T19:00:00Z"
+          }
+        }
+      ]
+    },
+    "ProjectUpdated": {
+      "description": "Any change to a project or its counts: renamed, archived, a task in it changed state.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "project.updated" },
+        "data": { "$ref": "app-api.yaml#/components/schemas/Project" }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 2105,
+          "type": "project.updated",
+          "at": "2026-10-12T08:14:05Z",
+          "data": {
+            "id": "prj_01JA0A1", "agent_id": "agt_marcel", "slug": "energy", "name": "Energy contracts",
+            "board_artifact_id": "art_01JA0A2", "archived": false, "counts": { "working": 1, "needs_you": 1, "done_7d": 2 },
+            "created_at": "2026-10-08T19:00:00Z", "updated_at": "2026-10-12T08:14:05Z"
+          }
+        }
+      ]
+    },
+    "TaskMoved": {
+      "description": "A task was filed under another project (B-31). Both projects follow with `project.updated`.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "task.moved" },
+        "data": {
+          "type": "object",
+          "required": ["task_id", "from_project_id", "to_project_id"],
+          "additionalProperties": false,
+          "properties": {
+            "task_id": { "type": "string" },
+            "from_project_id": { "type": "string" },
+            "to_project_id": { "type": "string" }
+          }
+        }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        { "id": 2001, "type": "task.moved", "at": "2026-10-09T07:30:00Z", "data": { "task_id": "tsk_01JA0A9", "from_project_id": "prj_inbox", "to_project_id": "prj_01JA0A1" } }
+      ]
+    },
+    "BrainRollover": {
+      "description": "Marcel's main session was replaced by a fresh one (S-06.2). Shown in Marcel's notebook so a rollover is never silent.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "brain.rollover" },
+        "data": {
+          "type": "object",
+          "required": ["agent_id", "reason", "kept"],
+          "additionalProperties": false,
+          "properties": {
+            "agent_id": { "type": "string" },
+            "reason": {
+              "type": "string",
+              "enum": ["context_full", "crashed", "daily", "manual"],
+              "description": "Why: its context was full, it crashed, the daily fresh start, or you asked."
+            },
+            "kept": {
+              "type": "string",
+              "description": "What the new session starts with, in plain words."
+            }
+          }
+        }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 2200, "type": "brain.rollover", "at": "2026-10-12T04:00:00Z",
+          "data": { "agent_id": "agt_marcel", "reason": "daily", "kept": "Your notes, the last 40 messages, 3 open threads and the project list." }
         }
       ]
     },

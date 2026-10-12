@@ -1,5 +1,8 @@
 # SP2 — Worker control from a script — RESULT
 
+> **Fixtures moved (2026-10-12):** the `fixtures/…` paths below now live in
+> [`runner/tests/fake_claude/fixtures/`](../../../runner/tests/fake_claude/fixtures/) (S-02.3).
+
 **Verdict: PASS.** A script can spawn, watch, read, approve, deny, stop, respawn and resume `--bg` workers.
 State changes reach `agents --json` in ≤ 0.2 s. There are two traps (workspace trust, and the env
 inherited from a parent Claude session) and one gap (steering a *live* session needs SP1's channel).
@@ -184,5 +187,6 @@ replaced by `"<elided: N chars>"`, and the owner's email and account/org UUIDs a
   between-turns fallback and must guard against the copy race.
 - **S-02.3 fake shim:** replay `fixtures/agents/lifecycle.jsonl` + `fixtures/transcripts/*` + `fixtures/jobs/*`.
   Implement `--bg` output (`backgrounded · <id> · <name>`), the resume `note:` lines, and the trust error.
-- **F01/F02:** move `fixtures/` to `runner/tests/fixtures/` when the runner package exists. It stays in
+- **F01/F02:** ~~move `fixtures/` to `runner/tests/fixtures/`~~ Done in S-02.3: they now live in
+  `runner/tests/fake_claude/fixtures/`. Originally it stayed in
   `scratch/` for now because this run was told not to touch anything outside it.

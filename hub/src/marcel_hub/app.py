@@ -6,6 +6,7 @@ start with a message that names the file.
 """
 
 import os
+import sys
 import tomllib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -17,7 +18,7 @@ from fastapi import APIRouter, FastAPI, Request
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from marcel_hub import __version__, db, tasks
+from marcel_hub import __version__, auth, db, tasks
 
 DEFAULT_CONFIG_PATH = Path('/data/marcel.toml')
 
@@ -32,6 +33,7 @@ class Settings:
     db_path: Path = Path('/data/marcel.db')
     host: str = '0.0.0.0'
     port: int = 7420
+    owner_name: str = 'Owner'
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -50,7 +52,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         **{k[len('MARCEL_') :].lower(): v for k, v in env.items() if _is_setting(k)},
     }
 
-    unknown = set(values) - {'data_dir', 'db_path', 'host', 'port'}
+    unknown = set(values) - {'data_dir', 'db_path', 'host', 'port', 'owner_name'}
     if unknown:
         raise SettingsError(f'Unknown setting(s) {sorted(unknown)} in {config_path} or MARCEL_*.')
     try:
@@ -60,6 +62,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             db_path=Path(values.get('db_path', data_dir / 'marcel.db')),
             host=str(values.get('host', '0.0.0.0')),
             port=int(values.get('port', 7420)),
+            owner_name=str(values.get('owner_name', 'Owner')),
         )
     except ValueError as exc:
         raise SettingsError(f'The port must be a number: {exc}.') from exc
@@ -70,7 +73,13 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
 
 
 def _is_setting(name: str) -> bool:
-    return name in {'MARCEL_DATA_DIR', 'MARCEL_DB_PATH', 'MARCEL_HOST', 'MARCEL_PORT'}
+    return name in {
+        'MARCEL_DATA_DIR',
+        'MARCEL_DB_PATH',
+        'MARCEL_HOST',
+        'MARCEL_PORT',
+        'MARCEL_OWNER_NAME',
+    }
 
 
 router = APIRouter(prefix='/api')
@@ -105,17 +114,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         engine.dispose()
 
-    app = FastAPI(title='Marcel hub', version=__version__, lifespan=lifespan)
+    # No /docs, /redoc or /openapi.json: every route but /health and /pair needs a token.
+    app = FastAPI(
+        title='Marcel hub',
+        version=__version__,
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     app.state.settings = settings
     app.state.engine = engine
     app.include_router(router)
+    auth.install(app)
     tasks.install(app)
     return app
 
 
-def main() -> None:
-    """`marcel-hub`: start the hub on the configured host and port."""
+def main(argv: list[str] | None = None) -> None:
+    """`marcel-hub`: start the hub on the configured host and port.
+
+    `marcel-hub pair` prints a QR code that pairs a phone instead.
+    """
     import uvicorn
+
+    args = sys.argv[1:] if argv is None else argv
+    if args[:1] == ['pair']:
+        from marcel_hub.auth.cli import pair
+
+        raise SystemExit(pair(args[1:]))
 
     try:
         settings = load_settings()

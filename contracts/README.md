@@ -2,10 +2,11 @@
 
 | File | Between | Story |
 |---|---|---|
-| [app-api.yaml](app-api.yaml) | app ↔ hub (REST, OpenAPI 3.1) | S-02.1 |
-| [events.schema.json](events.schema.json) | hub → app (WebSocket `/ws`, JSON Schema 2020-12) | S-02.1 |
+| [app-api.yaml](app-api.yaml) | app ↔ hub (REST, OpenAPI 3.1) | S-02.1; projects and artifact versions S-02.5 |
+| [events.schema.json](events.schema.json) | hub → app (WebSocket `/ws`, JSON Schema 2020-12) | S-02.1, S-02.5 |
 | [task-states.md](task-states.md) | the task state machine every lane follows | S-02.1 |
-| [dashboard.schema.json](dashboard.schema.json) | worker → app (the content of a `dashboard` artifact) | S-02.1 |
+| [dashboard.schema.json](dashboard.schema.json) | worker or hub → app (the content of a `dashboard` or project `board` artifact) | S-02.1, S-02.5 |
+| [avatar-sheet.schema.json](avatar-sheet.schema.json) | `shared/avatar/pixel/build.py` → AvatarKit (the sprite sheet's loops) | S-02.5 |
 | [runner-api.yaml](runner-api.yaml) | hub → runner (HTTP over a unix socket) | S-02.2 |
 | [transcript.schema.json](transcript.schema.json) | runner → hub (one normalised event per transcript line) | S-02.2 |
 | [channel-protocol.md](channel-protocol.md) + [channel.schema.json](channel.schema.json) | session's channel server ↔ hub (WebSocket, outside `/api`) | S-02.2 |

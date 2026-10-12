@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""The fake `claude` executable. Put this folder first on PATH; see ../README.md."""
+
+import sys
+from pathlib import Path
+
+if sys.version_info < (3, 11):
+    sys.exit('fake claude: needs Python 3.11 or newer on PATH as python3.')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from fake_claude import netguard  # noqa: E402
+
+netguard.forbid()  # before the shim runs: this process never reaches the network
+
+from fake_claude.shim import main  # noqa: E402
+
+sys.exit(main(sys.argv[1:]))

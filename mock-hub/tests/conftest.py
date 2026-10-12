@@ -45,5 +45,9 @@ def tag(frame: dict[str, Any]) -> str | None:
             return data['milestone']['event'] if data['kind'] == 'milestone' else data['kind']
         case 'artifact.created':
             return data['kind']
+        case 'artifact.updated':
+            return data['artifact']['kind']
+        case 'project.created' | 'project.updated':
+            return data['slug']
         case _:
             return None

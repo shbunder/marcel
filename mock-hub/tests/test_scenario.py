@@ -17,6 +17,8 @@ UNTIL_APPROVAL = [
     ('message.created', 'text'),
     ('agent.state', 'thinking'),
     ('task.created', None),
+    ('artifact.updated', 'board'),  # the project's board: one more thread in flight
+    ('project.updated', 'marcel-dev'),
     ('message.created', 'started'),
     ('task.event', 'state'),
     ('task.updated', 'working'),
@@ -29,18 +31,28 @@ UNTIL_APPROVAL = [
     ('message.created', 'approval'),
     ('task.event', 'state'),
     ('task.updated', 'needs_you'),
+    ('artifact.updated', 'board'),  # waiting on you
+    ('project.updated', 'marcel-dev'),
     ('agent.state', 'needs_you'),
 ]
 AFTER_APPROVE = [
     ('approval.resolved', None),
+    ('artifact.updated', 'board'),
+    ('project.updated', 'marcel-dev'),
     ('task.event', 'state'),
     ('task.updated', 'working'),
+    ('project.updated', 'marcel-dev'),
     ('agent.state', 'working'),
     ('task.event', 'progress'),
     ('task.event', 'artifact'),
     ('artifact.created', 'pr'),
+    ('message.created', 'artifact'),  # the first item a task makes (B-36)
+    ('artifact.updated', 'board'),
+    ('project.updated', 'marcel-dev'),
     ('task.event', 'state'),
     ('task.updated', 'done'),
+    ('artifact.updated', 'board'),
+    ('project.updated', 'marcel-dev'),
     ('message.created', 'done'),
     ('agent.state', 'done'),
     ('agent.state', 'idle'),
@@ -96,6 +108,10 @@ def test_the_full_scenario_in_order(client: TestClient):
     done = next(f for f in rest if f['type'] == 'message.created' and tag(f) == 'done')
     pr = next(f for f in rest if f['type'] == 'artifact.created')['data']
     assert done['data']['milestone']['artifact_ids'] == [pr['id']]
+    got = next(f for f in rest if f['type'] == 'message.created' and tag(f) == 'artifact')
+    assert got['data']['artifact_id'] == pr['id']
+    assert got['data']['project_id'] == pr['project_id'] == 'prj_01J9ZM1'
+    assert (pr['current_version'], pr['updated_at']) == (1, pr['created_at'])
     finished = client.get(f'/api/tasks/{approval["task_id"]}').json()
     assert finished['state'] == 'done'
     assert finished['artifact_count'] == 1
@@ -134,8 +150,12 @@ def test_denying_stops_the_task(client: TestClient):
         rest = frames_until(ws, ('agent.state', 'idle'))
     assert order(rest) == [
         ('approval.resolved', None),
+        ('artifact.updated', 'board'),
+        ('project.updated', 'marcel-dev'),
         ('task.event', 'state'),
         ('task.updated', 'stopped'),
+        ('artifact.updated', 'board'),
+        ('project.updated', 'marcel-dev'),
         ('message.created', 'stopped'),
         ('agent.state', 'done'),
         ('agent.state', 'idle'),

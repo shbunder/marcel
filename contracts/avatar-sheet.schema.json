@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marcel.invalid/contracts/avatar-sheet.schema.json",
+  "title": "Marcel avatar sprite sheet",
+  "description": "The JSON next to the avatar's sprite sheet PNG (B-28, B-29). `shared/avatar/pixel/build.py` writes it (S-13.1); the app's AvatarKit plays it (S-13.2). Frames are laid out left to right, top to bottom, `columns` per row, each `frame.width` × `frame.height` pixels. A loop is a list of [frame index, milliseconds] steps that repeats.",
+  "type": "object",
+  "required": ["version", "name", "image", "frame", "columns", "frame_count", "loops"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "name": { "type": "string", "description": "e.g. \"giraffe\"." },
+    "palette": { "type": "string", "description": "e.g. \"marcel-rose\"." },
+    "image": { "type": "string", "pattern": "^[a-z0-9-]+\\.png$", "description": "The PNG's file name, next to this JSON." },
+    "frame": {
+      "type": "object",
+      "required": ["width", "height"],
+      "additionalProperties": false,
+      "properties": {
+        "width": { "type": "integer", "minimum": 8, "maximum": 256 },
+        "height": { "type": "integer", "minimum": 8, "maximum": 256 }
+      }
+    },
+    "columns": { "type": "integer", "minimum": 1 },
+    "frame_count": { "type": "integer", "minimum": 1 },
+    "loops": {
+      "type": "object",
+      "description": "One loop per avatar state. `working1`…`working3` show 1…3 glowing spots (one per active thread, at most 3).",
+      "required": ["idle", "thinking", "working1", "working2", "working3", "needs_you", "done"],
+      "additionalProperties": { "$ref": "#/$defs/Loop" },
+      "properties": {
+        "idle": { "$ref": "#/$defs/Loop" },
+        "thinking": { "$ref": "#/$defs/Loop" },
+        "working1": { "$ref": "#/$defs/Loop" },
+        "working2": { "$ref": "#/$defs/Loop" },
+        "working3": { "$ref": "#/$defs/Loop" },
+        "needs_you": { "$ref": "#/$defs/Loop" },
+        "done": { "$ref": "#/$defs/Loop" }
+      }
+    }
+  },
+  "$defs": {
+    "Loop": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "array",
+        "prefixItems": [
+          { "type": "integer", "minimum": 0, "description": "Frame index." },
+          { "type": "integer", "minimum": 16, "maximum": 10000, "description": "How long it shows, in ms." }
+        ],
+        "items": false,
+        "minItems": 2
+      }
+    }
+  },
+  "examples": [
+    {
+      "version": 1,
+      "name": "giraffe",
+      "palette": "marcel-rose",
+      "image": "giraffe.png",
+      "frame": { "width": 48, "height": 54 },
+      "columns": 8,
+      "frame_count": 14,
+      "loops": {
+        "idle": [[0, 1800], [1, 120], [0, 2400], [2, 300]],
+        "thinking": [[3, 400], [4, 400], [5, 400]],
+        "working1": [[6, 140], [7, 140]],
+        "working2": [[8, 140], [9, 140]],
+        "working3": [[10, 140], [11, 140]],
+        "needs_you": [[12, 500], [0, 500]],
+        "done": [[13, 600], [0, 400]]
+      }
+    }
+  ]
+}
