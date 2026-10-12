@@ -1,7 +1,16 @@
-"""Artifacts (B-21): the things tasks produce, kept by the hub and listed in the app's Items tab.
+"""Artifacts (B-21, B-34, B-36): the things tasks produce, kept by the hub and listed in the app's
+Items tab, each with its versions.
 
 A worker hands an artifact in with `report` (channel.schema.json `Artifact`); the channel gateway
-passes it to `ArtifactStore.publish_reported`. What each kind needs:
+passes it to `ArtifactStore.publish_reported`. Without `artifact_id` that makes a new artifact at
+version 1 (`artifact.created`, and the item-get `artifact` message in the main chat when a task
+made it). With `artifact_id` it adds the next version (`artifact.updated`, no second message); an
+id the hub does not have, one from another project, or a board is refused with `UnknownArtifact`.
+Each version's bytes are kept in their own file (`blob_name`), so older versions stay readable.
+
+A project's board (kind `board`) is made with the project and rebuilt by the hub (`boards.py`).
+
+What each kind needs:
 
 - `pr`, `branch`, `link`: an `http(s)` URL. A `pr` URL must name a pull request (`…/pull/<n>`).
 - `doc` (Markdown or HTML), `file` (anything) and `dashboard` (JSON): an absolute path on the NUC.
@@ -23,34 +32,51 @@ which says plainly that it cannot ask GitHub.
 """
 
 import json
+import logging
 import mimetypes
 import os
 import re
 import stat
+import threading
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
-from typing import Annotated, Any, Literal, Protocol
+from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, FastAPI, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import best_match
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import desc
 from sqlmodel import Session, col, select
 
-from marcel_hub.auth import require_device
-from marcel_hub.models import Artifact, ArtifactKind, Task, TaskEventType
+from marcel_hub.conversations import ensure_main_conversation, post_message
+from marcel_hub.models import (
+    BOARD_AUTHOR,
+    Agent,
+    Artifact,
+    ArtifactKind,
+    ArtifactVersion,
+    MessageKind,
+    MessageRole,
+    Task,
+    TaskEventType,
+    utcnow,
+)
 from marcel_hub.tasks.ports import NullPublisher, Publisher
 from marcel_hub.tasks.registry import TaskRegistry, iso
+from marcel_hub.ws import EventLog
 
-CONTRACTS_DIR = Path(__file__).resolve().parents[3] / 'contracts'
+log = logging.getLogger(__name__)
+
+CONTRACTS_DIR = Path(__file__).resolve().parents[4] / 'contracts'
+HUB_AUTHOR = BOARD_AUTHOR  # "the hub"
 MAX_BLOB_BYTES = 25 * 1024 * 1024
 
 PR_URL = re.compile(r'/pull/(\d+)/?$')
 URL_KINDS = {ArtifactKind.pr, ArtifactKind.branch, ArtifactKind.link}
-FILE_KINDS = {ArtifactKind.doc, ArtifactKind.file, ArtifactKind.dashboard}
+FILE_KINDS = {ArtifactKind.doc, ArtifactKind.file, ArtifactKind.dashboard, ArtifactKind.board}
 DOC_TYPES = {'.md': 'text/markdown', '.markdown': 'text/markdown', '.html': 'text/html',
              '.htm': 'text/html'}  # fmt: skip
 
@@ -66,8 +92,17 @@ class ArtifactRefused(Exception):
     """The artifact was not stored. The message tells the worker what to fix."""
 
 
+class UnknownArtifact(ArtifactRefused):
+    """A new version was asked for an artifact the worker may not update: the hub does not have
+    it, it is in another project, or it is a board. The channel answers with an error ack."""
+
+
 class ArtifactNotFound(Exception):
     """No artifact with that id (404 `artifact_not_found`)."""
+
+
+class VersionNotFound(Exception):
+    """The artifact has no such version (404 `not_found`)."""
 
 
 class NoContent(Exception):
@@ -209,6 +244,21 @@ class ReportedArtifact(BaseModel):
     summary: str | None = Field(default=None, max_length=200)
 
 
+@dataclass(frozen=True)
+class Content:
+    """What one version of an artifact holds: its bytes (file kinds) or its URL (link kinds)."""
+
+    data: bytes | None = None
+    url: str | None = None
+    content_type: str | None = None
+    meta: dict[str, Any] = field(default_factory=dict)
+
+
+def blob_name(artifact_id: str, version: int) -> str:
+    """The file a version's bytes are kept in. Version 1 keeps the name it had before versions."""
+    return artifact_id if version == 1 else f'{artifact_id}.v{version}'
+
+
 class ArtifactStore:
     def __init__(
         self,
@@ -218,6 +268,7 @@ class ArtifactStore:
         publisher: Publisher | None = None,
         files_root: Path | None = None,
         pr_source: PrStatusSource | None = None,
+        events: EventLog | None = None,
     ) -> None:
         self.engine = engine
         self.blob_dir = blob_dir
@@ -225,6 +276,11 @@ class ArtifactStore:
         self.publisher = publisher
         self.files_root = files_root  # the workers' folder as the hub sees it; None: no copying
         self.pr_source: PrStatusSource = pr_source or NoPrStatus()
+        self.events = events  # for the item-get message (B-36); None: no message
+        # Writes a board's content now, by project id: set by the board keeper, so a board read
+        # before its first build is built on the spot (`boards.BoardKeeper`).
+        self.build_board: Callable[[str], None] | None = None
+        self._lock = threading.Lock()  # one new version of an artifact at a time
 
     # Reading -------------------------------------------------------------------------------
 
@@ -243,7 +299,9 @@ class ArtifactStore:
         limit: int = 50,
         project_id: str | None = None,
     ) -> tuple[list[Artifact], int | None]:
-        """Newest first. Returns the page and the offset of the next one (None at the end)."""
+        """Newest change first. Boards are listed only when asked for (`kind=board`): a project
+        shows its own board, the Items tab shows what tasks made. Returns the page and the offset
+        of the next one (None at the end)."""
         query = select(Artifact)
         if task_id is not None:
             query = query.where(Artifact.task_id == task_id)
@@ -251,66 +309,178 @@ class ArtifactStore:
             query = query.where(Artifact.project_id == project_id)
         if kind is not None:
             query = query.where(Artifact.kind == kind)
-        query = query.order_by(desc(col(Artifact.created_at)), desc(col(Artifact.id)))
+        else:
+            query = query.where(Artifact.kind != ArtifactKind.board)
+        query = query.order_by(desc(col(Artifact.updated_at)), desc(col(Artifact.id)))
         with Session(self.engine) as s:
             rows = list(s.exec(query.offset(offset).limit(limit + 1)))
         more = len(rows) > limit
         return rows[:limit], (offset + limit if more else None)
 
-    def content(self, artifact_id: str) -> tuple[bytes, str, bool]:
-        """The bytes, content type and `trusted` of an artifact the hub holds."""
-        path, art = self.content_path(artifact_id)
-        return path.read_bytes(), art.content_type or 'application/octet-stream', art.trusted
+    def versions(self, artifact_id: str) -> list[ArtifactVersion]:
+        """Every version, newest first. Raises `ArtifactNotFound`."""
+        self.get(artifact_id)
+        with Session(self.engine) as s:
+            return list(
+                s.exec(
+                    select(ArtifactVersion)
+                    .where(ArtifactVersion.artifact_id == artifact_id)
+                    .order_by(desc(col(ArtifactVersion.version)))
+                )
+            )
 
-    def content_path(self, artifact_id: str) -> tuple[Path, Artifact]:
+    def version(self, artifact_id: str, version: int) -> ArtifactVersion:
+        with Session(self.engine) as s:
+            row = s.get(ArtifactVersion, (artifact_id, version))
+        if row is None:
+            raise VersionNotFound(artifact_id, version)
+        return row
+
+    def content(self, artifact_id: str, version: int | None = None) -> tuple[bytes, str, bool]:
+        """The bytes, content type and `trusted` of an artifact the hub holds."""
+        path, art, content_type = self.content_path(artifact_id, version)
+        return path.read_bytes(), content_type, art.trusted
+
+    def content_path(
+        self, artifact_id: str, version: int | None = None
+    ) -> tuple[Path, Artifact, str]:
+        """The file holding a version's bytes (the current one by default), the artifact, and
+        that version's content type. Raises `ArtifactNotFound`, `VersionNotFound`, `NoContent`."""
         art = self.get(artifact_id)
         if art.kind not in FILE_KINDS:
             raise NoContent(f'“{art.title}” is a link, so the hub has no copy. Open its link.')
-        path = self.blob_dir / art.id
+        number = art.current_version if version is None else version
+        content_type = art.content_type
+        if number != art.current_version:
+            content_type = self.version(artifact_id, number).content_type
+        path = self.blob_dir / blob_name(art.id, number)
+        if not path.is_file() and art.kind is ArtifactKind.board and self.build_board is not None:
+            assert art.project_id is not None
+            self.build_board(art.project_id)  # a board read before the hub first built it
         if not path.is_file():
             raise ArtifactNotFound(artifact_id)
-        return path, art
+        return path, art, content_type or 'application/octet-stream'
+
+    def stored_bytes(self, art: Artifact) -> bytes | None:
+        """The current version's bytes, or None when the hub has none yet."""
+        path = self.blob_dir / blob_name(art.id, art.current_version)
+        return path.read_bytes() if path.is_file() else None
 
     @staticmethod
     def to_api(art: Artifact) -> dict[str, Any]:
-        """The contract's `Artifact`. Versions come with S-04.11; until then every artifact is at
-        version 1, and its current version is its first."""
+        """The contract's `Artifact`: the current version's fields."""
         body: dict[str, Any] = {
             'id': art.id,
             'kind': art.kind.value,
             'title': art.title,
-            'current_version': 1,
+            'current_version': art.current_version,
             'trusted': art.trusted,
             'self_change': art.self_change,
             'created_at': iso(art.created_at),
-            'updated_at': iso(art.created_at),
+            'updated_at': iso(art.updated_at),
         }
-        for name in ('task_id', 'project_id', 'url', 'content_type', 'size_bytes'):
+        for name in ('task_id', 'project_id', 'updated_by', 'url', 'content_type', 'size_bytes'):
             if (value := getattr(art, name)) is not None:
                 body[name] = value
         if 'pr' in art.meta_json:
             body['pr'] = art.meta_json['pr']
         return body
 
+    @staticmethod
+    def version_to_api(row: ArtifactVersion) -> dict[str, Any]:
+        """The contract's `ArtifactVersion`."""
+        body: dict[str, Any] = {'artifact_id': row.artifact_id, 'version': row.version}
+        for name in ('summary', 'author', 'task_id', 'url', 'content_type', 'size_bytes'):
+            if (value := getattr(row, name)) is not None:
+                body[name] = value
+        body['created_at'] = iso(row.created_at)
+        return body
+
     # Storing -------------------------------------------------------------------------------
 
-    def publish_reported(self, spec: dict[str, Any], task_id: str | None = None) -> Artifact:
-        """Store what a worker handed in with `report`. Raises `ArtifactRefused`."""
+    def version_target(
+        self, artifact_id: str, task_id: str | None, project_id: str | None = None
+    ) -> Artifact:
+        """The artifact a worker (or Marcel) may hand a new version of. The caller's project is
+        its task's, or `project_id` when no task hands it in (Marcel's own items). Raises
+        `UnknownArtifact` for an id the hub does not have, one from another project, or a board
+        (the hub keeps boards itself)."""
+        try:
+            art = self.get(artifact_id)
+        except ArtifactNotFound:
+            art = None
+        if art is None:
+            raise UnknownArtifact(
+                f'The artifact was not saved: there is no artifact {artifact_id}. Hand it in '
+                'without artifact_id to make a new one.'
+            )
+        if art.kind is ArtifactKind.board:
+            raise UnknownArtifact(
+                f'The artifact was not saved: {artifact_id} is a project board, which the hub '
+                'keeps up to date itself.'
+            )
+        if task_id is not None:
+            project_id = None
+            with Session(self.engine) as s:
+                task = s.get(Task, task_id)
+                project_id = task.project_id if task else None
+        if art.project_id != project_id:
+            raise UnknownArtifact(
+                f'The artifact was not saved: {artifact_id} belongs to another project than this '
+                'task. Hand it in without artifact_id to make a new one.'
+            )
+        return art
+
+    def publish_reported(
+        self,
+        spec: dict[str, Any],
+        task_id: str | None = None,
+        project_id: str | None = None,
+        author: str | None = None,
+    ) -> Artifact:
+        """Store what a worker handed in with `report`: a new artifact, or with `artifact_id` a
+        new version of one in the task's project. Marcel's own items have no task: they are
+        filed under `project_id`, by `author` ("Marcel"). Raises `ArtifactRefused`
+        (`UnknownArtifact` for an id it may not update)."""
         try:
             reported = ReportedArtifact.model_validate(spec)
         except ValidationError as exc:
             first = exc.errors()[0]
             where = '.'.join(str(p) for p in first['loc']) or 'the artifact'
             raise ArtifactRefused(f'The artifact was not saved: {where}: {first["msg"]}.') from exc
-        if reported.artifact_id is not None:
-            raise ArtifactRefused(
-                'The artifact was not saved: this hub cannot store a new version of an artifact '
-                'yet. Hand it in without artifact_id.'
-            )
         kind = ArtifactKind(reported.kind)
-        if kind in URL_KINDS:
-            return self._publish_url(kind, reported, task_id)
+        target = None
+        if reported.artifact_id is not None:
+            target = self.version_target(reported.artifact_id, task_id, project_id)
+            if target.kind is not kind:
+                raise ArtifactRefused(
+                    f'The artifact was not saved: “{target.title}” is a {target.kind.value}, so '
+                    f'a new version of it must be a {target.kind.value} too, not a {kind.value}.'
+                )
+        content = self._read_reported(kind, reported)
+        if target is not None:
+            return self.add_version(
+                target.id, content, title=reported.title, task_id=task_id,
+                summary=reported.summary, author=author,
+            )  # fmt: skip
+        art = Artifact(kind=kind, title=reported.title, task_id=task_id, url=content.url,
+                       trusted=False, content_type=content.content_type, meta_json=content.meta,
+                       size_bytes=None if content.data is None else len(content.data),
+                       project_id=project_id if task_id is None else None,
+                       updated_by=author)  # fmt: skip
+        return self._store(art, content.data, reported.summary)
 
+    def publish_hub_html(self, title: str, html: str, task_id: str | None = None) -> Artifact:
+        """HTML the hub rendered itself: the only artifact that is `trusted`."""
+        data = html.encode('utf-8')
+        art = Artifact(kind=ArtifactKind.doc, title=title, task_id=task_id, trusted=True,
+                       content_type='text/html', size_bytes=len(data),
+                       updated_by=HUB_AUTHOR)  # fmt: skip
+        return self._store(art, data)
+
+    def _read_reported(self, kind: ArtifactKind, reported: ReportedArtifact) -> Content:
+        if kind in URL_KINDS:
+            return self._check_url(kind, reported)
         if reported.path is None:
             raise ArtifactRefused(f'The artifact was not saved: a {kind.value} needs a path.')
         data, name = self._read_worker_file(reported.path)
@@ -325,22 +495,9 @@ class ArtifactStore:
             content_type = 'application/json'
         else:
             content_type = _MIME.guess_type(name)[0] or 'application/octet-stream'
-        return self._store(
-            Artifact(kind=kind, title=reported.title, task_id=task_id, trusted=False,
-                     content_type=content_type, size_bytes=len(data)),
-            data,
-        )  # fmt: skip
+        return Content(data=data, content_type=content_type)
 
-    def publish_hub_html(self, title: str, html: str, task_id: str | None = None) -> Artifact:
-        """HTML the hub rendered itself: the only artifact that is `trusted`."""
-        data = html.encode('utf-8')
-        art = Artifact(kind=ArtifactKind.doc, title=title, task_id=task_id, trusted=True,
-                       content_type='text/html', size_bytes=len(data))  # fmt: skip
-        return self._store(art, data)
-
-    def _publish_url(
-        self, kind: ArtifactKind, reported: ReportedArtifact, task_id: str | None
-    ) -> Artifact:
+    def _check_url(self, kind: ArtifactKind, reported: ReportedArtifact) -> Content:
         url = reported.url
         if url is None:
             raise ArtifactRefused(f'The artifact was not saved: a {kind.value} needs a url.')
@@ -358,9 +515,7 @@ class ArtifactStore:
                     '/pull/<number>; hand in a branch or link otherwise.'
                 )
             meta['pr'] = {'number': int(match.group(1)), 'state': 'open'}
-        art = Artifact(kind=kind, title=reported.title, task_id=task_id, url=url, trusted=False,
-                       meta_json=meta)  # fmt: skip
-        return self._store(art, None)
+        return Content(url=url, meta=meta)
 
     def _read_worker_file(self, raw: str) -> tuple[bytes, str]:
         """The bytes of a worker's file, only from inside `files_root`.
@@ -408,22 +563,24 @@ class ArtifactStore:
             )
         return data, path.name
 
-    def _store(self, art: Artifact, data: bytes | None) -> Artifact:
+    def _write_blob(self, name: str, data: bytes) -> Path:
+        self.blob_dir.mkdir(parents=True, exist_ok=True)
+        blob = self.blob_dir / name
+        tmp = blob.with_name(f'.{name}.saving')
+        tmp.write_bytes(data)
+        os.replace(tmp, blob)
+        return blob
+
+    def _store(self, art: Artifact, data: bytes | None, summary: str | None = None) -> Artifact:
         if art.task_id is not None:
             with Session(self.engine) as s:
                 if s.get(Task, art.task_id) is None:
                     raise ArtifactRefused(
                         f'The artifact was not saved: there is no task {art.task_id}.'
                     )
-        blob: Path | None = None
-        if data is not None:
-            self.blob_dir.mkdir(parents=True, exist_ok=True)
-            blob = self.blob_dir / art.id
-            tmp = blob.with_name(f'.{art.id}.saving')
-            tmp.write_bytes(data)
-            os.replace(tmp, blob)
+        blob = None if data is None else self._write_blob(blob_name(art.id, 1), data)
         try:
-            art = self._insert(art)
+            art = self._insert(art, summary)
         except Exception:
             if blob is not None:
                 blob.unlink(missing_ok=True)
@@ -431,15 +588,122 @@ class ArtifactStore:
         self._announce(art)
         return art
 
-    def _insert(self, art: Artifact) -> Artifact:
+    def _insert(self, art: Artifact, summary: str | None) -> Artifact:
         with Session(self.engine) as s:
             s.add(art)
-            s.commit()
+            s.commit()  # version 1 is written with it (`models._first_version`)
+            if summary is not None:
+                first = s.get(ArtifactVersion, (art.id, 1))
+                assert first is not None
+                first.summary = summary
+                s.add(first)
+                s.commit()
             s.refresh(art)
         return art
 
+    def add_version(
+        self,
+        artifact_id: str,
+        content: Content,
+        *,
+        title: str | None = None,
+        task_id: str | None = None,
+        author: str | None = None,
+        summary: str | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> Artifact:
+        """Store `content` as the artifact's next version and send `artifact.updated`. The
+        author defaults to the task's title. Never posts a second item-get message (B-36)."""
+        with self._lock:
+            art = self.get(artifact_id)
+            number = art.current_version + 1
+            blob = None
+            if content.data is not None:
+                blob = self._write_blob(blob_name(art.id, number), content.data)
+            try:
+                with Session(self.engine) as s:
+                    row = s.get(Artifact, artifact_id)
+                    assert row is not None
+                    task = s.get(Task, task_id) if task_id is not None else None
+                    now = utcnow()
+                    row.current_version = number
+                    row.updated_at = now
+                    row.updated_by = author or (task.title if task else None) or row.updated_by
+                    row.title = title or row.title
+                    if content.url is not None:
+                        row.url = content.url
+                    if content.data is not None:
+                        row.size_bytes = len(content.data)
+                        row.content_type = content.content_type or row.content_type
+                    row.meta_json = {**row.meta_json, **content.meta, **(meta or {})}
+                    version = ArtifactVersion(
+                        artifact_id=row.id, version=number, url=row.url,
+                        content_type=row.content_type, size_bytes=row.size_bytes,
+                        summary=summary, author=row.updated_by, task_id=task_id, created_at=now,
+                    )  # fmt: skip
+                    s.add(row)
+                    s.add(version)
+                    s.commit()
+                    s.refresh(row)
+                    s.refresh(version)
+            except Exception:
+                if blob is not None:
+                    blob.unlink(missing_ok=True)
+                raise
+        if task_id is not None and self.tasks is not None:
+            self.tasks.append_event(task_id, TaskEventType.artifact,
+                                    {'artifact_id': row.id, 'kind': row.kind.value,
+                                     'title': row.title})  # fmt: skip
+        self._updated(row, version)
+        return row
+
+    def fill_first(self, artifact_id: str, data: bytes, title: str | None = None) -> Artifact:
+        """Write the bytes of version 1 of an artifact made without them (a project's board, made
+        with the project) and send `artifact.created`: the app hears of it now."""
+        with self._lock:
+            self._write_blob(blob_name(artifact_id, 1), data)
+            with Session(self.engine) as s:
+                row = s.get(Artifact, artifact_id)
+                first = s.get(ArtifactVersion, (artifact_id, 1))
+                assert row is not None and first is not None
+                row.size_bytes = first.size_bytes = len(data)
+                row.title = title or row.title
+                s.add(row)
+                s.add(first)
+                s.commit()
+                s.refresh(row)
+        self._publisher().publish('artifact.created', self.to_api(row))
+        return row
+
+    def set_meta(self, artifact_id: str, **values: Any) -> Artifact:
+        """Change `meta_json` keys without a new version (e.g. a board's notes)."""
+        with self._lock, Session(self.engine) as s:
+            row = s.get(Artifact, artifact_id)
+            if row is None:
+                raise ArtifactNotFound(artifact_id)
+            row.meta_json = {**row.meta_json, **values}
+            s.add(row)
+            s.commit()
+            s.refresh(row)
+            return row
+
+    def announce_moved(self, task_id: str) -> None:
+        """A task moved to another project (S-04.10): its items moved with it. Send
+        `artifact.updated` for each, with its current version, so the app files it again."""
+        with Session(self.engine) as s:
+            rows = list(s.exec(select(Artifact).where(Artifact.task_id == task_id)))
+        for art in rows:
+            self._updated(art, self.version(art.id, art.current_version))
+
+    def _updated(self, art: Artifact, version: ArtifactVersion) -> None:
+        self._publisher().publish(
+            'artifact.updated',
+            {'artifact': self.to_api(art), 'version': self.version_to_api(version)},
+        )
+
     def _announce(self, art: Artifact) -> None:
-        """Record the artifact on its task and tell the app (`artifact.created`)."""
+        """A new artifact: record it on its task, tell the app (`artifact.created`), and post the
+        item-get message in the agent's main conversation (B-36)."""
         if art.task_id is not None and self.tasks is not None:
             self.tasks.append_event(
                 art.task_id,
@@ -448,6 +712,27 @@ class ArtifactStore:
             )
             self.tasks._publish_task(art.task_id)  # artifact_count changed
         self._publisher().publish('artifact.created', self.to_api(art))
+        if art.task_id is not None:
+            self._item_get(art)
+
+    def _item_get(self, art: Artifact) -> None:
+        """The `artifact` message: "an item arrived" (B-36). Only for the first version of an
+        artifact a task made; a failure to post it never loses the artifact."""
+        if self.events is None:
+            return
+        try:
+            with Session(self.engine) as s:
+                task = s.get(Task, art.task_id)
+                agent = s.get(Agent, task.agent_id) if task else None
+                if task is None or agent is None:
+                    return
+                post_message(
+                    s, self.events, ensure_main_conversation(s, agent), role=MessageRole.agent,
+                    kind=MessageKind.artifact, body={}, task_id=task.id,
+                    project_id=art.project_id, artifact_id=art.id,
+                )  # fmt: skip
+        except Exception:
+            log.exception('Could not post the item message for %s.', art.id)
 
     def _publisher(self) -> Publisher:
         if self.publisher is not None:
@@ -482,91 +767,3 @@ class ArtifactStore:
             s.commit()
             s.refresh(row)
         return row
-
-
-# Routes ------------------------------------------------------------------------------------
-
-router = APIRouter(prefix='/api', dependencies=[Depends(require_device)])
-
-
-def _error(status: int, code: str, message: str) -> JSONResponse:
-    return JSONResponse({'code': code, 'message': message}, status_code=status)
-
-
-def _not_found(artifact_id: str) -> JSONResponse:
-    return _error(404, 'artifact_not_found', f'There is no item {artifact_id}. It may be gone.')
-
-
-def _store(request: Request) -> ArtifactStore:
-    return request.app.state.artifacts
-
-
-@router.get('/artifacts')
-def list_artifacts(
-    request: Request,
-    task_id: str | None = None,
-    project_id: str | None = None,
-    kind: str | None = None,
-    cursor: str | None = None,
-    limit: str = '50',
-) -> Any:
-    if kind == 'board':  # in the contract; boards arrive with S-04.11
-        return {'items': []}
-    kinds = [k.value for k in ArtifactKind]
-    if kind is not None and kind not in kinds:
-        return _error(400, 'bad_request', f'kind must be one of {", ".join(kinds)}.')
-    if not limit.isdigit() or not 1 <= int(limit) <= 200:
-        return _error(400, 'bad_request', 'limit must be a number from 1 to 200.')
-    if cursor is not None and not cursor.isdigit():
-        return _error(400, 'bad_request', 'That page cursor is not valid. Start again without it.')
-    store = _store(request)
-    rows, nxt = store.page(
-        task_id, ArtifactKind(kind) if kind else None, int(cursor or 0), int(limit), project_id
-    )
-    page: dict[str, Any] = {'items': [store.to_api(a) for a in rows]}
-    if nxt is not None:
-        page['next_cursor'] = str(nxt)
-    return page
-
-
-@router.get('/artifacts/{artifact_id}')
-def get_artifact(request: Request, artifact_id: str) -> Any:
-    try:
-        return _store(request).to_api(_store(request).get(artifact_id))
-    except ArtifactNotFound:
-        return _not_found(artifact_id)
-
-
-@router.get('/artifacts/{artifact_id}/content')
-def get_artifact_content(
-    request: Request, artifact_id: str, version: Annotated[int | None, Query(ge=1)] = None
-) -> Any:
-    try:
-        path, art = _store(request).content_path(artifact_id)
-    except ArtifactNotFound:
-        return _not_found(artifact_id)
-    except NoContent as exc:
-        return _error(404, 'not_found', str(exc))
-    if version is not None and version != 1:
-        return _error(404, 'not_found', f'“{art.title}” has only one version.')
-    # The hub never renders content. Untrusted HTML opened straight from this URL runs in a
-    # sandbox with no scripts; even trusted HTML gets an origin of its own.
-    headers = {
-        'X-Content-Type-Options': 'nosniff',
-        'Content-Security-Policy': 'sandbox allow-scripts' if art.trusted else 'sandbox',
-    }
-    return FileResponse(path, media_type=art.content_type, headers=headers)
-
-
-def install(app: FastAPI, files_root: Path | None = None) -> ArtifactStore:
-    """Put the store on `app.state.artifacts` and mount `/api/artifacts`. Call after
-    `tasks.install`: an artifact handed in by a task is recorded on that task."""
-    store = ArtifactStore(
-        app.state.engine,
-        app.state.settings.data_dir / 'artifacts',
-        tasks=getattr(app.state, 'tasks', None),
-        files_root=files_root,
-    )
-    app.state.artifacts = store
-    app.include_router(router)
-    return store

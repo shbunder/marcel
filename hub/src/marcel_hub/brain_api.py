@@ -27,11 +27,11 @@ Some tools reach parts of the hub that are built elsewhere. Each sits behind a s
 `app.state.brain_ports`; until its story plugs in the real one, the default answers 503
 `not_set_up` with a plain sentence, and nothing is stored:
 
-- `boards` (`board_note`): project boards, S-04.11.
+- `boards` (`board_note`): project boards; the app plugs in `boards.BrainBoards` (S-04.11).
 - `artifacts` (`artifacts_publish`): the default stores through the artifact store's
   `publish_reported` (the same path as a worker's `report`), filed under the project the brain
-  named (its agent's Inbox by default). A new version (`artifact_id`) is refused by the store until
-  S-04.11 adds versions.
+  named (its agent's Inbox by default). With `artifact_id` it adds a new version of one of that
+  project's items (S-04.11); an item of another project, or a board, is refused.
 
 Every request body is read only up to a cap (`MAX_BODY_BYTES`, more for a memory write), and
 every text field has a maximum length.
@@ -272,7 +272,8 @@ class ReportedArtifacts:
             raise NotSetUp('This hub has no artifact store, so nothing was saved.')
         token = _filing.set(project_id)
         try:
-            return self.store.to_api(self.store.publish_reported(spec))
+            art = self.store.publish_reported(spec, project_id=project_id, author='Marcel')
+            return self.store.to_api(art)
         finally:
             _filing.reset(token)
 

@@ -7,7 +7,7 @@ projects; the database enforces that too (`ix_project_live_slug`). Each project 
 `memory/projects/<slug>.md` in the memory folder (B-33), made with the project.
 
 Events: `project.created`, `project.updated` (any change to a project or its counts, including a
-task in it changing), `task.moved`.
+task in it changing), `task.moved`, and `artifact.updated` for each item of a moved task.
 """
 
 import logging
@@ -22,6 +22,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, select, update
 
+from marcel_hub.artifacts.store import ArtifactStore
 from marcel_hub.memory import (
     SLICE_MAX_BYTES,
     InvalidMemoryPath,
@@ -126,6 +127,8 @@ class ProjectStore:
         self.memory = memory
         self.publisher: Publisher = publisher or NullPublisher()
         self.tasks = tasks
+        # Announces a moved task's items (`ArtifactStore.announce_moved`); None: not announced.
+        self.artifacts: ArtifactStore | None = None
         self._lock = threading.Lock()
 
     # Reading ---------------------------------------------------------------------------------
@@ -316,7 +319,8 @@ class ProjectStore:
 
     def move(self, task_id: str, project_id: str, user_id: str) -> Task:
         """File a task under another project of the same agent (B-31). Its artifacts go with it.
-        Sends `task.moved`, then `task.updated`, then `project.updated` for both projects."""
+        Sends `task.moved`, then `task.updated`, then `project.updated` for both projects, then
+        `artifact.updated` for each of its items, now filed under the new project."""
         with Session(self.engine) as s:
             task = s.get(Task, task_id)
             agent = s.get(Agent, task.agent_id) if task else None
@@ -354,6 +358,8 @@ class ProjectStore:
             self.announce(target.id)
         if source is not None:
             self.announce(source)
+        if self.artifacts is not None:
+            self.artifacts.announce_moved(task_id)
         return task
 
     def announce(self, project_id: str) -> None:
