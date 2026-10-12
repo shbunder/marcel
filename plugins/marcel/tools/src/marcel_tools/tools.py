@@ -321,14 +321,19 @@ TOOLS: list[Tool] = [
         'substantial instead of doing it yourself; answer quick questions directly. You choose '
         'where it runs: "nuc" for local files, Docker, the home network or the NUC’s tools; '
         '"cloud" for GitHub work that needs nothing local (then give "repo"). Before starting '
-        'one, check tasks_list for a live thread the work belongs to and use tasks_send instead. '
-        'Tell the owner in one line what you started and where.',
+        'one, check tasks_list for a live thread the work belongs to and use tasks_send instead, '
+        'and pick its project with projects_list ("inbox" when nothing fits). Tell the owner in '
+        'one line what you started, where, and in which project.',
         obj(
             ['title', 'prompt', 'location'],
             title=text('A short name the owner will recognise.', 120),
             prompt=text('Everything the worker needs: the goal, context, and what done means.'),
             location={'type': 'string', 'enum': ['nuc', 'cloud']},
-            project=PROJECT,
+            project={
+                **PROJECT,
+                'description': 'The project you filed it in: its slug (e.g. '
+                '"garden") or id; "inbox" when nothing fits.',
+            },
             repo=REPO,
             model={
                 'type': 'string',

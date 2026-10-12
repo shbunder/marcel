@@ -14,7 +14,7 @@ a worker's call is refused by the hub.
 
 | Tool | Hub route | What it does |
 |---|---|---|
-| `tasks_spawn(title, prompt, location, project?, repo?, model?, expected_minutes?, message_id?)` | `POST /brain/tasks` | Start a thread. `location` is `nuc` or `cloud`; `auto` is refused with a hint to choose, so the choice shows in the brain's turn. A cloud task needs `repo` (`owner/name`, no leading `-`, no `..`). `message_id` must be a message in the brain's own conversation. |
+| `tasks_spawn(title, prompt, location, project?, repo?, model?, expected_minutes?, message_id?)` | `POST /brain/tasks` | Start a thread. `project` is the slug or id it is filed in (`inbox` for the Inbox, also the default). `location` is `nuc` or `cloud`; `auto` is refused with a hint to choose, so the choice shows in the brain's turn. A cloud task needs `repo` (`owner/name`, no leading `-`, no `..`). `message_id` must be a message in the brain's own conversation. |
 | `tasks_list(state?, project?, archived?)` | `GET /brain/tasks` | Threads, most recent first (50). |
 | `tasks_get(id)` | `GET /brain/tasks/{id}` | One thread and its last ten events. |
 | `tasks_send(id, text)` | `POST /brain/tasks/{id}/messages` | Steer a thread (`author: marcel`). |
