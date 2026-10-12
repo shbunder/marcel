@@ -50,6 +50,7 @@ public struct SettingsView: View {
         actions.copyTopic = { TopicClipboard.copy($0) }
         actions.setPaused = { schedule, paused in Task { await model.setPaused(schedule, paused) } }
         actions.delete = { schedule in Task { await model.delete(schedule) } }
+        actions.pauseInstead = { Task { await model.pauseInsteadOfDeleting() } }
         actions.revoke = { device in Task { await model.revoke(device) } }
         actions.unpair = { [model, unpair] in
             Task {
@@ -69,6 +70,7 @@ struct SettingsActions {
     var copyTopic: (String) -> Void = { _ in }
     var setPaused: (Schedule, Bool) -> Void = { _, _ in }
     var delete: (Schedule) -> Void = { _ in }
+    var pauseInstead: () -> Void = {}
     var revoke: (Device) -> Void = { _ in }
     var unpair: () -> Void = {}
     var openStatus: () -> Void = {}
@@ -232,6 +234,12 @@ struct SettingsContent: View {
                             if !schedule.builtin {
                                 SettingsButton(title: "Delete", destructive: true) { confirming = .delete(schedule) }
                             }
+                        }
+                    }
+                    if model.pauseInstead?.id == schedule.id {
+                        SettingsRow("Pause it instead?", detail: "“\(schedule.name)” is built in, so it can't be "
+                                    + "deleted. Paused, it doesn't run until you resume it.") {
+                            SettingsButton(title: "Pause", action: actions.pauseInstead)
                         }
                     }
                 }
