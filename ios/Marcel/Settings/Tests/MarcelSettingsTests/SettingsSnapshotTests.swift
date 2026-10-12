@@ -60,6 +60,18 @@ final class SettingsSnapshotTests: XCTestCase {
                         padding: 0)
     }
 
+    /// S-12.12: deleting a schedule the hub keeps as a built-in digest (409 `schedule_builtin`): why, and "Pause it
+    /// instead?".
+    func testDeletingABuiltInDigestOffersPause() async {
+        let hub = FakeHub()
+        hub["GET /schedules"] = (200, Fx.json([Fx.schedules[0], Fx.schedules[1].merging(["paused": false]) { $1 }]))
+        hub["DELETE /schedules/sch_deps"] = (409, Fx.error("schedule_builtin", "Built-in."))
+        let model = await model(hub)
+        await model.delete(model.schedules.value![1])
+        XCTAssertNotNil(model.pauseInstead)
+        Snapshot.assert(SettingsStill(model: model), named: "Settings-builtin-pause", variants: Self.both, padding: 0)
+    }
+
     /// S-12.11: the runner has not read plan usage yet (503 `no_reading`): "usage unavailable".
     func testSettingsWithNoUsageReadingYet() async {
         let hub = FakeHub()

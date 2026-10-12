@@ -1453,6 +1453,465 @@ public enum Operations {
             }
         }
     }
+    /// Give Marcel a fresh main session now (a manual rollover). New in 0.6.0.
+    ///
+    /// The hub starts a new brain with Marcel's notes and recent context, and hands the
+    /// conversation over when it says hello (channel-protocol.md § Brain rollover). The
+    /// `brain.rollover` event (reason `manual`) follows once the hand-over is done.
+    ///
+    ///
+    /// - Remark: HTTP `POST /agents/{agent_id}/brain/rollover`.
+    /// - Remark: Generated from `#/paths//agents/{agent_id}/brain/rollover/post(rollOverBrain)`.
+    public enum RollOverBrain {
+        public static let id: Swift.String = "rollOverBrain"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/agents/{agent_id}/brain/rollover/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/agents/{agent_id}/brain/rollover/POST/path/agent_id`.
+                public var agentId: Components.Parameters.AgentId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - agentId:
+                public init(agentId: Components.Parameters.AgentId) {
+                    self.agentId = agentId
+                }
+            }
+            public var path: Operations.RollOverBrain.Input.Path
+            /// - Remark: Generated from `#/paths/agents/{agent_id}/brain/rollover/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RollOverBrain.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RollOverBrain.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.RollOverBrain.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.RollOverBrain.Input.Path,
+                headers: Operations.RollOverBrain.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Accepted: Sendable, Hashable {
+                /// Creates a new `Accepted`.
+                public init() {}
+            }
+            /// Started; the `brain.rollover` event follows.
+            ///
+            /// - Remark: Generated from `#/paths//agents/{agent_id}/brain/rollover/post(rollOverBrain)/responses/202`.
+            ///
+            /// HTTP response code: `202 accepted`.
+            case accepted(Operations.RollOverBrain.Output.Accepted)
+            /// Started; the `brain.rollover` event follows.
+            ///
+            /// - Remark: Generated from `#/paths//agents/{agent_id}/brain/rollover/post(rollOverBrain)/responses/202`.
+            ///
+            /// HTTP response code: `202 accepted`.
+            public static var accepted: Self {
+                .accepted(.init())
+            }
+            /// The associated value of the enum case if `self` is `.accepted`.
+            ///
+            /// - Throws: An error if `self` is not `.accepted`.
+            /// - SeeAlso: `.accepted`.
+            public var accepted: Operations.RollOverBrain.Output.Accepted {
+                get throws {
+                    switch self {
+                    case let .accepted(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "accepted",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// No device token, or a revoked one.
+            ///
+            /// - Remark: Generated from `#/paths//agents/{agent_id}/brain/rollover/post(rollOverBrain)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Nothing with that id.
+            ///
+            /// - Remark: Generated from `#/paths//agents/{agent_id}/brain/rollover/post(rollOverBrain)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/agents/{agent_id}/brain/rollover/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/agents/{agent_id}/brain/rollover/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas._Error)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas._Error {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.RollOverBrain.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.RollOverBrain.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// `rollover_running`: a rollover is already waiting for its new session to say hello.
+            ///
+            /// - Remark: Generated from `#/paths//agents/{agent_id}/brain/rollover/post(rollOverBrain)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.RollOverBrain.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.RollOverBrain.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/agents/{agent_id}/brain/rollover/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/agents/{agent_id}/brain/rollover/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas._Error)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas._Error {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.RollOverBrain.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.RollOverBrain.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// `runner_unreachable`: the hub cannot start a session just now. Nothing changed.
+            ///
+            /// - Remark: Generated from `#/paths//agents/{agent_id}/brain/rollover/post(rollOverBrain)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.RollOverBrain.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.RollOverBrain.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Marcel's past rollovers, newest first (for the notebook). New in 0.6.0.
+    ///
+    /// The same facts as each `brain.rollover` event, kept apart from the event log so a rollover
+    /// from before this phone was listening is still shown. `[]` before the first one.
+    ///
+    ///
+    /// - Remark: HTTP `GET /agents/{agent_id}/brain/rollovers`.
+    /// - Remark: Generated from `#/paths//agents/{agent_id}/brain/rollovers/get(listBrainRollovers)`.
+    public enum ListBrainRollovers {
+        public static let id: Swift.String = "listBrainRollovers"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/agents/{agent_id}/brain/rollovers/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/agents/{agent_id}/brain/rollovers/GET/path/agent_id`.
+                public var agentId: Components.Parameters.AgentId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - agentId:
+                public init(agentId: Components.Parameters.AgentId) {
+                    self.agentId = agentId
+                }
+            }
+            public var path: Operations.ListBrainRollovers.Input.Path
+            /// - Remark: Generated from `#/paths/agents/{agent_id}/brain/rollovers/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/agents/{agent_id}/brain/rollovers/GET/query/limit`.
+                public var limit: Swift.Int?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - limit:
+                public init(limit: Swift.Int? = nil) {
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.ListBrainRollovers.Input.Query
+            /// - Remark: Generated from `#/paths/agents/{agent_id}/brain/rollovers/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListBrainRollovers.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListBrainRollovers.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListBrainRollovers.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - query:
+            ///   - headers:
+            public init(
+                path: Operations.ListBrainRollovers.Input.Path,
+                query: Operations.ListBrainRollovers.Input.Query = .init(),
+                headers: Operations.ListBrainRollovers.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/agents/{agent_id}/brain/rollovers/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/agents/{agent_id}/brain/rollovers/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.Rollover])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.Rollover] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListBrainRollovers.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListBrainRollovers.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Rollovers, newest first.
+            ///
+            /// - Remark: Generated from `#/paths//agents/{agent_id}/brain/rollovers/get(listBrainRollovers)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListBrainRollovers.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListBrainRollovers.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// No device token, or a revoked one.
+            ///
+            /// - Remark: Generated from `#/paths//agents/{agent_id}/brain/rollovers/get(listBrainRollovers)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Nothing with that id.
+            ///
+            /// - Remark: Generated from `#/paths//agents/{agent_id}/brain/rollovers/get(listBrainRollovers)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// The main conversation and every side thread of an agent.
     ///
     /// An agent that does not exist or is not yours gives an empty list, so the answer does not reveal which agents exist.
@@ -7564,7 +8023,13 @@ public enum Operations {
     /// With `If-Match`: saved only if the file's current etag matches, else 409 with the current
     /// version. Without `If-Match`: creates the file; if it already exists, 409 with the current
     /// version, never a silent overwrite. Every save is one git commit. `If-Match` may be the bare
-    /// etag, quoted, or `W/`-prefixed. A file over 1 MB is refused: 400 `memory_file_too_big`.
+    /// etag, quoted, or `W/`-prefixed; clients should send the **bare** etag, because generated
+    /// clients (swift-openapi-generator) URI-encode header values, which turns the quotes into
+    /// `%22`. A file over 1 MB is refused: 400 `memory_file_too_big`.
+    ///
+    /// A failed `If-Match` is **409 with the current version in the body**, not HTTP's usual 412:
+    /// deliberate, so the app can show both versions without a second read. Hub and app follow
+    /// this together; never change one side alone.
     ///
     ///
     /// - Remark: HTTP `PUT /memory/files/{path}`.
@@ -8543,17 +9008,45 @@ public enum Operations {
                     }
                 }
             }
-            /// Nothing with that id.
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/schedules/{schedule_id}/DELETE/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/schedules/{schedule_id}/DELETE/responses/404/content/application\/json`.
+                    case json(Components.Schemas._Error)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas._Error {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DeleteSchedule.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DeleteSchedule.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// No such schedule (`schedule_not_found`).
             ///
             /// - Remark: Generated from `#/paths//schedules/{schedule_id}/delete(deleteSchedule)/responses/404`.
             ///
             /// HTTP response code: `404 notFound`.
-            case notFound(Components.Responses.NotFound)
+            case notFound(Operations.DeleteSchedule.Output.NotFound)
             /// The associated value of the enum case if `self` is `.notFound`.
             ///
             /// - Throws: An error if `self` is not `.notFound`.
             /// - SeeAlso: `.notFound`.
-            public var notFound: Components.Responses.NotFound {
+            public var notFound: Operations.DeleteSchedule.Output.NotFound {
                 get throws {
                     switch self {
                     case let .notFound(response):
@@ -8566,17 +9059,45 @@ public enum Operations {
                     }
                 }
             }
-            /// The thing is not in a state that allows this.
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/schedules/{schedule_id}/DELETE/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/schedules/{schedule_id}/DELETE/responses/409/content/application\/json`.
+                    case json(Components.Schemas._Error)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas._Error {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DeleteSchedule.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DeleteSchedule.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// `schedule_builtin`: a built-in digest; it can be paused, not deleted.
             ///
             /// - Remark: Generated from `#/paths//schedules/{schedule_id}/delete(deleteSchedule)/responses/409`.
             ///
             /// HTTP response code: `409 conflict`.
-            case conflict(Components.Responses.Conflict)
+            case conflict(Operations.DeleteSchedule.Output.Conflict)
             /// The associated value of the enum case if `self` is `.conflict`.
             ///
             /// - Throws: An error if `self` is not `.conflict`.
             /// - SeeAlso: `.conflict`.
-            public var conflict: Components.Responses.Conflict {
+            public var conflict: Operations.DeleteSchedule.Output.Conflict {
                 get throws {
                     switch self {
                     case let .conflict(response):

@@ -21,6 +21,7 @@ from sqlalchemy.engine import Engine
 
 from marcel_hub import (
     __version__,
+    adopt,
     agent_state,
     artifacts,
     auth,
@@ -313,6 +314,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     prs = github.install(app, settings.github_token)
     repo = memory.install(app)
     channel.install(app, gateway, registry, watch)  # after artifacts: reports store through it
+    # S-05.4: `/marcel-adopt` hands a session Marcel did not start to it, as an adopted task.
+    adopt.install(app, registry, gateway, watch)
     # S-04.9: a task's own thread steers the task and shows its later milestones.
     task_threads.install(app)
     # S-04.10: workers start with their project's notes; task changes update their project.
@@ -368,7 +371,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 def main(argv: list[str] | None = None) -> None:
     """`marcel-hub`: start the hub on the configured host and port.
 
-    `marcel-hub pair` prints a QR code that pairs a phone instead.
+    `marcel-hub pair` prints a QR code that pairs a phone instead; `marcel-hub adopt-token` makes
+    the token `/marcel-adopt` needs and prints it once.
     """
     import uvicorn
 
@@ -377,6 +381,8 @@ def main(argv: list[str] | None = None) -> None:
         from marcel_hub.auth.cli import pair
 
         raise SystemExit(pair(args[1:]))
+    if args[:1] == ['adopt-token']:
+        raise SystemExit(adopt.token_cli(args[1:]))
 
     try:
         settings = load_settings()

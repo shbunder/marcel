@@ -42,6 +42,11 @@ public protocol NotebookService {
     /// bare (the contract allows it): the generated client writes header values URI-encoded, so quotes would arrive
     /// as `%22`.
     func save(_ path: MemoryPath, content: String, ifMatch etag: String?) async throws -> SaveOutcome
+    /// `GET /agents/{id}/brain/rollovers?limit=…`: Marcel's past rollovers, newest first (app API 0.6).
+    func rollovers(limit: Int) async throws -> [Rollover]
+    /// `POST /agents/{id}/brain/rollover`: a fresh start now. Returns once the hub has started it (202); the
+    /// `brain.rollover` event follows when the new session has taken over.
+    func rollOver() async throws
 }
 
 /// Why something in the notebook did not work, in words a family member reads on a phone.
@@ -65,6 +70,12 @@ public enum NotebookError: Error, Equatable, LocalizedError {
     case hubProblem
     case offline
     case unexpected(String)
+    /// 409 `rollover_running`: a fresh start is already on its way.
+    case rolloverRunning
+    /// 503 `runner_unreachable` on a fresh start: the hub can't start a session just now. Nothing changed.
+    case cannotStartSession
+    /// The hub lists no agent for this phone (`GET /me`), or `agent_not_found`.
+    case noAgent
 
     public var errorDescription: String? {
         switch self {
@@ -80,6 +91,10 @@ public enum NotebookError: Error, Equatable, LocalizedError {
         case .hubProblem: "The hub had a problem. Try again in a minute."
         case .offline: "Couldn't reach the hub. Check the connection and try again."
         case .unexpected(let what): "The hub sent something the app doesn't understand (\(what))."
+        case .rolloverRunning: "A fresh start is already on its way. Marcel says hello in the chat when it's ready."
+        case .cannotStartSession: "The hub can't start a new session for Marcel right now. Nothing changed. Try again "
+            + "in a few minutes."
+        case .noAgent: "The hub doesn't list Marcel for this phone. Pull down to refresh."
         }
     }
 
@@ -91,6 +106,12 @@ public enum NotebookError: Error, Equatable, LocalizedError {
         if [404, 405, 501].contains(status) { return .notAvailableYet }
         if (500...599).contains(status) { return .hubProblem }
         return .unexpected("\(what), HTTP \(status)")
+    }
+
+    /// A 404 the contract lists: the hub's generic `not_found` is a route it does not serve yet (before S-06.7);
+    /// `agent_not_found` means the agent is gone.
+    static func missing(_ error: HubError?) -> NotebookError {
+        error?.code == "agent_not_found" ? .noAgent : .notAvailableYet
     }
 
     static func bad(_ error: HubError?, fallback: String) -> NotebookError {
@@ -147,6 +168,40 @@ public struct LiveNotebookService: NotebookService {
         case .notFound: throw NotebookError.removed
         case .serviceUnavailable(let down): throw NotebookError.storeDown(try? down.body.json.message)
         case .undocumented(let status, _): throw NotebookError.undocumented(status, "saving a note")
+        }
+    }
+
+    public func rollovers(limit: Int) async throws -> [Rollover] {
+        let agentId = try await agent()
+        switch try await call({ try await client.listBrainRollovers(path: .init(agentId: agentId),
+                                                                    query: .init(limit: limit)) }) {
+        case .ok(let ok): return try ok.body.json.map(Rollover.init)
+        case .unauthorized: throw NotebookError.unauthorized
+        case .notFound(let missing): throw NotebookError.missing(try? missing.body.json)
+        case .undocumented(let status, _): throw NotebookError.undocumented(status, "past fresh starts")
+        }
+    }
+
+    public func rollOver() async throws {
+        let agentId = try await agent()
+        switch try await call({ try await client.rollOverBrain(path: .init(agentId: agentId)) }) {
+        case .accepted: return
+        case .unauthorized: throw NotebookError.unauthorized
+        case .notFound(let missing): throw NotebookError.missing(try? missing.body.json)
+        case .conflict: throw NotebookError.rolloverRunning
+        case .serviceUnavailable: throw NotebookError.cannotStartSession
+        case .undocumented(let status, _): throw NotebookError.undocumented(status, "a fresh start")
+        }
+    }
+
+    /// The agent the notebook is about: the first in `GET /me` (a household has one agent per person).
+    private func agent() async throws -> String {
+        switch try await call({ try await client.getMe() }) {
+        case .ok(let ok):
+            guard let id = try ok.body.json.agents.first?.id else { throw NotebookError.noAgent }
+            return id
+        case .unauthorized: throw NotebookError.unauthorized
+        case .undocumented(let status, _): throw NotebookError.undocumented(status, "who you are")
         }
     }
 

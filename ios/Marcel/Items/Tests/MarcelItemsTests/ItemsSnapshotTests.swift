@@ -26,7 +26,8 @@ final class ItemsSnapshotTests: XCTestCase {
             title: artifact.title,
             line: VersionLine(artifact, showing: nil, versions: [], now: Fx.now, timeZone: Fx.utc),
             body_: ItemBody.make(artifact, contentType: nil, content: content.map(ContentState.loaded)),
-            historyCount: history, asking: asking, draft: draft, sent: sent, problem: problem, pinnable: pinnable)
+            historyCount: history, asking: asking, draft: draft, sent: sent, problem: problem, pinnable: pinnable,
+            clock: ItemsClock(now: Fx.now, timeZone: Fx.utc))
     }
 
     /// Wireframe 4B: the mock hub's document at version 3, with the comparison a worker wrote.
@@ -66,6 +67,27 @@ final class ItemsSnapshotTests: XCTestCase {
     func testAPullRequest() {
         Snapshot.assert(Self.viewer(Fx.mockArtifact(Fx.prId), content: nil), named: "Viewer-pr",
                         variants: [.light, .dark], padding: 0)
+    }
+
+    /// S-12.12: when the hub last read the PR from GitHub (`pr.refreshed_at`), relative to now.
+    static func checkedPR(hoursAgo: Double, note: String? = nil) -> [String: Any] {
+        var pr = Fx.mockArtifact(Fx.prId)
+        var fields = pr["pr"] as! [String: Any]
+        fields["refreshed_at"] = Fx.now.addingTimeInterval(-hoursAgo * 3600).formatted(Date.ISO8601FormatStyle())
+        fields["note"] = note
+        pr["pr"] = fields
+        return pr
+    }
+
+    func testAPullRequestCheckedHoursAgo() {
+        Snapshot.assert(Self.viewer(Self.checkedPR(hoursAgo: 3), content: nil), named: "Viewer-pr-checked",
+                        variants: [.light, .dark], padding: 0)
+    }
+
+    /// S-12.12: out of date since the day before yesterday, and why.
+    func testAPullRequestOutOfDateSinceItsLastCheck() {
+        Snapshot.assert(Self.viewer(Self.checkedPR(hoursAgo: 50, note: "GitHub refused the token."), content: nil),
+                        named: "Viewer-pr-note-checked", variants: [.light, .dark], padding: 0)
     }
 
     /// S-12.11: the hub could not refresh the card from GitHub (`pr.note`).
@@ -252,5 +274,9 @@ final class ItemsAccessibilityTests: XCTestCase {
         XCTAssertTrue(labels.contains("Pull request number 14. Fix flaky login test: wait on the session cookie. Open. "
             + "In shbunder/marcel. Checks passing. Review requested"), "\(labels)")
         XCTAssertTrue(labels.contains("Open in GitHub"))
+
+        let checked = elements(of: ItemsSnapshotTests.viewer(ItemsSnapshotTests.checkedPR(hoursAgo: 3), content: nil))
+            .map(\.label)
+        XCTAssertTrue(checked.contains { $0.hasSuffix("Review requested. Checked 3 hours ago") }, "\(checked)")
     }
 }

@@ -263,7 +263,7 @@ def main() -> int:
             watcher=watcher,
             tails=tails,
             workspaces=workspaces,
-            cloud=Cloud(settings.claude, sessions.home),
+            cloud=Cloud(settings.claude, sessions.home, workspaces=workspaces),
         )
     except (StartupError, StateFileError) as e:
         print(f'marcel-runner: {e}', file=sys.stderr)

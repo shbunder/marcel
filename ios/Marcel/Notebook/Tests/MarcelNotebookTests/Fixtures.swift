@@ -48,6 +48,25 @@ enum Fx {
         return try! EventFrame.decode(try! JSONSerialization.data(withJSONObject: json))
     }
 
+    nonisolated(unsafe) static let me: [String: Any] = [
+        "user_id": "usr_owner", "name": "Shaun", "device_id": "dev_phone", "push": ["apns": false, "ntfy": false],
+        "agents": [["id": "agt_marcel", "name": "Marcel", "animal": "giraffe", "palette": "marcel", "seed": "Marcel",
+                    "main_conversation_id": "cnv_main", "state": ["kind": "idle"], "model_brain": "opus",
+                    "model_worker": "sonnet"]],
+    ]
+
+    /// The hub's `Rollover` (app API 0.6), as `GET /agents/{id}/brain/rollovers` lists it.
+    static func hubRollover(_ id: String, at: Date, reason: String = "daily",
+                            kept: String = "Your notes, the last 40 messages and 3 open threads.") -> [String: Any] {
+        ["id": id, "agent_id": "agt_marcel", "at": iso(at), "reason": reason, "kept": kept]
+    }
+
+    /// What the real hub answers for a route it does not serve yet (`hub/…/auth/errors.py`).
+    static let notBuilt = (404, error("not_found", "There is nothing at that address."))
+
+    static let rolloversRoute = "GET /agents/agt_marcel/brain/rollovers?limit=10"
+    static let rollOverRoute = "POST /agents/agt_marcel/brain/rollover"
+
     static func rollover(id: Int, at: Date, reason: String = "daily",
                          kept: String = "open threads, decisions, today's plan.") -> EventFrame {
         frame("brain.rollover", ["agent_id": "agt_marcel", "reason": reason, "kept": kept], id: id, at: at)
@@ -139,6 +158,9 @@ final class FakeHub: ClientTransport, @unchecked Sendable {
     private func answer(method: String, wirePath: String, body: String, ifMatch: String?) -> (Int, String) {
         let route = "\(method) \(wirePath)"
         if let fixed = table[route] { return fixed }
+        if route == "GET /me" { return (200, Fx.json(Fx.me)) }
+        // The rollover routes (app API 0.6) are not served by the hub until S-06.7: its generic 404 by default.
+        if wirePath.hasPrefix("/agents/") { return Fx.notBuilt }
         if route == "GET /memory" {
             var files = store.keys.sorted().map { path -> [String: Any] in
                 ["path": path, "size_bytes": store[path]!.content.utf8.count,
