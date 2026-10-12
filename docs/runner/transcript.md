@@ -76,6 +76,9 @@ checks it gives the same events for every recorded transcript. What the runner a
 | A line without a time | It takes the time of the line before it (the reference uses 1970). |
 | A tool's input | Every string in it is cut to 8 KB. Tool results to 8 KB with `truncated: true`. |
 | A resume after an `Agent` call but before its launch result | The runner first reads the earlier lines that mention `Agent`, so `subagent_start` still names the call's `description` and `subagent_type`. At most 256 open calls are remembered. |
+| `turn_end.usage` (runner-api 0.1.7) | The four token counts (`input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `output_tokens`) of the turn's last main-thread assistant line. The `turn_duration` line has none, so the runner keeps the latest and clears it at each turn end. A line missing one of the four, or with one that is not a whole number ≥ 0, leaves the ones before it. Absent when no assistant line in the turn had them. |
+| Subagent lines and `usage` | Never counted: not a line marked `isSidechain`, and nothing in a subagent's own stream (`?subagent=`), marked or not. |
+| A resume in the middle of a turn | The earlier lines with `usage` or a turn end are read first too, so that turn's `turn_end` still carries its counts. |
 
 ## The file changes under the stream
 

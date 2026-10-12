@@ -8,7 +8,9 @@ Server-Sent Events.
 
 - `Normaliser` turns one line into events. It is a port of `contracts/tests/reference_normalizer.py`
   (SP2's mapping table) that never raises: a line it cannot read or a type it does not know becomes
-  a `raw` event.
+  a `raw` event. A `turn_end` carries `usage`: the four token counts of the turn's last
+  main-thread assistant line, kept per stream and cleared at each turn end. Subagent lines
+  (`isSidechain`, or a stream of a file under `subagents/`) never count.
 - `LineReader` reads complete lines of one file from a byte offset, with bounded memory. A partial
   last line waits until its newline arrives. A line longer than `MAX_LINE` is skipped without being
   held in memory. A file that is truncated, replaced or deleted is read again from the start.
@@ -75,6 +77,13 @@ LIMIT_PREFIXES = (
 )
 AGENT_FROM = re.compile(r'<agent-message from="([^"]+)">')
 AGENT_LAUNCHED = re.compile(r'agentId:\s*([0-9a-f]+)')
+# transcript.schema.json `TurnEnd.usage`, from `message.usage` of an assistant line.
+USAGE_KEYS = (
+    'input_tokens',
+    'cache_creation_input_tokens',
+    'cache_read_input_tokens',
+    'output_tokens',
+)
 
 Event = dict[str, Any]
 Pair = tuple[str, dict[str, Any]]
@@ -137,18 +146,21 @@ def _count(value: Any) -> int | None:
 
 class Normaliser:
     """Transcript lines → events for one stream. It keeps what the `Agent` calls asked for (by
-    `tool_use_id`, at most `MAX_AGENTS`), so a later launch result can name the subagent, and the
-    last line's time, for a line that has none."""
+    `tool_use_id`, at most `MAX_AGENTS`), so a later launch result can name the subagent, the
+    last line's time, for a line that has none, and the token counts of the last main-thread
+    assistant line, for the next `turn_end`."""
 
     def __init__(self, session_id: str, subagent_id: str | None = None) -> None:
         self.session_id = session_id
         self.subagent_id = subagent_id
         self.agents: dict[str, dict[str, str]] = {}
+        self.usage: dict[str, int] = {}
         self._at: str | None = None
 
     def reset(self) -> None:
         """Forget everything: the file is read again from its start."""
         self.agents.clear()
+        self.usage.clear()
         self._at = None
 
     def line(self, raw: bytes, offset: int) -> list[Event]:
@@ -199,6 +211,9 @@ class Normaliser:
                 turn['message_count'] = entry['messageCount']
             if _count(entry.get('pendingBackgroundAgentCount')) is not None:
                 turn['pending_background_agents'] = entry['pendingBackgroundAgentCount']
+            if self.usage:
+                turn['usage'] = dict(self.usage)
+                self.usage.clear()
             return [('turn_end', turn)]
         if kind == 'system':
             return []
@@ -213,7 +228,19 @@ class Normaliser:
             'entry': entry if fits else {'type': kind, 'truncated': True},
         }
 
+    def _keep_usage(self, entry: dict[str, Any]) -> None:
+        """Remember this line's token counts when it is a main-thread line that has all four."""
+        if self.subagent_id is not None or entry.get('isSidechain'):
+            return
+        counts = (entry.get('message') or {}).get('usage')
+        if not isinstance(counts, dict):
+            return
+        kept = {k: v for k in USAGE_KEYS if (v := _count(counts.get(k))) is not None}
+        if len(kept) == len(USAGE_KEYS):
+            self.usage = kept
+
     def _assistant(self, entry: dict[str, Any]) -> list[Pair]:
+        self._keep_usage(entry)
         blocks = (entry.get('message') or {}).get('content') or []
         if entry.get('isApiErrorMessage'):
             text = _text_of(blocks)
@@ -464,7 +491,9 @@ def _line_start(f: BinaryIO, pos: int) -> int:
 
 
 def _agents_before(normaliser: Normaliser, path: Path, pos: int, max_line: int) -> None:
-    """Learn the `Agent` calls made before a resume point, so a launch after it is still named."""
+    """Learn the `Agent` calls made before a resume point, so a launch after it is still named,
+    and the token counts of the turn it resumes in, so its `turn_end` still carries them. A
+    `turn_end` before the resume point clears those counts, as it would have on the stream."""
     if pos == 0:
         return
     before = LineReader(lambda: path, 0, max_line)
@@ -472,7 +501,12 @@ def _agents_before(normaliser: Normaliser, path: Path, pos: int, max_line: int) 
         for _, end, line in before.lines():
             if end > pos:
                 break
-            if line is not None and (b'"Agent"' in line or b'Async agent launched' in line):
+            if line is not None and (
+                b'"Agent"' in line
+                or b'Async agent launched' in line
+                or b'"usage"' in line
+                or b'turn_duration' in line
+            ):
                 normaliser.line(line, end)
     finally:
         before.close()

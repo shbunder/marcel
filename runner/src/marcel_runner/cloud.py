@@ -3,7 +3,10 @@
 - **Create** (`POST /cloud/sessions`): `claude --cloud -- "<prompt>"`. It refuses without a
   terminal and cannot be combined with `-p`, so it runs on a pty. It prints
   `Created cloud session: <title> View: https://claude.ai/code/session_<id>?… Resume with: …` and
-  exits. The runner reads the id, the title and the URL from that line.
+  exits. The runner reads the id, the title and the URL from that line. `claude --cloud` takes
+  its repo and branch from the folder it runs in: the runner's home without `repo`, else a
+  worktree of the workspace clone on `repo.base`, which lives only while claude runs
+  (`Workspaces.cloud_checkout`).
 - **Send** (`POST /cloud/sessions/{id}/messages`): `claude -p --cloud <id> --output-format json
   -- "<text>"`, headless. It answers `{"ok":true,"session_id":…,"url":…}`: an ack, not an answer.
 
@@ -32,6 +35,7 @@ from urllib.parse import urlsplit
 
 from marcel_runner.claude_env import scrubbed_env
 from marcel_runner.sessions import SessionError
+from marcel_runner.workspaces import CloudRepo, Workspaces, parse_cloud_repo
 
 SPAWN_TIMEOUT = 60.0  # SP3: the create call came back within seconds
 SEND_TIMEOUT = 60.0
@@ -199,17 +203,45 @@ def run_piped(
     return (proc.returncode if exited else None), buf.decode('utf-8', 'replace')
 
 
-def parse_body(raw: bytes, key: str) -> str:
-    """A JSON object holding exactly one non-empty string `key`. 400 otherwise."""
+def _object(raw: bytes) -> Any:
     try:
-        body = json.loads(raw or b'null')
+        return json.loads(raw or b'null')
     except (ValueError, UnicodeDecodeError):
-        body = None
-    if not isinstance(body, dict) or set(body) != {key} or not isinstance(body[key], str):
-        raise SessionError(400, 'bad_request', f'Send a JSON object with only "{key}" in it.')
+        return None
+
+
+def _text(body: dict[str, Any], key: str) -> str:
+    if not isinstance(body.get(key), str):
+        raise SessionError(400, 'bad_request', f'"{key}" must be text.')
     if not body[key].strip():
         raise SessionError(400, 'bad_request', f'"{key}" is empty.')
     return body[key]
+
+
+def parse_body(raw: bytes, key: str) -> str:
+    """A JSON object holding exactly one non-empty string `key`. 400 otherwise."""
+    body = _object(raw)
+    if not isinstance(body, dict) or set(body) != {key}:
+        raise SessionError(400, 'bad_request', f'Send a JSON object with only "{key}" in it.')
+    return _text(body, key)
+
+
+def parse_create(raw: bytes) -> tuple[str, CloudRepo | None]:
+    """`{prompt, repo?}`: the prompt, and the checked `CloudRepo` when there is one. 400
+    otherwise, before anything runs."""
+    body = _object(raw)
+    if not isinstance(body, dict) or 'prompt' not in body or set(body) - {'prompt', 'repo'}:
+        raise SessionError(
+            400, 'bad_request', 'Send a JSON object with "prompt" and, if you like, "repo".'
+        )
+    prompt = _text(body, 'prompt')
+    return prompt, (parse_cloud_repo(body['repo']) if 'repo' in body else None)
+
+
+def _unavailable(claude: Path, e: OSError) -> SessionError:
+    return SessionError(
+        503, 'claude_unavailable', f'The runner could not run {claude}: {e.strerror or e}.'
+    )
 
 
 class Cloud:
@@ -226,6 +258,7 @@ class Cloud:
         send_timeout: float = SEND_TIMEOUT,
         on_pty: Runner = run_on_pty,
         piped: Runner = run_piped,
+        workspaces: Workspaces | None = None,
     ) -> None:
         self.claude = claude
         self.home = home
@@ -234,24 +267,38 @@ class Cloud:
         self.send_timeout = send_timeout
         self.on_pty = on_pty
         self.piped = piped
+        self.workspaces = workspaces
 
     def _env(self) -> dict[str, str]:
         return scrubbed_env(os.environ, self.home)
 
     def spawn(self, raw: bytes) -> dict[str, Any]:
-        prompt = parse_body(raw, 'prompt')
+        prompt, repo = parse_create(raw)
+        if repo is None:
+            return self._create(prompt, self.cwd)
+        if self.workspaces is None:
+            raise SessionError(
+                501, 'not_supported', 'This runner was started without workspaces, so no repo.'
+            )
+        try:
+            with self.workspaces.cloud_checkout(repo) as folder:
+                return self._create(prompt, folder)
+        except SessionError as e:
+            if e.code == 'not_trusted':  # the clone's first setup; runner-api names it this way
+                raise SessionError(422, 'clone_failed', e.message, e.detail) from None
+            raise
+
+    def _create(self, prompt: str, cwd: Path) -> dict[str, Any]:
         argv = [str(self.claude), '--cloud', '--', prompt]
         try:
-            code, out = self.on_pty(argv, self._env(), self.cwd, self.spawn_timeout)
+            code, out = self.on_pty(argv, self._env(), cwd, self.spawn_timeout)
         except OSError as e:
-            raise SessionError(
-                422, 'cloud_unparsed', f'The runner could not run {self.claude}: {e.strerror or e}.'
-            ) from None
+            raise _unavailable(self.claude, e) from None
         said = clean(out, secrets_in(prompt))
         if code is None:
             raise SessionError(
-                422,
-                'cloud_unparsed',
+                503,
+                'claude_timeout',
                 f'Claude did not create the cloud session within {self.spawn_timeout:g} s. '
                 'It may still appear at claude.ai/code: look there before trying again.'
                 + (f' Claude said: {said}' if said else ''),
@@ -296,16 +343,12 @@ class Cloud:
                 'at claude.ai/code before sending it again.',
             ) from None
         except OSError as e:
-            raise SessionError(
-                422,
-                'cloud_send_failed',
-                f'The runner could not run {self.claude}: {e.strerror or e}.',
-            ) from None
+            raise _unavailable(self.claude, e) from None
         said = clean(out, secrets_in(text))
         if code is None:
             raise SessionError(
-                422,
-                'cloud_send_failed',
+                503,
+                'claude_timeout',
                 f'Claude did not pass the message on within {self.send_timeout:g} s. '
                 'It may still arrive; check the session at claude.ai/code before sending it again.',
                 said or None,
