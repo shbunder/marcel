@@ -28,11 +28,29 @@ def fields_of(definition: dict[str, Any]) -> dict[str, bool]:
     return {k: k in required for k in definition['properties'] if k != 'type'}
 
 
+# Fields the contract added before the hub reads them, with the work that adds them. The hub still
+# refuses a frame that carries one. The last test below fails as soon as one is in the hub's
+# tables, so this list can only shrink.
+PENDING_FIELDS: dict[str, set[str]] = {
+    'Report': {'next'},  # channel progress steps (app API 0.5.0): hub follow-up
+}
+
+
 def test_the_field_tables_match_the_contract() -> None:
     assert set(NAMES) == TO_HUB
     for name, kind in NAMES.items():
-        assert fields_of(DEFS[name]) == FIELDS[kind], name
+        contract = fields_of(DEFS[name])
+        for pending in PENDING_FIELDS.get(name, set()):
+            assert contract.pop(pending) is False, f'{name}.{pending} is pending but required'
+        assert contract == FIELDS[kind], name
     assert fields_of(DEFS['Artifact']) == ARTIFACT_FIELDS
+
+
+def test_pending_fields_are_still_pending() -> None:
+    for name, fields in PENDING_FIELDS.items():
+        assert fields <= set(DEFS[name]['properties']), f'{name}: not in the contract'
+        known = fields & set(FIELDS[NAMES[name]])
+        assert not known, f'the hub reads {name} {known} now: remove it from PENDING_FIELDS'
 
 
 def test_every_contract_example_parses() -> None:

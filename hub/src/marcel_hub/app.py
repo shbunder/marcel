@@ -10,7 +10,7 @@ import sys
 import tomllib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +28,7 @@ from marcel_hub import (
     channel,
     conversations,
     db,
+    github,
     memory,
     notify,
     projects,
@@ -57,6 +58,8 @@ class Settings:
     worker_cwd: str | None = None
     # None: no ntfy pushes. e.g. 'https://ntfy.sh' or a self-hosted server (S-08.1).
     ntfy_server: str | None = None
+    # None: PR cards say the hub cannot ask GitHub. A read-only token (ADR-002); never shown.
+    github_token: str | None = field(default=None, repr=False)
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -84,6 +87,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         'runner_sock',
         'worker_cwd',
         'ntfy_server',
+        'github_token',
     }
     unknown = set(values) - known
     if unknown:
@@ -99,6 +103,9 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             runner_sock=Path(values.get('runner_sock', DEFAULT_SOCKET)),
             worker_cwd=str(values['worker_cwd']) if values.get('worker_cwd') else None,
             ntfy_server=_ntfy_server(values.get('ntfy_server')),
+            github_token=str(values['github_token']).strip() or None
+            if values.get('github_token')
+            else None,
         )
     except ValueError as exc:
         raise SettingsError(f'The port must be a number: {exc}.') from exc
@@ -129,6 +136,7 @@ def _is_setting(name: str) -> bool:
         'MARCEL_RUNNER_SOCK',
         'MARCEL_WORKER_CWD',
         'MARCEL_NTFY_SERVER',
+        'MARCEL_GITHUB_TOKEN',
     }
 
 
@@ -174,7 +182,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         keeper.start()
         avatars.prime()  # states that changed while the hub was down (S-04.8)
         avatars.start()
+        prs.start()  # S-04.12: open PRs found again, then refreshed every 5 minutes
         yield
+        await prs.stop()
         await avatars.stop()
         await keeper.stop()
         await guard.stop()
@@ -236,6 +246,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ws.install(app)
     app.include_router(conversations.router)
     artifacts.install(app)  # S-04.7, after tasks: an artifact is recorded on its task
+    # S-04.12: PR cards follow GitHub (read-only token); new PR artifacts are seen in the event log.
+    prs = github.install(app, settings.github_token)
     repo = memory.install(app)
     channel.install(app, gateway, registry, watch)  # after artifacts: reports store through it
     # S-04.9: a task's own thread steers the task and shows its later milestones.

@@ -21,7 +21,7 @@ def load_events() -> dict[str, Any]:
     return json.loads((CONTRACTS / 'events.schema.json').read_text())
 
 
-YAML_DOCS = ('app-api.yaml', 'runner-api.yaml', 'session-api.yaml')
+YAML_DOCS = ('app-api.yaml', 'runner-api.yaml', 'session-api.yaml', 'brain-api.yaml')
 JSON_DOCS = ('events.schema.json', 'transcript.schema.json', 'channel.schema.json')
 
 
