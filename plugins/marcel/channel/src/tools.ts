@@ -9,6 +9,8 @@ export const MAX_NEXT_STEPS = 20;
 export const MAX_NEXT_STEP_CHARS = 200;
 /** channel.schema.json `Artifact.summary` bound. */
 export const MAX_ARTIFACT_SUMMARY_CHARS = 200;
+/** channel.schema.json `Report` with `kind: note`: `text` bound. */
+export const MAX_NOTE_CHARS = 1000;
 
 const ARTIFACT_SCHEMA = {
   type: 'object',
@@ -48,12 +50,14 @@ export const TOOLS = [
       'done or failed (need summary). Lead with the outcome, in short sentences. With progress, also send "next": ' +
       'the steps you still plan, in order (at most 20, each under 200 characters); each progress report replaces the list. ' +
       'To update an item you were given, put its artifact_id on the artifact (and a one-line summary of the change): ' +
-      'it becomes a new version of that item instead of a new one.',
+      'it becomes a new version of that item instead of a new one. ' +
+      'note (needs text, at most 1000 characters) keeps one lasting fact that later threads in this project need ' +
+      'in the project\'s notes; at most 10 per task. If Marcel refuses a note, put the fact in your done summary.',
     inputSchema: {
       type: 'object',
       properties: {
-        kind: { enum: ['started', 'progress', 'artifact', 'done', 'failed'] },
-        text: { type: 'string', description: 'A progress note.' },
+        kind: { enum: ['started', 'progress', 'artifact', 'done', 'failed', 'note'] },
+        text: { type: 'string', description: 'For progress, one line. For note, the fact (at most 1000 characters).' },
         next: {
           type: 'array',
           maxItems: MAX_NEXT_STEPS,
@@ -83,7 +87,7 @@ export function buildReply(args: Args): Built<Reply> {
   return { ok: true, frame };
 }
 
-const KINDS: readonly string[] = ['started', 'progress', 'artifact', 'done', 'failed'];
+const KINDS: readonly string[] = ['started', 'progress', 'artifact', 'done', 'failed', 'note'];
 const ARTIFACT_KINDS: readonly string[] = ['pr', 'branch', 'doc', 'file', 'dashboard', 'link'];
 
 /** Characters as JSON Schema counts them (code points), so an emoji is one, as the hub counts it. */
@@ -158,6 +162,11 @@ export function buildReport(args: Args): Built<Report> {
     frame.artifacts = list;
   }
   if (kind === 'progress' && !frame.text) return { ok: false, error: 'a progress report needs "text".' };
+  if (kind === 'note') {
+    if (frame.text === undefined || frame.text.trim() === '') return { ok: false, error: 'a note needs the fact as "text".' };
+    const length = charCount(frame.text);
+    if (length > MAX_NOTE_CHARS) return { ok: false, error: `the note is ${length} characters; keep it to ${MAX_NOTE_CHARS}.` };
+  }
   if (kind === 'artifact' && !frame.artifact) return { ok: false, error: 'an artifact report needs "artifact".' };
   if ((kind === 'done' || kind === 'failed') && !frame.summary) return { ok: false, error: `a ${kind} report needs "summary".` };
   return { ok: true, frame };

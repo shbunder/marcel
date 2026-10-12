@@ -24,7 +24,7 @@ a worker's call is refused by the hub.
 | `projects_create(name, …)` | `POST /brain/projects` | A new project and its notes file. |
 | `projects_update(project, …)` | `PATCH /brain/projects/{project}` | Change a project. |
 | `board_note(project, text)` | `POST /brain/projects/{project}/notes` | A line on the project's board. |
-| `artifacts_publish(kind, title, url?, path?, project?, artifact_id?, summary?)` | `POST /brain/artifacts` | Save an artifact, or a new version of one. |
+| `artifacts_publish(kind, title, url?, path?, project?, artifact_id?, summary?, in_reply_to?)` | `POST /brain/artifacts` | Save an artifact, or a new version of one. `in_reply_to`: the `digest_id` of the digest it answers. |
 | `memory_read(path?)` | `GET /brain/memory` | A memory file with its etag; without `path`, the list. |
 | `memory_write(path, content, etag?)` | `PUT /brain/memory` | Save and commit a memory file (`memory: <path> (agent)`). |
 | `schedule_create(name, cron, tz, location, prompt, deadline_minutes?)` | `POST /brain/schedules` | Recurring work. |

@@ -1,6 +1,6 @@
 // Frame types from contracts/channel.schema.json. A field the contract lacks does not exist here.
 
-export type ReportKind = 'started' | 'progress' | 'artifact' | 'done' | 'failed';
+export type ReportKind = 'started' | 'progress' | 'artifact' | 'done' | 'failed' | 'note';
 
 export interface Artifact {
   kind: 'pr' | 'branch' | 'doc' | 'file' | 'dashboard' | 'link';
@@ -30,6 +30,7 @@ export interface Report {
   type: 'report';
   call_id: string;
   kind: ReportKind;
+  /** For `progress`, one line. For `note`, one lasting fact for the project's notes (1–1000 characters). */
   text?: string;
   /** For `progress`: the steps still planned, in order. At most 20, each 1–200 characters. */
   next?: string[];

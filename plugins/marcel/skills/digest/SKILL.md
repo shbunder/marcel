@@ -42,9 +42,10 @@ What each one holds (B-17):
 ## Where it goes
 
 - Write the digest as Markdown in a file and publish it with `artifacts_publish` (`kind: doc`,
-  `path`, and `title` = the event's `data.title`, exactly) as the agent's morning board. The hub
-  knows your digest by that title. When the event's `data` gives the board's `artifact_id`,
-  pass it, so each digest is a new version of the same board, with `summary` = your headline line.
+  `path`, `title` = the event's `data.title`, exactly, and `in_reply_to` = the event's
+  `data.digest_id`) as the agent's morning board. The hub knows your digest by `in_reply_to`.
+  When the event's `data` gives the board's `artifact_id`, pass it, so each digest is a new
+  version of the same board, with `summary` = your headline line.
 - Then post one line in the chat with `reply`: the headline, nothing else.
 
 ## Morning — plan of the day
