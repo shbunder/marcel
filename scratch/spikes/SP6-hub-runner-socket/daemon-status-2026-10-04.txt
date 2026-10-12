@@ -1,0 +1,40 @@
+# Recorded on the NUC, 2026-10-04 23:01 UTC, Claude Code 2.1.289, read-only.
+# marcel-claude-daemon.service was inactive (MainPID=0); no background sessions.
+
+$ claude daemon status; echo "exit=$?"
+not running
+
+bg sessions:
+  sock dir:     /tmp/cc-daemon-1000/6298d98a
+  control.sock: unreachable (connect ENOENT /tmp/cc-daemon-1000/6298d98a/control.sock)
+  bg workers:   0 in roster.json (control unreachable)
+  roster.json:  updated 34144s ago
+  daemon.log:   9.4KB at /home/shbunder/.claude/daemon.log
+exit=1
+
+$ claude daemon --help
+Usage: claude daemon [subcommand] [options]
+
+Service lifecycle:
+  run [json-path]   Run the supervisor in the foreground (default when piped)
+  status            Show daemon pid, version, uptime
+  logs              Tail the daemon log (Ctrl-C to stop)
+  uninstall         Remove the background service (launchctl/systemd)
+  stop              Shut down the supervisor and terminate background sessions
+                      --any           also stop a transient (non-service) daemon
+                      --keep-workers  leave detached sessions running
+
+  Service install is disabled in this version — the daemon runs on demand
+  and exits when the last client disconnects.
+
+Options:
+  --json-path <p>   Config file (default: ~/.claude/daemon.json)
+  --log-file <p>    Log file (default: ~/.claude/daemon.log)
+  --help, -h        Show this help
+
+$ claude daemon status --json
+warning: extra arguments ignored: --json
+(same output as above, exit=1)
+
+$ cat /proc/self/cgroup
+0::/user.slice/user-1000.slice/session-29336.scope
