@@ -16,6 +16,8 @@ let package = Package(
         .package(path: "../Quests"),
         // The board and the items open the artifact viewer.
         .package(path: "../Items"),
+        // A room's quest cards open the quest view.
+        .package(path: "../Quest"),
     ],
     targets: [
         .target(
@@ -26,6 +28,7 @@ let package = Package(
                 .product(name: "MarcelChat", package: "Chat"),
                 .product(name: "MarcelQuests", package: "Quests"),
                 .product(name: "MarcelItems", package: "Items"),
+                .product(name: "MarcelQuest", package: "Quest"),
             ]
         ),
         .testTarget(name: "MarcelMapTests", dependencies: ["MarcelMap"], exclude: ["__Snapshots__"]),

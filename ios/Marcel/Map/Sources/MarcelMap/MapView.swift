@@ -2,6 +2,7 @@ import Foundation
 import MarcelChat
 import MarcelItems
 import MarcelKit
+import MarcelQuest
 import MarcelQuests
 import PixelKit
 import SwiftData
@@ -17,7 +18,7 @@ public struct MapView: View {
     @Query private var artifacts: [CachedArtifact]
     @Query private var tasks: [CachedTask]
     @State private var model: MapModel
-    @State private var path: [String] = []
+    @State private var navigation = MapNavigation()
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var scheme
     private let newProject: (String) -> Void
@@ -37,7 +38,7 @@ public struct MapView: View {
     }
 
     public var body: some View {
-        NavigationStack(path: $path) {
+        NavigationStack(path: $navigation.path) {
             // Board times ("11:52", "yesterday") move on once a minute.
             TimelineView(.periodic(from: .now, by: 60)) { timeline in
                 let input = MapInput.read(tasks: tasks, artifacts: artifacts, projects: projects)
@@ -45,9 +46,15 @@ public struct MapView: View {
             }
             .background(PixelTheme(scheme).background.color)
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: String.self) { projectId in
-                ProjectRoomView(projectId: projectId, model: model, tasks: tasks, artifacts: artifacts,
-                                projects: projects, back: { path.removeLast() })
+            .navigationDestination(for: MapRoute.self) { route in
+                switch route {
+                case .room(let projectId):
+                    ProjectRoomView(projectId: projectId, model: model, tasks: tasks, artifacts: artifacts,
+                                    projects: projects, back: { navigation.back() },
+                                    openQuest: { navigation.openQuest($0) })
+                case .quest(let taskId):
+                    QuestView(taskId: taskId)
+                }
             }
         }
         .onAppear {
@@ -57,7 +64,7 @@ public struct MapView: View {
         .task { await model.refreshProjects() }
         .onChange(of: opening, initial: true) { _, projectId in
             guard let projectId else { return }
-            path = [projectId]
+            navigation.openLink(projectId: projectId)
             opening = nil
         }
     }
@@ -68,7 +75,7 @@ public struct MapView: View {
             ScrollView {
                 MapContent(map: map, problem: model.problem, dismiss: { model.problem = nil },
                            tile: { tile in
-                               Button { path.append(tile.id) } label: { TileView(tile: tile) }
+                               Button { navigation.openRoom(tile.id) } label: { TileView(tile: tile) }
                                    .buttonStyle(.plain)
                                    .accessibilityHint("Opens the project room")
                            },
@@ -82,6 +89,38 @@ public struct MapView: View {
     }
 }
 
+/// Where the Map's navigation stack goes: a project's room, and from a room's quest card the quest view.
+public enum MapRoute: Hashable, Sendable {
+    case room(projectId: String)
+    case quest(taskId: String)
+}
+
+/// The Map tab's navigation path. A value of its own so the tests can check where each tap leads.
+public struct MapNavigation: Equatable, Sendable {
+    public var path: [MapRoute] = []
+
+    public init() {}
+
+    /// A tile: that project's room.
+    public mutating func openRoom(_ projectId: String) {
+        path.append(.room(projectId: projectId))
+    }
+
+    /// A quest card in a room: the quest view, on top of the room (back returns to it).
+    public mutating func openQuest(_ row: QuestRow) {
+        path.append(.quest(taskId: row.id))
+    }
+
+    /// A `marcel://project/<slug>` link: that room, straight from the map.
+    public mutating func openLink(projectId: String) {
+        path = [.room(projectId: projectId)]
+    }
+
+    public mutating func back() {
+        if !path.isEmpty { path.removeLast() }
+    }
+}
+
 /// A project's room (wireframe 5B).
 struct ProjectRoomView: View {
     var projectId: String
@@ -90,6 +129,8 @@ struct ProjectRoomView: View {
     var artifacts: [CachedArtifact]
     var projects: [CachedProject]
     var back: () -> Void
+    /// A tap on a quest card: the quest view (`MapNavigation.openQuest`).
+    var openQuest: (QuestRow) -> Void
 
     @State private var showing: Sheet?
     @FocusState private var typing: Bool
@@ -166,9 +207,12 @@ struct ProjectRoomView: View {
         }
     }
 
-    /// A quest card; its menu (long press, or VoiceOver's actions) moves it to another project.
+    /// A quest card: a tap opens the quest view; its menu (long press, or VoiceOver's actions) moves it to another
+    /// project.
     private func quest(_ row: QuestRow, room: ProjectRoom) -> some View {
-        RoomQuest(row: row, moving: model.moving.contains(row.id))
+        Button { openQuest(row) } label: { RoomQuest(row: row, moving: model.moving.contains(row.id)) }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens the quest")
             .contextMenu {
                 Menu("Move to another project") {
                     ForEach(room.moveTargets) { target in
