@@ -46,6 +46,21 @@ def test_links_memory_to_the_hubs_memory_folder(tmp_path: Path, values: dict[str
     assert (out / 'memory').resolve() == (memory / 'memory').resolve()
 
 
+def test_first_deploy_creates_the_memory_targets(tmp_path: Path, values: dict[str, str]) -> None:
+    out = tmp_path / 'brain'
+    render.render(out, values)  # MEMORY_DIR does not exist yet
+    assert (out / 'MEMORY.md').read_text() == ''
+    assert (out / 'memory').is_dir()
+
+
+def test_an_existing_memory_is_never_overwritten(tmp_path: Path, values: dict[str, str]) -> None:
+    memory = Path(values['MEMORY_DIR'])
+    memory.mkdir(parents=True)
+    (memory / 'MEMORY.md').write_text('# Kept\n')
+    render.render(tmp_path / 'brain', values)
+    assert (memory / 'MEMORY.md').read_text() == '# Kept\n'
+
+
 def test_never_replaces_a_real_file_with_a_link(tmp_path: Path, values: dict[str, str]) -> None:
     out = tmp_path / 'brain'
     out.mkdir()

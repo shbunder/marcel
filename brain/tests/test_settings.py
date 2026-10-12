@@ -18,7 +18,7 @@ import render
 SETTINGS = BRAIN / '.claude' / 'settings.json'
 RUNNER_API = (ROOT / 'contracts' / 'runner-api.yaml').read_text()
 
-# Claude Code 2.1.290: `permissions.defaultMode` and `crossSessionInbound` enums.
+# Claude Code 2.1.290: the permission modes and the `crossSessionInbound` values.
 CLAUDE_MODES = {'acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'}
 CROSS_SESSION = {'accept', 'hold', 'refuse'}
 ALLOWED_KEYS = {
@@ -44,7 +44,7 @@ def rendered(tmp_path: Path, values: dict[str, str]) -> dict[str, Any]:
 def test_only_known_keys(tmp_path: Path, values: dict[str, str]) -> None:
     settings = rendered(tmp_path, values)
     assert set(settings) <= ALLOWED_KEYS, f'unexpected keys: {sorted(set(settings) - ALLOWED_KEYS)}'
-    assert set(settings['permissions']) <= {'defaultMode', 'deny'}
+    assert set(settings['permissions']) == {'deny'}
     assert all(isinstance(rule, str) for rule in settings['permissions']['deny'])
 
 
@@ -55,13 +55,13 @@ def test_opus_like_the_hub_asks_for() -> None:
     assert "model_brain: str = 'opus'" in hub_models
 
 
-def test_auto_mode_is_one_the_runner_and_claude_accept() -> None:
-    mode = load()['permissions']['defaultMode']
-    assert mode == 'auto'
-    assert mode in CLAUDE_MODES
+def test_the_mode_comes_from_the_runner_flag_not_settings() -> None:
+    # Workspace settings cannot grant auto mode; the runner's --permission-mode flag sets it.
+    assert 'defaultMode' not in load()['permissions']
     runner_modes = re.search(r'permission_mode:\s*\n\s*type: string\s*\n\s*enum: \[([^\]]*)\]', RUNNER_API)
     assert runner_modes, 'SpawnRequest.permission_mode not found in contracts/runner-api.yaml'
-    assert mode in [m.strip() for m in runner_modes.group(1).split(',')]
+    assert 'auto' in [m.strip() for m in runner_modes.group(1).split(',')]
+    assert 'auto' in CLAUDE_MODES
 
 
 def test_the_plugin_the_runner_starts_the_channel_with_is_enabled(

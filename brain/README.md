@@ -1,13 +1,14 @@
 # brain/ — the brain workspace template
 
 Rendered to `~/marcel/brain` on the NUC, where the hub has the runner start the brain session
-(`role: brain`, `cwd` = that folder, Opus, `auto`, `--channels plugin:marcel@marcel-local`; see
-`contracts/runner-api.yaml`). Side threads are forks of it and share the same workspace.
+(`role: brain`, `cwd` = that folder, Opus, `--channels plugin:marcel@marcel-local`; see
+`contracts/runner-api.yaml`). The runner's `--permission-mode auto` flag sets the brain's mode: settings in
+the workspace cannot grant auto mode, so `settings.json` does not try. Side threads are forks of it and share the same workspace.
 
 | File | What it is |
 |---|---|
 | `CLAUDE.md` | Marcel's persona and hard rules. Short on purpose: how to handle a message lives in the plugin's `orchestrate` skill, which it points at. |
-| `.claude/settings.json` | Opus, `auto` permission mode, the `marcel-local` marketplace and the `marcel@marcel-local` plugin, cross-session messages refused (ADR-003), and restarts denied. |
+| `.claude/settings.json` | Opus, the `marcel-local` marketplace and the `marcel@marcel-local` plugin, cross-session messages refused (ADR-003), and restarts denied. |
 | `render.py` | Fills the deploy variables and makes the memory links. Standard library only. |
 | `tests/` | The gate: the template renders, the settings validate, the persona names tools exactly. |
 
@@ -43,7 +44,8 @@ git database sits next to it, out of the brain's reach. The workspace links into
 ~/marcel/brain/memory/    →  $MEMORY_DIR/memory/       dated notes, memory/projects/<slug>.md
 ```
 
-The brain reads them directly. It saves through `memory_write`, so each save is one commit with an
+Rendering creates `memory/` and an empty `MEMORY.md` in `$MEMORY_DIR` when they are missing (never
+overwriting one), so a first deploy never links to nothing. The brain reads them directly. It saves through `memory_write`, so each save is one commit with an
 etag check; an edit made straight in the file is picked up by the next etag.
 
 ## After rendering (S-14.1)

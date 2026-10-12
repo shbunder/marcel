@@ -8,7 +8,8 @@
 What it does:
 - copies the template files (`CLAUDE.md`, `.claude/settings.json`), filling every `{{NAME}}` with
   its value (JSON-escaped inside a `.json` file) and dropping the template's leading `<!-- … -->` note;
-- links `MEMORY.md` and `memory/` to the hub's memory folder, so the brain reads and writes the same
+- links `MEMORY.md` and `memory/` to the hub's memory folder (creating an empty `MEMORY.md` and
+  `memory/` there when they are missing), so the brain reads and writes the same
   files the hub commits.
 
 It refuses, in one plain sentence, an unknown or missing variable, a relative path, a value over one
@@ -115,6 +116,18 @@ def link(path: Path, target: Path) -> None:
     path.symlink_to(target)
 
 
+def ensure_memory(memory_dir: Path) -> None:
+    """Make sure both link targets exist, so a first deploy never links to nothing.
+
+    Creates `memory/` and an empty `MEMORY.md` only when they are missing; never touches a file
+    that is there. The hub commits them on its next save.
+    """
+    (memory_dir / 'memory').mkdir(parents=True, exist_ok=True)
+    index = memory_dir / 'MEMORY.md'
+    if not index.exists():
+        index.write_text('', encoding='utf-8')
+
+
 def render(out: Path, given: dict[str, str], template_dir: Path = HERE) -> list[Path]:
     """Write the workspace into `out` and return the paths written."""
     values = resolve(given)
@@ -126,6 +139,7 @@ def render(out: Path, given: dict[str, str], template_dir: Path = HERE) -> list[
         dest.write_text(text, encoding='utf-8')
         written.append(dest)
     memory_dir = Path(values['MEMORY_DIR'])
+    ensure_memory(memory_dir)
     for name, inside in MEMORY_LINKS.items():
         link(out / name, memory_dir / inside)
         written.append(out / name)
