@@ -68,6 +68,12 @@ def example(name: str) -> Any:
     return copy.deepcopy(component(name)['example'])
 
 
+def response_example(path: str, method: str, status: int) -> Any:
+    """A fresh copy of the example an operation's response gives inline."""
+    resp = load_api()['paths'][path][method]['responses'][str(status)]
+    return copy.deepcopy(resp['content']['application/json']['example'])
+
+
 def validator(pointer: str) -> Draft202012Validator:
     """A validator for a pointer such as `app-api.yaml#/components/schemas/Task`."""
     return Draft202012Validator(

@@ -3,8 +3,8 @@
 Lets the iOS app (and the avatar) be built before the real hub exists. It serves every operation in
 [`contracts/app-api.yaml`](../contracts/app-api.yaml) under `/api`, and `GET /api/ws` speaks
 [`contracts/events.schema.json`](../contracts/events.schema.json). It reads the contract at start-up and
-answers with the contract's own examples. The only things it adds are what those examples point
-at but do not define (the Inbox and Marcel dev projects and their boards) and the scripted runs below.
+answers with the contract's own examples. The only things it adds are the content of the boards
+the examples name but do not define (the Inbox's and Marcel dev's) and the scripted runs below.
 
 ```bash
 make mock-hub                 # http://127.0.0.1:7499/api  (MOCK_DELAY=0 for an instant scenario)
@@ -32,9 +32,9 @@ Point the app's server URL at `http://127.0.0.1:7499/api`.
 
 ## Projects, items and boards
 
-Three projects are there from the start: **Inbox** (`prj_inbox`, always last on the map), **Marcel dev**
-(`prj_01J9ZM1`, the project the contract's own task and PR examples point at) and **Energy contracts**
-(`prj_01JA0A1`, the contract's `Project` example). Every task and every artifact belongs to one of them.
+Three projects are there from the start, from the contract's `listProjects` example: **Energy
+contracts** (`prj_01JA0A1`), **Marcel dev** (`prj_01J9ZM1`, where the contract's task and PR examples
+live) and **Inbox** (`prj_inbox`, always last on the map). Every task and every artifact belongs to one of them.
 
 - **Every project has a board**: an artifact of kind `board` whose content (JSON, `GET
   /artifacts/{id}/content`) matches `contracts/dashboard.schema.json`. It has four sections: *Waiting on
@@ -110,6 +110,4 @@ connect and shows its own offline state. Start it with `make mock-hub`.
 - Task events carry the shapes in `contracts/transcript.schema.json`; a test validates every event the
   mock logs against `TaskEvent`, so a shape the contract does not allow fails.
 - A rejected WebSocket answers 403, which the contract lists for `/ws`.
-- The contract does not yet list a 400 for `listMessages`, `listTasks`, `listTaskEvents`,
-  `listArtifacts` or `getArtifactContent`, though each takes a number in the query. The mock answers 400
-  anyway; [`project/contract-requests/S-02.6.md`](../project/contract-requests/S-02.6.md) asks for it.
+- A bad number in the query is a 400; the contract lists it for every operation that takes one.

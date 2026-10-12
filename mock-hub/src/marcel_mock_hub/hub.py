@@ -14,8 +14,7 @@ from . import boards, contract
 MAIN_CONVERSATION = 'cnv_main_marcel'
 AGENT_ID = 'agt_marcel'
 INBOX = 'prj_inbox'
-# The contract's Task and Artifact examples file their work under this id; the mock gives it a
-# project so every example points at something that exists.
+# The project the contract's Task and Artifact examples file their coding work under.
 MARCEL_DEV = 'prj_01J9ZM1'
 SCENARIO_REPO = 'shbunder/marcel'
 HUB_AUTHOR = 'the hub'
@@ -87,25 +86,9 @@ class Hub:
         for art in (contract.example('Artifact'), *contract.example('ArtifactPage')['items']):
             self.artifacts[art['id']] = art
 
-        energy = contract.example('Project')
-        inbox = {
-            **copy.deepcopy(energy),
-            'id': INBOX,
-            'slug': 'inbox',
-            'name': 'Inbox',
-            'goal': 'Threads that fit no project yet.',
-            'board_artifact_id': 'art_board_inbox',
-        }
-        dev = {
-            **copy.deepcopy(energy),
-            'id': MARCEL_DEV,
-            'slug': 'marcel-dev',
-            'name': 'Marcel dev',
-            'goal': 'Marcel builds and improves itself.',
-            'repo': SCENARIO_REPO,
-            'board_artifact_id': 'art_board_marcel_dev',
-        }
-        for project in (inbox, dev, energy):
+        # The Map's example lists every seeded project; boards it names but no artifact example
+        # defines (the inbox's and Marcel dev's) are made here, at version 1.
+        for project in contract.response_example('/projects', 'get', 200):
             self.projects[project['id']] = project
             if project['board_artifact_id'] not in self.artifacts:
                 self.artifacts[project['board_artifact_id']] = self._new_board(project)
