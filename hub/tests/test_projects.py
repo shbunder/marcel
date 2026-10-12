@@ -308,7 +308,7 @@ def test_a_notes_failure_does_not_stop_the_project(
 
 def test_the_migration_files_existing_work_in_a_new_inbox(tmp_path: Path) -> None:
     engine = db.make_engine(tmp_path / 'old.db')
-    db.upgrade(engine, '0003')
+    db.upgrade(engine, '0004')
     now = "'2026-10-12 00:00:00'"
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO agent (id, owner_user_id, name, animal, palette, seed, "
@@ -329,7 +329,10 @@ def test_the_migration_files_existing_work_in_a_new_inbox(tmp_path: Path) -> Non
         assert {a.project_id for a in s.exec(select(Artifact)).all()} == {inbox.id}
 
 
-def test_a_downgrade_with_data_keeps_every_row_and_upgrades_again(tmp_path: Path) -> None:
+@pytest.mark.parametrize('target', ['0004', '0003'])  # just before projects; and further back
+def test_a_downgrade_with_data_keeps_every_row_and_upgrades_again(
+    tmp_path: Path, target: str
+) -> None:
     engine = db.make_engine(tmp_path / 'full.db')
     db.upgrade(engine)
     add_agent(engine, 'agt_a')
@@ -361,7 +364,7 @@ def test_a_downgrade_with_data_keeps_every_row_and_upgrades_again(tmp_path: Path
 
     before = counts()
     db.upgrade(engine)  # already at head: nothing to do
-    db.downgrade(engine, '0003')
+    db.downgrade(engine, target)
     assert counts() == before
     with engine.connect() as conn:
         assert conn.execute(text('PRAGMA foreign_key_check')).all() == []
@@ -369,7 +372,7 @@ def test_a_downgrade_with_data_keeps_every_row_and_upgrades_again(tmp_path: Path
         names = {r[0] for r in conn.execute(text('SELECT name FROM sqlite_master'))}
         assert 'project' not in names
         assert not any(n.startswith('_alembic_tmp') for n in names)
-        assert conn.execute(text('SELECT version_num FROM alembic_version')).scalar_one() == '0003'
+        assert conn.execute(text('SELECT version_num FROM alembic_version')).scalar_one() == target
 
     db.upgrade(engine)
     assert counts() == before

@@ -5,7 +5,8 @@ Swift 6, SwiftUI, iOS 18+. Built on the Mac only (it needs Xcode), never in a cl
 ```
 ios/
   Marcel.xcodeproj      the app project (scheme `Marcel`); its sources are the Marcel/ folder
-  Marcel/               the app: App/ (entry, root view), Pairing/ (QR scan + paste), later Chat/, Quests/, …
+  Marcel/               the app: App/ (entry, root view with the tabs), Pairing/ (QR scan + paste), Chat/ (the
+                        Chat tab, its own package: see Marcel/Chat/README.md), Quests/, …
   Config/               the app's Info.plist additions (local-network HTTP for the mock hub)
   MarcelKit/            Swift package: API client, pairing, Keychain, WebSocket stream, SwiftData cache
   PixelKit/             Swift package: the pixel-classic design system (tokens, fonts, components; see its README)
@@ -23,6 +24,8 @@ make -C ios app             # build the app for the simulator
 make -C ios test            # MarcelKit's and AvatarKit's tests on a simulator (stubs only, no network)
 make -C ios pixelkit-test   # PixelKit's snapshot, contrast and accessibility tests
 make -C ios pixelkit-record # re-record PixelKit's reference snapshots after a deliberate change
+make -C ios chat-test       # the Chat tab's feed, card, composer and snapshot tests
+make -C ios chat-record     # re-record the Chat snapshots after a deliberate change
 make -C ios integration     # one test against the mock hub; start it first with `make mock-hub`
 make -C ios generate        # regenerate the API client after contracts/app-api.yaml changes
 SIM=<udid> make -C ios test # pick the simulator yourself (default: an iPhone on the newest iOS runtime)
@@ -40,7 +43,7 @@ though the iOS 18 and 26.x simulators work. `xcodebuild test` and `-destination`
 
 1. **App:** `xcodebuild -target Marcel -sdk iphonesimulator` with `SWIFT_ENABLE_EXPLICIT_MODULES=NO`
    (target builds otherwise fail to order the package modules: "unable to resolve module dependency").
-2. **Tests:** SwiftPM builds `MarcelKitTests`, `AvatarKitTests` and `PixelKitTests` for the simulator (`--triple arm64-apple-ios18.0-simulator`).
+2. **Tests:** SwiftPM builds `MarcelKitTests`, `AvatarKitTests`, `PixelKitTests` and `MarcelChatTests` for the simulator (`--triple arm64-apple-ios18.0-simulator`).
 3. **Run:** `simctl spawn` runs the bundle in a booted simulator through `Tools/SimTestRunner`. Apple's own
    `xctest` agent has no Keychain entitlement (every Keychain call fails with -34018), and the simulator
    refuses one added to a code signature, so the runner carries it the way simulator apps do: in a

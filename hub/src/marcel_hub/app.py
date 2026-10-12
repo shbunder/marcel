@@ -22,6 +22,7 @@ from marcel_hub import (
     __version__,
     artifacts,
     auth,
+    channel,
     conversations,
     db,
     memory,
@@ -158,6 +159,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         db.upgrade(engine)
+        app.state.channel.recheck()  # approval cards left open while the hub was down
         pusher.start()
         await app.state.tasks.drain()  # tasks queued before a restart start if there is room
         if watch is not None:
@@ -190,11 +192,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     # One event log for the app's live stream (S-04.3); the task registry publishes into it.
     app.state.events = ws.EventLog(engine)
-    # Pushes (S-08.1): the pusher passes every task event on to the event log, and pushes on
-    # state changes.
+    # Pushes (S-08.1) and the channel gateway (S-04.6) both watch the registry's events on their way
+    # to the one event log: the pusher pushes on state changes; the gateway expires or settles
+    # approval cards. The gateway is also the registry's Outbox.
     pusher = notify.install(app, settings.ntfy_server)
+    gateway = channel.create(app, settings.data_dir, push=pusher, alerts=pusher)
     registry = tasks.install(
-        app, runner=client, publisher=pusher.task_publisher(ws.OwnerPublisher(app.state.events))
+        app,
+        runner=client,
+        outbox=gateway.outbox,
+        # Outermost the pusher: it pushes after the event is stored and the gateway has settled
+        # any approval card the change affects.
+        publisher=pusher.task_publisher(
+            gateway.task_publisher(ws.OwnerPublisher(app.state.events))
+        ),
     )
     watch = (
         RunnerWatch(
@@ -211,6 +222,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(conversations.router)
     artifacts.install(app)  # S-04.7, after tasks: an artifact is recorded on its task
     repo = memory.install(app)
+    channel.install(app, gateway, registry, watch)  # after artifacts: reports store through it
     # S-04.10: workers start with their project's notes; task changes update their project.
     projects.install(app, ws.OwnerPublisher(app.state.events), registry, repo)
     return app
@@ -233,4 +245,9 @@ def main(argv: list[str] | None = None) -> None:
         settings = load_settings()
     except SettingsError as exc:
         raise SystemExit(f'Marcel hub did not start. {exc}') from exc
-    uvicorn.run(create_app(settings), host=settings.host, port=settings.port)
+    uvicorn.run(
+        create_app(settings),
+        host=settings.host,
+        port=settings.port,
+        ws_max_size=channel.MAX_FRAME,  # no socket frame is read past the channel's cap
+    )

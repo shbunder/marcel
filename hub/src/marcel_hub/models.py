@@ -237,7 +237,7 @@ class Task(SQLModel, table=True):
     id: str = Field(default_factory=lambda: new_id('tsk'), primary_key=True)
     agent_id: str = Field(foreign_key='agent.id', index=True)
     # Required: a task inserted without one is filed in its agent's inbox (`_file_in_inbox`), and
-    # the database refuses a task with none (triggers in migration 0004).
+    # the database refuses a task with none (triggers in migration 0005).
     project_id: str | None = Field(default=None, foreign_key='project.id', index=True)
     title: str
     location: TaskLocation
@@ -286,6 +286,31 @@ class Approval(SQLModel, table=True):
     answered_via: AnsweredVia | None = None
     created_at: datetime = Field(default_factory=utcnow)
     answered_at: datetime | None = None
+
+
+class ChannelFrame(SQLModel, table=True):
+    """A hub → session frame (channel.schema.json) waiting for its `ack`. `target` is
+    `task:<id>` for a worker or `conversation:<id>` for the brain or a side thread. `seq` counts
+    up by one per target and never restarts: the newest row of a target is kept even once acked,
+    so numbering survives a restart."""
+
+    __tablename__ = 'channel_frame'  # type: ignore[assignment]
+
+    target: str = Field(primary_key=True)
+    seq: int = Field(primary_key=True)
+    frame_json: dict[str, Any] = _json()
+    acked: bool = False
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class ChannelCall(SQLModel, table=True):
+    """A `reply` or `report` the hub has stored, by `call_id`, so a re-send is stored once."""
+
+    __tablename__ = 'channel_call'  # type: ignore[assignment]
+
+    call_id: str = Field(primary_key=True)
+    target: str
+    at: datetime = Field(default_factory=utcnow)
 
 
 class Artifact(SQLModel, table=True):

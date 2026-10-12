@@ -39,6 +39,6 @@ def upgrade(engine: Engine, revision: str = 'head') -> None:
 
 def downgrade(engine: Engine, revision: str = 'base') -> None:
     command.downgrade(alembic_config(engine), revision)
-    # A downgrade may turn foreign keys off on its connection (0004 does); drop every pooled
+    # A downgrade may turn foreign keys off on its connection (0005 does); drop every pooled
     # connection so the next one opens with them on again.
     engine.dispose()

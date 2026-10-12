@@ -1,7 +1,7 @@
 """projects: the project table, an inbox per agent, and project_id on tasks, messages and artifacts
 
-Revision ID: 0004
-Revises: 0003
+Revision ID: 0005
+Revises: 0004
 
 Every existing agent gets its `inbox`, and every existing task and artifact is filed there (an
 artifact under its task's project). `task.project_id` is added as a plain column with a foreign key
@@ -17,8 +17,8 @@ import sqlalchemy as sa
 import sqlmodel
 from alembic import op
 
-revision = '0004'
-down_revision = '0003'
+revision = '0005'
+down_revision = '0004'
 branch_labels = None
 depends_on = None
 
