@@ -5,7 +5,6 @@ feature: F00
 wave: 0
 runs_on: NUC
 size: S
-status: Done
 depends: 
 touches: scratch/spikes/SP2-*
 behaviours: 

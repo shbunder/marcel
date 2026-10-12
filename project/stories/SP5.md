@@ -5,7 +5,6 @@ feature: F00
 wave: 0
 runs_on: Mac
 size: S
-status: In Progress
 depends: 
 touches: scratch/spikes/SP5-*
 behaviours: 

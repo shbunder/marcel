@@ -1,7 +1,7 @@
 # Marcel v3 — working in this repo
 
 Marcel is one continuous conversation on an iPhone with an agent on a home server (the NUC). The
-agent starts and steers Claude Code sessions to do the work, and a 3D giraffe shows what it is doing.
+agent starts and steers Claude Code sessions to do the work, and a pixel-art giraffe shows what it is doing.
 **Marcel is a shell around Claude Code**: every model token is spent by the unmodified `claude` CLI on
 the owner's subscription. Marcel's code keeps state, moves messages, supervises sessions and draws the app.
 
@@ -43,21 +43,28 @@ Start with [plan/README.md](plan/README.md). What it must do is
 
 ```bash
 make check            # every lane that builds off a Mac, plus the board and hook tests
-make lanes            # what is in progress, what it touches, what is ready to start
-make start S=S-03.2   # start a story; refused if blocked, overlapping or over the cap
+make lanes            # in flight, blocked, ready to start (from the latest board export)
+make start S=S-03.2   # check a story may start; refused if blocked, overlapping or over the cap
 make board            # every story with its status, wave, place and size
 make ios-check        # on the Mac only
 ```
+
+## Where work is tracked
+
+- **What a story is** — `project/stories/<id>.md`, in git.
+- **Where it is** — the build board, https://claude.ai/artifact/1V2swuomSbb9r1cB23Y2eh, never in git.
+  `/board` for status, `/story` to claim, `/finish-story` for the PR, `/merge-story` (lead), `/adr`.
+  See [board](.claude/rules/board.md).
 
 ## Working on a story
 
 Follow [plan/04-agent-playbook.md](plan/04-agent-playbook.md) § The implementer loop:
 
-1. `make start`.
+1. `/story` (claims it on the board and creates the branch).
 2. Write the failing tests from the story's "done when" first.
 3. Implement, then run the lane gate.
 4. Update docs in the same commit.
-5. `[S-NN.M] impl: …`, staged by name.
+5. `/finish-story`: `[S-NN.M] impl: …` staged by name, the verifier, the PR.
 
 The rules in [.claude/rules/](.claude/rules/) apply to every change. A guard hook blocks edits to
 `CLAUDE.md`, `contracts/**` and env files; its message says how to unlock when the edit is yours to make.
