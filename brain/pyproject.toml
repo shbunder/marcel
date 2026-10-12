@@ -1,0 +1,43 @@
+[project]
+name = "marcel-brain"
+version = "0.1.0"
+description = "The brain workspace template (persona, settings) and the renderer that fills in deploy variables."
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = ["ruff>=0.6", "pyright>=1.1.380", "pytest>=8", "pytest-cov>=5"]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.pyright]
+pythonVersion = "3.12"
+include = ["render.py", "tests"]
+extraPaths = [".", "../plugins/marcel/tools/src"]
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "../plugins/marcel/tools/src"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["render"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
