@@ -34,6 +34,11 @@ public struct ChatScreen: View {
                     }
                 }
         }
+        // "Ask about this" in a viewer opened from the chat: back to the feed, with the item on the next message.
+        .environment(\.askInChat) { item in
+            model.attach(item)
+            path.removeAll()
+        }
         .task { await model.start() }
     }
 
@@ -54,7 +59,7 @@ public struct ChatScreen: View {
                 LiveFeed(model: model, conversationId: conversationId, limit: model.limit, offline: offline,
                          actions: actions, avatar: avatar)
             } else {
-                ChatLayout(header: ChatHeaderState(offline: offline), collapsed: false, problem: model.problem,
+                ChatLayout(header: ChatHeaderState(offline: offline, name: model.agentName), collapsed: false, problem: model.problem,
                            avatar: avatar, composer: { EmptyView() }) {
                     PixelText(model.problem == nil ? "Opening the conversation…" : "Nothing saved on this phone yet.",
                               role: .detail)
@@ -104,11 +109,16 @@ struct LiveFeed: View {
         let input = FeedInput.decode(newestMessages: window, limit: limit, tasks: tasks, artifacts: artifacts,
                                      projects: projects)
         let items = ChatFeed.items(input, local: model.local)
-        let header = ChatHeaderState(tasks: input.tasks.values, offline: offline)
+        let header = ChatHeaderState(tasks: input.tasks.values, offline: offline, name: model.agentName)
         // Big giraffe while you sit at the latest messages; small once you scroll back or start typing.
         let collapsed = distanceFromBottom > 24 || typing
         @Bindable var model = model
         ChatLayout(header: header, collapsed: collapsed, problem: model.problem, avatar: avatar, composer: {
+            if let attachment = model.attachment {
+                AttachedItem(title: attachment.title, remove: { model.attachment = nil })
+                    .padding(.horizontal, FeedMetrics.inset)
+                    .padding(.top, PixelMetrics.steps(2))
+            }
             Composer(text: $model.draft,
                      placeholder: Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(items)),
                      focused: $typing) {
@@ -166,6 +176,7 @@ struct LiveFeed: View {
                 }
             }
         }
+        .environment(\.chatAgentName, header.name)
         .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: collapsed)
         // Approvals are not in the cache: fetch them when one shows up or its task moves on.
         .task(id: Self.approvalKey(input)) { await model.reconcile(input) }

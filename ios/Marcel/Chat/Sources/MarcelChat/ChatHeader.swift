@@ -6,13 +6,17 @@ import SwiftUI
 /// What the top strip says: the giraffe's state, how many quests run and how many things need you. Worked out
 /// from the cached tasks, so it is right offline too and follows every `task.updated`.
 public struct ChatHeaderState: Equatable, Sendable {
+    /// The agent's name: "Marcel" until the hub says otherwise (Settings can rename it).
+    public var name: String = "Marcel"
     public var avatar: AvatarState
     public var running: Int
     public var needsYou: Int
     /// Set when the live stream is down: what the person should know, in plain words.
     public var offline: String?
 
-    public init(avatar: AvatarState = .idle, running: Int = 0, needsYou: Int = 0, offline: String? = nil) {
+    public init(avatar: AvatarState = .idle, running: Int = 0, needsYou: Int = 0, offline: String? = nil,
+                name: String? = nil) {
+        self.name = name ?? "Marcel"
         self.avatar = avatar
         self.running = running
         self.needsYou = needsYou
@@ -20,11 +24,11 @@ public struct ChatHeaderState: Equatable, Sendable {
     }
 
     /// The contract's precedence for the avatar (`AgentState`): needs you, then working(n), then idle.
-    public init(tasks: some Collection<HubTask>, offline: String? = nil) {
+    public init(tasks: some Collection<HubTask>, offline: String? = nil, name: String? = nil) {
         let needsYou = tasks.filter { $0.state == .needsYou && $0.archivedAt == nil }.count
         let working = tasks.filter { ($0.state == .working || $0.state == .starting) && $0.archivedAt == nil }.count
         let avatar: AvatarState = needsYou > 0 ? .needsYou : working > 0 ? .working(working) : .idle
-        self.init(avatar: avatar, running: working, needsYou: needsYou, offline: offline)
+        self.init(avatar: avatar, running: working, needsYou: needsYou, offline: offline, name: name)
     }
 
     public var subtitle: String {
@@ -49,7 +53,7 @@ struct ChatHeader: View {
     var body: some View {
         // At accessibility text sizes the big giraffe would squeeze the title; it stays at 44 pt there.
         let small = collapsed || dynamicType.isAccessibilitySize
-        HeartsHeader(title: "Marcel", subtitle: state.subtitle, needsYou: state.needsYou) {
+        HeartsHeader(title: state.name, subtitle: state.subtitle, needsYou: state.needsYou) {
             ChatAvatar(state: state.avatar, size: small ? .medium : .large, still: still)
         }
         .accessibilityLabel(accessibilityText)
@@ -57,7 +61,7 @@ struct ChatHeader: View {
 
     /// The header's own words plus what the giraffe is doing (the sprite itself is hidden from VoiceOver).
     var accessibilityText: String {
-        var parts = ["Marcel", state.avatar.accessibilityDescription, state.subtitle]
+        var parts = [state.name, state.avatar.accessibilityDescription, state.subtitle]
         switch state.needsYou {
         case 0: break
         case 1: parts.append("1 thing needs you")
@@ -85,4 +89,6 @@ struct ChatAvatar: View {
 extension EnvironmentValues {
     /// Snapshot tests draw every avatar as its state's first frame, and the composer's field as plain text.
     @Entry public var chatStillAvatars = false
+    /// The agent's name on Marcel's dialogue boxes: "Marcel" until the hub says otherwise.
+    @Entry public var chatAgentName = "Marcel"
 }

@@ -92,6 +92,9 @@ struct UserBubble: View {
             if let project = line.project {
                 ProjectChip(project, tone: line.tone)
             }
+            if let attachment = line.attachment {
+                AttachedItem(title: attachment)
+            }
             switch line.status {
             case .sent: EmptyView()
             case .sending:
@@ -123,6 +126,9 @@ struct MarcelSays<Accessory: View>: View {
     /// How far the box sits from the left edge: the 32-pt giraffe and the gap after it.
     static var indent: CGFloat { AvatarSize.small.points + PixelMetrics.steps(3) }
 
+    /// The agent's name on the box, as the header says it.
+    @Environment(\.chatAgentName) private var agentName
+
     init(text: String, links: [ChatMarkdown.Link] = [], @ViewBuilder accessory: () -> Accessory) {
         self.text = text
         self.links = links
@@ -137,7 +143,7 @@ struct MarcelSays<Accessory: View>: View {
                     .padding(.top, PixelMetrics.steps(1))
                     .accessibilityHidden(true)
             }
-            DialogBox(speaker: "Marcel", text: text) {
+            DialogBox(speaker: agentName, text: text) {
                 if !links.isEmpty || Accessory.self != EmptyView.self {
                     VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
                         ForEach(Array(links.enumerated()), id: \.offset) { _, link in LinkButton(link: link) }
@@ -193,5 +199,43 @@ struct LinkButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Self.accessibilityText(link))
+    }
+}
+
+/// The item that went with a message ("Ask about this"), under your bubble and above the composer: a gold outline
+/// with the item's title.
+struct AttachedItem: View {
+    var title: String
+    /// Above the composer: an X takes the item off the message.
+    var remove: (() -> Void)?
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let theme = PixelTheme(scheme)
+        let ink = ProjectChip.Tone.gold.color(in: theme).color
+        HStack(spacing: PixelMetrics.steps(3)) {
+            PixelText("Item", role: .smallLabel).foregroundStyle(ink)
+            PixelText(title, role: .detail)
+                .foregroundStyle(theme.text.color)
+                .lineLimit(1)
+            if let remove {
+                Spacer(minLength: 0)
+                Button(action: remove) {
+                    PixelText("X", role: .label)
+                        .foregroundStyle(theme.muted.color)
+                        .frame(width: PixelMetrics.minTapTarget, height: PixelMetrics.minTapTarget)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove the item from the message")
+            }
+        }
+        .padding(.horizontal, PixelMetrics.steps(4))
+        .frame(minHeight: remove == nil ? nil : PixelMetrics.minTapTarget)
+        .padding(.vertical, remove == nil ? PixelMetrics.steps(2) : 0)
+        .overlay(Rectangle().strokeBorder(ink, lineWidth: PixelMetrics.thinBorder))
+        .accessibilityElement(children: remove == nil ? .ignore : .contain)
+        .accessibilityLabel("Item: \(title)")
     }
 }

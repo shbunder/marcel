@@ -1,4 +1,5 @@
 import Foundation
+import MarcelItems
 import MarcelKit
 
 @testable import MarcelChat
@@ -11,7 +12,9 @@ final class FakeService: ChatService {
     var contents: [String: Data] = [:]
     private(set) var answers: [(id: String, approve: Bool)] = []
     private(set) var approvalFetches = 0
-    private(set) var sent: [(text: String, clientId: String)] = []
+    private(set) var sent: [(text: String, clientId: String, attachment: ItemAttachment?)] = []
+    /// The agent's name as `GET /me` gives it.
+    var agentName = "Marcel"
     /// Holds a send until the test lets it go, to see the message while it is on its way.
     var holdSends = false
     private var held: [CheckedContinuation<Void, Never>] = []
@@ -25,17 +28,20 @@ final class FakeService: ChatService {
         self.failing = failing
     }
 
-    func mainConversationId() async throws -> String {
+    func mainAgent() async throws -> MainAgent {
         if failing { throw ChatError.unreachable }
-        return Fx.conversation
+        return MainAgent(conversationId: Fx.conversation, name: agentName)
     }
 
-    func send(text: String, clientId: String, conversationId: String) async throws -> Message {
-        sent.append((text, clientId))
+    func send(text: String, clientId: String, conversationId: String, attachment: ItemAttachment?) async throws
+        -> Message
+    {
+        sent.append((text, clientId, attachment))
         if holdSends { await withCheckedContinuation { held.append($0) } }
         if failing { throw ChatError("Not sent: can't reach the hub. Tap the message to try again.") }
-        return Fx.decode(Fx.message("msg_\(clientId)", at: 100, role: "user", text: text,
-                                    extra: ["client_id": clientId]))
+        var extra: [String: Any] = ["client_id": clientId]
+        if let attachment { extra["artifact_id"] = attachment.artifactId; extra["project_id"] = attachment.projectId }
+        return Fx.decode(Fx.message("msg_\(clientId)", at: 100, role: "user", text: text, extra: extra))
     }
 
     func approvals() async throws -> [Approval] {

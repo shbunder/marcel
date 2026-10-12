@@ -24,6 +24,17 @@ and shows `ChatScreen(model:offline:)`; the Xcode project keeps this folder out 
 - **A message sent from a project room** (`project_id`, B-32; the Map tab) shows that project's chip under it, and
   VoiceOver says "You said, about Home energy: …". The Map package reuses the chat's `Composer` and
   `ArtifactPreview.dashboardRows`, so both are public.
+- **"Ask about this" on an item** (S-12.11, app API 0.5) comes back to the chat with the item attached
+  (`ChatModel.attach`; the viewer calls the `askInChat` environment value, which `ChatScreen` sets for viewers it
+  opens and the app sets for the others). The item shows above the composer (X removes it) and goes with the next
+  message only, as `artifact_id`, tagged with the item's project. The sent bubble shows the item under it, by its
+  title from the cache ("An item" when the phone does not have it); VoiceOver says "You said, with the item …".
+- **"+ New" on the map** never overwrites what you typed: `ChatModel.propose` fills an empty composer, and otherwise
+  adds the request on a new line after your words (once).
+- **The header and Marcel's dialogue boxes say the agent's name**, from `GET /me` (`ChatService.mainAgent`), "Marcel"
+  until the hub has said.
+  The app passes a rename in Settings on (`SettingsModel.nameChanged` → `ChatModel.agentName`).
+- **PR item cards** add "May be out of date: …" when the hub could not refresh the card from GitHub (`pr.note`).
 - **Sending** never waits on Marcel: the message shows at once ("Sending…"), and if the hub cannot be reached it
   stays, marked "Not sent · tap to try again". A retry reuses the `client_id`, so the hub keeps one copy.
 - **Scrolling**: the newest 50 messages; reaching the top loads 50 more from the cache. "Latest ▼" jumps back.
@@ -43,6 +54,8 @@ and shows `ChatScreen(model:offline:)`; the Xcode project keeps this folder out 
 - `FeedTests`, `CardTests`, `ComposerTests` — the feed, the cards and sending, driven through a real in-memory
   cache fed with event frames. `CardTests.testTheScenarioFromSendToItemGet` is the story's scenario: send → two
   started cards → a routed follow-up → the approval → approve → item get + artifact card.
+- `CatchUpTests` — app API 0.5 and the review follow-ups: a message with an item attached (sent, shown, retried),
+  "+ New" never overwriting a draft, the header and the dialogue boxes following the agent's name.
 - `ChatSnapshotTests` — the main states in light and dark (and the largest text size for two), compared pixel for
   pixel with `Tests/MarcelChatTests/__Snapshots__/` like PixelKit's. After a deliberate change run
   `make -C ios chat-record`, look at the PNGs, and commit them.

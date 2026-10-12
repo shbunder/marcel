@@ -1,4 +1,5 @@
 import Foundation
+import MarcelItems
 import MarcelKit
 import PixelKit
 
@@ -46,20 +47,23 @@ public struct UserLine: Equatable, Sendable {
     /// The project room it was sent from (`project_id`, B-32): drawn as that project's chip under the message.
     public var project: String?
     public var tone: ProjectChip.Tone = .teal
+    /// The title of the item attached to it ("Ask about this", `artifact_id`), drawn under the message.
+    public var attachment: String?
 
     public init(id: String, text: String, status: Status = .sent, clientId: String? = nil, project: String? = nil,
-                tone: ProjectChip.Tone = .teal) {
+                tone: ProjectChip.Tone = .teal, attachment: String? = nil) {
         self.id = id
         self.text = text
         self.status = status
         self.clientId = clientId
         self.project = project
         self.tone = tone
+        self.attachment = attachment
     }
 
     /// What VoiceOver reads.
     public var accessibilityText: String {
-        let about = project.map { ", about \($0)" } ?? ""
+        let about = (project.map { ", about \($0)" } ?? "") + (attachment.map { ", with the item \($0)" } ?? "")
         return switch status {
         case .sent: "You said\(about): \(text)"
         case .sending: "Sending\(about): \(text)"
@@ -75,6 +79,16 @@ public struct PendingMessage: Equatable, Sendable {
     public var failed: Bool
     /// The hub has it; it shows from the cache once the stream brings it.
     public var stored = false
+    /// The item going with it.
+    public var attachment: ItemAttachment?
+
+    public init(clientId: String, text: String, failed: Bool, stored: Bool = false, attachment: ItemAttachment? = nil) {
+        self.clientId = clientId
+        self.text = text
+        self.failed = failed
+        self.stored = stored
+        self.attachment = attachment
+    }
 }
 
 public struct MarcelLine: Equatable, Sendable {
@@ -188,8 +202,11 @@ public enum ChatFeed {
                 if message.role == .user {
                     // Sent from a project room: tagged with that project (B-32).
                     let project = message.projectId.flatMap { input.projects[$0] }
+                    // "Ask about this": the attached item, by its title when the phone has it.
+                    let attached = message.artifactId.map { input.artifacts[$0]?.title ?? "An item" }
                     items.append(.user(UserLine(id: message.id, text: text, project: project?.name,
-                                                tone: project.map { tone(for: $0.id) } ?? .teal)))
+                                                tone: project.map { tone(for: $0.id) } ?? .teal,
+                                                attachment: attached)))
                 } else {
                     let routed = message.taskId.flatMap { Self.quest(id: "\(message.id)#quest", taskId: $0, input: input) }
                     items.append(.marcel(MarcelLine(id: message.id, body: ChatMarkdown.render(text), quest: routed)))
@@ -221,7 +238,7 @@ public enum ChatFeed {
         for message in local.pending where !arrived.contains(message.clientId) {
             items.append(.user(UserLine(id: "pending-\(message.clientId)", text: message.text,
                                         status: message.failed ? .failed : message.stored ? .sent : .sending,
-                                        clientId: message.clientId)))
+                                        clientId: message.clientId, attachment: message.attachment?.title)))
         }
         return items
     }

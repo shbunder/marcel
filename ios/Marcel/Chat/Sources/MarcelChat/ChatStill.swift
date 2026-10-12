@@ -9,6 +9,8 @@ struct ChatStill: View {
     var collapsed = false
     var actions = ChatActions()
     var draft = ""
+    /// An item going with the next message, above the composer.
+    var attachment: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,10 +20,16 @@ struct ChatStill: View {
             }
             .padding(FeedMetrics.inset)
             .frame(maxWidth: .infinity, alignment: .leading)
+            if let attachment {
+                AttachedItem(title: attachment, remove: {})
+                    .padding(.horizontal, FeedMetrics.inset)
+                    .padding(.top, PixelMetrics.steps(2))
+            }
             Composer(text: .constant(draft),
                      placeholder: Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(items)),
                      focused: nil, send: {})
             PixelTabBar(selection: .constant("chat"))
         }
+        .environment(\.chatAgentName, header.name)
     }
 }

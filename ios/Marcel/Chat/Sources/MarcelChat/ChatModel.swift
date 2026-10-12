@@ -1,4 +1,5 @@
 import Foundation
+import MarcelItems
 import MarcelKit
 import Observation
 
@@ -22,6 +23,10 @@ public final class ChatModel {
 
     /// What you are typing.
     public var draft = ""
+    /// An item going with your next message ("Ask about this" on an item); shown above the composer until sent.
+    public var attachment: ItemAttachment?
+    /// The agent's name for the header, as the hub last said it (`GET /me`, or Settings after a rename).
+    public var agentName: String?
     /// A message to bring into view (a `marcel://message/<id>` link). The feed scrolls to it, loading older pages
     /// from the cache if needed, then clears it.
     public var focus: String?
@@ -45,7 +50,9 @@ public final class ChatModel {
     /// Asks the hub which conversation is the main one. Offline, the remembered one stays.
     public func start() async {
         do {
-            let id = try await service.mainConversationId()
+            let agent = try await service.mainAgent()
+            agentName = agent.name
+            let id = agent.conversationId
             if id != conversationId {
                 conversationId = id
                 remember(id)
@@ -71,8 +78,25 @@ public final class ChatModel {
         guard !text.isEmpty else { return }
         draft = ""
         let clientId = UUID().uuidString.lowercased()
-        local.pending.append(PendingMessage(clientId: clientId, text: text, failed: false))
+        local.pending.append(PendingMessage(clientId: clientId, text: text, failed: false, attachment: attachment))
+        attachment = nil
         await deliver(clientId)
+    }
+
+    /// "Ask about this" on an item: the item goes with your next message. What you were typing stays.
+    public func attach(_ item: ItemAttachment) {
+        attachment = item
+    }
+
+    /// Puts a suggested message in the composer ("+ New" on the map) without losing what you were typing: an empty
+    /// draft takes it, anything else keeps your words and adds it on a new line.
+    public func propose(_ text: String) {
+        let typed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if typed.isEmpty {
+            draft = text
+        } else if !draft.contains(text) {
+            draft = typed + "\n\n" + text
+        }
     }
 
     /// Sends a message that did not get through again, with the same client id (the hub keeps one copy).
@@ -99,7 +123,8 @@ public final class ChatModel {
             return
         }
         do {
-            _ = try await service.send(text: message.text, clientId: clientId, conversationId: conversationId)
+            _ = try await service.send(text: message.text, clientId: clientId, conversationId: conversationId,
+                                       attachment: message.attachment)
             if let index = local.pending.firstIndex(where: { $0.clientId == clientId }) {
                 local.pending[index].stored = true
             }
