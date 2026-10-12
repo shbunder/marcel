@@ -1,5 +1,10 @@
 # Runner workspaces, resume and fork
 
+- **Trust is checked in `~/.claude.json` under `projects["<folder>"]`:** `hasTrustDialogAccepted`
+  must be true and `enabledMcpjsonServers` / `enableAllProjectMcpServers` unset. Those key names,
+  and the dialog's look (one `❯`-highlighted numbered option, "Yes, I trust this folder", "No,
+  exit"), come from memory of Claude Code, not from a recording. If the first real clone on the NUC
+  fails with `not_trusted`, the screen text is in the error's `detail`: compare it and the file.
 - **Trust and `plugin install` were never run by a test against real Claude Code.** The fake shim
   fakes neither, so `runner/tests/test_workspaces.py` has its own small `claude` that shows the trust
   dialog and writes `.claude/settings.local.json`. On the NUC, check once that `claude plugin install
