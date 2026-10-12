@@ -148,7 +148,12 @@ struct LiveFeed: View {
         // Approvals are not in the cache: fetch them when one shows up or its task moves on.
         .task(id: Self.approvalKey(input)) { await model.reconcile(input) }
         // Your messages that came back over the stream show from the cache now.
-        .onChange(of: window.count, initial: true) { model.prune(input) }
+        // Keyed on the client ids in the window, not its size: a full window stays at 50 rows.
+        .onChange(of: Self.arrivalKey(input), initial: true) { model.prune(input) }
+        // Back online: answers may have come in while the stream was down.
+        .onChange(of: offline) { old, new in
+            if old != nil, new == nil { Task { await model.reconnected(input) } }
+        }
         // Items on screen get their first lines, once per version.
         .task(id: Self.itemKeys(input)) {
             for artifact in Self.itemArtifacts(input) { await model.loadPreview(artifact) }
@@ -158,6 +163,11 @@ struct LiveFeed: View {
 
 extension LiveFeed {
     /// Changes when an approval message arrives or a task's open approvals change.
+    /// Changes whenever a message of yours comes back from the hub (its client id), and with the newest message.
+    static func arrivalKey(_ input: FeedInput) -> String {
+        ([input.messages.last?.id ?? ""] + input.messages.compactMap(\.clientId)).joined(separator: ",")
+    }
+
     static func approvalKey(_ input: FeedInput) -> String {
         let shown = input.messages.compactMap { $0.kind == .approval ? $0.approvalId : nil }
         let open = input.tasks.values.flatMap { $0.approvalIds ?? [] }.sorted()

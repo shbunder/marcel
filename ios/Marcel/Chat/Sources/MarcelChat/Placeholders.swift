@@ -34,7 +34,7 @@ struct ItemPlaceholder: View {
             ArtifactCard(title: line.title, badge: line.badge) {
                 ForEach(line.rows, id: \.self) { ArtifactRow($0.label, value: $0.value, emphasised: $0.emphasised) }
             }
-            if let url = line.url {
+            if let url = line.url.flatMap(ChatMarkdown.webLink) {
                 LinkButton(link: .init(title: "Open \(line.title)", url: url))
             }
             PixelText("The full item viewer comes in a later update.", role: .body)

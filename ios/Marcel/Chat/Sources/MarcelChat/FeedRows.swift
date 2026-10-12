@@ -137,7 +137,7 @@ struct MarcelSays<Accessory: View>: View {
             DialogBox(speaker: "Marcel", text: text) {
                 if !links.isEmpty || Accessory.self != EmptyView.self {
                     VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
-                        ForEach(links, id: \.url) { link in LinkButton(link: link) }
+                        ForEach(Array(links.enumerated()), id: \.offset) { _, link in LinkButton(link: link) }
                         accessory
                     }
                 }
@@ -152,26 +152,43 @@ extension MarcelSays where Accessory == EmptyView {
     }
 }
 
-/// A link from Marcel's text, as a tappable line in the accent colour.
+/// A link from Marcel's text, as a tappable line in the accent colour, with the web address it opens under it.
+/// Only http(s) links are ever opened.
 struct LinkButton: View {
     var link: ChatMarkdown.Link
+
+    /// "example.com", what the button says it opens.
+    static func address(_ url: URL) -> String {
+        let host = url.host() ?? url.absoluteString
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    static func accessibilityText(_ link: ChatMarkdown.Link) -> String {
+        "Open link: \(link.title), on \(address(link.url))"
+    }
     @Environment(\.colorScheme) private var scheme
     @Environment(\.openURL) private var openURL
 
     var body: some View {
         let theme = PixelTheme(scheme)
-        Button { openURL(link.url) } label: {
-            HStack(spacing: PixelMetrics.steps(3)) {
+        Button {
+            if let url = ChatMarkdown.webLink(link.url) { openURL(url) }
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: PixelMetrics.steps(3)) {
                 PixelGlyph(.pointer, color: theme.accent)
-                PixelText(link.title, role: .detail)
-                    .underline()
-                    .foregroundStyle(theme.accent.color)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 0) {
+                    PixelText(link.title, role: .detail)
+                        .underline()
+                        .foregroundStyle(theme.accent.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                    PixelText(Self.address(link.url), role: .detail)
+                        .foregroundStyle(theme.muted.color)
+                }
             }
             .frame(minHeight: PixelMetrics.minTapTarget, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Open link: \(link.title)")
+        .accessibilityLabel(Self.accessibilityText(link))
     }
 }

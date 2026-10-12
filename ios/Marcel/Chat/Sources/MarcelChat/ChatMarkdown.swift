@@ -47,20 +47,28 @@ public enum ChatMarkdown {
                 lastList = list?.identity
             }
             text += piece
-            if let url = run.link {
+            // Only web links become buttons. `javascript:`, `tel:`, app links and the like stay plain words.
+            if let url = run.link.flatMap(Self.webLink) {
                 if url == lastLink, !links.isEmpty {
                     links[links.count - 1].title += piece  // one link split over runs (a bold word inside it)
                 } else {
                     links.append(Link(title: piece, url: url))
                 }
             }
-            lastLink = run.link
+            lastLink = run.link.flatMap(Self.webLink)
         }
         links = links.map { link in
             let title = link.title.trimmingCharacters(in: .whitespacesAndNewlines)
             return Link(title: title.isEmpty ? link.url.absoluteString : title, url: link.url)
         }
         return Rendered(text: text.trimmingCharacters(in: .whitespacesAndNewlines), links: links)
+    }
+
+    /// The link if it is an http(s) address with a host; nil for anything else.
+    public static func webLink(_ url: URL) -> URL? {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host(), !host.isEmpty else { return nil }
+        return url
     }
 
     /// "• " for a bullet, "3. " for the third numbered item, nothing for other blocks.

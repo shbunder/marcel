@@ -53,6 +53,55 @@ final class ComposerTests: XCTestCase {
         XCTAssertEqual(Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion([])), "Talk to Marcel…")
     }
 
+    /// Regression: with a full window (50 rows) a sent message's hub copy does not change the row count. The
+    /// screen must still notice it arrived, or the "on its way" copy stays and comes back as a ghost row later.
+    func testASentMessageIsClearedWhenItArrivesInAFullWindow() async throws {
+        let fed = try FedCache()
+        for n in 1...ChatModel.pageSize {
+            try fed.send("message.created", Fx.message("msg_old_\(n)", at: n, text: "Old \(n)"))
+        }
+        let hub = FakeService()
+        let model = ChatModel(service: hub, conversationId: Fx.conversation)
+        model.draft = "Is the bin out?"
+        await model.send()
+        let before = try fed.input()
+        XCTAssertEqual(before.messages.count, ChatModel.pageSize)
+
+        let clientId = try XCTUnwrap(hub.sent.first?.clientId)
+        try fed.send("message.created", Fx.message("msg_mine", at: 100, role: "user", text: "Is the bin out?",
+                                                   extra: ["client_id": clientId]))
+        let after = try fed.input()
+        XCTAssertEqual(after.messages.count, before.messages.count, "the window is still full")
+        XCTAssertNotEqual(LiveFeed.arrivalKey(after), LiveFeed.arrivalKey(before),
+                          "the screen's trigger fires although the count did not change")
+        model.prune(after)
+        XCTAssertTrue(model.local.pending.isEmpty)
+
+        // Later, when it has scrolled out of the window, it does not come back as a ghost.
+        for n in 1...ChatModel.pageSize {
+            try fed.send("message.created", Fx.message("msg_new_\(n)", at: 200 + n, text: "New \(n)"))
+        }
+        let later = ChatFeed.items(try fed.input(), local: model.local)
+        XCTAssertFalse(later.contains { if case .user(let u) = $0 { u.text == "Is the bin out?" } else { false } })
+    }
+
+    func testAReplayedEventAddsNoRow() async throws {
+        let fed = try FedCache()
+        let hub = FakeService()
+        let model = ChatModel(service: hub, conversationId: Fx.conversation)
+        model.draft = "Hello"
+        await model.send()
+        let clientId = try XCTUnwrap(hub.sent.first?.clientId)
+        let copy = Fx.message("msg_1", at: 1, role: "user", text: "Hello", extra: ["client_id": clientId])
+        try fed.send("message.created", copy)
+        try fed.send("message.created", Fx.message("msg_2", at: 2, text: "Hi!"))
+        // The hub replays after a reconnect: the same messages arrive again.
+        try fed.send("message.created", copy)
+        try fed.send("message.created", Fx.message("msg_2", at: 2, text: "Hi!"))
+        model.prune(try fed.input())
+        XCTAssertEqual(ChatFeed.items(try fed.input(), local: model.local).map(\.id), ["msg_1", "msg_2"])
+    }
+
     func testAnEmptyMessageIsNotSent() async {
         let hub = FakeService()
         let model = ChatModel(service: hub, conversationId: Fx.conversation)

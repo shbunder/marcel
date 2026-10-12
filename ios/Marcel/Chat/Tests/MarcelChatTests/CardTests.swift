@@ -29,8 +29,15 @@ final class CardTests: XCTestCase {
 
         try fed.send("project.created", Fx.project("prj_energy", name: "Home energy"))
         try fed.send("project.created", Fx.project("prj_family", name: "Family"))
-        try fed.send("message.created", Fx.message("msg_1", at: 1, role: "user",
-                                                   text: "Compare energy contracts and plan Sunday lunch"))
+        // Send, as the composer does; the hub's copy then comes back over the stream.
+        model.draft = "Compare energy contracts and plan Sunday lunch"
+        await model.send()
+        let sent = try XCTUnwrap(hub.sent.first)
+        XCTAssertEqual(sent.text, "Compare energy contracts and plan Sunday lunch")
+        try fed.send("message.created", Fx.message("msg_1", at: 1, role: "user", text: sent.text,
+                                                   extra: ["client_id": sent.clientId]))
+        model.prune(try fed.input())
+        XCTAssertTrue(model.local.pending.isEmpty)
         try fed.send("message.created", Fx.message("msg_2", at: 2, text: "Started two quests."))
         try fed.send("task.created", Fx.task("tsk_energy", title: "Energy contracts", state: "working", at: 3))
         try fed.send("message.created", Fx.milestone("msg_3", at: 3, task: "tsk_energy", title: "Energy contracts",
@@ -178,6 +185,34 @@ final class CardTests: XCTestCase {
         let fetches = hub.approvalFetches
         await model.reconcile(try fed.input())
         XCTAssertEqual(hub.approvalFetches, fetches, "nothing new to ask: no fetch")
+    }
+
+    func testAFailedApprovalFetchIsRetriedAndOnReconnect() async throws {
+        let fed = try FedCache()
+        let hub = FakeService()
+        let model = ChatModel(service: hub, conversationId: Fx.conversation)
+        hub.approvalsOnHub["apr_1"] = Fx.decode(Fx.approval("apr_1", task: "tsk_1", summary: "Push"))
+        try fed.send("task.updated", Fx.task("tsk_1", title: "Login test", state: "needs_you",
+                                             extra: ["approval_ids": ["apr_1"]]))
+        try fed.send("message.created", Fx.approvalMessage("msg_1", at: 1, approval: "apr_1", task: "tsk_1"))
+
+        hub.failing = true
+        await model.reconcile(try fed.input())
+        XCTAssertEqual(approvals(ChatFeed.items(try fed.input(), local: model.local)).first?.status, .loading)
+
+        hub.failing = false
+        await model.reconcile(try fed.input())
+        XCTAssertEqual(approvals(ChatFeed.items(try fed.input(), local: model.local)).first?.status, .open,
+                       "one failed fetch does not leave the question stuck on \"Fetching\"")
+
+        // Answered in a terminal while the stream was down, and the task update was missed: a reconnect asks.
+        hub.approvalsOnHub["apr_1"] = Fx.decode(Fx.approval("apr_1", task: "tsk_1", summary: "Push",
+                                                             state: "approved", via: "terminal"))
+        await model.reconcile(try fed.input())
+        XCTAssertEqual(approvals(ChatFeed.items(try fed.input(), local: model.local)).first?.status, .open)
+        await model.reconnected(try fed.input())
+        XCTAssertEqual(approvals(ChatFeed.items(try fed.input(), local: model.local)).first?.status,
+                       .approved(viaTerminal: true))
     }
 
     func testAFailedAnswerIsSaidPlainlyAndTheQuestionStaysOpen() async throws {

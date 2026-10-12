@@ -115,6 +115,20 @@ final class MarkdownTests: XCTestCase {
         XCTAssertEqual(rendered.links, [.init(title: "the PR", url: URL(string: "https://github.com/shbunder/marcel/pull/14")!)])
     }
 
+    func testOnlyWebLinksBecomeButtonsAndSayWhereTheyGo() {
+        let rendered = ChatMarkdown.render("""
+        [Pay](javascript:alert(1)), [call](tel:+3212345678), [run](shortcuts://run-shortcut?name=x), \
+        [mail](mailto:a@b.be), [the board](https://www.example.com/b) and [again](https://www.example.com/b).
+        """)
+        XCTAssertEqual(rendered.text, "Pay, call, run, mail, the board and again.")
+        XCTAssertEqual(rendered.links.map(\.title), ["the board", "again"], "two identical links are both kept")
+        XCTAssertEqual(LinkButton.address(rendered.links[0].url), "example.com")
+        XCTAssertEqual(LinkButton.accessibilityText(rendered.links[0]), "Open link: the board, on example.com")
+        XCTAssertNil(ChatMarkdown.webLink(URL(string: "javascript:alert(1)")!))
+        XCTAssertNil(ChatMarkdown.webLink(URL(string: "marcel://pair?code=x")!))
+        XCTAssertNotNil(ChatMarkdown.webLink(URL(string: "http://example.com")!))
+    }
+
     func testALinkWithABoldWordIsOneLink() {
         let rendered = ChatMarkdown.render("See [the **new** board](https://example.com/b).")
         XCTAssertEqual(rendered.links.map(\.title), ["the new board"])

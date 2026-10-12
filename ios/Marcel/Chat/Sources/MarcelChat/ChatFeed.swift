@@ -343,6 +343,6 @@ public enum ChatFeed {
         return ItemLine(
             id: message.id, artifactId: artifactId, title: artifact.title, savedTo: project, badge: badge,
             rows: local.previews[ArtifactPreview.key(artifact)] ?? ArtifactPreview.summaryRows(artifact),
-            showsBanner: !isDigest, isDigest: isDigest, url: artifact.url.flatMap(URL.init(string:)))
+            showsBanner: !isDigest, isDigest: isDigest, url: artifact.url.flatMap(URL.init(string:)).flatMap(ChatMarkdown.webLink))
     }
 }

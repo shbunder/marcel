@@ -77,13 +77,6 @@ final class ChatMockHubTests: XCTestCase {
         try await waitUntil("the login thread's card") { try quests().count == cardsBefore + 1 }
         let login = try XCTUnwrap(quests().last)
 
-        // A follow-up while it runs: shown, no new card.
-        model.draft = "Also add a test for the empty case."
-        await model.send()
-        try await waitUntil("the follow-up to come back from the hub") {
-            try items().contains { if case .user(let u) = $0 { u.text == "Also add a test for the empty case." && u.status == .sent } else { false } }
-        }
-
         // The approval choice → approve → the PR arrives as an item, the card ends in place.
         var question: ApprovalLine?
         try await waitUntil("the login thread's question") {
@@ -112,6 +105,19 @@ final class ChatMockHubTests: XCTestCase {
         await model.send()
         try await waitUntil("the energy thread's card") { try quests().count == cardsBefore + 2 }
         let energy = try XCTUnwrap(quests().last)
+
+        // A follow-up about the energy thread while it runs. The mock stores it and starts nothing (it has no
+        // brain to route it and reply), so what can be checked here: it shows once, from the hub's copy, and
+        // the energy card stays the newest card with no new one. Marcel's routed reply (a message with the
+        // thread's task_id, drawn with that thread's live card) is checked in the gate's scenario test.
+        model.draft = "Also check whether solar panels change the picture."
+        await model.send()
+        try await waitUntil("the follow-up to come back from the hub") {
+            try items().contains { if case .user(let u) = $0 { u.text.hasPrefix("Also check whether solar") && u.id.hasPrefix("msg") } else { false } }
+        }
+        XCTAssertEqual(try items().filter { if case .user(let u) = $0 { u.text.hasPrefix("Also check whether solar") } else { false } }.count, 1)
+        XCTAssertEqual(try quests().count, cardsBefore + 2, "the follow-up starts no new card")
+        XCTAssertEqual(try quests().last?.taskId, energy.taskId)
         try await waitUntil("the energy item") { try !items("Switching to Luminus").isEmpty }
         XCTAssertEqual(try items("Switching to Luminus").first?.badge, "New")
         var energyAsk: ApprovalLine?

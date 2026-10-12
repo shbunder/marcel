@@ -129,18 +129,30 @@ public final class ChatModel {
         // missing and is now settled is fetched again.
         guard !ask.isEmpty, ask != lastAsked, !refreshing else { return }
         lastAsked = ask
+        // A failed fetch is forgotten, so the next change (or a reconnect) asks again.
+        if await !refreshApprovals() { lastAsked = [] }
+    }
+
+    /// The live stream is back after a drop: what was missed may include answers, so ask again.
+    public func reconnected(_ input: FeedInput) async {
+        lastAsked = []
+        guard input.messages.contains(where: { $0.kind == .approval }), !refreshing else { return }
         await refreshApprovals()
     }
 
-    public func refreshApprovals() async {
+    /// Fetches every approval. False when the hub could not be asked.
+    @discardableResult
+    public func refreshApprovals() async -> Bool {
         refreshing = true
         defer { refreshing = false }
         do {
             for approval in try await service.approvals() where !local.answering.contains(approval.id) {
                 local.approvals[approval.id] = approval
             }
+            return true
         } catch {
             problem = Self.say(error)
+            return false
         }
     }
 
