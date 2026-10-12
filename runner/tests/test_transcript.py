@@ -14,7 +14,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from marcel_runner import transcript
-from marcel_runner.transcript import LineReader, Normaliser, transcript_path
+from marcel_runner.transcript import LineReader, Locator, Normaliser, transcript_path
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).parent / 'fake_claude' / 'fixtures' / 'transcripts'
@@ -538,3 +538,31 @@ def test_no_file_yet_is_none_and_an_odd_id_is_never_globbed(tmp_path: Path) -> N
     (tmp_path / '.claude' / 'projects' / 'p' / 'x.jsonl').write_text('')
     assert transcript_path(tmp_path, SID, '/home/me') is None
     assert transcript_path(tmp_path, '*', '/home/me') is None
+
+
+def test_a_waiting_tail_searches_every_folder_at_most_once_every_few_seconds(
+    tmp_path: Path,
+) -> None:
+    """While the file does not exist, the expected folder is looked at on every poll, but the
+    search through every project folder runs at most once per `search_every` seconds."""
+    projects = tmp_path / '.claude' / 'projects'
+    (projects / 'other').mkdir(parents=True)
+    now = [0.0]
+    locate = Locator(tmp_path, SID, '/home/me/work', search_every=5.0, clock=lambda: now[0])
+    for _ in range(10):  # 2.5 s of polls, four a second
+        assert locate() is None
+        now[0] += 0.25
+    assert locate.searches == 1
+
+    found = projects / 'other' / f'{SID}.jsonl'
+    found.write_text('')
+    assert locate() is None  # not searched again yet
+    now[0] = 5.0
+    assert locate() == found
+    assert locate.searches == 2
+
+    expected = projects / '-home-me-work' / f'{SID}.jsonl'
+    expected.parent.mkdir()
+    expected.write_text('')
+    assert locate() == expected  # the expected folder is never throttled
+    assert locate.searches == 2

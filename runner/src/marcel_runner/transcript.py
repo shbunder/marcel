@@ -26,6 +26,7 @@ import json
 import os
 import re
 import threading
+import time
 from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,6 +40,7 @@ MAX_LINE = 8 * 1024 * 1024  # a longer line is skipped, never held in memory
 MAX_AGENTS = 256  # `Agent` calls remembered per stream until their launch result names them
 CHUNK = 64 * 1024  # bytes read at a time when skipping a long line or looking back for a line start
 POLL = 0.25  # seconds between two looks at a quiet file
+SEARCH_EVERY = 5.0  # seconds between two searches of every project folder for a missing file
 KEEPALIVE = 15.0  # seconds between SSE comments on a quiet stream, to notice a client that left
 SUBAGENT_ID = re.compile(r'^[0-9a-f]+$')
 OFFSET = re.compile(r'^[0-9]+$')  # not str.isdigit(): that also takes '²', which int() refuses
@@ -479,6 +481,28 @@ def _agents_before(normaliser: Normaliser, path: Path, pos: int, max_line: int) 
 # Finding the file ------------------------------------------------------------------------------
 
 
+def _name(session_id: str, subagent: str | None) -> str:
+    if subagent is None:
+        return f'{session_id}.jsonl'
+    return f'{session_id}/subagents/agent-{subagent}.jsonl'
+
+
+def _expected(home: Path, session_id: str, cwd: str, subagent: str | None) -> Path | None:
+    """The file in the folder named after the cwd, when it exists."""
+    if not cwd:
+        return None
+    exact = home / '.claude' / 'projects' / project_dir(cwd) / _name(session_id, subagent)
+    return exact if exact.is_file() else None
+
+
+def _search(home: Path, session_id: str, subagent: str | None) -> Path | None:
+    """The file in any project folder (sorted by name, the first wins)."""
+    if not GLOB_SAFE.match(session_id):
+        return None
+    projects = home / '.claude' / 'projects'
+    return next(iter(sorted(projects.glob(f'*/{_name(session_id, subagent)}'))), None)
+
+
 def transcript_path(
     home: Path, session_id: str, cwd: str, subagent: str | None = None
 ) -> Path | None:
@@ -488,19 +512,41 @@ def transcript_path(
     characters (`_`, `.`) and very long paths are a guess, so when that folder has no such file the
     runner looks for the session id in every project folder.
     """
-    projects = home / '.claude' / 'projects'
-    name = (
-        f'{session_id}.jsonl'
-        if subagent is None
-        else f'{session_id}/subagents/agent-{subagent}.jsonl'
-    )
-    if cwd:
-        exact = projects / project_dir(cwd) / name
-        if exact.is_file():
-            return exact
-    if not GLOB_SAFE.match(session_id):
-        return None
-    return next(iter(sorted(projects.glob(f'*/{name}'))), None)
+    return _expected(home, session_id, cwd, subagent) or _search(home, session_id, subagent)
+
+
+class Locator:
+    """`transcript_path` for a tail that waits for its file: the expected folder is looked at on
+    every call (one `stat`), but every project folder is searched at most once per `search_every`
+    seconds, so a tail waiting for a file that does not exist yet does not list `~/.claude/projects`
+    four times a second."""
+
+    def __init__(
+        self,
+        home: Path,
+        session_id: str,
+        cwd: str,
+        subagent: str | None = None,
+        *,
+        search_every: float = SEARCH_EVERY,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.home, self.session_id, self.cwd, self.subagent = home, session_id, cwd, subagent
+        self.search_every = search_every
+        self.clock = clock
+        self.searches = 0
+        self._searched: float | None = None
+
+    def __call__(self) -> Path | None:
+        found = _expected(self.home, self.session_id, self.cwd, self.subagent)
+        if found is not None:
+            return found
+        now = self.clock()
+        if self._searched is not None and now - self._searched < self.search_every:
+            return None
+        self._searched = now
+        self.searches += 1
+        return _search(self.home, self.session_id, self.subagent)
 
 
 # HTTP ------------------------------------------------------------------------------------------
@@ -575,7 +621,7 @@ class Tails:
         stop = self._claim(key)
         normaliser = Normaliser(session_id, subagent)
         reader = LineReader(
-            lambda: transcript_path(self.home, session_id, cwd, subagent),
+            Locator(self.home, session_id, cwd, subagent),
             offset,
             self.max_line,
             on_open=lambda path, pos: _agents_before(normaliser, path, pos, self.max_line),
