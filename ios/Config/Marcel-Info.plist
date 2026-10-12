@@ -2,6 +2,18 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- marcel:// links: pushes and the ntfy app open marcel://task/<id> and the others (S-12.10, LinkRouter). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>marcel</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>marcel</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- The mock hub (127.0.0.1:7499) and a hub on the home network speak plain HTTP. -->

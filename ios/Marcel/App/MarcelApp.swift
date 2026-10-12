@@ -6,6 +6,7 @@ import SwiftUI
 struct MarcelApp: App {
     private let container: ModelContainer
     @State private var connection: HubConnection
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     init() {
         let container: ModelContainer
@@ -21,8 +22,10 @@ struct MarcelApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(connection: connection)
+            RootView(connection: connection, router: delegate.router, push: delegate.push)
                 .task { connection.start() }
+                // `marcel://` links from the ntfy app, Safari or another app. Checked and routed by `LinkRouter`.
+                .onOpenURL { delegate.router.open($0) }
         }
         .modelContainer(container)
     }

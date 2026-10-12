@@ -23,6 +23,7 @@ QUESTS_TESTS := $(BUILD)/quests-sim/$(ARCH)-apple-ios-simulator/debug/MarcelQues
 MAP_TESTS := $(BUILD)/map-sim/$(ARCH)-apple-ios-simulator/debug/MarcelMapPackageTests.xctest
 ITEMS_TESTS := $(BUILD)/items-sim/$(ARCH)-apple-ios-simulator/debug/MarcelItemsPackageTests.xctest
 QUEST_TESTS := $(BUILD)/quest-sim/$(ARCH)-apple-ios-simulator/debug/MarcelQuestPackageTests.xctest
+SETTINGS_TESTS := $(BUILD)/settings-sim/$(ARCH)-apple-ios-simulator/debug/MarcelSettingsPackageTests.xctest
 RUNNER  := $(BUILD)/runner/SimTestRunner
 SIM     ?= $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun simctl list devices available -j | python3 scripts/pick-simulator.py $(SDK_VER))
 MOCK_HUB ?= http://127.0.0.1:7499/api
@@ -30,9 +31,9 @@ MOCK_HUB ?= http://127.0.0.1:7499/api
 .PHONY: check app test tests-bundle avatar-tests-bundle pixelkit-test pixelkit-bundle pixelkit-record integration \
   chat-test chat-bundle chat-record chat-integration quests-test quests-bundle quests-record quests-integration \
   map-test map-bundle map-record map-integration items-test items-bundle items-record items-integration quest-test \
-  quest-bundle quest-record generate boot clean
+  quest-bundle quest-record settings-test settings-bundle settings-record generate boot clean
 
-check: app test pixelkit-test chat-test quests-test map-test items-test quest-test
+check: app test pixelkit-test chat-test quests-test map-test items-test quest-test settings-test
 
 # The app and its packages, for the simulator.
 app:
@@ -181,6 +182,22 @@ quest-test: quest-bundle $(RUNNER) boot
 quest-record: quest-bundle $(RUNNER) boot
 	-SIMCTL_CHILD_MARCELQUEST_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(QUEST_TESTS) QuestSnapshotTests
 	xcrun simctl spawn $(SIM) $(RUNNER) $(QUEST_TESTS)
+
+# Settings and links (Marcel/Settings, the MarcelSettings package): every `marcel://` link and push routed from a
+# cold start and while running, the push categories, Settings' sections against a fake hub, and snapshots compared
+# with Marcel/Settings/Tests/MarcelSettingsTests/__Snapshots__.
+settings-bundle:
+	swift build --quiet --package-path Marcel/Settings --scratch-path $(BUILD)/settings-sim --build-tests \
+	  --triple $(TRIPLE) --sdk $(SDK) -Xswiftc -F -Xswiftc $(PLAT)/Library/Frameworks \
+	  -Xlinker -F -Xlinker $(PLAT)/Library/Frameworks
+
+settings-test: settings-bundle $(RUNNER) boot
+	xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS)
+
+# Re-record the Settings snapshots after a deliberate change (the recording run fails by design), then check them.
+settings-record: settings-bundle $(RUNNER) boot
+	-SIMCTL_CHILD_MARCELSETTINGS_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS) SettingsSnapshotTests
+	xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS)
 
 # Regenerate MarcelKit/Sources/MarcelAPI from contracts/app-api.yaml after the contract changes.
 generate:
