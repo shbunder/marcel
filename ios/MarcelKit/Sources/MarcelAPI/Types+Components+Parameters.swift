@@ -24,6 +24,8 @@ extension Components {
         public typealias TaskId = Swift.String
         /// - Remark: Generated from `#/components/parameters/ArtifactId`.
         public typealias ArtifactId = Swift.String
+        /// - Remark: Generated from `#/components/parameters/ProjectId`.
+        public typealias ProjectId = Swift.String
         /// Opaque. Pass `next_cursor` from the previous page.
         ///
         /// - Remark: Generated from `#/components/parameters/Cursor`.

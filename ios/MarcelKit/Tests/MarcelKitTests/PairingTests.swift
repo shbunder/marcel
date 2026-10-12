@@ -68,6 +68,22 @@ final class PairingServiceTests: XCTestCase {
         XCTAssertNil(hubs.load())
     }
 
+    func testTooManyWrongCodesShowsTheHubsMessage() async {
+        let transport = StubTransport { _ in
+            .json(429, #"{"code":"too_many_tries","message":"Too many wrong codes. Wait a minute, then scan a fresh code."}"#)
+        }
+        let tokens = MemoryTokenStore()
+        let service = PairingService(tokenStore: tokens, hubStore: MemoryHubStore(), transport: transport)
+
+        do {
+            try await service.pair(scanned: Self.scanned, deviceName: "iPhone")
+            XCTFail("pairing should fail")
+        } catch {
+            XCTAssertEqual(error, .rejected("Too many wrong codes. Wait a minute, then scan a fresh code."))
+        }
+        XCTAssertNil(try tokens.token())
+    }
+
     func testAnUnreachableHubSaysSoAndStoresNothing() async {
         let transport = StubTransport { _ in .fail(URLError(.cannotConnectToHost)) }
         let tokens = MemoryTokenStore()

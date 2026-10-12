@@ -88,6 +88,9 @@ public struct PairingService: Sendable {
         case .badRequest(let bad):
             if case .json(let problem) = bad.body { throw .rejected(problem.message) }
             throw .unexpectedAnswer(400)
+        case .tooManyRequests(let busy):
+            if case .json(let problem) = busy.body { throw .rejected(problem.message) }
+            throw .unexpectedAnswer(429)
         case .undocumented(let status, _):
             throw .unexpectedAnswer(status)
         }

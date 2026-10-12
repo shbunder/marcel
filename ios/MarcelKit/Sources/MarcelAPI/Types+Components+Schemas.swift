@@ -872,21 +872,31 @@ extension Components {
             ///
             /// - Remark: Generated from `#/components/schemas/NewMessage/client_id`.
             public var clientId: Swift.String?
+            /// Sent from a project room (B-32). The message still goes to the main conversation; the tag
+            /// tells Marcel which project it is about.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/NewMessage/project_id`.
+            public var projectId: Swift.String?
             /// Creates a new `NewMessage`.
             ///
             /// - Parameters:
             ///   - text:
             ///   - clientId: Chosen by the app; makes retries safe.
+            ///   - projectId: Sent from a project room (B-32). The message still goes to the main conversation; the tag
             public init(
                 text: Swift.String,
-                clientId: Swift.String? = nil
+                clientId: Swift.String? = nil,
+                projectId: Swift.String? = nil
             ) {
                 self.text = text
                 self.clientId = clientId
+                self.projectId = projectId
             }
             public enum CodingKeys: String, CodingKey {
                 case text
                 case clientId = "client_id"
+                case projectId = "project_id"
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -898,9 +908,14 @@ extension Components {
                     Swift.String.self,
                     forKey: .clientId
                 )
+                self.projectId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .projectId
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "text",
-                    "client_id"
+                    "client_id",
+                    "project_id"
                 ])
             }
         }
@@ -954,7 +969,8 @@ extension Components {
         }
         /// `text`: a normal chat bubble. `milestone`: a task started, needs you, finished or failed
         /// (B-06). `approval`: an approval card (B-12). `quote`: a side-thread result brought into the
-        /// main conversation.
+        /// main conversation. `artifact`: an item arrived — the first version of an artifact a task made
+        /// (B-36); later versions only update the cards already shown.
         ///
         ///
         /// - Remark: Generated from `#/components/schemas/MessageKind`.
@@ -963,6 +979,7 @@ extension Components {
             case milestone = "milestone"
             case approval = "approval"
             case quote = "quote"
+            case artifact = "artifact"
         }
         /// - Remark: Generated from `#/components/schemas/Milestone`.
         public struct Milestone: Codable, Hashable, Sendable {
@@ -1083,8 +1100,16 @@ extension Components {
             ///
             /// - Remark: Generated from `#/components/schemas/Message/quoted_message_id`.
             public var quotedMessageId: Swift.String?
+            /// Present for `artifact`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Message/artifact_id`.
+            public var artifactId: Swift.String?
             /// - Remark: Generated from `#/components/schemas/Message/task_id`.
             public var taskId: Swift.String?
+            /// The project a user message was sent from (B-32), or the project of an `artifact` message.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Message/project_id`.
+            public var projectId: Swift.String?
             /// - Remark: Generated from `#/components/schemas/Message/client_id`.
             public var clientId: Swift.String?
             /// Present when this message has a side thread.
@@ -1144,7 +1169,9 @@ extension Components {
             ///   - milestone:
             ///   - approvalId: Present for `approval`. Fetch or watch the approval for its state.
             ///   - quotedMessageId: Present for `quote`.
+            ///   - artifactId: Present for `artifact`.
             ///   - taskId:
+            ///   - projectId: The project a user message was sent from (B-32), or the project of an `artifact` message.
             ///   - clientId:
             ///   - thread: Present when this message has a side thread.
             ///   - createdAt:
@@ -1157,7 +1184,9 @@ extension Components {
                 milestone: Components.Schemas.Milestone? = nil,
                 approvalId: Swift.String? = nil,
                 quotedMessageId: Swift.String? = nil,
+                artifactId: Swift.String? = nil,
                 taskId: Swift.String? = nil,
+                projectId: Swift.String? = nil,
                 clientId: Swift.String? = nil,
                 thread: Components.Schemas.Message.ThreadPayload? = nil,
                 createdAt: Foundation.Date
@@ -1170,7 +1199,9 @@ extension Components {
                 self.milestone = milestone
                 self.approvalId = approvalId
                 self.quotedMessageId = quotedMessageId
+                self.artifactId = artifactId
                 self.taskId = taskId
+                self.projectId = projectId
                 self.clientId = clientId
                 self.thread = thread
                 self.createdAt = createdAt
@@ -1184,7 +1215,9 @@ extension Components {
                 case milestone
                 case approvalId = "approval_id"
                 case quotedMessageId = "quoted_message_id"
+                case artifactId = "artifact_id"
                 case taskId = "task_id"
+                case projectId = "project_id"
                 case clientId = "client_id"
                 case thread
                 case createdAt = "created_at"
@@ -1223,9 +1256,17 @@ extension Components {
                     Swift.String.self,
                     forKey: .quotedMessageId
                 )
+                self.artifactId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .artifactId
+                )
                 self.taskId = try container.decodeIfPresent(
                     Swift.String.self,
                     forKey: .taskId
+                )
+                self.projectId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .projectId
                 )
                 self.clientId = try container.decodeIfPresent(
                     Swift.String.self,
@@ -1248,7 +1289,9 @@ extension Components {
                     "milestone",
                     "approval_id",
                     "quoted_message_id",
+                    "artifact_id",
                     "task_id",
+                    "project_id",
                     "client_id",
                     "thread",
                     "created_at"
@@ -1327,6 +1370,10 @@ extension Components {
             public var id: Swift.String
             /// - Remark: Generated from `#/components/schemas/Task/agent_id`.
             public var agentId: Swift.String
+            /// Every task belongs to exactly one project; `inbox` when nothing fits (B-30).
+            ///
+            /// - Remark: Generated from `#/components/schemas/Task/project_id`.
+            public var projectId: Swift.String
             /// - Remark: Generated from `#/components/schemas/Task/title`.
             public var title: Swift.String
             /// - Remark: Generated from `#/components/schemas/Task/location`.
@@ -1404,6 +1451,7 @@ extension Components {
             /// - Parameters:
             ///   - id:
             ///   - agentId:
+            ///   - projectId: Every task belongs to exactly one project; `inbox` when nothing fits (B-30).
             ///   - title:
             ///   - location:
             ///   - state:
@@ -1429,6 +1477,7 @@ extension Components {
             public init(
                 id: Swift.String,
                 agentId: Swift.String,
+                projectId: Swift.String,
                 title: Swift.String,
                 location: Components.Schemas.TaskLocation,
                 state: Components.Schemas.TaskState,
@@ -1454,6 +1503,7 @@ extension Components {
             ) {
                 self.id = id
                 self.agentId = agentId
+                self.projectId = projectId
                 self.title = title
                 self.location = location
                 self.state = state
@@ -1480,6 +1530,7 @@ extension Components {
             public enum CodingKeys: String, CodingKey {
                 case id
                 case agentId = "agent_id"
+                case projectId = "project_id"
                 case title
                 case location
                 case state
@@ -1512,6 +1563,10 @@ extension Components {
                 self.agentId = try container.decode(
                     Swift.String.self,
                     forKey: .agentId
+                )
+                self.projectId = try container.decode(
+                    Swift.String.self,
+                    forKey: .projectId
                 )
                 self.title = try container.decode(
                     Swift.String.self,
@@ -1604,6 +1659,7 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "id",
                     "agent_id",
+                    "project_id",
                     "title",
                     "location",
                     "state",
@@ -2238,7 +2294,8 @@ extension Components {
         }
         /// `pr`: a pull request. `branch`: a pushed branch with no PR yet (`url` is its compare
         /// page). `doc`: Markdown or HTML. `file`: anything else with bytes. `dashboard`: JSON
-        /// matching `dashboard.schema.json`, drawn natively. `link`: any other URL.
+        /// matching `dashboard.schema.json`, drawn natively. `link`: any other URL. `board`: a project's
+        /// board (B-35), a dashboard the hub keeps current; one per project.
         ///
         ///
         /// - Remark: Generated from `#/components/schemas/ArtifactKind`.
@@ -2249,6 +2306,7 @@ extension Components {
             case file = "file"
             case dashboard = "dashboard"
             case link = "link"
+            case board = "board"
         }
         /// - Remark: Generated from `#/components/schemas/Artifact`.
         public struct Artifact: Codable, Hashable, Sendable {
@@ -2256,8 +2314,18 @@ extension Components {
             public var id: Swift.String
             /// - Remark: Generated from `#/components/schemas/Artifact/task_id`.
             public var taskId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/Artifact/project_id`.
+            public var projectId: Swift.String
             /// - Remark: Generated from `#/components/schemas/Artifact/kind`.
             public var kind: Components.Schemas.ArtifactKind
+            /// Living artifacts gain versions (B-34); the fields here describe the current one.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Artifact/current_version`.
+            public var currentVersion: Swift.Int
+            /// Who made the current version, in plain words (a task's title, "Marcel" or "the hub").
+            ///
+            /// - Remark: Generated from `#/components/schemas/Artifact/updated_by`.
+            public var updatedBy: Swift.String?
             /// - Remark: Generated from `#/components/schemas/Artifact/title`.
             public var title: Swift.String
             /// For `pr`, `branch` and `link`.
@@ -2369,12 +2437,19 @@ extension Components {
             public var pr: Components.Schemas.Artifact.PrPayload?
             /// - Remark: Generated from `#/components/schemas/Artifact/created_at`.
             public var createdAt: Foundation.Date
+            /// When the current version was made.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Artifact/updated_at`.
+            public var updatedAt: Foundation.Date
             /// Creates a new `Artifact`.
             ///
             /// - Parameters:
             ///   - id:
             ///   - taskId:
+            ///   - projectId:
             ///   - kind:
+            ///   - currentVersion: Living artifacts gain versions (B-34); the fields here describe the current one.
+            ///   - updatedBy: Who made the current version, in plain words (a task's title, "Marcel" or "the hub").
             ///   - title:
             ///   - url: For `pr`, `branch` and `link`.
             ///   - contentType: For `doc`, `file` and `dashboard`; fetch the bytes from `/artifacts/{id}/content`.
@@ -2383,10 +2458,14 @@ extension Components {
             ///   - selfChange: For `pr`, true when the PR changes Marcel itself (B-24).
             ///   - pr: For `pr`, refreshed by the hub.
             ///   - createdAt:
+            ///   - updatedAt: When the current version was made.
             public init(
                 id: Swift.String,
                 taskId: Swift.String? = nil,
+                projectId: Swift.String,
                 kind: Components.Schemas.ArtifactKind,
+                currentVersion: Swift.Int,
+                updatedBy: Swift.String? = nil,
                 title: Swift.String,
                 url: Swift.String? = nil,
                 contentType: Swift.String? = nil,
@@ -2394,11 +2473,15 @@ extension Components {
                 trusted: Swift.Bool? = nil,
                 selfChange: Swift.Bool? = nil,
                 pr: Components.Schemas.Artifact.PrPayload? = nil,
-                createdAt: Foundation.Date
+                createdAt: Foundation.Date,
+                updatedAt: Foundation.Date
             ) {
                 self.id = id
                 self.taskId = taskId
+                self.projectId = projectId
                 self.kind = kind
+                self.currentVersion = currentVersion
+                self.updatedBy = updatedBy
                 self.title = title
                 self.url = url
                 self.contentType = contentType
@@ -2407,11 +2490,15 @@ extension Components {
                 self.selfChange = selfChange
                 self.pr = pr
                 self.createdAt = createdAt
+                self.updatedAt = updatedAt
             }
             public enum CodingKeys: String, CodingKey {
                 case id
                 case taskId = "task_id"
+                case projectId = "project_id"
                 case kind
+                case currentVersion = "current_version"
+                case updatedBy = "updated_by"
                 case title
                 case url
                 case contentType = "content_type"
@@ -2420,6 +2507,7 @@ extension Components {
                 case selfChange = "self_change"
                 case pr
                 case createdAt = "created_at"
+                case updatedAt = "updated_at"
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -2431,9 +2519,21 @@ extension Components {
                     Swift.String.self,
                     forKey: .taskId
                 )
+                self.projectId = try container.decode(
+                    Swift.String.self,
+                    forKey: .projectId
+                )
                 self.kind = try container.decode(
                     Components.Schemas.ArtifactKind.self,
                     forKey: .kind
+                )
+                self.currentVersion = try container.decode(
+                    Swift.Int.self,
+                    forKey: .currentVersion
+                )
+                self.updatedBy = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .updatedBy
                 )
                 self.title = try container.decode(
                     Swift.String.self,
@@ -2467,10 +2567,17 @@ extension Components {
                     Foundation.Date.self,
                     forKey: .createdAt
                 )
+                self.updatedAt = try container.decode(
+                    Foundation.Date.self,
+                    forKey: .updatedAt
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "id",
                     "task_id",
+                    "project_id",
                     "kind",
+                    "current_version",
+                    "updated_by",
                     "title",
                     "url",
                     "content_type",
@@ -2478,7 +2585,8 @@ extension Components {
                     "trusted",
                     "self_change",
                     "pr",
-                    "created_at"
+                    "created_at",
+                    "updated_at"
                 ])
             }
         }
@@ -2517,6 +2625,575 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "items",
                     "next_cursor"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ArtifactVersion`.
+        public struct ArtifactVersion: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ArtifactVersion/artifact_id`.
+            public var artifactId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArtifactVersion/version`.
+            public var version: Swift.Int
+            /// What changed in this version, in one line.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ArtifactVersion/summary`.
+            public var summary: Swift.String?
+            /// Who made it, in plain words (a task's title, "Marcel" or "the hub").
+            ///
+            /// - Remark: Generated from `#/components/schemas/ArtifactVersion/author`.
+            public var author: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ArtifactVersion/task_id`.
+            public var taskId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ArtifactVersion/url`.
+            public var url: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ArtifactVersion/content_type`.
+            public var contentType: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ArtifactVersion/size_bytes`.
+            public var sizeBytes: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/ArtifactVersion/created_at`.
+            public var createdAt: Foundation.Date
+            /// Creates a new `ArtifactVersion`.
+            ///
+            /// - Parameters:
+            ///   - artifactId:
+            ///   - version:
+            ///   - summary: What changed in this version, in one line.
+            ///   - author: Who made it, in plain words (a task's title, "Marcel" or "the hub").
+            ///   - taskId:
+            ///   - url:
+            ///   - contentType:
+            ///   - sizeBytes:
+            ///   - createdAt:
+            public init(
+                artifactId: Swift.String,
+                version: Swift.Int,
+                summary: Swift.String? = nil,
+                author: Swift.String? = nil,
+                taskId: Swift.String? = nil,
+                url: Swift.String? = nil,
+                contentType: Swift.String? = nil,
+                sizeBytes: Swift.Int? = nil,
+                createdAt: Foundation.Date
+            ) {
+                self.artifactId = artifactId
+                self.version = version
+                self.summary = summary
+                self.author = author
+                self.taskId = taskId
+                self.url = url
+                self.contentType = contentType
+                self.sizeBytes = sizeBytes
+                self.createdAt = createdAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case artifactId = "artifact_id"
+                case version
+                case summary
+                case author
+                case taskId = "task_id"
+                case url
+                case contentType = "content_type"
+                case sizeBytes = "size_bytes"
+                case createdAt = "created_at"
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.artifactId = try container.decode(
+                    Swift.String.self,
+                    forKey: .artifactId
+                )
+                self.version = try container.decode(
+                    Swift.Int.self,
+                    forKey: .version
+                )
+                self.summary = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .summary
+                )
+                self.author = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .author
+                )
+                self.taskId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .taskId
+                )
+                self.url = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .url
+                )
+                self.contentType = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .contentType
+                )
+                self.sizeBytes = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .sizeBytes
+                )
+                self.createdAt = try container.decode(
+                    Foundation.Date.self,
+                    forKey: .createdAt
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "artifact_id",
+                    "version",
+                    "summary",
+                    "author",
+                    "task_id",
+                    "url",
+                    "content_type",
+                    "size_bytes",
+                    "created_at"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/Project`.
+        public struct Project: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/Project/id`.
+            public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/Project/agent_id`.
+            public var agentId: Swift.String
+            /// Used in `marcel://project/<slug>` and for the notes file `memory/projects/<slug>.md`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Project/slug`.
+            public var slug: Swift.String
+            /// - Remark: Generated from `#/components/schemas/Project/name`.
+            public var name: Swift.String
+            /// One line on what the project is for.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Project/goal`.
+            public var goal: Swift.String?
+            /// `owner/name` when its coding threads work on one repository.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Project/repo`.
+            public var repo: Swift.String?
+            /// A folder on the NUC its threads work in.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Project/folder`.
+            public var folder: Swift.String?
+            /// Standing instructions every thread in the project starts with (Markdown).
+            ///
+            /// - Remark: Generated from `#/components/schemas/Project/instructions`.
+            public var instructions: Swift.String?
+            /// A linked Claude Code Project (B-33a); informational in v1.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Project/claude_project_url`.
+            public var claudeProjectUrl: Swift.String?
+            /// The project's board (B-35), an artifact of kind `board`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Project/board_artifact_id`.
+            public var boardArtifactId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/Project/archived`.
+            public var archived: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/Project/counts`.
+            public struct CountsPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/Project/counts/working`.
+                public var working: Swift.Int
+                /// - Remark: Generated from `#/components/schemas/Project/counts/needs_you`.
+                public var needsYou: Swift.Int
+                /// Tasks finished in the last 7 days.
+                ///
+                /// - Remark: Generated from `#/components/schemas/Project/counts/done_7d`.
+                public var done7d: Swift.Int
+                /// Creates a new `CountsPayload`.
+                ///
+                /// - Parameters:
+                ///   - working:
+                ///   - needsYou:
+                ///   - done7d: Tasks finished in the last 7 days.
+                public init(
+                    working: Swift.Int,
+                    needsYou: Swift.Int,
+                    done7d: Swift.Int
+                ) {
+                    self.working = working
+                    self.needsYou = needsYou
+                    self.done7d = done7d
+                }
+                public enum CodingKeys: String, CodingKey {
+                    case working
+                    case needsYou = "needs_you"
+                    case done7d = "done_7d"
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    self.working = try container.decode(
+                        Swift.Int.self,
+                        forKey: .working
+                    )
+                    self.needsYou = try container.decode(
+                        Swift.Int.self,
+                        forKey: .needsYou
+                    )
+                    self.done7d = try container.decode(
+                        Swift.Int.self,
+                        forKey: .done7d
+                    )
+                    try decoder.ensureNoAdditionalProperties(knownKeys: [
+                        "working",
+                        "needs_you",
+                        "done_7d"
+                    ])
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/Project/counts`.
+            public var counts: Components.Schemas.Project.CountsPayload
+            /// - Remark: Generated from `#/components/schemas/Project/created_at`.
+            public var createdAt: Foundation.Date
+            /// The last change to the project or anything in it.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Project/updated_at`.
+            public var updatedAt: Foundation.Date
+            /// Creates a new `Project`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - agentId:
+            ///   - slug: Used in `marcel://project/<slug>` and for the notes file `memory/projects/<slug>.md`.
+            ///   - name:
+            ///   - goal: One line on what the project is for.
+            ///   - repo: `owner/name` when its coding threads work on one repository.
+            ///   - folder: A folder on the NUC its threads work in.
+            ///   - instructions: Standing instructions every thread in the project starts with (Markdown).
+            ///   - claudeProjectUrl: A linked Claude Code Project (B-33a); informational in v1.
+            ///   - boardArtifactId: The project's board (B-35), an artifact of kind `board`.
+            ///   - archived:
+            ///   - counts:
+            ///   - createdAt:
+            ///   - updatedAt: The last change to the project or anything in it.
+            public init(
+                id: Swift.String,
+                agentId: Swift.String,
+                slug: Swift.String,
+                name: Swift.String,
+                goal: Swift.String? = nil,
+                repo: Swift.String? = nil,
+                folder: Swift.String? = nil,
+                instructions: Swift.String? = nil,
+                claudeProjectUrl: Swift.String? = nil,
+                boardArtifactId: Swift.String,
+                archived: Swift.Bool,
+                counts: Components.Schemas.Project.CountsPayload,
+                createdAt: Foundation.Date,
+                updatedAt: Foundation.Date
+            ) {
+                self.id = id
+                self.agentId = agentId
+                self.slug = slug
+                self.name = name
+                self.goal = goal
+                self.repo = repo
+                self.folder = folder
+                self.instructions = instructions
+                self.claudeProjectUrl = claudeProjectUrl
+                self.boardArtifactId = boardArtifactId
+                self.archived = archived
+                self.counts = counts
+                self.createdAt = createdAt
+                self.updatedAt = updatedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case agentId = "agent_id"
+                case slug
+                case name
+                case goal
+                case repo
+                case folder
+                case instructions
+                case claudeProjectUrl = "claude_project_url"
+                case boardArtifactId = "board_artifact_id"
+                case archived
+                case counts
+                case createdAt = "created_at"
+                case updatedAt = "updated_at"
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.agentId = try container.decode(
+                    Swift.String.self,
+                    forKey: .agentId
+                )
+                self.slug = try container.decode(
+                    Swift.String.self,
+                    forKey: .slug
+                )
+                self.name = try container.decode(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.goal = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .goal
+                )
+                self.repo = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .repo
+                )
+                self.folder = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .folder
+                )
+                self.instructions = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .instructions
+                )
+                self.claudeProjectUrl = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .claudeProjectUrl
+                )
+                self.boardArtifactId = try container.decode(
+                    Swift.String.self,
+                    forKey: .boardArtifactId
+                )
+                self.archived = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .archived
+                )
+                self.counts = try container.decode(
+                    Components.Schemas.Project.CountsPayload.self,
+                    forKey: .counts
+                )
+                self.createdAt = try container.decode(
+                    Foundation.Date.self,
+                    forKey: .createdAt
+                )
+                self.updatedAt = try container.decode(
+                    Foundation.Date.self,
+                    forKey: .updatedAt
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "id",
+                    "agent_id",
+                    "slug",
+                    "name",
+                    "goal",
+                    "repo",
+                    "folder",
+                    "instructions",
+                    "claude_project_url",
+                    "board_artifact_id",
+                    "archived",
+                    "counts",
+                    "created_at",
+                    "updated_at"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/NewProject`.
+        public struct NewProject: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/NewProject/agent_id`.
+            public var agentId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/NewProject/name`.
+            public var name: Swift.String
+            /// Derived from the name when absent.
+            ///
+            /// - Remark: Generated from `#/components/schemas/NewProject/slug`.
+            public var slug: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/NewProject/goal`.
+            public var goal: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/NewProject/repo`.
+            public var repo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/NewProject/folder`.
+            public var folder: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/NewProject/instructions`.
+            public var instructions: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/NewProject/claude_project_url`.
+            public var claudeProjectUrl: Swift.String?
+            /// Creates a new `NewProject`.
+            ///
+            /// - Parameters:
+            ///   - agentId:
+            ///   - name:
+            ///   - slug: Derived from the name when absent.
+            ///   - goal:
+            ///   - repo:
+            ///   - folder:
+            ///   - instructions:
+            ///   - claudeProjectUrl:
+            public init(
+                agentId: Swift.String,
+                name: Swift.String,
+                slug: Swift.String? = nil,
+                goal: Swift.String? = nil,
+                repo: Swift.String? = nil,
+                folder: Swift.String? = nil,
+                instructions: Swift.String? = nil,
+                claudeProjectUrl: Swift.String? = nil
+            ) {
+                self.agentId = agentId
+                self.name = name
+                self.slug = slug
+                self.goal = goal
+                self.repo = repo
+                self.folder = folder
+                self.instructions = instructions
+                self.claudeProjectUrl = claudeProjectUrl
+            }
+            public enum CodingKeys: String, CodingKey {
+                case agentId = "agent_id"
+                case name
+                case slug
+                case goal
+                case repo
+                case folder
+                case instructions
+                case claudeProjectUrl = "claude_project_url"
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.agentId = try container.decode(
+                    Swift.String.self,
+                    forKey: .agentId
+                )
+                self.name = try container.decode(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.slug = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .slug
+                )
+                self.goal = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .goal
+                )
+                self.repo = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .repo
+                )
+                self.folder = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .folder
+                )
+                self.instructions = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .instructions
+                )
+                self.claudeProjectUrl = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .claudeProjectUrl
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "agent_id",
+                    "name",
+                    "slug",
+                    "goal",
+                    "repo",
+                    "folder",
+                    "instructions",
+                    "claude_project_url"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ProjectUpdate`.
+        public struct ProjectUpdate: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ProjectUpdate/name`.
+            public var name: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ProjectUpdate/goal`.
+            public var goal: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ProjectUpdate/repo`.
+            public var repo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ProjectUpdate/folder`.
+            public var folder: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ProjectUpdate/instructions`.
+            public var instructions: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ProjectUpdate/claude_project_url`.
+            public var claudeProjectUrl: Swift.String?
+            /// Creates a new `ProjectUpdate`.
+            ///
+            /// - Parameters:
+            ///   - name:
+            ///   - goal:
+            ///   - repo:
+            ///   - folder:
+            ///   - instructions:
+            ///   - claudeProjectUrl:
+            public init(
+                name: Swift.String? = nil,
+                goal: Swift.String? = nil,
+                repo: Swift.String? = nil,
+                folder: Swift.String? = nil,
+                instructions: Swift.String? = nil,
+                claudeProjectUrl: Swift.String? = nil
+            ) {
+                self.name = name
+                self.goal = goal
+                self.repo = repo
+                self.folder = folder
+                self.instructions = instructions
+                self.claudeProjectUrl = claudeProjectUrl
+            }
+            public enum CodingKeys: String, CodingKey {
+                case name
+                case goal
+                case repo
+                case folder
+                case instructions
+                case claudeProjectUrl = "claude_project_url"
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.name = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.goal = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .goal
+                )
+                self.repo = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .repo
+                )
+                self.folder = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .folder
+                )
+                self.instructions = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .instructions
+                )
+                self.claudeProjectUrl = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .claudeProjectUrl
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "name",
+                    "goal",
+                    "repo",
+                    "folder",
+                    "instructions",
+                    "claude_project_url"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TaskMove`.
+        public struct TaskMove: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TaskMove/project_id`.
+            public var projectId: Swift.String
+            /// Creates a new `TaskMove`.
+            ///
+            /// - Parameters:
+            ///   - projectId:
+            public init(projectId: Swift.String) {
+                self.projectId = projectId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case projectId = "project_id"
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.projectId = try container.decode(
+                    Swift.String.self,
+                    forKey: .projectId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "project_id"
                 ])
             }
         }

@@ -53,7 +53,7 @@ The shared `Marcel` scheme lists `MarcelKitTests` for Xcode's Test action. That 
   `contracts/app-api.yaml`, and checked in. Never edit it; run `make -C ios generate`. The script first
   drops the contract's `if`/`then` rules ("`url` is required when `kind` is `pr`") from a temporary copy:
   they only tighten validation, and the generator cannot read them (it turned `Message`, `TaskEvent`,
-  `Artifact` and `PushTarget` into opaque blobs). The contract itself is never changed.
+  `Artifact` and `PushTarget` into opaque blobs at contract 0.1.0). The contract itself is never changed.
 - **Events** — `contracts/events.schema.json` is not read by generators, so `HubEvent` is written by hand.
   A test decodes every example in that schema; unknown event types are kept as `.unknown` so ids still advance.
 - **Pairing** — the QR code holds `marcel://pair?hub=<server URL>&code=<code>`. `PairingService` posts the
@@ -64,9 +64,9 @@ The shared `Marcel` scheme lists `MarcelKitTests` for Xcode's Test action. That 
   reconnects with `since = lastEventId`, so the hub replays what was missed; events already applied are
   skipped. `resync.required` re-fetches over REST, then reconnects from the hub's last event. A refused
   token (403) unpairs the phone.
-- **Cache** — SwiftData rows for messages, tasks and artifacts, plus the last event id, so a cold start
-  resumes with `since`. Projects join the cache when the contract has them (contract PR #10); regenerate
-  the client then.
+- **Cache** — SwiftData rows for messages, tasks, projects and artifacts, plus the last event id, so a cold
+  start resumes with `since`. Tasks and artifacts are filed by `project_id`; `task.moved` refiles a task and
+  `artifact.updated` replaces the artifact with its new current version.
 
 ## Talking to the mock hub
 

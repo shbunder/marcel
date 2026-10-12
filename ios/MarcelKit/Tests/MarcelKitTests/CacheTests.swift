@@ -17,10 +17,7 @@ final class CacheTests: XCTestCase {
 
     func testArtifactsAreCachedNewestFirst() throws {
         let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
-        let data = try Data(contentsOf: EventDecodingTests.contracts.appending(path: "events.schema.json"))
-        let schema = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let example = try XCTUnwrap(((schema["$defs"] as? [String: Any])?["ArtifactCreated"] as? [String: Any])?["examples"] as? [Any])
-        try cache.apply(try EventFrame.decode(try JSONSerialization.data(withJSONObject: example[0])))
+        try cache.apply(try EventFrame.decode(try Frames.contractExample("ArtifactCreated")))
 
         XCTAssertEqual(try cache.artifacts().map(\.id), ["art_01J9ZT1"])
         XCTAssertEqual(cache.lastEventId, 1310)
@@ -36,5 +33,35 @@ final class CacheTests: XCTestCase {
         XCTAssertEqual(try cache.messages(in: "cnv_main_marcel"), [])
         XCTAssertEqual(try cache.tasks().count, 0)
         XCTAssertNil(cache.lastEventId)
+    }
+
+    func testProjectsAreCachedAndUpdatedInPlace() throws {
+        let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
+        try cache.apply(try EventFrame.decode(try Frames.contractExample("ProjectCreated")))
+        try cache.apply(try EventFrame.decode(try Frames.contractExample("ProjectUpdated")))
+
+        let projects = try cache.projects()
+        XCTAssertEqual(projects.map(\.slug), ["energy"])
+        XCTAssertEqual(projects.first?.counts.needsYou, 1)
+        XCTAssertEqual(cache.lastEventId, 2105)
+    }
+
+    func testAMovedTaskChangesProject() throws {
+        let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
+        try cache.apply(try EventFrame.decode(Data(Frames.task(id: 1, taskId: "tsk_01JA0A9", state: "working").utf8)))
+        try cache.apply(try EventFrame.decode(try Frames.contractExample("TaskMoved")))
+
+        XCTAssertEqual(try cache.tasks(inProject: "prj_01JA0A1").map(\.id), ["tsk_01JA0A9"])
+        XCTAssertEqual(try cache.tasks(inProject: "prj_inbox"), [])
+        XCTAssertEqual(try cache.tasks().first?.projectId, "prj_01JA0A1")
+    }
+
+    func testANewArtifactVersionReplacesTheCachedArtifact() throws {
+        let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
+        try cache.apply(try EventFrame.decode(try Frames.contractExample("ArtifactUpdated")))
+
+        let artifact = try XCTUnwrap(cache.artifacts(inProject: "prj_01JA0A1").first)
+        XCTAssertEqual(artifact.currentVersion, 3)
+        XCTAssertEqual(try cache.artifacts(inProject: "prj_other"), [])
     }
 }

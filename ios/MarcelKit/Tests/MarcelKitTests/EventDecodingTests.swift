@@ -36,7 +36,7 @@ final class EventDecodingTests: XCTestCase {
             [
                 "Hello", "ResyncRequired", "MessageCreated", "ConversationCreated", "TaskCreated", "TaskUpdated",
                 "TaskEventAppended", "ApprovalCreated", "ApprovalResolved", "ArtifactCreated", "AgentStateChanged",
-                "UsageUpdated",
+                "UsageUpdated", "ArtifactUpdated", "ProjectCreated", "ProjectUpdated", "TaskMoved", "BrainRollover",
             ])
     }
 
@@ -49,9 +49,9 @@ final class EventDecodingTests: XCTestCase {
     }
 
     func testAnUnknownTypeStillCarriesItsId() throws {
-        let frame = try EventFrame.decode(Data(#"{"id":12,"type":"project.created","at":"2026-10-04T18:05:00Z","data":{}}"#.utf8))
+        let frame = try EventFrame.decode(Data(#"{"id":12,"type":"something.new","at":"2026-10-04T18:05:00Z","data":{}}"#.utf8))
         XCTAssertEqual(frame.id, 12)
-        guard case .unknown("project.created") = frame.event else { return XCTFail("\(frame.event)") }
+        guard case .unknown("something.new") = frame.event else { return XCTFail("\(frame.event)") }
         XCTAssertFalse(frame.event.isControl)
     }
 

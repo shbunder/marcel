@@ -39,6 +39,9 @@ public struct RESTCacheRefresher: CacheRefresher {
             case .unauthorized: throw RefreshError.unauthorized
             case .undocumented(let status, _): throw RefreshError.unexpectedAnswer("conversations, HTTP \(status)")
             }
+            if case .ok(let ok) = try await client.listProjects(query: .init(agentId: agent.id)) {
+                for project in try ok.body.json { try cache.upsert(project) }
+            }
             if case .ok(let ok) = try await client.listTasks(query: .init(agentId: agent.id)) {
                 for task in try ok.body.json.items { try cache.upsert(task) }
             }

@@ -19,6 +19,13 @@ public enum HubEvent: Sendable {
     case approvalCreated(Approval)
     case approvalResolved(Approval)
     case artifactCreated(Artifact)
+    /// A new version of an artifact: the artifact as it now stands, and that version.
+    case artifactUpdated(Artifact, version: ArtifactVersion)
+    case projectCreated(Project)
+    case projectUpdated(Project)
+    case taskMoved(taskId: String, fromProjectId: String, toProjectId: String)
+    /// The brain session was replaced; `kept` says, for people, what the new one starts with.
+    case brainRollover(agentId: String, reason: String, kept: String)
     case agentState(agentId: String, state: AgentState)
     case usageUpdated(Usage)
     /// A type this build does not know yet. Kept so the event id still advances.
@@ -53,6 +60,23 @@ extension EventFrame {
         let last_event_id: Int
     }
 
+    private struct ArtifactUpdatedData: Decodable {
+        let artifact: Artifact
+        let version: ArtifactVersion
+    }
+
+    private struct TaskMovedData: Decodable {
+        let task_id: String
+        let from_project_id: String
+        let to_project_id: String
+    }
+
+    private struct BrainRolloverData: Decodable {
+        let agent_id: String
+        let reason: String
+        let kept: String
+    }
+
     private struct AgentStateData: Decodable {
         let agent_id: String
         let state: AgentState
@@ -77,6 +101,17 @@ extension EventFrame {
         case "approval.created": event = .approvalCreated(try payload(Approval.self))
         case "approval.resolved": event = .approvalResolved(try payload(Approval.self))
         case "artifact.created": event = .artifactCreated(try payload(Artifact.self))
+        case "artifact.updated":
+            let update = try payload(ArtifactUpdatedData.self)
+            event = .artifactUpdated(update.artifact, version: update.version)
+        case "project.created": event = .projectCreated(try payload(Project.self))
+        case "project.updated": event = .projectUpdated(try payload(Project.self))
+        case "task.moved":
+            let move = try payload(TaskMovedData.self)
+            event = .taskMoved(taskId: move.task_id, fromProjectId: move.from_project_id, toProjectId: move.to_project_id)
+        case "brain.rollover":
+            let rollover = try payload(BrainRolloverData.self)
+            event = .brainRollover(agentId: rollover.agent_id, reason: rollover.reason, kept: rollover.kept)
         case "agent.state":
             let state = try payload(AgentStateData.self)
             event = .agentState(agentId: state.agent_id, state: state.state)

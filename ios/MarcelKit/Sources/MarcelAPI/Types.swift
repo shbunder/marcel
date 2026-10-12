@@ -101,7 +101,7 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /conversations/{conversation_id}/send-to-main`.
     /// - Remark: Generated from `#/paths//conversations/{conversation_id}/send-to-main/post(sendToMain)`.
     func sendToMain(_ input: Operations.SendToMain.Input) async throws -> Operations.SendToMain.Output
-    /// Tasks (threads) for the Activity tab.
+    /// Tasks (threads) for the Quests tab, optionally for one project.
     ///
     /// - Remark: HTTP `GET /tasks`.
     /// - Remark: Generated from `#/paths//tasks/get(listTasks)`.
@@ -132,13 +132,18 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /tasks/{task_id}/stop`.
     /// - Remark: Generated from `#/paths//tasks/{task_id}/stop/post(stopTask)`.
     func stopTask(_ input: Operations.StopTask.Input) async throws -> Operations.StopTask.Output
-    /// Archive a finished task, so it leaves the Activity tab (B-17). Its artifacts stay.
+    /// Archive a finished task, so it leaves the Quests tab (B-17). Its artifacts stay.
     ///
     /// Only for `done`, `failed` or `stopped` tasks; anything else answers 409. Archived tasks are listed with `archived=true`.
     ///
     /// - Remark: HTTP `POST /tasks/{task_id}/archive`.
     /// - Remark: Generated from `#/paths//tasks/{task_id}/archive/post(archiveTask)`.
     func archiveTask(_ input: Operations.ArchiveTask.Input) async throws -> Operations.ArchiveTask.Output
+    /// File a task under another project (B-31). A hub-only change; Marcel is not woken.
+    ///
+    /// - Remark: HTTP `POST /tasks/{task_id}/move`.
+    /// - Remark: Generated from `#/paths//tasks/{task_id}/move/post(moveTask)`.
+    func moveTask(_ input: Operations.MoveTask.Input) async throws -> Operations.MoveTask.Output
     /// Hand a task back to Marcel, who decides what happens next.
     ///
     /// - Remark: HTTP `POST /tasks/{task_id}/handback`.
@@ -154,7 +159,7 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /approvals/{approval_id}`.
     /// - Remark: Generated from `#/paths//approvals/{approval_id}/post(answerApproval)`.
     func answerApproval(_ input: Operations.AnswerApproval.Input) async throws -> Operations.AnswerApproval.Output
-    /// The Library (B-21).
+    /// The Items tab (B-21), newest change first; optionally for one project or task.
     ///
     /// - Remark: HTTP `GET /artifacts`.
     /// - Remark: Generated from `#/paths//artifacts/get(listArtifacts)`.
@@ -169,6 +174,43 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /artifacts/{artifact_id}/content`.
     /// - Remark: Generated from `#/paths//artifacts/{artifact_id}/content/get(getArtifactContent)`.
     func getArtifactContent(_ input: Operations.GetArtifactContent.Input) async throws -> Operations.GetArtifactContent.Output
+    /// Every version of a living artifact, newest first (B-34).
+    ///
+    /// - Remark: HTTP `GET /artifacts/{artifact_id}/versions`.
+    /// - Remark: Generated from `#/paths//artifacts/{artifact_id}/versions/get(listArtifactVersions)`.
+    func listArtifactVersions(_ input: Operations.ListArtifactVersions.Input) async throws -> Operations.ListArtifactVersions.Output
+    /// The Map (B-30). The `inbox` project always exists.
+    ///
+    /// Every agent has exactly one project with slug `inbox`, named "Inbox", created with the agent. Threads
+    /// that fit no other project land there (B-31). It cannot be archived. The examples use the id
+    /// `prj_inbox`; real ids are chosen by the hub.
+    ///
+    ///
+    /// - Remark: HTTP `GET /projects`.
+    /// - Remark: Generated from `#/paths//projects/get(listProjects)`.
+    func listProjects(_ input: Operations.ListProjects.Input) async throws -> Operations.ListProjects.Output
+    /// Create a project. Its notes file and its board are created with it (B-33, B-35).
+    ///
+    /// - Remark: HTTP `POST /projects`.
+    /// - Remark: Generated from `#/paths//projects/post(createProject)`.
+    func createProject(_ input: Operations.CreateProject.Input) async throws -> Operations.CreateProject.Output
+    /// One project, for its room.
+    ///
+    /// - Remark: HTTP `GET /projects/{project_id}`.
+    /// - Remark: Generated from `#/paths//projects/{project_id}/get(getProject)`.
+    func getProject(_ input: Operations.GetProject.Input) async throws -> Operations.GetProject.Output
+    /// Rename it, change its goal, repo, folder, standing instructions or Claude Code link.
+    ///
+    /// - Remark: HTTP `PATCH /projects/{project_id}`.
+    /// - Remark: Generated from `#/paths//projects/{project_id}/patch(updateProject)`.
+    func updateProject(_ input: Operations.UpdateProject.Input) async throws -> Operations.UpdateProject.Output
+    /// Archive a project with no live tasks. Its items and notes stay readable.
+    ///
+    /// `inbox` cannot be archived, and neither can a project with tasks that are not done, failed or stopped; both answer 409.
+    ///
+    /// - Remark: HTTP `POST /projects/{project_id}/archive`.
+    /// - Remark: Generated from `#/paths//projects/{project_id}/archive/post(archiveProject)`.
+    func archiveProject(_ input: Operations.ArchiveProject.Input) async throws -> Operations.ArchiveProject.Output
     /// Every memory file (B-20).
     ///
     /// - Remark: HTTP `GET /memory`.
@@ -406,7 +448,7 @@ extension APIProtocol {
             body: body
         ))
     }
-    /// Tasks (threads) for the Activity tab.
+    /// Tasks (threads) for the Quests tab, optionally for one project.
     ///
     /// - Remark: HTTP `GET /tasks`.
     /// - Remark: Generated from `#/paths//tasks/get(listTasks)`.
@@ -481,7 +523,7 @@ extension APIProtocol {
             headers: headers
         ))
     }
-    /// Archive a finished task, so it leaves the Activity tab (B-17). Its artifacts stay.
+    /// Archive a finished task, so it leaves the Quests tab (B-17). Its artifacts stay.
     ///
     /// Only for `done`, `failed` or `stopped` tasks; anything else answers 409. Archived tasks are listed with `archived=true`.
     ///
@@ -494,6 +536,21 @@ extension APIProtocol {
         try await archiveTask(Operations.ArchiveTask.Input(
             path: path,
             headers: headers
+        ))
+    }
+    /// File a task under another project (B-31). A hub-only change; Marcel is not woken.
+    ///
+    /// - Remark: HTTP `POST /tasks/{task_id}/move`.
+    /// - Remark: Generated from `#/paths//tasks/{task_id}/move/post(moveTask)`.
+    public func moveTask(
+        path: Operations.MoveTask.Input.Path,
+        headers: Operations.MoveTask.Input.Headers = .init(),
+        body: Operations.MoveTask.Input.Body
+    ) async throws -> Operations.MoveTask.Output {
+        try await moveTask(Operations.MoveTask.Input(
+            path: path,
+            headers: headers,
+            body: body
         ))
     }
     /// Hand a task back to Marcel, who decides what happens next.
@@ -539,7 +596,7 @@ extension APIProtocol {
             body: body
         ))
     }
-    /// The Library (B-21).
+    /// The Items tab (B-21), newest change first; optionally for one project or task.
     ///
     /// - Remark: HTTP `GET /artifacts`.
     /// - Remark: Generated from `#/paths//artifacts/get(listArtifacts)`.
@@ -571,9 +628,98 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//artifacts/{artifact_id}/content/get(getArtifactContent)`.
     public func getArtifactContent(
         path: Operations.GetArtifactContent.Input.Path,
+        query: Operations.GetArtifactContent.Input.Query = .init(),
         headers: Operations.GetArtifactContent.Input.Headers = .init()
     ) async throws -> Operations.GetArtifactContent.Output {
         try await getArtifactContent(Operations.GetArtifactContent.Input(
+            path: path,
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Every version of a living artifact, newest first (B-34).
+    ///
+    /// - Remark: HTTP `GET /artifacts/{artifact_id}/versions`.
+    /// - Remark: Generated from `#/paths//artifacts/{artifact_id}/versions/get(listArtifactVersions)`.
+    public func listArtifactVersions(
+        path: Operations.ListArtifactVersions.Input.Path,
+        headers: Operations.ListArtifactVersions.Input.Headers = .init()
+    ) async throws -> Operations.ListArtifactVersions.Output {
+        try await listArtifactVersions(Operations.ListArtifactVersions.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// The Map (B-30). The `inbox` project always exists.
+    ///
+    /// Every agent has exactly one project with slug `inbox`, named "Inbox", created with the agent. Threads
+    /// that fit no other project land there (B-31). It cannot be archived. The examples use the id
+    /// `prj_inbox`; real ids are chosen by the hub.
+    ///
+    ///
+    /// - Remark: HTTP `GET /projects`.
+    /// - Remark: Generated from `#/paths//projects/get(listProjects)`.
+    public func listProjects(
+        query: Operations.ListProjects.Input.Query,
+        headers: Operations.ListProjects.Input.Headers = .init()
+    ) async throws -> Operations.ListProjects.Output {
+        try await listProjects(Operations.ListProjects.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Create a project. Its notes file and its board are created with it (B-33, B-35).
+    ///
+    /// - Remark: HTTP `POST /projects`.
+    /// - Remark: Generated from `#/paths//projects/post(createProject)`.
+    public func createProject(
+        headers: Operations.CreateProject.Input.Headers = .init(),
+        body: Operations.CreateProject.Input.Body
+    ) async throws -> Operations.CreateProject.Output {
+        try await createProject(Operations.CreateProject.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// One project, for its room.
+    ///
+    /// - Remark: HTTP `GET /projects/{project_id}`.
+    /// - Remark: Generated from `#/paths//projects/{project_id}/get(getProject)`.
+    public func getProject(
+        path: Operations.GetProject.Input.Path,
+        headers: Operations.GetProject.Input.Headers = .init()
+    ) async throws -> Operations.GetProject.Output {
+        try await getProject(Operations.GetProject.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Rename it, change its goal, repo, folder, standing instructions or Claude Code link.
+    ///
+    /// - Remark: HTTP `PATCH /projects/{project_id}`.
+    /// - Remark: Generated from `#/paths//projects/{project_id}/patch(updateProject)`.
+    public func updateProject(
+        path: Operations.UpdateProject.Input.Path,
+        headers: Operations.UpdateProject.Input.Headers = .init(),
+        body: Operations.UpdateProject.Input.Body
+    ) async throws -> Operations.UpdateProject.Output {
+        try await updateProject(Operations.UpdateProject.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Archive a project with no live tasks. Its items and notes stay readable.
+    ///
+    /// `inbox` cannot be archived, and neither can a project with tasks that are not done, failed or stopped; both answer 409.
+    ///
+    /// - Remark: HTTP `POST /projects/{project_id}/archive`.
+    /// - Remark: Generated from `#/paths//projects/{project_id}/archive/post(archiveProject)`.
+    public func archiveProject(
+        path: Operations.ArchiveProject.Input.Path,
+        headers: Operations.ArchiveProject.Input.Headers = .init()
+    ) async throws -> Operations.ArchiveProject.Output {
+        try await archiveProject(Operations.ArchiveProject.Input(
             path: path,
             headers: headers
         ))

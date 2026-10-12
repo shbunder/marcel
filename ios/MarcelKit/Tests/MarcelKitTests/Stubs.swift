@@ -117,6 +117,14 @@ final class FakeConnector: EventSocketConnector, @unchecked Sendable {
 
 /// Builds event frames shaped like contracts/events.schema.json.
 enum Frames {
+    /// An example from contracts/events.schema.json, by its `$defs` name, as frame bytes.
+    static func contractExample(_ name: String) throws -> Data {
+        let data = try Data(contentsOf: EventDecodingTests.contracts.appending(path: "events.schema.json"))
+        let schema = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let def = (schema["$defs"] as! [String: Any])[name] as! [String: Any]
+        return try JSONSerialization.data(withJSONObject: (def["examples"] as! [Any])[0])
+    }
+
     static func hello(last: Int, replayed: Int = 0) -> String {
         #"{"id":0,"type":"hello","at":"2026-10-04T18:40:00Z","data":{"last_event_id":\#(last),"replayed":\#(replayed)}}"#
     }
@@ -131,9 +139,11 @@ enum Frames {
         """#
     }
 
-    static func task(id: Int, taskId: String, state: String, type: String = "task.updated") -> String {
+    static func task(
+        id: Int, taskId: String, state: String, type: String = "task.updated", projectId: String = "prj_inbox"
+    ) -> String {
         #"""
-        {"id":\#(id),"type":"\#(type)","at":"2026-10-04T18:06:00Z","data":{"id":"\#(taskId)","agent_id":"agt_marcel","title":"Check disk usage","location":"nuc","state":"\#(state)","model":"sonnet","origin":"marcel","created_at":"2026-10-04T18:06:00Z","updated_at":"2026-10-04T18:06:\#(String(format: "%02d", id % 60))Z"}}
+        {"id":\#(id),"type":"\#(type)","at":"2026-10-04T18:06:00Z","data":{"id":"\#(taskId)","agent_id":"agt_marcel","project_id":"\#(projectId)","title":"Check disk usage","location":"nuc","state":"\#(state)","model":"sonnet","origin":"marcel","created_at":"2026-10-04T18:06:00Z","updated_at":"2026-10-04T18:06:\#(String(format: "%02d", id % 60))Z"}}
         """#
     }
 }
