@@ -72,10 +72,37 @@ final class ItemBodyTests: XCTestCase {
         }
     }
 
-    static func prWithNote(_ note: Any?) -> PRCard {
+    /// S-12.12: `pr.refreshed_at` (app API 0.6) says when the hub last read the PR from GitHub, relative to now.
+    func testAPullRequestCardSaysWhenItWasLastChecked() {
+        func checked(_ secondsAgo: TimeInterval) -> (short: String, spoken: String)? {
+            Self.pr(refreshedAt: Fx.now.addingTimeInterval(-secondsAgo)).checked(now: Fx.now, timeZone: Fx.utc)
+        }
+        XCTAssertEqual(checked(20)?.short, "Checked just now")
+        XCTAssertEqual(checked(5 * 60)?.short, "Checked 5 min ago")
+        XCTAssertEqual(checked(5 * 60)?.spoken, "Checked 5 minutes ago")
+        XCTAssertEqual(checked(3 * 3600)?.short, "Checked 3 h ago")
+        XCTAssertEqual(checked(3 * 3600)?.spoken, "Checked 3 hours ago")
+        XCTAssertEqual(checked(86_400)?.short, "Checked yesterday")
+        XCTAssertEqual(checked(86_400 * 8)?.short, "Checked on 4 Oct")
+        XCTAssertEqual(checked(86_400 * 8)?.spoken, "Checked on 4 October")
+        // It moves on with the clock: the same card, a minute later.
+        let card = Self.pr(refreshedAt: Fx.now.addingTimeInterval(-60))
+        XCTAssertEqual(card.checked(now: Fx.now, timeZone: Fx.utc)?.short, "Checked 1 min ago")
+        XCTAssertEqual(card.checked(now: Fx.now.addingTimeInterval(60), timeZone: Fx.utc)?.short, "Checked 2 min ago")
+        // Before the first good refresh, nothing is said.
+        XCTAssertNil(Self.prWithNote(nil).refreshedAt)
+        XCTAssertNil(Self.prWithNote(nil).checked(now: Fx.now, timeZone: Fx.utc))
+    }
+
+    static func pr(refreshedAt: Date) -> PRCard {
+        prWithNote(nil, refreshedAt: refreshedAt)
+    }
+
+    static func prWithNote(_ note: Any?, refreshedAt: Date? = nil) -> PRCard {
         var json = Fx.mockArtifact(Fx.prId)
         var pr = json["pr"] as! [String: Any]
         pr["note"] = note
+        if let refreshedAt { pr["refreshed_at"] = refreshedAt.formatted(Date.ISO8601FormatStyle()) }
         json["pr"] = pr
         guard case .pr(let card) = ItemBody.make(Fx.artifact(json), contentType: nil, content: nil) else {
             fatalError("not a PR")

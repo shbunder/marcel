@@ -30,7 +30,8 @@ package's only screens. It depends on MarcelKit and PixelKit only, so Chat and M
     cancelled. A line under the header says which it is.
   - `file`: written to the app's temporary folder (`items/<id>-v<n>/<title>.<ext>`) and shown with QuickLook.
   - `pr`: a card with the state, checks, review, "May be out of date: …" when the hub could not refresh it from
-    GitHub (`pr.note`, app API 0.5), and "This changes Marcel itself" for a self-change; "Open in GitHub" only for an
+    GitHub (`pr.note`, app API 0.5), "Checked 3 h ago" from `pr.refreshed_at` (app API 0.6; the last good read
+    from GitHub, relative to now and moving on once a minute; nothing before the first good read), and "This changes Marcel itself" for a self-change; "Open in GitHub" only for an
     `https://github.com/…` address.
   - `link` and `branch`: a card; a button only for an http(s) address.
   - `dashboard` and `board`: drawn from the JSON (`contracts/dashboard.schema.json`): stat, list, checklist, table,
@@ -78,7 +79,7 @@ package's only screens. It depends on MarcelKit and PixelKit only, so Chat and M
   security policy alone also stops it. QuickLook can preview the written file.
 - `LiveItemsServiceTests` — the generated client with a stubbed transport: paths, `?version=`, the cursor, the
   question's body (with `artifact_id`), the pin and its 409s, and the hub's refusals (404, 401, 400, 500, no network, too big) in words.
-- `ItemsSnapshotTests` — the tab and every kind in the viewer (also a PR card that may be out of date and an item
+- `ItemsSnapshotTests` — the tab and every kind in the viewer (also a PR card that may be out of date, one checked hours ago, one out of date since its last check, and an item
   just pinned), in light, dark and Accessibility 5, compared pixel for
   pixel with `Tests/MarcelItemsTests/__Snapshots__/`. They render `ItemsStill` and `ViewerStill`; where the screen
   shows a web view or QuickLook (which `ImageRenderer` cannot draw), the still shows the page's words or the file's

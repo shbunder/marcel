@@ -6,6 +6,15 @@ extension EnvironmentValues {
     /// Snapshot tests: draw a web view's words, QuickLook's card and the question box's text, which `ImageRenderer`
     /// cannot draw.
     @Entry var itemsStill = false
+    /// Snapshot tests: a fixed "now" and time zone for times shown relative to now ("checked 3 h ago"). Nil on the
+    /// screen, where they follow the clock.
+    @Entry var itemsClock: ItemsClock?
+}
+
+/// A fixed "now" for the views that say how long ago something happened.
+struct ItemsClock: Equatable {
+    var now: Date
+    var timeZone: TimeZone
 }
 
 enum ItemsMetrics {
@@ -146,6 +155,7 @@ struct PRCardView: View {
     var card: PRCard
 
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.itemsClock) private var clock
     @Environment(\.openURL) private var openURL
 
     var badge: StateBadge.Kind {
@@ -159,8 +169,20 @@ struct PRCardView: View {
     }
 
     var body: some View {
+        if let clock {
+            content(now: clock.now, timeZone: clock.timeZone)
+        } else {
+            // "Checked 2 min ago" moves on once a minute.
+            TimelineView(.periodic(from: .now, by: 60)) { timeline in
+                content(now: timeline.date, timeZone: .current)
+            }
+        }
+    }
+
+    private func content(now: Date, timeZone: TimeZone) -> some View {
         let theme = PixelTheme(scheme)
-        VStack(alignment: .leading, spacing: ItemsMetrics.gap) {
+        let checked = card.checked(now: now, timeZone: timeZone)
+        return VStack(alignment: .leading, spacing: ItemsMetrics.gap) {
             VStack(alignment: .leading, spacing: PixelMetrics.steps(4)) {
                 HStack(alignment: .center, spacing: PixelMetrics.steps(4)) {
                     StateBadge(badge, text: card.stateText)
@@ -184,6 +206,11 @@ struct PRCardView: View {
                         .foregroundStyle(theme.muted.color)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if let checked {
+                    PixelText(checked.short, role: .detail)
+                        .foregroundStyle(theme.muted.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if card.selfChange {
                     PixelText("This changes Marcel itself. It is merged only when you approve it.",
                               role: .detail)
@@ -195,7 +222,7 @@ struct PRCardView: View {
             .padding(PixelMetrics.padding)
             .pixelBox(fill: theme.card, line: theme.line, shadow: theme.shadow)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(card.spoken)
+            .accessibilityLabel([card.spoken, checked?.spoken].compactMap { $0 }.joined(separator: ". "))
             if let github = card.github {
                 ActionChip(title: "Open in GitHub", tone: .blue) { openURL(github) }
                     .accessibilityHint("Opens the pull request in Safari")
@@ -507,6 +534,8 @@ struct ViewerStill: View {
     var problem: String?
     /// "Pin to project" is offered for every kind but a board, as the screen does.
     var pinnable = true
+    /// "Now" for the times the body shows relative to now (a PR's "checked 3 h ago").
+    var clock: ItemsClock?
 
     @Environment(\.colorScheme) private var scheme
 
@@ -526,6 +555,7 @@ struct ViewerStill: View {
         }
         .background(PixelTheme(scheme).background.color)
         .environment(\.itemsStill, true)
+        .environment(\.itemsClock, clock)
     }
 }
 
