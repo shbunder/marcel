@@ -2,6 +2,8 @@
 
 import hashlib
 import secrets
+import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from urllib.parse import quote
 
@@ -21,6 +23,36 @@ CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 CODE_LENGTH = 8
 
 PAIR_AGAIN = 'Run `marcel-hub pair` again for a new one.'
+
+# `POST /pair` is public. After this many unknown codes in a window it refuses every code, the
+# right one too, until the window ends: guessing a live 40-bit code then takes centuries.
+MAX_WRONG_CODES = 10
+WRONG_CODE_WINDOW = 60.0  # seconds
+
+
+class PairGuessLimit:
+    """Counts unknown pairing codes across all callers (behind the tunnel they share an address)."""
+
+    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+        self.clock = clock
+        self.failures: list[float] = []
+
+    def _recent(self) -> list[float]:
+        now = self.clock()
+        self.failures = [t for t in self.failures if now - t < WRONG_CODE_WINDOW]
+        return self.failures
+
+    def check(self) -> None:
+        if len(self._recent()) >= MAX_WRONG_CODES:
+            raise ApiError(
+                429,
+                'too_many_tries',
+                'Too many wrong pairing codes. Wait a minute, then try again.',
+                headers={'Retry-After': str(int(WRONG_CODE_WINDOW))},
+            )
+
+    def failed(self) -> None:
+        self._recent().append(self.clock())
 
 
 def new_token() -> str:

@@ -8,7 +8,7 @@ from sqlmodel import Session, col, select
 
 from marcel_hub.auth.deps import DbSession, current_device, require_device
 from marcel_hub.auth.errors import ApiError
-from marcel_hub.auth.tokens import redeem_pairing_code
+from marcel_hub.auth.tokens import PairGuessLimit, redeem_pairing_code
 from marcel_hub.models import Agent, Device
 
 pair_router = APIRouter(prefix='/api', tags=['access'])
@@ -24,8 +24,8 @@ class PairRequest(BaseModel):
 class PushTarget(BaseModel):
     model_config = ConfigDict(extra='forbid')
     kind: Literal['apns', 'ntfy']
-    apns_token: str | None = None
-    ntfy_topic: str | None = None
+    apns_token: str | None = Field(default=None, max_length=200)
+    ntfy_topic: str | None = Field(default=None, max_length=200)
 
     @model_validator(mode='after')
     def _token_for_kind(self) -> Self:
@@ -72,8 +72,15 @@ def own_device(session: Session, device_id: str, me: Device) -> Device:
 
 
 @pair_router.post('/pair', status_code=201)
-def pair(body: PairRequest, session: DbSession) -> dict[str, str]:
-    device, token = redeem_pairing_code(session, body.code, body.device_name)
+def pair(body: PairRequest, request: Request, session: DbSession) -> dict[str, str]:
+    limit: PairGuessLimit = request.app.state.pair_guess_limit
+    limit.check()
+    try:
+        device, token = redeem_pairing_code(session, body.code, body.device_name)
+    except ApiError as exc:
+        if exc.code == 'pairing_code_invalid':
+            limit.failed()
+        raise
     return {'device_id': device.id, 'user_id': device.user_id, 'token': token}
 
 

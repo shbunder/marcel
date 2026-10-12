@@ -69,8 +69,11 @@ for **10 minutes**. The app sends it to `POST /api/pair` and gets a device token
   stops working at once. `PUT /api/devices/{id}/push` stores an APNs token or ntfy topic.
 - `GET /api/me` reports `push` as off for both backends until S-08.1 and S-08.2 add them, and every
   agent as `idle` until S-04.8.
+- After 10 unknown codes in a minute, `POST /api/pair` refuses every code (429,
+  `too_many_tries`) until the minute is over. Expired or already-used codes do not count.
 - Every error has the contract's `Error` shape: a stable `code` and a `message` for people. A bad
-  request body is a 400 with `code: bad_request`.
+  request body is a 400 with `code: bad_request`; a crash is a 500 with `code: internal_error`,
+  and the details go to the log only.
 
 New routers protect themselves the same way, and read the caller with `current_device(request)`:
 

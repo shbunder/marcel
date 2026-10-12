@@ -1,12 +1,15 @@
 """Every error leaves the hub in the contract's `Error` shape: a stable `code` and a `message`
 written for the person holding the phone."""
 
+import logging
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+log = logging.getLogger('marcel_hub')
 
 
 class ApiError(Exception):
@@ -54,3 +57,10 @@ def install_error_handlers(app: FastAPI) -> None:
             exc.status_code, (f'http_{exc.status_code}', 'The hub could not do that.')
         )
         return error_response(exc.status_code, code, message, dict(exc.headers or {}))
+
+    @app.exception_handler(Exception)
+    async def _crash(request: Request, exc: Exception) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        log.error('%s %s failed', request.method, request.url.path, exc_info=exc)
+        return error_response(
+            500, 'internal_error', 'Something went wrong on the hub. Try again in a minute.'
+        )

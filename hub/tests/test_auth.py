@@ -362,3 +362,59 @@ def test_a_route_without_the_token_check_refuses_to_run() -> None:
     request = Request({'type': 'http', 'path': '/api/me', 'headers': [], 'query_string': b''})
     with pytest.raises(RuntimeError, match='require_device'):
         current_device(request)
+
+
+# --- limits -----------------------------------------------------------------------------------
+
+
+def test_too_many_wrong_codes_lock_pairing_for_a_minute(client: TestClient) -> None:
+    clock = [1000.0]
+    limit = tokens.PairGuessLimit(clock=lambda: clock[0])
+    client.app.state.pair_guess_limit = limit  # type: ignore[attr-defined]
+    for _ in range(tokens.MAX_WRONG_CODES):
+        res = client.post('/api/pair', json={'code': 'ZZZZZZZZ', 'device_name': 'x'})
+        assert res.status_code == 400
+    good = new_code(client)
+    res = client.post('/api/pair', json={'code': good, 'device_name': 'x'})
+    assert res.status_code == 429
+    validate('Error', res.json())
+    assert res.json()['code'] == 'too_many_tries'
+    assert res.headers['retry-after'] == '60'
+    clock[0] += tokens.WRONG_CODE_WINDOW
+    assert client.post('/api/pair', json={'code': good, 'device_name': 'x'}).status_code == 201
+
+
+def test_expired_or_used_codes_do_not_count_as_guesses(client: TestClient) -> None:
+    code = new_code(client)
+    client.post('/api/pair', json={'code': code, 'device_name': 'x'})
+    for _ in range(tokens.MAX_WRONG_CODES):
+        client.post('/api/pair', json={'code': code, 'device_name': 'x'})
+    assert (
+        client.post('/api/pair', json={'code': new_code(client), 'device_name': 'y'}).status_code
+        == 201
+    )
+
+
+def test_push_targets_have_a_length_limit(client: TestClient) -> None:
+    me = pair(client)
+    res = client.put(
+        f'/api/devices/{me["device_id"]}/push',
+        json={'kind': 'ntfy', 'ntfy_topic': 'x' * 201},
+        headers=bearer(me['token']),
+    )
+    assert res.status_code == 400
+
+
+def test_a_crash_answers_in_plain_words(settings: Settings) -> None:
+    app = create_app(settings)
+
+    @app.get('/api/boom')
+    def boom() -> None:  # pyright: ignore[reportUnusedFunction]
+        raise RuntimeError('secret detail')
+
+    with TestClient(app, raise_server_exceptions=False) as c:
+        res = c.get('/api/boom')
+    assert res.status_code == 500
+    validate('Error', res.json())
+    assert res.json()['code'] == 'internal_error'
+    assert 'secret detail' not in res.text
