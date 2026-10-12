@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from jsonschema import ValidationError
 
 from . import contract
-from .hub import AGENT_ID, MAIN_CONVERSATION, Hub
+from .hub import AGENT_ID, MAIN_CONVERSATION, Hub, Refused
 
 Handler = Callable[[Hub, Request], Awaitable[Response]]
 
@@ -36,9 +36,35 @@ def authorized(headers: Any) -> bool:
 # ---- handlers that read or change the hub's state -------------------------------------------
 
 
+def query_int(
+    request: Request, name: str, default: int | None, minimum: int, maximum: int | None = None
+) -> int | None:
+    """A whole-number query parameter. Anything else is a 400, never a 500."""
+    raw = request.query_params.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        value = None
+    if value is None or value < minimum or (maximum is not None and value > maximum):
+        allowed = f'from {minimum} to {maximum}' if maximum is not None else f'{minimum} or more'
+        raise Refused(400, 'bad_request', f'`{name}` must be a whole number, {allowed}.')
+    return value
+
+
+def limit_of(request: Request) -> int:
+    return query_int(request, 'limit', 50, 1, 200) or 50
+
+
 def paged(items: list[dict[str, Any]], request: Request) -> list[dict[str, Any]]:
-    limit = int(request.query_params.get('limit', 50))
-    return items[:limit]
+    return items[: limit_of(request)]
+
+
+def matching(items: Any, request: Request, *fields: str) -> list[dict[str, Any]]:
+    """Keep the items whose fields equal the query parameters of the same name, when given."""
+    wanted = {f: request.query_params[f] for f in fields if f in request.query_params}
+    return [i for i in items if all(i.get(f) == v for f, v in wanted.items())]
 
 
 async def get_me(hub: Hub, request: Request) -> Response:
@@ -75,14 +101,17 @@ async def send_message(hub: Hub, request: Request) -> Response:
     if conversation_id not in hub.conversations:
         return not_found('conversation')
     body = json.loads(await request.body())
-    message = hub.user_message(conversation_id, body['text'], body.get('client_id'))
+    message = hub.user_message(
+        conversation_id, body['text'], body.get('client_id'), body.get('project_id')
+    )
     if conversation_id == MAIN_CONVERSATION:
         hub.start_scenario(message)
     return JSONResponse(message, status_code=201)
 
 
 async def list_tasks(hub: Hub, request: Request) -> Response:
-    return JSONResponse({'items': paged(list(hub.tasks.values()), request)})
+    tasks = matching(hub.tasks.values(), request, 'agent_id', 'project_id', 'state')
+    return JSONResponse({'items': paged(tasks, request)})
 
 
 async def get_task(hub: Hub, request: Request) -> Response:
@@ -105,8 +134,8 @@ async def list_task_events(hub: Hub, request: Request) -> Response:
     task_id = request.path_params['task_id']
     if task_id not in hub.tasks:
         return not_found('task')
-    after = int(request.query_params.get('after', 0))
-    limit = int(request.query_params.get('limit', 50))
+    after = query_int(request, 'after', 0, 0) or 0
+    limit = limit_of(request)
     later = [e for e in hub.task_events.get(task_id, []) if e['seq'] > after]
     return JSONResponse({'items': later[:limit], 'has_more': len(later) > limit})
 
@@ -123,8 +152,18 @@ async def answer_approval(hub: Hub, request: Request) -> Response:
     return JSONResponse(result[1], status_code=result[0])
 
 
+async def move_task(hub: Hub, request: Request) -> Response:
+    task = hub.tasks.get(request.path_params['task_id'])
+    if task is None:
+        return not_found('task')
+    body = json.loads(await request.body())
+    return JSONResponse(hub.move_task(task, body['project_id']))
+
+
 async def list_artifacts(hub: Hub, request: Request) -> Response:
-    return JSONResponse({'items': paged(list(hub.artifacts.values()), request)})
+    found = matching(hub.artifacts.values(), request, 'task_id', 'project_id', 'kind')
+    found.sort(key=lambda a: a['updated_at'], reverse=True)
+    return JSONResponse({'items': paged(found, request)})
 
 
 async def get_artifact(hub: Hub, request: Request) -> Response:
@@ -134,12 +173,52 @@ async def get_artifact(hub: Hub, request: Request) -> Response:
 
 async def get_artifact_content(hub: Hub, request: Request) -> Response:
     artifact = hub.artifacts.get(request.path_params['artifact_id'])
-    if artifact is None or 'content_type' not in artifact:
-        return not_found('artifact with content')
-    return Response(
-        f'# {artifact["title"]}\n\nThe mock hub has no real content for this document.\n',
-        media_type=artifact['content_type'],
-    )
+    version = query_int(request, 'version', None, 1)
+    body = hub.content(artifact, version) if artifact else None
+    if artifact is None or body is None:
+        return not_found('artifact version with content')
+    return Response(body, media_type=artifact['content_type'])
+
+
+async def list_artifact_versions(hub: Hub, request: Request) -> Response:
+    versions = hub.versions.get(request.path_params['artifact_id'])
+    if versions is None:
+        return not_found('artifact')
+    return JSONResponse(list(reversed(versions)))
+
+
+def project_of(hub: Hub, request: Request) -> dict[str, Any] | None:
+    return hub.projects.get(request.path_params['project_id'])
+
+
+async def list_projects(hub: Hub, request: Request) -> Response:
+    archived = request.query_params.get('archived', 'false').lower() == 'true'
+    return JSONResponse(hub.live_projects(request.query_params.get('agent_id'), archived))
+
+
+async def create_project(hub: Hub, request: Request) -> Response:
+    body = json.loads(await request.body())
+    return JSONResponse(hub.create_project(body), status_code=201)
+
+
+async def get_project(hub: Hub, request: Request) -> Response:
+    project = project_of(hub, request)
+    return JSONResponse(project) if project else not_found('project')
+
+
+async def update_project(hub: Hub, request: Request) -> Response:
+    project = project_of(hub, request)
+    if project is None:
+        return not_found('project')
+    body = json.loads(await request.body())
+    return JSONResponse(hub.update_project(project, body))
+
+
+async def archive_project(hub: Hub, request: Request) -> Response:
+    project = project_of(hub, request)
+    if project is None:
+        return not_found('project')
+    return JSONResponse(hub.archive_project(project))
 
 
 async def pair(hub: Hub, request: Request) -> Response:
@@ -165,12 +244,19 @@ HANDLERS: dict[str, Handler] = {
     'stopTask': task_action(200),
     'archiveTask': task_action(200),
     'handBackTask': task_action(202),
+    'moveTask': move_task,
     'listTaskEvents': list_task_events,
     'listApprovals': list_approvals,
     'answerApproval': answer_approval,
     'listArtifacts': list_artifacts,
     'getArtifact': get_artifact,
     'getArtifactContent': get_artifact_content,
+    'listArtifactVersions': list_artifact_versions,
+    'listProjects': list_projects,
+    'createProject': create_project,
+    'getProject': get_project,
+    'updateProject': update_project,
+    'archiveProject': archive_project,
 }
 
 # Operations with no handler above answer with the contract's example for their success schema.
@@ -222,7 +308,10 @@ def endpoint(hub: Hub, method: str, path: str, op: dict[str, Any]) -> Callable[.
             except (ValueError, ValidationError) as exc:
                 reason = exc.message if isinstance(exc, ValidationError) else 'not JSON'
                 return error(400, 'bad_request', f'The request body is not valid: {reason}.')
-        return await handler(hub, request)
+        try:
+            return await handler(hub, request)
+        except Refused as refused:
+            return error(refused.status, refused.code, refused.message)
 
     return run
 

@@ -21,12 +21,19 @@ def describe(frame: dict) -> str:
     data = frame['data']
     detail = {
         'agent.state': lambda: data['state']['kind'],
+        'task.created': lambda: f'{data["title"]} in {data["project_id"]}',
         'task.updated': lambda: data['state'],
         'task.event': lambda: data['type'],
         'message.created': lambda: (
             data['milestone']['event'] if data['kind'] == 'milestone' else data['kind']
         ),
-        'artifact.created': lambda: data['kind'],
+        'artifact.created': lambda: f'{data["kind"]} v{data["current_version"]} {data["title"]}',
+        'artifact.updated': lambda: (
+            f'{data["artifact"]["kind"]} v{data["version"]["version"]} {data["artifact"]["title"]}'
+        ),
+        'project.created': lambda: data['slug'],
+        'project.updated': lambda: f'{data["slug"]} {data["counts"]}',
+        'task.moved': lambda: f'{data["from_project_id"]} -> {data["to_project_id"]}',
         'approval.created': lambda: data['summary'],
         'approval.resolved': lambda: data['state'],
         'hello': lambda: f'last_event_id={data["last_event_id"]} replayed={data["replayed"]}',

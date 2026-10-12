@@ -2,61 +2,202 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://marcel.invalid/contracts/dashboard.schema.json",
   "title": "Marcel dashboard artifact",
-  "description": "The content of an artifact of kind `dashboard`: a small set of widgets the app draws natively (S-12.5). Workers write this JSON; the hub validates it before storing; the app never runs code from it. Widgets render top to bottom.",
+  "description": "The content of an artifact of kind `dashboard` or `board`: a small set of widgets the app draws natively (S-12.8). A project board (B-35) is a dashboard the hub rebuilds; it groups its widgets in `section`s and carries Marcel's `note`s. Workers write this JSON; the hub validates it before storing; the app never runs code from it. Widgets render top to bottom.",
   "type": "object",
-  "required": ["version", "title", "widgets"],
+  "required": [
+    "version",
+    "title",
+    "widgets"
+  ],
   "additionalProperties": false,
   "properties": {
-    "version": { "const": 1 },
-    "title": { "type": "string", "maxLength": 80 },
-    "subtitle": { "type": "string", "maxLength": 160 },
+    "version": {
+      "const": 1
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 80
+    },
+    "subtitle": {
+      "type": "string",
+      "maxLength": 160
+    },
     "widgets": {
       "type": "array",
       "minItems": 1,
       "maxItems": 30,
-      "items": { "$ref": "#/$defs/Widget" }
+      "items": {
+        "$ref": "#/$defs/Widget"
+      }
     }
   },
   "$defs": {
     "Widget": {
       "oneOf": [
-        { "$ref": "#/$defs/Stat" },
-        { "$ref": "#/$defs/List" },
-        { "$ref": "#/$defs/Checklist" },
-        { "$ref": "#/$defs/Table" },
-        { "$ref": "#/$defs/Chart" }
+        {
+          "$ref": "#/$defs/Stat"
+        },
+        {
+          "$ref": "#/$defs/List"
+        },
+        {
+          "$ref": "#/$defs/Checklist"
+        },
+        {
+          "$ref": "#/$defs/Table"
+        },
+        {
+          "$ref": "#/$defs/Chart"
+        },
+        {
+          "$ref": "#/$defs/Note"
+        },
+        {
+          "$ref": "#/$defs/Section"
+        }
       ]
+    },
+    "Note": {
+      "description": "A short \"what this means\" line, written by Marcel with `board_note` (B-35).",
+      "type": "object",
+      "required": [
+        "type",
+        "text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "note"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "author": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "Section": {
+      "description": "A titled group of widgets, e.g. \"Waiting on you\". Sections do not nest.",
+      "type": "object",
+      "required": [
+        "type",
+        "title",
+        "widgets"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "section"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "empty_text": {
+          "type": "string",
+          "description": "Shown when `widgets` is empty, e.g. \"Nothing waiting on you.\""
+        },
+        "widgets": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/Stat"
+              },
+              {
+                "$ref": "#/$defs/List"
+              },
+              {
+                "$ref": "#/$defs/Checklist"
+              },
+              {
+                "$ref": "#/$defs/Table"
+              },
+              {
+                "$ref": "#/$defs/Chart"
+              },
+              {
+                "$ref": "#/$defs/Note"
+              }
+            ]
+          }
+        }
+      }
     },
     "Stat": {
       "description": "One headline number with a label, e.g. disk free.",
       "type": "object",
-      "required": ["type", "label", "value"],
+      "required": [
+        "type",
+        "label",
+        "value"
+      ],
       "additionalProperties": false,
       "properties": {
-        "type": { "const": "stat" },
-        "label": { "type": "string" },
-        "value": { "type": "string", "description": "Already formatted, e.g. \"412 GB\"." },
-        "delta": { "type": "string", "description": "Change since last time, e.g. \"−12 GB\"." },
-        "tone": { "enum": ["neutral", "good", "warning", "bad"] }
+        "type": {
+          "const": "stat"
+        },
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "description": "Already formatted, e.g. \"412 GB\"."
+        },
+        "delta": {
+          "type": "string",
+          "description": "Change since last time, e.g. \"−12 GB\"."
+        },
+        "tone": {
+          "enum": [
+            "neutral",
+            "good",
+            "warning",
+            "bad"
+          ]
+        }
       }
     },
     "List": {
       "type": "object",
-      "required": ["type", "items"],
+      "required": [
+        "type",
+        "items"
+      ],
       "additionalProperties": false,
       "properties": {
-        "type": { "const": "list" },
-        "title": { "type": "string" },
+        "type": {
+          "const": "list"
+        },
+        "title": {
+          "type": "string"
+        },
         "items": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["text"],
+            "required": [
+              "text"
+            ],
             "additionalProperties": false,
             "properties": {
-              "text": { "type": "string" },
-              "detail": { "type": "string" },
-              "url": { "type": "string", "format": "uri" }
+              "text": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              }
             }
           }
         }
@@ -64,20 +205,34 @@
     },
     "Checklist": {
       "type": "object",
-      "required": ["type", "items"],
+      "required": [
+        "type",
+        "items"
+      ],
       "additionalProperties": false,
       "properties": {
-        "type": { "const": "checklist" },
-        "title": { "type": "string" },
+        "type": {
+          "const": "checklist"
+        },
+        "title": {
+          "type": "string"
+        },
         "items": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["text", "done"],
+            "required": [
+              "text",
+              "done"
+            ],
             "additionalProperties": false,
             "properties": {
-              "text": { "type": "string" },
-              "done": { "type": "boolean" }
+              "text": {
+                "type": "string"
+              },
+              "done": {
+                "type": "boolean"
+              }
             }
           }
         }
@@ -85,40 +240,98 @@
     },
     "Table": {
       "type": "object",
-      "required": ["type", "columns", "rows"],
+      "required": [
+        "type",
+        "columns",
+        "rows"
+      ],
       "additionalProperties": false,
       "properties": {
-        "type": { "const": "table" },
-        "title": { "type": "string" },
-        "columns": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "type": {
+          "const": "table"
+        },
+        "title": {
+          "type": "string"
+        },
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
         "rows": {
           "type": "array",
-          "items": { "type": "array", "items": { "type": ["string", "number", "null"] } }
+          "items": {
+            "type": "array",
+            "items": {
+              "type": [
+                "string",
+                "number",
+                "null"
+              ]
+            }
+          }
         }
       }
     },
     "Chart": {
       "description": "Drawn with Swift Charts. Every series must have exactly one value per label; JSON Schema cannot say that, so the hub checks it when it stores the artifact (S-04.7).",
       "type": "object",
-      "required": ["type", "kind", "labels", "series"],
+      "required": [
+        "type",
+        "kind",
+        "labels",
+        "series"
+      ],
       "additionalProperties": false,
       "properties": {
-        "type": { "const": "chart" },
-        "kind": { "enum": ["bar", "line"] },
-        "title": { "type": "string" },
-        "unit": { "type": "string" },
-        "labels": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "type": {
+          "const": "chart"
+        },
+        "kind": {
+          "enum": [
+            "bar",
+            "line"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "labels": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
         "series": {
           "type": "array",
           "minItems": 1,
           "maxItems": 6,
           "items": {
             "type": "object",
-            "required": ["name", "values"],
+            "required": [
+              "name",
+              "values"
+            ],
             "additionalProperties": false,
             "properties": {
-              "name": { "type": "string" },
-              "values": { "type": "array", "items": { "type": ["number", "null"] } }
+              "name": {
+                "type": "string"
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              }
             }
           }
         }
@@ -131,27 +344,150 @@
       "title": "Docker volumes on the NUC",
       "subtitle": "Measured 2026-10-04 18:07",
       "widgets": [
-        { "type": "stat", "label": "Disk free", "value": "412 GB", "delta": "−12 GB this week", "tone": "neutral" },
+        {
+          "type": "stat",
+          "label": "Disk free",
+          "value": "412 GB",
+          "delta": "−12 GB this week",
+          "tone": "neutral"
+        },
         {
           "type": "table",
           "title": "Largest volumes",
-          "columns": ["Volume", "Size"],
-          "rows": [["plex_media_cache", "38.2 GB"], ["harry_data", "1.1 GB"], ["marcel_data", "0.4 GB"]]
+          "columns": [
+            "Volume",
+            "Size"
+          ],
+          "rows": [
+            [
+              "plex_media_cache",
+              "38.2 GB"
+            ],
+            [
+              "harry_data",
+              "1.1 GB"
+            ],
+            [
+              "marcel_data",
+              "0.4 GB"
+            ]
+          ]
         },
         {
           "type": "chart",
           "kind": "bar",
           "title": "Growth per week",
           "unit": "GB",
-          "labels": ["w37", "w38", "w39", "w40"],
-          "series": [{ "name": "plex_media_cache", "values": [30.1, 33.4, 35.9, 38.2] }]
+          "labels": [
+            "w37",
+            "w38",
+            "w39",
+            "w40"
+          ],
+          "series": [
+            {
+              "name": "plex_media_cache",
+              "values": [
+                30.1,
+                33.4,
+                35.9,
+                38.2
+              ]
+            }
+          ]
         },
         {
           "type": "checklist",
           "title": "Suggested clean-up",
-          "items": [{ "text": "Prune dangling images (6.3 GB)", "done": false }]
+          "items": [
+            {
+              "text": "Prune dangling images (6.3 GB)",
+              "done": false
+            }
+          ]
         },
-        { "type": "list", "title": "Notes", "items": [{ "text": "Plex cache grows ~2.5 GB a week." }] }
+        {
+          "type": "list",
+          "title": "Notes",
+          "items": [
+            {
+              "text": "Plex cache grows ~2.5 GB a week."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "title": "Energy contracts",
+      "subtitle": "Board · updated 12 Oct 08:14",
+      "widgets": [
+        {
+          "type": "section",
+          "title": "Waiting on you",
+          "widgets": [
+            {
+              "type": "list",
+              "items": [
+                {
+                  "text": "Approve sending the switch request to Luminus",
+                  "detail": "Energy contracts · since 08:14"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "title": "In flight",
+          "widgets": [
+            {
+              "type": "checklist",
+              "title": "Compare the offers",
+              "items": [
+                {
+                  "text": "Collect the offers",
+                  "done": true
+                },
+                {
+                  "text": "Compare yearly totals",
+                  "done": true
+                },
+                {
+                  "text": "Write up the switch",
+                  "done": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "title": "Recent results",
+          "widgets": [
+            {
+              "type": "list",
+              "items": [
+                {
+                  "text": "Energy offers compared · v3",
+                  "detail": "Luminus is cheapest: €412 a year less"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "title": "Upcoming",
+          "empty_text": "Nothing scheduled.",
+          "widgets": []
+        },
+        {
+          "type": "note",
+          "text": "Switching before 1 November avoids the renewal price. One approval left.",
+          "author": "Marcel",
+          "at": "2026-10-12T08:15:00Z"
+        }
       ]
     }
   ]
