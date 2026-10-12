@@ -11,13 +11,14 @@ public struct ChatScreen: View {
     let model: ChatModel
     /// What the live stream says when it is down ("Lost the connection…"); nil while live.
     var offline: String?
-    /// A tap on the avatar header opens Settings.
-    var openSettings: (() -> Void)?
+    /// What a tap on the avatar header opens: Marcel's notebook and Settings (it asks which when there are both).
+    var avatar: AvatarLinks
 
-    public init(model: ChatModel, offline: String? = nil, openSettings: (() -> Void)? = nil) {
+    public init(model: ChatModel, offline: String? = nil, openSettings: (() -> Void)? = nil,
+                openNotebook: (() -> Void)? = nil) {
         self.model = model
         self.offline = offline
-        self.openSettings = openSettings
+        self.avatar = AvatarLinks(notebook: openNotebook, settings: openSettings)
     }
 
     @State private var path: [ChatRoute] = []
@@ -51,10 +52,10 @@ public struct ChatScreen: View {
             if let conversationId = model.conversationId {
                 // A new `limit` re-creates the query with the bigger window; the scroll state stays.
                 LiveFeed(model: model, conversationId: conversationId, limit: model.limit, offline: offline,
-                         actions: actions, openSettings: openSettings)
+                         actions: actions, avatar: avatar)
             } else {
                 ChatLayout(header: ChatHeaderState(offline: offline), collapsed: false, problem: model.problem,
-                           onAvatar: openSettings, composer: { EmptyView() }) {
+                           avatar: avatar, composer: { EmptyView() }) {
                     PixelText(model.problem == nil ? "Opening the conversation…" : "Nothing saved on this phone yet.",
                               role: .detail)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -76,7 +77,7 @@ struct LiveFeed: View {
     let conversationId: String
     let offline: String?
     let actions: ChatActions
-    var openSettings: (() -> Void)?
+    var avatar: AvatarLinks
     @Query private var window: [CachedMessage]
     @Query private var tasks: [CachedTask]
     @Query private var artifacts: [CachedArtifact]
@@ -89,10 +90,10 @@ struct LiveFeed: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(model: ChatModel, conversationId: String, limit: Int, offline: String?, actions: ChatActions,
-         openSettings: (() -> Void)? = nil) {
+         avatar: AvatarLinks = AvatarLinks()) {
         self.model = model
         self.actions = actions
-        self.openSettings = openSettings
+        self.avatar = avatar
         self.conversationId = conversationId
         self.offline = offline
         self.limit = limit
@@ -107,7 +108,7 @@ struct LiveFeed: View {
         // Big giraffe while you sit at the latest messages; small once you scroll back or start typing.
         let collapsed = distanceFromBottom > 24 || typing
         @Bindable var model = model
-        ChatLayout(header: header, collapsed: collapsed, problem: model.problem, onAvatar: openSettings, composer: {
+        ChatLayout(header: header, collapsed: collapsed, problem: model.problem, avatar: avatar, composer: {
             Composer(text: $model.draft,
                      placeholder: Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(items)),
                      focused: $typing) {
@@ -217,37 +218,73 @@ enum FeedMetrics {
     static let inset: CGFloat = PixelMetrics.steps(7)
 }
 
+/// What the avatar header opens (wireframe 6B): Marcel's notebook and Settings. A tap opens the only one, or asks
+/// which when there are both; VoiceOver gets each as a named action and a hint that says what the tap does.
+public struct AvatarLinks {
+    public var notebook: (() -> Void)?
+    public var settings: (() -> Void)?
+
+    public init(notebook: (() -> Void)? = nil, settings: (() -> Void)? = nil) {
+        self.notebook = notebook
+        self.settings = settings
+    }
+
+    /// The named actions, in menu order.
+    public var actions: [(name: String, run: () -> Void)] {
+        [notebook.map { ("Marcel's notebook", $0) }, settings.map { ("Settings", $0) }].compactMap { $0 }
+    }
+
+    /// "Opens Marcel's notebook or Settings".
+    public var hint: String {
+        "Opens " + actions.map(\.name).joined(separator: " or ")
+    }
+}
+
 struct ChatLayout<Feed: View, ComposerView: View>: View {
     var header: ChatHeaderState
     var collapsed: Bool
     var problem: String?
-    /// A tap on the header (Settings).
-    var onAvatar: (() -> Void)?
+    /// What a tap on the header opens.
+    var avatar: AvatarLinks
     var composer: ComposerView
     var feed: Feed
 
+    @State private var choosing = false
     @Environment(\.colorScheme) private var scheme
 
-    init(header: ChatHeaderState, collapsed: Bool, problem: String?, onAvatar: (() -> Void)? = nil,
+    init(header: ChatHeaderState, collapsed: Bool, problem: String?, avatar: AvatarLinks = AvatarLinks(),
          @ViewBuilder composer: () -> ComposerView, @ViewBuilder feed: () -> Feed) {
         self.header = header
         self.collapsed = collapsed
         self.problem = problem
-        self.onAvatar = onAvatar
+        self.avatar = avatar
         self.composer = composer()
         self.feed = feed()
     }
 
     var body: some View {
         let theme = PixelTheme(scheme)
+        let links = avatar.actions
         VStack(spacing: 0) {
-            if let onAvatar {
+            if !links.isEmpty {
                 ChatHeader(state: header, collapsed: collapsed)
                     .contentShape(Rectangle())
-                    .onTapGesture(perform: onAvatar)
+                    .onTapGesture {
+                        if links.count == 1 { links[0].run() } else { choosing = true }
+                    }
                     .accessibilityAddTraits(.isButton)
-                    .accessibilityHint("Opens Settings")
-                    .accessibilityAction(named: "Settings", onAvatar)
+                    .accessibilityHint(avatar.hint)
+                    .accessibilityActions {
+                        ForEach(Array(links.enumerated()), id: \.offset) { _, link in
+                            Button(link.name, action: link.run)
+                        }
+                    }
+                    .confirmationDialog("Open", isPresented: $choosing) {
+                        ForEach(Array(links.enumerated()), id: \.offset) { _, link in
+                            Button(link.name, action: link.run)
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    }
             } else {
                 ChatHeader(state: header, collapsed: collapsed)
             }

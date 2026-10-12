@@ -57,14 +57,19 @@ struct ViewerHeader: View {
 }
 
 /// A Markdown document, natively: headings in the label font, body text in the body font, lists, quotes, code,
-/// tables, and each block's web links as buttons under it.
-struct MarkdownView: View {
+/// tables, and each block's web links as buttons under it. Public so Marcel's notebook (MarcelNotebook) previews a
+/// note with the same rules: a link opens only when its button is tapped, and only an http(s) one; HTML stays words.
+public struct MarkdownView: View {
     var parts: [ItemMarkdown.Part]
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.openURL) private var openURL
 
-    var body: some View {
+    public init(parts: [ItemMarkdown.Part]) {
+        self.parts = parts
+    }
+
+    public var body: some View {
         let theme = PixelTheme(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(5)) {
             if parts.isEmpty {
