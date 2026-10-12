@@ -322,7 +322,8 @@ def test_last_seen_is_written_at_most_once_a_minute(client: TestClient) -> None:
 @pytest.mark.parametrize(
     ('target', 'push'),
     [({'kind': 'ntfy', 'ntfy_topic': 'marcel-shaun'}, 'ntfy'),
-     ({'kind': 'apns', 'apns_token': 'abc123'}, 'apns')],
+     ({'kind': 'apns', 'apns_token': 'ab12' * 16}, 'apns'),
+     ({'kind': 'apns', 'apns_token': 'AB12' * 40}, 'apns')],
 )  # fmt: skip
 def test_registering_push_is_saved(client: TestClient, target: dict, push: str) -> None:
     me = pair(client)
@@ -418,3 +419,31 @@ def test_a_crash_answers_in_plain_words(settings: Settings) -> None:
     validate('Error', res.json())
     assert res.json()['code'] == 'internal_error'
     assert 'secret detail' not in res.text
+
+
+@pytest.mark.parametrize(
+    'token',
+    [
+        'abc123',
+        'zz' * 32,
+        'ab12' * 15 + 'ab1',
+        'ab' * 101,
+        '../3/device/' + 'ab' * 30,
+        'ab 12' * 16,
+    ],
+    ids=['short', 'not-hex', 'odd', 'long', 'path', 'spaces'],
+)
+def test_an_apns_token_that_is_not_hex_of_a_sane_length_is_400(
+    client: TestClient, token: str
+) -> None:
+    me = pair(client)
+    res = client.put(
+        f'/api/devices/{me["device_id"]}/push',
+        json={'kind': 'apns', 'apns_token': token},
+        headers=bearer(me['token']),
+    )
+    assert res.status_code == 400
+    assert 'apns_token' in res.json()['message']
+    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+        device = s.get(Device, me['device_id'])
+        assert device is not None and device.apns_token is None

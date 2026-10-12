@@ -34,6 +34,11 @@ names the file.
 | `worker_cwd` | `MARCEL_WORKER_CWD` | unset. Where workers without a repository run, e.g. `/home/<you>/marcel/workspaces/scratch` (a path on the NUC). Unset: such tasks fail with a reason |
 | `brain_cwd` | `MARCEL_BRAIN_CWD` | unset: the hub starts no brain. The brain workspace on the NUC, e.g. `/home/<you>/marcel/brain` (`brain/README.md`). Set: the hub keeps one brain running (see "The brain: keep-alive and rollover") |
 | `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no pushes. The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
+| `apns_key` | `MARCEL_APNS_KEY` | unset: no APNs pushes (`push.apns` false; phones use ntfy). The APNs auth key: the text of the `AuthKey_<id>.p8` file from the Apple developer site (Keys, with Apple Push Notifications service). The whole file, the file on one line with `\n` for its line breaks, or only the lines between `BEGIN` and `END`. Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown. A key that is not a P-256 `.p8` key stops the hub at start |
+| `apns_key_id` | `MARCEL_APNS_KEY_ID` | unset. The key's 10-character id (in the file name and on the Keys page). `deploy/.env.local`; never logged |
+| `apns_team_id` | `MARCEL_APNS_TEAM_ID` | unset. The Apple developer team id (Membership details). `deploy/.env.local`; never logged |
+| `apns_topic` | `MARCEL_APNS_TOPIC` | unset. The iOS app's bundle id, e.g. `com.<you>.marcel`. Set all four `apns_*` or none: half of them stops the hub at start, naming what is missing |
+| `apns_sandbox` | `MARCEL_APNS_SANDBOX` | `false`: Apple's production server. `true` for an app built and run from Xcode (development push environment). Check this first when pushes stop: set wrong, Apple answers `BadDeviceToken` for every push, and the hub removes each phone's token until its app opens again |
 | `github_token` | `MARCEL_GITHUB_TOKEN` | unset: PR cards are not refreshed and say the token is missing. A fine-grained, **read-only** GitHub token (Pull requests: read, Checks and Commit statuses: read) on the owner's repos (ADR-002). Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown |
 | `tz` | `MARCEL_TZ` | `Europe/Brussels`. The owner's time zone (IANA name), and the only one the hub uses: the built-in digests run in it (ones the owner has not edited move when it changes), their facts and the usage guard's pushes show times in it, and the brain's nightly rollover runs at 04:00 in it. The process's own `TZ` is never used. A name that is not a time zone stops the hub at start |
 
@@ -74,9 +79,10 @@ for **10 minutes**. The app sends it to `POST /api/pair` and gets a device token
 - Every route except `GET /api/health` and `POST /api/pair` needs `Authorization: Bearer <token>`.
   Without it, or with a revoked token, the answer is 401. `/docs` and `/openapi.json` are off.
 - `GET /api/devices` lists your devices; `DELETE /api/devices/{id}` revokes one, and its token
-  stops working at once. `PUT /api/devices/{id}/push` stores an APNs token or ntfy topic.
+  stops working at once. `PUT /api/devices/{id}/push` stores an APNs token or ntfy topic. An APNs
+  token must be the hex device token iOS gives (64 to 200 characters, 0-9 and a-f), else 400.
 - `GET /api/me` reports `push.ntfy` (and `push.ntfy_server`) when `ntfy_server` is set, `push.apns`
-  as off until S-08.2, and each agent's live `state` (see "The avatar's state" below).
+  when the four `apns_*` settings are set, and each agent's live `state` (see "The avatar's state" below).
 - After 10 unknown codes in a minute, `POST /api/pair` refuses every code (429,
   `too_many_tries`) until the minute is over. Expired or already-used codes do not count.
 - Every error has the contract's `Error` shape: a stable `code` and a `message` for people. A bad
@@ -444,8 +450,11 @@ on first use. The code is `src/marcel_hub/memory.py`.
 
 ## Push notifications
 
-`src/marcel_hub/notify/` sends pushes to paired phones (B-16, B-18). Set `ntfy_server` to turn
-them on; the app then registers an ntfy topic with `PUT /api/devices/{id}/push`.
+`src/marcel_hub/notify/` sends pushes to paired phones (B-16, B-18). Set the four `apns_*`
+settings to send through Apple (`GET /api/me` then says `push.apns: true` and the app registers
+its APNs token), and `ntfy_server` to send through ntfy (the app registers an ntfy topic). Both can
+be set; each device gets its pushes through the one it registered with
+`PUT /api/devices/{id}/push`.
 
 | Event | Push | Opens |
 |---|---|---|
@@ -478,8 +487,26 @@ Nothing else pushes: no progress, no `working`, `queued`, `unknown` or `stopped`
   retried. When an urgent push did not arrive, one "a notification did not arrive" push goes to
   every device.
 - **Secrets.** An ntfy topic lets anyone read the pushes. Logs name the device id, never the topic.
-- **APNs** (S-08.2) is a second backend with `kind = 'apns'`; devices that registered an APNs token
-  get nothing until it exists, and the log says so.
+- **APNs** (`notify/apns.py`). A POST over HTTP/2 to `/3/device/<token>` on
+  `api.push.apple.com` (or `api.sandbox.push.apple.com` with `apns_sandbox`). `title` and `body` go
+  in `aps.alert`, the category is `aps.category` (the app gives `approval` its `approve` and `deny`
+  actions), `collapse_key` is the `apns-collapse-id` header (hashed when over 64 bytes), and
+  `deep_link`, `level`, `task_id` and `approval_id` sit beside `aps`. A payload over 4 KB has its
+  body cut with `…`; the ids are kept.
+  - **Provider token.** An ES256 JWT signed with the `.p8` key (`cryptography`), kept and made again
+    every 50 minutes: Apple refuses one older than an hour and one made more often than every 20
+    minutes. When Apple says it expired, the next try makes a fresh one.
+  - **A token Apple no longer knows** (410 `Unregistered`, 400 `BadDeviceToken`) is removed from
+    the device, unless the app registered a new one meanwhile. The device stays paired; the app
+    registers again when it next opens.
+  - **Busy or down.** 429, 5xx, no answer and an expired provider token are tried again like an
+    ntfy push (after 2 s and 10 s), each device on its own, so other pushes are not held up. Any
+    other refusal is not retried, and the log gives Apple's reason code.
+  - **Secrets.** The key, its id and the team id are never logged or shown in a repr or an error.
+    The device token is in the request path, so the `httpx` request log line shows
+    `/3/device/<token>` instead, and the `hpack` (HTTP/2 header) logger is kept at WARNING.
+  - Without the `apns_*` settings there is no APNs backend: devices that registered an APNs token
+    get nothing, and the log says so.
 
 ## Schedules
 

@@ -1,5 +1,6 @@
 """`POST /pair` (public), and the token-protected `/me` and `/devices…` routes."""
 
+import re
 from typing import Any, Literal, Self
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -21,6 +22,10 @@ class PairRequest(BaseModel):
     device_name: str = Field(min_length=1, max_length=80)
 
 
+# An APNs device token as iOS hands it over, hex-encoded (32 bytes today; Apple allows longer).
+APNS_TOKEN = re.compile(r'(?:[0-9a-fA-F]{2}){32,100}')
+
+
 class PushTarget(BaseModel):
     model_config = ConfigDict(extra='forbid')
     kind: Literal['apns', 'ntfy']
@@ -31,6 +36,11 @@ class PushTarget(BaseModel):
     def _token_for_kind(self) -> Self:
         if self.kind == 'apns' and not self.apns_token:
             raise ValueError('`apns_token` is needed when kind is apns')
+        if self.kind == 'apns' and not APNS_TOKEN.fullmatch(self.apns_token or ''):
+            raise ValueError(
+                '`apns_token` must be the device token from iOS as hex: 64 to 200 characters, '
+                '0-9 and a-f'
+            )
         if self.kind == 'ntfy' and not self.ntfy_topic:
             raise ValueError('`ntfy_topic` is needed when kind is ntfy')
         return self
