@@ -49,8 +49,11 @@ final class ComposerTests: XCTestCase {
 
         let waiting: [FeedItem] = [.approval(ApprovalLine(id: "a", approvalId: "apr", taskId: "t", question: "?",
                                                           detail: nil, status: .open, showsDetail: false))]
-        XCTAssertEqual(Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(waiting)), "Or say something…")
-        XCTAssertEqual(Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion([])), "Talk to Marcel…")
+        XCTAssertEqual(Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(waiting), name: "Marcel"),
+                       "Or say something…")
+        XCTAssertEqual(Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion([]), name: "Marcel"),
+                       "Talk to Marcel…")
+        XCTAssertEqual(Composer.placeholder(questionWaiting: false, name: "Marcella"), "Talk to Marcella…")
     }
 
     /// Regression: with a full window (50 rows) a sent message's hub copy does not change the row count. The

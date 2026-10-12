@@ -116,11 +116,35 @@ final class LiveItemsServiceTests: XCTestCase {
         let message = try JSONSerialization.data(withJSONObject: Fx.messageJSON(
             "msg_1", text: "Why?", project: Fx.energy, clientId: "c1"))
         let (hub, transport) = service { _ in Self.json(201, message) }
-        _ = try await hub.send(text: "Why?", clientId: "c1", conversationId: Fx.conversation, projectId: Fx.energy)
+        _ = try await hub.send(text: "Why?", clientId: "c1", conversationId: Fx.conversation, projectId: Fx.energy,
+                               artifactId: Fx.docId)
         XCTAssertEqual(transport.requests, ["POST /conversations/cnv_main_marcel/messages"])
         let body = try XCTUnwrap(transport.sentBodies.first.flatMap { try? JSONSerialization.jsonObject(
             with: Data($0.utf8)) as? [String: String] })
-        XCTAssertEqual(body, ["text": "Why?", "client_id": "c1", "project_id": Fx.energy])
+        XCTAssertEqual(body, ["text": "Why?", "client_id": "c1", "project_id": Fx.energy, "artifact_id": Fx.docId])
+    }
+
+    /// S-12.11: `POST /artifacts/{id}/move` and its 409s, told apart by their code.
+    func testPinningAnItem() async throws {
+        let moved = try JSONSerialization.data(withJSONObject: Fx.artifactJSON(
+            Fx.docId, "Energy offers compared", kind: "doc", project: "prj_01J9ZM1", version: 3))
+        let (hub, transport) = service { _ in Self.json(200, moved) }
+        let artifact = try await hub.move(artifactId: Fx.docId, to: "prj_01J9ZM1")
+        XCTAssertEqual(artifact.projectId, "prj_01J9ZM1")
+        XCTAssertEqual(transport.requests, ["POST /artifacts/\(Fx.docId)/move"])
+        let body = try XCTUnwrap(transport.sentBodies.first.flatMap { try? JSONSerialization.jsonObject(
+            with: Data($0.utf8)) as? [String: String] })
+        XCTAssertEqual(body, ["project_id": "prj_01J9ZM1"])
+
+        let (archived, _) = service { _ in Self.error(409, "project_archived") }
+        let saidArchived = await words { try await archived.move(artifactId: "a", to: "p") }
+        XCTAssertEqual(saidArchived, "That project is archived, so nothing can be pinned to it.")
+        let (board, _) = service { _ in Self.error(409, "artifact_is_board") }
+        let saidBoard = await words { try await board.move(artifactId: "a", to: "p") }
+        XCTAssertEqual(saidBoard, "This is a project's board. It stays with its own project.")
+        let (gone, _) = service { _ in Self.error(404, "not_found") }
+        let saidGone = await words { try await gone.move(artifactId: "a", to: "p") }
+        XCTAssertEqual(saidGone, "The hub no longer has this item.")
     }
 
     func testTheHubsRefusalsInPlainWords() async {
@@ -136,7 +160,7 @@ final class LiveItemsServiceTests: XCTestCase {
 
         let (unknown, _) = service { _ in Self.error(400, "unknown_project") }
         let said400 = await words {
-            try await unknown.send(text: "a", clientId: "b", conversationId: "c", projectId: "prj_gone")
+            try await unknown.send(text: "a", clientId: "b", conversationId: "c", projectId: "prj_gone", artifactId: "d")
         }
         XCTAssertEqual(said400, "The hub doesn't know this item's project any more.")
 

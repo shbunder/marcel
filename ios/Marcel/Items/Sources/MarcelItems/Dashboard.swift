@@ -65,7 +65,7 @@ public struct DashboardProblem: Error, Equatable, Sendable {
 
     /// What the viewer says.
     public var message: String {
-        "This can't be drawn: \(reason). Ask Marcel to make it again."
+        "This can't be drawn: \(reason). Ask in Chat for it to be made again."
     }
 }
 

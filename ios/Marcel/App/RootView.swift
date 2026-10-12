@@ -81,9 +81,9 @@ struct MainTabs: View {
                 switch tab {
                 case "quests": QuestsView()
                 case "map":
-                    // "+ new" on the map asks Marcel for a project in the chat.
+                    // "+ new" on the map asks Marcel for a project in the chat, after anything already typed there.
                     MapView(conversationId: chat.conversationId, opening: $mapOpening) { request in
-                        chat.draft = request
+                        chat.propose(request)
                         tab = "chat"
                     }
                 case "items": ItemsView(conversationId: chat.conversationId)
@@ -108,6 +108,14 @@ struct MainTabs: View {
         }
         // An open quest view follows its transcript and approvals through the live stream's cache.
         .environment(\.liveEvents, connection.cache)
+        // Every tab and sheet says the agent's name as `GET /me` last gave it (Settings can rename it).
+        .environment(\.agentName, chat.agentName ?? AgentName.fallback)
+        // "Ask about this" in any item viewer: the Chat tab, with the item on the next message.
+        .environment(\.askInChat) { item in
+            over = nil
+            tab = "chat"
+            chat.attach(item)
+        }
         // Links (and pushes) that arrived before the tabs were up are looked up now; later ones at once.
         .onChange(of: router.destination, initial: true) { _, destination in
             guard let destination else { return }
@@ -150,9 +158,7 @@ struct MainTabs: View {
     @ViewBuilder private func screen(_ over: OverTabs) -> some View {
         switch over {
         case .settings:
-            SettingsView(model: SettingsModel(service: settings, tokens: APNsRegistrar.shared, thisDevice: hub.deviceId),
-                         status: { StatusModel(service: settings) },
-                         unpair: unpair)
+            SettingsView(model: settingsModel(), status: { StatusModel(service: settings) }, unpair: unpair)
         case .notebook:
             NotebookView(model: NotebookModel(service: notebook, rollovers: rollovers, projectNames: { [connection] in
                 Dictionary((try? connection.cache.projects())?.map { ($0.slug, $0.name) } ?? [],
@@ -162,6 +168,13 @@ struct MainTabs: View {
         case .artifact(let id): ArtifactViewer(artifactId: id, conversationId: chat.conversationId)
         case .status(let alert): StatusView(model: StatusModel(service: settings, alert: alert))
         }
+    }
+
+    /// Settings, telling the chat header the agent's name (after a rename too).
+    private func settingsModel() -> SettingsModel {
+        let model = SettingsModel(service: settings, tokens: APNsRegistrar.shared, thisDevice: hub.deviceId)
+        model.nameChanged = { [chat] name in chat.agentName = name }
+        return model
     }
 
     /// Forgets the hub on this phone. Settings has told the hub first; `note` says so when it couldn't, and shows on

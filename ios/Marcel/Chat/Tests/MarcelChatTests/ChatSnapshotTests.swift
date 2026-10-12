@@ -33,6 +33,17 @@ final class ChatSnapshotTests: XCTestCase {
             named: "Chat-project-tag", variants: twoModes, padding: 0)
     }
 
+    // S-12.11: a renamed agent in the header, a question sent with an item, and the next item above the composer.
+    func testAskingAboutAnItemWithARenamedAgent() {
+        Snapshot.assert(
+            ChatStill(header: ChatHeaderState(name: "Marcella"), items: [
+                .user(UserLine(id: "u1", text: "Is Engie cheaper with solar?", project: "Home energy", tone: .teal,
+                               attachment: "Energy offers compared")),
+                .marcel(MarcelLine(id: "m1", body: ChatMarkdown.render("Yes: **€486** a year less with 4 kWp."))),
+            ], draft: "And without the heat pump?", attachment: "Bills 2026"),
+            named: "Chat-ask", variants: twoModes, padding: 0)
+    }
+
     func testCollapsedHeaderOffline() {
         Snapshot.assert(
             ChatStill(header: ChatHeaderState(offline: "Offline · showing what's saved"), items: [

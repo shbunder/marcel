@@ -35,6 +35,11 @@ public protocol SettingsService {
     func health() async throws -> Health
     /// `GET /approvals`.
     func approvals() async throws -> [Approval]
+    /// `GET /approvals/{id}`, in any state; nil when the hub has no such approval (404 `approval_not_found`).
+    func approval(id: String) async throws -> Approval?
+    /// `GET /messages/{id}`, in any of your conversations; nil when the hub has no such message (404
+    /// `message_not_found`).
+    func message(id: String) async throws -> Message?
     /// `GET /projects?agent_id=…`.
     func projects(agentId: String) async throws -> [Project]
     /// `POST /approvals/{id}`.
@@ -46,6 +51,8 @@ public enum SettingsError: Error, Equatable, LocalizedError {
     /// The hub answered 404, 405 or 501 for a route the contract has but this hub has not built yet
     /// (schedules: S-09.1, usage: S-10.1, renaming the agent).
     case notAvailableYet
+    /// 503 `no_reading` on `GET /usage`: the runner has not read the plan's usage since it started.
+    case noReading
     /// 409 on deleting a built-in digest: it can be paused, not deleted.
     case builtIn
     /// 409 on an approval: answered first (a terminal, another phone) or expired.
@@ -64,6 +71,7 @@ public enum SettingsError: Error, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .notAvailableYet: "Not available yet: the hub doesn't do this yet."
+        case .noReading: "Usage unavailable: the hub hasn't read the plan's usage yet. It shows here once it has."
         case .builtIn: "Built-in digests can be paused, not deleted."
         case .alreadyAnswered: "That question was already answered, or it expired."
         case .refused(let message): message
@@ -79,6 +87,12 @@ public enum SettingsError: Error, Equatable, LocalizedError {
     static func words(for error: any Error) -> String {
         (error as? SettingsError)?.errorDescription
             ?? "Something went wrong talking to the hub. Try again in a moment."
+    }
+
+    /// A 404 the contract lists: the hub's generic `not_found` is a route it does not serve yet (an older hub);
+    /// any specific code (`device_not_found`, …) means the thing is gone.
+    static func missing(_ error: HubError?) -> SettingsError {
+        error?.code == "not_found" ? .notAvailableYet : .notFound
     }
 
     /// A status the contract does not list for this route. 404, 405 and 501 mean the hub has not built it yet;
@@ -125,7 +139,7 @@ public struct LiveSettingsService: SettingsService {
         case .badRequest(let bad):
             throw SettingsError.refused((try? bad.body.json.message) ?? "The hub didn't accept that name.")
         case .unauthorized: throw SettingsError.unauthorized
-        case .notFound: throw SettingsError.notFound
+        case .notFound(let missing): throw SettingsError.missing(try? missing.body.json)
         case .undocumented(let status, _): throw SettingsError.undocumented(status, "rename")
         }
     }
@@ -142,7 +156,7 @@ public struct LiveSettingsService: SettingsService {
         switch try await call({ try await client.revokeDevice(path: .init(deviceId: deviceId)) }) {
         case .noContent: return
         case .unauthorized: throw SettingsError.unauthorized
-        case .notFound: throw SettingsError.notFound
+        case .notFound(let missing): throw SettingsError.missing(try? missing.body.json)
         case .undocumented(let status, _): throw SettingsError.undocumented(status, "revoke")
         }
     }
@@ -156,7 +170,7 @@ public struct LiveSettingsService: SettingsService {
         case .badRequest(let bad):
             throw SettingsError.refused((try? bad.body.json.message) ?? "The hub didn't accept that.")
         case .unauthorized: throw SettingsError.unauthorized
-        case .notFound: throw SettingsError.notFound
+        case .notFound(let missing): throw SettingsError.missing(try? missing.body.json)
         case .undocumented(let status, _): throw SettingsError.undocumented(status, "notifications")
         }
     }
@@ -178,7 +192,7 @@ public struct LiveSettingsService: SettingsService {
         case .badRequest(let bad):
             throw SettingsError.refused((try? bad.body.json.message) ?? "The hub didn't accept that.")
         case .unauthorized: throw SettingsError.unauthorized
-        case .notFound: throw SettingsError.notFound
+        case .notFound(let missing): throw SettingsError.missing(try? missing.body.json)
         case .undocumented(let status, _): throw SettingsError.undocumented(status, "schedule")
         }
     }
@@ -187,7 +201,7 @@ public struct LiveSettingsService: SettingsService {
         switch try await call({ try await client.deleteSchedule(path: .init(scheduleId: scheduleId)) }) {
         case .noContent: return
         case .unauthorized: throw SettingsError.unauthorized
-        case .notFound: throw SettingsError.notFound
+        case .notFound(let missing): throw SettingsError.missing(try? missing.body.json)
         case .conflict: throw SettingsError.builtIn
         case .undocumented(let status, _): throw SettingsError.undocumented(status, "schedule")
         }
@@ -197,6 +211,9 @@ public struct LiveSettingsService: SettingsService {
         switch try await call({ try await client.getUsage() }) {
         case .ok(let ok): return try ok.body.json
         case .unauthorized: throw SettingsError.unauthorized
+        case .serviceUnavailable(let unavailable):
+            // `no_reading` is the one 503 the contract lists; any other is the hub's own trouble.
+            throw (try? unavailable.body.json.code) == "no_reading" ? SettingsError.noReading : SettingsError.hubProblem
         case .undocumented(let status, _): throw SettingsError.undocumented(status, "usage")
         }
     }
@@ -214,6 +231,33 @@ public struct LiveSettingsService: SettingsService {
         case .unauthorized: throw SettingsError.unauthorized
         case .undocumented(let status, _): throw SettingsError.undocumented(status, "questions")
         }
+    }
+
+    public func approval(id: String) async throws -> Approval? {
+        switch try await call({ try await client.getApproval(path: .init(approvalId: id)) }) {
+        case .ok(let ok): return try ok.body.json
+        // Only `approval_not_found` means gone; the hub's `not_found` is a route it does not serve yet.
+        case .notFound(let missing): return try Self.gone(missing.body.json, code: "approval_not_found")
+        case .unauthorized: throw SettingsError.unauthorized
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "question")
+        }
+    }
+
+    public func message(id: String) async throws -> Message? {
+        switch try await call({ try await client.getMessage(path: .init(messageId: id)) }) {
+        case .ok(let ok): return try ok.body.json
+        // Only `message_not_found` means gone; the hub's `not_found` is a route it does not serve yet.
+        case .notFound(let missing): return try Self.gone(missing.body.json, code: "message_not_found")
+        case .unauthorized: throw SettingsError.unauthorized
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "message")
+        }
+    }
+
+    /// A 404 by its code: `code` means the thing is gone (nil); anything else (the hub's generic `not_found` for a
+    /// route an older hub does not serve) is "not available yet", so the caller falls back.
+    private static func gone<T>(_ error: HubError, code: String) throws -> T? {
+        guard error.code == code else { throw SettingsError.notAvailableYet }
+        return nil
     }
 
     public func projects(agentId: String) async throws -> [Project] {

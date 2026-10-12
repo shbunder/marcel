@@ -2,7 +2,7 @@
 
 The Map tab: one tile per project, and behind each tile the project's room. Wireframes 5A and 5B in
 `scratch/spikes/SP5-avatar/wireframes/`. Drawn only with PixelKit components, plus the chat's composer and board
-preview (MarcelChat) and the quest log's grouping (MarcelQuests).
+preview (MarcelChat), the quest log's grouping (MarcelQuests) and the quest view (MarcelQuest).
 
 It is a Swift package (`MarcelMap`) so its tests run in the simulator like the other packages'. The app links it and
 the tab bar shows `MapView` (`ios/Marcel/App/RootView.swift`). Xcode leaves a folder with a `Package.swift` out of
@@ -22,11 +22,15 @@ map opens that room and sets it back to nil.
   updated 11:52", "yesterday", "Thu", "3 Oct"), a gold "1 needs you" badge, and a "Claude Code →" chip when the
   project links a Claude Code Project. Counts are the hub's (`Project.counts`). Opening the tab fetches
   `GET /projects` too, in case the stream has not brought them.
-- **"+ New"** opens the chat with "Start a new project: " in the composer: Marcel makes projects.
+- **The agent's name** on the map and in the rooms ("or just ask <name>", the composer, the notes and "Sent to …")
+  comes from the `agentName` environment value (MarcelItems), never a hard-coded "Marcel".
+- **"+ New"** opens the chat with "Start a new project: " in the composer: Marcel makes projects. It never overwrites
+  what you were typing there (the app calls `ChatModel.propose`, which adds it after your words).
 - **A room** has the pinned board (an `ArtifactCard` with up to eight entries from `GET /artifacts/{id}/content`,
   fetched once per version), the project's quests grouped like the quest log (waiting on you first), its items as
   chips, and its notes (`memory/projects/<slug>.md`, read-only here). Tapping the board or an item opens
-  the artifact viewer (`ArtifactViewer` from MarcelItems, S-12.8).
+  the artifact viewer (`ArtifactViewer` from MarcelItems, S-12.8); tapping a quest card opens the quest view
+  (`QuestView` from MarcelQuest) on top of the room (`MapNavigation`, `MapRoute`).
 - **The composer** sends to the main conversation with `project_id` set (B-32): one conversation, tagged. The hub's
   answer goes into the cache at once, so the Chat tab shows the message straight away with the project's chip.
   A message that does not get through stays in the box.
@@ -38,6 +42,8 @@ map opens that room and sets it back to nil.
 
 ## Tests (`make -C ios map-test`, part of `make ios-check`)
 
+- `MapNavigationTests` — a tile opens its room, a room's quest card opens the quest view, back returns to the room,
+  a project link opens its room from anywhere.
 - `ProjectMapTests` — the tiles' order, counts, words and times; a room's board, quests by state, items and move
   targets.
 - `MapLiveTests` — the story's UI tests one layer down: an in-memory cache fed with event frames, the screen's model

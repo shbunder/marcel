@@ -124,6 +124,8 @@ public struct PRCard: Equatable, Sendable {
     public var state: State?
     public var checks: String?
     public var review: String?
+    /// Why the card may be out of date (`pr.note`, app API 0.5): the hub could not refresh it from GitHub.
+    public var note: String?
     public var selfChange: Bool
     /// Only an https address on github.com: anything else is not offered as a button.
     public var github: URL?
@@ -139,6 +141,7 @@ public struct PRCard: Equatable, Sendable {
         case .changesRequested?: "Changes requested"
         case .none?, nil: nil
         }
+        note = artifact.pr?.note.flatMap { $0.isEmpty ? nil : "May be out of date: \($0)" }
         selfChange = artifact.selfChange == true
         github = artifact.url.flatMap(URL.init(string:)).flatMap(Self.githubLink)
         repository = github.map { url in url.pathComponents.dropFirst().prefix(2).joined(separator: "/") }
@@ -166,6 +169,7 @@ public struct PRCard: Equatable, Sendable {
         if let repository { words.append("In \(repository)") }
         if let checks { words.append(checks) }
         if let review { words.append(review) }
+        if let note { words.append(note) }
         if selfChange { words.append("This changes Marcel itself") }
         return words.joined(separator: ". ")
     }

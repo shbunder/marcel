@@ -28,6 +28,8 @@ public enum ArtifactPreview {
             if let review = pr.review, review != .none {
                 rows.append(PreviewRow("Review", value: review.rawValue.replacingOccurrences(of: "_", with: " ").capitalized))
             }
+            // Why the card may be stale (app API 0.5): the hub could not refresh it from GitHub.
+            if let note = pr.note, !note.isEmpty { rows.append(PreviewRow("May be out of date: \(note)")) }
             return rows
         case .link, .branch:
             let host = artifact.url.flatMap { URL(string: $0)?.host() } ?? "a web page"
