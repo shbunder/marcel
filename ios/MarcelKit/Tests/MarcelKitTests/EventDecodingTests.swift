@@ -36,7 +36,8 @@ final class EventDecodingTests: XCTestCase {
             [
                 "Hello", "ResyncRequired", "MessageCreated", "ConversationCreated", "TaskCreated", "TaskUpdated",
                 "TaskEventAppended", "ApprovalCreated", "ApprovalResolved", "ArtifactCreated", "AgentStateChanged",
-                "UsageUpdated", "ArtifactUpdated", "ProjectCreated", "ProjectUpdated", "TaskMoved", "BrainRollover",
+                "UsageUpdated", "ArtifactUpdated", "ProjectCreated", "ProjectUpdated", "TaskMoved", "ArtifactMoved",
+                "BrainRollover",
             ])
     }
 

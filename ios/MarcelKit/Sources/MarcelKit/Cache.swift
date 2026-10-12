@@ -126,6 +126,7 @@ public final class MarcelCache: EventSink {
         case .artifactCreated(let artifact), .artifactUpdated(let artifact, _): try upsert(artifact)
         case .projectCreated(let project), .projectUpdated(let project): try upsert(project)
         case .taskMoved(let taskId, _, let toProjectId): try move(taskId: taskId, to: toProjectId)
+        case .artifactMoved(let artifactId, _, let toProjectId): try move(artifactId: artifactId, to: toProjectId)
         default: break  // other events drive live UI only (avatar, approvals, usage, transcripts, rollovers)
         }
         setLastEventId(frame.id)
@@ -226,6 +227,17 @@ public final class MarcelCache: EventSink {
         task.projectId = projectId
         row.projectId = projectId
         row.payload = try encoder.encode(task)
+    }
+
+    /// `artifact.moved`: the item now belongs to another project. An item the cache has not seen is left for REST.
+    public func move(artifactId: String, to projectId: String) throws {
+        guard let row = try context.fetch(
+            FetchDescriptor<CachedArtifact>(predicate: #Predicate { $0.id == artifactId })).first
+        else { return }
+        var artifact = try decoder.decode(Artifact.self, from: row.payload)
+        artifact.projectId = projectId
+        row.projectId = projectId
+        row.payload = try encoder.encode(artifact)
     }
 
     public func save() throws {
