@@ -1,4 +1,4 @@
-"""Rules added in app-api 0.5.0, session-api 0.1.1, the channel's progress steps and brain-api."""
+"""Rules added in app-api 0.5.0, runner-api 0.1.6, session-api 0.1.1 and brain-api 0.1.0."""
 
 from __future__ import annotations
 
@@ -199,3 +199,50 @@ def test_a_brain_task_must_say_where_it_runs(registry: Registry) -> None:
     for bad in ({**task, 'location': 'auto'}, {**task, 'repo': '-x/y'}, {**task, 'model': '-m'}):
         with pytest.raises(ValidationError):
             check.validate(bad)
+
+
+def test_a_pr_card_may_say_why_it_is_stale(registry: Registry) -> None:
+    check = validator('app-api.yaml', '/components/schemas/Artifact', registry)
+    card = dict(schema('Artifact')['example'])
+    for note in ('No GitHub token is set (MARCEL_GITHUB_TOKEN).', None):
+        check.validate({**card, 'pr': {**card['pr'], 'note': note}})
+    with pytest.raises(ValidationError):
+        check.validate({**card, 'pr': {**card['pr'], 'note': 'x' * 201}})
+
+
+def test_runner_errors_from_resume_and_fork_are_listed() -> None:
+    paths = load_yaml('runner-api.yaml')['paths']
+    resume = paths['/sessions/{session_id}/resume']['post']['responses']
+    fork = paths['/sessions/{session_id}/fork']['post']['responses']
+    assert 'code: cap_reached' in resume['409']['description']
+    assert {'422', '503'} <= set(resume)
+    assert '`not_forkable`' in fork['409']['description']
+    assert {'400', '422', '503'} <= set(fork)
+
+
+@pytest.mark.parametrize(
+    ('field', 'value', 'ok'),
+    [
+        ('task_id', 'tsk_01J9ZQ5', True),
+        ('task_id', '-rf', False),
+        ('base', 'release/1.2', True),
+        ('base', '-main', False),
+        ('base', 'a..b', False),
+        ('base', 'main.lock', False),
+        ('base', 'main/', False),
+        ('url', 'https://github.com/shbunder/marcel', True),
+        ('url', 'https://user:pw@github.com/x/y', False),
+        ('url', 'ext::sh -c x', False),
+    ],
+)
+def test_a_repo_spec_is_checked_like_the_runner_does(
+    registry: Registry, field: str, value: str, ok: bool
+) -> None:
+    check = validator('runner-api.yaml', '/components/schemas/RepoSpec', registry)
+    spec = {**load_yaml('runner-api.yaml')['components']['schemas']['RepoSpec']['example']}
+    spec[field] = value
+    if ok:
+        check.validate(spec)
+    else:
+        with pytest.raises(ValidationError):
+            check.validate(spec)

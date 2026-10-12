@@ -1949,6 +1949,15 @@ components:
             review:
               type: string
               enum: [none, requested, approved, changes_requested]
+            note:
+              type: [string, 'null']
+              maxLength: 200
+              description: |
+                Why the card may be out of date, in plain words, when the hub could not refresh it
+                from GitHub: "GitHub refused the token", "No GitHub token is set
+                (MARCEL_GITHUB_TOKEN)", "GitHub is having trouble". Absent or null when the last
+                refresh worked. New in 0.5.0.
+          example: { number: 14, state: open, checks: pending, note: GitHub is having trouble. }
         created_at: { type: string, format: date-time }
         updated_at:
           type: string
