@@ -177,6 +177,37 @@ class RunnerClient:
             return res.json()['session_id']
         raise StartFailed(_message(res))
 
+    # Side threads (S-06.3: `side.SideThreads`) ---------------------------------------------
+
+    async def fork(self, session_id: str, *, name: str, prompt: str) -> str:
+        """Fork `session_id` (the brain) into a `side` session with its history; returns the
+        fork's id. It keeps the brain's model and permission mode and never counts toward the
+        worker cap. A runner that cannot use `claude` right now (503) is unavailable; any other
+        refusal is `StartFailed` with the runner's reason."""
+        res = await self._call(
+            'POST',
+            f'/sessions/{session_id}/fork',
+            json={'name': name, 'prompt': prompt},
+            timeout=SPAWN_TIMEOUT,
+        )
+        if res.status_code == 201:
+            return res.json()['session_id']
+        if res.status_code == 503:
+            raise RunnerUnavailable(_message(res))
+        raise StartFailed(_message(res))
+
+    async def resume(self, session_id: str, prompt: str) -> None:
+        """Wake a stopped session with `prompt`. One that is still running (409 `running`) is
+        fine as it is. Gone, copied or refused: `StartFailed`; 503: unavailable."""
+        res = await self._call(
+            'POST', f'/sessions/{session_id}/resume', json={'prompt': prompt}, timeout=SPAWN_TIMEOUT
+        )
+        if res.status_code == 200 or (res.status_code == 409 and _code(res) == 'running'):
+            return
+        if res.status_code == 503:
+            raise RunnerUnavailable(_message(res))
+        raise StartFailed(_message(res))
+
     async def sessions(self) -> list[dict[str, Any]]:
         """Every background session the runner sees, newest first. A runner that cannot list
         them right now (503) counts as unavailable: nothing can be concluded from it."""
