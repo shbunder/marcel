@@ -2,7 +2,7 @@
 
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, the task
-routes, conversations, the live event stream and push notifications.
+routes, conversations, the live event stream, artifacts, memory and push notifications.
 
 ## Run
 
@@ -183,6 +183,68 @@ background watcher follows the runner's streams:
 - **Bad input.** An event that does not match the contract is logged (`Ignored a bad runner event`)
   and dropped; the stream carries on.
 
+## Artifacts
+
+`/api/artifacts` lists items newest first (filters `task_id`, `kind`), reads one, and serves its
+content. The code is `src/marcel_hub/artifacts.py`.
+
+- **Handing one in.** A worker's `report` artifact (`channel.schema.json` `Artifact`) goes to
+  `ArtifactStore.publish_reported`. `pr`, `branch` and `link` need an `http(s)` URL; a `pr` URL must
+  end in `/pull/<n>`. `doc` (Markdown or HTML), `file` and `dashboard` need an absolute path, and the
+  hub copies the bytes to `<data_dir>/artifacts/<id>`, only from inside the workers' folder
+  (`files_root`). It opens the path one folder at a time and refuses any symlink on the way, so a
+  worker cannot swap a folder for a link while the hub reads. Over 25 MB is refused. Until the channel
+  gateway sets `files_root`, file artifacts are refused with that reason.
+- **Dashboards** are checked against `contracts/dashboard.schema.json`, and every chart series must
+  have one value per label. A bad one is refused with a message that says where and what to fix.
+- **Trust.** HTML a worker hands in is stored with `trusted: false`. Only HTML the hub renders
+  itself (`publish_hub_html`) is trusted. The hub never renders content: it serves the bytes with
+  their own content type, `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`
+  (`sandbox allow-scripts` for trusted HTML).
+- **Recorded** on the task as an `artifact` event, and announced to the app as `artifact.created`.
+- **PR status.** `refresh_pr` asks a `PrStatusSource` for the PR's state, checks and review;
+  `pr_status_from_gh` maps GitHub's REST answers to them. The hub reads GitHub itself with a
+  read-only token (ADR-002); that client comes with S-04.12. Until then a refresh answers that the
+  hub cannot ask GitHub. A PR starts as `open`.
+- Not yet: projects (`project_id` answers 400) and versions (every item is at version 1). They come
+  with S-04.10 and S-04.11.
+
+Needs `jsonschema` at run time and `contracts/dashboard.schema.json` next to `hub/`.
+
+## Memory
+
+Markdown files in the folder `<data_dir>/memory` (B-20), which the brain can reach. Their git
+database is `<data_dir>/memory.git`, next to it, which only the hub can reach. The hub creates both
+on first use. The code is `src/marcel_hub/memory.py`.
+
+- `GET /api/memory` lists every `.md` file; `GET /api/memory/files/{path}` reads one. Its `etag` is
+  the git blob id of the file on disk, so an edit made anywhere changes it. The `ETag` header is the
+  same value in quotes.
+- `PUT` with `If-Match: <etag>` (bare, quoted or `W/`) saves only if the file has not changed, else
+  409 with the current version. Without `If-Match` it creates the file, and answers 409 if it
+  exists. An `If-Match` for a file that is gone answers 404.
+- **Size.** A file over 1 MB is refused (400). The request body is read only up to 2 MB (JSON
+  escapes take room) and refused beyond that. A file written straight to disk that is over 1 MB is
+  never read whole; opening it answers 400 `memory_file_too_big`.
+- **Every save is one git commit**, `memory: <path> (app)` from the app. `(agent)` is for the brain's
+  saves through the hub, which arrive with its memory tools (S-05.3); a file the brain writes
+  straight to disk is not committed, but its etag changes, so the app cannot overwrite it unseen.
+  An unchanged save makes no commit. Only the saved file is committed. If git fails, the file is put
+  back and the answer is 503 `memory_unavailable`.
+- **Paths** must match the contract's pattern (no `..`, no leading `/`, no part starting with `.`,
+  ending in `.md`), and no part may be a symlink, so nothing outside the memory folder can be read
+  or written. Anything else answers 400 `invalid_memory_path`.
+- **Git cannot be made to run a program.** Anyone who can write the memory folder (the brain, a
+  prompt-injected brain) must not get code running in the hub. So git runs with `--git-dir` outside
+  that folder, with no global or system config (`GIT_CONFIG_GLOBAL=/dev/null`,
+  `GIT_CONFIG_NOSYSTEM=1`, `GIT_ATTR_NOSYSTEM=1`, other `GIT_*` variables dropped), and with hooks,
+  the file-system monitor and attribute files forced off on the command line. The hub refuses to
+  save while a `.gitattributes` file is anywhere in the memory folder (503, naming the file).
+- **One-time move.** A hub from before this kept `.git` inside the memory folder. On first start the
+  hub moves it to `memory.git`, keeps the history, writes a fresh config and drops its hooks and
+  `info/attributes`, since the brain could have edited them.
+- Needs `git` on the path.
+
 ## Push notifications
 
 `src/marcel_hub/notify/` sends pushes to paired phones (B-16, B-18). Set `ntfy_server` to turn
@@ -195,7 +257,7 @@ them on; the app then registers an ntfy topic with `PUT /api/devices/{id}/push`.
 | A task is done / failed | task, normal: "Done: …" / "Failed: …" | the task |
 | A task went silent | broke, urgent: "A task went quiet" | the task |
 | The runner is unreachable / warns | broke, urgent: "Marcel cannot reach the NUC" | the task that changed last |
-| The runner answers again | broke, normal: "The NUC is back" (replaces the alert) | the same |
+| The runner answers again | broke, normal: "The NUC is back" | the same |
 | An urgent push could not be delivered | broke, urgent: "A notification did not arrive" | what it was about |
 | A digest (`pusher.digest(...)`) | digest, normal | the digest's message |
 
@@ -207,9 +269,10 @@ Nothing else pushes: no progress, no `working`, `queued`, `unknown` or `stopped`
 - **ntfy.** A JSON POST to the server's root: `topic`, `title`, `message`, `tags` (the category),
   `priority` (4 for urgent, 3 for normal) and `click` (the `marcel://` deep link). No token ever goes
   to the ntfy server; the push only opens the app.
-- **Quiet repeats.** Every push about a task replaces the last one on the phone (collapse key = task
-  id), and the same push for the same task is not sent twice within 10 minutes. An urgent "broke"
-  push goes out once per cause per hour.
+- **Quiet repeats.** The same push for the same task is not sent twice within 10 minutes. An urgent
+  "broke" push goes out once per cause per hour; when its all-clear goes out, that hour starts over,
+  so a second outage is pushed again. Every push carries a collapse key (the task id, or the cause),
+  but only APNs uses it to replace the older push on the phone: on ntfy each push shows separately.
 - **A failed push never breaks the hub.** Pushes are sent in the background, tried three times
   (after 2 s and 10 s), then given up and logged. A refused push (4xx other than 429) is not
   retried. When an urgent push did not arrive, one "a notification did not arrive" push goes to

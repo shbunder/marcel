@@ -8,7 +8,7 @@ ios/
   Marcel/               the app: App/ (entry, root view), Pairing/ (QR scan + paste), later Chat/, Quests/, …
   Config/               the app's Info.plist additions (local-network HTTP for the mock hub)
   MarcelKit/            Swift package: API client, pairing, Keychain, WebSocket stream, SwiftData cache
-  PixelKit/             Swift package: the pixel-classic design system (placeholder until S-12.2)
+  PixelKit/             Swift package: the pixel-classic design system (tokens, fonts, components; see its README)
   AvatarKit/            Swift package: the giraffe sprite player (see AvatarKit/README.md)
   Tools/APIGenerator/   pins swift-openapi-generator for `make -C ios generate`
   Tools/SimTestRunner/  runs the tests inside the simulator with Keychain access
@@ -21,6 +21,8 @@ ios/
 make ios-check              # the lane gate (from the repo root) = make -C ios check
 make -C ios app             # build the app for the simulator
 make -C ios test            # MarcelKit's and AvatarKit's tests on a simulator (stubs only, no network)
+make -C ios pixelkit-test   # PixelKit's snapshot, contrast and accessibility tests
+make -C ios pixelkit-record # re-record PixelKit's reference snapshots after a deliberate change
 make -C ios integration     # one test against the mock hub; start it first with `make mock-hub`
 make -C ios generate        # regenerate the API client after contracts/app-api.yaml changes
 SIM=<udid> make -C ios test # pick the simulator yourself (default: an iPhone on the newest iOS runtime)
@@ -38,11 +40,15 @@ though the iOS 18 and 26.x simulators work. `xcodebuild test` and `-destination`
 
 1. **App:** `xcodebuild -target Marcel -sdk iphonesimulator` with `SWIFT_ENABLE_EXPLICIT_MODULES=NO`
    (target builds otherwise fail to order the package modules: "unable to resolve module dependency").
-2. **Tests:** SwiftPM builds `MarcelKitTests` and `AvatarKitTests` for the simulator (`--triple arm64-apple-ios18.0-simulator`).
+2. **Tests:** SwiftPM builds `MarcelKitTests`, `AvatarKitTests` and `PixelKitTests` for the simulator (`--triple arm64-apple-ios18.0-simulator`).
 3. **Run:** `simctl spawn` runs the bundle in a booted simulator through `Tools/SimTestRunner`. Apple's own
    `xctest` agent has no Keychain entitlement (every Keychain call fails with -34018), and the simulator
    refuses one added to a code signature, so the runner carries it the way simulator apps do: in a
    `__TEXT,__entitlements` section. That makes the Keychain tests use the simulator's real Keychain.
+
+**Pending the iOS 26.5 platform install:** XCUITest's `performAccessibilityAudit()` on PixelKit's gallery (story
+S-12.2). Until then `PixelKitTests/AccessibilityAuditTests` runs the same checks on SwiftUI's accessibility tree
+(see PixelKit/README.md).
 
 The shared `Marcel` scheme lists `MarcelKitTests` for Xcode's Test action. That path is untested here
 (no destination), and unhosted tests there would hit the same Keychain error; `make -C ios check` is the gate.

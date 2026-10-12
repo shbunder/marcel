@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from marcel_runner.claude_env import scrubbed_env
+
 # SP4, Claude Code 2.1.289:  Current session: 4% used · resets Oct 4, 2:29pm (UTC)
 USAGE_LINE = re.compile(
     r'^Current (session|week \(all models\)): (\d+)% used · resets (.+) \((\w+)\)$', re.MULTILINE
@@ -98,7 +100,7 @@ class UsageProbe:
         self.claude = claude
         self.timeout = timeout
         # TZ=UTC: reset times then always print as a one-word zone, `(UTC)`, which USAGE_LINE reads.
-        self.env = {**(os.environ if env is None else env), 'TZ': 'UTC'}
+        self.env = {**scrubbed_env(os.environ if env is None else env), 'TZ': 'UTC'}
         self.clock = clock
         self.last_error: str | None = None
         self._detail = ''
