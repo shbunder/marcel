@@ -15,7 +15,8 @@ PATH_PARAMS = {
     'conversation_id': 'cnv_main_marcel',
     'message_id': 'msg_01J9ZQZ8',
     'task_id': 'tsk_01J9ZQ6',
-    'artifact_id': 'art_01J9ZT2',
+    'artifact_id': 'art_01JA0B1',
+    'project_id': 'prj_01JA0A1',
     'approval_id': 'apr_01J9ZR2',
     'schedule_id': 'sch_digest_morning',
     'path': 'MEMORY.md',
@@ -130,9 +131,9 @@ def test_unknown_ids_are_404_in_the_error_shape(client: TestClient):
 
 
 def test_artifact_content_is_the_documents_text(client: TestClient):
-    resp = client.get('/api/artifacts/art_01J9ZT2/content')
+    resp = client.get('/api/artifacts/art_01JA0B1/content')
     assert resp.headers['content-type'].startswith('text/markdown')
-    assert 'Weekly review' in resp.text
+    assert 'Energy offers compared' in resp.text
     assert client.get('/api/artifacts/art_01J9ZT1/content').status_code == 404
 
 
