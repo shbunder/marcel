@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from conftest import apart, write_script
+from conftest import DAEMON_STATUS_NOT_RUNNING, apart, write_script
 
 from marcel_runner import __version__
 from marcel_runner.health import Settings, collect_health, parse_pid
@@ -170,8 +170,10 @@ def test_unreadable_runner_cgroup_fails_closed(fake_claude: Path) -> None:
 
 
 def test_daemon_status_that_hangs_has_its_own_reason(tmp_path: Path) -> None:
-    c = daemon(tmp_path, 'sleep 5\n')
-    h = collect_health(settings(c, timeout=0.3), active_workers=lambda: 0, cgroup_of=apart)
+    # The timeout covers `--version` too, which can take over 0.3 s on a cold start: keep it
+    # well above that, and the hang well above the timeout.
+    c = daemon(tmp_path, 'exec sleep 10\n')
+    h = collect_health(settings(c, timeout=2), active_workers=lambda: 0, cgroup_of=apart)
     assert h['ok'] is False
     assert 'did not answer' in h['reason']
     assert 'daemon status' in h['reason']
@@ -205,7 +207,8 @@ def test_daemon_status_failing_for_another_reason_is_cannot_tell(tmp_path: Path)
 
 def test_recorded_not_running_output_gives_no_supervisor(tmp_path: Path) -> None:
     # Recorded on the NUC with Claude Code 2.1.289: exit code 1 and this text.
-    recorded = Path(__file__).parent / 'fixtures' / 'daemon-status-not-running.txt'
+    recorded = tmp_path / 'daemon-status.txt'
+    recorded.write_text(DAEMON_STATUS_NOT_RUNNING)
     c = daemon(tmp_path, f'cat {recorded}; exit 1\n')
     h = collect_health(settings(c), active_workers=lambda: 0, cgroup_of=apart)
     assert h['ok'] is False

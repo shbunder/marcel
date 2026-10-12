@@ -8,6 +8,19 @@ from pathlib import Path
 
 import pytest
 
+# `claude daemon status` with no supervisor, recorded on the NUC with Claude Code 2.1.289 (exit
+# code 1). Only the home path is changed.
+DAEMON_STATUS_NOT_RUNNING = """\
+not running
+
+bg sessions:
+  sock dir:     /tmp/cc-daemon-1000/6298d98a
+  control.sock: unreachable (connect ENOENT /tmp/cc-daemon-1000/6298d98a/control.sock)
+  bg workers:   0 in roster.json (control unreachable)
+  roster.json:  updated 34144s ago
+  daemon.log:   9.4KB at /home/marcel/.claude/daemon.log
+"""
+
 
 class UnixConnection(http.client.HTTPConnection):
     def __init__(self, path: str) -> None:
@@ -42,7 +55,7 @@ def fake_claude(tmp_path: Path) -> Path:
 
     The exit codes are documented (`daemon status` exits 1 when the supervisor is not running).
     The status TEXT of the running case is a guess, not recorded output. The not-running text is
-    recorded: tests/fixtures/daemon-status-not-running.txt.
+    recorded: DAEMON_STATUS_NOT_RUNNING.
     """
     return write_script(
         tmp_path / 'claude',
