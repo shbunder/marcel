@@ -36,6 +36,7 @@ from marcel_hub import (
     notify,
     projects,
     schedule,
+    side,
     task_threads,
     tasks,
     usage,
@@ -213,7 +214,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scheduler.start()  # S-09.1: missed fires are reported once, on its first look
         if keeper_of_brains is not None and keeper_of_brains.runner is not None:
             keeper_of_brains.start()  # S-06.2: one brain per agent, from the first second
+        sides.start()  # S-06.3: does nothing until the hub has a runner
         yield
+        await sides.stop()
         if keeper_of_brains is not None:
             await keeper_of_brains.stop()
         await scheduler.stop()  # a look in progress finishes first
@@ -325,6 +328,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else None
     )
     app.state.brain = keeper_of_brains
+    # S-06.3: each side thread that is not a task's runs in a fork of the brain, started through
+    # the runner directly like the brain; at most three run at once, idle ones stop after 30 min.
+    sides = side.install(app, client, gateway.outbox)
     if keeper_of_brains is None:
         log.warning(
             'MARCEL_BRAIN_CWD is not set, so the hub starts no brain and Marcel will not answer '

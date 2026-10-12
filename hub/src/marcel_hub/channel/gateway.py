@@ -553,9 +553,11 @@ class Gateway:
                 conv = s.get(Conversation, data['conversation_id'])
             if conv is None or conv.task_id is not None:
                 return
-            if conv.brain_session_id is None:
-                # No session runs this conversation yet; the message is stored, and the session
-                # that starts for it reads the conversation, not a backlog of frames.
+            if conv.brain_session_id is None and conv.kind == ConversationKind.main:
+                # No brain runs yet; the message is stored, and the brain that starts reads the
+                # conversation in its seed, not a backlog of frames. A side thread's message is
+                # queued even before its fork exists (S-06.3): the fork is told only the thread
+                # so far, and the Outbox holds what is still to answer.
                 log.info('Message %s has no session to go to yet.', data['id'])
                 return
             frame = user_frame(conv.id, data)
