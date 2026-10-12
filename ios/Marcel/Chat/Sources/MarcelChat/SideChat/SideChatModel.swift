@@ -1,6 +1,7 @@
 import Foundation
 import MarcelKit
 import Observation
+import SwiftData
 
 /// The message a side chat was opened on, as the sheet shows it at the top ("On: Marcel — 18° and dry…").
 public struct SideChatParent: Identifiable, Hashable, Sendable {
@@ -61,6 +62,9 @@ public final class SideChats {
     public private(set) var threads: [String: String] = [:]
     /// Unsent text by the message the thread is on.
     public var drafts: [String: String] = [:]
+    /// How many messages the cache holds per side thread, by thread id. Counted once per thread when it comes on
+    /// screen (`recount`) and again when the live stream adds a message to it (`receive`), never on a redraw.
+    public private(set) var counts: [String: Int] = [:]
 
     public init() {}
 
@@ -70,15 +74,36 @@ public final class SideChats {
         if threads[parent] != conversation.id { threads[parent] = conversation.id }
     }
 
-    /// Follows the live stream: a thread opened on another device gets its "n replies" here too.
-    public func receive(_ frame: EventFrame) {
-        if case .conversationCreated(let conversation) = frame.event { learn(conversation) }
+    /// Follows the live stream: a thread opened on another device gets its "n replies" here too, and a new message in
+    /// a thread on screen is counted (from `context`, after the cache has stored it).
+    public func receive(_ frame: EventFrame, context: ModelContext? = nil) {
+        switch frame.event {
+        case .conversationCreated(let conversation): learn(conversation)
+        case .messageCreated(let message) where counts[message.conversationId] != nil:
+            if let context { recount([message.conversationId], in: context) }
+        default: break
+        }
     }
 
-    /// "n replies" for each message in the window that has a side thread. `counts` is how many messages the cache
-    /// holds per side thread (the live stream adds each reply), so the count follows new replies without the hub
-    /// re-sending the parent; the hub's own `reply_count` covers what the phone has not seen.
-    public func summaries(for messages: [Message], counts: [String: Int]) -> [String: ThreadSummary] {
+    /// The side threads of these messages (the hub's `thread`, or one this phone knows of).
+    public func threadIds(of messages: [Message]) -> Set<String> {
+        Set(messages.compactMap { $0.thread?.conversationId ?? threads[$0.id] })
+    }
+
+    /// Counts the cached messages of these threads only.
+    public func recount(_ ids: Set<String>, in context: ModelContext) {
+        for id in ids {
+            let fetch = FetchDescriptor<CachedMessage>(predicate: #Predicate { $0.conversationId == id })
+            let count = (try? context.fetchCount(fetch)) ?? 0
+            if counts[id] != count { counts[id] = count }
+        }
+    }
+
+    /// "n replies" for each message in the window that has a side thread. `counts` (by default the ones `recount` and
+    /// `receive` keep) is how many messages the cache holds per side thread, so the count follows new replies without
+    /// the hub re-sending the parent; the hub's own `reply_count` covers what the phone has not seen.
+    public func summaries(for messages: [Message], counts: [String: Int]? = nil) -> [String: ThreadSummary] {
+        let counts = counts ?? self.counts
         var result: [String: ThreadSummary] = [:]
         for message in messages {
             guard let thread = message.thread?.conversationId ?? threads[message.id] else { continue }
@@ -128,6 +153,8 @@ public final class SideChatModel: Identifiable {
     @ObservationIgnored let chats: SideChats
     /// Where the thread's messages are put when fetched; the live stream adds the rest.
     @ObservationIgnored public var cache: MarcelCache?
+    /// The open on its way, shared by everyone who waits for it.
+    @ObservationIgnored private var openTask: Task<Void, Never>?
 
     public init(parent: SideChatParent, service: any SideChatService, chats: SideChats, cache: MarcelCache? = nil) {
         self.parent = parent
@@ -147,8 +174,19 @@ public final class SideChatModel: Identifiable {
     }
 
     /// Opens (or reopens) the thread and fetches its messages into the cache.
+    /// Opening again while an open is on its way waits for that one (a reply typed during it is then sent).
     public func open() async {
-        guard !opening else { return }
+        if let running = openTask {
+            await running.value
+            return
+        }
+        let task = Task { await performOpen() }
+        openTask = task
+        await task.value
+        openTask = nil
+    }
+
+    private func performOpen() async {
         opening = true
         defer { opening = false }
         do {
@@ -160,6 +198,7 @@ public final class SideChatModel: Identifiable {
             if let cache {
                 for message in messages { try? cache.upsert(message) }
                 try? cache.save()
+                chats.recount([thread.id], in: cache.container.mainContext)
             }
             problem = nil
         } catch {
@@ -209,6 +248,7 @@ public final class SideChatModel: Identifiable {
         if conversationId == nil || conversation == nil { await open() }
         guard let conversationId, !gone else {
             mark(clientId, failed: true)
+            if problem == nil { problem = "Not sent: the side chat did not open. Tap the message to try again." }
             return
         }
         do {
@@ -249,15 +289,35 @@ public final class SideChatModel: Identifiable {
         proposal = nil
     }
 
-    /// Sends what was confirmed. It shows in the main chat as a quote, through the live stream.
-    public func confirmSendToMain() async {
-        guard let proposal, let conversationId, !sendingToMain else { return }
+    /// "Send to main chat" in the confirmation: takes the proposal now, before the dialog closes (closing it
+    /// cancels the proposal), and sends it. The returned task is what the button starts.
+    @discardableResult
+    public func confirmSendToMain() -> Task<Void, Never> {
+        let chosen = proposal
+        return Task { await sendToMain(chosen) }
+    }
+
+    /// Sends a confirmed proposal. It shows in the main chat as a quote, through the live stream. Nothing is ever
+    /// dropped quietly: when it cannot be sent, the sheet says why.
+    public func sendToMain(_ chosen: SendToMainProposal?) async {
+        guard let chosen else {
+            problem = "Nothing was sent: there was no answer to send. Try again."
+            return
+        }
+        guard let conversationId else {
+            problem = "Not sent: the side chat has not opened yet. Try again in a moment."
+            return
+        }
+        guard !sendingToMain else {
+            problem = "Already sending that to the main chat."
+            return
+        }
         sendingToMain = true
         defer { sendingToMain = false }
         do {
-            _ = try await service.sendToMain(conversationId: conversationId, messageId: proposal.messageId)
-            self.proposal = nil
-            sentToMain = proposal.messageId
+            _ = try await service.sendToMain(conversationId: conversationId, messageId: chosen.messageId)
+            if proposal == chosen { proposal = nil }
+            sentToMain = chosen.messageId
             problem = nil
         } catch {
             say(error)

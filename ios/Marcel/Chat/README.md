@@ -68,6 +68,10 @@ Code in `Sources/MarcelChat/SideChat/`.
   not get through stays, "Not sent · tap to try again", and a retry reuses its `client_id`.
 - **"n replies"** under a message in the main chat: the larger of the hub's `thread.reply_count` and how many
   messages of that thread the cache holds, so it follows the live stream without the hub re-sending the parent.
+  `SideChats.counts` is counted once per thread when it comes on screen, and again when the stream adds a message to
+  it, never on a redraw. One `SideChatModel` per message: a second tap or reopening shows the same side chat. A reply
+  typed while the thread is still opening waits for that open, and confirming "Send to main chat" takes the proposal
+  before the dialog closes.
   `SideChats` remembers threads opened here and threads announced by `conversation.created` (opened on another
   device), which it hears through the app's `liveEvents` cache.
 - **"Send result to main chat"** takes the thread's newest message from the agent or a task, asks first ("Send this

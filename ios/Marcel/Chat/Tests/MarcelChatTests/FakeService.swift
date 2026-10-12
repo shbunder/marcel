@@ -74,6 +74,7 @@ final class FakeService: ChatService {
 extension FakeService: SideChatService {
     func openThread(messageId: String) async throws -> Conversation {
         side.opened.append(messageId)
+        if side.holdOpens { await withCheckedContinuation { side.heldOpens.append($0) } }
         if let error = side.openError { throw error }
         var json: [String: Any] = [
             "id": side.threadIds[messageId] ?? "cnv_side_\(messageId)", "agent_id": "agt_marcel", "kind": "side",
@@ -112,6 +113,14 @@ final class FakeSideHub {
     var openError: SideChatError?
     var replyError: SideChatError?
     var opened: [String] = []
+    /// Holds each open until `releaseOpens`, to act while the thread is still opening.
+    var holdOpens = false
+    var heldOpens: [CheckedContinuation<Void, Never>] = []
+
+    func releaseOpens() {
+        heldOpens.forEach { $0.resume() }
+        heldOpens = []
+    }
     var replies: [(text: String, clientId: String, conversationId: String)] = []
     var sentToMain: [(conversationId: String, messageId: String)] = []
 }

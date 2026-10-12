@@ -367,7 +367,7 @@ struct SideChatLive: View {
         .confirmationDialog("Send this to the main chat?", isPresented: Binding(
             get: { model.proposal != nil }, set: { if !$0 { model.cancelSendToMain() } }),
                             titleVisibility: .visible) {
-            Button("Send to main chat") { Task { await model.confirmSendToMain() } }
+            Button("Send to main chat") { model.confirmSendToMain() }
             Button("Cancel", role: .cancel) { model.cancelSendToMain() }
         } message: {
             Text(SideChatFeed.confirmation(model.proposal))

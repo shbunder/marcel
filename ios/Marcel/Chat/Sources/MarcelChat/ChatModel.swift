@@ -36,6 +36,8 @@ public final class ChatModel {
     public let sideChats = SideChats()
 
     @ObservationIgnored private var refreshing = false
+    /// Every side chat opened while the app runs, by the message it is on.
+    @ObservationIgnored private var sideChatModels: [String: SideChatModel] = [:]
     @ObservationIgnored private var lastAsked: Set<String> = []
     @ObservationIgnored private var previewsAsked: Set<String> = []
 
@@ -163,7 +165,15 @@ public final class ChatModel {
     /// on the hub; your draft for it is still there.
     public func openSideChat(_ parent: SideChatParent) {
         guard let service = service as? any SideChatService else { return }
-        sideChat = SideChatModel(parent: parent, service: service, chats: sideChats)
+        // One model per message: a second tap (or reopening) shows the same side chat, with its replies on their way,
+        // and the sheet's open runs against it.
+        if let existing = sideChatModels[parent.id] {
+            if sideChat !== existing { sideChat = existing }
+            return
+        }
+        let model = SideChatModel(parent: parent, service: service, chats: sideChats)
+        sideChatModels[parent.id] = model
+        sideChat = model
     }
 
     // MARK: Approvals

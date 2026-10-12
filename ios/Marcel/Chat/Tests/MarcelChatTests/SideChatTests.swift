@@ -97,7 +97,7 @@ final class SideChatTests: XCTestCase {
         XCTAssertEqual(SideChatFeed.confirmation(proposal),
                        "The main chat will show this as a quote:\n\n“Then the covered terrace: same plan, ten metres closer to the kitchen.”")
         XCTAssertTrue(hub.side.sentToMain.isEmpty, "nothing is sent before you confirm")
-        await model.confirmSendToMain()
+        await model.confirmSendToMain().value
         XCTAssertEqual(hub.side.sentToMain.map(\.conversationId), [side])
         XCTAssertEqual(hub.side.sentToMain.map(\.messageId), ["s2"])
         XCTAssertNil(model.proposal)
@@ -120,13 +120,119 @@ final class SideChatTests: XCTestCase {
         model.proposeSendToMain(try threadInput(fed, side).messages)
         XCTAssertNotNil(model.proposal)
         model.cancelSendToMain()
-        await model.confirmSendToMain()
+        await model.confirmSendToMain().value
         XCTAssertTrue(hub.side.sentToMain.isEmpty)
+        XCTAssertEqual(model.problem, "Nothing was sent: there was no answer to send. Try again.")
 
         // A thread with only your words has nothing to send.
         model.proposeSendToMain([Fx.decode(sideMessage("s3", at: 3, role: "user", text: "Mine"))])
         XCTAssertNil(model.proposal)
         XCTAssertEqual(model.problem, "Nothing to send yet: no answer in this side chat.")
+    }
+
+    // MARK: Review fixes
+
+    /// Review fix 1: the dialog closes (which cancels the proposal) before the send's task runs; the confirmed
+    /// proposal is still sent.
+    func testConfirmingInTheDialogSendsEvenAfterItCloses() async throws {
+        let fed = try FedCache()
+        try fed.send("message.created", Fx.message("m1", at: 1, text: "Hi"))
+        try fed.send("message.created", sideMessage("s1", at: 2, text: "An answer"))
+        let hub = FakeService()
+        let model = SideChatModel(parent: try parent(fed, "m1"), service: hub, chats: SideChats())
+        await model.open()
+        model.proposeSendToMain(try threadInput(fed, side).messages)
+        let send = model.confirmSendToMain()  // the dialog's "Send to main chat" button
+        model.cancelSendToMain()              // the dialog's binding, as it closes
+        await send.value
+        XCTAssertEqual(hub.side.sentToMain.map(\.messageId), ["s1"])
+        XCTAssertEqual(model.sentToMain, "s1")
+        XCTAssertNil(model.problem)
+    }
+
+    /// Review fix 1: a send that cannot happen says why instead of returning quietly.
+    func testSendToMainNeverFailsQuietly() async {
+        let hub = FakeService()
+        let model = SideChatModel(parent: SideChatParent(id: "m1", speaker: "You", text: "Hi"), service: hub,
+                                  chats: SideChats())
+        await model.sendToMain(SendToMainProposal(messageId: "s1", preview: "An answer"))
+        XCTAssertEqual(model.problem, "Not sent: the side chat has not opened yet. Try again in a moment.")
+        await model.sendToMain(nil)
+        XCTAssertEqual(model.problem, "Nothing was sent: there was no answer to send. Try again.")
+        XCTAssertTrue(hub.side.sentToMain.isEmpty)
+    }
+
+    /// Review fix 2: a reply sent while the thread is still opening waits for that open, then goes.
+    func testAReplyWhileTheThreadOpensIsSent() async throws {
+        let hub = FakeService()
+        hub.side.holdOpens = true
+        let model = SideChatModel(parent: SideChatParent(id: "m1", speaker: "You", text: "Hi"), service: hub,
+                                  chats: SideChats())
+        let opening = Task { await model.open() }
+        while hub.side.heldOpens.isEmpty { await Task.yield() }
+        model.draft = "Quick question"
+        let sending = Task { await model.send() }
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertTrue(hub.side.replies.isEmpty, "waits for the open")
+        hub.side.holdOpens = false
+        hub.side.releaseOpens()
+        await opening.value
+        await sending.value
+        XCTAssertEqual(hub.side.opened, ["m1"], "one open, shared")
+        XCTAssertEqual(hub.side.replies.map(\.text), ["Quick question"])
+        XCTAssertEqual(hub.side.replies.map(\.conversationId), [side])
+        XCTAssertEqual(model.pending.first?.failed, false)
+        XCTAssertNil(model.problem)
+    }
+
+    /// Review fix 3: a second tap on "n replies" (or reopening) keeps the same side chat, so its open has run and
+    /// a reply on its way is still there.
+    func testTappingTwiceKeepsOneSideChat() async throws {
+        let hub = FakeService()
+        let chat = ChatModel(service: hub, conversationId: Fx.conversation)
+        let parent = SideChatParent(id: "m1", speaker: "Marcel", text: "Hi")
+        chat.openSideChat(parent)
+        let first = try XCTUnwrap(chat.sideChat)
+        await first.open()
+        hub.side.replyError = .offline
+        first.draft = "Kept"
+        await first.send()
+        chat.openSideChat(parent)
+        XCTAssertTrue(chat.sideChat === first, "the second tap shows the same side chat")
+        chat.sideChat = nil  // the sheet closes
+        chat.openSideChat(parent)
+        XCTAssertTrue(chat.sideChat === first, "reopening too")
+        XCTAssertEqual(first.conversationId, side)
+        XCTAssertEqual(first.pending.map(\.text), ["Kept"])
+        chat.openSideChat(SideChatParent(id: "m2", speaker: "You", text: "Other"))
+        XCTAssertFalse(chat.sideChat === first, "another message has its own")
+    }
+
+    /// Review fix 4: "n replies" counts only the threads on screen, once, and again when the stream adds a message to
+    /// one of them; a redraw reads the kept counts.
+    func testReplyCountsAreKeptNotRecountedOnRedraw() throws {
+        let fed = try FedCache()
+        try fed.send("message.created", Fx.message("m1", at: 1, text: "Hi", extra: [
+            "thread": ["conversation_id": side, "reply_count": 0],
+        ]))
+        try fed.send("message.created", sideMessage("s1", at: 2, text: "One"))
+        try fed.send("message.created", Fx.message("o1", at: 3, text: "Elsewhere",
+                                                   extra: ["conversation_id": "cnv_side_other"]))
+        let chats = SideChats()
+        let context = fed.cache.container.mainContext
+        let messages = try fed.input().messages
+        XCTAssertEqual(chats.threadIds(of: messages), [side])
+        XCTAssertNil(chats.summaries(for: messages)["m1"], "nothing counted yet")
+        chats.recount(chats.threadIds(of: messages), in: context)
+        XCTAssertEqual(chats.counts, [side: 1], "only the threads on screen")
+        XCTAssertEqual(chats.summaries(for: messages)["m1"]?.label, "1 reply")
+
+        // A new reply over the stream: the cache stores it, then the frame recounts that thread.
+        let frame = Fx.frame("message.created", sideMessage("s2", at: 4, text: "Two"), id: 90)
+        try fed.cache.apply(frame)
+        XCTAssertEqual(chats.summaries(for: messages)["m1"]?.label, "1 reply", "a redraw does not recount")
+        chats.receive(frame, context: context)
+        XCTAssertEqual(chats.summaries(for: messages)["m1"]?.label, "2 replies")
     }
 
     // MARK: "n replies"

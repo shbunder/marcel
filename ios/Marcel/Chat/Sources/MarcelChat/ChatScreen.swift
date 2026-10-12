@@ -103,11 +103,10 @@ struct LiveFeed: View {
     @Query private var tasks: [CachedTask]
     @Query private var artifacts: [CachedArtifact]
     @Query private var projects: [CachedProject]
-    /// Messages of side threads, counted for "n replies" (the live stream adds each reply).
-    @Query private var sideRows: [CachedMessage]
     private let limit: Int
     @State private var observer: UUID?
     @Environment(\.liveEvents) private var live
+    @Environment(\.modelContext) private var context
 
     @State private var distanceFromBottom: CGFloat = 0
     @State private var scrolledTo: String?
@@ -123,7 +122,6 @@ struct LiveFeed: View {
         self.offline = offline
         self.limit = limit
         _window = Query(FeedInput.messageWindow(conversationId: conversationId, limit: limit))
-        _sideRows = Query(filter: #Predicate<CachedMessage> { $0.conversationId != conversationId })
     }
 
     /// The feed's actions plus "Reply in thread" and "n replies", when the hub does side chats.
@@ -136,8 +134,7 @@ struct LiveFeed: View {
                 model.openSideChat(parent)
             }
         }
-        actions.threads = model.sideChats.summaries(
-            for: input.messages, counts: Dictionary(grouping: sideRows, by: \.conversationId).mapValues(\.count))
+        actions.threads = model.sideChats.summaries(for: input.messages)
         return actions
     }
 
@@ -227,8 +224,14 @@ struct LiveFeed: View {
         // A side thread opened on another device: its "n replies" shows here too.
         .task {
             if let live, observer == nil {
-                observer = live.observeFrames { [sideChats = model.sideChats] frame in sideChats.receive(frame) }
+                observer = live.observeFrames { [sideChats = model.sideChats, context] frame in
+                    sideChats.receive(frame, context: context)
+                }
             }
+        }
+        // "n replies": the threads on screen are counted when they come into the window, not on every redraw.
+        .task(id: model.sideChats.threadIds(of: input.messages)) {
+            model.sideChats.recount(model.sideChats.threadIds(of: input.messages), in: context)
         }
         .onDisappear {
             if let observer { live?.stopObservingFrames(observer) }
