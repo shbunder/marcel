@@ -411,7 +411,11 @@ tool and its route). The brain's MCP server calls these routes over plain HTTP o
   `tests/test_auth_routes.py` checks these routes refuse a caller without them, like every other.
 - **One agent.** Tasks and projects are looked up within the brain's agent; another agent's
   answer 404 as if they did not exist.
-- `tasks_spawn` refuses `location: auto` with a hint: the brain decides where work runs.
+- `tasks_spawn` refuses `location: auto` with a hint: the brain decides where work runs. `repo` is
+  `owner/name` (no leading `-`, no `..`); `message_id` must be in the brain's own conversation.
+- Bodies are read no further than 64 KB (a memory write: 2 MB), answered 413 `too_large`; every
+  text field has a maximum length.
+- Marcel's own artifacts are filed under the project the brain names, its agent's Inbox by default.
 - Memory writes go through `MemoryRepo.write` (one commit, `memory: <path> (agent)`, paths that
   cannot leave the memory folder, etag conflicts answered with the current etag).
 - `notify` posts the text in the main conversation and pushes it (`urgent` → category `broke`,

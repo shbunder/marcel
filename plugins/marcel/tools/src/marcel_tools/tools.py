@@ -23,6 +23,13 @@ PROJECT = {
 TASK_STATES = ['queued', 'starting', 'working', 'needs_you', 'done', 'failed', 'stopped', 'silent',
                'unknown']  # fmt: skip
 ARTIFACT_KINDS = ['pr', 'branch', 'doc', 'file', 'dashboard', 'link']
+# owner/name: no leading '-', and no '..' (checked in `check`).
+REPO_PART = '[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}'
+REPO = {'type': 'string', 'pattern': f'^{REPO_PART}/{REPO_PART}$', 'maxLength': 201,
+        'description': 'owner/name of the GitHub repo.'}  # fmt: skip
+URL = {'type': 'string', 'maxLength': 2048}
+PATH = {'type': 'string', 'maxLength': 1024}
+REPO_HINT = 'use owner/name, e.g. shbunder/marcel'
 LOCATION_HINT = (
     'location must be "nuc" or "cloud", and "auto" is not accepted: decide yourself. Use "nuc" '
     'for anything that needs local files, Docker, the home network or the NUC’s tools, and "cloud" '
@@ -93,6 +100,8 @@ def check(tool: Tool, args: Any) -> Args:
                 raise BadInput(f'"{key}" cannot be empty.')
             if len(value) > rule.get('maxLength', 1_000_000):
                 raise BadInput(f'"{key}" is too long (at most {rule["maxLength"]} characters).')
+            if key == 'repo' and '..' in value:
+                raise BadInput('"repo" is not valid: owner/name, without "..".')
             if 'pattern' in rule and not re.fullmatch(rule['pattern'], value):
                 raise BadInput(f'"{key}" is not valid: {hint or "letters, digits, - and _ only"}.')
         elif kind == 'integer':
@@ -317,11 +326,7 @@ TOOLS: list[Tool] = [
             prompt=text('Everything the worker needs: the goal, context, and what done means.'),
             location={'type': 'string', 'enum': ['nuc', 'cloud']},
             project=PROJECT,
-            repo={
-                'type': 'string',
-                'pattern': '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$',
-                'description': 'owner/name of the GitHub repo.',
-            },
+            repo=REPO,
             model={
                 'type': 'string',
                 'pattern': '^[A-Za-z0-9._\\[\\]][A-Za-z0-9._\\[\\]-]{0,79}$',
@@ -338,7 +343,7 @@ TOOLS: list[Tool] = [
         tasks_spawn,
         {
             'location': LOCATION_HINT,
-            'repo': 'use owner/name',
+            'repo': REPO_HINT,
             'model': 'use a name like sonnet or opus',
         },  # fmt: skip
     ),
@@ -407,13 +412,16 @@ TOOLS: list[Tool] = [
                 'description': 'Leave out to make one from the name.',
             },
             goal=text('One line on what the project is for.', 300),
-            repo={'type': 'string', 'description': 'owner/name when it works on one repo.'},
-            folder=text('A folder on the NUC its threads work in.', 500),
+            repo={**REPO, 'description': 'owner/name when it works on one repo.'},
+            folder=text('A folder on the NUC its threads work in.', 1024),
             instructions=text('Standing instructions every thread in it starts with.'),
-            claude_project_url={'type': 'string', 'description': 'A linked Claude Project.'},
+            claude_project_url={**URL, 'description': 'A linked Claude Project.'},
         ),  # fmt: skip
         projects_create,
-        {'slug': 'lowercase letters, digits and dashes, starting with a letter or digit'},
+        {
+            'slug': 'lowercase letters, digits and dashes, starting with a letter or digit',
+            'repo': REPO_HINT,
+        },  # fmt: skip
     ),
     Tool(
         'projects_update',
@@ -424,12 +432,13 @@ TOOLS: list[Tool] = [
             project={**PROJECT, 'description': 'Slug or id.'},
             name=text('The new name.', 60),
             goal=text('One line on what the project is for.', 300),
-            repo={'type': 'string', 'description': 'owner/name.'},
-            folder=text('A folder on the NUC.', 500),
+            repo=REPO,
+            folder=text('A folder on the NUC.', 1024),
             instructions=text('Standing instructions every thread in it starts with.'),
-            claude_project_url={'type': 'string', 'description': 'A linked Claude Project.'},
+            claude_project_url={**URL, 'description': 'A linked Claude Project.'},
         ),
         projects_update,
+        {'repo': REPO_HINT},
     ),
     Tool(
         'board_note',
@@ -452,8 +461,8 @@ TOOLS: list[Tool] = [
             ['kind', 'title'],
             kind={'type': 'string', 'enum': ARTIFACT_KINDS},
             title=text('What it is, in a few words.', 300),
-            url={'type': 'string', 'description': 'For pr, branch and link.'},
-            path={'type': 'string', 'description': 'Absolute path, for doc, file and dashboard.'},
+            url={**URL, 'description': 'For pr, branch and link.'},
+            path={**PATH, 'description': 'Absolute path, for doc, file and dashboard.'},
             project=PROJECT,
             artifact_id={**ID, 'description': 'Make this a new version of that artifact.'},
             summary=text('What changed in this version, in one line.', 200),
@@ -465,7 +474,7 @@ TOOLS: list[Tool] = [
         'Read a memory file (MEMORY.md, a dated note memory/YYYY-MM-DD.md, or a project’s '
         'notes projects/<slug>.md). Without "path" it lists the files. Note the etag: '
         'memory_write needs it to change the file.',
-        obj(path={'type': 'string', 'description': 'Relative path ending in .md.'}),
+        obj(path={**PATH, 'description': 'Relative path ending in .md.'}),
         memory_read,
     ),
     Tool(
@@ -475,9 +484,9 @@ TOOLS: list[Tool] = [
         'changed since you read it, read it again and merge.',
         obj(
             ['path', 'content'],
-            path={'type': 'string', 'description': 'Relative path ending in .md.'},
+            path={**PATH, 'description': 'Relative path ending in .md.'},
             content=text('The whole file, in Markdown.', 1_000_000, 0),
-            etag={'type': 'string', 'description': 'From memory_read.'},
+            etag={'type': 'string', 'maxLength': 64, 'description': 'From memory_read.'},
         ),
         memory_write,
     ),
@@ -488,8 +497,16 @@ TOOLS: list[Tool] = [
         obj(
             ['name', 'cron', 'tz', 'location', 'prompt'],
             name=text('A short name the owner will recognise.', 120),
-            cron={'type': 'string', 'description': 'Five-field cron, e.g. "0 8 * * 1".'},
-            tz={'type': 'string', 'description': 'IANA time zone, e.g. Europe/Brussels.'},
+            cron={
+                'type': 'string',
+                'maxLength': 120,
+                'description': 'Five-field cron, e.g. "0 8 * * 1".',
+            },
+            tz={
+                'type': 'string',
+                'maxLength': 64,
+                'description': 'IANA time zone, e.g. Europe/Brussels.',
+            },
             location={'type': 'string', 'enum': ['brain', 'nuc', 'cloud']},
             prompt=text('What to do at each fire.'),
             deadline_minutes={

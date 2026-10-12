@@ -378,7 +378,8 @@ def test_input_is_checked_before_the_hub_is_called(world: World) -> None:
          '"expected_minutes" must be from 1 to 10080.'),
         ('tasks_spawn', {**spawn_args, 'expected_minutes': '5'},
          '"expected_minutes" must be a whole number.'),
-        ('tasks_spawn', {**spawn_args, 'repo': 'marcel'}, '"repo" is not valid: use owner/name.'),
+        ('tasks_spawn', {**spawn_args, 'repo': 'marcel'},
+         '"repo" is not valid: use owner/name, e.g. shbunder/marcel.'),
         ('tasks_list', {'archived': 'yes'}, '"archived" must be true or false.'),
         ('notify', {'text': 'x', 'level': 'loud'}, '"level" must be one of normal, urgent.'),
     ]  # fmt: skip
@@ -395,3 +396,35 @@ def test_an_unknown_tool_is_named(world: World) -> None:
 def test_none_values_are_left_out(world: World) -> None:
     assert BY_NAME['tasks_list'].run is not None
     assert world.ok('tasks_list', {'project': None}) == 'No tasks match.'
+
+
+def test_repo_is_checked_before_it_reaches_the_hub(world: World) -> None:
+    for repo in ('-x/marcel', 'shbunder/..', 'shbunder/mar..cel', '../etc', 'a/b/c'):
+        args = {'title': 'x', 'prompt': 'y', 'location': 'cloud', 'repo': repo}
+        assert '"repo" is not valid' in world.error('tasks_spawn', args), repo
+        assert '"repo" is not valid' in world.error('projects_create', {'name': 'R', 'repo': repo})
+    assert tasks(world) == []
+
+
+def test_long_fields_are_refused_by_the_tool(world: World) -> None:
+    long = 'x' * 3000
+    cases = [
+        ('artifacts_publish', {'kind': 'link', 'title': 't', 'url': 'https://x.be/' + long}),
+        ('artifacts_publish', {'kind': 'doc', 'title': 't', 'path': '/' + long}),
+        ('memory_read', {'path': long + '.md'}),
+        ('memory_write', {'path': 'a.md', 'content': 'x', 'etag': long}),
+        ('projects_create', {'name': 'G', 'folder': '/' + long}),
+        ('schedule_create', {'name': 'n', 'cron': '0 8 * * 1', 'tz': long, 'location': 'nuc',
+                             'prompt': 'p'}),
+        ('tasks_spawn', {'title': 'x', 'prompt': 'y', 'location': 'nuc', 'message_id': long}),
+    ]  # fmt: skip
+    for name, args in cases:
+        text = world.error(name, args)
+        assert 'too long' in text or 'not valid' in text, (name, text)
+
+
+def test_message_id_from_another_conversation_is_refused(world: World) -> None:
+    text = world.error('tasks_spawn', {'title': 'x', 'prompt': 'y', 'location': 'nuc',
+                                       'message_id': 'msg_elsewhere'})  # fmt: skip
+    assert 'There is no message msg_elsewhere in this conversation' in text
+    assert tasks(world) == []

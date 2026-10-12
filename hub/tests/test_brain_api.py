@@ -15,7 +15,19 @@ from test_channel_fakes import SECRET, ChannelHub, channel_hub, session_id
 from test_tasks_fakes import validator
 
 from marcel_hub.brain_api import NotSetUp
-from marcel_hub.models import Agent, Message, Project, Task, TaskLocation, TaskState
+from marcel_hub.models import (
+    Agent,
+    Artifact,
+    Conversation,
+    ConversationKind,
+    Message,
+    MessageKind,
+    MessageRole,
+    Project,
+    Task,
+    TaskLocation,
+    TaskState,
+)
 
 TASK = validator('app-api.yaml#/components/schemas/Task')
 PROJECT = validator('app-api.yaml#/components/schemas/Project')
@@ -149,13 +161,12 @@ def test_the_brain_routes_are_not_under_api(brain: Brain) -> None:
 
 
 def test_spawn_starts_a_task_in_the_inbox(brain: Brain) -> None:
-    res = spawn(brain, expected_minutes=30, message_id='msg_1')
+    res = spawn(brain, expected_minutes=30)
     assert res.status_code == 201, res.text
     task = TASK.validate(res.json()) or res.json()
     assert task['state'] == 'starting'
     assert task['model'] == 'sonnet'  # the agent's worker model
     assert task['origin'] == 'marcel'
-    assert task['parent_message_id'] == 'msg_1'
     assert 'expected_by' in task
     inbox = brain.get('/projects').json()[-1]
     assert task['project_id'] == inbox['id'] and inbox['slug'] == 'inbox'
@@ -376,10 +387,6 @@ def test_artifacts_publish_refusals_are_plain(brain: Brain) -> None:
     res = brain.post('/artifacts', {'kind': 'link', 'title': 'x', 'url': 'https://x.be',
                                     'artifact_id': 'art_1'})  # fmt: skip
     assert res.status_code == 400 and 'new version' in res.json()['message']
-    brain.post('/projects', {'name': 'Garden'})
-    res = brain.post('/artifacts', {'kind': 'link', 'title': 'x', 'url': 'https://x.be',
-                                    'project': 'garden'})  # fmt: skip
-    assert res.status_code == 503 and 'Inbox' in res.json()['message']
     res = brain.post('/artifacts', {'kind': 'video', 'title': 'x'})
     assert res.status_code == 400
     assert brain.post('/artifacts', {'kind': 'link', 'title': 'x', 'url': 'https://x.be',
@@ -557,3 +564,122 @@ def test_usage_says_it_is_not_read_yet_until_the_guard_plugs_in(brain: Brain) ->
 
 def test_not_set_up_is_an_exception_with_the_message() -> None:
     assert str(NotSetUp('x')) == 'x'
+
+
+# Review fixes ---------------------------------------------------------------------------------
+
+
+def brain_of(hub: ChannelHub, agent_id: str) -> Brain:
+    """A brain session for another agent, with its own main conversation."""
+    sid = session_id()
+    with Session(hub.engine) as s:
+        s.add(Conversation(agent_id=agent_id, kind=ConversationKind.main, brain_session_id=sid))
+        s.commit()
+    return Brain(hub, sid)
+
+
+def test_a_project_slug_of_another_agent_is_not_found(brain: Brain) -> None:
+    hub = brain.hub
+    theirs = brain_of(hub, other_agent(hub))
+    assert theirs.post('/projects', {'name': 'Odile only'}).status_code == 201
+    for res in (
+        spawn(brain, project='odile-only'),
+        brain.get('/tasks', project='odile-only'),
+        brain.patch('/projects/odile-only', {'goal': 'x'}),
+        brain.post('/projects/odile-only/notes', {'text': 'x'}),
+    ):
+        assert res.status_code == 404, res.text
+        assert res.json()['code'] == 'project_not_found'
+    assert hub.runner.started == []
+
+
+def test_brain_artifacts_are_filed_under_the_callers_project(brain: Brain) -> None:
+    hub = brain.hub
+    second = brain_of(hub, other_agent(hub))  # not the hub's first agent
+    link = {'kind': 'link', 'title': 'Offer', 'url': 'https://x.be/offer'}
+    in_inbox = second.post('/artifacts', link)
+    assert in_inbox.status_code == 201, in_inbox.text
+    second.post('/projects', {'name': 'Energy'})
+    in_energy = second.post('/artifacts', {**link, 'project': 'energy'})
+    assert in_energy.status_code == 201, in_energy.text
+    projects = {p['slug']: p['id'] for p in second.get('/projects').json()}
+    assert in_inbox.json()['project_id'] == projects['inbox']
+    assert in_energy.json()['project_id'] == projects['energy']
+    mine = brain.post('/artifacts', link).json()
+    assert mine['project_id'] == brain.get('/projects').json()[-1]['id']
+    with Session(hub.engine) as s:  # stored as answered, and nothing filed afterwards changed
+        assert s.get(Artifact, in_energy.json()['id']).project_id == projects['energy']  # pyright: ignore[reportOptionalMemberAccess]
+    worker_art = {'kind': 'link', 'title': 'w', 'url': 'https://x.be/w'}
+    task_id, _ = hub.task()
+    art = hub.app.state.artifacts.publish_reported(worker_art, task_id)
+    assert art.project_id == hub.registry.get(task_id).project_id  # workers' filing unchanged
+
+
+def test_an_oversized_field_is_refused(brain: Brain) -> None:
+    long = 'x' * 5000
+    cases = [
+        ('/projects', {'name': 'Garden', 'folder': '/' + long}),
+        ('/tasks', {'title': 't', 'prompt': 'p', 'location': 'nuc', 'project': long}),
+        ('/tasks', {'title': 't', 'prompt': 'p', 'location': 'nuc', 'message_id': long}),
+        ('/artifacts', {'kind': 'link', 'title': 't', 'url': 'https://x.be/' + long}),
+        ('/artifacts', {'kind': 'doc', 'title': 't', 'path': '/' + long}),
+        ('/schedules', {'name': 'n', 'cron': '0 8 * * 1', 'tz': long, 'location': 'nuc',
+                        'prompt': 'p'}),
+    ]  # fmt: skip
+    for route, body in cases:
+        res = brain.post(route, body)
+        assert res.status_code == 400, (route, body.keys())
+        assert 'at most' in res.json()['message']
+    assert brain.put('/memory', {'path': long + '.md', 'content': 'x'}).status_code == 400
+    assert brain.put('/memory', {'path': 'a.md', 'content': 'x', 'etag': long}).status_code == 400
+    assert brain.get('/memory', path=long + '.md').status_code == 400
+    assert brain.get('/tasks', project=long).status_code == 400
+    assert brain.patch(f'/projects/{"p" * 81}', {'goal': 'x'}).status_code == 400
+
+
+def test_an_oversized_body_is_not_read(brain: Brain) -> None:
+    big = {'title': 't', 'prompt': 'p', 'location': 'nuc', 'padding': 'x' * 70_000}
+    res = brain.post('/tasks', big)
+    assert res.status_code == 413 and res.json()['code'] == 'too_large'
+
+    # A body without a Content-Length is cut off as it is read.
+    def chunks() -> Any:
+        for _ in range(100):
+            yield b'x' * 1024
+
+    res = brain.hub.client.post('/brain/notify', content=chunks(), headers=brain.headers)
+    assert res.status_code == 413
+    # A memory write may carry a whole memory file.
+    ok = brain.put('/memory', {'path': 'big.md', 'content': 'x' * 900_000})
+    assert ok.status_code == 200, ok.text
+    assert brain.hub.runner.started == []
+
+
+def test_repo_is_owner_slash_name_only(brain: Brain) -> None:
+    for repo in ('-x/marcel', 'shbunder/-u', '../etc', 'shbunder/..', 'a/b/c', 'shbunder/mar..cel',
+                 'shbunder/marcel --upload-pack=x'):  # fmt: skip
+        res = spawn(brain, location='cloud', repo=repo)
+        assert res.status_code == 400, repo
+        assert brain.post('/projects', {'name': 'R', 'repo': repo}).status_code == 400, repo
+    assert spawn(brain, location='cloud', repo='shbunder/marcel.v3_x-1').status_code == 201
+    assert brain.hub.runner.started[-1] is not None
+
+
+def test_message_id_must_be_in_the_brains_own_conversation(brain: Brain) -> None:
+    hub = brain.hub
+    side_id, _ = hub.side()
+    with Session(hub.engine) as s:
+        mine = Message(conversation_id=hub.main_id, role=MessageRole.user, kind=MessageKind.text,
+                       body_json={'text': 'Check the disks'})  # fmt: skip
+        elsewhere = Message(conversation_id=side_id, role=MessageRole.user,
+                            kind=MessageKind.text, body_json={'text': 'x'})  # fmt: skip
+        s.add(mine)
+        s.add(elsewhere)
+        s.commit()
+        mine_id, elsewhere_id = mine.id, elsewhere.id
+    for bad in ('msg_nope', elsewhere_id):
+        res = spawn(brain, message_id=bad)
+        assert res.status_code == 404 and res.json()['code'] == 'message_not_found'
+    assert hub.runner.started == []
+    res = spawn(brain, message_id=mine_id)
+    assert res.status_code == 201 and res.json()['parent_message_id'] == mine_id

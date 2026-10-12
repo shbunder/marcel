@@ -29,13 +29,17 @@ Some tools reach parts of the hub that are built elsewhere. Each sits behind a s
 
 - `boards` (`board_note`): project boards, S-04.11.
 - `artifacts` (`artifacts_publish`): the default stores through the artifact store's
-  `publish_reported` (the same path as a worker's `report`), so a new version (`artifact_id`) is
-  refused by the store until S-04.11 adds versions, and an artifact can be filed only in the
-  inbox until the store takes a project.
+  `publish_reported` (the same path as a worker's `report`), filed under the project the brain
+  named (its agent's Inbox by default). A new version (`artifact_id`) is refused by the store until
+  S-04.11 adds versions.
+
+Every request body is read only up to a cap (`MAX_BODY_BYTES`, more for a memory write), and
+every text field has a maximum length.
 - `schedules` (`schedule_*`): the scheduler, S-09.1.
 - `usage` (`usage_get`): the usage guard, S-10.1.
 """
 
+import contextvars
 import hmac
 import logging
 from dataclasses import dataclass, field
@@ -45,8 +49,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
-from pydantic import AnyUrl, BaseModel, ConfigDict, Field
-from sqlalchemy import func
+from pydantic import AfterValidator, AnyUrl, BaseModel, ConfigDict, Field, ValidationError
+from sqlalchemy import event, func
 from sqlmodel import Session, select
 from starlette.concurrency import run_in_threadpool
 
@@ -64,8 +68,9 @@ from marcel_hub.memory import (
     MemoryUnavailable,
 )
 from marcel_hub.models import (
-    INBOX_SLUG,
     Agent,
+    Artifact,
+    Message,
     MessageKind,
     MessageRole,
     Project,
@@ -80,7 +85,7 @@ from marcel_hub.notify.message import BODY_MAX, TITLE_MAX, PushNotification, cli
 from marcel_hub.projects.store import ProjectArchived, ProjectStore, SlugTaken
 from marcel_hub.tasks.ports import RunnerUnavailable
 from marcel_hub.tasks.registry import TaskFinished, TaskNotFound, TaskRegistry
-from marcel_hub.tasks.routes import _body, bad_request, error  # pyright: ignore[reportPrivateUsage]
+from marcel_hub.tasks.routes import bad_request, error
 
 log = logging.getLogger(__name__)
 
@@ -89,8 +94,24 @@ SECRET_HEADER = 'x-marcel-secret'
 SESSION_HEADER = 'x-marcel-session'
 SLUG = r'^[a-z0-9][a-z0-9-]{0,39}$'
 MODEL = r'^[A-Za-z0-9._\[\]][A-Za-z0-9._\[\]-]{0,79}$'  # runner-api.yaml's
-REPO = r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+# owner/name, as GitHub allows: no leading '-' (never read as a flag), no '..' (never a path).
+REPO = r'^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$'
+
+
+def _no_dot_dot(value: str) -> str:
+    if '..' in value:
+        raise ValueError('a repo is owner/name, without ".."')
+    return value
+
+
+Repo = Annotated[str, Field(pattern=REPO), AfterValidator(_no_dot_dot)]
 MAX_TEXT = 20000
+MAX_REF = 80  # a project slug or id, a task, message, artifact or schedule id
+MAX_URL = 2048
+MAX_PATH = 1024
+# A request body is read no further than this; a memory write may carry a whole memory file.
+MAX_BODY_BYTES = 64 * 1024
+MAX_MEMORY_BODY_BYTES = 2 * MAX_FILE_BYTES + 4096
 LIST_LIMIT = 50
 
 
@@ -197,7 +218,7 @@ class Usage(Protocol):
 
 
 class BrainArtifacts(Protocol):
-    def publish(self, spec: dict[str, Any], project_id: str, inbox: bool) -> dict[str, Any]:
+    def publish(self, spec: dict[str, Any], project_id: str) -> dict[str, Any]:
         """Store an artifact Marcel hands in (channel.schema.json `Artifact`), filed under
         `project_id`. Returns the app-api `Artifact`. Raises `ArtifactRefused`."""
         ...
@@ -226,21 +247,34 @@ class NoUsage:
         raise NotSetUp('The hub does not read plan usage yet, so there is no number to give.')
 
 
+# The project a brain artifact is being filed under, while `ReportedArtifacts.publish` runs. The
+# store has no project argument, so the row is filed on insert (before the models' own filing,
+# which would put an artifact without a task in the first agent's Inbox).
+_filing: contextvars.ContextVar[str | None] = contextvars.ContextVar('brain_filing', default=None)
+
+
+@event.listens_for(Artifact, 'before_insert', insert=True)
+def _file_brain_artifact(_mapper: Any, _connection: Any, art: Artifact) -> None:
+    project_id = _filing.get()
+    if project_id is not None and art.project_id is None and art.task_id is None:
+        art.project_id = project_id
+
+
 class ReportedArtifacts:
-    """Marcel's artifacts through the artifact store, the same way a worker's are stored."""
+    """Marcel's artifacts through the artifact store, the same way a worker's are stored, filed
+    under the project the brain named."""
 
     def __init__(self, store: ArtifactStore | None) -> None:
         self.store = store
 
-    def publish(self, spec: dict[str, Any], project_id: str, inbox: bool) -> dict[str, Any]:
+    def publish(self, spec: dict[str, Any], project_id: str) -> dict[str, Any]:
         if self.store is None:
             raise NotSetUp('This hub has no artifact store, so nothing was saved.')
-        if not inbox:
-            raise NotSetUp(
-                'This hub cannot file Marcel’s own artifacts under a project yet. Leave out '
-                '"project" to save it in the Inbox, then move it from the app.'
-            )
-        return self.store.to_api(self.store.publish_reported(spec))
+        token = _filing.set(project_id)
+        try:
+            return self.store.to_api(self.store.publish_reported(spec))
+        finally:
+            _filing.reset(token)
 
 
 @dataclass
@@ -266,6 +300,32 @@ def _projects(request: Request) -> ProjectStore:
     return request.app.state.projects
 
 
+async def _body[M: BaseModel](
+    request: Request, model: type[M], limit: int = MAX_BODY_BYTES
+) -> M | JSONResponse:
+    """The JSON body as `model`, read no further than `limit` bytes."""
+    declared = request.headers.get('content-length', '')
+    if declared.isdigit() and int(declared) > limit:
+        return _too_large(limit)
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw += chunk
+        if len(raw) > limit:
+            return _too_large(limit)
+    if not raw.strip():
+        return bad_request('The request needs a JSON body.')
+    try:
+        return model.model_validate_json(bytes(raw))
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        where = '.'.join(str(p) for p in first['loc']) or 'body'
+        return bad_request(f'{where}: {first["msg"]}.')
+
+
+def _too_large(limit: int) -> JSONResponse:
+    return error(413, 'too_large', f'The request is too big: keep it under {limit // 1024} KB.')
+
+
 def not_set_up(exc: NotSetUp) -> JSONResponse:
     return error(503, 'not_set_up', str(exc))
 
@@ -285,6 +345,8 @@ def _own_task(request: Request, brain: Brain, task_id: str) -> Task | None:
 
 def _project_ref(request: Request, brain: Brain, ref: str) -> Project | JSONResponse:
     """A project of the brain's agent by id or slug; live ones first for a slug."""
+    if len(ref) > MAX_REF:
+        return bad_request(f'A project is named by its slug or id, at most {MAX_REF} characters.')
     with Session(request.app.state.engine) as s:
         project = s.get(Project, ref)
         if project is None or project.agent_id != brain.agent_id:
@@ -322,11 +384,11 @@ class NewTask(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     prompt: str = Field(min_length=1, max_length=MAX_TEXT)
     location: str
-    project: str | None = Field(default=None, min_length=1)
-    repo: str | None = Field(default=None, pattern=REPO)
+    project: str | None = Field(default=None, min_length=1, max_length=MAX_REF)
+    repo: Repo | None = None
     model: str | None = Field(default=None, pattern=MODEL)
     expected_minutes: int | None = Field(default=None, ge=1, le=7 * 24 * 60)
-    message_id: str | None = Field(default=None, min_length=1)
+    message_id: str | None = Field(default=None, min_length=1, max_length=MAX_REF)
 
 
 class Steer(BaseModel):
@@ -336,12 +398,12 @@ class Steer(BaseModel):
 
 class Move(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    project: str = Field(min_length=1)
+    project: str = Field(min_length=1, max_length=MAX_REF)
 
 
 @router.post('/tasks')
 async def spawn_task(request: Request, brain: BrainDep) -> Any:
-    body = await _body(request, NewTask, required=True)
+    body = await _body(request, NewTask)
     if isinstance(body, JSONResponse):
         return body
     if body.location == 'auto':
@@ -360,7 +422,17 @@ async def spawn_task(request: Request, brain: BrainDep) -> Any:
         return project
     with Session(request.app.state.engine) as s:
         agent = s.get(Agent, brain.agent_id)
+        asked = s.get(Message, body.message_id) if body.message_id is not None else None
     assert agent is not None
+    if body.message_id is not None and (
+        asked is None or asked.conversation_id != brain.conversation_id
+    ):
+        return error(
+            404,
+            'message_not_found',
+            f'There is no message {body.message_id} in this conversation. Leave out message_id, '
+            'or use the message_id of the owner’s message you are answering.',
+        )
     fields: dict[str, Any] = {'project_id': project.id}
     if body.repo is not None:
         fields['repo'] = body.repo
@@ -429,7 +501,7 @@ def _last_seq(request: Request, task_id: str) -> int:
 
 @router.post('/tasks/{task_id}/messages')
 async def steer_task(request: Request, brain: BrainDep, task_id: str) -> Any:
-    body = await _body(request, Steer, required=True)
+    body = await _body(request, Steer)
     if isinstance(body, JSONResponse):
         return body
     if _own_task(request, brain, task_id) is None:
@@ -456,7 +528,7 @@ async def stop_task(request: Request, brain: BrainDep, task_id: str) -> Any:
 
 @router.post('/tasks/{task_id}/move')
 async def move_task(request: Request, brain: BrainDep, task_id: str) -> Any:
-    body = await _body(request, Move, required=True)
+    body = await _body(request, Move)
     if isinstance(body, JSONResponse):
         return body
     if _own_task(request, brain, task_id) is None:
@@ -480,20 +552,20 @@ class NewProject(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     slug: str | None = Field(default=None, pattern=SLUG)
     goal: str | None = Field(default=None, max_length=300)
-    repo: str | None = Field(default=None, pattern=REPO)
-    folder: str | None = Field(default=None, min_length=1)
+    repo: Repo | None = None
+    folder: str | None = Field(default=None, min_length=1, max_length=MAX_PATH)
     instructions: str | None = Field(default=None, max_length=MAX_TEXT)
-    claude_project_url: AnyUrl | None = None
+    claude_project_url: AnyUrl | None = Field(default=None, max_length=MAX_URL)
 
 
 class ProjectUpdate(BaseModel):
     model_config = ConfigDict(extra='forbid')
     name: str | None = Field(default=None, min_length=1, max_length=60)
     goal: str | None = Field(default=None, max_length=300)
-    repo: str | None = Field(default=None, pattern=REPO)
-    folder: str | None = Field(default=None, min_length=1)
+    repo: Repo | None = None
+    folder: str | None = Field(default=None, min_length=1, max_length=MAX_PATH)
     instructions: str | None = Field(default=None, max_length=MAX_TEXT)
-    claude_project_url: AnyUrl | None = None
+    claude_project_url: AnyUrl | None = Field(default=None, max_length=MAX_URL)
 
 
 class BoardNote(BaseModel):
@@ -513,7 +585,7 @@ def list_projects(request: Request, brain: BrainDep, archived: bool = False) -> 
 
 @router.post('/projects')
 async def create_project(request: Request, brain: BrainDep) -> Any:
-    body = await _body(request, NewProject, required=True)
+    body = await _body(request, NewProject)
     if isinstance(body, JSONResponse):
         return body
     fields = _fields(body)
@@ -532,7 +604,7 @@ async def create_project(request: Request, brain: BrainDep) -> Any:
 
 @router.patch('/projects/{project}')
 async def update_project(request: Request, brain: BrainDep, project: str) -> Any:
-    body = await _body(request, ProjectUpdate, required=True)
+    body = await _body(request, ProjectUpdate)
     if isinstance(body, JSONResponse):
         return body
     changes = {k: v for k, v in _fields(body).items() if v is not None}
@@ -547,7 +619,7 @@ async def update_project(request: Request, brain: BrainDep, project: str) -> Any
 
 @router.post('/projects/{project}/notes')
 async def add_board_note(request: Request, brain: BrainDep, project: str) -> Any:
-    body = await _body(request, BoardNote, required=True)
+    body = await _body(request, BoardNote)
     if isinstance(body, JSONResponse):
         return body
     found = _project_ref(request, brain, project)
@@ -566,16 +638,16 @@ class NewArtifact(BaseModel):
     model_config = ConfigDict(extra='forbid')
     kind: Literal['pr', 'branch', 'doc', 'file', 'dashboard', 'link']
     title: str = Field(min_length=1, max_length=300)
-    url: str | None = None
-    path: str | None = None
-    project: str | None = Field(default=None, min_length=1)
-    artifact_id: str | None = Field(default=None, min_length=1)
+    url: str | None = Field(default=None, max_length=MAX_URL)
+    path: str | None = Field(default=None, max_length=MAX_PATH)
+    project: str | None = Field(default=None, min_length=1, max_length=MAX_REF)
+    artifact_id: str | None = Field(default=None, min_length=1, max_length=MAX_REF)
     summary: str | None = Field(default=None, max_length=200)
 
 
 @router.post('/artifacts')
 async def publish_artifact(request: Request, brain: BrainDep) -> Any:
-    body = await _body(request, NewArtifact, required=True)
+    body = await _body(request, NewArtifact)
     if isinstance(body, JSONResponse):
         return body
     project = _live_project(request, brain, body.project)
@@ -583,7 +655,7 @@ async def publish_artifact(request: Request, brain: BrainDep) -> Any:
         return project
     spec = body.model_dump(exclude_none=True, exclude={'project'})
     try:
-        art = _ports(request).artifacts.publish(spec, project.id, project.slug == INBOX_SLUG)
+        art = _ports(request).artifacts.publish(spec, project.id)
     except NotSetUp as exc:
         return not_set_up(exc)
     except ArtifactRefused as exc:
@@ -596,9 +668,9 @@ async def publish_artifact(request: Request, brain: BrainDep) -> Any:
 
 class MemoryWrite(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    path: str = Field(min_length=1)
+    path: str = Field(min_length=1, max_length=MAX_PATH)
     content: str = Field(max_length=MAX_FILE_BYTES)
-    etag: str | None = Field(default=None, min_length=1)
+    etag: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 def _memory(request: Request) -> MemoryRepo:
@@ -616,6 +688,8 @@ def _bad_path(path: str) -> JSONResponse:
 
 @router.get('/memory')
 def read_memory(request: Request, brain: BrainDep, path: str | None = None) -> Any:
+    if path is not None and len(path) > MAX_PATH:
+        return _bad_path(path[:40] + '…')
     repo = _memory(request)
     try:
         if path is None:
@@ -633,7 +707,7 @@ def read_memory(request: Request, brain: BrainDep, path: str | None = None) -> A
 
 @router.put('/memory')
 async def write_memory(request: Request, brain: BrainDep) -> Any:
-    body = await _body(request, MemoryWrite, required=True)
+    body = await _body(request, MemoryWrite, MAX_MEMORY_BODY_BYTES)
     if isinstance(body, JSONResponse):
         return body
     if len(body.content.encode('utf-8')) > MAX_FILE_BYTES:
@@ -671,15 +745,15 @@ class NewSchedule(BaseModel):
     model_config = ConfigDict(extra='forbid')
     name: str = Field(min_length=1, max_length=120)
     cron: str = Field(min_length=1, max_length=120)
-    tz: str = Field(min_length=1)
+    tz: str = Field(min_length=1, max_length=64)
     location: Literal['brain', 'nuc', 'cloud']
     prompt: str = Field(min_length=1, max_length=MAX_TEXT)
-    deadline_minutes: int | None = Field(default=None, ge=1)
+    deadline_minutes: int | None = Field(default=None, ge=1, le=7 * 24 * 60)
 
 
 @router.post('/schedules')
 async def create_schedule(request: Request, brain: BrainDep) -> Any:
-    body = await _body(request, NewSchedule, required=True)
+    body = await _body(request, NewSchedule)
     if isinstance(body, JSONResponse):
         return body
     if len(body.cron.split()) != 5:
@@ -734,7 +808,7 @@ class Notify(BaseModel):
 async def notify(request: Request, brain: BrainDep) -> Any:
     """Post `text` in the main conversation and push it to the owner's phones. `urgent` is for
     something broken (category `broke`); `normal` for news that can wait (category `digest`)."""
-    body = await _body(request, Notify, required=True)
+    body = await _body(request, Notify)
     if isinstance(body, JSONResponse):
         return body
     engine = request.app.state.engine

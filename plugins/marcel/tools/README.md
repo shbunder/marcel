@@ -13,7 +13,7 @@ a worker's call is refused by the hub.
 
 | Tool | Hub route | What it does |
 |---|---|---|
-| `tasks_spawn(title, prompt, location, project?, repo?, model?, expected_minutes?, message_id?)` | `POST /brain/tasks` | Start a thread. `location` is `nuc` or `cloud`; `auto` is refused with a hint to choose, so the choice shows in the brain's turn. A cloud task needs `repo`. |
+| `tasks_spawn(title, prompt, location, project?, repo?, model?, expected_minutes?, message_id?)` | `POST /brain/tasks` | Start a thread. `location` is `nuc` or `cloud`; `auto` is refused with a hint to choose, so the choice shows in the brain's turn. A cloud task needs `repo` (`owner/name`, no leading `-`, no `..`). `message_id` must be a message in the brain's own conversation. |
 | `tasks_list(state?, project?, archived?)` | `GET /brain/tasks` | Threads, most recent first (50). |
 | `tasks_get(id)` | `GET /brain/tasks/{id}` | One thread and its last ten events. |
 | `tasks_send(id, text)` | `POST /brain/tasks/{id}/messages` | Steer a thread (`author: marcel`). |
@@ -32,16 +32,17 @@ a worker's call is refused by the hub.
 | `notify(text, level?)` | `POST /brain/notify` | Post in the main chat and push it (`urgent` → category `broke`, `normal` → `digest`). |
 | `usage_get()` | `GET /brain/usage` | Plan usage and the guard. |
 
-A project is named by its slug or its id. Every tool checks its input before calling the hub and
-answers a problem in one plain sentence; the hub checks again.
+A project is named by its slug or its id. Every tool checks its input (types, lengths, patterns)
+before calling the hub and answers a problem in one plain sentence; the hub checks again, and reads
+no request body past 64 KB (a memory write: 2 MB).
 
 ## Not built yet (the hub answers `not_set_up`)
 
 Each sits behind a small interface on the hub's `app.state.brain_ports` that its story replaces:
 
 - `board_note` — project boards (S-04.11).
-- `artifacts_publish` with `artifact_id` — artifact versions (S-04.11); with a `project` other than the
-  Inbox — the artifact store does not take a project yet.
+- `artifacts_publish` with `artifact_id` — artifact versions (S-04.11). Without it, the artifact is
+  filed under the named project (the brain's Inbox by default).
 - `schedule_*` — the scheduler (S-09.1).
 - `usage_get` — the usage guard (S-10.1).
 
@@ -52,6 +53,8 @@ Each sits behind a small interface on the hub's `app.state.brain_ports` that its
   or a side thread. A worker or adopted session gets 403; anything else 401.
 - **Secret:** the hub secret from `$CLAUDE_PLUGIN_DATA/hub-secret` (the channel's) in
   `X-Marcel-Secret`. No device token is accepted, and the secret is accepted nowhere under `/api`.
+- **Known limit:** worker sessions on the NUC can read the same `hub-secret` file, so the secret only
+  proves "a session on this NUC"; the session-id check is what separates the brain from a worker.
 - **Local only:** the routes live under `/brain`, outside `/api`, and the Cloudflare tunnel forwards
   only `/api/*`. A request with Cloudflare's `cf-connecting-ip` header is answered 404 anyway.
 - **Its own agent:** every task and project is looked up within the brain's agent; another agent's
