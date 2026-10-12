@@ -1,7 +1,8 @@
 # Marcel hub
 
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
-exists today: the app skeleton, the database, `GET /api/health`, and pairing a phone.
+exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, conversations
+and the live event stream.
 
 ## Run
 
@@ -84,3 +85,47 @@ router = APIRouter(prefix='/api', dependencies=[Depends(require_device)])
 `tests/test_auth_routes.py` calls every route in the app without a token and fails on any that
 answers something other than 401. A route type it cannot call (a WebSocket) fails it too, until the
 test learns how.
+
+The WebSocket follows the same rule: `tests/test_auth_routes.py` opens every socket without a token
+and with an unknown one, and fails if the hub accepts it.
+
+## Conversations
+
+Each agent has one **main** conversation; `conversations.ensure_main_conversation(session, agent)`
+makes it and sets `agent.main_conversation_id`. Only the agent's owner sees its conversations;
+anyone else gets a 404 `conversation_not_found`.
+
+- `GET /api/conversations?agent_id=…`: the main conversation first, then side threads, newest
+  first, each with `reply_count` and `last_message_at`.
+- `GET /api/conversations/{id}/messages?limit=&cursor=`: newest first, at most `limit` (1–200,
+  default 50). Pass `next_cursor` to get older messages; the last page has none. A cursor from
+  another conversation is a 400 `bad_cursor`. A message with a side thread carries
+  `thread: {conversation_id, reply_count}`.
+- `POST /api/conversations/{id}/messages`: stores the message and answers 201 at once; it never
+  waits for Marcel (B-02). The same `client_id` in the same conversation returns the stored message
+  and sends no new event, so a retry never makes a duplicate. `project_id` is accepted and not yet
+  stored (S-04.10).
+- `POST /api/messages/{id}/thread`: opens the side thread on a message (201), or returns the one it
+  already has (200). A thread on a milestone or approval gets that message's `task_id`.
+- `POST /api/conversations/{id}/send-to-main`: from a side thread, `{"message_id"}` quotes one of
+  its messages into the main conversation (`kind: quote`); `{"text"}` posts your own text there.
+
+Other code posts messages (Marcel's answers, milestones) with `conversations.post_message(...)`,
+which also sends the `message.created` event.
+
+## Live events: `GET /api/ws`
+
+One WebSocket per phone, with the same `Authorization: Bearer` header as REST. Without a valid
+token the hub closes before accepting (the phone sees a 403). A phone removed while connected is
+cut off before its next event.
+
+- Every event (`contracts/events.schema.json`) goes to every open socket of the user. Its `id` is
+  one higher than the user's last, and it is stored before it is sent, so ids keep counting after
+  a restart.
+- The first frame is `hello` with `last_event_id` and how many events were `replayed`. Reconnect
+  with `?since=<last id you processed>` to get exactly what you missed, in order.
+- The hub keeps the last 2000 events per user (`ws.KEEP_EVENTS`). If `since` is older than that,
+  higher than the last id, or not a number, the first frame is `resync.required`: re-fetch over
+  REST, then carry on from its `last_event_id`. Live events still follow on the same socket.
+- Other code sends events with `request.app.state.events.publish(session, user_id, type, data)`;
+  it commits the session with the event, so the change and its event land together.

@@ -180,6 +180,20 @@ class Message(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow, index=True)
 
 
+class AppEvent(SQLModel, table=True):
+    """One frame of the app WebSocket (`contracts/events.schema.json`). `id` counts up by one per
+    user and survives a restart, so a phone that reconnects with `?since=` gets exactly what it
+    missed. Only the latest events are kept; older ones are pruned as new ones arrive."""
+
+    __tablename__ = 'app_event'  # type: ignore[assignment]
+
+    user_id: str = Field(primary_key=True)
+    id: int = Field(primary_key=True)
+    type: str
+    data_json: dict[str, Any] = _json()
+    at: datetime = Field(default_factory=utcnow)
+
+
 class Task(SQLModel, table=True):
     id: str = Field(default_factory=lambda: new_id('tsk'), primary_key=True)
     agent_id: str = Field(foreign_key='agent.id', index=True)
