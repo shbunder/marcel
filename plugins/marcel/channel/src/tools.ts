@@ -4,6 +4,10 @@ import type { Artifact, Reply, Report, ReportKind } from './frames.js';
 export const TOOL_REPLY = 'reply';
 export const TOOL_REPORT = 'report';
 
+/** channel.schema.json `Report.next` bounds. */
+export const MAX_NEXT_STEPS = 20;
+export const MAX_NEXT_STEP_CHARS = 200;
+
 const ARTIFACT_SCHEMA = {
   type: 'object',
   properties: {
@@ -34,12 +38,19 @@ export const TOOLS = [
     name: TOOL_REPORT,
     description:
       'Tell Marcel how a task is going. Workers use it: started, progress (needs text), artifact (needs artifact), ' +
-      'done or failed (need summary). Lead with the outcome, in short sentences.',
+      'done or failed (need summary). Lead with the outcome, in short sentences. With progress, also send "next": ' +
+      'the steps you still plan, in order (at most 20, each under 200 characters); each progress report replaces the list.',
     inputSchema: {
       type: 'object',
       properties: {
         kind: { enum: ['started', 'progress', 'artifact', 'done', 'failed'] },
         text: { type: 'string', description: 'A progress note.' },
+        next: {
+          type: 'array',
+          maxItems: MAX_NEXT_STEPS,
+          items: { type: 'string', minLength: 1, maxLength: MAX_NEXT_STEP_CHARS },
+          description: 'With progress only: the steps you still plan, in order. Replaces the list from the last progress report.',
+        },
         summary: { type: 'string', description: 'The outcome, for done or failed.' },
         artifact: ARTIFACT_SCHEMA,
         artifacts: { type: 'array', items: ARTIFACT_SCHEMA },
@@ -85,6 +96,19 @@ function buildArtifact(raw: unknown): Built<Artifact> {
   return { ok: true, frame: artifact };
 }
 
+/** Characters as JSON Schema counts them (code points), so an emoji is one, as the hub counts it. */
+const charCount = (s: string): number => [...s].length;
+
+function buildNext(raw: unknown): Built<string[]> {
+  if (!Array.isArray(raw) || !raw.every(isString)) return { ok: false, error: '"next" must be a list of steps, each one a piece of text.' };
+  if (raw.length > MAX_NEXT_STEPS) return { ok: false, error: `"next" has ${raw.length} steps; send at most ${MAX_NEXT_STEPS}.` };
+  if (raw.some((step) => step === '')) return { ok: false, error: 'a step in "next" is empty.' };
+  const long = raw.flatMap((step, i) => (charCount(step) > MAX_NEXT_STEP_CHARS ? [i + 1] : []));
+  if (long.length === 1) return { ok: false, error: `step ${long[0]} of "next" is longer than ${MAX_NEXT_STEP_CHARS} characters; shorten it.` };
+  if (long.length > 1) return { ok: false, error: `steps ${long.join(', ')} of "next" are longer than ${MAX_NEXT_STEP_CHARS} characters; shorten them.` };
+  return { ok: true, frame: [...raw] };
+}
+
 export function buildReport(args: Args): Built<Report> {
   if (!isString(args.kind) || !KINDS.includes(args.kind)) return { ok: false, error: `report needs a "kind": ${KINDS.join(', ')}.` };
   const kind = args.kind as ReportKind;
@@ -93,6 +117,12 @@ export function buildReport(args: Args): Built<Report> {
     if (args[key] === undefined) continue;
     if (!isString(args[key])) return { ok: false, error: `"${key}" must be a string.` };
     frame[key] = args[key];
+  }
+  if (args.next !== undefined) {
+    if (kind !== 'progress') return { ok: false, error: '"next" goes with a progress report only.' };
+    const built = buildNext(args.next);
+    if (!built.ok) return built;
+    frame.next = built.frame;
   }
   if (args.artifact !== undefined) {
     const built = buildArtifact(args.artifact);
