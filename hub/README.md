@@ -3,7 +3,7 @@
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, the task
 routes, conversations and task threads, the live event stream, artifacts and their versions, memory, projects and
-their boards, the avatar's state, push notifications, the usage guard, the channel gateway and approvals, and the brain tools' routes.
+their boards, the avatar's state, push notifications, the usage guard, the channel gateway and approvals, the brain tools' routes, and keeping the brain alive.
 
 ## Run
 
@@ -32,6 +32,7 @@ names the file.
 | `owner_name` | `MARCEL_OWNER_NAME` | `Owner` (shown by `GET /api/me`) |
 | `runner_sock` | `MARCEL_RUNNER_SOCK` | `/run/marcel/runner.sock` (the runner's socket, mounted into the container) |
 | `worker_cwd` | `MARCEL_WORKER_CWD` | unset. Where workers without a repository run, e.g. `/home/<you>/marcel/workspaces/scratch` (a path on the NUC). Unset: such tasks fail with a reason |
+| `brain_cwd` | `MARCEL_BRAIN_CWD` | unset: the hub starts no brain. The brain workspace on the NUC, e.g. `/home/<you>/marcel/brain` (`brain/README.md`). Set: the hub keeps one brain running (see "The brain: keep-alive and rollover") |
 | `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no pushes. The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
 | `github_token` | `MARCEL_GITHUB_TOKEN` | unset: PR cards are not refreshed and say the token is missing. A fine-grained, **read-only** GitHub token (Pull requests: read, Checks and Commit statuses: read) on the owner's repos (ADR-002). Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown |
 
@@ -536,7 +537,10 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
 - **Who a session is.** Only a session id the runner reported: a NUC task's `session_id` (role
   `worker`, or `adopted`) or a conversation's `brain_session_id` (`brain` for the main
   conversation, `side` for a side thread). Anything else is rejected `unknown_session`; the
-  server retries for two minutes. A plugin older than 0.1.0 is rejected `plugin_too_old`.
+  server retries for two minutes. One exception: a new brain started by a rollover is not the
+  conversation's brain yet, and its hello is the hand-over (see "The brain: keep-alive and
+  rollover"). A `reply` from a session that is no longer its conversation's (the brain a rollover
+  replaced) is refused with `call_ack.error` (`replaced`), so only one brain ever answers. A plugin older than 0.1.0 is rejected `plugin_too_old`.
 - **A session acts only for itself.** A worker's `report` lands on its own task; a brain's or side
   thread's `reply` in its own conversation. A worker's `reply` and a brain's `report` are stored
   nowhere, logged, and answered `call_ack` with `error` (`not_allowed`), so the session drops the
@@ -601,6 +605,51 @@ second card, whatever state the card is in.
   resolved from the transcript if it can be, and otherwise becomes `expired`. At start the hub does
   the same for cards left open while it was down.
 - Every change to a card sends `approval.resolved`.
+
+## The brain: keep-alive and rollover
+
+`brain.py` keeps exactly one brain session per agent (S-06.2, B-01). It runs only when `brain_cwd`
+is set and the hub has a runner.
+
+- **When it checks.** At start, after every runner event and every runner (re)connect, and every
+  2 seconds. It lists the runner's sessions and looks at each agent's brain, the
+  `brain_session_id` on the main conversation. Checks run one at a time, so a burst of runner
+  events starts one brain, not several.
+- **A dead brain is replaced at once.** Gone from the runner's list, `failed`, `stopped`, or
+  `done` with no process left. The new session id is stored on the main conversation right away.
+  Messages you send while no brain runs wait in the Outbox and reach the new brain when its
+  channel says hello. A replacement shows in Marcel's notebook as a `brain.rollover` with reason
+  `crashed`.
+- **Nothing is started on a guess.** A runner that cannot be reached, a state the hub does not
+  know, or a session the runner started less than a minute ago but does not list yet all count as
+  "still running".
+- **Backoff and one alert.** A spawn that fails is tried again after 5 s, 15 s, 30 s, 1 min, 2 min,
+  then every 5 min. After 3 failures in a row you get one "Marcel cannot start" push with the
+  runner's reason; it clears when a brain starts.
+- **Rollover.** Every night at 04:00 in the hub's time zone (set `TZ` on the container; the time
+  is worked out from the calendar day, so clock changes do not move it), the hub starts a fresh
+  brain next to the old one. `BrainKeeper.roll_over(agent_id)` asks for one at any time; there is
+  no app route for it yet. The old brain keeps answering until the new one says hello on the
+  channel, and only once the old one is between turns (a hello while it is mid-turn is refused,
+  and the channel server tries again 5 s later). At the hello the new id goes on the conversation,
+  the old brain's socket is closed and its session stopped, and `brain.rollover` (time, reason,
+  what was kept) is stored and sent to the app. A new brain that dies or does not say hello within
+  150 s is stopped, the old one stays, and the rollover is tried again after the backoff. So there
+  is never no brain, and never two answering.
+- **What a new brain starts with.** Its first prompt is written by the hub from its own records,
+  with no model call: `MEMORY.md` (the first 8 KB), the open threads (title, state, where, project),
+  and the main chat of the last 24 hours (up to 60 messages, milestones included, each line cut at
+  400 characters). `kept` says the same in one line, e.g. "Your notes, the last 40 messages of the
+  past day and 3 open threads."
+- **Left-over brains.** Any other live session the runner lists as this agent's brain (named
+  `brain-<agent id>`), for example one a hub restart cut off in the middle of a rollover, is
+  stopped.
+- **Never held back.** The brain is started through the runner directly, not through the task
+  registry, so the worker cap and the usage guard never queue it.
+- **Not yet.** The hub cannot see how full the brain's context is (no transcript event carries
+  token counts), so there is no context-threshold rollover; and the rollover log lives only in the
+  app event stream, which keeps the latest 2000 events (`project/contract-requests/S-06.2.md`).
+  The 04:00 timer is the keeper's own; it can move onto the scheduler (S-09.1) later.
 
 ## Brain tools: `/brain`
 

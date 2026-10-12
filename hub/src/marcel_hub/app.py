@@ -24,6 +24,7 @@ from marcel_hub import (
     artifacts,
     auth,
     boards,
+    brain,
     brain_api,
     channel,
     conversations,
@@ -56,6 +57,8 @@ class Settings:
     # None: no runner (tests). `load_settings` defaults it to the socket mounted into the hub.
     runner_sock: Path | None = None
     worker_cwd: str | None = None
+    # None: no brain keeper (tests). The brain workspace on the NUC, e.g. /home/<you>/marcel/brain.
+    brain_cwd: str | None = None
     # None: no ntfy pushes. e.g. 'https://ntfy.sh' or a self-hosted server (S-08.1).
     ntfy_server: str | None = None
     # None: PR cards say the hub cannot ask GitHub. A read-only token (ADR-002); never shown.
@@ -86,6 +89,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         'owner_name',
         'runner_sock',
         'worker_cwd',
+        'brain_cwd',
         'ntfy_server',
         'github_token',
     }
@@ -102,6 +106,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             owner_name=str(values.get('owner_name', 'Owner')),
             runner_sock=Path(values.get('runner_sock', DEFAULT_SOCKET)),
             worker_cwd=str(values['worker_cwd']) if values.get('worker_cwd') else None,
+            brain_cwd=str(values['brain_cwd']) if values.get('brain_cwd') else None,
             ntfy_server=_ntfy_server(values.get('ntfy_server')),
             github_token=str(values['github_token']).strip() or None
             if values.get('github_token')
@@ -135,6 +140,7 @@ def _is_setting(name: str) -> bool:
         'MARCEL_OWNER_NAME',
         'MARCEL_RUNNER_SOCK',
         'MARCEL_WORKER_CWD',
+        'MARCEL_BRAIN_CWD',
         'MARCEL_NTFY_SERVER',
         'MARCEL_GITHUB_TOKEN',
     }
@@ -183,7 +189,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         avatars.prime()  # states that changed while the hub was down (S-04.8)
         avatars.start()
         prs.start()  # S-04.12: open PRs found again, then refreshed every 5 minutes
+        if keeper_of_brains is not None and keeper_of_brains.runner is not None:
+            keeper_of_brains.start()  # S-06.2: one brain per agent, from the first second
         yield
+        if keeper_of_brains is not None:
+            await keeper_of_brains.stop()
         await prs.stop()
         await avatars.stop()
         await keeper.stop()
@@ -264,6 +274,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.brain_ports.boards = boards.BrainBoards(keeper)  # the brain's board_note
     # S-10.1: holds new spawns near the plan's limit; serves /api/usage and the brain's usage_get.
     usage.install(app, guard, registry, watch)
+    # S-06.2: keeps one brain session per agent, and rolls it over nightly. It starts the brain
+    # through the runner directly, never through the task registry, so the worker cap and the
+    # usage guard never hold it back: the brain must always answer.
+    keeper_of_brains = (
+        brain.BrainKeeper(
+            engine,
+            client,
+            cwd=settings.brain_cwd,
+            events=app.state.events,
+            alerts=pusher,
+            memory=repo,
+        )
+        if settings.brain_cwd
+        else None
+    )
+    app.state.brain = keeper_of_brains
+    if keeper_of_brains is not None:
+        gateway.brains = keeper_of_brains  # a new brain's hello is the hand-over
+        if watch is not None:
+            watch.pokes.append(keeper_of_brains.poke)
     return app
 
 

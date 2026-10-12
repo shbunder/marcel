@@ -5,6 +5,11 @@ reported: a task's `session_id` (worker, or adopted) or a conversation's `brain_
 (brain for the main conversation, side for a side thread). A session acts only for that task or
 conversation: a worker's `reply`, or a brain's `report`, is refused and never stored; the hub
 answers it with `call_ack` + `error`, so the session drops the call instead of re-sending it.
+
+A rollover (S-06.2) starts a new brain while the old one still runs. The new one's hello is the
+hand-over: `Brains.said_hello` makes it the conversation's brain, its socket takes the
+conversation's frames from the old one (whose socket is closed), and from then on a `reply` from
+the old session is refused, so only one brain ever answers.
 """
 
 import contextlib
@@ -22,7 +27,7 @@ from marcel_hub.artifacts import ArtifactRefused, UnknownArtifact
 from marcel_hub.channel.approvals import ApprovalBook
 from marcel_hub.channel.frames import next_steps_problem, version_tuple
 from marcel_hub.channel.outbox import ChannelOutbox, conversation_target, task_target
-from marcel_hub.channel.ports import Artifacts, LogPush, Push
+from marcel_hub.channel.ports import Artifacts, Brains, LogPush, Push
 from marcel_hub.conversations import ensure_main_conversation, post_message
 from marcel_hub.models import (
     Agent,
@@ -122,6 +127,7 @@ class Gateway:
         self.artifacts: Artifacts | None = artifacts
         self.alerts = alerts or LogAlerts()
         self.registry: TaskRegistry | None = None
+        self.brains: Brains | None = None  # S-06.2: new brains taking over at a rollover
         self._calls_lock = threading.Lock()
         self._in_flight: set[str] = set()
         self._in_prompt: set[str] = set()  # session ids the runner shows at a permission prompt
@@ -171,6 +177,11 @@ class Gateway:
             )
             return Rejection('plugin_too_old', f'This hub needs plugin {needed} or newer.')
         peer = self.resolve(hello['session_id'])
+        if peer is None and self.brains is not None:
+            taking_over = self.brains.said_hello(hello['session_id'])
+            if taking_over is not None:
+                agent_id, conversation_id = taking_over
+                peer = Peer(hello['session_id'], 'brain', agent_id, conversation_id=conversation_id)
         if peer is None:
             return Rejection(
                 'unknown_session',
@@ -295,6 +306,12 @@ class Gateway:
         with Session(self.engine) as s:
             conv = s.get(Conversation, peer.conversation_id)
             assert conv is not None
+            if conv.brain_session_id != peer.session_id:
+                # A newer session took this conversation over (a brain rollover): only one answers.
+                raise CallRefused(
+                    'replaced',
+                    'Marcel did not take this reply: a newer session answers here now.',
+                )
             post_message(
                 s,
                 events,
