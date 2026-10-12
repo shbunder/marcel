@@ -169,7 +169,7 @@ export class ChannelServer {
       return fail(`Marcel is unreachable. ${this.deps.configProblem ?? 'It is not configured.'} Carry on without it.`);
     }
     const outcome = await this.hub.sendCall(built.frame);
-    return outcome.status === 'unreachable' ? fail(outcome.text) : { content: [{ type: 'text', text: outcome.text }] };
+    return outcome.status === 'unreachable' || outcome.status === 'refused' ? fail(outcome.text) : { content: [{ type: 'text', text: outcome.text }] };
   }
 }
 

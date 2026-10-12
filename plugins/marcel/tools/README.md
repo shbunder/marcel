@@ -29,7 +29,7 @@ a worker's call is refused by the hub.
 | `schedule_create(name, cron, tz, location, prompt, deadline_minutes?)` | `POST /brain/schedules` | Recurring work. |
 | `schedule_list()` | `GET /brain/schedules` | Every schedule. |
 | `schedule_delete(id)` | `DELETE /brain/schedules/{id}` | Remove one. |
-| `notify(text, level?)` | `POST /brain/notify` | Post in the main chat and push it (`urgent` → category `broke`, `normal` → `digest`). |
+| `notify(text, level?)` | `POST /brain/notify` | Post in the main chat and push it as Marcel's own notice (category `note`; `level` `urgent` or `normal` sets how loud). The hub pushes at most 6 per hour per agent; past that the message is still posted but not pushed (`pushed: false`). Category `broke` is only for the hub's own system faults. |
 | `usage_get()` | `GET /brain/usage` | Plan usage and the guard. |
 
 A project is named by its slug or its id. Every tool checks its input (types, lengths, patterns)
@@ -40,9 +40,6 @@ no request body past 64 KB (a memory write: 2 MB).
 
 Each sits behind a small interface on the hub's `app.state.brain_ports` that its story replaces:
 
-- `board_note` — project boards (S-04.11).
-- `artifacts_publish` with `artifact_id` — artifact versions (S-04.11). Without it, the artifact is
-  filed under the named project (the brain's Inbox by default).
 - `schedule_*` — the scheduler (S-09.1).
 - `usage_get` — the usage guard (S-10.1).
 
