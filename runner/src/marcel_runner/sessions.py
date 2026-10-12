@@ -12,6 +12,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -22,6 +23,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
+from marcel_runner.claude_env import scrubbed_env
 from marcel_runner.health import Settings, cgroup_of, collect_health
 
 CHANNEL = 'plugin:marcel@marcel-local'
@@ -39,7 +41,6 @@ SPAWN_KEYS = {'role', 'name', 'model', 'permission_mode', 'prompt', 'cwd', 'repo
 NAME = re.compile(r'[A-Za-z0-9._-]{1,60}')
 MODEL = re.compile(r'[A-Za-z0-9._\[\]-]{1,80}')
 BACKGROUNDED = re.compile(r'backgrounded · ([0-9a-f]{8}) · (.+)')
-SCRUBBED_PREFIXES = ('CLAUDE', 'ANTHROPIC_')
 
 
 class SessionError(Exception):
@@ -69,15 +70,6 @@ def state_dir_from_env(env: Mapping[str, str] | None = None) -> Path:
         return Path(env['MARCEL_RUNNER_STATE'])
     base = env.get('XDG_STATE_HOME') or str(Path.home() / '.local' / 'state')
     return Path(base) / 'marcel' / 'runner'
-
-
-def scrubbed_env(env: Mapping[str, str], home: Path) -> dict[str, str]:
-    """The environment for a `claude` child: no `CLAUDE*` marker from a parent Claude session
-    (it turns transcript saving off, SP2), and no `ANTHROPIC_*` key (tokens come from the
-    subscription only)."""
-    out = {k: v for k, v in env.items() if not k.startswith(SCRUBBED_PREFIXES)}
-    out['HOME'] = str(home)
-    return out
 
 
 def spawn_argv(
@@ -202,6 +194,7 @@ class Sessions:
         channel_wait: float = CHANNEL_WAIT,
         poll: float = 0.25,
         token: Callable[[], str] = lambda: uuid.uuid4().hex[:12],
+        spawn_timeout: float = SPAWN_TIMEOUT,
     ) -> None:
         if not settings.claude.is_absolute():
             raise ValueError(f'The path to claude must be absolute, not "{settings.claude}".')
@@ -213,6 +206,7 @@ class Sessions:
         self.channel_wait = channel_wait
         self.poll = poll
         self.token = token
+        self.spawn_timeout = spawn_timeout
         self._lock = threading.Lock()  # the cap check and its reservation
         self._write_lock = threading.Lock()  # the state file
         self._pending = 0  # worker spawns past the cap check that are not in the roster yet
@@ -241,14 +235,39 @@ class Sessions:
         return sessions
 
     def _remember(self, record: dict[str, Any]) -> None:
+        """Keep a session the runner started. A session whose full id is unknown is kept under
+        `short:<short-id>`, so it still counts toward the cap once it shows up."""
+        key = record['id'] or f'short:{record["short_id"]}'
         with self._write_lock:
-            # Copy, then swap: readers on other threads never see a dict being changed.
-            records = {**self.records, record['id']: record}
-            self.state_dir.mkdir(parents=True, exist_ok=True)
-            tmp = self.state_file.with_name(f'.{self.state_file.name}.{os.getpid()}.tmp')
-            tmp.write_text(json.dumps({'sessions': records}, indent=2) + '\n', 'utf-8')
-            os.replace(tmp, self.state_file)
-            self.records = records
+            # Copy, then swap: readers on other threads never see a dict being changed. Memory
+            # first, so the cap holds in this process even when the disk write fails.
+            self.records = records = {**self.records, key: record}
+            try:
+                self._write(records)
+            except OSError as e:
+                print(
+                    f'marcel-runner: could not write the state file {self.state_file}: '
+                    f'{e.strerror or e}. After a restart the runner would forget session '
+                    f'{record["short_id"]}.',
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+    def _write(self, records: dict[str, dict[str, Any]]) -> None:
+        """Write to a temp file, flush it to disk, then swap it in: a crash leaves the old file
+        or the new one, never half of one."""
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        tmp = self.state_file.with_name(f'.{self.state_file.name}.{os.getpid()}.tmp')
+        with tmp.open('w', encoding='utf-8') as f:
+            f.write(json.dumps({'sessions': records}, indent=2) + '\n')
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, self.state_file)
+
+    def _record_for(self, row: Mapping[str, Any]) -> dict[str, Any] | None:
+        return self.records.get(str(row.get('sessionId'))) or self.records.get(
+            f'short:{row.get("id")}'
+        )
 
     # --- running claude -------------------------------------------------------------------
 
@@ -298,8 +317,11 @@ class Sessions:
     # --- the worker cap -------------------------------------------------------------------
 
     def _running_workers(self) -> int:
-        workers = {i for i, r in self.records.items() if r.get('role') == 'worker'}
-        count = sum(1 for row in self.roster() if row.get('sessionId') in workers and running(row))
+        count = sum(
+            1
+            for row in self.roster()
+            if running(row) and (self._record_for(row) or {}).get('role') == 'worker'
+        )
         self._last_active = count
         return count
 
@@ -375,7 +397,13 @@ class Sessions:
             debug_file=debug_file,
             channel=req.channel,
         )
-        p = self._claude(*argv[1:], cwd=req.cwd, timeout=SPAWN_TIMEOUT)
+        since = time.time() * 1000 - 1000  # rows started from here on may be this spawn's
+        try:
+            p = self._claude(*argv[1:], cwd=req.cwd, timeout=self.spawn_timeout)
+        except SessionError as e:
+            if e.code == 'claude_timeout':  # the session may have started all the same
+                raise self._contain(req, None, since, e) from None
+            raise
         said = (p.stderr or p.stdout).strip()
         if p.returncode != 0:
             if 'not trusted' in said.lower():
@@ -389,23 +417,16 @@ class Sessions:
             raise SessionError(422, 'exited', 'Claude refused to start the session.', said or None)
         m = BACKGROUNDED.search(p.stdout)
         if m is None:
-            raise SessionError(
+            error = SessionError(
                 422, 'exited', 'Claude did not say which session it started.', said or None
             )
+            raise self._contain(req, None, since, error)
         short = m.group(1)
-        row = self._resolve(short)
-        record = {
-            'id': row['sessionId'],
-            'short_id': short,
-            'role': req.role,
-            'name': req.name,
-            'task': None,
-            'permission_mode': req.permission_mode,
-            'model': req.model,
-            'cwd': str(req.cwd),
-            'channel': req.channel,
-            'started_at': datetime.now(UTC).isoformat(timespec='seconds').replace('+00:00', 'Z'),
-        }
+        try:
+            row = self._resolve(short)
+        except SessionError as e:
+            raise self._contain(req, short, since, e) from None
+        record = self._record(req, row['sessionId'], short)
         self._remember(record)
         registered = False
         if req.channel:
@@ -417,6 +438,68 @@ class Sessions:
             'cwd': str(req.cwd),
             'channel_registered': registered,
         }
+
+    @staticmethod
+    def _record(req: SpawnRequest, session_id: str | None, short: str) -> dict[str, Any]:
+        return {
+            'id': session_id,
+            'short_id': short,
+            'role': req.role,
+            'name': req.name,
+            'task': None,
+            'permission_mode': req.permission_mode,
+            'model': req.model,
+            'cwd': str(req.cwd),
+            'channel': req.channel,
+            'started_at': datetime.now(UTC).isoformat(timespec='seconds').replace('+00:00', 'Z'),
+        }
+
+    def _contain(
+        self, req: SpawnRequest, short: str | None, since: float, error: SessionError
+    ) -> SessionError:
+        """The spawn failed after claude may have started a session. Record what can be found,
+        so it counts toward the cap, then stop it. `error` comes back saying what happened.
+
+        With the short id, that session. Without it, sessions with the name this spawn gave,
+        started since the spawn began, that the runner does not know yet."""
+        try:
+            rows = self.roster()
+        except SessionError:
+            rows = []
+        if short is not None:
+            found = [r for r in rows if r.get('id') == short]
+        else:
+            found = [
+                r
+                for r in rows
+                if r.get('name') == req.name
+                and running(r)
+                and (r.get('startedAt') or 0) >= since
+                and self._record_for(r) is None
+            ]
+        for r in found:
+            self._remember(self._record(req, r.get('sessionId'), str(r.get('id'))))
+        if short is not None and not found:
+            self._remember(self._record(req, None, short))
+        targets = [str(r.get('id')) for r in found] or ([short] if short else [])
+        if not targets:
+            return error
+        said = [w for w in (self._stop(t) for t in targets) if w is not None]
+        if not said:
+            return SessionError(
+                error.status,
+                error.code,
+                f'{error.message} The runner stopped the session it had started.',
+                error.detail,
+            )
+        detail = '\n'.join(filter(None, [error.detail, f'claude stop said: {"; ".join(said)}']))
+        return SessionError(
+            error.status,
+            error.code,
+            f'{error.message} A session may still be running and the runner could not stop it, '
+            'so it counts toward the worker cap.',
+            detail,
+        )
 
     def _resolve(self, short: str) -> dict[str, Any]:
         """The full session id for a short id (SP2: the row is there as soon as `--bg` returns)."""
@@ -443,28 +526,36 @@ class Sessions:
                 if REGISTERED in line:
                     return True
                 if SKIPPED in line:
-                    self._stop_quietly(short)
+                    said = self._stop(short)
                     raise SessionError(
                         422,
                         'channel_skipped',
                         'The session started without its marcel channel, so it could not hear '
-                        'you. The runner stopped it.',
-                        line[line.find('MCP server') :] if 'MCP server' in line else line,
+                        f'you. {_stopped(said)}',
+                        _join(
+                            line[line.find('MCP server') :] if 'MCP server' in line else line, said
+                        ),
                     )
             if time.monotonic() >= deadline:
-                self._stop_quietly(short)
+                said = self._stop(short)
                 raise SessionError(
                     422,
                     'channel_timeout',
                     f'The session did not connect its marcel channel within '
-                    f'{self.channel_wait:g} s. The runner stopped it.',
+                    f'{self.channel_wait:g} s. {_stopped(said)}',
+                    _join(None, said),
                 )
             time.sleep(self.poll)
 
-    def _stop_quietly(self, short: str) -> None:
-        # The spawn already fails with the reason that matters.
-        with contextlib.suppress(SessionError):
-            self._claude('stop', short)
+    def _stop(self, short: str) -> str | None:
+        """`claude stop`. None when it worked, else what went wrong, in claude's words."""
+        try:
+            p = self._claude('stop', short)
+        except SessionError as e:
+            return e.message
+        if p.returncode != 0:
+            return (p.stderr or p.stdout).strip() or f'exit code {p.returncode}'
+        return None
 
     # --- list, get, stop ------------------------------------------------------------------
 
@@ -506,7 +597,7 @@ class Sessions:
             'state': row.get('state'),
             'cwd': str(row.get('cwd') or ''),
         }
-        record = self.records.get(sid)
+        record = self._record_for(row)
         if record:
             out['role'] = record['role']
         if row.get('status'):
@@ -587,6 +678,18 @@ class Sessions:
                 return 200, self.stop(parts[1])
             raise _not_allowed(path, 'POST', method)
         raise SessionError(404, 'not_found', f'The runner has no {path}.')
+
+
+def _stopped(said: str | None) -> str:
+    if said is None:
+        return 'The runner stopped it.'
+    return 'The runner could not stop it, so it still runs and counts toward the worker cap.'
+
+
+def _join(detail: str | None, said: str | None) -> str | None:
+    if said is None:
+        return detail
+    return '\n'.join(filter(None, [detail, f'claude stop said: {said}']))
 
 
 def _not_allowed(path: str, allowed: str, method: str) -> SessionError:

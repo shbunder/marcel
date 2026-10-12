@@ -20,14 +20,14 @@ from conftest import UnixConnection, apart
 from fake_claude import EXECUTABLE, FakeClaude
 
 from marcel_runner import server
-from marcel_runner.health import Settings
+from marcel_runner.claude_env import scrubbed_env
+from marcel_runner.health import Settings, collect_health
 from marcel_runner.server import UnixHTTPServer, serve
 from marcel_runner.sessions import (
     SessionError,
     Sessions,
     StateFileError,
     parse_spawn,
-    scrubbed_env,
     state_dir_from_env,
 )
 from marcel_runner.usage import UsageProbe
@@ -48,6 +48,14 @@ if args[:1] == ['agents'] and 'agents-broken' in mode:
     print('error: daemon unreachable', file=sys.stderr); sys.exit(1)
 if '--bg' in args and 'bg-fails' in mode:
     print('error: something went wrong', file=sys.stderr); sys.exit(1)
+if args[:1] == ['agents'] and 'agents-empty' in mode:
+    print('[]'); sys.exit(0)
+if '--bg' in args and ('bg-unreadable' in mode or 'bg-slow' in mode):
+    import subprocess, time
+    subprocess.run([{python!r}, {fake!r}, *args], capture_output=True)  # the session starts
+    if 'bg-slow' in mode:
+        time.sleep(5)
+    print('hello'); sys.exit(0)
 if '--bg' in args and 'bg-garbled' in mode:
     print('hello'); sys.exit(0)
 if args[:2] == ['-p', '/usage'] and 'usage-hangs' in mode:
@@ -96,7 +104,7 @@ class Rig:
     def mode(self, *flags: str) -> None:
         self.mode_file.write_text(' '.join(flags))
 
-    def start(self, channel_wait: float = 5.0) -> Sessions:
+    def start(self, channel_wait: float = 5.0, spawn_timeout: float = 60.0) -> Sessions:
         """Start (or restart) the runner. A new `Sessions` reads the state file afresh."""
         n = iter(range(1, 1000))
         self.sessions = Sessions(
@@ -105,6 +113,7 @@ class Rig:
             home=self.fake.home,
             cgroup_of=apart,
             channel_wait=channel_wait,
+            spawn_timeout=spawn_timeout,
             poll=0.02,
             token=lambda: f'token{next(n)}',
         )
@@ -703,3 +712,174 @@ def test_a_failing_usage_refresh_never_fails_a_spawn(up: Rig) -> None:
     up.sessions.refresh_usage = boom
     assert up.spawn()[0] == 201
     assert _wait_for(lambda: called == [True])
+
+
+# --- a spawn that fails half-way never leaves a session outside the cap -------------------------
+
+
+def _active(rig: Rig) -> int:
+    return rig.call('GET', '/health')[1]['active_workers']
+
+
+def test_a_skipped_channel_whose_stop_fails_says_so_and_still_counts(up: Rig) -> None:
+    up.fake.use('channel-skipped')
+    up.mode('stop-fails')
+    status, body = up.spawn()
+    assert (status, body['code']) == (422, 'channel_skipped')
+    assert 'could not stop it' in body['message']
+    assert 'stopped it' not in body['message'].replace('could not stop it', '')
+    assert body['detail'].endswith('claude stop said: error: cannot stop')
+    (session,) = up.call('GET', '/sessions')[1]
+    assert session['status'] == 'busy'  # still running, so it must still count
+    assert _active(up) == 1
+
+
+def test_a_channel_timeout_whose_stop_fails_says_so(rig: Rig) -> None:
+    rig.start(channel_wait=0.3)
+    rig.fake.use('worker-needs-approval')
+    rig.mode('no-debug-line', 'stop-fails')
+    status, body = rig.spawn()
+    assert (status, body['code']) == (422, 'channel_timeout')
+    assert 'could not stop it' in body['message']
+    assert body['detail'] == 'claude stop said: error: cannot stop'
+    assert _active(rig) == 1
+
+
+def test_a_session_missing_from_claudes_list_is_stopped(up: Rig) -> None:
+    up.fake.use('worker-needs-approval')
+    up.mode('agents-empty')
+    status, body = up.spawn()
+    assert (status, body['code']) == (422, 'exited')
+    assert 'stopped the session it had started' in body['message']
+    up.mode()
+    (session,) = up.call('GET', '/sessions')[1]
+    assert session['state'] == 'stopped'
+    assert session['role'] == 'worker'  # recorded by its short id
+    assert _active(up) == 0
+
+
+def test_a_session_missing_from_claudes_list_that_cannot_be_stopped_holds_the_cap(
+    up: Rig,
+) -> None:
+    up.fake.use('worker-needs-approval')
+    up.mode('agents-empty', 'stop-fails')
+    status, body = up.spawn(name='w1')
+    assert (status, body['code']) == (422, 'exited')
+    assert 'could not stop it' in body['message']
+    up.mode()
+    assert _active(up) == 1
+    assert up.spawn(name='w2')[0] == 201
+    assert up.spawn(name='w3')[1]['code'] == 'cap_reached'
+
+
+def test_unreadable_spawn_output_finds_the_session_by_name_and_stops_it(up: Rig) -> None:
+    up.fake.use('worker-needs-approval')
+    up.mode('bg-unreadable')
+    status, body = up.spawn(name='w1')
+    assert (status, body['code'], body['detail']) == (422, 'exited', 'hello')
+    assert 'stopped the session it had started' in body['message']
+    up.mode()
+    (session,) = up.call('GET', '/sessions')[1]
+    assert (session['name'], session['state'], session['role']) == ('w1', 'stopped', 'worker')
+
+
+def test_unreadable_spawn_output_that_cannot_be_stopped_holds_the_cap(up: Rig) -> None:
+    up.fake.use('worker-needs-approval')
+    up.mode('bg-unreadable', 'stop-fails')
+    assert up.spawn(name='w1')[1]['code'] == 'exited'
+    up.mode()
+    assert _active(up) == 1
+    assert up.spawn(name='w2')[0] == 201
+    assert up.spawn(name='w3')[1]['code'] == 'cap_reached'
+
+
+def test_a_spawn_that_times_out_after_the_session_began_holds_the_cap(rig: Rig) -> None:
+    rig.start(spawn_timeout=1.0)
+    rig.fake.use('worker-needs-approval')
+    rig.mode('bg-slow', 'stop-fails')
+    status, body = rig.spawn(name='w1')
+    assert (status, body['code']) == (503, 'claude_timeout')
+    assert 'could not stop it' in body['message']
+    rig.mode()
+    assert _active(rig) == 1
+    assert rig.spawn(name='w2')[0] == 201
+    assert rig.spawn(name='w3')[1]['code'] == 'cap_reached'
+
+
+def test_a_name_match_never_touches_an_older_session(up: Rig) -> None:
+    up.fake.use('worker-needs-approval')
+    up.fake.run('--bg', '--name', 'w1', '--', 'not ours', cwd=up.work)
+    time.sleep(1.2)  # older than the spawn's window
+    up.mode('bg-garbled')  # claude prints nonsense and starts nothing
+    assert up.spawn(name='w1')[1]['code'] == 'exited'
+    up.mode()
+    (stranger,) = up.call('GET', '/sessions')[1]
+    assert 'role' not in stranger
+    assert up.calls_with('stop') == []
+
+
+# --- the state file is written safely ---------------------------------------------------------
+
+
+def test_the_state_file_is_flushed_to_disk_then_swapped_in(
+    up: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marcel_runner import sessions as mod
+
+    assert up.spawn(name='w1')[0] == 201
+    before = (up.state / 'sessions.json').read_text()
+    steps: list[str] = []
+    real_fsync = mod.os.fsync
+    monkeypatch.setattr(mod.os, 'fsync', lambda fd: (steps.append('fsync'), real_fsync(fd))[1])
+
+    def refuse(src: Any, dst: Any) -> None:
+        steps.append('replace')
+        raise OSError(28, 'No space left on device')
+
+    monkeypatch.setattr(mod.os, 'replace', refuse)
+    assert up.spawn(name='w2')[0] == 201  # the spawn itself still works
+    assert steps == ['fsync', 'replace']
+    # A plain overwrite would have changed the file; the swap failed, so the old one is intact.
+    assert (up.state / 'sessions.json').read_text() == before
+    assert _active(up) == 2  # and this process still counts both
+
+
+# --- every claude the runner starts gets the scrubbed environment ------------------------------
+
+
+def _env_recorder(tmp_path: Path) -> tuple[Path, Path]:
+    out = tmp_path / 'env.txt'
+    script = tmp_path / 'claude'
+    script.write_text(
+        f'#!/bin/sh\nenv > {out}\n'
+        'if [ "$1" = "--version" ]; then echo "2.1.289 (Claude Code)"; exit 0; fi\n'
+        'echo "running"; echo "  pid: 1"; exit 0\n'
+    )
+    script.chmod(0o755)
+    return script, out
+
+
+def _leaked(env_file: Path) -> list[str]:
+    names = [line.split('=', 1)[0] for line in env_file.read_text().splitlines() if '=' in line]
+    return [n for n in names if n.startswith(('CLAUDE', 'ANTHROPIC_'))]
+
+
+def test_health_checks_run_claude_without_claude_or_anthropic_variables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script, out = _env_recorder(tmp_path)
+    monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-test')
+    monkeypatch.setenv('CLAUDE_CONFIG_DIR', '/elsewhere')
+    collect_health(Settings(claude=script, cap=1), lambda: 0, apart)
+    assert out.exists()
+    assert _leaked(out) == []
+
+
+def test_the_usage_probe_runs_claude_without_claude_or_anthropic_variables(
+    tmp_path: Path,
+) -> None:
+    script, out = _env_recorder(tmp_path)
+    env = {'PATH': '/usr/bin:/bin', 'ANTHROPIC_API_KEY': 'sk-test', 'CLAUDE_CONFIG_DIR': '/x'}
+    UsageProbe(script, env=env).refresh()
+    assert out.exists()
+    assert _leaked(out) == []

@@ -41,12 +41,23 @@ sessions (`claude --bg`). The fields are in `contracts/runner-api.yaml` (`SpawnR
    are pinned in `runner/tests/test_sessions_golden/`.
 6. The environment is the runner's own, minus every `CLAUDE*` variable (a parent Claude session's
    marker turns transcript saving off, SP2) and every `ANTHROPIC_*` variable (tokens come from the
-   subscription only). `HOME` is set to the home the runner reads Claude's files from.
+   subscription only). `HOME` is set to the home the runner reads Claude's files from. The health
+   check and the usage probe use the same scrub (`marcel_runner/claude_env.py`).
 7. It reads `backgrounded · <short-id> · <name>`, then finds the full id in `claude agents --json --all`.
 8. It writes the session to the state file (below).
 9. With the channel on, it waits up to 30 s for the debug log to say
    `MCP server "plugin:marcel:marcel": Channel notifications registered`. If the log says `skipped`
-   instead, or says nothing in time, the runner stops the session and the spawn fails.
+   instead, or says nothing in time, the runner stops the session and the spawn fails. If
+   `claude stop` fails too, the error says the runner could not stop it, `detail` ends with
+   `claude stop said: …`, and the session keeps counting toward the cap.
+
+### When a spawn fails half-way
+
+Claude may have started a session even though the spawn cannot finish: the runner could not read
+`backgrounded · …`, `claude --bg` timed out, or the short id never shows up in `agents --json`. The
+runner then records what it can find (by short id; without one, by the name it gave, started since
+the spawn began, and not already known), so it counts toward the cap, and stops it. The error says
+whether the stop worked. A session older than the spawn is never touched.
 
 ## Errors a spawn can give
 
@@ -54,6 +65,7 @@ sessions (`claude --bg`). The fields are in `contracts/runner-api.yaml` (`SpawnR
 |---|---|---|
 | `bad_request` | 400 | The body is wrong; the message says what. |
 | `cap_reached` | 409 | The worker cap is reached. Nothing was started. |
+| `claude_timeout`, `claude_unavailable` | 503 | `claude` did not answer in time, or could not be run. |
 | `no_supervisor` | 422 | Claude's supervisor is down, in the runner's cgroup, or claude is missing; or the workers cannot be counted. |
 | `not_trusted` | 422 | The workspace was never trusted. `detail` is Claude's own line. |
 | `exited` | 422 | Claude refused to start, or printed something the runner cannot read. `detail` is what it said. |
@@ -86,7 +98,9 @@ A session counts as running when it has a process (`status` is set) or is still 
 Every session the runner starts is kept in `<state>/sessions.json`: `id`, `short_id`, `role`,
 `name`, `task`, `permission_mode`, `model`, `cwd`, `channel`, `started_at`. After a runner restart
 the roles come back from it, and the cap still counts the workers that are running. A state file the
-runner cannot read stops it at start-up, with the file's path in the log.
+runner cannot read stops it at start-up, with the file's path in the log. Each write goes to a
+temp file, is flushed to disk, and then replaces the old file, so a crash never leaves half a file.
+If the write fails, the runner logs it and keeps counting the session in memory.
 
 | Variable | Default | Meaning |
 |---|---|---|
