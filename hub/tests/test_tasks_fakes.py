@@ -118,7 +118,7 @@ def registry_fixture(
 def _registry() -> Registry:
     api = yaml.safe_load((CONTRACTS / 'app-api.yaml').read_text())
     api['$schema'] = 'https://json-schema.org/draft/2020-12/schema'
-    # Contract fields no story stores yet (e.g. Task.project_id, S-04.10) are not required here;
+    # Contract fields no story stores yet (e.g. Artifact.updated_by, S-04.11) are not required here;
     # this follows test_contract.PENDING, so the check tightens when that list shrinks.
     for schema, fields in PENDING.items():
         node = api['components']['schemas'][schema]

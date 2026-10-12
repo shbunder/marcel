@@ -57,6 +57,7 @@ DERIVED = {
     'Task': {'approval_ids', 'artifact_count'},
     'TaskEvent': {'data'},
     'Artifact': {'pr'},
+    'Project': {'counts'},
 }
 
 
@@ -64,9 +65,8 @@ DERIVED = {
 # The owning story removes its entries when it adds the columns; the last test below fails as
 # soon as an entry is stored, so this list can only shrink.
 PENDING = {
-    'Message': {'artifact_id', 'project_id'},  # S-04.10, S-04.11
-    'Task': {'project_id'},  # S-04.10
-    'Artifact': {'project_id', 'current_version', 'updated_by', 'updated_at'},  # S-04.10, S-04.11
+    'Message': {'artifact_id'},  # S-04.11
+    'Artifact': {'current_version', 'updated_by', 'updated_at'},  # S-04.11
 }
 PENDING_ENUM_VALUES = {
     'MessageKind': {'artifact'},  # S-04.11
@@ -87,7 +87,7 @@ MODELS = {
         ('Agent', models.Agent), ('Device', models.Device), ('Conversation', models.Conversation),
         ('Message', models.Message), ('Task', models.Task), ('TaskEvent', models.TaskEvent),
         ('Approval', models.Approval), ('Artifact', models.Artifact),
-        ('Schedule', models.Schedule),
+        ('Schedule', models.Schedule), ('Project', models.Project),
     ],
 )  # fmt: skip
 def test_every_contract_field_is_stored_or_derived(schema: str, model: type) -> None:

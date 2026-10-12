@@ -18,7 +18,18 @@ from fastapi import APIRouter, FastAPI, Request
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from marcel_hub import __version__, artifacts, auth, conversations, db, memory, notify, tasks, ws
+from marcel_hub import (
+    __version__,
+    artifacts,
+    auth,
+    conversations,
+    db,
+    memory,
+    notify,
+    projects,
+    tasks,
+    ws,
+)
 from marcel_hub.runner_client import DEFAULT_SOCKET, OffsetStore, RunnerClient, RunnerWatch
 
 DEFAULT_CONFIG_PATH = Path('/data/marcel.toml')
@@ -199,7 +210,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ws.install(app)
     app.include_router(conversations.router)
     artifacts.install(app)  # S-04.7, after tasks: an artifact is recorded on its task
-    memory.install(app)
+    repo = memory.install(app)
+    # S-04.10: workers start with their project's notes; task changes update their project.
+    projects.install(app, ws.OwnerPublisher(app.state.events), registry, repo)
     return app
 
 

@@ -221,10 +221,37 @@ def test_concurrent_retries_with_one_client_id_store_one_message(
     assert len(events(client)) == 1
 
 
-def test_a_project_id_is_accepted(client: TestClient, phone: Phone, main: str) -> None:
-    # Stored from S-04.10; until then the message still lands in the main conversation.
-    msg = send(client, phone, main, 'about energy', project_id='prj_energy')
+def test_a_project_id_is_stored_on_a_main_conversation_message(
+    client: TestClient, phone: Phone, agent: tuple[str, str]
+) -> None:
+    """B-32: typing in a project room posts to the main conversation, tagged with the project."""
+    agent_id, main = agent
+    res = client.post('/api/projects', json={'agent_id': agent_id, 'name': 'Energy'},
+                      headers=phone.headers)  # fmt: skip
+    project_id = res.json()['id']
+    msg = send(client, phone, main, 'about energy', project_id=project_id)
     assert msg['conversation_id'] == main
+    assert msg['project_id'] == project_id
+    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+        stored = s.get(Message, msg['id'])
+        assert stored is not None and stored.project_id == project_id
+    assert events(client)[-1].data_json['project_id'] == project_id
+    listed = client.get(f'/api/conversations/{main}/messages', headers=phone.headers).json()
+    assert listed['items'][0]['project_id'] == project_id
+
+
+def test_a_project_of_another_agent_is_refused(client: TestClient, phone: Phone, main: str) -> None:
+    other, _ = add_agent(client)
+    res = client.post('/api/projects', json={'agent_id': other, 'name': 'Elsewhere'},
+                      headers=phone.headers)  # fmt: skip
+    for project_id in (res.json()['id'], 'prj_missing'):
+        res = client.post(
+            f'/api/conversations/{main}/messages',
+            json={'text': 'hi', 'project_id': project_id},
+            headers=phone.headers,
+        )
+        assert res.status_code == 400
+        assert res.json()['code'] == 'bad_request'
 
 
 @pytest.mark.parametrize(

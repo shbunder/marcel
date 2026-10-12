@@ -414,9 +414,7 @@ def test_the_list_filters_by_task_and_kind(hub: Hub) -> None:
     assert hub.get('/artifacts?kind=board').json() == {'items': []}
 
 
-@pytest.mark.parametrize(
-    'query', ['kind=pie', 'limit=0', 'limit=201', 'limit=x', 'cursor=abc', 'project_id=prj_1']
-)
+@pytest.mark.parametrize('query', ['kind=pie', 'limit=0', 'limit=201', 'limit=x', 'cursor=abc'])
 def test_a_bad_list_query_is_a_400(hub: Hub, query: str) -> None:
     res = hub.get(f'/artifacts?{query}')
     assert res.status_code == 400

@@ -2,7 +2,7 @@
 
 State, app API, channel gateway and scheduler. Runs in Docker on the NUC. This page covers what
 exists today: the app skeleton, the database, `GET /api/health`, pairing a phone, the task
-routes, conversations, the live event stream, artifacts, memory and push notifications.
+routes, conversations, the live event stream, artifacts, memory, projects and push notifications.
 
 ## Run
 
@@ -106,8 +106,10 @@ anyone else gets a 404 `conversation_not_found`.
   `thread: {conversation_id, reply_count}`.
 - `POST /api/conversations/{id}/messages`: stores the message and answers 201 at once; it never
   waits for Marcel (B-02). The same `client_id` in the same conversation returns the stored message
-  and sends no new event, so a retry never makes a duplicate. `project_id` is accepted and not yet
-  stored (S-04.10).
+  and sends no new event, so a retry never makes a duplicate. A `project_id` (sent from a project
+  room, B-32) must be one of the agent's projects (400 otherwise) and is stored on the message;
+  the message still goes to the main conversation, and `message.project_id` tells Marcel which
+  project it is about.
 - `POST /api/messages/{id}/thread`: opens the side thread on a message (201), or returns the one it
   already has (200). A thread on a milestone or approval gets that message's `task_id`.
 - `POST /api/conversations/{id}/send-to-main`: from a side thread, `{"message_id"}` quotes one of
@@ -141,8 +143,8 @@ cut off before its next event.
 
 ## Tasks
 
-`/api/tasks` lists, reads, steers, stops, archives and hands back tasks (see
-`contracts/app-api.yaml`). The code is in `src/marcel_hub/tasks/`.
+`/api/tasks` lists (filters `state`, `archived`, `project_id`), reads, steers, stops, archives and
+hands back tasks (see `contracts/app-api.yaml`). The code is in `src/marcel_hub/tasks/`.
 
 - **State machine.** Every state change follows `contracts/task-states.md`. Anything else is refused
   and logged as `Refused a task transition: …`. Each change writes a `state` task event.
@@ -185,7 +187,7 @@ background watcher follows the runner's streams:
 
 ## Artifacts
 
-`/api/artifacts` lists items newest first (filters `task_id`, `kind`), reads one, and serves its
+`/api/artifacts` lists items newest first (filters `task_id`, `project_id`, `kind`), reads one, and serves its
 content. The code is `src/marcel_hub/artifacts.py`.
 
 - **Handing one in.** A worker's `report` artifact (`channel.schema.json` `Artifact`) goes to
@@ -206,8 +208,9 @@ content. The code is `src/marcel_hub/artifacts.py`.
   `pr_status_from_gh` maps GitHub's REST answers to them. The hub reads GitHub itself with a
   read-only token (ADR-002); that client comes with S-04.12. Until then a refresh answers that the
   hub cannot ask GitHub. A PR starts as `open`.
-- Not yet: projects (`project_id` answers 400) and versions (every item is at version 1). They come
-  with S-04.10 and S-04.11.
+- **Project.** An item belongs to its task's project, and moves with the task. One with no task
+  goes to the inbox of the hub's first agent.
+- Not yet: versions (every item is at version 1). They come with S-04.11.
 
 Needs `jsonschema` at run time and `contracts/dashboard.schema.json` next to `hub/`.
 
@@ -244,6 +247,42 @@ on first use. The code is `src/marcel_hub/memory.py`.
   hub moves it to `memory.git`, keeps the history, writes a fresh config and drops its hooks and
   `info/attributes`, since the brain could have edited them.
 - Needs `git` on the path.
+
+## Projects
+
+`/api/projects` lists, creates, reads, changes and archives projects (B-30…B-33a), and
+`POST /api/tasks/{id}/move` files a task under another one. The code is in
+`src/marcel_hub/projects/`.
+
+- **Inbox.** Every agent has one project with slug `inbox`, made in the same write as the agent
+  (`models.inbox_id`), whoever inserts it. A task stored without a project is filed there, and the
+  database refuses a task with none (triggers `task_needs_project_*`). Migration 0004 gave every
+  existing agent its inbox and filed existing tasks and artifacts there.
+- **Slugs** match `^[a-z0-9][a-z0-9-]{0,39}$` (400 otherwise). Without one, the slug is made from
+  the name (`Energy contracts` → `energy-contracts`, then `-2`, `-3` … if taken). A slug asked for
+  that a live project of the agent already has answers 409 `slug_taken`; the database index
+  `ix_project_live_slug` enforces it. An archived project's slug can be used again.
+- **Notes** (B-33). Creating a project creates `memory/projects/<slug>.md` in the memory folder
+  (one git commit). Notes already there (from an archived project with that slug) are kept. If git
+  fails, the project is still made, and the log says the notes file was not.
+- **Briefing.** A worker's opening prompt starts with its project: name, goal, repo, folder,
+  standing instructions and notes, each cut at `memory.SLICE_MAX_BYTES` (8 KB) with a line that
+  says where the rest is. An inbox with no notes or instructions adds nothing. The stored opening
+  note (what the app shows) is the prompt alone.
+- **Archive** refuses the inbox (409 `project_is_inbox`) and a project with any task that is not
+  done, failed or stopped (409 `project_busy`).
+- **Move.** Only into a live project of the same agent (409 `project_archived`, 404
+  `project_not_found`). The task's items move with it. The app gets `task.moved`, `task.updated`,
+  then `project.updated` for the new and the old project. Moving into the same project sends
+  nothing. No brain turn.
+- **Counts** on each project: `working` (queued, starting, working, silent, unknown), `needs_you`,
+  and `done_7d` (done, last changed in the past 7 days). `updated_at` is the latest change to the
+  project or any task in it. Every `task.created`/`task.updated` is followed by `project.updated`
+  for that task's project.
+- **Owner only.** Someone else's project answers 404 `project_not_found`, someone else's agent
+  404 `agent_not_found`, and listing it gives `[]`.
+- **Board.** `board_artifact_id` is reserved when the project is made; the board itself is built
+  under that id by S-04.11.
 
 ## Push notifications
 

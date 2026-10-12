@@ -11,6 +11,7 @@ whenever a task leaves a slot (it finishes, fails or is stopped), and on `drain(
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -91,6 +92,9 @@ class TaskRegistry:
         self.runner = runner
         self.outbox = outbox
         self.publisher = publisher or NullPublisher()
+        # What a worker reads before its prompt (its project's instructions and notes); set by
+        # `projects.install`. The stored opening note stays the prompt alone.
+        self.briefing: Callable[[Task], str] = lambda _task: ''
         self._lock = asyncio.Lock()
 
     # Reading ---------------------------------------------------------------------------------
@@ -109,9 +113,12 @@ class TaskRegistry:
         archived: bool = False,
         offset: int = 0,
         limit: int = 50,
+        project_id: str | None = None,
     ) -> tuple[list[Task], int | None]:
         """One page, most recently changed first, and the offset of the next page (or None)."""
         query = select(Task).where(Task.agent_id == agent_id)
+        if project_id is not None:
+            query = query.where(Task.project_id == project_id)
         if states:
             query = query.where(col(Task.state).in_(states))
         archived_at = col(Task.archived_at)
@@ -191,7 +198,9 @@ class TaskRegistry:
         origin: TaskOrigin = TaskOrigin.marcel,
         **fields: Any,
     ) -> Task:
-        """Start a task, or queue it when the worker cap is full (or others are already waiting)."""
+        """Start a task, or queue it when the worker cap is full (or others are already waiting).
+
+        Without `project_id` in `fields` the task is filed in the agent's inbox."""
         task = Task(
             agent_id=agent_id,
             title=title,
@@ -212,7 +221,7 @@ class TaskRegistry:
 
     async def _start_new(self, task: Task, prompt: str) -> Task:
         try:
-            started = await self.runner.start(task, prompt)
+            started = await self.runner.start(task, self.briefing(task) + prompt)
         except CapReached:
             return self.create(task, prompt, TaskState.queued, 'The worker cap is reached')
         except (StartFailed, RunnerUnavailable) as exc:
@@ -283,7 +292,9 @@ class TaskRegistry:
         async with self._lock:
             for task in self.queue():
                 try:
-                    started = await self.runner.start(task, self._prompt(task.id))
+                    started = await self.runner.start(
+                        task, self.briefing(task) + self._prompt(task.id)
+                    )
                 except (CapReached, RunnerUnavailable):
                     return
                 except StartFailed as exc:
