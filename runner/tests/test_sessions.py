@@ -30,6 +30,7 @@ from marcel_runner.sessions import (
     scrubbed_env,
     state_dir_from_env,
 )
+from marcel_runner.usage import UsageProbe
 
 GOLDEN = Path(__file__).parent / 'test_sessions_golden'
 
@@ -49,6 +50,8 @@ if '--bg' in args and 'bg-fails' in mode:
     print('error: something went wrong', file=sys.stderr); sys.exit(1)
 if '--bg' in args and 'bg-garbled' in mode:
     print('hello'); sys.exit(0)
+if args[:2] == ['-p', '/usage'] and 'usage-hangs' in mode:
+    import time; time.sleep(5); sys.exit(1)
 if args[:1] == ['stop'] and 'stop-fails' in mode:
     print('error: cannot stop', file=sys.stderr); sys.exit(1)
 if 'no-debug-line' in mode and '--debug-file' in args[: args.index('--') if '--' in args else None]:
@@ -105,7 +108,10 @@ class Rig:
             poll=0.02,
             token=lambda: f'token{next(n)}',
         )
-        self.srv = serve(self.sock, self.settings, cgroup_of=apart, sessions=self.sessions)
+        usage = UsageProbe(self.claude, env=self.fake.env())  # the fake's HOME, never the real one
+        self.srv = serve(
+            self.sock, self.settings, cgroup_of=apart, usage=usage, sessions=self.sessions
+        )
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
         return self.sessions
 
@@ -434,7 +440,8 @@ def test_claude_gets_no_inherited_claude_or_anthropic_variables(
     up.log.unlink()  # the runner's start-up calls ran before these were set
     assert up.spawn()[0] == 201
     up.call('GET', '/sessions')
-    ours = [c for c in up.calls() if c['argv'][1] not in ('--version', 'daemon')]  # health.py's
+    # health.py and usage.py (other stories) run their own calls; these are this module's.
+    ours = [c for c in up.calls() if c['argv'][1] in ('--bg', 'agents')]
     assert {c['argv'][1] for c in ours} == {'--bg', 'agents'}
     for call in ours:
         leaked = [k for k in call['env'] if k.startswith(('CLAUDE', 'ANTHROPIC_'))]
@@ -603,7 +610,12 @@ def test_bad_body_through_the_socket(up: Rig) -> None:
 def test_without_sessions_the_server_still_404s_them(tmp_path: Path) -> None:
     rig = Rig(tmp_path)
     try:
-        rig.srv = serve(rig.sock, rig.settings, cgroup_of=apart)
+        rig.srv = serve(
+            rig.sock,
+            rig.settings,
+            cgroup_of=apart,
+            usage=UsageProbe(rig.claude, env=rig.fake.env()),
+        )
         threading.Thread(target=rig.srv.serve_forever, daemon=True).start()
         assert rig.call('GET', '/sessions')[0] == 404
     finally:
@@ -647,3 +659,47 @@ def test_a_request_without_a_body_is_read_as_empty(up: Rig) -> None:
         assert conn.getresponse().status == 200
     finally:
         conn.close()
+
+
+# --- usage is read again before each worker spawn (contract: GET /usage) -----------------------
+
+
+def _wait_for(check: Any, timeout: float = 10) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if check():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_a_worker_spawn_reads_usage_and_brain_spawns_do_not(up: Rig) -> None:
+    assert up.call('GET', '/usage')[0] == 503  # nothing read yet: the poll is not started here
+    assert up.spawn(role='brain', name='brain')[0] == 201
+    time.sleep(0.3)
+    assert up.calls_with('/usage') == []
+    assert up.spawn(name='w1')[0] == 201
+    assert _wait_for(lambda: up.call('GET', '/usage')[0] == 200)
+    (call,) = up.calls_with('/usage')
+    assert call['argv'][1:] == ['-p', '/usage', '--no-session-persistence']
+
+
+def test_a_hanging_usage_read_never_delays_a_spawn(up: Rig) -> None:
+    up.mode('usage-hangs')  # the read takes 5 s
+    started = time.monotonic()
+    assert up.spawn()[0] == 201
+    assert time.monotonic() - started < 3
+    assert _wait_for(lambda: len(up.calls_with('/usage')) == 1)
+
+
+def test_a_failing_usage_refresh_never_fails_a_spawn(up: Rig) -> None:
+    assert up.sessions is not None
+    called: list[bool] = []
+
+    def boom() -> None:
+        called.append(True)
+        raise RuntimeError('usage exploded')
+
+    up.sessions.refresh_usage = boom
+    assert up.spawn()[0] == 201
+    assert _wait_for(lambda: called == [True])

@@ -217,6 +217,8 @@ class Sessions:
         self._write_lock = threading.Lock()  # the state file
         self._pending = 0  # worker spawns past the cap check that are not in the roster yet
         self._last_active = 0
+        # Set by serve(): reads plan usage now. The contract reads usage before each worker spawn.
+        self.refresh_usage: Callable[[], None] | None = None
         self.records: dict[str, dict[str, Any]] = self._load()
 
     # --- the state file -------------------------------------------------------------------
@@ -340,12 +342,26 @@ class Sessions:
                         'Wait for one to finish or stop one, then try again.',
                     )
                 self._pending += 1
+            self._refresh_usage_in_background()
         try:
             return self._launch(req)
         finally:
             if worker:
                 with self._lock:
                     self._pending -= 1
+
+    def _refresh_usage_in_background(self) -> None:
+        """Best effort, never in the spawn's way: a slow or failed usage read cannot delay or
+        fail the spawn. The probe keeps the last values and marks them stale on a failure."""
+        refresh = self.refresh_usage
+        if refresh is None:
+            return
+
+        def run() -> None:
+            with contextlib.suppress(Exception):
+                refresh()
+
+        threading.Thread(target=run, name='usage-before-spawn', daemon=True).start()
 
     def _launch(self, req: SpawnRequest) -> dict[str, Any]:
         debug_file = self.state_dir / 'debug' / f'{req.name}-{self.token()}.log'
