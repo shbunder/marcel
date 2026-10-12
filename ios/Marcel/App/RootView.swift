@@ -1,5 +1,6 @@
 import MarcelChat
 import MarcelKit
+import MarcelQuests
 import PixelKit
 import SwiftUI
 

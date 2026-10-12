@@ -7,6 +7,11 @@
   so it would compile `Package.swift` and the tests into the app: `project.pbxproj` has a
   `PBXFileSystemSynchronizedBuildFileExceptionSet` that excludes the `Chat` folder. Another tab can follow the same
   pattern (add its folder to that exception list).
+- **Xcode already skips a folder that holds a `Package.swift`** (S-12.5 found this): nothing in it, not even a loose
+  `.swift` file beside the manifest, is compiled into the app target, exception or not. So a screen package cannot
+  also hold an app-side wrapper; make the package's view public (`MarcelQuests.QuestsView`) and import the package
+  where the tab bar routes to it. Quests links `Marcel/Quests` as a local package with no exception entry. Check what
+  the app target really compiles in `ios/.build/xcode/**/Marcel.build/**/*.SwiftFileList`.
 - **`ImageRenderer` draws a `TextField` as a yellow "not supported" box** and a `ScrollView`'s content not at
   all. The chat's snapshots render `ChatStill` (the rows in a plain stack) and, under the `chatStillAvatars`
   environment flag, draw the composer's text as `PixelText` and the avatar as one still frame.
