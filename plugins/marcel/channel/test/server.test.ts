@@ -495,11 +495,58 @@ describe('report', () => {
     const h = await connected();
     const refusal = { code: 'unknown_artifact', message: 'There is no artifact art_404.' };
     h.hub.onFrame = (f) => (f.type === 'report' ? { type: 'call_ack', call_id: f.call_id, error: refusal } : undefined);
-    const res = await h.callTool('report', { kind: 'artifact', artifact: { kind: 'link', title: 'x', url: 'https://example.com' } });
+    const res = await h.callTool('report', {
+      kind: 'artifact',
+      artifact: { kind: 'link', title: 'x', url: 'https://example.com', artifact_id: 'art_404' },
+    });
+    expect(h.hub.of('report')[0]?.artifact?.artifact_id).toBe('art_404');
     expect(res.result?.isError).toBe(true);
     expect(text(res)).toContain('unknown_artifact');
     expect(text(res)).toContain(refusal.message);
     expect(h.server.hub?.pendingCallCount).toBe(0);
+  });
+
+  it('sends artifact_id and summary so the hub adds a version, and leaves them out for a new item', async () => {
+    const h = await connected();
+    ack(h);
+    const board = { kind: 'doc', title: 'Garden plan', path: '/home/shbunder/marcel/workspaces/garden/plan.md' };
+    const version = { ...board, artifact_id: 'art_01J9ZT7', summary: 'Added the autumn bulbs.' };
+    expect(text(await h.callTool('report', { kind: 'artifact', artifact: version }))).toBe('Sent.');
+    expect(text(await h.callTool('report', { kind: 'artifact', artifact: board }))).toBe('Sent.');
+    expect(text(await h.callTool('report', { kind: 'done', summary: 'Done.', artifacts: [version, board] }))).toBe('Sent.');
+    const [withId, without, done] = h.hub.of('report');
+    expect(withId?.artifact).toEqual(version);
+    expect(without?.artifact).toEqual(board);
+    expect(without?.artifact).not.toHaveProperty('artifact_id');
+    expect(without?.artifact).not.toHaveProperty('summary');
+    expect(done?.artifacts).toEqual([version, board]);
+    const emoji = { ...version, summary: '🦒'.repeat(200) };
+    expect(text(await h.callTool('report', { kind: 'artifact', artifact: emoji }))).toBe('Sent.');
+  });
+
+  it('refuses a bad artifact_id or summary in plain words, and sends nothing', async () => {
+    const h = await connected();
+    ack(h);
+    const link = { kind: 'link', title: 't', url: 'https://example.com' };
+    const bad: [Record<string, unknown>, RegExp][] = [
+      [{ ...link, artifact_id: 5 }, /"artifact_id" must be a string/],
+      [{ ...link, summary: 5 }, /"summary" must be a string/],
+      [{ ...link, summary: 'x'.repeat(201) }, /"summary" is longer than 200 characters/],
+    ];
+    for (const [artifact, pattern] of bad) {
+      const res = await h.callTool('report', { kind: 'artifact', artifact });
+      expect(res.result?.isError, JSON.stringify(artifact)).toBe(true);
+      expect(text(res)).toMatch(pattern);
+    }
+    expect(h.hub.of('report')).toHaveLength(0);
+  });
+
+  it('describes artifact_id and summary in the report tool', async () => {
+    const h = await connected();
+    const tools = (await h.request('tools/list')).result?.tools as { name: string; description: string; inputSchema: { properties: Record<string, { properties?: Record<string, unknown> }> } }[];
+    const report = tools.find((t) => t.name === 'report')!;
+    expect(report.description).toContain('artifact_id');
+    expect(Object.keys(report.inputSchema.properties.artifact!.properties!)).toEqual(expect.arrayContaining(['artifact_id', 'summary']));
   });
 
   it('sends next with a progress report, and leaves it out when absent', async () => {
