@@ -33,6 +33,7 @@ from marcel_hub import (
     memory,
     notify,
     projects,
+    schedule,
     task_threads,
     tasks,
     usage,
@@ -189,11 +190,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         avatars.prime()  # states that changed while the hub was down (S-04.8)
         avatars.start()
         prs.start()  # S-04.12: open PRs found again, then refreshed every 5 minutes
+        scheduler.start()  # S-09.1: missed fires are reported once, on its first look
         if keeper_of_brains is not None and keeper_of_brains.runner is not None:
             keeper_of_brains.start()  # S-06.2: one brain per agent, from the first second
         yield
         if keeper_of_brains is not None:
             await keeper_of_brains.stop()
+        await scheduler.stop()  # a look in progress finishes first
         await prs.stop()
         await avatars.stop()
         await keeper.stop()
@@ -274,6 +277,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.brain_ports.boards = boards.BrainBoards(keeper)  # the brain's board_note
     # S-10.1: holds new spawns near the plan's limit; serves /api/usage and the brain's usage_get.
     usage.install(app, guard, registry, watch)
+    # S-09.1: schedules fire through the registry (so the guard and the cap apply) or the outbox.
+    scheduler = schedule.install(app, registry, gateway.outbox, pusher, settings.data_dir)
     # S-06.2: keeps one brain session per agent, and rolls it over nightly. It starts the brain
     # through the runner directly, never through the task registry, so the worker cap and the
     # usage guard never hold it back: the brain must always answer.
