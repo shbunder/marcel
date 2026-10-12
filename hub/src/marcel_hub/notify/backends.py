@@ -1,8 +1,8 @@
 """Push backends: the `Notifier` interface and the ntfy backend (B-18).
 
 A backend sends one `PushNotification` to one device and raises `PushFailed` when it could not.
-Retrying, rate limits and logging live in `pusher.py`, so a backend stays a thin HTTP call. APNs
-(S-08.2) is a second class with `kind = 'apns'` that reads `device.apns_token`.
+Retrying, rate limits and logging live in `pusher.py`, so a backend stays a thin HTTP call. The
+APNs backend (S-08.2) is `apns.ApnsNotifier`, with `kind = 'apns'`; it reads `device.apns_token`.
 
 An ntfy topic is a secret: anyone who knows it can read the pushes. It never goes in a log line, an
 exception message or a URL. The ntfy backend publishes as JSON to the server's root, so the topic

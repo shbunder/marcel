@@ -67,6 +67,8 @@ class Settings:
     brain_cwd: str | None = None
     # None: no ntfy pushes. e.g. 'https://ntfy.sh' or a self-hosted server (S-08.1).
     ntfy_server: str | None = None
+    # None: no APNs pushes (`push.apns` false). The .p8 key and its ids; never shown (S-08.2).
+    apns: notify.ApnsConfig | None = field(default=None, repr=False)
     # None: PR cards say the hub cannot ask GitHub. A read-only token (ADR-002); never shown.
     github_token: str | None = field(default=None, repr=False)
     # The owner's time zone: the built-in digests fire in it (S-09.2).
@@ -99,6 +101,11 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         'worker_cwd',
         'brain_cwd',
         'ntfy_server',
+        'apns_key',
+        'apns_key_id',
+        'apns_team_id',
+        'apns_topic',
+        'apns_sandbox',
         'github_token',
         'tz',
     }
@@ -117,6 +124,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             worker_cwd=str(values['worker_cwd']) if values.get('worker_cwd') else None,
             brain_cwd=str(values['brain_cwd']) if values.get('brain_cwd') else None,
             ntfy_server=_ntfy_server(values.get('ntfy_server')),
+            apns=_apns(values),
             github_token=str(values['github_token']).strip() or None
             if values.get('github_token')
             else None,
@@ -141,6 +149,13 @@ def _ntfy_server(value: Any) -> str | None:
     return server
 
 
+def _apns(values: dict[str, Any]) -> notify.ApnsConfig | None:
+    try:
+        return notify.ApnsConfig.from_values(values)
+    except notify.ApnsSettingsError as exc:
+        raise SettingsError(str(exc)) from None
+
+
 def _tz(value: Any) -> str:
     try:
         zone(str(value))
@@ -160,6 +175,11 @@ def _is_setting(name: str) -> bool:
         'MARCEL_WORKER_CWD',
         'MARCEL_BRAIN_CWD',
         'MARCEL_NTFY_SERVER',
+        'MARCEL_APNS_KEY',
+        'MARCEL_APNS_KEY_ID',
+        'MARCEL_APNS_TEAM_ID',
+        'MARCEL_APNS_TOPIC',
+        'MARCEL_APNS_SANDBOX',
         'MARCEL_GITHUB_TOKEN',
         'MARCEL_TZ',
     }
@@ -252,7 +272,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Pushes (S-08.1) and the channel gateway (S-04.6) both watch the registry's events on their way
     # to the one event log: the pusher pushes on state changes; the gateway expires or settles
     # approval cards. The gateway is also the registry's Outbox.
-    pusher = notify.install(app, settings.ntfy_server)
+    pusher = notify.install(app, settings.ntfy_server, settings.apns)
     gateway = channel.create(app, settings.data_dir, push=pusher, alerts=pusher)
     # S-10.1: the usage guard sees limit hits in the registry's events once they are stored.
     guard = usage.create(
