@@ -1,6 +1,7 @@
 """Print each frame of the mock hub's WebSocket, one line each, until the avatar is idle again.
 
     uv run python scripts/ws_listen.py [since]
+    UNTIL=agent.updated uv run python scripts/ws_listen.py   # stop at the first frame of a type
 
 Used by walk.sh; handy on its own to watch what the app would see.
 """
@@ -15,6 +16,7 @@ import sys
 from websockets.asyncio.client import connect
 
 HUB = os.environ.get('HUB', 'http://127.0.0.1:7499').replace('http', 'ws', 1)
+UNTIL = os.environ.get('UNTIL')
 
 
 def describe(frame: dict) -> str:
@@ -36,6 +38,10 @@ def describe(frame: dict) -> str:
         'task.moved': lambda: f'{data["from_project_id"]} -> {data["to_project_id"]}',
         'approval.created': lambda: data['summary'],
         'approval.resolved': lambda: data['state'],
+        'agent.updated': lambda: (
+            f'{data["agent"]["name"]} is a {data["agent"]["animal"]} now, '
+            f'avatar {data.get("avatar_etag", "unchanged")}'
+        ),
         'hello': lambda: f'last_event_id={data["last_event_id"]} replayed={data["replayed"]}',
     }.get(frame['type'], lambda: '')()
     return f'{frame["id"]:>3}  {frame["type"]:<18} {detail}'
@@ -50,6 +56,8 @@ async def main(since: str | None) -> int:
         async for raw in ws:
             frame = json.loads(raw)
             print(describe(frame), flush=True)
+            if UNTIL and frame['type'] == UNTIL:
+                return 0
             state = (
                 frame['data'].get('state', {}).get('kind')
                 if frame['type'] == 'agent.state'

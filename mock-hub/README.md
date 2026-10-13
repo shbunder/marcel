@@ -19,7 +19,7 @@ Point the app's server URL at `http://127.0.0.1:7499/api`.
 ## What it does
 
 - **Any device token works**, but a request with no `Authorization: Bearer ...` gets a 401, as the real
-  hub would send. `POST /api/pair` accepts any code. `/api/health` and `/api/pair` need no token.
+  hub would send. `POST /api/pair` accepts any code (see People below for a member's). `/api/health` and `/api/pair` need no token.
 - **Bodies are checked against the contract.** A request body that does not match gets a 400 with a
   readable `message`, so a wrong request from the app shows up here.
 - **State lives in memory.** A restart resets it. Nothing is stored on disk.
@@ -59,6 +59,38 @@ live) and **Inbox** (`prj_inbox`, always last on the map). Every task and every 
   answers an older one. A seeded artifact at version 3 has versions 1 to 3.
 - **A message sent from a project room** (`project_id` on the message, B-32) is stored with the tag, and
   the thread it starts is filed in that project. An unknown `project_id` is a 400.
+
+## People and chat clarity (contract 0.7)
+
+Two people are there from the start: the owner **Shaun** (`usr_owner`, helper Marcel) and **Emma**
+(`usr_01JA3E1`, helper Pip, `agt_01JA3E2`), from the contract's `Me`, `User` and `agent.updated`
+examples.
+
+- **Whose phone is it.** Any token the mock did not hand out is the owner's, as before. `POST
+  /api/users/{user_id}/pairing-codes` gives a one-time code (`MOCK01`, `MOCK02`, ...); `POST /api/pair`
+  with it pairs the phone to that person and returns their own token. A used code is a 400. Any other
+  code still pairs to the owner.
+- **Owner-only routes** (`x-owner-only` in the contract: list, add and remove people, pairing codes)
+  answer a member with 403 `owner_only`: "Only Shaun can manage people. Ask Shaun to do it."
+- **Each person sees their own.** `/me`, agents, conversations, messages, tasks, projects, items,
+  approvals and mentions are the caller's own agent's; someone else's answers 404, or an empty list.
+  Emma starts with her own main conversation and nothing else. Actions on an item by id (move, answer,
+  archive, versions, content) are not checked per person, answering a self-change approval is not
+  owner-only here, and the event stream goes to every phone.
+- **Adding a person** (`POST /api/users`) makes their helper and main conversation; without a look the
+  helper gets the `User` example's. **Removing** one signs their phones out at once (401) and removes
+  their helper; the owner cannot be removed (409 `cannot_remove_owner`).
+- **A look change** (`PATCH /api/agents/{id}` with `look`, `name` or `onboarded`) is remembered and sends
+  `agent.updated`, with `avatar_etag` `"lk-<animal>-<color>-<personality>"`. `GET
+  /api/agents/{id}/avatar` answers the contract's example sheet with that ETag. `onboarded_at` is set
+  once.
+- **Quoted replies (B-41).** Every milestone, approval card and item message of a run carries
+  `reply_to_message_id`: the message that started it. Say something else while a run waits, and its
+  `done` milestone answers an older message than your latest: the app shows a quote.
+- **Mentions (B-42).** `GET /api/mentions?q=&kind=` lists your quests, projects and items whose title
+  holds `q`, newest first, at most 20 (boards left out). A message's `mentions` must be your own, or
+  it is refused with 404 `mention_not_found` and nothing is stored; the stored message carries the
+  hub's titles, and a project mention files it in that project.
 
 ## The scenario
 

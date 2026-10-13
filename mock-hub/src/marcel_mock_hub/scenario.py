@@ -7,6 +7,8 @@
   updates the document to v2. Move it to *Energy contracts* while it waits; its board follows.
 
 A message sent from a project room (`project_id`, B-32) files the thread in that project instead.
+Every milestone, approval card and item message of a run carries `reply_to_message_id`: the message
+that started it (B-41), so the app can quote it once you have written something since.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import contract
-from .hub import AGENT_ID, INBOX, MAIN_CONVERSATION, MARCEL_DEV, SCENARIO_REPO, Hub, now
+from .hub import AGENT_ID, INBOX, MAIN_CONVERSATION, MARCEL_DEV, SCENARIO_REPO, Hub, now, reply_to
 
 SCENARIO_TITLE = 'Fix the flaky login test'
 ITEMS_TITLE = 'Compare the energy offers'
@@ -86,6 +88,7 @@ def _milestone(hub: Hub, task: dict[str, Any], event: str, **extra: Any) -> None
                 **extra,
             },
             'task_id': task['id'],
+            **reply_to(task),
             'created_at': now(),
         }
     )
@@ -119,6 +122,7 @@ async def _ask(hub: Hub, task: dict[str, Any], ask: Ask) -> bool:
             'kind': 'approval',
             'approval_id': approval_id,
             'task_id': task['id'],
+            **reply_to(task),
             'created_at': now(),
         }
     )

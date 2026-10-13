@@ -10,6 +10,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from . import boards, contract
+from .base import Refused, now
+from .people import People
 
 MAIN_CONVERSATION = 'cnv_main_marcel'
 AGENT_ID = 'agt_marcel'
@@ -20,23 +22,18 @@ SCENARIO_REPO = 'shbunder/marcel'
 HUB_AUTHOR = 'the hub'
 BOARD_TYPE = 'application/json'
 FINISHED = ('done', 'failed', 'stopped')
+MENTION_LIMIT = 20
 
 
-def now() -> str:
-    return datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
+def reply_to(task: dict[str, Any]) -> dict[str, str]:
+    """A task's milestones, approval cards and items answer the message that started it (B-41)."""
+    parent = task.get('parent_message_id')
+    return {'reply_to_message_id': parent} if parent else {}
 
 
 def slugify(name: str) -> str:
     slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')[:40].strip('-')
     return slug or 'project'
-
-
-class Refused(Exception):
-    """A request the hub would refuse: carries the status and the `Error` body."""
-
-    def __init__(self, status: int, code: str, message: str) -> None:
-        super().__init__(message)
-        self.status, self.code, self.message = status, code, message
 
 
 class Hub:
@@ -47,6 +44,7 @@ class Hub:
         self.events: list[dict[str, Any]] = []
         self.subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
         self.agent_state: dict[str, Any] = {'kind': 'idle'}
+        self.agent_record: dict[str, Any] = contract.example('Agent')  # the owner's Marcel
         self.messages: list[dict[str, Any]] = []
         self.tasks: dict[str, dict[str, Any]] = {}
         self.task_events: dict[str, list[dict[str, Any]]] = {}
@@ -61,6 +59,9 @@ class Hub:
         self.runs: set[asyncio.Task[None]] = set()
         self.counter = 0
         self._seed()
+        self.people = People(
+            self, self.agent_record, self.conversations[MAIN_CONVERSATION]['created_at']
+        )
 
     # ---- seed: the contract's examples, plus what they point at -------------------------
 
@@ -200,14 +201,76 @@ class Hub:
         self.emit('agent.state', {'agent_id': AGENT_ID, 'state': state})
 
     def agent(self) -> dict[str, Any]:
-        agent = contract.example('Agent')
+        agent = copy.deepcopy(self.agent_record)
         agent['state'] = copy.deepcopy(self.agent_state)
         return agent
 
-    def me(self) -> dict[str, Any]:
-        me = contract.example('Me')
-        me['agents'] = [self.agent()]
-        return me
+    # ---- what belongs to whom (each person sees only their own agent's things) ----------
+
+    def project_agent(self, project_id: str | None) -> str | None:
+        project = self.projects.get(project_id or '')
+        return project['agent_id'] if project else None
+
+    def owned(self, kind: str, agent_id: str) -> list[dict[str, Any]]:
+        """An agent's tasks, projects or artifacts (an artifact belongs to its project's agent)."""
+        if kind == 'task':
+            return [t for t in self.tasks.values() if t['agent_id'] == agent_id]
+        if kind == 'project':
+            return [p for p in self.projects.values() if p['agent_id'] == agent_id]
+        return [
+            a
+            for a in self.artifacts.values()
+            if self.project_agent(a.get('project_id')) == agent_id
+        ]
+
+    # ---- mentions (B-42) -------------------------------------------------------------------
+
+    @staticmethod
+    def _title(kind: str, item: dict[str, Any]) -> str:
+        return item['name'] if kind == 'project' else item['title']
+
+    def search_mentions(self, agent_id: str, q: str, kind: str | None) -> list[dict[str, Any]]:
+        """The agent's quests, projects and items whose title holds `q` (any case), newest
+        first, at most 20. Boards are left out: they are a project's, not an item to mention."""
+        found = []
+        for k in ('task', 'project', 'artifact'):
+            if kind not in (None, k):
+                continue
+            for item in self.owned(k, agent_id):
+                if k == 'artifact' and item['kind'] == 'board':
+                    continue
+                title = self._title(k, item)
+                if q.lower() in title.lower():
+                    found.append(
+                        (item['updated_at'], {'kind': k, 'id': item['id'], 'title': title})
+                    )
+        found.sort(key=lambda pair: pair[0], reverse=True)
+        return [mention for _, mention in found[:MENTION_LIMIT]]
+
+    def resolve_mentions(
+        self, agent_id: str, mentions: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Each mention must be the caller's own, or nothing is stored. Titles are the hub's."""
+        resolved = []
+        for mention in mentions:
+            item = next(
+                (i for i in self.owned(mention['kind'], agent_id) if i['id'] == mention['id']),
+                None,
+            )
+            if item is None:
+                raise Refused(
+                    404,
+                    'mention_not_found',
+                    f'There is no {mention["kind"]} of yours with the id {mention["id"]}.',
+                )
+            resolved.append(
+                {
+                    'kind': mention['kind'],
+                    'id': item['id'],
+                    'title': self._title(mention['kind'], item),
+                }
+            )
+        return resolved
 
     def add_message(self, message: dict[str, Any]) -> dict[str, Any]:
         self.messages.append(message)
@@ -220,11 +283,16 @@ class Hub:
         text: str,
         client_id: str | None,
         project_id: str | None = None,
+        mentions: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if client_id and client_id in self.client_ids:
             return self.client_ids[client_id]
-        if project_id is not None and project_id not in self.projects:
+        agent_id = self.conversations[conversation_id]['agent_id']
+        if project_id is not None and self.project_agent(project_id) != agent_id:
             raise Refused(400, 'bad_request', 'There is no project with that id.')
+        resolved = self.resolve_mentions(agent_id, mentions or [])
+        if project_id is None:
+            project_id = next((m['id'] for m in resolved if m['kind'] == 'project'), None)
         message: dict[str, Any] = {
             'id': self.next_id('msg'),
             'conversation_id': conversation_id,
@@ -235,6 +303,8 @@ class Hub:
         }
         if project_id:
             message['project_id'] = project_id
+        if resolved:
+            message['mentions'] = resolved
         if client_id:
             message['client_id'] = client_id
             self.client_ids[client_id] = message
@@ -319,6 +389,7 @@ class Hub:
                     'artifact_id': art['id'],
                     'project_id': art['project_id'],
                     'task_id': task['id'],
+                    **reply_to(task),
                     'created_at': now(),
                 }
             )

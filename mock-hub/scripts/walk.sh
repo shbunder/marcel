@@ -2,7 +2,9 @@
 # Walk the whole scenario against a running mock hub (start it with `make mock-hub`):
 # flows 1-3: pair, send a message, watch the events, approve the card, watch the task finish;
 # flows 4-6: the map, a new project, an energy thread filed in the inbox and moved to its project,
-# the project room and its board, then the item's v2 after the approval.
+# the project room and its board, then the item's v2 after the approval;
+# people and chat clarity (contract 0.7): Emma's phone, a member's 403, a look change, a result that
+# quotes an older message, and mentions.
 set -euo pipefail
 
 HUB="${HUB:-http://127.0.0.1:7499}"
@@ -130,5 +132,56 @@ step "replay: reconnect with since=0 sees the first run again"
 REPLAY="$(HUB="$HUB" uv run --quiet python scripts/ws_listen.py 0)"
 printf '%s\n' "$REPLAY" | sed -n '1,4p'
 echo "... $(printf '%s\n' "$REPLAY" | grep -c .) lines in all"
+
+# ---- people and chat clarity (contract 0.7) ----------------------------------------------------
+
+step "people: the owner first, then the family"
+curl -fsS "${AUTH[@]}" "$API/users" | json "'\n'.join(u['name'] + ' (' + u['role'] + '), helper ' + u['agent']['name'] for u in d)"
+
+step "a pairing code for Emma's phone"
+CODE="$(curl -fsS -X POST "${AUTH[@]}" "$API/users/usr_01JA3E1/pairing-codes" | json "d['code']")"
+echo "code $CODE"
+
+step "Emma's phone pairs with it"
+EMMA_TOKEN="$(curl -fsS -X POST "${JSON[@]}" "$API/pair" \
+  -d "{\"code\":\"$CODE\",\"device_name\":\"Emma's iPhone\"}" | json "d['token']")"
+EMMA=(-H "Authorization: Bearer $EMMA_TOKEN")
+curl -fsS "${EMMA[@]}" "$API/me" | json "d['name'] + ' (' + d['role'] + ') with ' + d['agents'][0]['name']"
+
+step "Emma may not open People"
+curl -sS "${EMMA[@]}" "$API/users" -w ' (HTTP %{http_code})\n'
+
+step "Emma gives Pip a new look"
+: >"$LOG"
+HUB="$HUB" UNTIL=agent.updated uv run --quiet python scripts/ws_listen.py >"$LOG" &
+LISTENER=$!
+for _ in $(seq 50); do grep -q connected "$LOG" && break; sleep 0.1; done
+curl -fsS -X PATCH "${EMMA[@]}" "${JSON[@]}" "$API/agents/agt_01JA3E2" \
+  -d '{"look":{"animal":"panda","color":"teal","personality":"cozy"}}' | json "d['name'] + ' looks like a ' + d['look']['color'] + ' ' + d['animal']"
+finish
+cat "$LOG"
+
+step "ask something, then say something else while it works"
+FIRST="$(curl -fsS -X POST "${AUTH[@]}" "${JSON[@]}" "$API/conversations/cnv_main_marcel/messages" \
+  -d '{"text":"Can you fix the flaky login test again?"}' | json "d['id']")"
+APPROVAL="$(wait_for_approval)"
+curl -fsS -X POST "${AUTH[@]}" "${JSON[@]}" "$API/conversations/cnv_main_marcel/messages" \
+  -d '{"text":"And remind me about the dentist tomorrow."}' | json "d['id'] + ': ' + d['text']"
+curl -fsS -X POST "${AUTH[@]}" "${JSON[@]}" "$API/approvals/$APPROVAL" -d '{"decision":"approve"}' >/dev/null
+for _ in $(seq 100); do
+  curl -fsS "${AUTH[@]}" "$API/me" | json "d['agents'][0]['state']['kind']" | grep -q idle && break
+  sleep 0.2
+done
+
+step "the result quotes the first message, not the latest"
+curl -fsS "${AUTH[@]}" "$API/conversations/cnv_main_marcel/messages?limit=200" |
+  json "next(m['milestone']['event'] + ' answers ' + m['reply_to_message_id'] + (' (the first message, $FIRST)' if m['reply_to_message_id']=='$FIRST' else '') for m in reversed(d['items']) if m.get('kind')=='milestone')"
+
+step "mentions: @ finds quests and items, # finds projects"
+curl -fsS "${AUTH[@]}" "$API/mentions?q=login" | json "'\n'.join(m['kind'] + ' ' + m['id'] + ': ' + m['title'] for m in d[:3])"
+curl -fsS "${AUTH[@]}" "$API/mentions?q=energy&kind=project" | json "', '.join(m['title'] for m in d)"
+curl -fsS -X POST "${AUTH[@]}" "${JSON[@]}" "$API/conversations/cnv_main_marcel/messages" \
+  -d '{"text":"Anything new on #energy?","mentions":[{"kind":"project","id":"prj_01JA0A1","title":"energy"}]}' |
+  json "'stored in ' + d['project_id'] + ', mentions ' + d['mentions'][0]['title']"
 
 step "walk finished"

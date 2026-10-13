@@ -20,6 +20,7 @@ PATH_PARAMS = {
     'approval_id': 'apr_01J9ZR2',
     'schedule_id': 'sch_digest_morning',
     'path': 'MEMORY.md',
+    'user_id': 'usr_01JA3E1',  # Emma, the contract's User example
 }
 OPERATIONS = [(m, p, op) for m, p, op in contract.operations() if p != '/ws']
 IDS = [op['operationId'] for _, _, op in OPERATIONS]
