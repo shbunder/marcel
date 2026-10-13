@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from . import png
-from .core import COLORS, MOODS, PERSONALITIES, SPECIES, N, frame, to_rgba
+from .core import ACCESSORIES, COLORS, MOODS, PERSONALITIES, SPECIES, N, frame, js_round, to_rgba
 
 COLUMNS = 8
 FRAMES_PER_LOOP = 16
@@ -27,6 +27,9 @@ LOOPS: dict[str, dict[str, Any]] = {
 
 def check_look(look: dict[str, Any]) -> dict[str, Any]:
     """The look with defaults filled in; a clear error for an unknown animal, colour, personality or mood."""
+    for key in ('species', 'color', 'personality', 'accessory', 'mood'):
+        if look.get(key) is not None and not isinstance(look[key], str):
+            raise ValueError(f'The {key} must be a word, not {look[key]!r}.')
     out = {
         'species': look.get('species') or 'giraffe',
         'color': look.get('color') or 'natural',
@@ -40,6 +43,8 @@ def check_look(look: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f'Unknown colour {color!r}. Use "natural", #rrggbb or one of: {", ".join(COLORS)}.')
     if out['personality'] not in PERSONALITIES:
         raise ValueError(f'Unknown personality {out["personality"]!r}. Pick one of: {", ".join(PERSONALITIES)}.')
+    if out['accessory'] and out['accessory'] not in ACCESSORIES:
+        raise ValueError(f'Unknown accessory {out["accessory"]!r}. Pick one of: {", ".join(ACCESSORIES)}.')
     mood = look.get('mood')
     if mood and mood not in MOODS:
         raise ValueError(f'Unknown mood {mood!r}. Pick one of: {", ".join(MOODS)}.')
@@ -114,7 +119,7 @@ def _blend(px: bytes, bg: tuple[int, int, int, int] | None) -> bytes:
     if not bg or px[3] == 255:
         return px
     a = px[3] / 255
-    return bytes([round(bg[i] * (1 - a) + px[i] * a) for i in range(3)] + [255])
+    return bytes([js_round(bg[i] * (1 - a) + px[i] * a) for i in range(3)] + [255])
 
 
 def preview(look: dict[str, Any], mood: str | None = None, scale: int = 4) -> bytes:

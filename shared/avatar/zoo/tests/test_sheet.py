@@ -59,14 +59,17 @@ def test_slug_and_names():
 @pytest.mark.parametrize(
     ('look', 'word'),
     [
-        ({'species': 'unicorn'}, 'animal'),
-        ({'color': 'mauve'}, 'colour'),
-        ({'personality': 'x'}, 'personality'),
-        ({'mood': 'x'}, 'mood'),
+        ({'species': 'unicorn'}, 'Unknown animal'),
+        ({'color': 'mauve'}, 'Unknown colour'),
+        ({'personality': 'x'}, 'Unknown personality'),
+        ({'mood': 'x'}, 'Unknown mood'),
+        ({'accessory': 'hat'}, 'Unknown accessory'),
+        ({'color': 5}, 'must be a word'),
+        ({'species': ['cat']}, 'must be a word'),
     ],
 )
 def test_unknown_choices_are_refused_in_plain_words(look, word):
-    with pytest.raises(ValueError, match=f'Unknown {word}'):
+    with pytest.raises(ValueError, match=word):
         check_look(look)
 
 
@@ -123,3 +126,16 @@ def test_cli_sheet_and_preview(tmp_path, schema, capsys):
     assert out.exists()
     assert main(['preview', '--animal', 'unicorn']) == 2
     assert 'Unknown animal' in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        main(['preview', '--scale', '1000'])
+
+
+def test_cli_writes_to_out_by_default(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert main(['sheet', '--animal', 'cat']) == 0
+    assert main(['preview', '--animal', 'cat']) == 0
+    assert sorted(p.name for p in (tmp_path / 'out').iterdir()) == [
+        'cat-natural-professional-preview.png',
+        'cat-natural-professional.json',
+        'cat-natural-professional.png',
+    ]

@@ -62,3 +62,11 @@ def test_shadow_is_see_through_and_background_blends():
 
 def test_js_round_rounds_halves_up_like_math_round():
     assert (js_round(0.5), js_round(1.5), js_round(2.5), js_round(-0.5)) == (1, 2, 3, 0)
+
+
+def test_sessions_count_like_js():
+    def lamps(sessions):
+        fr = frame({'species': 'bear', 'sessions': sessions}, 'working', 1)
+        return [fr['grid'][26][19 - i * 2] for i in range(3)].count('x')
+
+    assert (lamps('2'), lamps(None), lamps('lots'), lamps(9), lamps(0)) == (2, 1, 1, 3, 1)

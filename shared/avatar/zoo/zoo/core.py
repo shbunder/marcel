@@ -716,7 +716,7 @@ COLORS: dict[str, str] = {
 def name_hash(text: str) -> int:
     """FNV-1a over UTF-16 code units, then a final mix, exactly as zoo.js's `hash`."""
     h = 2166136261
-    units = text.encode('utf-16-le')
+    units = text.encode('utf-16-le', 'surrogatepass')  # JS strings may hold lone surrogates; so may JSON
     for i in range(0, len(units), 2):
         h ^= units[i] | (units[i + 1] << 8)
         h = imul(h, 16777619)
@@ -841,6 +841,15 @@ def draw_laptop(g: Grid, sp: dict[str, Any], f: int, dy: int, sessions: int) -> 
     draw_part(g, L(19, 19 + (1 if typing else 0), blob(3, 2, limb)), dy)
 
 
+def _sessions(value: Any) -> int:
+    """1-3 lamps; like JS, "2" counts as 2. Anything that is not a number counts as 1."""
+    try:
+        n = int(value or 1)
+    except (TypeError, ValueError):
+        n = 1
+    return max(1, min(3, n))
+
+
 def frame(look: dict[str, Any], mood: str | None = None, f: int = 0) -> dict[str, Any]:
     """Frame f of an avatar: {"grid": 32 rows of palette letters (None = empty), "palette": letter -> colour}.
 
@@ -884,7 +893,7 @@ def frame(look: dict[str, Any], mood: str | None = None, f: int = 0) -> dict[str
         draw_part(g, L(nx + acc['dx'], ny + acc['dy'], acc['rows']), hop if look.get('species') == 'giraffe' else hy)
 
     if face_mood.get('prop') == 'laptop':
-        draw_laptop(g, sp, f, hop, max(1, min(3, look.get('sessions') or 1)))
+        draw_laptop(g, sp, f, hop, _sessions(look.get('sessions')))
 
     # ---- face
     eye_map: Callable[[str], str] | None = None

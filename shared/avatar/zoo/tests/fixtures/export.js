@@ -39,7 +39,7 @@ const fixtures = looks.map(({ look, frame }) => {
     rgba_sha256: crypto.createHash("sha256").update(rgba).digest("hex"),
   };
 });
-const names = ["Marcel", "Shaun", "Emma", "  Noor ", "OMA", "Zoë", "李雷", "😀 Bob", "", "Victor"].map((name) => {
+const names = ["Marcel", "Shaun", "Emma", "  Noor ", "OMA", "Zoë", "李雷", "😀 Bob", "", "Victor", "\ud800x"].map((name) => {
   const p = Z.fromName(name);
   return { name, species: p.species, color: p.color, personality: p.personality, hash: Z.hash(name.trim().toLowerCase()) };
 });

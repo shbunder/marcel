@@ -31,7 +31,7 @@ def test_fixtures_cover_every_animal_mood_and_personality(js):
     assert {lk['personality'] for lk in looks} == set(PERSONALITIES)
 
 
-@pytest.mark.parametrize('n', range(10))
+@pytest.mark.parametrize('n', range(11))
 def test_name_picks_the_same_look_as_zoo_js(js, n):
     case = js['names'][n]
     look = from_name(case['name'])
@@ -47,3 +47,9 @@ def test_same_name_same_look_and_fixed_choices_win():
     assert {**from_name('Emma'), 'name': ''} == {**from_name('  emma '), 'name': ''}
     assert from_name('Emma', {'species': 'frog', 'mood': 'happy'})['species'] == 'frog'
     assert from_name('Emma', {'mood': 'happy'})['mood'] == 'happy'
+
+
+def test_a_name_with_a_lone_surrogate_does_not_crash(js):
+    # JSON can carry "\ud800"; zoo.js hashes it, so must we (the hub passes names straight in)
+    assert any('\ud800' in case['name'] for case in js['names'])
+    assert from_name('\ud800x')['species']

@@ -21,7 +21,7 @@ fr = frame(look, 'love', 3)  # one 32x32 frame: palette letters + palette
 ```
 
 ```bash
-uv run python -m zoo sheet --animal giraffe --color rose --personality professional --out out/
+uv run python -m zoo sheet --animal giraffe --color rose --personality professional   # -> out/
 uv run python -m zoo sheet --from-name Emma
 uv run python -m zoo preview --animal frog --personality bold            # every mood, enlarged
 uv run python -m zoo preview --animal frog --mood laughing               # one mood's 16 frames

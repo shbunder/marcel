@@ -3861,6 +3861,13 @@
    "color": "natural",
    "personality": "cheerful",
    "hash": 3771117807
+  },
+  {
+   "name": "\ud800x",
+   "species": "crocodile",
+   "color": "honey",
+   "personality": "bold",
+   "hash": 3097795570
   }
  ]
 }

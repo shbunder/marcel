@@ -36,15 +36,15 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument('--personality')
         p.add_argument('--accessory', choices=list(ACCESSORIES))
         p.add_argument('--from-name', help='pick the look from a name (flags above still win)')
-        p.add_argument('--out', help='a folder for sheet, a file for preview')
+        p.add_argument('--out', help='a folder for sheet, a file for preview (default: out/)')
         if name == 'preview':
             p.add_argument('--mood', help='show all 16 frames of one mood (default: every mood once)')
-            p.add_argument('--scale', type=int, default=4)
+            p.add_argument('--scale', type=int, default=4, choices=range(1, 17), metavar='1-16')
     args = parser.parse_args(argv)
     try:
         look = check_look(_look(args))
         if args.command == 'sheet':
-            out = Path(args.out or '.')
+            out = Path(args.out or 'out')
             out.mkdir(parents=True, exist_ok=True)
             image, meta = sheet(look)
             (out / meta['image']).write_bytes(image)
@@ -52,7 +52,8 @@ def main(argv: list[str] | None = None) -> int:
             json_path.write_text(json.dumps(meta, indent=2) + '\n')
             print(f'Wrote {out / meta["image"]} and {json_path} ({meta["frame_count"]} frames).')
         else:
-            path = Path(args.out or f'{slug(look)}-preview.png')
+            path = Path(args.out or f'out/{slug(look)}-preview.png')
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(preview(look, args.mood, args.scale))
             print(f'Wrote {path}.')
     except ValueError as err:
