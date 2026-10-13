@@ -138,10 +138,12 @@ def test_a_refusal_means_nothing_owed(world: World, capsys: pytest.CaptureFixtur
 def test_without_a_secret_nothing_is_asked(world: World, tmp_path: Path) -> None:
     _, sid = worker(world)
     transport = Counting(ClientTransport(world.client))
+    laptop = tmp_path / 'laptop'  # not the hub's data folder (`world` keeps its secret in tmp_path)
+    laptop.mkdir()
     assert end.run(stop(sid), {}, transport) == ''
-    assert end.run(stop(sid), {'CLAUDE_PLUGIN_DATA': str(tmp_path)}, transport) == ''
-    (tmp_path / 'hub-secret').write_text('\n')
-    assert end.run(stop(sid), {'CLAUDE_PLUGIN_DATA': str(tmp_path)}, transport) == ''
+    assert end.run(stop(sid), {'CLAUDE_PLUGIN_DATA': str(laptop)}, transport) == ''
+    (laptop / 'hub-secret').write_text('\n')
+    assert end.run(stop(sid), {'CLAUDE_PLUGIN_DATA': str(laptop)}, transport) == ''
     assert transport.bodies == []
 
 
