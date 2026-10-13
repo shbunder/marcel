@@ -687,21 +687,28 @@ Markdown files in the folder `<data_dir>/memory` (B-20), which the brain can rea
 database is `<data_dir>/memory.git`, next to it, which only the hub can reach. The hub creates both
 on first use. The code is `src/marcel_hub/memory.py`.
 
-**One folder per agent (S-17.4, B-38).** Each agent's memory is `agents/<folder>/` (its slug; its
-id when it has none): `MEMORY.md`, `memory/…` and `projects/<slug>.md`. Every way in uses the
-caller's own agent, with the paths shown without the prefix, so nothing else changes: the app
-(`/api/memory`: the phone's person's agent), the brain's `memory_read`/`memory_write` (its own
-agent), a worker's notes and a worker's briefing (its task's agent). Commits name the full path,
-e.g. `memory: agents/marcel/MEMORY.md (app)`.
+**One folder per agent (S-17.4, B-38).** Each agent's memory is `agents/<slug>/`: `MEMORY.md`,
+`memory/…` and `projects/<slug>.md`. Every way in uses the caller's own agent, with the paths shown
+without the prefix, so nothing else changes: the app (`/api/memory`: the person's oldest live agent;
+a person has one helper today), the brain's `memory_read`/`memory_write` (its own agent), a worker's
+notes and briefing (its task's agent), and the brain's start-up notes. Commits name the full path,
+e.g. `memory: agents/marcel/MEMORY.md (app)`. An agent without a slug (an older `agent create`)
+gets one the first time its memory is needed, for good, as `marcel-hub setup` would name it (the
+owner's first agent `marcel`), so its memory never splits between two folders.
 
-**The owner's memory from before 0.7** sat at the top of the folder. On first use after the
-upgrade the hub moves everything there (except `agents/` and hidden files) into
-`agents/<owner's folder>/` in one commit, so `git log --follow agents/marcel/MEMORY.md` keeps its
-history. It leaves a link at each old place (`MEMORY.md → agents/marcel/MEMORY.md`, `memory`,
-`projects`) so a brain workspace rendered before still finds its files until S-17.7 re-links it.
-The hub itself never follows a link, so those old paths reach nothing through the app. It moves
-nothing while the owner has no agent, or when the target already holds a file of the same name
-(it logs that and leaves both).
+**The owner's memory from before 0.7** sat at the top of the folder. On first use after the upgrade
+(any read, including the brain's start-up notes) the hub moves everything there, except `agents/`
+and hidden files, into `agents/<owner's slug>/` and commits it, so
+`git log --follow agents/marcel/MEMORY.md` keeps its history. Each entry gets a link back at its old
+place (`MEMORY.md → agents/marcel/MEMORY.md`, `memory`, `projects`) right after it moves, so a brain
+workspace rendered before still finds its files. The links never enter git, and the hub never
+follows a link, so those paths reach nothing through the app. The move can stop at any point (a
+crash, git failing) and finishes on the next use: what git still tracks at the top is what is left
+to commit, a missing link is made again, and an empty `MEMORY.md` or `memory/` that
+`brain/render.py` put back gives way to the link. It holds the same lock as every save. It waits
+while the owner has no agent, and never overwrites a file: a non-empty clash is logged and left.
+**S-17.7 must re-link brain workspaces** to `agents/<slug>/`: until then every workspace rendered by
+`brain/render.py` points at the top of the folder, which is the owner's memory.
 
 - `GET /api/memory` lists every `.md` file; `GET /api/memory/files/{path}` reads one. Its `etag` is
   the git blob id of the file on disk, so an edit made anywhere changes it. The `ETag` header is the

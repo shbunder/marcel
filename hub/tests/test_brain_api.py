@@ -318,7 +318,7 @@ def test_projects_create_update_and_list(brain: Brain) -> None:
     project = res.json()
     PROJECT.validate(project)
     assert project['slug'] == 'energy-contracts'
-    mine = brain.hub.tmp_path / 'memory' / 'agents' / brain.hub.agent_id.lower()  # S-17.4
+    mine = brain.hub.tmp_path / 'memory' / 'agents' / 'marcel'  # the owner's agent's slug (S-17.4)
     assert (mine / 'projects' / 'energy-contracts.md').is_file()
 
     taken = brain.post('/projects', {'name': 'Again', 'slug': 'energy-contracts'})
@@ -466,7 +466,9 @@ def test_memory_paths_cannot_leave_the_memory_folder(brain: Brain, tmp_path: Pat
         assert res.json()['code'] == 'invalid_memory_path'
         assert brain.get('/memory', path=path).status_code == 400
     assert not outside.exists()
-    memory = brain.hub.tmp_path / 'memory' / 'agents' / brain.hub.agent_id.lower()  # S-17.4
+    memory = (
+        brain.hub.tmp_path / 'memory' / 'agents' / 'marcel'
+    )  # the owner's agent's slug (S-17.4)
     memory.mkdir(parents=True, exist_ok=True)
     (memory / 'link.md').symlink_to(outside)
     assert brain.put('/memory', {'path': 'link.md', 'content': 'pwned'}).status_code == 400
@@ -480,7 +482,9 @@ def test_memory_errors_are_plain(brain: Brain) -> None:
     assert gone.status_code == 404 and 'without an etag' in gone.json()['message']
     too_long = brain.put('/memory', {'path': 'big.md', 'content': 'é' * 600_000})
     assert too_long.status_code == 400 and '1 MB' in too_long.json()['message']
-    memory = brain.hub.tmp_path / 'memory' / 'agents' / brain.hub.agent_id.lower()  # S-17.4
+    memory = (
+        brain.hub.tmp_path / 'memory' / 'agents' / 'marcel'
+    )  # the owner's agent's slug (S-17.4)
     memory.mkdir(parents=True, exist_ok=True)
     (memory / 'huge.md').write_bytes(b'x' * 1_000_001)
     assert brain.get('/memory', path='huge.md').json()['code'] == 'memory_file_too_big'

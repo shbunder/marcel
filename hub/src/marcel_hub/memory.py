@@ -131,6 +131,20 @@ GIT_OVERRIDES = (
 FRESH_CONFIG = '[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n'
 
 
+def _placeholder(path: Path) -> bool:
+    """An empty file, or a folder with nothing but empty folders in it."""
+    if path.is_file():
+        return path.stat().st_size == 0
+    return path.is_dir() and all(p.is_dir() for p in path.rglob('*'))
+
+
+def _remove(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
 class MemoryRepo:
     """The memory folder (`root`, the work tree the brain can reach) and its git database
     (`git_dir`, default `<root>.git` next to it, which only the hub can reach)."""
@@ -144,8 +158,10 @@ class MemoryRepo:
     ) -> None:
         self.root = root
         self.git_dir = git_dir or root.with_name(f'{root.name}.git')
-        self._lock = threading.Lock()
-        self._move_lock = threading.Lock()
+        # Re-entrant: `write` and `append` hold it while `_ensure` may run the one-time move,
+        # which takes it too, so the move and every save are one at a time.
+        self._lock = threading.RLock()
+        self._settled = False  # the owner's old memory is moved (or there was none): skip the look
         # agent id -> its folder under agents/: `install` reads the agent's slug; alone, its id.
         self.folder_of = folder_of
         self.owner_folder = owner_folder  # where the owner's memory from before 0.7 goes
@@ -196,39 +212,82 @@ class MemoryRepo:
             self._git('init', '-q', '-b', 'main')
         self._move_owners_memory()
 
+    def settle(self) -> None:
+        """Make sure the owner's memory from before 0.7 is where `for_agent` looks. Cheap once
+        done; the brain's start-up notes and briefings call it before their first read."""
+        if not self._settled:
+            with self._lock:
+                self._ensure()
+
     def _move_owners_memory(self) -> None:
-        """Once: move what sits at the top of the memory folder (the owner's memory from before
-        0.7: `MEMORY.md`, `memory/`, `projects/`) under `agents/<owner's folder>/`, with git, and
-        leave a link at each old place for brain workspaces rendered before (S-17.4). Does
-        nothing while the owner has no agent, or when that folder holds a file of the same name."""
-        with self._move_lock:
+        """Move what sits at the top of the memory folder (the owner's memory from before 0.7:
+        `MEMORY.md`, `memory/`, `projects/`) under `agents/<owner's folder>/`, and commit it, so
+        `git log --follow` keeps its history (S-17.4).
+
+        Safe to stop at any point and run again: each entry gets its link back right after it is
+        moved (a brain workspace rendered before still finds it), what git still tracks at the
+        top is what is left to commit, and an entry already moved is recognised by its link. An
+        empty file or folder at the top (what `brain/render.py` makes when it finds none) gives
+        way to the link. Waits while the owner has no agent; never overwrites a file."""
+        with self._lock:
+            if self._settled:
+                return
             folder = self.owner_folder()
             if folder is None or not AGENT_FOLDER.fullmatch(folder):
-                return
-            entries = [
-                e for e in sorted(self.root.iterdir())
-                if e.name != AGENTS and not e.name.startswith('.') and not e.is_symlink()
-            ]  # fmt: skip
-            if not entries:
-                return
+                return  # no owner agent yet: look again next time
             dest = self.root / AGENTS / folder
-            clash = [e.name for e in entries if (dest / e.name).exists()]
-            if clash:
-                log.warning('Did not move the old memory into %s: it has %s already.', dest, clash)
+            tracked = {p.split('/', 1)[0] for p in self._head_blobs()} - {AGENTS}
+            on_disk = {e.name for e in self.root.iterdir() if not e.name.startswith('.')} - {AGENTS}
+            # What the owner's folder holds gets its link at the top too (a link lost later).
+            kept = {e.name for e in dest.iterdir()} if dest.is_dir() else set()
+            names = sorted(n for n in tracked | on_disk | kept if not n.startswith('.'))
+            if not names:
+                self._settled = True
                 return
             self._refuse_attribute_files()
-            tracked = {p.split('/', 1)[0] for p in self._head_blobs()}
-            dest.mkdir(parents=True, exist_ok=True)
-            for entry in entries:
-                os.replace(entry, dest / entry.name)
-            paths = [e.name for e in entries if e.name in tracked] + [f'{AGENTS}/{folder}']
-            self._git('add', '-A', '--', *paths)
+            moved: list[str] = []
+            for name in names:
+                if self._move_one(name, dest, folder):
+                    moved.append(name)
+            gone = [n for n in names if n in tracked and (self.root / n).is_symlink()]
+            if gone:  # the old paths leave git; the links stay out of it
+                self._git('rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', *gone)
+            if dest.is_dir():
+                self._git('add', '-A', '--', f'{AGENTS}/{folder}')
             if self._git('diff', '--cached', '--quiet', ok=(0, 1)) is None:  # 1: staged changes
                 subject = f"memory: move the owner's memory to {AGENTS}/{folder}/ (S-17.4)"
                 self._git('commit', '-q', '-m', subject)
-            for entry in entries:  # links for brain workspaces rendered before the move
-                entry.symlink_to(Path(AGENTS) / folder / entry.name)
-            log.info('Moved %s into %s/%s/.', [e.name for e in entries], AGENTS, folder)
+            if moved:
+                log.info('Moved %s into %s/%s/.', moved, AGENTS, folder)
+            # Settled once everything at the top is a link into the owner's folder.
+            self._settled = all((self.root / n).is_symlink() or not (self.root / n).exists()
+                                for n in names)  # fmt: skip
+
+    def _move_one(self, name: str, dest: Path, folder: str) -> bool:
+        """Move one top-level entry and put its link back. True if it moved now."""
+        here, there = self.root / name, dest / name
+        link = Path(AGENTS) / folder / name
+        if here.is_symlink():
+            return False  # moved before
+        if not here.exists():
+            if there.exists():  # moved, but stopped before its link was made
+                here.symlink_to(link)
+            return False
+        if there.exists():
+            if not _placeholder(here):
+                log.warning('Did not move %s into %s: it has one already.', here, dest)
+                return False
+            _remove(here)  # an empty one `render.py` made after the move: the link replaces it
+            here.symlink_to(link)
+            return False
+        dest.mkdir(parents=True, exist_ok=True)
+        try:
+            os.replace(here, there)
+        except OSError as exc:
+            log.warning('Could not move %s into %s: %s', here, dest, exc)
+            return False
+        here.symlink_to(link)
+        return True
 
     def _migrate(self) -> None:
         """Move a git folder out of the memory folder, once, so the brain can no longer edit it.
@@ -352,7 +411,9 @@ class MemoryRepo:
 
     def read_slice(self, rel: str, cap: int = SLICE_MAX_BYTES) -> tuple[str, bool] | None:
         """The first `cap` bytes of a file as text, and whether it was cut; None if there is no
-        file. Reads no more than that and runs no git, so it is cheap enough for every spawn."""
+        file. Reads no more than that and runs no git once the owner's old memory is settled
+        (`settle`), so it is cheap enough for every spawn."""
+        self.settle()
         try:
             fd = os.open(self.resolve(rel), os.O_RDONLY | os.O_NOFOLLOW)
         except (FileNotFoundError, NotADirectoryError):
@@ -656,10 +717,29 @@ async def put_memory_file(request: Request, path: str) -> Any:
     return _file(saved)
 
 
-def _folder(agent: Agent | None) -> str | None:
+def _folder(session: Session, agent: Agent | None) -> str | None:
+    """The agent's folder: its slug. One without a slug (made by an older `agent create`) gets
+    it now, for good, as `marcel-hub setup` would give it (the owner's first agent `marcel`), so
+    its memory never splits between two folders."""
     if agent is None:
         return None
-    return agent.slug or agent.id.lower()
+    if agent.slug is None:
+        from marcel_hub.users.store import OWNER_AGENT_SLUG, slug_for  # users/ builds on memory's
+
+        taken = session.exec(select(Agent).where(Agent.slug == OWNER_AGENT_SLUG)).first()
+        first = session.exec(
+            select(Agent)
+            .where(Agent.owner_user_id == OWNER_USER_ID, col(Agent.archived_at).is_(None))
+            .order_by(col(Agent.id))
+        ).first()
+        is_owners = first is not None and first.id == agent.id
+        agent.slug = (
+            OWNER_AGENT_SLUG if is_owners and taken is None else slug_for(session, agent.name)
+        )
+        session.add(agent)
+        session.commit()
+        session.refresh(agent)
+    return agent.slug
 
 
 def install(app: FastAPI) -> MemoryRepo:
@@ -669,7 +749,7 @@ def install(app: FastAPI) -> MemoryRepo:
 
     def folder_of(agent_id: str) -> str | None:
         with Session(engine) as s:
-            return _folder(s.get(Agent, agent_id))
+            return _folder(s, s.get(Agent, agent_id))
 
     def first_agent(user_id: str) -> Agent | None:
         with Session(engine) as s:
@@ -680,7 +760,11 @@ def install(app: FastAPI) -> MemoryRepo:
             ).first()
 
     def owner_folder() -> str | None:
-        return _folder(first_agent(OWNER_USER_ID))
+        found = first_agent(OWNER_USER_ID)
+        if found is None:
+            return None
+        with Session(engine) as s:
+            return _folder(s, s.get(Agent, found.id))
 
     def agent_of(user_id: str) -> str | None:
         agent = first_agent(user_id)

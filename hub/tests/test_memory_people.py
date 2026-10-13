@@ -7,6 +7,7 @@ under `agents/<owner's folder>/` once, with its git history.
 """
 
 import subprocess
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from test_brain_api import Brain
 from test_channel_fakes import OWNER, ChannelHub, channel_hub, session_id
 from test_tasks_fakes import run
 
-from marcel_hub.memory import InvalidMemoryPath, MemoryRepo
+from marcel_hub.memory import InvalidMemoryPath, MemoryRepo, MemoryUnavailable
 from marcel_hub.models import (
     Agent,
     Conversation,
@@ -107,7 +108,7 @@ def test_the_app_shows_each_person_only_their_own_memory(family: Family) -> None
     'path', ['../MEMORY.md', 'agents/x/MEMORY.md', '../../agents/pip/MEMORY.md', '.git/config.md']
 )
 def test_no_path_reaches_anothers_folder(family: Family, path: str) -> None:
-    owners = family.hub.agent_id.lower()
+    owners = 'marcel'
     family.app_put(family.owner_phone, 'MEMORY.md', 'secret\n')
     status, content = family.app_get(family.emma_phone, path.replace('x', owners))
     assert status in (400, 404) and 'secret' not in content
@@ -130,12 +131,12 @@ def test_a_workers_note_goes_to_its_own_agents_project_notes(family: Family) -> 
     run(gateway._store_note(family.task(family.pip), 'Homework is due on Fridays.'))
     pips = (family.root / 'agents' / 'pip' / 'projects' / 'inbox.md').read_text()
     assert 'Homework is due on Fridays.' in pips
-    owners = family.root / 'agents' / family.hub.agent_id.lower() / 'projects' / 'inbox.md'
+    owners = family.root / 'agents' / 'marcel' / 'projects' / 'inbox.md'
     assert not owners.exists() or 'Homework' not in owners.read_text()
 
 
 def test_a_worker_starts_with_its_own_agents_project_notes(family: Family) -> None:
-    owners = family.root / 'agents' / family.hub.agent_id.lower() / 'projects'
+    owners = family.root / 'agents' / 'marcel' / 'projects'
     owners.mkdir(parents=True)
     (owners / 'inbox.md').write_text('The owner bank PIN is 9876.\n')  # same slug, other person
     pips = family.root / 'agents' / 'pip' / 'projects'
@@ -198,9 +199,104 @@ def test_the_move_waits_for_the_owners_agent_and_never_overwrites(tmp_path: Path
     assert (root / 'agents' / 'marcel' / 'MEMORY.md').read_text() == 'new\n'
 
 
-def test_the_owners_folder_is_their_agents_slug(family: Family) -> None:
+def test_an_agent_without_a_slug_gets_one_for_good(family: Family) -> None:
+    """An agent an older `agent create` made has no slug. Its memory folder is fixed the first
+    time it is needed, as `marcel-hub setup` would name it, so it never splits in two."""
     memory = family.hub.app.state.memory
     assert memory.folder_of(family.pip) == 'pip'
-    assert memory.owner_folder() == family.hub.agent_id.lower()  # no slug yet: its id
+    assert memory.owner_folder() == 'marcel'
     with Session(family.hub.engine) as s:
-        assert s.get(Agent, family.hub.agent_id).owner_user_id == OWNER  # type: ignore[union-attr]
+        owners = s.get(Agent, family.hub.agent_id)
+        assert owners is not None and (owners.slug, owners.owner_user_id) == ('marcel', OWNER)
+        late = Agent(owner_user_id=EMMA, name='Pip', animal='fox', palette='marcel', seed='Pip')
+        s.add(late)
+        s.commit()
+        late_id = late.id
+    assert memory.folder_of(late_id) == 'pip-2'  # a member's: from its name, never `marcel`
+    assert memory.folder_of(late_id) == 'pip-2'  # and the same next time
+
+
+def old_hub(root: Path) -> None:
+    """A memory folder as a hub from before 0.7 left it: everything at the top, committed."""
+    before = MemoryRepo(root)
+    before.write('MEMORY.md', 'The kids eat at 18:00.\n', None, 'app')
+    before.write('memory/2026-10-04.md', 'Dentist on Thursday.\n', None, 'app')
+
+
+def test_a_move_stopped_by_git_finishes_next_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / 'memory'
+    old_hub(root)
+    stopped = MemoryRepo(root, owner_folder=lambda: 'marcel')
+    real_git = stopped._git
+
+    def no_commit(*args: str, ok: tuple[int, ...] = (0,)) -> str | None:
+        if args[0] == 'commit':
+            raise MemoryUnavailable('git commit failed: disk full')
+        return real_git(*args, ok=ok)
+
+    monkeypatch.setattr(stopped, '_git', no_commit)
+    with pytest.raises(MemoryUnavailable):
+        stopped.tree()
+    # Moved and linked already: the brain still finds its notes through the old place.
+    assert (root / 'MEMORY.md').is_symlink()
+    assert (root / 'MEMORY.md').read_text() == 'The kids eat at 18:00.\n'
+
+    again = MemoryRepo(root, owner_folder=lambda: 'marcel')
+    assert again.for_agent('Marcel').read('MEMORY.md')['content'] == 'The kids eat at 18:00.\n'
+    history = git(root, 'log', '--follow', '--format=%s', '--', 'agents/marcel/MEMORY.md')
+    assert history.splitlines()[-1] == 'memory: MEMORY.md (app)'
+    assert git(root, 'status', '--porcelain', '--', 'agents').strip() == ''
+    assert 'MEMORY.md' not in git(root, 'ls-files').split()  # the link never enters git
+
+
+def test_a_link_lost_in_a_crash_is_made_again(tmp_path: Path) -> None:
+    root = tmp_path / 'memory'
+    old_hub(root)
+    MemoryRepo(root, owner_folder=lambda: 'marcel').tree()
+    (root / 'MEMORY.md').unlink()  # stopped right after the move, before the link
+    MemoryRepo(root, owner_folder=lambda: 'marcel').tree()
+    assert (root / 'MEMORY.md').is_symlink()
+
+
+def test_an_empty_memory_made_by_render_gives_way_to_the_link(tmp_path: Path) -> None:
+    root = tmp_path / 'memory'
+    old_hub(root)
+    MemoryRepo(root, owner_folder=lambda: 'marcel').tree()
+    (root / 'MEMORY.md').unlink()
+    (root / 'MEMORY.md').write_text('')  # brain/render.py: "an empty MEMORY.md when missing"
+    MemoryRepo(root, owner_folder=lambda: 'marcel').tree()
+    assert (root / 'MEMORY.md').is_symlink()
+    assert (root / 'MEMORY.md').read_text() == 'The kids eat at 18:00.\n'
+
+
+def test_the_brains_first_notes_after_the_upgrade_are_moved_first(tmp_path: Path) -> None:
+    root = tmp_path / 'memory'
+    old_hub(root)
+    fresh = MemoryRepo(root, owner_folder=lambda: 'marcel')
+    found = fresh.for_agent('Marcel').read_slice('MEMORY.md')  # what the brain's seed reads
+    assert found is not None and found[0] == 'The kids eat at 18:00.\n'
+
+
+def test_saves_at_the_same_moment_as_the_move_all_land(tmp_path: Path) -> None:
+    root = tmp_path / 'memory'
+    old_hub(root)
+    repo = MemoryRepo(root, owner_folder=lambda: 'marcel')
+    errors: list[BaseException] = []
+
+    def save(n: int) -> None:
+        try:
+            repo.for_agent('Marcel').write(f'memory/n{n}.md', f'{n}\n', None, 'app')
+        except BaseException as exc:  # noqa: BLE001 - the test reports any of them
+            errors.append(exc)
+
+    threads = [threading.Thread(target=save, args=(n,)) for n in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    assert sorted(f['path'] for f in repo.for_agent('Marcel').tree()) == [
+        'MEMORY.md', 'memory/2026-10-04.md', *[f'memory/n{n}.md' for n in range(6)],
+    ]  # fmt: skip
