@@ -145,11 +145,36 @@ def test_a_sheet_is_drawn_once_and_kept_on_disk(
     assert len(names) == 2 and not [n for n in names if n.endswith('.tmp')]
 
 
-def test_the_key_follows_the_zoo_version(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_key_follows_the_zoo_drawings(monkeypatch: pytest.MonkeyPatch) -> None:
     look = {'species': 'fox', 'color': 'teal', 'personality': 'shy'}
     before = store.etag(look)
-    monkeypatch.setattr(store, 'ZOO_VERSION', '9.9.9')
-    assert store.etag(look) != before, 'a new zoo release draws new sheets'
+    monkeypatch.setattr(store, 'ZOO_DRAWING', 'changed')
+    assert store.etag(look) != before, 'a changed drawing draws new sheets'
+
+
+def test_the_fingerprint_changes_with_any_drawing_source(tmp_path: Path) -> None:
+    (tmp_path / 'core.py').write_text('EYES = 2\n')
+    first = store.drawing_fingerprint(tmp_path)
+    assert store.drawing_fingerprint(tmp_path) == first, 'stable'
+    (tmp_path / 'core.py').write_text('EYES = 3\n')  # a drawing changed, no version bump
+    assert store.drawing_fingerprint(tmp_path) != first
+
+
+@pytest.mark.parametrize('form', ['*', 'W/{tag}', '"other", {tag}'])
+def test_if_none_match_in_its_other_forms(hub: ChannelHub, form: str) -> None:
+    tag = avatar(hub).headers['etag']
+    assert avatar(hub, **{'if-none-match': form.format(tag=tag)}).status_code == 304
+
+
+def test_a_folder_that_cannot_be_written_only_costs_the_cache(tmp_path: Path) -> None:
+    blocked = tmp_path / 'avatars'
+    blocked.write_text('not a folder')  # nothing can be written under it
+    keeper = store.AvatarStore(blocked)
+    look = {'species': 'frog', 'color': 'lime', 'personality': 'bold'}
+    image, meta = keeper.sheet(look)
+    assert image.startswith(PNG_SIGNATURE) and meta['name'] == 'frog'
+    assert keeper.preview(look, None).startswith(PNG_SIGNATURE)
+    assert blocked.read_text() == 'not a folder'
 
 
 # Previews -----------------------------------------------------------------------------------

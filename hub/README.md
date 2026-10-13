@@ -611,7 +611,7 @@ build fails if it cannot draw a sheet).
 
 - **The sheet**, for the caller's own agent (another person's is 404): the sheet's JSON
   (`contracts/avatar-sheet.schema.json`) by default, its PNG when `Accept` asks for `image/png` first.
-  Both carry the same `ETag`, a hash of the look and of the zoo's version, which is also
+  Both carry the same `ETag`, a hash of the look and of the zoo's drawing code, which is also
   `avatar_etag` in every `agent.updated`. `If-None-Match` with it answers 304. `Cache-Control:
   private, no-cache`, so the phone keeps the sheet but asks again.
 - **The look**: the agent's `look`. A new person's agent made without one gets one picked from its
@@ -623,8 +623,10 @@ build fails if it cannot draw a sheet).
   against the contract's lists; `mood` defaults to the personality's resting face), one 32 x 32 PNG,
   `Cache-Control: private, max-age=86400`.
 - **Cached on disk** in `<data_dir>/avatars/` (`<key>.png`, `<key>.json`, `preview-<key>.png`),
-  drawn once per look (a sheet takes about 0.1 s). Deleting the folder is safe: sheets are drawn
-  again. Bump `shared/avatar/zoo`'s version when a drawing changes, so the keys change too.
+  drawn once per look (a sheet takes about 0.1 s). The key also hashes the zoo's source files, so a
+  changed drawing gets new keys and ETags by itself. Deleting the folder is safe: sheets are drawn
+  again. A folder that cannot be written only loses the cache: each request draws afresh.
+- `If-None-Match` also takes `*` and the weak form `W/"…"`.
 
 ## The avatar's state
 

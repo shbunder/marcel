@@ -2,13 +2,15 @@
 
 A sheet is drawn once per look and kept as `<key>.png` and `<key>.json` under `<data_dir>/avatars/`;
 a preview (one 32 x 32 frame) as `preview-<key>.png`. The key is a hash of the look and of the zoo's
-version, so it is also the sheet's `ETag`: it changes with the look, and with a new zoo release
-(bump `shared/avatar/zoo`'s version when a drawing changes, or old sheets stay cached). Writes go to
-a temporary file first, so a half-written file is never served.
+drawing code (`ZOO_DRAWING`: its version and a fingerprint of its source files), so it is also the
+sheet's `ETag`: it changes with the look, and with any change to a drawing, with no version bump
+needed. Writes go to a temporary file first, so a half-written file is never served; a folder that
+cannot be written only costs the cache (the drawing is served all the same).
 """
 
 import hashlib
 import json
+import logging
 import os
 import threading
 from importlib.metadata import version
@@ -20,7 +22,18 @@ from zoo import png
 
 from marcel_hub.models import Agent
 
-ZOO_VERSION = version('marcel-avatar-zoo')
+log = logging.getLogger(__name__)
+
+
+def drawing_fingerprint(package: Path) -> str:
+    """The zoo's version and a hash of its source files: changes whenever a drawing does."""
+    digest = hashlib.sha256(version('marcel-avatar-zoo').encode())
+    for source in sorted(package.glob('*.py')):
+        digest.update(source.name.encode() + b'\0' + source.read_bytes())
+    return digest.hexdigest()[:16]
+
+
+ZOO_DRAWING = drawing_fingerprint(Path(zoo.__file__).parent)
 
 
 def look_of(agent: Agent) -> dict[str, str]:
@@ -52,7 +65,7 @@ def look_from_name(name: str) -> dict[str, str]:
 
 
 def key(look: dict[str, Any], mood: str | None = None) -> str:
-    canonical = json.dumps({'look': look, 'mood': mood, 'zoo': ZOO_VERSION}, sort_keys=True)
+    canonical = json.dumps({'look': look, 'mood': mood, 'zoo': ZOO_DRAWING}, sort_keys=True)
     return hashlib.sha256(canonical.encode()).hexdigest()[:20]
 
 
@@ -71,24 +84,31 @@ class AvatarStore:
         name = key(look)
         image, meta = self.folder / f'{name}.png', self.folder / f'{name}.json'
         with self._lock:
-            if not (image.is_file() and meta.is_file()):
-                drawn, data = zoo.sheet(look)
-                _write(image, drawn)
-                _write(meta, json.dumps(data, separators=(',', ':')).encode())
-            return image.read_bytes(), json.loads(meta.read_bytes())
+            if image.is_file() and meta.is_file():
+                return image.read_bytes(), json.loads(meta.read_bytes())
+            drawn, data = zoo.sheet(look)
+            _write(image, drawn)
+            _write(meta, json.dumps(data, separators=(',', ':')).encode())
+            return drawn, data
 
     def preview(self, look: dict[str, Any], mood: str | None) -> bytes:
         """One 32 x 32 PNG of the look in `mood` (None: the personality's resting face)."""
         image = self.folder / f'preview-{key(look, mood)}.png'
         with self._lock:
-            if not image.is_file():
-                pixels = zoo.to_rgba(zoo.frame(zoo.check_look(look), mood))
-                _write(image, png.encode(zoo.N, zoo.N, pixels))
-            return image.read_bytes()
+            if image.is_file():
+                return image.read_bytes()
+            pixels = zoo.to_rgba(zoo.frame(zoo.check_look(look), mood))
+            drawn = png.encode(zoo.N, zoo.N, pixels)
+            _write(image, drawn)
+            return drawn
 
 
 def _write(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Keep a drawing; when the folder cannot be written, log it once per file and go on."""
     temp = path.with_name(f'.{path.name}.{os.getpid()}.tmp')
-    temp.write_bytes(data)
-    temp.replace(path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp.write_bytes(data)
+        temp.replace(path)
+    except OSError as exc:
+        log.warning('Could not keep the avatar %s (%s); it is drawn again next time.', path, exc)

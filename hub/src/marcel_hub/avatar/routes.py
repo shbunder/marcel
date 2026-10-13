@@ -42,6 +42,12 @@ def install(app: FastAPI, data_dir: Path) -> AvatarStore:
     return store
 
 
+def _matches(if_none_match: str, tag: str) -> bool:
+    """`If-None-Match` names this ETag: `*`, the tag itself, or its weak form `W/"…"`."""
+    given = [t.strip() for t in if_none_match.split(',') if t.strip()]
+    return '*' in given or tag in [t.removeprefix('W/') for t in given]
+
+
 def _wants_png(accept: str) -> bool:
     """`image/png` asked for ahead of JSON (JSON is the default)."""
     kinds = [part.split(';')[0].strip().lower() for part in accept.split(',')]
@@ -55,7 +61,7 @@ def agent_avatar(agent_id: str, request: Request, session: DbSession) -> Respons
     look = look_of(owned_agent(session, request, agent_id))
     tag = etag(look)
     headers = {'ETag': tag, 'Cache-Control': REVALIDATE, 'Vary': 'Accept'}
-    if tag in [t.strip() for t in request.headers.get('if-none-match', '').split(',')]:
+    if _matches(request.headers.get('if-none-match', ''), tag):
         return Response(status_code=304, headers=headers)
     store: AvatarStore = request.app.state.avatars
     image, meta = store.sheet(look)
