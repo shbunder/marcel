@@ -7,9 +7,9 @@ start-up; `marcel-hub setup` (`users.cli`) makes the owner and their agent on a 
 from fastapi import FastAPI
 
 from marcel_hub.users.routes import router
-from marcel_hub.users.store import ensure_owner, ensure_owner_agent
+from marcel_hub.users.store import ensure_owner, ensure_owner_agent, give_missing_looks
 
-__all__ = ['ensure_owner', 'ensure_owner_agent', 'install']
+__all__ = ['ensure_owner', 'ensure_owner_agent', 'give_missing_looks', 'install']
 
 
 def install(app: FastAPI) -> None:

@@ -40,6 +40,17 @@ def look_of(agent: Agent) -> dict[str, str]:
     }
 
 
+def look_from_name(name: str) -> dict[str, str]:
+    """A contract `Look` picked from a name by the zoo: the same name always gives the same look.
+    For an agent made without one (a new person's, or one from before 0.7)."""
+    picked = zoo.from_name(name)
+    return {
+        'animal': picked['species'],
+        'color': picked['color'],
+        'personality': picked['personality'],
+    }
+
+
 def key(look: dict[str, Any], mood: str | None = None) -> str:
     canonical = json.dumps({'look': look, 'mood': mood, 'zoo': ZOO_VERSION}, sort_keys=True)
     return hashlib.sha256(canonical.encode()).hexdigest()[:20]

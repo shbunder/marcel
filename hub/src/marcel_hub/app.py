@@ -274,6 +274,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         db.upgrade(engine)
         with Session(engine) as session:  # S-17.1: the owner's row, before the first request
             users.ensure_owner(session, settings.owner_name)
+            users.give_missing_looks(session)  # S-19.2: every agent draws its own avatar
         app.state.channel.recheck()  # approval cards left open while the hub was down
         pusher.start()
         await app.state.tasks.drain()  # tasks queued before a restart start if there is room

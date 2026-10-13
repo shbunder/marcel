@@ -614,8 +614,11 @@ build fails if it cannot draw a sheet).
   Both carry the same `ETag`, a hash of the look and of the zoo's version, which is also
   `avatar_etag` in every `agent.updated`. `If-None-Match` with it answers 304. `Cache-Control:
   private, no-cache`, so the phone keeps the sheet but asks again.
-- **The look**: the agent's `look`; an agent without one yet draws from its older `animal` and
-  `palette` (unknown ones become giraffe and `natural`) with the professional personality.
+- **The look**: the agent's `look`. A new person's agent made without one gets one picked from its
+  name by the zoo (`avatar.store.look_from_name`: the same name always gives the same look), and at
+  start-up every agent still without one gets one (`users.give_missing_looks`): the owner's agent
+  Marcel's rose giraffe, any other one from its name. Should one still have none, it draws from its
+  older `animal` and `palette` (unknown ones become giraffe and `natural`), professional.
 - **A preview** of any look, for the picker: `?animal=&color=&personality=&mood=` (all checked
   against the contract's lists; `mood` defaults to the personality's resting face), one 32 x 32 PNG,
   `Cache-Control: private, max-age=86400`.

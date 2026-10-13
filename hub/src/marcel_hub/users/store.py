@@ -10,6 +10,7 @@ from sqlmodel import Session, col, select
 
 from marcel_hub.auth.errors import ApiError
 from marcel_hub.auth.tokens import OWNER_USER_ID
+from marcel_hub.avatar.store import look_from_name
 from marcel_hub.models import (
     Agent,
     Conversation,
@@ -136,22 +137,40 @@ def ensure_owner_agent(
     return _with_main_conversation(session, made), True
 
 
+def give_missing_looks(session: Session) -> int:
+    """At start-up (S-19.2): every agent without a look gets one, so each draws its own avatar.
+    The owner's agent (the oldest live one) gets Marcel's look, as `setup` would give it; any other
+    a look picked from its name. Returns how many changed."""
+    looks_less = list(
+        session.exec(select(Agent).where(col(Agent.look_animal).is_(None)).order_by(col(Agent.id)))
+    )
+    if not looks_less:
+        return 0
+    owners = live_agents(session, OWNER_USER_ID)
+    owners_own = owners[0].id if owners else None
+    for agent in looks_less:
+        _set_look(agent, OWNER_LOOK if agent.id == owners_own else look_from_name(agent.name))
+        session.add(agent)
+    session.commit()
+    return len(looks_less)
+
+
 def add_member(session: Session, name: str, agent_name: str, look: dict[str, str] | None) -> User:
     """A family member and their own agent, main conversation and Inbox (B-38). Their brain
-    workspace comes with S-17.7; a look picked from the name when none is given, with S-19.2."""
+    workspace comes with S-17.7. With no look given, one is picked from the agent's name
+    (S-19.2), so the same name always gives the same avatar."""
     user = User(name=name, role=UserRole.member)
     session.add(user)
     session.flush()
     agent = Agent(
         owner_user_id=user.id,
         name=agent_name,
-        animal=look['animal'] if look else 'giraffe',
+        animal='giraffe',  # replaced by the look's animal just below
         palette='marcel',
         seed=agent_name,
         slug=slug_for(session, agent_name),
     )
-    if look is not None:
-        _set_look(agent, look)
+    _set_look(agent, look or look_from_name(agent_name))
     _with_main_conversation(session, agent)
     session.refresh(user)
     return user
