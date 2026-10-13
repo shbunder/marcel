@@ -27,7 +27,8 @@ on both sides; the owner then chose the "modern" look of the Claude iOS app inst
 
 Option C (B-29a, B-43), approved by the owner on 2026-10-13 after seeing it in the wireframes:
 
-- **My messages:** rounded bubbles on the right, in the helper's colour.
+- **My messages:** rounded bubbles on the right, in the helper's colour, with a notch: the bottom-right corner
+  squared off, so it is clear "I said that" (owner, 2026-10-13).
 - **Marcel's replies:** Markdown (headings, lists, tables, code, links) as plain text across the full width. No
   bubble and no avatar per message.
 - **The avatar lives in the chat header.** When more than one helper speaks in a chat (F19), a reply starts with a
