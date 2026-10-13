@@ -192,7 +192,11 @@ export class HubClient {
       this.abandonSocket(socket);
       if (this.ended) return;
       const delay = this.scheduleReconnect();
-      this.logDown(delay);
+      this.logDown(
+        `Could not connect to the hub at ${this.o.url}: it is not running, or it answered with an HTTP error instead of ` +
+          `a WebSocket. Trying again in ${formatDelay(delay)}.`,
+        delay,
+      );
     };
     socket.onclose = () => {
       if (this.socket !== socket) return;
@@ -242,15 +246,13 @@ export class HubClient {
     }
   }
 
-  /** One line for the first failed handshake, then at most one every `stillDownLogMs` while the hub stays down. */
-  private logDown(delay: number): void {
+  /** A try that did not reach a welcome (failed handshake, or no answer to hello): `first` is logged for the first
+   *  one, then at most one reminder every `stillDownLogMs` until the next welcome. */
+  private logDown(first: string, delay: number): void {
     const now = Date.now();
     if (!this.down) {
       this.down = { since: now, tries: 1, loggedAt: now };
-      this.o.log(
-        `Could not connect to the hub at ${this.o.url}: it is not running, or it answered with an HTTP error instead of ` +
-          `a WebSocket. Trying again in ${formatDelay(delay)}.`,
-      );
+      this.o.log(first);
       return;
     }
     this.down.tries += 1;
@@ -267,9 +269,12 @@ export class HubClient {
   private onHelloTimeout(socket: SocketLike): void {
     this.helloTimer = undefined;
     if (this.socket !== socket) return;
-    this.o.log(`The hub took the connection but did not answer hello in ${Math.round(this.o.helloTimeoutMs / 1000)} s. Reconnecting.`);
     this.abandon();
-    this.scheduleReconnect();
+    const delay = this.scheduleReconnect();
+    this.logDown(
+      `The hub took the connection but did not answer hello in ${formatDelay(this.o.helloTimeoutMs)}. Trying again in ${formatDelay(delay)}.`,
+      delay,
+    );
   }
 
   private clearPing(): void {

@@ -900,6 +900,24 @@ describe('hello timeout', () => {
     expect(h.hub.attempts).toBe(3);
   });
 
+  it('a hub that stays silent is logged once, then at most every 5 minutes, then once when it answers', async () => {
+    const h = new Harness();
+    h.hub.helloReply = 'silent';
+    h.server.start();
+    const down = () => h.logs.filter((l) => l.includes('did not answer hello') || l.startsWith("Still can't"));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(down()).toEqual(['The hub took the connection but did not answer hello in 15 s. Trying again in 1 s.']);
+    // tries fail at 15, 31, 48, 67, 90, 121, 166, 211, 256, 301, 346 s: the 11th is the first 5 minutes after the line
+    await vi.advanceTimersByTimeAsync(331_000);
+    expect(down()).toEqual([down()[0], "Still can't reach the hub after 11 tries; still retrying every 30 s."]);
+    await vi.advanceTimersByTimeAsync(20 * 60_000);
+    expect(down().length).toBeLessThanOrEqual(2 + 4); // at most one line per 5 minutes
+    h.hub.helloReply = { type: 'welcome', role: 'worker', agent_id: 'agt_marcel', task_id: 'tsk_01J9ZQ6' };
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.server.hub?.state).toBe('ready');
+    expect(h.logs.filter((l) => l.startsWith('Reconnected to the hub after'))).toHaveLength(1);
+  });
+
   it('does not fire once the hub answers', async () => {
     const h = await connected();
     await vi.advanceTimersByTimeAsync(60_000);
