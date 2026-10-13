@@ -85,6 +85,7 @@ CHECKED: dict[tuple[str, str], tuple[int, dict[str, Any] | None]] = {
     ('GET', '/api/agents/{agent_id}/brain/rollovers'): (404, None),
     ('GET', '/api/agents/{agent_id}'): (404, None),
     ('PATCH', '/api/agents/{agent_id}'): (404, {'name': 'Pip'}),
+    ('GET', '/api/agents/{agent_id}/avatar'): (404, None),
     # Owner-only (S-17.1): a member is refused before the person is even looked up.
     ('DELETE', '/api/users/{user_id}'): (403, None),
     ('POST', '/api/users/{user_id}/pairing-codes'): (403, None),
