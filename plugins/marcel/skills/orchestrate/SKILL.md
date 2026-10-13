@@ -72,7 +72,8 @@ owner reads you on their phone.
 - Pass the slug as `project` (`inbox` too) and name it in the started line: "Started *Compare
   Luminus and Engie* on the NUC, in *Energy contracts*." or "… in the Inbox."
 - The owner asks for a project → `projects_create` (name, one-line goal, the repo if there is one),
-  then file the thread in it. Standing instructions ("always use pnpm here") → `projects_update`.
+  then file the thread in it. A project with a repo also gets one Kickoff quest (the
+  `project-kickoff` skill, B-45). Standing instructions ("always use pnpm here") → `projects_update`.
 - Three or more `inbox` threads share a goal → propose a project in one line: "Three threads are about
   the garden. Shall I make a *Garden* project and move them there?" Only on a yes: `projects_create`,
   then `tasks_move` each thread. Propose it once per goal. On a no, save that in `MEMORY.md` with

@@ -106,7 +106,7 @@ def test_creating_sends_project_created_and_makes_the_notes_file(
     assert [f['type'] for f in sent] == ['project.created']
     assert sent[0]['data'] == project
     notes = tmp_path / 'memory' / 'projects' / 'garden.md'
-    assert notes.read_text().startswith('# Garden\n\nSpring planting.')
+    assert notes.read_text().startswith('# Garden\n\n## What it is for\n\nSpring planting.')
 
 
 def test_a_taken_slug_is_a_409(api: Api, agent: str) -> None:

@@ -91,14 +91,23 @@ def slugify(name: str) -> str:
     return slug[:SLUG_MAX].strip('-') or 'project'
 
 
+NOT_KNOWN = '(not known yet)'
+
+
 def _first_notes(project: Project) -> str:
-    lines = [f'# {project.name}', '']
-    if project.goal:
-        lines += [project.goal, '']
-    lines += [
-        'Notes every thread in this project starts with. Add what later threads need to know.',
-        '',
+    """A new project's notes, opening with the project brief (ADR-011, the headings Claude Code
+    Projects uses): every thread reads it first. The kickoff quest fills in the check command
+    (B-45); `report(note)` appends under Notes."""
+    sections = [
+        ('What it is for', project.goal or NOT_KNOWN),
+        ('Where the work happens', project.repo or NOT_KNOWN),
+        ('How to check the work', NOT_KNOWN),
+        ('What needs a go-ahead first', NOT_KNOWN),
+        ('Notes', 'What later threads in this project need to know.'),
     ]
+    lines = [f'# {project.name}', '']
+    for heading, body in sections:
+        lines += [f'## {heading}', '', body, '']
     return '\n'.join(lines)
 
 

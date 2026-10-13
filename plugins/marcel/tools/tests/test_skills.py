@@ -35,11 +35,12 @@ from marcel_tools.tools import BY_NAME, TOOLS
 MAX_LINES = 200
 MAX_BYTES = 12_000
 MAX_DESCRIPTION = 1024  # Claude Code's limit for a skill description
-EXPECTED = {'orchestrate', 'worker-protocol', 'digest', 'self-improve'}
+EXPECTED = {'orchestrate', 'worker-protocol', 'digest', 'self-improve', 'project-kickoff'}
 # The behaviours each skill quotes from plan/01-functional-spec.md.
 QUOTES = {
     'orchestrate': ['B-03', 'B-04', 'B-05', 'B-06', 'B-07', 'B-13', 'B-31'],
     'digest': ['B-17'],
+    'project-kickoff': ['B-45'],
 }
 
 CHANNEL = json.loads((ROOT / 'contracts' / 'channel.schema.json').read_text())['$defs']
@@ -75,7 +76,7 @@ def spec_behaviour(bid: str) -> str:
     return flat(match.group(1))
 
 
-def test_the_four_skills_exist() -> None:
+def test_the_five_skills_exist() -> None:
     assert {p.parent.name for p in skill_files()} == EXPECTED
     for folder in SKILLS.iterdir():
         if folder.is_dir() and folder.name != 'evals':
@@ -149,10 +150,10 @@ def test_the_linter_catches_a_wrong_tool(tmp_path: Path) -> None:
 # The eval's cases (run live on the NUC) are checked here, so a renamed tool breaks the gate.
 
 
-def test_nine_cases_naming_real_tools_and_arguments() -> None:
+def test_ten_cases_naming_real_tools_and_arguments() -> None:
     cases = load_cases()
-    assert len(cases) == 9  # the ninth, mention-quest: S-18.2
-    assert len({c['id'] for c in cases}) == 9
+    assert len(cases) == 10  # mention-quest: S-18.2; kickoff-new-repo: S-20.1
+    assert len({c['id'] for c in cases}) == 10
     schemas = {tool.name: tool.schema for tool in TOOLS} | {REPLY['name']: REPLY['inputSchema']}
     for case in cases:
         named = {s['tool'] for s in case['expect']} | set(case['forbid']) | set(case['answers'])

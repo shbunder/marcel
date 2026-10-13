@@ -287,7 +287,35 @@ def test_the_database_refuses_a_second_live_project_with_a_slug(engine: Engine) 
 def test_creating_a_project_makes_its_notes_file(store: ProjectStore, memory: MemoryRepo) -> None:
     store.create(OWNER, AGENT, 'Energy', goal='A cheaper contract.')
     content = memory.read('projects/energy.md')['content']
-    assert content.startswith('# Energy\n\nA cheaper contract.\n')
+    assert content.startswith('# Energy\n\n## What it is for\n\nA cheaper contract.\n')
+
+
+def test_the_notes_open_with_the_project_brief(store: ProjectStore, memory: MemoryRepo) -> None:
+    """ADR-011: five headings in order, the goal and the repo filled in, the rest not known yet."""
+    store.create(OWNER, AGENT, 'Garden planner', goal='Plan the spring planting.',
+                 repo='shbunder/garden-planner')  # fmt: skip
+    content = memory.read('projects/garden-planner.md')['content']
+    headings = [line for line in content.splitlines() if line.startswith('## ')]
+    assert headings == [
+        '## What it is for',
+        '## Where the work happens',
+        '## How to check the work',
+        '## What needs a go-ahead first',
+        '## Notes',
+    ]
+    assert '## What it is for\n\nPlan the spring planting.\n' in content
+    assert '## Where the work happens\n\nshbunder/garden-planner\n' in content
+    assert '## How to check the work\n\n(not known yet)\n' in content
+    assert '## What needs a go-ahead first\n\n(not known yet)\n' in content
+
+
+def test_a_brief_without_goal_or_repo_says_not_known(
+    store: ProjectStore, memory: MemoryRepo
+) -> None:
+    store.create(OWNER, AGENT, 'Odds and ends')
+    content = memory.read('projects/odds-and-ends.md')['content']
+    assert '## What it is for\n\n(not known yet)\n' in content
+    assert '## Where the work happens\n\n(not known yet)\n' in content
 
 
 def test_notes_that_exist_are_kept(store: ProjectStore, memory: MemoryRepo) -> None:

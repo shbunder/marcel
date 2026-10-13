@@ -739,7 +739,10 @@ on first use. The code is `src/marcel_hub/memory.py`.
   `ix_project_live_slug` enforces it. An archived project's slug can be used again.
 - **Notes** (B-33). Creating a project creates `memory/projects/<slug>.md` in the memory folder
   (one git commit). Notes already there (from an archived project with that slug) are kept. If git
-  fails, the project is still made, and the log says the notes file was not.
+  fails, the project is still made, and the log says the notes file was not. A new notes file opens
+  with the project brief (ADR-011, S-20.1): **What it is for** (the goal), **Where the work happens**
+  (the repo), **How to check the work** (the Kickoff quest's check command, B-45), **What needs a
+  go-ahead first**, then **Notes**, where `report(note)` lines land. A part not known yet says so.
 - **Briefing.** A worker's opening prompt starts with its project: name, goal, repo, folder,
   standing instructions and notes, each cut at `memory.SLICE_MAX_BYTES` (8 KB) with a line that
   says where the rest is. Instructions and notes sit between markers

@@ -114,6 +114,23 @@
         { "tool": "reply", "args": { "text": "Fix flaky login test" } }
       ],
       "forbid": ["tasks_spawn"]
+    },
+    {
+      "id": "kickoff-new-repo",
+      "behaviours": ["B-45"],
+      "request": "Make a project for my new repo shbunder/garden-planner: it plans the spring planting.",
+      "answers": {
+        "projects_list": "- marcel (prj_eval1): Marcel — The home assistant the family talks to (repo shbunder/marcel) [working 0, needs you 0, done this week 2]\n- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
+        "projects_create": "Made project “Garden planner” (garden-planner).",
+        "tasks_list": "No threads yet.",
+        "tasks_spawn": "Started “Kickoff garden-planner” on the NUC (tsk_eval10)."
+      },
+      "expect": [
+        { "tool": "projects_create", "args": { "repo": "shbunder/garden-planner" } },
+        { "tool": "tasks_spawn", "args": { "title": "Kickoff", "location": "nuc", "repo": "shbunder/garden-planner", "project": "garden-planner" } },
+        { "tool": "reply", "args": { "text": "Kickoff" } }
+      ],
+      "forbid": ["tasks_send"]
     }
   ]
 }

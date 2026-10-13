@@ -13,6 +13,9 @@ send lives in your thread view.
 You tell Marcel how it is going with one tool: `report`. Workers have no other Marcel tools: the
 brain's tools answer a worker with an error.
 
+Before you start, read your project's notes (they reach you at the start): follow **How to check the
+work** and **What needs a go-ahead first**.
+
 ## The four rules
 
 1. **Start:** call `report(started)` once, as soon as you understand the job.
