@@ -603,6 +603,26 @@ answers 404 `agent_not_found`, like one that does not exist.
   answers to the new name without a restart; a brain that is not connected gets it when it is. The
   triage always wakes the brain for it. The persona file (`brain/CLAUDE.md`) is not rewritten.
 
+## Avatars: `GET /api/agents/{agent_id}/avatar` and `GET /api/avatar-previews`
+
+S-19.2 (B-44), `hub/src/marcel_hub/avatar/`. The hub draws avatars with the Pixel Zoo
+(`shared/avatar/zoo`, a path dependency in `pyproject.toml`; the Docker image copies it in and its
+build fails if it cannot draw a sheet).
+
+- **The sheet**, for the caller's own agent (another person's is 404): the sheet's JSON
+  (`contracts/avatar-sheet.schema.json`) by default, its PNG when `Accept` asks for `image/png` first.
+  Both carry the same `ETag`, a hash of the look and of the zoo's version, which is also
+  `avatar_etag` in every `agent.updated`. `If-None-Match` with it answers 304. `Cache-Control:
+  private, no-cache`, so the phone keeps the sheet but asks again.
+- **The look**: the agent's `look`; an agent without one yet draws from its older `animal` and
+  `palette` (unknown ones become giraffe and `natural`) with the professional personality.
+- **A preview** of any look, for the picker: `?animal=&color=&personality=&mood=` (all checked
+  against the contract's lists; `mood` defaults to the personality's resting face), one 32 x 32 PNG,
+  `Cache-Control: private, max-age=86400`.
+- **Cached on disk** in `<data_dir>/avatars/` (`<key>.png`, `<key>.json`, `preview-<key>.png`),
+  drawn once per look (a sheet takes about 0.1 s). Deleting the folder is safe: sheets are drawn
+  again. Bump `shared/avatar/zoo`'s version when a drawing changes, so the keys change too.
+
 ## The avatar's state
 
 What each agent's avatar shows (B-28), as the contract's `AgentState`. It is derived, never stored;

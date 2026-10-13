@@ -16,8 +16,6 @@ METHODS = {'get', 'post', 'put', 'patch', 'delete'}
 # App API operations the contract has and the hub does not serve yet, with the work that adds
 # them. The last test fails as soon as one is served, so this list can only shrink.
 PENDING_OPERATIONS: dict[tuple[str, str], str] = {
-    ('GET', '/api/agents/{}/avatar'): 'avatars: S-19.2',
-    ('GET', '/api/avatar-previews'): 'avatars: S-19.2',
     ('GET', '/api/mentions'): 'mentions: S-18.2',
 }
 

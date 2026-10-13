@@ -1,5 +1,7 @@
-# Only hub/ goes into the image.
+# Only hub/ (and what it needs at run time) goes into the image.
 *
+!shared/avatar/zoo/pyproject.toml
+!shared/avatar/zoo/zoo/
 !hub/pyproject.toml
 !hub/uv.lock
 !hub/README.md

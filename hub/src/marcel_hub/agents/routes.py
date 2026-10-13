@@ -6,7 +6,8 @@
   stored only while the agent has no look, and ignored after.
 
 Only the caller's own agent: another person's answers 404 `agent_not_found`, exactly like one that
-does not exist. A change sends `agent.updated` with the agent; a request that changes nothing sends
+does not exist. A change sends `agent.updated` with the agent and its `avatar_etag` (the `ETag` of
+`GET /api/agents/{agent_id}/avatar`, `avatar/`); a request that changes nothing sends
 nothing. A rename also sends the agent's brain a `system_event` `agent_renamed` with `data: {name}`
 (channel-protocol.md § Renames), so Marcel answers to the new name without a restart. The persona
 file is not rewritten.
@@ -21,6 +22,8 @@ from sqlmodel import Session
 from marcel_hub.auth.deps import DbSession, current_device, require_device
 from marcel_hub.auth.errors import ApiError
 from marcel_hub.auth.routes import agent_json
+from marcel_hub.avatar.store import etag as avatar_etag
+from marcel_hub.avatar.store import look_of
 from marcel_hub.channel.gateway import Gateway
 from marcel_hub.channel.outbox import conversation_target
 from marcel_hub.models import Agent, utcnow
@@ -66,7 +69,8 @@ class AgentUpdate(BaseModel):
 router = APIRouter(prefix='/api', tags=['agents'], dependencies=[Depends(require_device)])
 
 
-def _owned(session: Session, request: Request, agent_id: str) -> Agent:
+def owned_agent(session: Session, request: Request, agent_id: str) -> Agent:
+    """The caller's own agent, or 404 `agent_not_found` (another person's looks like none)."""
     agent = session.get(Agent, agent_id)
     if agent is None or agent.owner_user_id != current_device(request).user_id:
         raise ApiError(404, 'agent_not_found', 'That agent is not on this hub.')
@@ -79,14 +83,14 @@ def _json(request: Request, agent: Agent) -> dict[str, Any]:
 
 @router.get('/agents/{agent_id}')
 def get_agent(agent_id: str, request: Request, session: DbSession) -> dict[str, Any]:
-    return _json(request, _owned(session, request, agent_id))
+    return _json(request, owned_agent(session, request, agent_id))
 
 
 @router.patch('/agents/{agent_id}')
 def update_agent(
     agent_id: str, body: AgentUpdate, request: Request, session: DbSession
 ) -> dict[str, Any]:
-    agent = _owned(session, request, agent_id)
+    agent = owned_agent(session, request, agent_id)
     before = agent.model_dump()
     renamed = body.name is not None and body.name != agent.name
     if body.name is not None:
@@ -102,9 +106,9 @@ def update_agent(
     if agent.model_dump() == before:
         return _json(request, agent)  # nothing changed: no event, no frame
     session.add(agent)
-    request.app.state.events.publish(
-        session, agent.owner_user_id, 'agent.updated', {'agent': _json(request, agent)}
-    )  # commits the change and its event together
+    data = {'agent': _json(request, agent), 'avatar_etag': avatar_etag(look_of(agent))}
+    # the change and its event are committed together
+    request.app.state.events.publish(session, agent.owner_user_id, 'agent.updated', data)
     session.refresh(agent)
     if renamed and agent.main_conversation_id is not None:
         gateway: Gateway = request.app.state.channel

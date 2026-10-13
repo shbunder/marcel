@@ -51,6 +51,7 @@ from marcel_hub import (
     users,
     ws,
 )
+from marcel_hub.avatar import routes as avatar_routes
 from marcel_hub.runner_client import DEFAULT_SOCKET, OffsetStore, RunnerClient, RunnerWatch
 from marcel_hub.schedule.cron import zone
 
@@ -438,6 +439,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             keeper_of_brains.turn_ends = functools.partial(brain.tail_turn_ends, client)
     app.include_router(brain.router)  # S-06.7: manual rollover and the rollover history
     app.include_router(agents.router)  # S-17.3: GET and PATCH /api/agents/{agent_id}
+    avatar_routes.install(app, settings.data_dir)  # S-19.2: each agent's avatar and previews
     app.include_router(
         path_health.router
     )  # GET /internal/health: hub, runner and brain, local only

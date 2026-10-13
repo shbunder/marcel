@@ -13,7 +13,10 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_CACHE_DIR=/tmp/uv-cache
 WORKDIR /app/hub
 
-# Dependencies first, so a source change does not reinstall them.
+# Dependencies first, so a source change does not reinstall them. The Pixel Zoo is a path
+# dependency (`../shared/avatar/zoo` in hub/pyproject.toml): it draws each agent's avatar (S-19.2).
+COPY shared/avatar/zoo/pyproject.toml /app/shared/avatar/zoo/
+COPY shared/avatar/zoo/zoo /app/shared/avatar/zoo/zoo
 COPY hub/pyproject.toml hub/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project && rm -rf /tmp/uv-cache
 
@@ -26,7 +29,7 @@ COPY hub/migrations ./migrations
 COPY contracts /app/contracts
 RUN uv sync --frozen --no-dev && rm -rf /tmp/uv-cache
 # Fail the build, not a live request, when a file the hub reads at run time is missing.
-RUN /app/venv/bin/python -c "from marcel_hub import db; from marcel_hub.artifacts.store import _dashboard_validator; assert db.MIGRATIONS_DIR.is_dir(); _dashboard_validator()"
+RUN /app/venv/bin/python -c "from marcel_hub import db; from marcel_hub.artifacts.store import _dashboard_validator; assert db.MIGRATIONS_DIR.is_dir(); _dashboard_validator(); import zoo; zoo.sheet({'species': 'giraffe', 'color': 'rose', 'personality': 'professional'}); import marcel_hub.avatar.routes"
 
 ENV PATH=/app/venv/bin:$PATH \
     PYTHONUNBUFFERED=1

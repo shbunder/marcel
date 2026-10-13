@@ -13,7 +13,11 @@ dependencies = [
     "httpx[http2]>=0.27",
     "jsonschema>=4.23",
     "cryptography>=43",
+    "marcel-avatar-zoo",  # shared/avatar/zoo: the Pixel Zoo draws each agent's avatar (S-19.2)
 ]
+
+[tool.uv.sources]
+marcel-avatar-zoo = { path = "../shared/avatar/zoo" }
 
 [project.scripts]
 marcel-hub = "marcel_hub.app:main"

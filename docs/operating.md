@@ -17,7 +17,7 @@ Everything lives under `~/marcel`:
 | Folder | What it is |
 |---|---|
 | `src/` | The deployed checkout of `shbunder/marcel` (`main`). Run every `make -C deploy …` from here |
-| `data/` | The hub's `/data`: the database, `hub-secret`, `memory/` (the brain links into it), `marcel.toml` |
+| `data/` | The hub's `/data`: the database, `hub-secret`, `memory/` (the brain links into it), `marcel.toml`, `avatars/` (drawn avatars; safe to delete) |
 | `state/` | The hub's `/state`: `redeploy.flag` |
 | `run/` | The runner's socket, mounted into the hub at `/run/marcel` |
 | `brain/` | The brain workspace, rendered from `brain/` |
