@@ -415,7 +415,8 @@ def main(argv: list[str] | None = None) -> None:
     """`marcel-hub`: start the hub on the configured host and port.
 
     `marcel-hub pair` prints a QR code that pairs a phone instead; `marcel-hub adopt-token` makes
-    the token `/marcel-adopt` needs and prints it once.
+    the token `/marcel-adopt` needs and prints it once; `marcel-hub agent create|list` makes or
+    lists the owner's agent.
     """
     import uvicorn
 
@@ -426,6 +427,10 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(pair(args[1:]))
     if args[:1] == ['adopt-token']:
         raise SystemExit(adopt.token_cli(args[1:]))
+    if args[:1] == ['agent']:
+        from marcel_hub.agent_cli import agent
+
+        raise SystemExit(agent(args[1:]))
 
     try:
         settings = load_settings()

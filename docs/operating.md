@@ -58,6 +58,13 @@ make -C deploy install
 make -C deploy tunnel                 # then run the two sudo lines it prints
 ```
 
+On a new install, make the owner's agent once; the hub then starts its brain:
+
+```bash
+docker exec marcel-hub marcel-hub agent create --name Marcel
+make -C deploy health                 # "brain" shows the session within a minute
+```
+
 `make -C deploy install` is safe to run again. It installs node 22, builds the plugin, points the
 `marcel-local` marketplace at `~/marcel/plugins`, writes the hub secret, renders the brain workspace,
 installs the plugin in it and in `workspaces/scratch` and trusts both, installs and starts the units,
@@ -146,7 +153,7 @@ To restore, put `data/` back before `make -C deploy install`.
 | App says the hub is unreachable | `make -C deploy health`; `systemctl status cloudflared-marcel` | Hub container down: `make -C deploy deploy`. Tunnel down: `sudo systemctl restart cloudflared-marcel` |
 | `hub /api/health` says the runner is not answering | `journalctl --user -u marcel-runner -n 50` | The runner refuses to start without Claude's supervisor: `systemctl --user start marcel-claude-daemon` |
 | Runner log: supervisor "inside the runner's cgroup" | `claude daemon status` | A supervisor started outside its unit. Stop the session work, then `systemctl --user restart marcel-claude-daemon` |
-| Brain: none running | `make -C deploy logs` | `MARCEL_BRAIN_CWD` unset, or the brain workspace is not trusted: run `make -C deploy install` |
+| Brain: none running | `docker exec marcel-hub marcel-hub agent list`; `make -C deploy logs` | No agent yet: `agent create` (see Install). `MARCEL_BRAIN_CWD` unset, or the brain workspace is not trusted: run `make -C deploy install` |
 | "Marcel is unreachable. A deploy wrote a different secret." | `~/marcel/data/hub-secret` vs `~/.claude/plugins/data/marcel-marcel-local/hub-secret` | Run `make -C deploy install`, which copies it again, then `claude respawn --all`: after a wrong secret the channel never retries |
 | Nothing starts after a reboot | `loginctl show-user $USER -p Linger` | Linger is off: `sudo loginctl enable-linger $USER` |
 | Port 7420 already in use | `ss -ltnp | grep 7420` | Old Marcel's `marcel.service`: `sudo systemctl disable --now marcel.service` |
