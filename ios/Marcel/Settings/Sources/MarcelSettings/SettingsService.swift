@@ -63,8 +63,8 @@ public enum SettingsError: Error, Equatable, LocalizedError {
     /// 409 on an approval: answered first (a terminal, another phone) or expired.
     case alreadyAnswered
     /// 403 `owner_only` (app API 0.7): a family member's phone tried an owner-only action, such as approving a
-    /// change to Marcel itself.
-    case ownerOnly
+    /// change to Marcel itself. Carries the hub's sentence, which names the owner.
+    case ownerOnly(String?)
     /// 400: the hub says what to change.
     case refused(String)
     case notFound
@@ -85,7 +85,7 @@ public enum SettingsError: Error, Equatable, LocalizedError {
         case .badPushToken: "Apple gave this phone a push token the hub can't use, so notifications weren't turned on. "
             + "Try again in a minute."
         case .alreadyAnswered: "That question was already answered, or it expired."
-        case .ownerOnly: "Only the owner can do this. Ask them to answer it on their phone."
+        case .ownerOnly(let message): message ?? "Only the owner can answer this. Ask them to approve it on their phone."
         case .refused(let message): message
         case .notFound: "The hub no longer has that. Pull down to refresh."
         case .unauthorized: "The hub no longer accepts this phone. Pair it again."
@@ -291,7 +291,7 @@ public struct LiveSettingsService: SettingsService {
         switch answer {
         case .ok: return
         case .conflict: throw SettingsError.alreadyAnswered
-        case .forbidden: throw SettingsError.ownerOnly
+        case .forbidden(let forbidden): throw SettingsError.ownerOnly(try? forbidden.body.json.message)
         case .badRequest: throw SettingsError.unexpected("answer, HTTP 400")
         case .unauthorized: throw SettingsError.unauthorized
         case .notFound: throw SettingsError.alreadyAnswered

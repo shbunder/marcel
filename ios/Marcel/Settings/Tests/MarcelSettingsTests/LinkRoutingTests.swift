@@ -271,6 +271,17 @@ final class LinkRoutingTests: XCTestCase {
         XCTAssertEqual(reported, [], "not the false \"isn't paired\"")
     }
 
+    /// app API 0.7: a family member's phone may not approve a change to Marcel itself. The hub says who can.
+    func testAnOwnerOnlyAnswerShowsTheHubsSentence() async {
+        let hub = FakeHub()
+        var reported: [String] = []
+        let push = launchedHandler(hub) { reported.append($0) }
+        hub["POST /approvals/apr_engie"] = (403, Fx.error("owner_only", "Only Shaun can approve changes to Marcel. Ask Shaun to do it."))
+        await push.respond(action: PushCategories.approve, payload: approvalPush())
+        XCTAssertEqual(reported, ["Only Shaun can approve changes to Marcel. Ask Shaun to do it."])
+        XCTAssertEqual(SettingsError.ownerOnly(nil).errorDescription, "Only the owner can answer this. Ask them to approve it on their phone.")
+    }
+
     func testAnAnswerThatFailsIsReportedInPlainWords() async {
         let hub = FakeHub()
         var reported: [String] = []
