@@ -138,7 +138,9 @@ exist; the owner-only `/users…` routes answer a member 403. Lists (`/tasks?age
 in its path, read from the app itself: a new one fails until it is classified there.
 
 - **Events** (`/api/ws`) go to the person whose agent the task, project or item belongs to
-  (`ws.OwnerPublisher.person`); an event that names none (usage) goes to the owner.
+  (`ws.OwnerPublisher.person`, which also reads the nested `artifact`/`task`/`project` objects and
+  `to_project_id`); an event that names none (usage) goes to the owner. A self-change card's
+  `approval.*` events go to the owner as well as the helper's person.
 - **Pushes** for nobody in particular (usage, something broke) reach the owner's phones only.
 - **Stray items:** one with no task and no project is filed in the owner's Inbox, never a member's.
 - **`/marcel-adopt`** hands a session to the owner's agent (only the owner has an adopt token).

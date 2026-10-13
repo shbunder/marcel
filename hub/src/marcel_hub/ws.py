@@ -27,7 +27,7 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session, col, select
 
 from marcel_hub.auth.tokens import OWNER_USER_ID, hash_secret
-from marcel_hub.models import Agent, AppEvent, Device, Task, utcnow
+from marcel_hub.models import Agent, AppEvent, Device, Project, Task, utcnow
 
 # Enough for a phone that was offline for a day or two; older gaps ask for a resync.
 KEEP_EVENTS = 2000
@@ -266,11 +266,30 @@ class OwnerPublisher:
         self.user_id = user_id
 
     def person(self, session: Session, type: str, data: dict[str, Any]) -> str:
-        agent_id = data.get('agent_id')
-        task_id = data.get('task_id') or (data.get('id') if type.startswith('task.') else None)
-        if agent_id is None and isinstance(task_id, str):
-            task = session.get(Task, task_id)
+        """Whose agent the event is about: its own `agent_id`, else its task's, else its project's
+        (also inside a nested `task`, `artifact` or `project` object, as `artifact.updated` has
+        them; `artifact.moved` names `to_project_id`). None of these: the owner."""
+        places = [data] + [
+            data[k] for k in ('artifact', 'task', 'project') if isinstance(data.get(k), dict)
+        ]
+        agent_id: Any = next((p['agent_id'] for p in places if p.get('agent_id')), None)
+        if agent_id is None:
+            task_id = next((p['task_id'] for p in places if p.get('task_id')), None)
+            if task_id is None and type.startswith('task.'):
+                task_id = data.get('id')
+            task = session.get(Task, task_id) if isinstance(task_id, str) else None
             agent_id = task.agent_id if task is not None else None
+        if agent_id is None:
+            project_id = next(
+                (
+                    p.get('project_id') or p.get('to_project_id')
+                    for p in places
+                    if p.get('project_id') or p.get('to_project_id')
+                ),
+                None,
+            )
+            project = session.get(Project, project_id) if isinstance(project_id, str) else None
+            agent_id = project.agent_id if project is not None else None
         agent = session.get(Agent, agent_id) if isinstance(agent_id, str) else None
         return agent.owner_user_id if agent is not None else self.user_id
 

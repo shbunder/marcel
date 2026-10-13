@@ -123,6 +123,7 @@ class TaskRegistry:
             return agent.owner_user_id if agent is not None else None
 
     def agent_owner(self, agent_id: str) -> str | None:
+        """The person the agent belongs to, or None when there is no such agent."""
         with Session(self.engine) as s:
             agent = s.get(Agent, agent_id)
             return agent.owner_user_id if agent is not None else None

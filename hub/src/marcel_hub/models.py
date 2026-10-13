@@ -507,6 +507,10 @@ def _file_in_inbox(_mapper: Any, connection: Connection, task: Task) -> None:
         task.project_id = inbox_id(connection, task.agent_id)
 
 
+# auth.tokens.OWNER_USER_ID (auth/ imports models, so it is spelled out here once).
+OWNER_ID = 'usr_owner'
+
+
 @event.listens_for(Artifact, 'before_insert')
 def _file_artifact(_mapper: Any, connection: Connection, art: Artifact) -> None:
     """An artifact belongs to its task's project. One with no task and no project goes to the
@@ -527,10 +531,7 @@ def _file_artifact(_mapper: Any, connection: Connection, art: Artifact) -> None:
         return
     agents = Agent.__table__  # type: ignore[attr-defined]
     first = connection.execute(
-        select(agents.c.id)
-        .where(agents.c.owner_user_id == 'usr_owner')  # auth.tokens.OWNER_USER_ID
-        .order_by(agents.c.id)
-        .limit(1)
+        select(agents.c.id).where(agents.c.owner_user_id == OWNER_ID).order_by(agents.c.id).limit(1)
     ).scalar()
     if first is not None:
         art.project_id = inbox_id(connection, first)

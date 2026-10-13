@@ -327,3 +327,81 @@ def test_the_owner_sees_and_answers_a_family_helpers_self_change(world: World) -
     card = self_change_card(world)
     assert card in [a['id'] for a in world.call('GET', '/api/approvals', world.owner).json()]
     assert world.call('GET', f'/api/approvals/{card}', world.owner).status_code == 200
+
+
+def test_the_owner_id_is_spelled_the_same_in_models_and_auth() -> None:
+    from marcel_hub import models
+
+    assert models.OWNER_ID == tokens.OWNER_USER_ID
+
+
+def events_of(
+    world: World, prefix: str, before: set[tuple[str, int]] | None = None
+) -> set[tuple[str, str]]:
+    """(type, person) of the events of this kind, leaving out those in `before`."""
+    with Session(world.engine) as s:
+        rows = s.exec(select(AppEvent).where(col(AppEvent.type).startswith(prefix))).all()
+    return {(r.type, r.user_id) for r in rows if (r.user_id, r.id) not in (before or set())}
+
+
+def seen(world: World) -> set[tuple[str, int]]:
+    """Every event so far, by its key (person, number): their own counter per person."""
+    with Session(world.engine) as s:
+        return {(r.user_id, r.id) for r in s.exec(select(AppEvent))}
+
+
+def test_a_members_task_and_item_events_reach_her_and_never_the_owner(world: World) -> None:
+    app = world.client.app
+    with Session(world.engine) as s:
+        task = Task(
+            agent_id=world.emma_agent,
+            title='Homework plan',
+            location=TaskLocation.nuc,
+            state=TaskState.working,
+            model='sonnet',
+            origin=TaskOrigin.marcel,
+        )
+        s.add(task)
+        s.commit()
+        task_id = task.id
+    store = app.state.artifacts  # type: ignore[attr-defined]
+    start = seen(world)  # only what follows is about Emma's things
+    app.state.tasks._publish_task(task_id)  # type: ignore[attr-defined]
+    on_task = store.publish_hub_html('Plan', '<p>v1</p>', task_id=task_id)
+    store.publish_hub_html('Loose', '<p>x</p>', project_id=world.emma_inbox)  # no task
+    school = world.call(
+        'POST', '/api/projects', world.emma, {'agent_id': world.emma_agent, 'name': 'School'}
+    ).json()['id']
+    store.move(on_task.id, school, world.emma_id)  # artifact.moved names projects only
+    events = events_of(world, 'task.', start) | events_of(world, 'artifact.', start)
+    emmas = {t for t, person in events if person == world.emma_id}
+    assert {'task.updated', 'artifact.created', 'artifact.moved', 'artifact.updated'} <= emmas
+    assert [e for e in events if e[1] == tokens.OWNER_USER_ID] == [], "the owner got Emma's"
+
+
+def test_a_family_helpers_self_change_goes_to_the_owner(world: World) -> None:
+    app = world.client.app
+    card_id = self_change_card(world)
+    with Session(world.engine) as s:
+        card = s.get(Approval, card_id)
+    assert card is not None
+    app.state.channel.approvals._publish('approval.created', card)  # type: ignore[attr-defined]
+    assert {('approval.created', tokens.OWNER_USER_ID), ('approval.created', world.emma_id)} <= (
+        events_of(world, 'approval.')
+    )
+    pushed: list[str | None] = []
+    pusher = app.state.pusher  # type: ignore[attr-defined]
+    pusher.push = lambda n, user_id: pushed.append(user_id) or True
+    pusher.approval_opened(card_id)
+    assert pushed == [None]  # nobody in particular: the owner's phones (`_devices`)
+    app.state.selfmod.events = app.state.events  # type: ignore[attr-defined]
+    app.state.selfmod._post_card(card)  # type: ignore[attr-defined]
+    owners = world.call('GET', f'/api/conversations/{world.conversation_id}/messages', world.owner)
+    assert card_id in [m.get('approval_id') for m in owners.json()['items']]
+
+
+def test_the_owner_answers_a_family_helpers_self_change(world: World) -> None:
+    card = self_change_card(world)
+    res = world.call('POST', f'/api/approvals/{card}', world.owner, {'decision': 'deny'})
+    assert res.status_code == 200, res.text
+    assert res.json()['state'] == 'denied'

@@ -22,6 +22,7 @@ from typing import Any
 from sqlalchemy import update
 from sqlmodel import Session, col, select
 
+from marcel_hub.auth.tokens import OWNER_USER_ID
 from marcel_hub.models import (
     Agent,
     AnsweredVia,
@@ -253,8 +254,11 @@ class ApprovalBook:
             return
         with Session(self.engine) as s:
             user_id = owner_of_task(s, row.task_id)
-            if user_id is not None:
-                events.publish(s, user_id, type_, approval_json(row))
+            people = {user_id} if user_id is not None else set()
+            if is_self_change(row):  # a change to Marcel is the owner's card too (B-24, B-38)
+                people.add(OWNER_USER_ID)
+            for person in sorted(people):
+                events.publish(s, person, type_, approval_json(row))
 
 
 def is_self_change(row: Approval) -> bool:
