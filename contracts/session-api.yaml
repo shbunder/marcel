@@ -71,6 +71,11 @@ paths:
           content:
             application/json:
               schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '404':
+          description: 'A request that came through the tunnel (`cf-connecting-ip` set): `not_found`, as if there were no route.'
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
         '503':
           description: The hub has no secret, so it refuses every session (`no_secret`). Redeploy to write it.
           content:

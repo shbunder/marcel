@@ -59,7 +59,8 @@ def test_session_end_is_on_the_nuc_port_outside_api() -> None:
 
 def test_session_end_answers_whether_a_report_is_owed(registry: Registry) -> None:
     _, op = session_end()
-    assert set(op['responses']) == {'200', '400', '401', '503'}
+    assert set(op['responses']) == {'200', '400', '401', '404', '503'}
+    assert '`cf-connecting-ip`' in op['responses']['404']['description']
     ok = op['responses']['200']['content']['application/json']['schema']
     assert ok == {'$ref': '#/components/schemas/SessionEndAnswer'}
     for code in ('bad_secret', 'unknown_session'):
