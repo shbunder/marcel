@@ -40,7 +40,9 @@ hub → channel. Resume is only for between turns.
 
    Before waking it, the runner reads those saved options and refuses (`422 exited`, the reason in
    the message, nothing started) when they cannot be read, lack `--setting-sources project,local`,
-   or, with the channel on, lack `--debug-file` or the pre-allowed `reply` tool. A Claude that stops
+   lack the role's `--settings` file (a worker's `role_settings/worker.json`), or, with the channel on,
+   lack `--debug-file` or the pre-allowed `reply` tool. A resume, like every start, also answers
+   `422 claude_version` when Claude Code is not the pinned version. A Claude that stops
    saving one fails loudly instead of quietly bringing the owner's settings back. Without a record
    of its own, the runner takes the channel setting from the saved `--channels`.
 6. If Claude says `… started a copy as <id>` (on stdout or stderr), or backgrounds another short id,
@@ -149,5 +151,5 @@ steps of up to 600 s each.
 | `not_trusted` | 422 | The trust dialog never showed, Yes could not be reached, or `~/.claude.json` does not show the folder trusted (or shows the repo's MCP servers enabled). |
 | `clone_failed` | 422 | A git step or the plugin install failed; `detail` is what it said. |
 | `git_timeout`, `claude_timeout` | 503 | A git step or the plugin install took too long. Try again later. |
-| `no_supervisor`, `exited`, `channel_skipped`, `channel_timeout` | 422 | As for a spawn. |
+| `no_supervisor`, `claude_version`, `exited`, `channel_skipped`, `channel_timeout` | 422 | As for a spawn. |
 | `not_found` | 404 | No such session. |

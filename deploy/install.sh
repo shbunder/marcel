@@ -31,7 +31,6 @@ check_host() {
     [ "$(id -u)" -ne 0 ] || die "run it as the owner, not root."
     command -v docker >/dev/null || die "docker is not installed."
     docker info >/dev/null 2>&1 || die "docker is not reachable (is the owner in the docker group?)."
-    [ -x "$CLAUDE" ] || die "claude is not at $CLAUDE."
     /usr/bin/python3 -c 'import sys; sys.exit(sys.version_info < (3, 12))' \
         || die "/usr/bin/python3 must be 3.12 or newer (the runner runs on it)."
     [ -f "$ENV_LOCAL" ] || die "$ENV_LOCAL is missing. Create it first (docs/operating.md, \"Secrets\")."
@@ -232,6 +231,8 @@ start_hub() {
 }
 
 check_host
+"$DEPLOY/install-claude.sh"  # installs the pinned version, or a missing claude
+[ -x "$CLAUDE" ] || die "claude is not at $CLAUDE."
 make_dirs
 install_node
 install_plugin

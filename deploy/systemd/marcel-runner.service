@@ -22,6 +22,8 @@ Environment=MARCEL_RUNNER_SOCK=%h/marcel/run/runner.sock
 # Every session the runner starts inherits this environment, so it gets only MARCEL_HARRY_TOKEN,
 # never the hub's secrets in deploy/.env.local.
 EnvironmentFile=-%h/.config/marcel/session.env
+# Marcel is tested with one Claude Code version (runner/claude-version): no background updates.
+Environment=DISABLE_AUTOUPDATER=1
 Restart=on-failure
 RestartSec=5
 

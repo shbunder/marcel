@@ -3,7 +3,13 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from conftest import DAEMON_STATUS_NOT_RUNNING, apart, write_script
+from conftest import (
+    CLAUDE_VERSION,
+    CLAUDE_VERSION_LINE,
+    DAEMON_STATUS_NOT_RUNNING,
+    apart,
+    write_script,
+)
 
 from marcel_runner import __version__
 from marcel_runner.health import Settings, collect_health, parse_pid
@@ -18,7 +24,8 @@ def test_healthy_runner_reports_every_field(fake_claude: Path) -> None:
     assert h == {
         'ok': True,
         'version': __version__,
-        'claude_version': '2.1.289 (Claude Code)',
+        'claude_version': CLAUDE_VERSION_LINE,
+        'claude_version_expected': CLAUDE_VERSION,
         'supervisor': {'running': True, 'own_unit': True},
         'cap': 4,
         'active_workers': 1,
@@ -61,12 +68,12 @@ def test_claude_version_failure_is_not_ok(tmp_path: Path) -> None:
 def test_no_supervisor_is_not_ok(tmp_path: Path) -> None:
     c = write_script(
         tmp_path / 'claude',
-        'if [ "$1" = "--version" ]; then echo "2.1.289 (Claude Code)"; exit 0; fi\n'
+        f'if [ "$1" = "--version" ]; then echo "{CLAUDE_VERSION_LINE}"; exit 0; fi\n'
         'echo "not running"; exit 1\n',
     )
     h = collect_health(settings(c), active_workers=lambda: 0, cgroup_of=apart)
     assert h['ok'] is False
-    assert h['claude_version'] == '2.1.289 (Claude Code)'
+    assert h['claude_version'] == CLAUDE_VERSION_LINE
     assert h['supervisor'] == {'running': False, 'own_unit': False}
     assert 'marcel-claude-daemon.service' in h['reason']
 
@@ -116,7 +123,7 @@ def test_parse_pid_is_lenient(text: str, expected: int | None) -> None:
 def daemon(tmp_path: Path, status_body: str) -> Path:
     return write_script(
         tmp_path / 'claude',
-        'if [ "$1" = "--version" ]; then echo "2.1.289 (Claude Code)"; exit 0; fi\n' + status_body,
+        f'if [ "$1" = "--version" ]; then echo "{CLAUDE_VERSION_LINE}"; exit 0; fi\n' + status_body,
     )
 
 

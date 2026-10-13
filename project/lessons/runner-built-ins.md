@@ -20,3 +20,12 @@
 - A stopped session keeps the options it was started with (`respawnFlags`, `--setting-sources` included). Any flag on
   `claude --bg --resume`, or a short id, starts a copy under a new id (the note is on stderr). The runner resumes with
   the full id and no flags (S-03.8).
+- `claude --agent <name>` (a subagent as the main thread) replaces Claude Code's own system prompt entirely (docs:
+  sub-agents § invoke subagents explicitly), so workers do not run as a named agent (S-03.10, ADR-010).
+- `--settings` is a saved option too (recorded 2026-10-13): pass it on spawn only; a flag-less resume keeps it.
+- `DISABLE_AUTOUPDATER` in the units' environment covers Marcel's processes, but the `claude` binary is shared: the
+  owner's own sessions update it unless the managed settings' `env` sets it. The runner's version check is what makes
+  a drift loud.
+- `Workflow` is the exact tool and permission name for dynamic workflows, and `Agent` for subagents (2.1.296, checked
+  on the NUC): a plain `-p` session lists both; with `"deny": ["Workflow"]` the `Workflow` tool is gone from its list.
+  The brain denies `Agent`, `Task` and `Workflow`; a worker allows `Workflow` (`Agent` allows are dropped in auto mode).

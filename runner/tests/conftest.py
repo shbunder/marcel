@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from marcel_runner.health import pinned_version
+
 # `claude daemon status` with no supervisor, recorded on the NUC with Claude Code 2.1.289 (exit
 # code 1). Only the home path is changed.
 DAEMON_STATUS_NOT_RUNNING = """\
@@ -39,6 +41,11 @@ bg sessions:
   roster.json:  updated 486s ago
   daemon.log:   14.9KB at /home/marcel/.claude/daemon.log
 """
+
+
+# What `claude --version` prints for the pinned version (runner/claude-version, S-03.10).
+CLAUDE_VERSION = pinned_version()
+CLAUDE_VERSION_LINE = f'{CLAUDE_VERSION} (Claude Code)'
 
 
 class UnixConnection(http.client.HTTPConnection):
@@ -79,7 +86,7 @@ def fake_claude(tmp_path: Path) -> Path:
     status.write_text(DAEMON_STATUS_RUNNING)
     return write_script(
         tmp_path / 'claude',
-        'if [ "$1" = "--version" ]; then echo "2.1.289 (Claude Code)"; exit 0; fi\n'
+        f'if [ "$1" = "--version" ]; then echo "{CLAUDE_VERSION_LINE}"; exit 0; fi\n'
         f'if [ "$1" = "daemon" ]; then cat "{status}"; exit 0; fi\n'
         'exit 2\n',
     )

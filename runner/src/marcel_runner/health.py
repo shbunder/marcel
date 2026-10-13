@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -14,11 +14,34 @@ from marcel_runner.claude_env import scrubbed_env
 SUPERVISOR_UNIT = 'marcel-claude-daemon.service'
 
 
+# The one place the Claude Code version Marcel is tested with lives (S-03.10).
+PIN_FILE = Path(__file__).resolve().parents[2] / 'claude-version'
+
+
+def pinned_version(path: Path = PIN_FILE) -> str:
+    """The version in `runner/claude-version`: one line, the bare number (e.g. `2.1.296`)."""
+    return path.read_text('utf-8').strip()
+
+
 @dataclass(frozen=True)
 class Settings:
     claude: Path  # absolute: systemd's user PATH has no ~/.local/bin
     cap: int
     timeout: float = 10.0
+    expected: str = field(default_factory=pinned_version)
+
+
+def version_problem(installed: str, expected: str) -> str | None:
+    """In plain words, why the installed Claude Code is not the one Marcel is tested with; None
+    when it is. `installed` is what `claude --version` printed (`2.1.296 (Claude Code)`); empty
+    means claude could not be run, which the health check reports on its own."""
+    number = installed.split()[0] if installed.strip() else ''
+    if not number or number == expected:
+        return None
+    return (
+        f'Claude Code {number} is installed, but Marcel is tested with {expected}. '
+        f'Install {expected}, or test the new version and change runner/claude-version.'
+    )
 
 
 def parse_pid(status: str) -> int | None:
@@ -119,10 +142,13 @@ def collect_health(
         except OSError:
             own = None
         supervisor, reason = _supervisor(settings, own, cgroup_of)
+    reasons = [r for r in (version_problem(claude_version, settings.expected), reason) if r]
+    reason = ' '.join(reasons) or None
     health: dict[str, Any] = {
         'ok': reason is None,
         'version': __version__,
         'claude_version': claude_version,
+        'claude_version_expected': settings.expected,
         'supervisor': supervisor,
         'cap': settings.cap,
         'active_workers': active_workers(),

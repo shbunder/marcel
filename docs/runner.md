@@ -13,6 +13,8 @@ Resume, fork and `repo` spawns (worktrees): see [runner/workspaces.md](runner/wo
 
 Cloud sessions on claude.ai/code (`/cloud/sessions`): see [runner/cloud.md](runner/cloud.md).
 
+What Claude Code itself does for the runner (and the version pin): see [runner/built-ins.md](runner/built-ins.md).
+
 ## Run it
 
 ```bash
@@ -45,6 +47,8 @@ plain words. The fields are in `contracts/runner-api.yaml` (`Health`).
 `ok` is `false` when:
 
 - `claude` is missing, not executable, or does not answer `--version`;
+- the installed Claude Code is not the version in `runner/claude-version` (`claude_version_expected`):
+  "Claude Code 2.1.301 is installed, but Marcel is tested with 2.1.296 …";
 - no supervisor is running (`claude daemon status` exits 1);
 - `claude daemon status` hangs or fails, and the reason says so;
 - the supervisor runs in the runner's own cgroup;
@@ -61,6 +65,7 @@ Anything else on the socket gets a JSON `Error` (404 for another path, 405 for a
 | What | What the runner does | What you see |
 |---|---|---|
 | `claude` missing | Starts anyway. | `/health` says `ok: false`, and names the path to fix. |
+| Claude Code is not the pinned version (`runner/claude-version`) | Starts anyway and prints the line; every spawn, resume, fork and cloud start answers `422 claude_version`. Running sessions carry on. | `/health` says `ok: false` with both versions; `make -C deploy install` puts the pinned one back (`docs/operating.md`). |
 | No supervisor, one inside the runner's cgroup, or the runner cannot tell | Refuses to start, exit code 1. | The log says what it found, and to start or check `marcel-claude-daemon.service`. |
 | Another runner holds the socket | Refuses to start. | The log says a runner is already running. |
 | A dead socket file is left from a crash | Deletes it and starts. | Nothing. |

@@ -45,7 +45,7 @@ scratch `HOME`.
 | `--cloud "<prompt>"` | on a terminal: `Created cloud session: … View: … Resume with: …`; otherwise the "requires an interactive terminal" error | SP3 |
 | `-p "<msg>" --cloud <id> --output-format json` | `{"ok":true,"session_id":…,"url":…}`; `-p` with `--cloud` and no id → the "cannot be combined with --print" error | SP3 |
 | `-p /usage [--output-format json]` | `fixtures/usage/usage-p-text.txt` | SP4 |
-| `--version` | `2.1.289 (Claude Code)` | — |
+| `--version` | `<runner/claude-version> (Claude Code)`; `MARCEL_FAKE_CLAUDE_VERSION` reports another | — |
 
 \* The spikes quote this line only in part. Check the exact words on the NUC before a parser relies on more
 than the ids.

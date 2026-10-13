@@ -98,6 +98,7 @@ All are `Error` bodies with a `message` a person can act on.
 |---|---|---|
 | 400 | `bad_request` | The body is not `{prompt, repo?}` / `{text}` with a non-empty string, `repo` is not a good `CloudRepo`, or the session id is malformed. |
 | 422 | `cloud_unparsed` | Create printed no session id and claude.ai link, or exited with an error. |
+| 422 | `claude_version` | A create when the installed Claude Code is not `runner/claude-version`; nothing was started, and the message names both versions. |
 | 422 | `clone_failed` | A `repo` create: the clone, its first setup (trust, plugin), the fetch, or checking out `base` failed. Git's or Claude's own words are in `detail`. |
 | 422 | `cloud_send_failed` | Send exited with an error, printed no ack, said `ok: false`, acked another session or link, or printed more than 1 MiB. |
 | 501 | `not_supported` | A `repo` create on a runner started without workspaces (not expected in production). |

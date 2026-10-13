@@ -24,7 +24,7 @@ from typing import Any
 from urllib.parse import unquote
 
 from marcel_runner.claude_env import scrubbed_env
-from marcel_runner.health import Settings, cgroup_of, collect_health
+from marcel_runner.health import Settings, cgroup_of, collect_health, version_problem
 
 CHANNEL = 'plugin:marcel@marcel-local'
 # Every session the runner starts loads only project and local settings, never the owner's own
@@ -32,6 +32,18 @@ CHANNEL = 'plugin:marcel@marcel-local'
 # remove another's allow, so leaving the user file out is the only way (S-03.10). A resume
 # re-reads the files, so spawn, resume and fork all pass it.
 SETTING_SOURCES = ('--setting-sources', 'project,local')
+# One settings file per role that needs one (`--settings`), on top of the project's own. Claude
+# saves it with the session, so a resume keeps it without passing it again (2.1.296, S-03.10).
+ROLE_SETTINGS = Path(__file__).resolve().parent / 'role_settings'
+
+
+def role_settings(role: str | None) -> Path | None:
+    """The `--settings` file for `role`, or None when the role needs none (the brain and its side
+    threads have `brain/.claude/settings.json` as their project settings)."""
+    path = ROLE_SETTINGS / f'{role}.json'
+    return path if role and path.is_file() else None
+
+
 CHANNEL_SERVER = 'plugin:marcel:marcel'  # how the debug log names the plugin's MCP server (SP1)
 ALLOWED_TOOLS = ('mcp__plugin_marcel_marcel__reply', 'mcp__plugin_marcel_marcel__report')
 # Brain and side sessions also get Marcel's brain tools and Harry's two always-shown tools, by
@@ -135,6 +147,9 @@ def spawn_argv(
         '--permission-mode',
         permission_mode,
     ]
+    settings = role_settings(role)
+    if settings is not None:
+        argv += ['--settings', str(settings)]
     if channel:
         argv += ['--channels', CHANNEL]
     argv += ['--allowedTools', *allowed_tools(role), '--debug-file', str(debug_file), '--', prompt]
@@ -376,15 +391,31 @@ class Sessions:
 
     # --- spawn ----------------------------------------------------------------------------
 
-    def _supervisor_reason(self) -> str | None:
+    def refuse_start(self, nothing: str) -> None:
+        """Raise when no session may start: Claude Code is not the pinned version (422
+        `claude_version`, checked first), or the supervisor is not up in its own unit (422
+        `no_supervisor`). `nothing` opens the message, e.g. "No session was started."."""
         health = collect_health(self.settings, lambda: 0, self.cgroup_of)
-        return None if health['ok'] else health.get('reason', 'The runner cannot start sessions.')
+        self._refuse_version(health['claude_version'], nothing)
+        if not health['ok']:
+            reason = health.get('reason', 'The runner cannot start sessions.')
+            raise SessionError(422, 'no_supervisor', f'{nothing} {reason}')
+
+    def refuse_version(self, nothing: str) -> None:
+        """Raise 422 `claude_version` when Claude Code is not the pinned version (a cloud start,
+        which needs no supervisor, checks only this)."""
+        installed = collect_health(self.settings, lambda: 0, self.cgroup_of)['claude_version']
+        self._refuse_version(installed, nothing)
+
+    def _refuse_version(self, installed: str, nothing: str) -> None:
+        wrong = version_problem(installed, self.settings.expected)
+        if wrong:
+            raise SessionError(422, 'claude_version', f'{nothing} {wrong}')
 
     def spawn(self, req: SpawnRequest) -> dict[str, Any]:
-        # The supervisor is checked before every spawn: the runner may have started without it.
-        reason = self._supervisor_reason()
-        if reason:
-            raise SessionError(422, 'no_supervisor', f'No session was started. {reason}')
+        # Checked before every spawn: the runner may have started without the supervisor, and
+        # Claude Code may have been updated since.
+        self.refuse_start('No session was started.')
         worker = req.role == 'worker'
         if worker:
             with self._lock:

@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from marcel_runner import fork, resume
 from marcel_runner.cloud import Cloud
-from marcel_runner.health import Settings, cgroup_of, collect_health
+from marcel_runner.health import Settings, cgroup_of, collect_health, version_problem
 from marcel_runner.sessions import SessionError, Sessions, StateFileError, state_dir_from_env
 from marcel_runner.transcript import Tails
 from marcel_runner.usage import UsageProbe
@@ -214,6 +214,10 @@ def serve(
     """Check the supervisor, bind the socket and return a server ready for `serve_forever()`."""
     if sessions is not None:
         active_workers = sessions.active_workers
+        if cloud is not None and cloud.check_version is None:
+            # A cloud start answers 422 `claude_version` too (it needs no supervisor).
+            live = sessions
+            cloud.check_version = lambda: live.refuse_version('Nothing was started.')
 
     def health() -> dict:
         return collect_health(settings, active_workers, cgroup_of)
@@ -224,6 +228,9 @@ def serve(
         first['supervisor']['running'] and first['supervisor']['own_unit']
     ):
         raise StartupError(f'{first["reason"]} The runner did not start.')
+    wrong = version_problem(first['claude_version'], settings.expected)
+    if wrong:  # serve anyway, so the hub and the app can show it; every start answers 422
+        print(f'marcel-runner: {wrong} No session will start until then.', file=sys.stderr)
     probe = usage if usage is not None else UsageProbe(settings.claude)
     if sessions is not None:
         sessions.refresh_usage = probe.refresh  # a fresh usage reading before each worker spawn

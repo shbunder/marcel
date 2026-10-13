@@ -5,3 +5,6 @@ note: woke session a0b2c716 with its saved options (--name, --permission-mode, -
 note: background session 30fd33d9 keeps its own saved options, so the flags you passed started a copy as 76ad3273. Without flags, the same command continues 30fd33d9 itself.
 # With a short id:
 note: started a copy of that conversation as 9a31b91a. To continue a session under its own id, pass its full session id (lowercase, as `claude agents --json` prints it) to --resume.
+# Spawned with --setting-sources project,local --settings <file> --name … --model haiku, stopped, then resumed with no
+# flags (S-03.10): --settings is a saved option too.
+note: woke session d1c040f4 with its saved options (--setting-sources, --settings, --name, --model).
