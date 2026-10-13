@@ -84,6 +84,8 @@ HUB_AUTHOR = BOARD_AUTHOR  # "the hub"
 MAX_BLOB_BYTES = 25 * 1024 * 1024
 
 PR_URL = re.compile(r'/pull/(\d+)/?$')
+# Marcel's own repository (B-24): a PR there is a self-change, whoever hands it in.
+SELF_REPO = 'shbunder/marcel'
 URL_KINDS = {ArtifactKind.pr, ArtifactKind.branch, ArtifactKind.link}
 FILE_KINDS = {ArtifactKind.doc, ArtifactKind.file, ArtifactKind.dashboard, ArtifactKind.board}
 DOC_TYPES = {'.md': 'text/markdown', '.markdown': 'text/markdown', '.html': 'text/html',
@@ -133,6 +135,30 @@ class MoveTargetArchived(Exception):
 
 class PrStatusUnavailable(Exception):
     """The PR status could not be read. The message says why, in plain words."""
+
+
+# Self-changes ------------------------------------------------------------------------------
+
+
+def is_self_change_url(url: str | None) -> bool:
+    """True for exactly `https://github.com/shbunder/marcel/pull/<n>` (B-24). The hub decides
+    this from the URL; a worker can neither claim nor avoid it."""
+    if not url:
+        return False
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+    if parts.scheme != 'https' or parts.netloc.lower() != 'github.com':
+        return False
+    if parts.query or parts.fragment:
+        return False
+    owner, _, rest = parts.path.strip('/').partition('/')
+    repo, _, tail = rest.partition('/')
+    return (
+        f'{owner}/{repo}'.lower() == SELF_REPO
+        and re.fullmatch(r'pull/[1-9][0-9]{0,9}', tail) is not None
+    )
 
 
 # PR status ---------------------------------------------------------------------------------
@@ -491,7 +517,9 @@ class ArtifactStore:
                        trusted=False, content_type=content.content_type, meta_json=content.meta,
                        size_bytes=None if content.data is None else len(content.data),
                        project_id=project_id if task_id is None else None,
-                       updated_by=author)  # fmt: skip
+                       updated_by=author,
+                       self_change=kind is ArtifactKind.pr
+                       and is_self_change_url(content.url))  # fmt: skip
         return self._store(art, content.data, reported.summary)
 
     def publish_hub_html(self, title: str, html: str, task_id: str | None = None) -> Artifact:
@@ -656,6 +684,8 @@ class ArtifactStore:
                     row.title = title or row.title
                     if content.url is not None:
                         row.url = content.url
+                        if row.kind is ArtifactKind.pr:  # a new address decides it again
+                            row.self_change = is_self_change_url(row.url)
                     if content.data is not None:
                         row.size_bytes = len(content.data)
                         row.content_type = content.content_type or row.content_type

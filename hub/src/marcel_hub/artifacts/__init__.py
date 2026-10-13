@@ -9,6 +9,7 @@ from marcel_hub.artifacts.store import (
     FILE_KINDS,
     HUB_AUTHOR,
     MAX_BLOB_BYTES,
+    SELF_REPO,
     ArtifactIsBoard,
     ArtifactNotFound,
     ArtifactRefused,
@@ -24,6 +25,7 @@ from marcel_hub.artifacts.store import (
     VersionNotFound,
     blob_name,
     check_dashboard,
+    is_self_change_url,
     pr_status_from_gh,
 )
 
@@ -31,6 +33,7 @@ __all__ = [
     'FILE_KINDS',
     'HUB_AUTHOR',
     'MAX_BLOB_BYTES',
+    'SELF_REPO',
     'ArtifactIsBoard',
     'ArtifactNotFound',
     'ArtifactRefused',
@@ -47,6 +50,7 @@ __all__ = [
     'blob_name',
     'check_dashboard',
     'install',
+    'is_self_change_url',
     'pr_status_from_gh',
 ]
 

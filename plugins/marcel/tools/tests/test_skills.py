@@ -35,7 +35,7 @@ from marcel_tools.tools import BY_NAME, TOOLS
 MAX_LINES = 200
 MAX_BYTES = 12_000
 MAX_DESCRIPTION = 1024  # Claude Code's limit for a skill description
-EXPECTED = {'orchestrate', 'worker-protocol', 'digest'}
+EXPECTED = {'orchestrate', 'worker-protocol', 'digest', 'self-improve'}
 # The behaviours each skill quotes from plan/01-functional-spec.md.
 QUOTES = {
     'orchestrate': ['B-03', 'B-04', 'B-05', 'B-06', 'B-07', 'B-13', 'B-31'],
@@ -75,7 +75,7 @@ def spec_behaviour(bid: str) -> str:
     return flat(match.group(1))
 
 
-def test_the_three_skills_exist() -> None:
+def test_the_four_skills_exist() -> None:
     assert {p.parent.name for p in skill_files()} == EXPECTED
     for folder in SKILLS.iterdir():
         if folder.is_dir() and folder.name != 'evals':

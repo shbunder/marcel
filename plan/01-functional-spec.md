@@ -110,8 +110,9 @@ and keeps me posted — with a living pixel-art giraffe at the top of the screen
 ## Self-modification
 
 - **B-24** Marcel may improve its own code (hub, plugin, brain instructions) **only through a PR on its
-  own repo**. The PR shows up as an approval card. Approving it merges the PR and redeploys through the flag-file
-  mechanism, with a health check and an automatic `git revert` rollback.
+  own repo**. The PR shows up as an approval card. Approving it is the go-ahead; the owner then merges the PR on
+  GitHub (Marcel never merges itself, ADR-005), and only a PR both approved and merged redeploys through the
+  flag-file mechanism, with a health check and an automatic `git revert` rollback.
 
 ## The app (iOS only, native Swift)
 

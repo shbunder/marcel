@@ -39,6 +39,7 @@ from marcel_hub import (
     notify,
     projects,
     schedule,
+    selfmod,
     side,
     task_threads,
     tasks,
@@ -79,6 +80,9 @@ class Settings:
     github_token: str | None = field(default=None, repr=False)
     # The owner's time zone: the built-in digests fire in it (S-09.2).
     tz: str = 'Europe/Brussels'
+    # S-11.1: the redeploy flag the host's `marcel-redeploy.path` unit watches (`~/marcel/state`
+    # on the NUC, mounted at /state).
+    redeploy_flag: Path = Path('/state/redeploy.flag')
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -115,6 +119,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         'apns_sandbox',
         'github_token',
         'tz',
+        'redeploy_flag',
     }
     unknown = set(values) - known
     if unknown:
@@ -139,6 +144,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             if values.get('github_token')
             else None,
             tz=_tz(values.get('tz', 'Europe/Brussels')),
+            redeploy_flag=Path(values.get('redeploy_flag', '/state/redeploy.flag')),
         )
     except ValueError as exc:
         raise SettingsError(f'The port must be a number: {exc}.') from exc
@@ -206,6 +212,7 @@ def _is_setting(name: str) -> bool:
         'MARCEL_APNS_SANDBOX',
         'MARCEL_GITHUB_TOKEN',
         'MARCEL_TZ',
+        'MARCEL_REDEPLOY_FLAG',
     }
 
 
@@ -252,6 +259,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         avatars.prime()  # states that changed while the hub was down (S-04.8)
         avatars.start()
         prs.start()  # S-04.12: open PRs found again, then refreshed every 5 minutes
+        selfmods.resume()  # S-11.1: merged self-changes whose follow-up a restart cut short
         digests.ensure_builtins()  # S-09.2: before the scheduler's first look
         digests.start()
         scheduler.start()  # S-09.1: missed fires are reported once, on its first look
@@ -336,6 +344,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     artifacts.install(app)  # S-04.7, after tasks: an artifact is recorded on its task
     # S-04.12: PR cards follow GitHub (read-only token); new PR artifacts are seen in the event log.
     prs = github.install(app, settings.github_token)
+    # S-11.1: self-change PRs get an approval card; an approved, merged one asks for a redeploy.
+    selfmods = selfmod.install(app, settings.redeploy_flag, push=pusher, alerts=pusher)
     repo = memory.install(app)
     channel.install(app, gateway, registry, watch)  # after artifacts: reports store through it
     # S-07.1: cloud tasks open claude.ai/code sessions; their reports and a deadline watchdog.
