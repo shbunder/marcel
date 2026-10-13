@@ -164,9 +164,11 @@ def task(s: Session, title: str, state: TaskState, at: datetime, **kw: Any) -> T
 
 
 def pr(s: Session, title: str, state: str, checks: str, review: str, at: datetime) -> Artifact:
+    """A PR item of AGENT's, filed in its inbox (a loose item goes only to the owner, B-38)."""
+    inbox = s.exec(select(Project).where(Project.agent_id == AGENT, Project.slug == 'inbox')).one()
     art = Artifact(kind=ArtifactKind.pr, title=title, url='https://github.com/o/r/pull/1',
                    meta_json={'pr': {'state': state, 'checks': checks, 'review': review}},
-                   created_at=at, updated_at=at)  # fmt: skip
+                   project_id=inbox.id, created_at=at, updated_at=at)  # fmt: skip
     s.add(art)
     s.commit()
     return art

@@ -305,7 +305,7 @@ def test_an_unreachable_runner_fails_the_task_and_spends_its_token(ch: CloudHub)
 
 
 def _quiet_registry(engine: Engine) -> tuple[TaskRegistry, CloudTasks, RecordingNotifier, Any]:
-    add_agent(engine)
+    add_agent(engine, owner='usr_owner')
     add_device(engine)
     notifier = RecordingNotifier()
     pusher = pusher_for(engine, notifier)

@@ -102,7 +102,7 @@ class Watched(RecordingPublisher):
 
 class Rig:
     def __init__(self, engine: Engine, tmp_path: Path, gh: FakeGitHub, token: str | None) -> None:
-        add_agent(engine)
+        add_agent(engine, owner='usr_owner')
         self.gh = gh
         self.events = Watched()
         self.store = ArtifactStore(engine, tmp_path / 'artifacts', publisher=self.events)

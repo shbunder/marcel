@@ -367,7 +367,7 @@ def test_an_odd_answer_body_does_not_reach_the_error(engine: Engine) -> None:
 
 def test_a_busy_apple_for_one_device_does_not_hold_up_another(engine: Engine) -> None:
     """429 for one phone is retried later in its own time; the other phone gets its push now."""
-    add_agent(engine)
+    add_agent(engine, owner='usr_owner')
     add_device(engine, 'dev_a', apns_token='token-busy', ntfy_topic=None)
     add_device(engine, 'dev_b', apns_token='token-fine', ntfy_topic=None)
     apple = FakeApple(**{'token-busy': (429, 'TooManyRequests')})
@@ -541,7 +541,7 @@ def test_no_secret_reaches_a_log(
     engine: Engine, caplog: pytest.LogCaptureFixture, answer: Any
 ) -> None:
     caplog.set_level(logging.DEBUG)  # every logger, httpx included
-    add_agent(engine)
+    add_agent(engine, owner='usr_owner')
     add_device(engine, apns_token=DEVICE_TOKEN, ntfy_topic=None)
     apple = FakeApple(**{DEVICE_TOKEN: answer})
     notifier = apple.notifier(engine)
