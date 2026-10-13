@@ -145,7 +145,7 @@ def fork(sessions: Sessions, ref: str, raw: bytes) -> dict[str, Any]:
         new = sessions._resolve(short)
     except SessionError as e:
         raise sessions._contain(req, short, since, e) from None
-    record = sessions._record(req, new['sessionId'], short)
+    record = sessions._record(req, new['sessionId'], short, debug_file)
     sessions._remember(record)
     registered = sessions._wait_channel(short, debug_file) if req.channel else False
     return {

@@ -2,7 +2,12 @@
 
 A live session is never sent text by the runner: there is no `claude send`, so live steering goes
 hub → channel and a resume of a running session answers 409 `running`. Between turns the runner
-runs `claude --bg --resume <uuid> … -- "<prompt>"`, which wakes the same session (SP2).
+runs `claude --bg --resume <uuid> -- "<prompt>"`, with no other flag: since 2.1.296 a session keeps
+its own saved options (`--setting-sources`, permission mode, channels, allowed tools, debug file,
+model) and flags on a resume start a copy instead (recorded on the NUC, 2026-10-13). So a resumed
+session still loads only project and local settings (S-03.10) without the runner passing it again.
+The id must be the full session id: a short id starts a copy too. The woken session writes on in the
+debug file it was started with, which is where the runner sees its channel register again.
 
 The race (SP2): a resume issued ~1 s after `claude stop` still finds the session live in Claude's
 supervisor and starts a *copy* instead (`note: … started a copy as <id>`). The runner first waits
@@ -20,12 +25,8 @@ from typing import Any
 
 from marcel_runner.sessions import (
     BACKGROUNDED,
-    CHANNEL,
-    PERMISSION_MODES,
-    SETTING_SOURCES,
     SessionError,
     Sessions,
-    allowed_tools,
     running,
 )
 
@@ -33,25 +34,27 @@ ROSTER_WAIT = 10.0  # SP2: the id was gone from roster.json 3 s after `claude st
 COPY = re.compile(r'started a copy as ([0-9a-f]{8})')
 
 
-def resume_argv(
-    claude: Path,
-    *,
-    session_id: str,
-    prompt: str,
-    debug_file: Path,
-    channel: bool,
-    tools: tuple[str, ...],
-    permission_mode: str | None,
-) -> list[str]:
-    """`claude --bg --resume <uuid>`, with the recorded permission mode (left out when the runner
-    did not start the session) and the same `--setting-sources`, `--channels` and `--allowedTools`
-    as spawn. The prompt goes after `--` (SP1)."""
-    argv = [str(claude), '--bg', *SETTING_SOURCES, '--resume', session_id]
-    if permission_mode:
-        argv += ['--permission-mode', permission_mode]
-    if channel:
-        argv += ['--channels', CHANNEL]
-    return argv + ['--allowedTools', *tools, '--debug-file', str(debug_file), '--', prompt]
+def resume_argv(claude: Path, *, session_id: str, prompt: str) -> list[str]:
+    """`claude --bg --resume <uuid> -- "<prompt>"`: no flags, so Claude reuses the session's saved
+    options rather than start a copy (2.1.296). The prompt goes after `--` (SP1)."""
+    return [str(claude), '--bg', '--resume', session_id, '--', prompt]
+
+
+def saved_debug_file(home: Path, short: str, record: dict[str, Any] | None) -> Path | None:
+    """The debug file the session was started with: the runner's record, else the `--debug-file`
+    Claude saved with the session (`~/.claude/jobs/<short>/state.json`, `respawnFlags`)."""
+    if record and isinstance(record.get('debug_file'), str):
+        return Path(record['debug_file'])
+    try:
+        flags = json.loads((home / '.claude' / 'jobs' / short / 'state.json').read_text('utf-8'))
+        flags = flags.get('respawnFlags') if isinstance(flags, dict) else None
+    except (OSError, ValueError):
+        return None
+    if isinstance(flags, list) and '--debug-file' in flags:
+        i = flags.index('--debug-file')
+        if i + 1 < len(flags) and isinstance(flags[i + 1], str):
+            return Path(flags[i + 1])
+    return None
 
 
 def parse_body(raw: bytes, allowed: set[str], required: set[str]) -> dict[str, Any]:
@@ -154,28 +157,26 @@ def resume(sessions: Sessions, ref: str, raw: bytes) -> dict[str, Any]:
     check_supervisor(sessions)
     record = sessions._record_for(row)
     role = (record or {}).get('role')
-    mode = (record or {}).get('permission_mode')
     channel = (record or {}).get('channel', True) is not False
     cwd = session_cwd(row, record)
+    debug_file = saved_debug_file(sessions.home, short, record) if channel else None
+    if channel and debug_file is None:
+        raise SessionError(
+            422,
+            'exited',
+            f'Session {short} was not woken: the runner cannot find the debug log it was started '
+            'with, so it could not tell whether its channel came back.',
+        )
     with worker_slot(sessions, role == 'worker'):
         wait_off_roster(sessions.home, (session_id, short), ROSTER_WAIT, sessions.poll)
-        debug_file = sessions.state_dir / 'debug' / f'resume-{short}-{sessions.token()}.log'
-        debug_file.parent.mkdir(parents=True, exist_ok=True)
-        argv = resume_argv(
-            sessions.settings.claude,
-            session_id=session_id,
-            prompt=prompt,
-            debug_file=debug_file,
-            channel=channel,
-            tools=allowed_tools(role),
-            permission_mode=mode if mode in PERMISSION_MODES else None,
-        )
+        start = _size(debug_file)
+        argv = resume_argv(sessions.settings.claude, session_id=session_id, prompt=prompt)
         p = sessions._claude(*argv[1:], cwd=cwd, timeout=sessions.spawn_timeout)
-        said = (p.stderr or p.stdout).strip()
+        said = '\n'.join(filter(None, [p.stdout.strip(), p.stderr.strip()]))
         if p.returncode != 0:
             raise SessionError(422, 'exited', 'Claude refused to resume the session.', said or None)
         started = BACKGROUNDED.search(p.stdout)
-        copy = COPY.search(p.stdout)
+        copy = COPY.search(said)  # 2.1.296 says it on stderr
         other = copy.group(1) if copy else None
         if other is None and started is not None and started.group(1) != short:
             other = started.group(1)
@@ -197,6 +198,13 @@ def resume(sessions: Sessions, ref: str, raw: bytes) -> dict[str, Any]:
             raise SessionError(
                 422, 'exited', 'Claude did not say which session it woke.', said or None
             )
-        if channel:
-            sessions._wait_channel(short, debug_file)
+        if debug_file is not None:
+            sessions._wait_channel(short, debug_file, start)
     return sessions.get(session_id)
+
+
+def _size(path: Path | None) -> int:
+    try:
+        return path.stat().st_size if path is not None else 0
+    except OSError:
+        return 0

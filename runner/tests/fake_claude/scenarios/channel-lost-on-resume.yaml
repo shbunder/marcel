@@ -1,0 +1,44 @@
+# The resume writes a `skipped` channel line to the log the spawn already marked `registered`.
+resume_channel: skipped
+# SP2 t1: auto mode, one subagent, Edit, Bash, git commit, then done.
+# States follow fixtures/agents/lifecycle.jsonl for t1: starting → busy → done/idle.
+description: A worker that finishes, then wakes on a resume without its channel (the plugin is gone).
+transcript: transcripts/t1-happy-path.jsonl
+job: t1-done
+steps:
+  - wait: 0.05
+    state: working          # dispatched; no process yet (agents/starting.json)
+  - wait: 0.1
+    state: working
+    status: busy            # agents/working.json
+    transcript: 33          # prompt, the Agent call and its launch result
+    subagents: true
+    job:
+      detail: Finding buggy function
+  - wait: 0.1
+    transcript: 55          # the subagent's hand-back, reading calc.py
+    job:
+      detail: Reading calc.py
+  - wait: 0.1
+    state: done
+    status: idle            # agents/done-idle.json
+    transcript: 78          # the fix, the check, the commit, the summary
+    text: "I fixed `sub()` in `calc.py` (it returned `a + b`, now `a - b`), the check printed `ok`, and the fix is committed on `t1` as `772d9f4` with message \"fix sub\"."
+    job:
+      state: done
+      tempo: idle
+      detail: sub() bug fixed in calc.py, committed as 772d9f4
+      result: fixed sub() bug in calc.py (commit 772d9f4); verified with check
+resume:                     # SP2 "Follow-up 3": a stopped t1 woken by --resume
+  - wait: 0.05
+    state: working
+    status: busy
+    transcript: 87
+  - wait: 0.1
+    state: done
+    status: idle
+    transcript: end
+    job:
+      state: done
+      tempo: idle
+      detail: subagent report received; sub() fixed, verified, committed

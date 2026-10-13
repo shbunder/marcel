@@ -468,7 +468,7 @@ class Sessions:
             row = self._resolve(short)
         except SessionError as e:
             raise self._contain(req, short, since, e) from None
-        record = self._record(req, row['sessionId'], short)
+        record = self._record(req, row['sessionId'], short, debug_file)
         self._remember(record)
         registered = False
         if req.channel:
@@ -482,7 +482,9 @@ class Sessions:
         }
 
     @staticmethod
-    def _record(req: SpawnRequest, session_id: str | None, short: str) -> dict[str, Any]:
+    def _record(
+        req: SpawnRequest, session_id: str | None, short: str, debug_file: Path | None = None
+    ) -> dict[str, Any]:
         return {
             'id': session_id,
             'short_id': short,
@@ -493,6 +495,7 @@ class Sessions:
             'model': req.model,
             'cwd': str(req.cwd),
             'channel': req.channel,
+            'debug_file': str(debug_file) if debug_file else None,
             'started_at': datetime.now(UTC).isoformat(timespec='seconds').replace('+00:00', 'Z'),
         }
 
@@ -557,12 +560,13 @@ class Sessions:
             'It may have exited at once.',
         )
 
-    def _wait_channel(self, short: str, debug_file: Path) -> bool:
-        """True once the debug log says the marcel channel is registered. A `skipped` line or
-        no line within the wait stops the session and fails the spawn."""
+    def _wait_channel(self, short: str, debug_file: Path, start: int = 0) -> bool:
+        """True once the debug log says the marcel channel is registered (only what was written
+        past byte `start`: a resume writes on in the log the session was started with). A
+        `skipped` line or no line within the wait stops the session and fails the spawn."""
         deadline = time.monotonic() + self.channel_wait
         while True:
-            for line in _read_lines(debug_file):
+            for line in _read_lines(debug_file, start):
                 if CHANNEL_SERVER not in line:
                     continue
                 if REGISTERED in line:
@@ -738,8 +742,10 @@ def _not_allowed(path: str, allowed: str, method: str) -> SessionError:
     return SessionError(405, 'method_not_allowed', f'{path} only answers {allowed}, not {method}.')
 
 
-def _read_lines(path: Path) -> list[str]:
+def _read_lines(path: Path, start: int = 0) -> list[str]:
     try:
-        return path.read_text('utf-8', errors='replace').splitlines()
+        with path.open('rb') as f:
+            f.seek(start)
+            return f.read().decode('utf-8', errors='replace').splitlines()
     except OSError:
         return []

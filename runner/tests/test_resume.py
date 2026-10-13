@@ -135,7 +135,7 @@ def test_resume_wakes_the_same_session_with_the_golden_command_line(up: Rig) -> 
     assert call['cwd'] == str(up.work.resolve())  # `--resume` finds the conversation from there
 
 
-def test_a_brain_resume_gets_the_brain_tools_and_keeps_its_channel_setting(up: Rig) -> None:
+def test_a_brain_resume_passes_no_flags_either(up: Rig) -> None:
     spawned = stopped(up, role='brain', name='brain', channel=False)
     sid = spawned['session_id']
     prompt = 'Good morning. Anything new overnight?'
@@ -309,19 +309,44 @@ def test_harrys_two_tools_are_pre_allowed_for_brain_and_side_only() -> None:
     assert not any('harry' in t for t in allowed_tools('worker') + allowed_tools('adopted'))
 
 
-def test_resume_passes_the_recorded_permission_mode(up: Rig) -> None:
+def test_resume_passes_no_flag_so_claude_keeps_the_saved_options(up: Rig) -> None:
+    """2.1.296: flags on a resume start a copy. Add one back to `resume_argv` and the fake starts a
+    copy, which the runner stops and answers 409."""
     spawned = stopped(up, permission_mode='plan')
-    assert up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})[0] == 200
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert (status, body['id']) == (200, spawned['session_id']), body
     (call,) = resume_calls(up)
-    argv = call['argv']
-    assert argv[argv.index('--permission-mode') + 1] == 'plan'
+    assert call['argv'][1:] == ['--bg', '--resume', spawned['session_id'], '--', 'go']
 
 
-def test_resume_of_a_session_the_runner_did_not_start_leaves_its_mode_alone(up: Rig) -> None:
+def test_resume_of_a_session_the_runner_forgot_finds_its_debug_log_in_claudes_saved_options(
+    up: Rig,
+) -> None:
     spawned = stopped(up)
     up.stop_runner()
     up.state.joinpath('sessions.json').unlink()  # the runner forgets it started it
     up.start()
-    assert up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})[0] == 200
-    (call,) = resume_calls(up)
-    assert '--permission-mode' not in call['argv']
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert (status, body['id']) == (200, spawned['session_id']), body
+
+
+def test_resume_refuses_when_the_debug_log_cannot_be_found(up: Rig) -> None:
+    """Without the log the runner cannot see the channel come back: it says so, starts nothing."""
+    spawned = stopped(up)
+    up.stop_runner()
+    up.state.joinpath('sessions.json').unlink()
+    (up.fake.home / '.claude' / 'jobs' / spawned['short_id'] / 'state.json').unlink()
+    up.start()
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert (status, body['code']) == (422, 'exited')
+    assert 'debug log' in body['message']
+    assert resume_calls(up) == []
+
+
+def test_a_resume_that_loses_its_channel_fails_though_the_spawn_had_one(up: Rig) -> None:
+    """The log already says `registered` from the spawn; only what the resume wrote counts.
+    Read the log from the start again and this resume passes."""
+    up.fake.use('channel-lost-on-resume')
+    spawned = stopped(up)
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert (status, body['code']) == (422, 'channel_skipped'), body

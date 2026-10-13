@@ -28,22 +28,22 @@ hub → channel. Resume is only for between turns.
 5. It runs, in the session's own folder (`--resume` only finds a conversation from there):
 
    ```
-   claude --bg --setting-sources project,local --resume <uuid> --permission-mode <recorded mode>
-     --channels plugin:marcel@marcel-local
-     --allowedTools mcp__plugin_marcel_marcel__reply mcp__plugin_marcel_marcel__report
-     --debug-file <state>/debug/resume-<short-id>-<token>.log -- "<prompt>"
+   claude --bg --resume <full uuid> -- "<prompt>"
    ```
 
-   `--setting-sources project,local` is passed again: a resume re-reads the settings files, so without it the
-   owner's user settings would come back (as on spawn, `docs/runner/sessions.md`).
-   `--permission-mode` is the one the runner recorded; it is left out for a session the runner did
-   not start, so Claude keeps that session's own. `--channels` is left out when the session was
-   spawned with `channel: false`. Brain and side sessions also get the brain tools, by name
-   (`sessions.allowed_tools`, the same list spawn uses). The lines are pinned in
-   `runner/tests/test_resume_golden/`.
-6. If Claude prints `note: … started a copy as <id>` (or backgrounds another short id), the runner
-   stops the copy and answers `409 resume_copied`. The message says whether the stop worked.
-7. With the channel on, it waits for `Channel notifications registered`, as a spawn does.
+   No other flag. Since Claude Code 2.1.296 a session keeps the options it was started with
+   (`--setting-sources project,local`, `--permission-mode`, `--channels`, `--allowedTools`,
+   `--debug-file`, `--model`: `respawnFlags` in `~/.claude/jobs/<short-id>/state.json`), and any
+   flag on a resume, or a short id, starts a copy instead (recorded on the NUC, 2026-10-13). So a
+   woken session still loads only project and local settings, keeps its mode and tools, and writes
+   on in the debug log it was started with. The line is pinned in `runner/tests/test_resume_golden/`.
+6. If Claude says `… started a copy as <id>` (on stdout or stderr), or backgrounds another short id,
+   the runner stops the copy and answers `409 resume_copied`. The message says whether the stop
+   worked.
+7. With the channel on, it waits for `Channel notifications registered` in the session's own debug
+   log (the runner's record of it, else Claude's saved `--debug-file`), counting only what was
+   written after the resume began. When neither names a log, it answers `422 exited` and wakes
+   nothing.
 
 ## Fork
 

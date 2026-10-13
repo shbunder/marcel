@@ -315,8 +315,10 @@ def test_a_runner_restart_keeps_roles_and_still_counts_the_workers(rig: Rig) -> 
         'model': 'sonnet',
         'cwd': str(rig.work),
         'channel': True,
+        'debug_file': record['debug_file'],
         'started_at': record['started_at'],
     }
+    assert Path(record['debug_file']).is_file()  # a resume reads the channel's state there
 
 
 def test_simultaneous_spawns_never_pass_the_cap_together(tmp_path: Path) -> None:
