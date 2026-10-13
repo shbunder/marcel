@@ -36,8 +36,9 @@ A `repo` spawn, resume and fork: see [workspaces.md](workspaces.md).
      --debug-file <state>/debug/<name>-<token>.log -- "<prompt>"
    ```
 
-   `brain` and `side` sessions also get Marcel's brain tools, by name, after `report`
-   (`sessions.BRAIN_TOOLS`, the list in `contracts/runner-api.yaml`); workers never do.
+   `brain` and `side` sessions also get Marcel's brain tools and Harry's `harry_find_tools` and
+   `harry_mark_done`, by name, after `report` (`sessions.BRAIN_TOOLS`, the list in
+   `contracts/runner-api.yaml`); workers never do.
    `--channels …` is left out with `channel: false`. The prompt goes after `--`, because
    `--channels` and `--allowedTools` take several values and would swallow it (SP1). The exact lines
    are pinned in `runner/tests/test_sessions_golden/`.

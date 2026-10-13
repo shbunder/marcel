@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — session API
-  version: 0.1.3
+  version: 0.1.4
   description: |
     The two hub endpoints that Claude Code sessions call themselves, over HTTPS through the tunnel.
     They sit under the same `/api` server as the app API but use their own tokens, never a device
@@ -10,8 +10,11 @@ info:
     - **adopt** (`/marcel-adopt`, B-14): any session the owner hands over. Token: the adopt token in
       `~/.marcel/adopt-token` on the owner's machines.
     - **report** (cloud workers, B-10, SP3): a cloud worker cannot reach the channel, so it reports its
-      progress and result here. Token: a per-task token minted when the hub spawned the task, put in
-      the worker's prompt, valid for that one task, for 48 hours, and refused after `done`/`failed`.
+      progress and result here. Token: a per-task token, put in the worker's prompt, valid for that
+      one task and for 48 hours from when it was minted. The hub mints a new token for the spawn and
+      for each follow-up message it sends the task; the earlier tokens of the same task stay valid
+      until the task finishes. Every token of a task is refused once the task is `done`, `failed`
+      or `stopped` (clarified in 0.1.4).
 
     Scanners probed the tunnel within minutes during SP3: anything without a valid token gets 404,
     not 401. Wrong tokens are rate-limited per caller address. `report` answers 429 when limited;
@@ -72,11 +75,22 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/Hidden' }
         '409':
-          description: '`too_many_notes`: this task already sent 10 `note` reports. Nothing was stored. New in 0.1.2.'
+          description: |
+            A `note` that was not kept; nothing was stored. `too_many_notes`: this task already sent
+            10 `note` reports (new in 0.1.2). `notes_full`: the project's notes file would pass 1 MB,
+            the memory file cap (new in 0.1.4). The worker puts the fact in its done summary instead.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '429': { $ref: '#/components/responses/TooMany' }
+        '503':
+          description: |
+            `memory_unavailable`: a `note` could not be kept (the hub has no notes folder, git failed,
+            or the task's project has no usable notes file). Nothing was stored; the worker puts the
+            fact in its done summary instead. New in 0.1.4.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
 components:
   securitySchemes:
@@ -91,7 +105,10 @@ components:
 
   responses:
     BadRequest:
-      description: The body is not valid; `message` says what to change.
+      description: |
+        The body is not valid; `message` says what to change. A `note` with no text, text of only
+        spaces, or more than 1000 characters is `bad_note`; a `progress` report whose `next` breaks
+        its bounds is `bad_next`; any other invalid report is `bad_report` (codes named in 0.1.4).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -163,7 +180,11 @@ components:
         project (the Inbox's notes, `memory/projects/inbox.md`, for an unfiled task), commits it as
         `memory: projects/<slug>.md (worker <task id>)`, and posts nothing in the main chat. A note never
         changes the task's state. At most 10 notes per task: past that the hub answers
-        `too_many_notes` (409 here, a `call_ack` error on the channel) and stores nothing.
+        `too_many_notes` (409 here, a `call_ack` error on the channel) and stores nothing. A note is
+        also refused, with nothing stored, as `notes_full` (409: the project's notes would pass
+        1 MB), `memory_unavailable` (503: the notes cannot be saved now) or `bad_note` (400: no
+        text, only spaces, or more than 1000 characters). Each refusal's message tells the worker
+        to put the fact in its done summary instead (codes named in 0.1.4).
       required: [kind]
       additionalProperties: false
       properties:
@@ -174,7 +195,7 @@ components:
           type: string
           description: |
             For `progress`, one line. Reports are milestones, not a running commentary. For `note`,
-            the fact (1 to 1000 characters).
+            the fact (1 to 1000 characters, at least one of them not a space; 0.1.4).
         next:
           type: array
           maxItems: 20
@@ -196,7 +217,7 @@ components:
         - if: { properties: { kind: { const: note } } }
           then:
             required: [text]
-            properties: { text: { minLength: 1, maxLength: 1000 } }
+            properties: { text: { minLength: 1, maxLength: 1000, pattern: '\S' } }
         - if: { properties: { kind: { const: artifact } } }
           then: { required: [artifact] }
         - if: { properties: { kind: { enum: [done, failed] } } }

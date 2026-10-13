@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel runner API
-  version: 0.1.7
+  version: 0.1.8
   description: |
     The runner is the only process that runs `claude` (native on the NUC, a systemd user unit). The
     hub (in Docker) talks to it over HTTP on a unix socket: `/run/user/<uid>/marcel/runner.sock` on
@@ -16,7 +16,12 @@ info:
       mcp__plugin_marcel_marcel__report`, and puts the prompt after `--`. A plugin cannot
       pre-allow its own tools, so without the flag a `manual`-mode session prompts for every reply.
       Brain and side sessions (never workers) also get Marcel's brain tools, by name, never a
-      wildcard, so a new tool is only allowed once someone decides it: `mcp__plugin_marcel_tools__artifacts_publish` `mcp__plugin_marcel_tools__board_note` `mcp__plugin_marcel_tools__memory_read` `mcp__plugin_marcel_tools__memory_write` `mcp__plugin_marcel_tools__notify` `mcp__plugin_marcel_tools__projects_create` `mcp__plugin_marcel_tools__projects_list` `mcp__plugin_marcel_tools__projects_update` `mcp__plugin_marcel_tools__schedule_create` `mcp__plugin_marcel_tools__schedule_delete` `mcp__plugin_marcel_tools__schedule_list` `mcp__plugin_marcel_tools__tasks_get` `mcp__plugin_marcel_tools__tasks_list` `mcp__plugin_marcel_tools__tasks_move` `mcp__plugin_marcel_tools__tasks_send` `mcp__plugin_marcel_tools__tasks_spawn` `mcp__plugin_marcel_tools__tasks_stop` `mcp__plugin_marcel_tools__usage_get`.
+      wildcard, so a new tool is only allowed once someone decides it: `mcp__plugin_marcel_tools__artifacts_publish` `mcp__plugin_marcel_tools__board_note` `mcp__plugin_marcel_tools__memory_read` `mcp__plugin_marcel_tools__memory_write` `mcp__plugin_marcel_tools__notify` `mcp__plugin_marcel_tools__projects_create` `mcp__plugin_marcel_tools__projects_list` `mcp__plugin_marcel_tools__projects_update` `mcp__plugin_marcel_tools__schedule_create` `mcp__plugin_marcel_tools__schedule_delete` `mcp__plugin_marcel_tools__schedule_list` `mcp__plugin_marcel_tools__tasks_get` `mcp__plugin_marcel_tools__tasks_list` `mcp__plugin_marcel_tools__tasks_move` `mcp__plugin_marcel_tools__tasks_send` `mcp__plugin_marcel_tools__tasks_spawn` `mcp__plugin_marcel_tools__tasks_stop` `mcp__plugin_marcel_tools__usage_get`,
+      and the two tools Harry always shows (0.1.8): `mcp__plugin_marcel_harry__harry_find_tools`
+      `mcp__plugin_marcel_harry__harry_mark_done`. Harry's other tools appear only after
+      `harry_find_tools` and change with Harry, so they are not listed; the brain's `auto` mode
+      checks them. Workers get the plugin's `harry` server but none of its tools pre-allowed, as
+      with the brain tools.
       The hub checks every brain-tool call again (`/brain`, S-05.3); the list only stops the prompts. The runner checks the session's debug log for
       `Channel notifications registered`, and fails the spawn when it says `skipped`. It waits up
       to 30 s for either line; with neither, it stops the session and fails the spawn

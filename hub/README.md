@@ -529,7 +529,8 @@ on first use. The code is `src/marcel_hub/memory.py`.
   the briefing cannot be built, the task starts without it and the log says
   `starts without its project briefing` and why.
 - **Notes from workers** (`report(note)`, session-api 0.1.2). A worker sends one lasting fact (1 to
-  1000 characters; anything else is answered `call_ack` error `bad_note`, saying what to fix and
+  1000 characters, at least one not a space (session-api 0.1.4); anything else is answered
+  `call_ack` error `bad_note`, saying what to fix and
   "Put the fact in your done summary instead.", and nothing is stored). The gateway appends
   `- <date> <text> (from <task title>)` to `memory/projects/<slug>.md` of the task's own project
   (`projects/inbox.md` for one in the Inbox), with the date in the owner's time zone, and commits it
