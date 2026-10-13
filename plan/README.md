@@ -38,6 +38,7 @@ It is built as a shell around the unmodified `claude` CLI, on a Claude Max subsc
 | F18 Chat clarity (look, quoted replies, mentions) | 4 | hub / ios | cloud + **Mac** |
 | F19 Avatars from the Pixel Zoo | 4 | avatar / hub / ios | cloud + **Mac** |
 | F20 Coding projects start well (kickoff, tracker) | 4 | plugin | cloud + NUC (SP9) |
+| F21 Delegation rules (answer, quest or subagent) | 4 | plugin | cloud + NUC (SP10) |
 
 ## Before an agent starts
 
