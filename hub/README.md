@@ -242,6 +242,13 @@ anyone else gets a 404 `conversation_not_found`.
 Other code posts messages (Marcel's answers, milestones) with `conversations.post_message(...)`,
 which also sends the `message.created` event.
 
+**What a message answers (B-41, S-18.1).** `reply_to_message_id` names the owner's message an
+agent message answers, so the app can quote it when it is not their latest:
+- the brain's `reply` keeps its `in_reply_to` when that is a user message in the same conversation;
+  anything else is stored without it, with a log line, and the reply is never refused;
+- every agent message posted for a task (milestones, approval cards, items) gets the message that
+  started the task (`Task.parent_message_id`) when that is a user message in the same conversation.
+
 ### Task threads
 
 A side thread opened on a task's milestone or approval card (`Conversation.task_id` set) is the

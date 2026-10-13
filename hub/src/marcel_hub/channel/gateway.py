@@ -39,7 +39,12 @@ from marcel_hub.channel.approvals import ApprovalBook
 from marcel_hub.channel.frames import next_steps_problem, note_problem, version_tuple
 from marcel_hub.channel.outbox import ChannelOutbox, conversation_target, task_target
 from marcel_hub.channel.ports import Artifacts, Brains, LogPush, Push
-from marcel_hub.conversations import ensure_main_conversation, message_json, post_message
+from marcel_hub.conversations import (
+    answerable,
+    ensure_main_conversation,
+    message_json,
+    post_message,
+)
 from marcel_hub.memory import (
     InvalidMemoryPath,
     MemoryFileTooBig,
@@ -364,7 +369,23 @@ class Gateway:
                 role=MessageRole.agent,
                 kind=MessageKind.text,
                 body={'text': frame['text']},
+                reply_to_message_id=self._reply_to(s, conv.id, frame.get('in_reply_to')),
             )
+
+    @staticmethod
+    def _reply_to(session: Session, conversation_id: str, in_reply_to: str | None) -> str | None:
+        """The brain's `in_reply_to`, kept when it names a user message in this conversation
+        (B-41). Anything else is dropped with a log line; the reply itself is always stored."""
+        if in_reply_to is None:
+            return None
+        kept = answerable(session, conversation_id, in_reply_to)
+        if kept is None:
+            log.warning(
+                'Stored a reply without its in_reply_to %s: it is not a user message in %s.',
+                in_reply_to,
+                conversation_id,
+            )
+        return kept
 
     def _pass_on_unsent(self, conversation_id: str, frame: dict[str, Any]) -> None:
         """Hand a refused `replaced` reply's text to the conversation's current session, once per

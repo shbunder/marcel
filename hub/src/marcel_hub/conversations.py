@@ -84,6 +84,8 @@ def message_json(msg: Message, thread: dict[str, Any] | None = None) -> dict[str
         body['artifact_id'] = msg.artifact_id
     if msg.client_id is not None:
         body['client_id'] = msg.client_id
+    if msg.reply_to_message_id is not None:
+        body['reply_to_message_id'] = msg.reply_to_message_id
     if thread is not None:
         body['thread'] = thread
     body['created_at'] = msg.created_at.isoformat()
@@ -151,6 +153,15 @@ def owner_of(session: Session, conv: Conversation) -> str:
     return agent.owner_user_id
 
 
+def answerable(session: Session, conversation_id: str, message_id: str) -> str | None:
+    """`message_id` when it is a user message in this conversation, the only kind a reply may
+    quote; None otherwise."""
+    msg = session.get(Message, message_id)
+    if msg is None or msg.conversation_id != conversation_id or msg.role != MessageRole.user:
+        return None
+    return msg.id
+
+
 def post_message(
     session: Session,
     events: EventLog,
@@ -163,13 +174,23 @@ def post_message(
     project_id: str | None = None,
     client_id: str | None = None,
     artifact_id: str | None = None,
+    reply_to_message_id: str | None = None,
 ) -> Message:
     """Store a message and send `message.created` to every device of the owner.
 
     The same `client_id` in the same conversation returns the stored message instead of a
     duplicate, and sends nothing. The check and the write share the event lock, so two retries
     racing each other still store one message.
+
+    An agent message posted for a task (its milestones, approval cards and items) answers the
+    message that started the task (B-41): `reply_to_message_id` is filled from
+    `Task.parent_message_id` when the caller gives none, if that is a user message in the same
+    conversation. System notes and the owner's own messages are left as they are.
     """
+    if reply_to_message_id is None and task_id is not None and role == MessageRole.agent:
+        task = session.get(Task, task_id)
+        if task is not None and task.parent_message_id is not None:
+            reply_to_message_id = answerable(session, conv.id, task.parent_message_id)
     with events.lock:
         if client_id is not None:
             existing = session.exec(
@@ -188,6 +209,7 @@ def post_message(
             project_id=project_id,
             client_id=client_id,
             artifact_id=artifact_id,
+            reply_to_message_id=reply_to_message_id,
         )
         session.add(msg)
         session.flush()
