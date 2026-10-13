@@ -156,3 +156,8 @@ def test_health_names_the_expected_version(registry: Registry) -> None:
     check('runner-api.yaml', 'Health', registry).validate(
         {**health['example'], 'ok': False, 'claude_version_expected': '2.1.290 (Claude Code)'}
     )
+
+
+def test_every_start_loads_only_project_and_local_settings() -> None:
+    text = flat(load_yaml('runner-api.yaml')['info']['description'])
+    assert 'Every spawn, fork and resume passes `--setting-sources project,local`' in text

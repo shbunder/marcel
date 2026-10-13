@@ -11,8 +11,9 @@ info:
     Facts this API rests on (spikes SP1–SP4, SP6, SP7; results in `scratch/spikes/`):
     - Sessions are `claude --bg` background sessions under Claude's own supervisor, which runs in its
       own unit (`marcel-claude-daemon.service`), never inside the runner.
-    - Every spawn, fork and resume passes `--channels plugin:marcel@marcel-local` (unless
-      `channel: false`) and `--allowedTools mcp__plugin_marcel_marcel__reply
+    - Every spawn, fork and resume passes `--setting-sources project,local` (0.1.10: the owner's
+      `~/.claude/settings.json` never reaches a session), `--channels plugin:marcel@marcel-local`
+      (unless `channel: false`) and `--allowedTools mcp__plugin_marcel_marcel__reply
       mcp__plugin_marcel_marcel__report`, and puts the prompt after `--`. A plugin cannot
       pre-allow its own tools, so without the flag a `manual`-mode session prompts for every reply.
       Brain and side sessions (never workers) also get Marcel's brain tools, by name, never a
