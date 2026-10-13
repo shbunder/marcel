@@ -75,14 +75,14 @@ else
             | curl -s -m 10 -H @- http://127.0.0.1:7420/internal/health)"
         case "$path" in *'"ok":true'* | *'"ok": true'*) break ;; esac
         # A drifted runner starts no brain, so waiting longer cannot help.
-        case "$path" in *'"state":"version_drift"'*) break ;; esac
+        case "$path" in *'"state":"version_drift"'* | *'"state": "version_drift"'*) break ;; esac
         sleep 1
     done
 fi
 printf '%-30s %s\n' "hub /internal/health" "${path:-no answer on 127.0.0.1:7420}"
 case "$path" in
     *'"ok":true'* | *'"ok": true'*) ;;
-    *'"state":"version_drift"'*) drift=1 ;;  # the brain may be down for the same reason
+    *'"state":"version_drift"'* | *'"state": "version_drift"'*) drift=1 ;;  # the brain may be down for the same reason
     *) fail=1 ;;
 esac
 

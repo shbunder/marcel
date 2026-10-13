@@ -55,6 +55,9 @@ expect() {  # expect <code> <name> FAKE_…=… …
 expect 0 'all ok' FAKE_RUNNER="$RUNNER_OK" FAKE_HUB="$HUB_OK" FAKE_PATH="$PATH_OK"
 expect 2 'claude version drift only' FAKE_RUNNER="$RUNNER_DRIFT" FAKE_HUB="$HUB_OK" FAKE_PATH="$PATH_DRIFT"
 case "$LAST" in *'Run deploy/install-claude.sh'*) ;; *) echo "FAIL drift: no plain message"; failures=$((failures + 1)) ;; esac
+started=$SECONDS
+expect 2 'drift stops waiting for a brain at once' HEALTH_WAIT=30 FAKE_RUNNER="$RUNNER_DRIFT" FAKE_HUB="$HUB_OK" FAKE_PATH="$PATH_DRIFT"
+if [ $((SECONDS - started)) -gt 10 ]; then echo "FAIL drift: waited for the brain"; failures=$((failures + 1)); fi
 expect 1 'drift and a unit down' FAKE_UNIT=inactive FAKE_RUNNER="$RUNNER_DRIFT" FAKE_HUB="$HUB_OK" FAKE_PATH="$PATH_DRIFT"
 expect 1 'drift and the hub down' FAKE_RUNNER="$RUNNER_DRIFT" FAKE_HUB='' FAKE_PATH=''
 expect 1 'drift without a supervisor is down' FAKE_RUNNER="$RUNNER_NO_SUPERVISOR" FAKE_HUB="$HUB_OK" FAKE_PATH="$PATH_DOWN"

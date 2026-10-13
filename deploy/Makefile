@@ -24,7 +24,7 @@ logs:
 	journalctl --user -f -n $(N) -u marcel-runner -u marcel-claude-daemon & \
 	wait
 
-# Is everything up? Exit 1 when the hub does not answer ok.
+# Is everything up? Exit codes 0 ok, 1 down, 2 only a claude version drift (docs/operating.md).
 health:
 	@./health.sh
 
