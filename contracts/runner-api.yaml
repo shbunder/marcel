@@ -11,10 +11,15 @@ info:
     Facts this API rests on (spikes SP1–SP4, SP6, SP7; results in `scratch/spikes/`):
     - Sessions are `claude --bg` background sessions under Claude's own supervisor, which runs in its
       own unit (`marcel-claude-daemon.service`), never inside the runner.
-    - Every spawn, fork and resume passes `--setting-sources project,local` (0.1.10: the owner's
+    - Every spawn and fork passes `--setting-sources project,local` (0.1.10: the owner's
       `~/.claude/settings.json` never reaches a session), `--channels plugin:marcel@marcel-local`
       (unless `channel: false`) and `--allowedTools mcp__plugin_marcel_marcel__reply
-      mcp__plugin_marcel_marcel__report`, and puts the prompt after `--`. A plugin cannot
+      mcp__plugin_marcel_marcel__report`, and puts the prompt after `--`. A resume passes no flag:
+      `claude --bg --resume <full uuid> -- "<prompt>"`. Claude keeps the options a session was
+      started with, and a flag on a resume (or a short id) starts a copy (Claude Code 2.1.296).
+      Before waking a session the runner checks those saved options and answers 422 `exited` when
+      they cannot be read or lack `--setting-sources project,local`, or, with the channel on,
+      `--debug-file` or the `reply` tool (0.1.10). A plugin cannot
       pre-allow its own tools, so without the flag a `manual`-mode session prompts for every reply.
       Brain and side sessions (never workers) also get Marcel's brain tools, by name, never a
       wildcard, so a new tool is only allowed once someone decides it: `mcp__plugin_marcel_tools__artifacts_publish` `mcp__plugin_marcel_tools__board_note` `mcp__plugin_marcel_tools__memory_read` `mcp__plugin_marcel_tools__memory_write` `mcp__plugin_marcel_tools__notify` `mcp__plugin_marcel_tools__projects_create` `mcp__plugin_marcel_tools__projects_list` `mcp__plugin_marcel_tools__projects_update` `mcp__plugin_marcel_tools__schedule_create` `mcp__plugin_marcel_tools__schedule_delete` `mcp__plugin_marcel_tools__schedule_list` `mcp__plugin_marcel_tools__tasks_get` `mcp__plugin_marcel_tools__tasks_list` `mcp__plugin_marcel_tools__tasks_move` `mcp__plugin_marcel_tools__tasks_send` `mcp__plugin_marcel_tools__tasks_spawn` `mcp__plugin_marcel_tools__tasks_stop` `mcp__plugin_marcel_tools__usage_get`,
@@ -191,9 +196,10 @@ paths:
       - $ref: '#/components/parameters/SessionId'
     post:
       operationId: resumeSession
-      summary: Wake a stopped session with a new prompt (`claude --bg --resume <id> -- "<prompt>"`).
+      summary: Wake a stopped session with a new prompt (`claude --bg --resume <full uuid> -- "<prompt>"`).
       description: |
-        Only for a session that is not running. The runner waits until the id has left Claude's
+        Only for a session that is not running. No flags are passed: the session keeps the options
+        it was started with (see the facts at the top). The runner waits until the id has left Claude's
         roster before resuming; if Claude still starts a copy, the runner stops the copy and answers
         409 `resume_copied` rather than hand back a different session.
       requestBody:
@@ -231,8 +237,10 @@ paths:
           description: |
             The session did not wake properly, with the same wording as spawn: `no_supervisor`,
             `exited` (Claude refused, did not say which session it woke, or the folder the session
-            ran in is gone; `detail` holds what it said), `channel_skipped`, `channel_timeout`,
-            `claude_version` (as on spawn; nothing was woken).
+            ran in is gone; `detail` holds what it said; since 0.1.10 also: the session's saved
+            options cannot be read, or lack `--setting-sources project,local`, or, with the channel
+            on, `--debug-file` or the `reply` tool, and nothing was woken), `channel_skipped`,
+            `channel_timeout`, `claude_version` (as on spawn; nothing was woken).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }

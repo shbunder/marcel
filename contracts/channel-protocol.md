@@ -64,7 +64,7 @@ channel server                                   hub
 hub sends the agent's brain a `system_event` with kind `agent_renamed` and `data: {name}`. The brain
 answers to the new name from then on; nothing restarts, and the persona file is not rewritten.
 
-The runner pre-allows the plugin's own tools on every spawn, fork and resume
+The runner pre-allows the plugin's own tools on every spawn and fork (a resume keeps the session's saved options)
 (`--allowedTools mcp__plugin_marcel_marcel__reply mcp__plugin_marcel_marcel__report`, runner-api.yaml),
 or a session in `manual` mode prompts for every reply (SP1). A plugin cannot do this itself: Claude
 Code keeps only `agent` and `subagentStatusLine` from a plugin's settings.

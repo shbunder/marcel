@@ -161,4 +161,14 @@ def test_health_names_the_expected_version(registry: Registry) -> None:
 
 def test_every_start_loads_only_project_and_local_settings() -> None:
     text = flat(load_yaml('runner-api.yaml')['info']['description'])
-    assert 'Every spawn, fork and resume passes `--setting-sources project,local`' in text
+    assert 'Every spawn and fork passes `--setting-sources project,local`' in text
+
+
+def test_a_resume_passes_no_flag_and_checks_the_saved_options() -> None:
+    text = flat(load_yaml('runner-api.yaml')['info']['description'])
+    assert 'A resume passes no flag: `claude --bg --resume <full uuid> -- "<prompt>"`' in text
+    assert 'starts a copy (Claude Code 2.1.296)' in text
+    op = load_yaml('runner-api.yaml')['paths']['/sessions/{session_id}/resume']['post']
+    exited = flat(op['responses']['422']['description'])
+    assert 'saved options cannot be read, or lack `--setting-sources project,local`' in exited
+    assert '`--debug-file` or the `reply` tool' in exited
