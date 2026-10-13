@@ -224,12 +224,14 @@ without touching the brain.
 
 ## Data model (summary; where it and `contracts/` disagree, the contract wins)
 
-v1 has **one owner**. There is no user table: `owner_user_id` and `device.user_id` are the fixed id `usr_owner`,
-and the owner's name (`Me.name`) is a hub setting (`MARCEL_OWNER_NAME`). An agent's main conversation is created
+**People** (F17, ADR-006): a `user` table with `role` owner|member. The owner keeps the id `usr_owner` and is created
+by `marcel-hub setup`; each member gets one agent of their own. Every route checks that the object belongs to the
+caller's agent. All sessions still run on the owner's Claude login. An agent's main conversation is created
 with the agent (`conversations.ensure_main_conversation`), so every agent the app sees has one.
 
 ```
-agent(id, owner_user_id, name, animal, palette, seed, persona_path, model_brain, model_worker,
+user(id, name, role[owner|member], created_at)                    -- F17
+agent(id, owner_user_id, name, look{animal,color,personality}, onboarded_at?, persona_path, model_brain, model_worker,
       main_conversation_id)
 device(id, user_id, name, token_hash, apns_token?, ntfy_topic?, created_at, last_seen)
 project(id, agent_id, slug, name, goal, repo?, folder?, instructions?, claude_project_url?,
