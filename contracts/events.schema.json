@@ -24,6 +24,7 @@
         { "$ref": "#/$defs/ArtifactMoved" },
         { "$ref": "#/$defs/BrainRollover" },
         { "$ref": "#/$defs/AgentStateChanged" },
+        { "$ref": "#/$defs/AgentUpdated" },
         { "$ref": "#/$defs/UsageUpdated" }
       ]
     },
@@ -398,6 +399,38 @@
       "unevaluatedProperties": false,
       "examples": [
         { "id": 1298, "type": "agent.state", "at": "2026-10-04T18:07:05Z", "data": { "agent_id": "agt_marcel", "state": { "kind": "working", "active_tasks": 2 } } }
+      ]
+    },
+    "AgentUpdated": {
+      "description": "An agent's name, look or onboarding changed (app-api.yaml `PATCH /agents/{agent_id}`, new in 0.7.0). `avatar_etag` is the new `ETag` of `GET /agents/{agent_id}/avatar`; reload the sheet when it differs from the one cached. It is absent while the hub builds no avatar sheets.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "agent.updated" },
+        "data": {
+          "type": "object",
+          "required": ["agent"],
+          "additionalProperties": false,
+          "properties": {
+            "agent": { "$ref": "app-api.yaml#/components/schemas/Agent" },
+            "avatar_etag": { "type": "string", "minLength": 1 }
+          }
+        }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 2301, "type": "agent.updated", "at": "2026-10-13T17:25:00Z",
+          "data": {
+            "agent": {
+              "id": "agt_01JA3E2", "name": "Pip", "animal": "fox",
+              "look": { "animal": "fox", "color": "tangerine", "personality": "cheerful" },
+              "onboarded_at": "2026-10-13T17:25:00Z",
+              "main_conversation_id": "cnv_main_01JA3E2", "state": { "kind": "idle" },
+              "model_brain": "opus", "model_worker": "sonnet"
+            },
+            "avatar_etag": "\"lk-3f9a2c71\""
+          }
+        }
       ]
     },
     "UsageUpdated": {

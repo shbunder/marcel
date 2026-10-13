@@ -64,10 +64,17 @@ DERIVED = {
 # Added to the contract by S-02.5 (projects and living artifacts) before the hub stores them.
 # The owning story removes its entries when it adds the columns; the last test below fails as
 # soon as an entry is stored, so this list can only shrink.
-# S-04.11 stored the last of them: both are empty, so every contract field and value is enforced.
-PENDING: dict[str, set[str]] = {}
+# S-04.11 stored the last of them. Contract 0.7 (S-02.7) added the ones below; S-04.15 stores them
+# (and lists any it keeps under another name in DERIVED).
+PENDING: dict[str, set[str]] = {
+    'Agent': {'look', 'onboarded_at'},
+    'Message': {'reply_to_message_id', 'mentions'},
+    'Project': {'tracker_url'},
+}
 PENDING_ENUM_VALUES: dict[str, set[str]] = {}
 MODELS = {
+    'Agent': models.Agent,
+    'Project': models.Project,
     'Message': models.Message,
     'Task': models.Task,
     'Artifact': models.Artifact,

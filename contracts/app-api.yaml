@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — app API
-  version: 0.6.0
+  version: 0.7.0
   description: |
     The API the iPhone app uses to talk to the hub on the NUC. **Every path, including `/health`,
     `/pair` and `/ws`, sits under the server URL** (`https://marcel-bot.com/api/...`); the tunnel
@@ -17,6 +17,15 @@ info:
 
     Errors always have the `Error` shape, with a `message` written for the person holding the phone.
     Lists are paginated by cursor: pass `cursor` from the previous page's `next_cursor`.
+
+    **People** (new in 0.7.0, B-37…B-40). Every device belongs to one person (`Me.role`): the
+    `owner`, who runs Marcel at home, or a `member` of the family. Each person sees only their own
+    agents and everything under them. Operations marked `x-owner-only: true` are the owner's alone;
+    a member gets 403 `owner_only` with a message that says to ask the owner. Answering a
+    self-change approval card is owner-only too (`POST /approvals/{approval_id}`).
+
+    **0.7.0 is additive.** Every field it adds to an existing schema is optional, so a hub that
+    does not fill it yet still matches; the operations it adds are served story by story.
 servers:
   - url: https://marcel-bot.com/api
     description: Production, through the Cloudflare tunnel
@@ -36,6 +45,8 @@ tags:
   - name: memory
   - name: schedules
   - name: usage
+  - name: people
+  - name: mentions
 
 paths:
   /health:
@@ -168,6 +179,99 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /users:
+    get:
+      tags: [people]
+      operationId: listUsers
+      summary: Everyone who uses this Marcel, with their helper. Owner only. New in 0.7.0.
+      x-owner-only: true
+      responses:
+        '200':
+          description: The owner first, then members by name.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerOnly' }
+    post:
+      tags: [people]
+      operationId: addUser
+      summary: Add a family member and their helper. Owner only. New in 0.7.0.
+      description: |
+        Stores the person as a `member`, with their own agent (`agent.name`, and `agent.look`, or a
+        look picked from the agent's name when absent), main conversation and Inbox. Pair their
+        first phone with `POST /users/{user_id}/pairing-codes`.
+      x-owner-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewUser' }
+      responses:
+        '201':
+          description: Added.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerOnly' }
+
+  /users/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    delete:
+      tags: [people]
+      operationId: removeUser
+      summary: Remove a family member. Owner only. New in 0.7.0.
+      description: |
+        Their phones are signed out at once (their tokens answer 401), their running quests stop,
+        and their helper is archived: no brain, no schedules, no digests. Their chats, items and
+        notes stay on the NUC.
+      x-owner-only: true
+      responses:
+        '204': { description: Removed. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerOnly' }
+        '404':
+          description: No such person (code `user_not_found`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`cannot_remove_owner`: the owner cannot be removed. Nothing changed.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /users/{user_id}/pairing-codes:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      tags: [people]
+      operationId: createPairingCode
+      summary: A one-time code that pairs a phone to this person. Owner only. New in 0.7.0.
+      description: |
+        The same kind of code `marcel-hub pair` prints: it works once, for 10 minutes, with
+        `POST /pair`, and the phone it pairs belongs to `user_id`. Show `link` as a QR code, or share
+        it as a link.
+      x-owner-only: true
+      responses:
+        '201':
+          description: A fresh code.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IssuedPairingCode' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerOnly' }
+        '404':
+          description: No such person (code `user_not_found`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /agents/{agent_id}:
     parameters:
       - $ref: '#/components/parameters/AgentId'
@@ -175,6 +279,7 @@ paths:
       tags: [agents]
       operationId: getAgent
       summary: One agent, with its current state for the avatar.
+      description: Only the caller's own agent; another person's answers 404, like one that does not exist.
       responses:
         '200':
           description: The agent.
@@ -186,7 +291,12 @@ paths:
     patch:
       tags: [agents]
       operationId: updateAgent
-      summary: Rename an agent or change its palette.
+      summary: Rename an agent, change its look, or finish onboarding.
+      description: |
+        Only for the caller's own agent; another person's answers 404. A change sends the
+        `agent.updated` event. A rename also tells the agent's brain its new name (channel
+        `system_event` `agent_renamed`), so it answers to it without a restart. `look` and
+        `onboarded` are new in 0.7.0; `palette` is deprecated and ignored once the agent has a `look`.
       requestBody:
         required: true
         content:
@@ -253,6 +363,90 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /agents/{agent_id}/avatar:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    get:
+      tags: [agents]
+      operationId: getAgentAvatar
+      summary: The agent's avatar sprite sheet, built from its look. New in 0.7.0.
+      description: |
+        Two bodies at one URL, picked by the `Accept` header: `application/json` (the default) is the
+        sheet's JSON, an `avatar-sheet.schema.json` document; `image/png` is the sheet's image
+        (the JSON's `image` names it, but fetch it here). Both carry the same `ETag`, which changes
+        with the look and equals `avatar_etag` in the `agent.updated` event; send it back as
+        `If-None-Match` to get 304 when nothing changed.
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema: { type: string }
+      responses:
+        '200':
+          description: The sheet.
+          headers:
+            ETag:
+              description: Changes when the look changes.
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: object
+                description: An `avatar-sheet.schema.json` document (kept out of this file so code generators read it as plain JSON).
+                example:
+                  version: 1
+                  name: fox
+                  palette: tangerine
+                  image: fox-tangerine-cheerful.png
+                  frame: { width: 32, height: 32 }
+                  columns: 8
+                  frame_count: 12
+                  loops:
+                    idle: [[0, 1800], [1, 120], [0, 2400]]
+                    thinking: [[2, 400], [3, 400]]
+                    working1: [[4, 140], [5, 140]]
+                    working2: [[6, 140], [7, 140]]
+                    working3: [[8, 140], [9, 140]]
+                    needs_you: [[10, 500], [0, 500]]
+                    done: [[11, 600], [0, 400]]
+            image/png:
+              schema: { type: string, contentMediaType: image/png }
+        '304': { description: 'Not modified: `If-None-Match` matched the current `ETag`.' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /avatar-previews:
+    get:
+      tags: [agents]
+      operationId: getAvatarPreview
+      summary: One 32×32 frame of a look, for the look picker. New in 0.7.0.
+      description: |
+        Any look, not only an agent's: the picker shows a live preview while the person chooses.
+        `mood` defaults to the personality's resting mood. Cached; the same query gives the same image.
+      parameters:
+        - name: animal
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/LookAnimal' }
+        - name: color
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/LookColor' }
+        - name: personality
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/LookPersonality' }
+        - name: mood
+          in: query
+          schema: { $ref: '#/components/schemas/Mood' }
+      responses:
+        '200':
+          description: A 32×32 PNG.
+          content:
+            image/png:
+              schema: { type: string, contentMediaType: image/png }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /conversations:
     get:
       tags: [conversations]
@@ -303,6 +497,11 @@ paths:
         same message instead of a duplicate. With `artifact_id` ("Ask about this", B-21) the item
         is attached: the stored message carries it, and Marcel is told which item it is about; an
         unknown item answers 404 `artifact_not_found`. New in 0.5.0.
+
+        With `mentions` (new in 0.7.0, B-42), each one must be the caller's own quest, project or
+        item, or the message is refused with 404 `mention_not_found` and nothing is stored. The
+        stored message carries them, with the hub's current titles, and Marcel gets them too. A
+        `project` mention also sets the message's `project_id` when the message has none.
       requestBody:
         required: true
         content:
@@ -392,6 +591,34 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /mentions:
+    get:
+      tags: [mentions]
+      operationId: searchMentions
+      summary: Quests, projects and items to mention, for `@` and `#` in the composer. New in 0.7.0.
+      description: |
+        The caller's own quests (`task`), projects and items (`artifact`) whose title contains `q`
+        (any case), newest first, at most 20. An empty or absent `q` lists the newest. `@` asks for
+        `task` and `artifact`, `#` for `project`.
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: kind
+          in: query
+          schema: { $ref: '#/components/schemas/MentionKind' }
+      responses:
+        '200':
+          description: At most 20 matches, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 20
+                items: { $ref: '#/components/schemas/Mention' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /tasks:
     get:
@@ -643,6 +870,9 @@ paths:
       tags: [approvals]
       operationId: answerApproval
       summary: Approve or deny (B-12). The first answer wins, from the app or a terminal.
+      description: |
+        A self-change card (`tool: self_change`, B-24) is answered by the owner only; a member gets
+        403 `owner_only` (new in 0.7.0).
       requestBody:
         required: true
         content:
@@ -656,6 +886,7 @@ paths:
               schema: { $ref: '#/components/schemas/Approval' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerOnly' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: Already answered (for example in a terminal) or expired. The body is the approval as it stands.
@@ -1128,6 +1359,11 @@ components:
       in: path
       required: true
       schema: { type: string }
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema: { type: string }
     DeviceId:
       name: device_id
       in: path
@@ -1184,6 +1420,13 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
+    OwnerOnly:
+      description: |
+        `owner_only`: only the owner may do this (new in 0.7.0). The `message` says so in plain
+        words, e.g. "Only Shaun can add people. Ask Shaun to do it."
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
     Conflict:
       description: The thing is not in a state that allows this.
       content:
@@ -1210,8 +1453,10 @@ components:
             `agent_not_found`; agents: `rollover_running` (409); artifacts and memory:
             `artifact_not_found`, `artifact_is_board`, `invalid_memory_path`,
             `memory_file_not_found`, `memory_file_too_big`, `memory_unavailable` (503); schedules:
-            `schedule_not_found` (404), `schedule_builtin` (409); usage: `no_reading` (503). New
-            codes may be added; treat an unknown code by its HTTP status.
+            `schedule_not_found` (404), `schedule_builtin` (409); usage: `no_reading` (503); people
+            (0.7.0): `owner_only` (403), `user_not_found` (404), `cannot_remove_owner` (409);
+            mentions (0.7.0): `mention_not_found` (404). New codes may be added; treat an unknown
+            code by its HTTP status.
         message:
           type: string
           description: For people. Short, says what happened and what to do.
@@ -1273,6 +1518,9 @@ components:
       properties:
         user_id: { type: string }
         name: { type: string }
+        role:
+          $ref: '#/components/schemas/UserRole'
+          description: New in 0.7.0. The app shows People only to the owner.
         device_id: { type: string }
         agents:
           type: array
@@ -1305,6 +1553,88 @@ components:
             state: { kind: working, active_tasks: 2 }
             model_brain: opus
             model_worker: sonnet
+
+    UserRole:
+      type: string
+      description: '`owner`: runs Marcel at home and whose Claude login the NUC uses (B-37). `member`: a family member the owner added.'
+      enum: [owner, member]
+      example: member
+
+    User:
+      type: object
+      description: A person, as the owner's People screen shows them (B-37, B-40). New in 0.7.0.
+      required: [id, name, role, created_at, device_count, quests_this_week]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        name: { type: string, minLength: 1, maxLength: 40 }
+        role: { $ref: '#/components/schemas/UserRole' }
+        created_at: { type: string, format: date-time }
+        agent:
+          type: object
+          description: The person's helper. Absent only while it is still being set up.
+          required: [id, name]
+          additionalProperties: false
+          properties:
+            id: { type: string }
+            name: { type: string }
+            look: { $ref: '#/components/schemas/Look' }
+        device_count:
+          type: integer
+          minimum: 0
+          description: Phones paired to this person and not revoked.
+        quests_this_week:
+          type: integer
+          minimum: 0
+          description: Quests their helper started in the last 7 days.
+      example:
+        id: usr_01JA3E1
+        name: Emma
+        role: member
+        created_at: '2026-10-13T17:20:00Z'
+        agent:
+          id: agt_01JA3E2
+          name: Pip
+          look: { animal: fox, color: tangerine, personality: cheerful }
+        device_count: 1
+        quests_this_week: 3
+
+    NewUser:
+      type: object
+      required: [name, agent]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        agent:
+          type: object
+          required: [name]
+          additionalProperties: false
+          properties:
+            name: { type: string, minLength: 1, maxLength: 40 }
+            look:
+              $ref: '#/components/schemas/Look'
+              description: Picked from the agent's name when absent.
+      example:
+        name: Emma
+        agent: { name: Pip, look: { animal: fox, color: tangerine, personality: cheerful } }
+
+    IssuedPairingCode:
+      type: object
+      required: [code, link, expires_at]
+      additionalProperties: false
+      properties:
+        code: { type: string, pattern: '^[A-Z0-9]{6,12}$' }
+        link:
+          $ref: '#/components/schemas/PairingCode'
+          description: The same code as a `marcel://pair` link, for the QR code and for sharing.
+        expires_at:
+          type: string
+          format: date-time
+          description: 10 minutes after it was made; the app shows the time left.
+      example:
+        code: R4T8WZ
+        link: marcel://pair?hub=https%3A%2F%2Fmarcel-bot.com%2Fapi&code=R4T8WZ
+        expires_at: '2026-10-13T17:31:00Z'
 
     PushTarget:
       type: object
@@ -1375,20 +1705,36 @@ components:
 
     Agent:
       type: object
-      required: [id, name, animal, palette, seed, main_conversation_id, state, model_brain, model_worker]
+      required: [id, name, animal, main_conversation_id, state, model_brain, model_worker]
       additionalProperties: false
       properties:
         id: { type: string }
         name: { type: string }
+        look:
+          $ref: '#/components/schemas/Look'
+          description: |
+            How the avatar looks (B-44, ADR-008); the source of truth for the avatar. Its sheet is
+            `GET /agents/{agent_id}/avatar`. New in 0.7.0.
         animal:
           type: string
-          description: A recipe in `shared/avatar/recipes/`.
+          readOnly: true
+          description: |
+            A read-only copy of `look.animal` (since 0.7.0). Before 0.7.0, a recipe in
+            `shared/avatar/recipes/`.
         palette:
           type: string
-          description: A palette id from `shared/avatar/palettes.json`.
+          deprecated: true
+          description: Deprecated in 0.7.0 (use `look.color`). A palette id from `shared/avatar/palettes.json`.
         seed:
           type: string
-          description: Feeds the avatar's deterministic details (spots, blink timing).
+          deprecated: true
+          description: Deprecated in 0.7.0. Fed the old avatar's deterministic details (spots, blink timing).
+        onboarded_at:
+          type: string
+          format: date-time
+          description: |
+            When the person finished "Meet your helper" after pairing (`AgentUpdate.onboarded`).
+            Absent until then, and the app shows onboarding. New in 0.7.0.
         main_conversation_id:
           type: string
           description: Where to send messages to this agent's main conversation.
@@ -1412,8 +1758,56 @@ components:
       additionalProperties: false
       properties:
         name: { type: string, minLength: 1, maxLength: 40 }
-        palette: { type: string }
-      example: { palette: dusk }
+        look:
+          $ref: '#/components/schemas/Look'
+          description: New in 0.7.0. Replaces the whole look; `animal` follows it.
+        onboarded:
+          type: boolean
+          const: true
+          description: New in 0.7.0. Sets `onboarded_at` the first time; sending it again changes nothing.
+        palette:
+          type: string
+          deprecated: true
+          description: Deprecated in 0.7.0 (use `look`).
+      example: { name: Pip, look: { animal: fox, color: tangerine, personality: cheerful } }
+
+    Look:
+      type: object
+      description: |
+        An avatar from the Pixel Zoo (B-44, ADR-008): an animal, a colour and a personality. The
+        same look always draws the same avatar. New in 0.7.0.
+      required: [animal, color, personality]
+      additionalProperties: false
+      properties:
+        animal: { $ref: '#/components/schemas/LookAnimal' }
+        color: { $ref: '#/components/schemas/LookColor' }
+        personality: { $ref: '#/components/schemas/LookPersonality' }
+      example: { animal: giraffe, color: rose, personality: professional }
+
+    LookAnimal:
+      type: string
+      enum: [giraffe, crocodile, frog, cat, fox, bear, panda, rabbit, dog, pig, mouse]
+      example: giraffe
+
+    LookColor:
+      type: string
+      description: '`natural` keeps the animal''s own colours (a look picked from a name can be `natural`).'
+      enum: [natural, rose, coral, tangerine, honey, lime, green, teal, sky, blue, lavender, plum, cocoa, sand, slate, snow, ink]
+      example: rose
+
+    LookPersonality:
+      type: string
+      description: Sets the accessory, the resting mood and how lively the avatar is.
+      enum: [professional, cheerful, curious, cozy, bold, cool, sporty, shy, grumpy]
+      example: professional
+
+    Mood:
+      type: string
+      description: A face the avatar can pull (`GET /avatar-previews`). The avatar's states map onto moods.
+      enum: [neutral, happy, laughing, love, excited, wink, proud, calm, thinking, idea, focused, working,
+             surprised, confused, worried, sad, crying, angry, grumpy, sleepy, dizzy, embarrassed, singing,
+             shocked, kiss]
+      example: thinking
 
     Conversation:
       type: object
@@ -1477,7 +1871,37 @@ components:
           description: |
             An item attached to the message ("Ask about this" on an item, B-21). The stored message
             carries it as `artifact_id`. New in 0.5.0.
+        mentions:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/Mention' }
+          description: |
+            The quests, items (`@`) and projects (`#`) picked in the composer (B-42). Each must be
+            the caller's own (see `POST /conversations/{conversation_id}/messages`). New in 0.7.0.
       example: { text: Also add a test for the empty case., client_id: 7d2c9a40-1f7b-4e55-9e1a-2c3b4d5e6f70 }
+
+    MentionKind:
+      type: string
+      description: '`task`: a quest (`@`). `artifact`: an item (`@`). `project`: a project (`#`).'
+      enum: [task, project, artifact]
+      example: task
+
+    Mention:
+      type: object
+      description: A quest, project or item named in a message (B-42). New in 0.7.0.
+      required: [kind, id, title]
+      additionalProperties: false
+      properties:
+        kind: { $ref: '#/components/schemas/MentionKind' }
+        id:
+          type: string
+          description: The task, project or artifact id.
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+          description: The chip's text. On a stored message, the hub's title when the message was sent.
+      example: { kind: task, id: tsk_01J9ZQ5, title: Fix flaky login test }
 
     SendToMain:
       type: object
@@ -1562,6 +1986,18 @@ components:
           type: string
           description: The project a user message was sent from (B-32), or the project of an `artifact` message.
         client_id: { type: string }
+        reply_to_message_id:
+          type: string
+          description: |
+            The user message this one answers (B-41): set for a brain reply that names it, and for
+            a task's milestones, approval cards and items (the message that started the task). The
+            app shows a small quote when it is not the person's latest message before this one. New
+            in 0.7.0.
+        mentions:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/Mention' }
+          description: On a user message, what it mentions (`NewMessage.mentions`). New in 0.7.0.
         thread:
           type: object
           description: Present when this message has a side thread.
@@ -2155,6 +2591,14 @@ components:
         board_artifact_id:
           type: string
           description: The project's board (B-35), an artifact of kind `board`.
+        tracker_url:
+          type: string
+          format: uri
+          pattern: '^https://'
+          description: |
+            A coding project's tracker (B-46), a page readable on the phone and the laptop. Set when
+            a worker reports a `link` artifact with `role: tracker` (channel.schema.json `Artifact`);
+            a later one replaces it. New in 0.7.0.
         archived: { type: boolean }
         counts:
           type: object

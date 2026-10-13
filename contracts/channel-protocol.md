@@ -50,15 +50,19 @@ channel server                                   hub
 
 | Frame | What the channel server does in the session |
 |---|---|
-| `user_message` | `notifications/claude/channel` with `content` = text, `meta` = `{kind: "user_message", message_id, conversation_id, quoted_message_id?, project_id?, artifact_id?}` |
+| `user_message` | `notifications/claude/channel` with `content` = text, `meta` = `{kind: "user_message", message_id, conversation_id, quoted_message_id?, project_id?, artifact_id?, mentions?}`; `mentions` (0.7) is the frame's `mentions` array as a JSON string |
 | `steer` | the same, `meta` = `{kind: "steer", task_id, note_id, author, handback?}` (`handback` as `"true"` when set) |
 | `system_event` | the same, `meta` = `{kind: "system_event", event: <kind>, task_id?}`; `data` goes in the content as a fenced JSON block |
 | `permission_decision` | `notifications/claude/channel/permission` `{request_id, behavior}` |
 | Claude Code's `notifications/claude/channel/permission_request` | → `permission_request` frame, fields unchanged |
-| the `reply` tool call | → `reply` frame; the tool returns when `call_ack` arrives (or after 10 s with "queued"); a `call_ack` with `error` returns as a tool error carrying its code and message |
-| the `report` tool call | → `report` frame; same. `report(note)` (0.6) stores one fact in the project's notes (session-api.yaml `Report`) |
+| the `reply` tool call | → `reply` frame; the tool returns when `call_ack` arrives (or after 10 s with "queued"); a `call_ack` with `error` returns as a tool error carrying its code and message. `in_reply_to` names the user message being answered; the hub stores it so the app can quote that message (0.7, B-41) |
+| the `report` tool call | → `report` frame; same. `report(note)` (0.6) stores one fact in the project's notes (session-api.yaml `Report`). `report(artifact)` with a `link` and `role: tracker` (0.7) sets the project's tracker (app-api.yaml `Project.tracker_url`, B-46) |
 
 `meta` keys must be identifiers (letters, digits, underscores): Claude Code silently drops other keys.
+
+**Renames (0.7).** When the person renames their helper (app-api.yaml `PATCH /agents/{agent_id}`), the
+hub sends the agent's brain a `system_event` with kind `agent_renamed` and `data: {name}`. The brain
+answers to the new name from then on; nothing restarts, and the persona file is not rewritten.
 
 The runner pre-allows the plugin's own tools on every spawn, fork and resume
 (`--allowedTools mcp__plugin_marcel_marcel__reply mcp__plugin_marcel_marcel__report`, runner-api.yaml),

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://marcel.invalid/contracts/avatar-sheet.schema.json",
   "title": "Marcel avatar sprite sheet",
-  "description": "The JSON next to the avatar's sprite sheet PNG (B-28, B-29). `shared/avatar/pixel/build.py` writes it (S-13.1); the app's AvatarKit plays it (S-13.2). Frames are laid out left to right, top to bottom, `columns` per row, each `frame.width` × `frame.height` pixels. A loop is a list of [frame index, milliseconds] steps that repeats.",
+  "description": "The JSON next to the avatar's sprite sheet PNG (B-28, B-29). `shared/avatar/zoo` writes it for each agent's look (S-19.1; the hub serves it as app-api.yaml `GET /agents/{agent_id}/avatar`), and `shared/avatar/pixel/build.py` for the bundled giraffe (S-13.1); the app's AvatarKit plays it (S-13.2). Frames are laid out left to right, top to bottom, `columns` per row, each `frame.width` × `frame.height` pixels. A loop is a list of [frame index, milliseconds] steps that repeats.",
   "type": "object",
   "required": ["version", "name", "image", "frame", "columns", "frame_count", "loops"],
   "additionalProperties": false,

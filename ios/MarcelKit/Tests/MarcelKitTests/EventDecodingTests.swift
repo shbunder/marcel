@@ -37,8 +37,14 @@ final class EventDecodingTests: XCTestCase {
                 "Hello", "ResyncRequired", "MessageCreated", "ConversationCreated", "TaskCreated", "TaskUpdated",
                 "TaskEventAppended", "ApprovalCreated", "ApprovalResolved", "ArtifactCreated", "AgentStateChanged",
                 "UsageUpdated", "ArtifactUpdated", "ProjectCreated", "ProjectUpdated", "TaskMoved", "ArtifactMoved",
-                "BrainRollover",
+                "BrainRollover", "AgentUpdated",
             ])
+    }
+
+    func testAgentUpdatedCarriesTheNameAndTheAvatarEtag() throws {
+        let json = #"{"id":7,"type":"agent.updated","at":"2026-10-13T17:25:00Z","data":{"agent":{"id":"agt_1","name":"Pip","animal":"fox","main_conversation_id":"cnv_1","state":{"kind":"idle"},"model_brain":"opus","model_worker":"sonnet"}}}"#
+        let frame = try EventFrame.decode(Data(json.utf8))
+        guard case .agentUpdated("agt_1", "Pip", nil) = frame.event else { return XCTFail("\(frame.event)") }
     }
 
     func testHelloAndResyncAreControlFrames() throws {

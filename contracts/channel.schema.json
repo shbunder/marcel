@@ -85,7 +85,22 @@
         "text": { "type": "string" },
         "quoted_message_id": { "type": "string" },
         "project_id": { "type": "string", "description": "Sent from a project room (B-32): which project the message is about. The server passes it in `meta`." },
-        "artifact_id": { "type": "string", "description": "The item the owner attached (\"Ask about this\", app-api.yaml `NewMessage.artifact_id`). The server passes it in `meta`, so the brain can read the item." }
+        "artifact_id": { "type": "string", "description": "The item the owner attached (\"Ask about this\", app-api.yaml `NewMessage.artifact_id`). The server passes it in `meta`, so the brain can read the item." },
+        "mentions": {
+          "type": "array",
+          "maxItems": 10,
+          "description": "New in 0.7: the quests, projects and items the message mentions (app-api.yaml `Mention`, B-42), already checked by the hub. The server passes them in `meta` as `mentions`, a JSON string of this array (`meta` values are strings). An `@` quest means \"this is about that quest\".",
+          "items": {
+            "type": "object",
+            "required": ["kind", "id", "title"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "enum": ["task", "project", "artifact"] },
+              "id": { "type": "string" },
+              "title": { "type": "string", "minLength": 1, "maxLength": 300 }
+            }
+          }
+        }
       },
       "examples": [{ "type": "user_message", "seq": 41, "message_id": "msg_01J9ZQZ1", "conversation_id": "cnv_main_marcel", "text": "Can you fix the flaky login test in shbunder/marcel?" }]
     },
@@ -106,19 +121,31 @@
       "examples": [{ "type": "steer", "seq": 42, "task_id": "tsk_01J9ZQ6", "note_id": "note_01J9ZS1", "author": "user", "text": "Also include named volumes that are not in use." }]
     },
     "SystemEvent": {
-      "description": "Something only the brain is woken for (plan/02-architecture.md § Token economy): a task failed or went silent, a digest is due, a hand-back, a rollover. `data` carries the facts; the brain decides what to say.",
+      "description": "Something only the brain is woken for (plan/02-architecture.md § Token economy): a task failed or went silent, a digest is due, a hand-back, a rollover, the agent was renamed. `data` carries the facts; the brain decides what to say.",
       "type": "object",
       "required": ["type", "seq", "kind", "text"],
       "additionalProperties": false,
       "properties": {
         "type": { "const": "system_event" },
         "seq": { "type": "integer", "minimum": 1 },
-        "kind": { "enum": ["task_failed", "task_silent", "task_question", "handback", "digest_due", "schedule_fired", "rollover"] },
+        "kind": { "enum": ["task_failed", "task_silent", "task_question", "handback", "digest_due", "schedule_fired", "rollover", "agent_renamed"] },
         "text": { "type": "string", "description": "One line for the brain, in plain words." },
         "task_id": { "type": "string" },
-        "data": { "type": "object", "description": "For `handback`: `{title, state, note}` (the task's title and state, and what the owner wrote, `\"\"` if nothing). For `digest_due`: `{digest, title, facts, digest_id?, artifact_id?}`: `digest` is one of `morning`, `evening`, `weekly`, `usage` (`usage` only when the owner moved the usage report away from the evening digest's time); `title` is the title the published doc takes (\"Evening digest — Monday 12 October\"); `facts` is the facts bundle (its fields are in hub/README.md § Digests and the `digest` skill; no schema until it settles); `digest_id` names this digest, for brain-api.yaml `NewArtifact.in_reply_to` (new in 0.6; this hub always sends it, but it stays optional, so the brain passes it on when present); `artifact_id` is the agent's digest board once it has one, and the digest is published as a new version of it. For `rollover`: `{messages}` at a hand-over (what came after the new brain's notes, already answered: `[{role, kind, text}]`), or `{unsent_reply, in_reply_to?}` when the old brain's `reply` was refused with `replaced` (see `CallAck`)." }
+        "data": { "type": "object", "description": "For `handback`: `{title, state, note}` (the task's title and state, and what the owner wrote, `\"\"` if nothing). For `digest_due`: `{digest, title, facts, digest_id?, artifact_id?}`: `digest` is one of `morning`, `evening`, `weekly`, `usage` (`usage` only when the owner moved the usage report away from the evening digest's time); `title` is the title the published doc takes (\"Evening digest — Monday 12 October\"); `facts` is the facts bundle (its fields are in hub/README.md § Digests and the `digest` skill; no schema until it settles); `digest_id` names this digest, for brain-api.yaml `NewArtifact.in_reply_to` (new in 0.6; this hub always sends it, but it stays optional, so the brain passes it on when present); `artifact_id` is the agent's digest board once it has one, and the digest is published as a new version of it. For `rollover`: `{messages}` at a hand-over (what came after the new brain's notes, already answered: `[{role, kind, text}]`), or `{unsent_reply, in_reply_to?}` when the old brain's `reply` was refused with `replaced` (see `CallAck`). For `agent_renamed` (new in 0.7): `{name}`, the agent's new name; the brain answers to it from now on, without a restart (its persona file keeps the old one)." }
       },
       "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "agent_renamed" } } },
+          "then": {
+            "required": ["data"],
+            "properties": {
+              "data": {
+                "required": ["name"],
+                "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 40 } }
+              }
+            }
+          }
+        },
         {
           "if": { "properties": { "kind": { "const": "digest_due" } } },
           "then": {
@@ -181,7 +208,7 @@
         "type": { "const": "reply" },
         "call_id": { "type": "string", "description": "Unique per tool call; the hub acks it, and ignores a repeat after a reconnect." },
         "text": { "type": "string", "description": "Markdown." },
-        "in_reply_to": { "type": "string", "description": "The `message_id` being answered, when there is one." }
+        "in_reply_to": { "type": "string", "description": "The `message_id` being answered, when there is one. Pass it whenever the answer is not for the latest user message (B-41). The hub stores it as the reply's app-api.yaml `Message.reply_to_message_id` when it names a user message in the same conversation; otherwise it stores the reply without it and logs why (0.7)." }
       },
       "examples": [{ "type": "reply", "call_id": "c_01J9ZQZ3", "text": "On it — started *Fix the flaky login test* in the cloud.", "in_reply_to": "msg_01J9ZQZ1" }]
     },
@@ -218,9 +245,11 @@
         "url": { "type": "string", "format": "uri" },
         "path": { "type": "string", "description": "Absolute path on the NUC, for doc, file and dashboard." },
         "artifact_id": { "type": "string", "description": "Publish a new version of this artifact instead of a new one (B-34). The hub answers an unknown id, or one from another project, with an error ack." },
-        "summary": { "type": "string", "maxLength": 200, "description": "What changed in this version, in one line." }
+        "summary": { "type": "string", "maxLength": 200, "description": "What changed in this version, in one line." },
+        "role": { "enum": ["tracker"], "description": "New in 0.7. `tracker`: this `link` is the project's tracker (B-46); the hub sets the task's project's app-api.yaml `Project.tracker_url` to `url`, replacing an earlier one. Only on a `link` with an `https://` url." }
       },
       "allOf": [
+        { "if": { "required": ["role"] }, "then": { "properties": { "kind": { "const": "link" }, "url": { "pattern": "^https://" } } } },
         { "if": { "properties": { "kind": { "enum": ["pr", "branch", "link"] } } }, "then": { "required": ["url"] } },
         { "if": { "properties": { "kind": { "enum": ["doc", "file", "dashboard"] } } }, "then": { "required": ["path"] } }
       ]

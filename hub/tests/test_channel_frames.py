@@ -39,6 +39,8 @@ def fields_of(definition: dict[str, Any]) -> dict[str, bool]:
 # refuses a frame that carries one. The last test below fails as soon as one is in the hub's
 # tables, so this list can only shrink.
 PENDING_FIELDS: dict[str, set[str]] = {}
+# The same for a reported artifact's fields (`Artifact`). `role` (contract 0.7): S-20.2.
+PENDING_ARTIFACT_FIELDS: set[str] = {'role'}
 
 
 def test_the_field_tables_match_the_contract() -> None:
@@ -48,7 +50,10 @@ def test_the_field_tables_match_the_contract() -> None:
         for pending in PENDING_FIELDS.get(name, set()):
             assert contract.pop(pending) is False, f'{name}.{pending} is pending but required'
         assert contract == FIELDS[kind], name
-    assert fields_of(DEFS['Artifact']) == ARTIFACT_FIELDS
+    artifact = fields_of(DEFS['Artifact'])
+    for pending in PENDING_ARTIFACT_FIELDS:
+        assert artifact.pop(pending) is False, f'Artifact.{pending} is pending but required'
+    assert artifact == ARTIFACT_FIELDS
 
 
 def test_pending_fields_are_still_pending() -> None:
@@ -56,6 +61,9 @@ def test_pending_fields_are_still_pending() -> None:
         assert fields <= set(DEFS[name]['properties']), f'{name}: not in the contract'
         known = fields & set(FIELDS[NAMES[name]])
         assert not known, f'the hub reads {name} {known} now: remove it from PENDING_FIELDS'
+    assert set(DEFS['Artifact']['properties']) >= PENDING_ARTIFACT_FIELDS
+    known = PENDING_ARTIFACT_FIELDS & set(ARTIFACT_FIELDS)
+    assert not known, f'the hub reads Artifact {known} now: remove it from PENDING_ARTIFACT_FIELDS'
 
 
 def test_every_contract_example_parses() -> None:

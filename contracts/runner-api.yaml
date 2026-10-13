@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel runner API
-  version: 0.1.8
+  version: 0.1.9
   description: |
     The runner is the only process that runs `claude` (native on the NUC, a systemd user unit). The
     hub (in Docker) talks to it over HTTP on a unix socket: `/run/user/<uid>/marcel/runner.sock` on
@@ -376,6 +376,51 @@ paths:
           content:
             text/event-stream:
               schema: { type: string }
+
+  /brains:
+    post:
+      operationId: prepareBrain
+      summary: Make (or refresh) the folder one agent's brain runs in. New in 0.1.9.
+      description: |
+        One brain per agent (F17, B-38). The hub runs in Docker and cannot render `brain/` or trust a
+        folder, so it asks the runner, on the host. The runner renders `brain/` into
+        `~/marcel/brains/<agent_slug>` with `name` and `persona`, links its `MEMORY.md` and `memory/`
+        to `agents/<agent_slug>/` in the memory repo (creating them empty when missing, never
+        overwriting), installs the marcel plugin there and trusts the folder, like a workspace
+        clone. Safe to repeat: it re-renders the template files and replaces its own links, and
+        never touches the memory. The hub then spawns the brain with `cwd` set to `cwd`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PrepareBrain' }
+      responses:
+        '200':
+          description: Ready. The folder exists, is trusted, and its memory links point at the agent's notes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PreparedBrain' }
+        '400':
+          description: '`bad_request`: the body does not match `PrepareBrain`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: |
+            The folder could not be made ready: `render_failed` (the template refused a value, or a
+            real file sits where a memory link should go; `detail` says which), `clone_failed` (the
+            plugin install failed), or `not_trusted` (the folder could not be trusted). A folder
+            left half-made is finished by the next call.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: |
+            `claude` could not be used: `claude_timeout` (it did not answer in time) or
+            `claude_unavailable` (missing or not executable).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /cloud/sessions:
     post:
@@ -759,6 +804,59 @@ components:
           status: waiting
           waiting_for: permission prompt
           cwd: /home/shbunder/marcel/workspaces/scratch
+
+    PrepareBrain:
+      type: object
+      required: [agent_slug, name, persona]
+      additionalProperties: false
+      properties:
+        agent_slug:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{0,39}$'
+          description: |
+            The agent's slug, fixed when the agent is made (the owner's first agent is `marcel`). It
+            names the folder and the memory subfolder, so it never contains `/` or `..`.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+          description: The agent's name at render time (`AGENT_NAME` in `brain/render.py`). A later rename reaches the brain over the channel, not by re-rendering.
+        persona:
+          type: object
+          description: Who the brain works for and how it talks.
+          required: [person_name]
+          additionalProperties: false
+          properties:
+            person_name:
+              type: string
+              minLength: 1
+              maxLength: 40
+              description: The person's first name; the brain addresses them by it (`OWNER_NAME` in `brain/render.py`).
+            personality:
+              type: string
+              enum: [professional, cheerful, curious, cozy, bold, cool, sporty, shy, grumpy]
+              description: The look's personality (app-api.yaml `LookPersonality`), for the tone of its answers.
+      example:
+        agent_slug: pip
+        name: Pip
+        persona: { person_name: Emma, personality: cheerful }
+
+    PreparedBrain:
+      type: object
+      required: [agent_slug, cwd, memory_dir]
+      additionalProperties: false
+      properties:
+        agent_slug: { type: string }
+        cwd:
+          type: string
+          description: The brain's folder, absolute (`~/marcel/brains/<agent_slug>` expanded). Spawn the brain with it.
+        memory_dir:
+          type: string
+          description: Where its `MEMORY.md` and `memory/` links point, absolute (`agents/<agent_slug>/` in the memory repo).
+      example:
+        agent_slug: pip
+        cwd: /home/shbunder/marcel/brains/pip
+        memory_dir: /home/shbunder/marcel/data/memory/agents/pip
 
     CloudRepo:
       type: object

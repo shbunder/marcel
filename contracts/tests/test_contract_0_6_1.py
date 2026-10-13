@@ -17,7 +17,8 @@ def flat(text: str) -> str:
 
 
 def test_the_versions_were_bumped() -> None:
-    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.8'
+    # 0.7 bumped runner-api again (test_contract_0_7.py).
+    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.9'
     assert load_yaml('session-api.yaml')['info']['version'] == '0.1.5'
     assert load_yaml('brain-api.yaml')['info']['version'] == '0.1.2'
 
