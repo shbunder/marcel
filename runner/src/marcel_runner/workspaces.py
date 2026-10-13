@@ -60,8 +60,9 @@ BASE = re.compile(r'[A-Za-z0-9_][A-Za-z0-9._/-]{0,99}')
 OPTION = re.compile(r'^\s*(?P<mark>[❯›>])?\s*(?P<num>[1-9])\.\s+(?P<text>\S.*?)\s*$')
 YES = re.compile(r'Yes,?\s+I\s+trust\s+this\s+folder', re.I)
 NO = re.compile(r'No\b', re.I)
-ANSI = re.compile(rb'\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07')
-MOVE = re.compile(rb'\x1b\[[0-9;]*[HfBEd]')  # cursor moves start a new screen line
+# A terminal escape: CSI (ESC [ … final), OSC (ESC ] … BEL), or a two-byte ESC sequence.
+ESCAPE = re.compile(rb'\x1b\[([0-?]*)[ -/]*([@-~])|\x1b\][^\x07]*\x07|\x1b[()][0-9A-Za-z]|\x1b.')
+UNNUMBERED = re.compile(r'^\s*(?P<mark>[❯›>])?\s*(?P<text>\S.*?)\s*$')
 DOWN, UP, ENTER, CTRL_C = b'\x1b[B', b'\x1b[A', b'\r', b'\x03'
 
 
@@ -201,6 +202,27 @@ def trust_menu(screen: str) -> tuple[int, int] | None:
         if len(yes) != 1 or len(marked) != 1 or not any(NO.match(m['text']) for m in group):
             return None
         return int(marked[0]['num']), int(yes[0]['num'])
+    return _unnumbered_menu(screen)
+
+
+def _unnumbered_menu(screen: str) -> tuple[int, int] | None:
+    """The same for a menu without numbers (2.1.289): the last block of lines between blank lines
+    that holds "Yes, I trust this folder". Options count from 1 in screen order."""
+    blocks: list[list[str]] = [[]]
+    for line in screen.splitlines():
+        if line.strip():
+            blocks[-1].append(line)
+        elif blocks[-1]:
+            blocks.append([])
+    for block in reversed(blocks):
+        found = [m for m in map(UNNUMBERED.match, block) if m is not None]
+        yes = [i for i, m in enumerate(found, 1) if YES.match(m['text'])]
+        if not yes:
+            continue
+        marked = [i for i, m in enumerate(found, 1) if m['mark']]
+        if len(yes) != 1 or len(marked) != 1 or not any(NO.match(m['text']) for m in found):
+            return None
+        return marked[0], yes[0]
     return None
 
 
@@ -222,22 +244,89 @@ def trust_problem(home: Path, cwd: Path) -> str | None:
 
 
 def _screen(buf: bytes) -> str:
-    return ANSI.sub(b'', MOVE.sub(b'\n', buf.replace(b'\r\n', b'\n').replace(b'\r', b'\n'))).decode(
-        'utf-8', 'replace'
-    )
+    """The screen claude has drawn so far, one line per row. A small terminal: claude places words
+    with cursor moves rather than spaces, and redraws only the lines that change (2.1.289)."""
+    rows: dict[int, list[str]] = {}
+    r = c = 0
+
+    def put(ch: str) -> None:
+        nonlocal c
+        row = rows.setdefault(r, [])
+        row.extend(' ' * (c + 1 - len(row)))
+        row[c] = ch
+        c += 1
+
+    pos = 0
+    raw = buf
+    for m in ESCAPE.finditer(raw):
+        for ch in raw[pos : m.start()].decode('utf-8', 'replace'):
+            if ch == '\r':
+                c = 0
+            elif ch == '\n':
+                r += 1
+            elif ch == '\b':
+                c = max(c - 1, 0)
+            elif ch >= ' ':
+                put(ch)
+        pos = m.end()
+        if m[2] is None:
+            continue
+        args = [int(x) if x.isdigit() else 0 for x in m[1].decode().split(';')]
+        n = max(args[0], 1)
+        final = m[2].decode()
+        if final == 'A':
+            r -= n
+        elif final in 'Be':
+            r += n
+        elif final in 'Ca':
+            c += n
+        elif final == 'D':
+            c = max(c - n, 0)
+        elif final == 'E':
+            r, c = r + n, 0
+        elif final == 'F':
+            r, c = r - n, 0
+        elif final in 'G`':
+            c = n - 1
+        elif final in 'Hf':
+            r, c = n - 1, (max(args[1], 1) if len(args) > 1 else 1) - 1
+        elif final == 'd':
+            r = n - 1
+        elif final == 'K' and m[1] in (b'', b'0'):
+            del rows.setdefault(r, [])[c:]
+        elif final == 'J' and m[1] in (b'2', b'3'):
+            rows.clear()
+    for ch in raw[pos:].decode('utf-8', 'replace'):
+        if ch == '\r':
+            c = 0
+        elif ch == '\n':
+            r += 1
+        elif ch >= ' ':
+            put(ch)
+    if not rows:
+        return ''
+    return '\n'.join(''.join(rows.get(i, [])).rstrip() for i in range(min(rows), max(rows) + 1))
 
 
 def accept_trust(
-    claude: Path, cwd: Path, env: dict[str, str], *, timeout: float = 40.0, settle: float = 4.0
+    claude: Path,
+    cwd: Path,
+    env: dict[str, str],
+    *,
+    timeout: float = 40.0,
+    settle: float = 4.0,
+    quiet: float = 0.5,
 ) -> None:
     """Accept Claude Code's trust prompt for `cwd` headlessly (SP2,
     `scratch/spikes/SP2-worker-control/accept_trust.py`). Runs an interactive `claude` on a pty.
 
     It reads the screen and presses keys only for the trust dialog: arrows to "Yes, I trust this
-    folder" (the default is "No, exit"), then Enter once the screen shows Yes highlighted. It never
-    answers anything else (a repo's `.mcp.json` brings an "use these MCP servers?" dialog next) and
-    leaves with Ctrl-C. Then `~/.claude.json` must show the folder trusted and none of the repo's
-    MCP servers enabled. Anything else raises `SessionError` (`not_trusted`)."""
+    folder" (the default is "No, exit"), then Enter once the screen shows Yes highlighted, each
+    key only after the screen has been still for `quiet` seconds (claude loses keys while it
+    starts up). It never answers anything else (a repo's `.mcp.json` brings an "use these MCP
+    servers?" dialog next) and leaves with Ctrl-C. Then `~/.claude.json` must show the folder
+    trusted and none of the repo's MCP servers enabled. Anything else raises `SessionError`
+    (`not_trusted`)."""
     master, slave = pty.openpty()
     proc = subprocess.Popen(
         [str(claude)],
@@ -250,9 +339,9 @@ def accept_trust(
     )
     os.close(slave)
     buf = b''
-    seen = 0  # where the screen after the last key press starts
+    seen = 0  # how much claude had drawn when the runner last pressed a key
     moved = answered = False
-    answered_at = 0.0
+    answered_at = drawn_at = 0.0
     problem = 'Claude never showed its trust dialog.'
     end = time.monotonic() + timeout
     try:
@@ -268,17 +357,22 @@ def accept_trust(
                 if not chunk:
                     break
                 buf += chunk
+                drawn_at = time.monotonic()
             if answered:
                 continue
-            menu = trust_menu(_screen(buf[seen:]))
+            if moved and len(buf) == seen:
+                continue  # nothing redrawn since the arrows
+            if time.monotonic() - drawn_at < quiet:
+                continue  # still drawing: a key pressed while claude starts up is lost (2.1.289)
+            menu = trust_menu(_screen(buf))
             if menu is None:
                 continue
             selected, yes = menu
             if selected == yes:
                 os.write(master, ENTER)
                 answered, answered_at = True, time.monotonic()
-            elif moved:  # the arrows did not reach Yes: never press Enter on anything else
-                break
+            elif moved:  # not on Yes (yet): never press Enter on anything else; wait for the redraw
+                continue
             else:
                 os.write(master, (DOWN if yes > selected else UP) * abs(yes - selected))
                 moved, seen = True, len(buf)

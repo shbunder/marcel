@@ -76,6 +76,13 @@ if not args:  # interactive: a raw-mode screen, like Claude Code's own
             mark = ' ' if 'no-marker' in mode or i != cursor else '\\u276f'
             out(f' {{mark}} {{i + 1}}. {{o}}\\n')
     draw()
+    if 'redraw-on-start' in mode:  # like 2.1.289: keys pressed while it starts up are lost
+        import select, time
+        end = time.monotonic() + 0.3
+        while time.monotonic() < end:
+            if select.select([0], [], [], 0.05)[0]:
+                os.read(0, 64)
+        draw()
     while True:
         k = key()
         if k == b'\\x03':
@@ -304,6 +311,14 @@ def test_trust_never_answers_the_repos_mcp_servers_dialog(ws: Ws) -> None:
     assert (clone / '.git' / READY).exists()
 
 
+def test_trust_waits_for_claude_to_stop_drawing_before_any_key(ws: Ws) -> None:
+    """Claude redraws the dialog while it starts up and loses a key pressed meanwhile; the runner
+    presses nothing until the screen has been still for a moment."""
+    ws.mode('redraw-on-start')
+    clone = ws.ws.ensure(spec())
+    assert (clone / '.git' / READY).exists()
+
+
 @pytest.mark.parametrize(
     ('mode', 'words'),
     [
@@ -337,6 +352,49 @@ def test_trust_menu_reading() -> None:
     assert trust_menu(dialog.replace(' 1. No, exit', ' 1. Maybe')) is None  # no "No" option
     assert trust_menu(' ❯ 1. Use this MCP server\n   2. Skip\n') is None
     assert trust_menu('old\n ❯ 1. Yes, I trust this folder\n   2. No\nx\n' + dialog) == (1, 2)
+
+
+# What claude 2.1.289 draws on the NUC: words placed with ESC[<n>G, options without numbers.
+REAL_DIALOG = (
+    b"\x1b[2GClaude\x1b[9GCode'll\x1b[17Gbe\x1b[20Gable\x1b[25Gto\x1b[28Gread.\r\r\n\r\r\n"
+    b'\x1b[2G\x1b[38;5;153m\xe2\x9d\xaf\x1b[4GNo,\x1b[8Gexit\x1b[39m\r\r\n'
+    b'\x1b[4GYes,\x1b[9GI\x1b[11Gtrust\x1b[17Gthis\x1b[22Gfolder\r\r\n\r\r\n'
+    b'\x1b[2G\x1b[38;5;246mEnter\x1b[8Gto\x1b[11Gconfirm\x1b[39m\r\r\n\x1b[1C\x1b[4A'
+    b'\x1b[>0q\x1b[?u\x1b[c'
+)
+
+
+REAL_REDRAW_AFTER_DOWN = (
+    b'\x1b(B\x0f\x1b[?2004h\x1b[1D\x1b[4B\r\x1b[1C\x1b[4A \x1b[4GNo, exit\r\x1b[1C\x1b[1B'
+    b'\x1b[38;5;153m\xe2\x9d\xaf\x1b[4GYes, I trust this folder\x1b[39m\r\r\n\r\n\r\n\x1b[1C\x1b[3A'
+)
+
+
+def test_real_claude_screen_keeps_spaces_and_reads_the_unnumbered_menu() -> None:
+    from marcel_runner.workspaces import _screen, trust_menu
+
+    screen = _screen(REAL_DIALOG)
+    assert "Claude Code'll be able to read." in screen
+    assert ' ❯ No, exit' in screen.splitlines()
+    assert trust_menu(screen) == (1, 2)
+    assert trust_menu(screen.replace('❯', ' ')) is None  # nothing highlighted
+    assert trust_menu(screen.replace('No, exit', 'Maybe')) is None  # no "No" option
+    moved = screen.replace(' ❯ No, exit', '   No, exit').replace('   Yes, I', ' ❯ Yes, I')
+    assert trust_menu(moved) == (2, 2)
+    # After one Down, claude redraws only the two option lines, moving the cursor up to them.
+    assert trust_menu(_screen(REAL_DIALOG + REAL_REDRAW_AFTER_DOWN)) == (2, 2)
+
+
+def test_screen_is_a_small_terminal() -> None:
+    from marcel_runner.workspaces import _screen
+
+    assert _screen(b'abc\x1b[2Dx') == 'axc'  # back two columns, overwrite
+    assert _screen(b'one\r\ntwo\x1b[1A\rON') == 'ONe\ntwo'  # up a row, carriage return
+    assert _screen(b'gone\x1b[2J\x1b[1;1Hnew') == 'new'  # clear screen, cursor home
+    assert _screen(b'keep this\x1b[5G\x1b[K') == 'keep'  # erase to the end of the line
+    assert _screen(b'\x1b(B\x0fa\x1b]0;title\x07b\x1b[38;5;153mc') == 'abc'  # ignored escapes
+    assert _screen(b'ok\x1b[>0q\x1b[?u\x1b[c') == 'ok'  # private CSI parameters
+    assert _screen(b'') == ''
 
 
 def test_trust_fails_in_words_when_claude_never_asks(ws: Ws) -> None:
