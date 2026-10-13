@@ -60,15 +60,19 @@ class FakeBrains:
         self.unreachable = False
         self.spawn_delay = 0.0
         self.unlisted: set[str] = set()  # spawned, but not in the runner's list yet
+        # Like the real runner: the session is listed (and calls the hub) before the spawn
+        # request returns, which waits for its channel to register.
+        self.list_before_return = False
 
     async def spawn_brain(self, *, name: str, model: str, cwd: str, prompt: str) -> str:
         self.spawned.append({'name': name, 'model': model, 'cwd': cwd, 'prompt': prompt})
+        early = self.add(name=name) if self.list_before_return else None
         if self.spawn_delay:
             await asyncio.sleep(self.spawn_delay)
         if self.fail_spawns:
             self.fail_spawns -= 1
             raise StartFailed('The session did not start: the channel never registered.')
-        return self.add(name=name)
+        return early or self.add(name=name)
 
     def add(self, name: str, role: str = 'brain', **fields: Any) -> str:
         sid = str(uuid.uuid4())

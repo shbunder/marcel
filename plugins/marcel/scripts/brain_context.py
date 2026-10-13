@@ -16,8 +16,10 @@ The marcel plugin runs this for two hooks (`hooks/hooks.json`):
   4. today's summary and the live sessions, from `GET /brain/summary` (contract request S-06.8).
      Until the hub has that route, or when it answers 404 or 503, one line says it is missing.
 
-Any other session (a worker, an adopted session, or a brain the hub has not registered yet at its
-very first start) is refused by the brain API: then it prints and writes nothing. When the hub
+Any other session (a worker, an adopted session) is refused by the brain API: then it prints and
+writes nothing. A brain that has just started may call before the hub knows its id: on start or
+resume an unknown session is asked about again, up to `START_RETRIES` times one second apart, with
+one line on stderr each time. When the hub
 cannot be reached, it still gives `MEMORY.md` and one line saying so. It always exits 0: a hook
 error must never block the session.
 
@@ -30,6 +32,7 @@ the brain tools do (`tools/src/marcel_tools/hub.py`: `X-Marcel-Secret`, `X-Marce
 import json
 import os
 import sys
+import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -44,6 +47,10 @@ TAIL_BYTES = 256 * 1024  # how much of the transcript's end is read for the last
 SAID_CHARS = 600  # each side of the last exchange is cut here
 TIMEOUT = 5.0  # seconds per call; the hook itself gets 15 s (hooks.json)
 NOT_A_BRAIN = {'not_brain', 'unknown_session'}
+# A brain that has just started may call before the hub knows its id (the runner answers the
+# spawn only once the channel is registered): on start or resume, ask again this often, 1 s apart.
+START_RETRIES = 5
+RETRY_WAIT_S = 1.0
 HANDOFF = Path('.marcel') / 'handoff.md'
 NO_SUMMARY = "The hub has no summary of today or of the live sessions yet (it can't give one)."
 HEADINGS = {
@@ -88,8 +95,17 @@ def secret(env: Mapping[str, str]) -> str:
 class Brain:
     """The two `/brain` reads these hooks need."""
 
-    def __init__(self, transport: Transport, session_id: str, secret: str) -> None:
+    def __init__(
+        self,
+        transport: Transport,
+        session_id: str,
+        secret: str,
+        retries: int = 0,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         self.transport = transport
+        self.retries = retries
+        self.sleep = sleep
         self.headers = {
             'X-Marcel-Secret': secret,
             'X-Marcel-Session': session_id,
@@ -97,6 +113,21 @@ class Brain:
         }
 
     def get(self, path: str, params: dict[str, str] | None = None) -> tuple[int, Any]:
+        while True:
+            try:
+                return self._get_once(path, params)
+            except NotABrain as exc:
+                if str(exc) != 'unknown_session' or self.retries <= 0:
+                    raise
+                self.retries -= 1
+                print(
+                    'brain_context: the hub does not know this session yet; asking again in '
+                    f'{RETRY_WAIT_S:.0f} s.',
+                    file=sys.stderr,
+                )
+                self.sleep(RETRY_WAIT_S)
+
+    def _get_once(self, path: str, params: dict[str, str] | None) -> tuple[int, Any]:
         try:
             status, body = self.transport.request(
                 'GET', '/brain' + path, params=params, body=None, headers=self.headers
@@ -163,12 +194,19 @@ def last_exchange(transcript: str | None) -> tuple[str, str]:
     return cut['user'], cut['assistant']
 
 
-def connect(hook: Mapping[str, Any], env: Mapping[str, str], transport: Transport | None) -> Brain:
+def connect(
+    hook: Mapping[str, Any],
+    env: Mapping[str, str],
+    transport: Transport | None,
+    retries: int = 0,
+    sleep: Callable[[float], None] = time.sleep,
+) -> Brain:
     session_id = str(hook.get('session_id') or '')
     if not session_id:
         raise Unreachable('the hook gave no session id.')
     url = env.get('MARCEL_HUB_URL') or DEFAULT_HUB_URL
-    return Brain(transport or UrllibTransport(url, TIMEOUT), session_id, secret(env))
+    transport = transport or UrllibTransport(url, TIMEOUT)
+    return Brain(transport, session_id, secret(env), retries, sleep)
 
 
 def handoff(
@@ -204,8 +242,14 @@ def handoff(
     return path
 
 
-def compose(hook: Mapping[str, Any], env: Mapping[str, str], transport: Transport | None) -> str:
-    """`SessionStart`: what to print. Empty for a session that is not Marcel's brain."""
+def compose(
+    hook: Mapping[str, Any],
+    env: Mapping[str, str],
+    transport: Transport | None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> str:
+    """`SessionStart`: what to print. Empty for a session that is not Marcel's brain. On start
+    or resume, a session the hub does not know yet is asked about again (`START_RETRIES`)."""
     cwd = Path(str(hook.get('cwd') or os.getcwd()))
     source = str(hook.get('source') or '')
     parts = [HEADINGS.get(source, STARTED)]
@@ -216,7 +260,8 @@ def compose(hook: Mapping[str, Any], env: Mapping[str, str], transport: Transpor
     if notes:
         parts.append('## MEMORY.md\n\n' + notes)
     try:
-        brain = connect(hook, env, transport)
+        retries = 0 if source == 'compact' else START_RETRIES
+        brain = connect(hook, env, transport, retries, sleep)
         threads = brain.open_threads()
         parts.append('## Open threads\n\n' + ('\n'.join(threads) if threads else 'None.'))
         parts.append('## Today and the live sessions\n\n' + (brain.summary() or NO_SUMMARY))

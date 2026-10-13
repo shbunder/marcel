@@ -141,8 +141,46 @@ def test_a_worker_or_a_stranger_gets_nothing(world: World, cwd: Path) -> None:
     tid = spawn(world)
     transport = ClientTransport(world.client)
     assert ctx.compose(start(f'ses-{tid}', cwd), env(world), transport) == ''  # 403 not_brain
-    # 401 unknown_session: also a brain the hub has not registered yet at its very first start.
-    assert ctx.compose(start(str(uuid.uuid4()), cwd, 'startup'), env(world), transport) == ''
+    naps: list[float] = []
+    stranger = start(str(uuid.uuid4()), cwd, 'startup')
+    assert ctx.compose(stranger, env(world), transport, sleep=naps.append) == ''  # 401
+    assert naps == [1.0] * ctx.START_RETRIES, 'asked again 5 times, then gave up'
+
+
+class NotYet:
+    """The hub before it knows a just-started brain: `unknown_session` a few times."""
+
+    def __init__(self, inner: ClientTransport, times: int) -> None:
+        self.inner, self.times = inner, times
+
+    def request(self, method: str, path: str, **kw: Any) -> tuple[int, Any]:
+        if self.times:
+            self.times -= 1
+            return 401, {'code': 'unknown_session', 'message': 'This session is not Marcel’s brain'}
+        return self.inner.request(method, path, **kw)
+
+
+@pytest.mark.parametrize('source', ['startup', 'resume'])
+def test_a_just_started_brain_is_asked_about_again(
+    world: World, cwd: Path, source: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Found live on the NUC: the hook ran before the hub had the new brain's id (S-06.8).
+    tid = spawn(world)
+    naps: list[float] = []
+    transport = NotYet(ClientTransport(world.client), times=3)
+    out = ctx.compose(start(world.brain_session, cwd, source), env(world), transport, naps.append)
+    assert tid in out and NOTES in out
+    assert naps == [1.0, 1.0, 1.0]
+    err = capsys.readouterr().err
+    assert err.count('the hub does not know this session yet; asking again in 1 s.') == 3
+
+
+def test_a_compaction_never_waits(world: World, cwd: Path) -> None:
+    # The brain was known long before its first compaction: no retry, no delay.
+    naps: list[float] = []
+    transport = NotYet(ClientTransport(world.client), times=1)
+    assert ctx.compose(start(world.brain_session, cwd), env(world), transport, naps.append) == ''
+    assert naps == []
 
 
 def test_hub_down_still_gives_the_notes(world: World, cwd: Path) -> None:

@@ -287,6 +287,7 @@ class _AgentBrain:
     busy_tries: int = 0
     next_try: float = 0.0
     alerted: bool = False
+    starting: bool = False  # a fresh brain's spawn is under way (`claim` may let it in early)
 
 
 class BrainKeeper:
@@ -634,7 +635,12 @@ class BrainKeeper:
 
     async def _respawn(self, agent_id: str, dead: str | None) -> None:
         reason = 'crashed' if dead is not None else None
-        started = await self._spawn(agent_id, reason)
+        st = self._state(agent_id)
+        st.starting = True
+        try:
+            started = await self._spawn(agent_id, reason)
+        finally:
+            st.starting = False
         if started is None:
             return
         sid, kept, _ = started
@@ -657,6 +663,35 @@ class BrainKeeper:
             st.pending = _Pending(sid, reason, kept, self.monotonic(), seeded_at)
             st.wanted = None
         log.info('Started main session %s (%s); it takes over at its hello.', sid[:8], reason)
+
+    async def claim(self, session_id: str) -> bool:
+        """A session the hub does not know yet called in. While a fresh brain is starting, the
+        runner already runs it but answers the spawn only once its channel is registered, so the
+        session's `SessionStart` hook and first tool calls arrive first. If the runner lists this
+        session under a starting agent's brain name, it is that brain: write it on the
+        conversation now. True when it was. A rollover's new brain is not claimed: it takes over
+        at its hello."""
+        with self._mutex:
+            starting = [a for a, st in self._agents.items() if st.starting]
+        if not starting or self.runner is None:
+            return False
+        try:
+            sessions = await self.runner.sessions()
+        except RunnerUnavailable:
+            return False
+        listed = next((s for s in sessions if s.get('id') == session_id), None)
+        if listed is None:
+            return False
+        for agent_id in starting:
+            if listed.get('name') == brain_name(agent_id):
+                with self._mutex:
+                    if not self._state(agent_id).starting:  # its spawn returned meanwhile
+                        return self._current(agent_id) == session_id
+                    self._set_brain(agent_id, session_id)
+                log.info("Main session %s called in while starting; it is Marcel's brain now.",
+                         session_id[:8])  # fmt: skip
+                return True
+        return False
 
     def _set_brain(self, agent_id: str, session_id: str) -> str:
         with Session(self.engine) as s:

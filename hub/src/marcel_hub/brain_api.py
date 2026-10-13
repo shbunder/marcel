@@ -146,7 +146,7 @@ def _hub_secret(gateway: Gateway) -> str | None:
     return secret if len(secret) >= MIN_SECRET else None
 
 
-def require_brain(request: Request) -> Brain:
+async def require_brain(request: Request) -> Brain:
     """The brain session behind this request, or an error. Put it on every `/brain` route."""
     if TUNNEL_HEADER in request.headers:
         log.warning('Refused a /brain request that came through the tunnel.')
@@ -165,6 +165,9 @@ def require_brain(request: Request) -> Brain:
         raise ApiError(401, 'bad_secret', 'The hub secret does not match this hub. Redeploy.')
     session_id = request.headers.get(SESSION_HEADER, '')
     peer = gateway.resolve(session_id) if session_id else None
+    keeper = getattr(request.app.state, 'brain', None)
+    if peer is None and session_id and keeper is not None and await keeper.claim(session_id):
+        peer = gateway.resolve(session_id)  # a fresh brain that called before its spawn returned
     if peer is None:
         raise ApiError(
             401,
