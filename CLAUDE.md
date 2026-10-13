@@ -14,6 +14,9 @@ Start with [plan/README.md](plan/README.md). What it must do is
 
 - **Claude Code thinks, Marcel carries.** No model SDK, no API key, no model call in Marcel's own code.
   Judgement goes to a `claude` session. See [no-model-calls](.claude/rules/no-model-calls.md).
+- **Claude Code first** *(over our own).* Marcel is an app on a configured Claude Code setup. If
+  Claude Code does it (compaction, hooks, memory files, session list, forks, cloud), Marcel uses it;
+  otherwise write one line on why not. See ADR-010.
 - **Lightweight** *(over bloated).* Every dependency earns its place. Claude Code's own features
   (background sessions, channels, plugins, cloud sessions) come before anything we build.
 - **Generic** *(over specific).* A general extension point beats a hard-coded one-off: an agent is
