@@ -1,0 +1,13 @@
+pid:     1
+version: 2.1.296
+uptime:  2755s
+origin:  foreground
+config:  /home/marcel/.claude/daemon.json
+log:     /home/marcel/.claude/daemon.log
+
+bg sessions:
+  sock dir:     /tmp/cc-daemon-1000/6298d98a
+  control.sock: reachable
+  bg workers:   1 running (control.sock), 1 in roster.json
+  roster.json:  updated 486s ago
+  daemon.log:   14.9KB at /home/marcel/.claude/daemon.log

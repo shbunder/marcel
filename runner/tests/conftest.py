@@ -22,6 +22,25 @@ bg sessions:
 """
 
 
+# `claude daemon status` with the supervisor up in marcel-claude-daemon.service, recorded on the
+# NUC with Claude Code 2.1.296 (exit code 0; S-03.8). The home path is changed and the pid is 1.
+DAEMON_STATUS_RUNNING = """\
+pid:     1
+version: 2.1.296
+uptime:  2755s
+origin:  foreground
+config:  /home/marcel/.claude/daemon.json
+log:     /home/marcel/.claude/daemon.log
+
+bg sessions:
+  sock dir:     /tmp/cc-daemon-1000/6298d98a
+  control.sock: reachable
+  bg workers:   1 running (control.sock), 1 in roster.json
+  roster.json:  updated 486s ago
+  daemon.log:   14.9KB at /home/marcel/.claude/daemon.log
+"""
+
+
 class UnixConnection(http.client.HTTPConnection):
     def __init__(self, path: str) -> None:
         super().__init__('runner')
@@ -53,16 +72,15 @@ def write_script(path: Path, body: str) -> Path:
 def fake_claude(tmp_path: Path) -> Path:
     """A claude whose supervisor runs: `daemon status` exits 0 and names pid 1 (not our cgroup).
 
-    The exit codes are documented (`daemon status` exits 1 when the supervisor is not running).
-    The status TEXT of the running case is a guess, not recorded output. The not-running text is
-    recorded: DAEMON_STATUS_NOT_RUNNING.
+    Both status texts are recorded on the NUC: DAEMON_STATUS_RUNNING and
+    DAEMON_STATUS_NOT_RUNNING.
     """
+    status = tmp_path / 'daemon-status.txt'
+    status.write_text(DAEMON_STATUS_RUNNING)
     return write_script(
         tmp_path / 'claude',
         'if [ "$1" = "--version" ]; then echo "2.1.289 (Claude Code)"; exit 0; fi\n'
-        'if [ "$1" = "daemon" ]; then\n'
-        '  echo "running"; echo "  pid:          1"; echo "  origin:       foreground"; exit 0\n'
-        'fi\n'
+        f'if [ "$1" = "daemon" ]; then cat "{status}"; exit 0; fi\n'
         'exit 2\n',
     )
 

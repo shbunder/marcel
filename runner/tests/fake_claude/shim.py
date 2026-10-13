@@ -106,6 +106,7 @@ TOP_KEYS = {
     'job',
     'trusted',
     'channel',
+    'resume_channel',
     'gate_timeout',
     'steps',
     'denied',
@@ -451,8 +452,7 @@ def new_session(sc: Scenario, cwd: str, name: str, prompt: str, store: Store) ->
     }
 
 
-def write_debug_file(path: str, args: Args, sc: Scenario) -> None:
-    channels = args.value('--channels') or []
+def write_debug_file(path: str, channels: list[str], sc: Scenario) -> None:
     registered = 'plugin:marcel@marcel-local' in channels and sc.get('channel') != 'skipped'
     line = CHANNEL_REGISTERED if registered else CHANNEL_SKIPPED
     debug = Path(path)
@@ -482,6 +482,8 @@ def write_job(store: Store, s: Session, sc: Scenario) -> None:
         createdAt=_now_iso(),
         updatedAt=_now_iso(),
         firstTerminalAt=None,
+        # What Claude saves to start the session again (2.1.296); a resume without flags uses it.
+        respawnFlags=s.get('saved') or ['--name', s['name']],
     )
     base.pop('lastTerminalAt', None)
     _write_json(store.job_dir(s['short']) / 'state.json', base)
@@ -492,7 +494,7 @@ def cmd_bg(args: Args, store: Store, env: dict[str, str], out: IO[str], err: IO[
     cwd = os.getcwd()
     prompt = ' '.join(args.words)
     if args.has('--resume', '-r'):
-        return cmd_resume(args, store, cwd, prompt, out)
+        return cmd_resume(args, store, cwd, prompt, out, err)
     if not prompt:
         raise Refused(
             'fake claude: --bg needs a prompt. Put it after `--`: a prompt after --channels is '
@@ -504,8 +506,12 @@ def cmd_bg(args: Args, store: Store, env: dict[str, str], out: IO[str], err: IO[
         return 1
     name = args.value('--name', '-n') or sc.get('name') or _short_name(prompt)
     s = new_session(sc, cwd, name, prompt, store)
-    if args.value('--debug-file'):
-        write_debug_file(args.value('--debug-file'), args, sc)
+    # Claude keeps a session's options and reuses them on a resume without flags (2.1.296).
+    s['debug_file'] = args.value('--debug-file')
+    s['channels'] = args.value('--channels') or []
+    s['saved'] = saved_options(args, name)
+    if s['debug_file']:
+        write_debug_file(s['debug_file'], s['channels'], sc)
     write_job(store, s, sc)
     store.save(s)
     start_player(store, s['short'], cwd)
@@ -513,15 +519,41 @@ def cmd_bg(args: Args, store: Store, env: dict[str, str], out: IO[str], err: IO[
     return 0
 
 
-def cmd_resume(args: Args, store: Store, cwd: str, prompt: str, out: IO[str]) -> int:
+def saved_options(args: Args, name: str) -> list[str]:
+    """What 2.1.296 saves to start a session again, in the order it lists them (recorded on the
+    NUC: fixtures/jobs/respawn-2.1.296/state.json)."""
+    out: list[str] = []
+    for flag in SAVED_OPTIONS:
+        value = name if flag == '--name' else args.value(flag)
+        if value is None:
+            continue
+        out += [flag, *value] if isinstance(value, list) else [flag, str(value)]
+    return out
+
+
+SAVED_OPTIONS = (
+    '--setting-sources',
+    '--name',
+    '--permission-mode',
+    '--channels',
+    '--allowedTools',
+    '--debug-file',
+    '--model',
+)
+
+
+def cmd_resume(args: Args, store: Store, cwd: str, prompt: str, out: IO[str], err: IO[str]) -> int:
     ref = args.value('--resume', '-r')
     old = store.find(ref)
     if old is None:
         raise Refused(f'No conversation found with session ID: {ref}')
     sc = load_scenario(old['scenario'])
     if args.value('--debug-file'):
-        write_debug_file(args.value('--debug-file'), args, sc)
-    if args.has('--fork-session') or old.get('status'):
+        write_debug_file(args.value('--debug-file'), args.value('--channels') or [], sc)
+    # 2.1.296: a stopped session keeps its own saved options, so flags on a plain resume start a
+    # copy (recorded on the NUC, 2026-10-13; the note is on stderr).
+    flagged = not args.has('--fork-session') and args.has(*SAVED_OPTIONS)
+    if args.has('--fork-session') or old.get('status') or flagged:
         s = dict(old)
         s.update(
             id=str(uuid.uuid4()),
@@ -537,6 +569,10 @@ def cmd_resume(args: Args, store: Store, cwd: str, prompt: str, out: IO[str]) ->
         )
         s['short'] = s['id'][:8]
         s['src_id'] = old['src_id']
+        if args.value('--debug-file'):  # a fork or a copy keeps the options it was given
+            s['debug_file'] = args.value('--debug-file')
+            s['channels'] = args.value('--channels') or []
+        s['saved'] = saved_options(args, args.value('--name', '-n') or s['name'])
         if store.transcript(old).is_file():
             history = store.transcript(old).read_text('utf-8').replace(old['id'], s['id'])
             store.transcript(s).parent.mkdir(parents=True, exist_ok=True)
@@ -545,8 +581,14 @@ def cmd_resume(args: Args, store: Store, cwd: str, prompt: str, out: IO[str]) ->
         store.save(s)
         start_player(store, s['short'], cwd)
         out.write(f'backgrounded · {s["short"]} · {s["name"]}\n')
-        if not args.has('--fork-session'):
-            out.write(
+        if flagged:
+            err.write(
+                f'note: background session {old["short"]} keeps its own saved options, so the '
+                f'flags you passed started a copy as {s["short"]}. Without flags, the same '
+                f'command continues {old["short"]} itself.\n'
+            )
+        elif not args.has('--fork-session'):
+            err.write(
                 f'note: session {old["short"]} is already running in the background, '
                 f'so this started a copy as {s["short"]}\n'
             )
@@ -554,10 +596,15 @@ def cmd_resume(args: Args, store: Store, cwd: str, prompt: str, out: IO[str]) ->
     old.update(
         plan='resume', prompt=prompt, state='working', status=None, waiting_for=None, playing=True
     )
+    if old.get('debug_file'):
+        lost = sc.get('resume_channel') == 'skipped'
+        write_debug_file(old['debug_file'], [] if lost else old.get('channels') or [], sc)
     store.save(old)
     start_player(store, old['short'], old['cwd'])
     out.write(f'backgrounded · {old["short"]} · {old["name"]}\n')
-    out.write(f'note: woke session {old["short"]} with its saved options\n')
+    err.write(
+        f'note: woke session {old["short"]} with its saved options ({", ".join(SAVED_OPTIONS)}).\n'
+    )
     return 0
 
 

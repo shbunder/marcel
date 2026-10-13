@@ -250,8 +250,8 @@ def test_resume_a_live_session_starts_a_copy(inline: Inline) -> None:
     result = inline('--bg', '--resume', original['id'], '--', 'Follow-up: add mul')
     copy_short = inline.started[-1]
 
-    assert result.out == (
-        f'backgrounded · {copy_short} · t1\n'
+    assert result.out == f'backgrounded · {copy_short} · t1\n'
+    assert result.err == (  # 2.1.296 prints its notes on stderr
         f'note: session {short} is already running in the background, '
         f'so this started a copy as {copy_short}\n'
     )
@@ -269,17 +269,35 @@ def test_resume_a_stopped_session_wakes_it(inline: Inline, tmp_path: Path) -> No
     inline.play()
     inline('stop', short)
 
-    log = tmp_path / 'resume-debug.log'
-    result = inline('--bg', '--resume', short, '--debug-file', str(log), '--', 'Follow-up 3')
+    result = inline('--bg', '--resume', short, '--', 'Follow-up 3')
 
-    assert result.out == (
-        f'backgrounded · {short} · t1\nnote: woke session {short} with its saved options\n'
-    )
-    assert log.is_file()
+    assert result.out == f'backgrounded · {short} · t1\n'
+    assert result.err.startswith(f'note: woke session {short} with its saved options (')
     inline.play()
     session = inline.session(short)
     assert (session['state'], session['status']) == ('done', 'idle')
     assert len(inline.store.transcript(session).read_text().splitlines()) == 94
+
+
+def test_flags_on_a_resume_start_a_copy(inline: Inline) -> None:
+    """2.1.296, recorded on the NUC: a stopped session keeps its saved options."""
+    short = inline.spawn('--name', 't1')
+    inline.play()
+    inline('stop', short)
+    result = inline('--bg', '--resume', short, '--permission-mode', 'auto', '--', 'again')
+    copy_short = inline.started[-1]
+    assert copy_short != short
+    assert f'the flags you passed started a copy as {copy_short}' in result.err
+
+
+def test_a_resume_writes_on_in_the_saved_debug_log(inline: Inline, tmp_path: Path) -> None:
+    log = tmp_path / 'spawn-debug.log'
+    short = inline.spawn('--name', 't1', '--debug-file', str(log))
+    inline.play()
+    inline('stop', short)
+    before = log.read_text().count('\n')
+    inline('--bg', '--resume', short, '--', 'again')
+    assert log.read_text().count('\n') == before + 1
 
 
 def test_fork_has_no_copy_note(inline: Inline) -> None:
@@ -482,3 +500,17 @@ def test_project_dir_matches_claude_code() -> None:
         '-home-shbunder-projects-marcel-src'
     )
     assert shim.project_dir('/tmp/work_tree.1') == '-tmp-work-tree-1'
+
+
+def test_the_saved_options_have_the_recorded_shape(inline: Inline, tmp_path: Path) -> None:
+    """The fake saves the options 2.1.296 saved on the NUC (fixtures/jobs/respawn-2.1.296)."""
+    recorded = json.loads(
+        (Path(__file__).parent / 'fixtures' / 'jobs' / 'respawn-2.1.296' / 'state.json').read_text()
+    )['respawnFlags']
+    argv = ['--setting-sources', 'project,local', '--name', 'w', '--permission-mode', 'manual']
+    argv += ['--channels', 'plugin:marcel@marcel-local', '--allowedTools', 'a', 'b']
+    argv += ['--debug-file', str(tmp_path / 'd.log'), '--model', 'haiku']
+    short = inline.spawn(*argv)
+    job = inline.store.job_dir(short) / 'state.json'
+    flags = json.loads(job.read_text())['respawnFlags']
+    assert [f for f in flags if f.startswith('--')] == [f for f in recorded if f.startswith('--')]

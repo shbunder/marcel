@@ -103,7 +103,7 @@ A session counts as running when it has a process (`status` is set) or is still 
 ## The state file
 
 Every session the runner starts is kept in `<state>/sessions.json`: `id`, `short_id`, `role`,
-`name`, `task`, `permission_mode`, `model`, `cwd`, `channel`, `started_at`. After a runner restart
+`name`, `task`, `permission_mode`, `model`, `cwd`, `channel`, `debug_file` (where a resume looks for the channel), `started_at`. After a runner restart
 the roles come back from it, and the cap still counts the workers that are running. A state file the
 runner cannot read stops it at start-up, with the file's path in the log. Each write goes to a
 temp file, is flushed to disk, and then replaces the old file, so a crash never leaves half a file.

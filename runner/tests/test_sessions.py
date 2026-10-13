@@ -315,8 +315,10 @@ def test_a_runner_restart_keeps_roles_and_still_counts_the_workers(rig: Rig) -> 
         'model': 'sonnet',
         'cwd': str(rig.work),
         'channel': True,
+        'debug_file': record['debug_file'],
         'started_at': record['started_at'],
     }
+    assert Path(record['debug_file']).is_file()  # a resume reads the channel's state there
 
 
 def test_simultaneous_spawns_never_pass_the_cap_together(tmp_path: Path) -> None:
@@ -900,3 +902,13 @@ def test_the_usage_probe_runs_claude_without_claude_or_anthropic_variables(
     UsageProbe(script, env=env).refresh()
     assert out.exists()
     assert _leaked(out) == []
+
+
+def test_reading_a_log_that_was_rewritten_starts_again_at_zero(tmp_path: Path) -> None:
+    from marcel_runner.sessions import _read_lines
+
+    log = tmp_path / 'debug.log'
+    log.write_text('one\ntwo\n')
+    assert _read_lines(log, 4) == ['two']
+    assert _read_lines(log, 999) == ['one', 'two']  # shorter than where the runner was
+    assert _read_lines(tmp_path / 'gone.log') == []

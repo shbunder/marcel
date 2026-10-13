@@ -4,6 +4,7 @@ The runner here is `test_sessions.Rig`: the fake shim behind a recording wrapper
 """
 
 import json
+import subprocess
 import threading
 import time
 from collections.abc import Iterator
@@ -135,7 +136,7 @@ def test_resume_wakes_the_same_session_with_the_golden_command_line(up: Rig) -> 
     assert call['cwd'] == str(up.work.resolve())  # `--resume` finds the conversation from there
 
 
-def test_a_brain_resume_gets_the_brain_tools_and_keeps_its_channel_setting(up: Rig) -> None:
+def test_a_brain_resume_passes_no_flags_either(up: Rig) -> None:
     spawned = stopped(up, role='brain', name='brain', channel=False)
     sid = spawned['session_id']
     prompt = 'Good morning. Anything new overnight?'
@@ -309,19 +310,188 @@ def test_harrys_two_tools_are_pre_allowed_for_brain_and_side_only() -> None:
     assert not any('harry' in t for t in allowed_tools('worker') + allowed_tools('adopted'))
 
 
-def test_resume_passes_the_recorded_permission_mode(up: Rig) -> None:
+def test_resume_passes_no_flag_so_claude_keeps_the_saved_options(up: Rig) -> None:
+    """2.1.296: flags on a resume start a copy. Add one back to `resume_argv` and the fake starts a
+    copy, which the runner stops and answers 409."""
     spawned = stopped(up, permission_mode='plan')
-    assert up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})[0] == 200
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert (status, body['id']) == (200, spawned['session_id']), body
     (call,) = resume_calls(up)
-    argv = call['argv']
-    assert argv[argv.index('--permission-mode') + 1] == 'plan'
+    assert call['argv'][1:] == ['--bg', '--resume', spawned['session_id'], '--', 'go']
 
 
-def test_resume_of_a_session_the_runner_did_not_start_leaves_its_mode_alone(up: Rig) -> None:
+def test_resume_of_a_session_the_runner_forgot_finds_its_debug_log_in_claudes_saved_options(
+    up: Rig,
+) -> None:
     spawned = stopped(up)
+    forget(up)
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert (status, body['id']) == (200, spawned['session_id']), body
+
+
+def saved(up: Rig, short: str) -> Path:
+    return up.fake.home / '.claude' / 'jobs' / short / 'state.json'
+
+
+def edit_saved(up: Rig, short: str, drop: str) -> None:
+    """Take option `drop` (and its values) out of the options Claude saved for `short`."""
+    path = saved(up, short)
+    state = json.loads(path.read_text())
+    flags, out, skipping = state['respawnFlags'], [], False
+    for f in flags:
+        if f.startswith('--'):
+            skipping = f == drop
+        if not skipping:
+            out.append(f)
+    state['respawnFlags'] = out
+    path.write_text(json.dumps(state))
+
+
+def forget(up: Rig) -> None:
     up.stop_runner()
     up.state.joinpath('sessions.json').unlink()  # the runner forgets it started it
     up.start()
-    assert up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})[0] == 200
-    (call,) = resume_calls(up)
-    assert '--permission-mode' not in call['argv']
+
+
+@pytest.mark.parametrize(
+    ('drop', 'words'),
+    [
+        ('--setting-sources', "load the owner's own settings"),
+        ('--allowedTools', 'would ask before every reply'),
+    ],
+)
+def test_resume_refuses_when_the_saved_options_would_lose_a_control(
+    up: Rig, drop: str, words: str
+) -> None:
+    """The resume passes no flag, so the saved options are what the woken session gets. A Claude
+    that stops saving one must fail loudly, not quietly bring the owner's settings back."""
+    spawned = stopped(up)
+    edit_saved(up, spawned['short_id'], drop)
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert (status, body['code']) == (422, 'exited'), body
+    assert words in body['message']
+    assert resume_calls(up) == []
+
+
+def test_resume_refuses_when_claudes_saved_options_cannot_be_read(up: Rig) -> None:
+    spawned = stopped(up)
+    saved(up, spawned['short_id']).unlink()
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert (status, body['code']) == (422, 'exited')
+    assert 'cannot be read' in body['message']
+    assert resume_calls(up) == []
+
+
+def test_resume_refuses_when_the_debug_log_cannot_be_found(up: Rig) -> None:
+    """A session started without --debug-file (by hand) and unknown to the runner: it cannot
+    see the channel come back, so it says so and starts nothing."""
+    spawned = stopped(up)
+    forget(up)
+    edit_saved(up, spawned['short_id'], '--debug-file')
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert (status, body['code']) == (422, 'exited')
+    assert 'debug log' in body['message']
+    assert resume_calls(up) == []
+
+
+def test_resume_reads_the_channel_in_the_runners_own_record_of_the_log(up: Rig) -> None:
+    """Claude's saved --debug-file is a fallback: with it pointing elsewhere, the runner still
+    watches the log it recorded, where the woken session writes."""
+    spawned = stopped(up)
+    path = saved(up, spawned['short_id'])
+    state = json.loads(path.read_text())
+    flags = state['respawnFlags']
+    flags[flags.index('--debug-file') + 1] = '/nowhere/else.log'
+    path.write_text(json.dumps(state))
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert status == 200, body
+
+
+def test_a_deleted_debug_log_is_read_again_from_the_start(up: Rig) -> None:
+    spawned = stopped(up)
+    record = json.loads(up.state.joinpath('sessions.json').read_text())['sessions']
+    Path(record[spawned['session_id']]['debug_file']).unlink()
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert status == 200, body
+
+
+def test_a_forgotten_session_without_a_channel_wakes_without_waiting_for_one(up: Rig) -> None:
+    """With no record, the channel setting comes from Claude's saved --channels."""
+    spawned = stopped(up, channel=False)
+    forget(up)
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert status == 200, body
+
+
+def test_a_copy_named_only_on_stderr_is_stopped(up: Rig, monkeypatch: pytest.MonkeyPatch) -> None:
+    """2.1.296 names a copy on stderr; here stdout gives nothing away. Search stdout alone and the
+    copy keeps running while the runner answers as if it woke the session."""
+    spawned = stopped(up)
+    assert up.sessions is not None
+    real = up.sessions._claude
+    stops: list[str] = []
+
+    def claude(*args: str, **kw: Any) -> Any:
+        if '--resume' in args:
+            short = spawned['short_id']
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                f'backgrounded · {short} · w\n',
+                'note: … started a copy as deadbeef.\n',
+            )
+        return real(*args, **kw)
+
+    monkeypatch.setattr(up.sessions, '_claude', claude)
+    monkeypatch.setattr(up.sessions, '_stop', lambda short: stops.append(short))
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert (status, body['code']) == (409, 'resume_copied'), body
+    assert stops == ['deadbeef']
+
+
+def test_a_resume_that_loses_its_channel_fails_though_the_spawn_had_one(up: Rig) -> None:
+    """The log already says `registered` from the spawn; only what the resume wrote counts.
+    Read the log from the start again and this resume passes."""
+    up.fake.use('channel-lost-on-resume')
+    spawned = stopped(up)
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert (status, body['code']) == (422, 'channel_skipped'), body
+
+
+def test_saved_options_that_are_not_a_list_of_words_cannot_be_read(up: Rig) -> None:
+    spawned = stopped(up)
+    path = saved(up, spawned['short_id'])
+    state = json.loads(path.read_text())
+    state['respawnFlags'] = '--setting-sources project,local'
+    path.write_text(json.dumps(state))
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert (status, body['code']) == (422, 'exited')
+    assert 'cannot be read' in body['message']
+
+
+def test_option_reads_the_values_up_to_the_next_flag() -> None:
+    flags = ['--setting-sources', 'project,local', '--allowedTools', 'a', 'b', '--model', 'haiku']
+    assert resume.option(flags, '--allowedTools') == ['a', 'b']
+    assert resume.option(flags, '--model') == ['haiku']  # the last one runs to the end
+    assert resume.option(flags, '--channels') == []
+
+
+def test_a_copy_given_away_only_by_its_short_id_is_stopped(
+    up: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No note at all, but Claude backgrounded another short id: that is a copy too."""
+    spawned = stopped(up)
+    assert up.sessions is not None
+    real = up.sessions._claude
+    stops: list[str] = []
+
+    def claude(*args: str, **kw: Any) -> Any:
+        if '--resume' in args:
+            return subprocess.CompletedProcess(args, 0, 'backgrounded · cafef00d · w\n', '')
+        return real(*args, **kw)
+
+    monkeypatch.setattr(up.sessions, '_claude', claude)
+    monkeypatch.setattr(up.sessions, '_stop', lambda short: stops.append(short))
+    status, body = up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})
+    assert (status, body['code']) == (409, 'resume_copied'), body
+    assert stops == ['cafef00d']

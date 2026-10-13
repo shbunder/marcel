@@ -34,8 +34,10 @@ scratch `HOME`.
 | `--bg [--name …] … -- "<prompt>"` | `backgrounded · <short-id> · <name>` | SP2 |
 | `--bg` in an untrusted workspace | `Workspace not trusted. Run claude in <dir> once and accept the trust prompt`, exit 1 | SP2 |
 | `--bg … --debug-file <path>` | `Channel notifications registered` or `… skipped: …` in the debug file | SP1 |
-| `--bg --resume <id>` on a live session | a copy, plus `note: session <id> is already running in the background, so this started a copy as <id>` | SP2 \* |
-| `--bg --resume <id>` on a stopped session | wakes the same session: `note: woke session <id> with its saved options` | SP2 \* |
+| `--bg --resume <id>` on a live session | a copy, plus `note: session <id> is already running in the background, so this started a copy as <id>` on stderr | SP2 \* |
+| `--bg --resume <id>` on a stopped session, no other flag | wakes the same session, which writes on in its saved debug file: `note: woke session <id> with its saved options (…)` on stderr | NUC, 2.1.296 |
+| `--bg --resume <id> --<any saved option> …` on a stopped session | a copy, plus `note: background session <id> keeps its own saved options, so the flags you passed started a copy as <id>. …` on stderr | NUC, 2.1.296 |
+| `~/.claude/jobs/<id>/state.json` `respawnFlags` | the options a session was started with, in 2.1.296's order (`fixtures/jobs/respawn-2.1.296/`) | NUC, 2.1.296 |
 | `--bg --resume <id> --fork-session` | a new session with the full history, no note | SP7 |
 | `agents --json [--all]` | one row per session, keys in Claude Code's order; without `--all` a finished session with no process is left out | SP2 |
 | `stop <id>` | `stopped <short-id>`; mid-turn → `stopped`, finished → stays `done` | SP2 \* |
