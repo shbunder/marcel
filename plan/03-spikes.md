@@ -138,3 +138,12 @@ runs at a steady 60 fps.
 
 **Pass:** two independent background sessions that share history up to the fork.
 **Fallback:** start a fresh side session seeded with a hub-generated summary of the main thread.
+
+## Wave 4 spikes (added 2026-10-13)
+
+| Spike | Runs on | Question | Blocks |
+|---|---|---|---|
+| [SP8](../project/stories/SP8.md) | NUC | Can several Claude logins be signed in at once (`CLAUDE_CONFIG_DIR`), with background sessions and `/usage`? | Family members on their own accounts (later, ADR-006) |
+| [SP9](../project/stories/SP9.md) | NUC | Can a background worker publish and update a claude.ai artifact with a database, unattended? | S-20.2 tracker |
+| [SP10](../project/stories/SP10.md) | NUC | What happens on a reboot, a stalled approval, a held message, a workflow's cost, a deleted session with uncommitted work? | Guards for ADR-009 |
+

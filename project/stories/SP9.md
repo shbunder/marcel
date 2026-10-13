@@ -26,3 +26,6 @@ artifact with a shared database and update its rows, the way this repo's build b
 **Pass:** a worker can publish and update without a human → S-20.2 as written.
 **Fallback:** the hub serves the same page itself at `marcel-bot.com/projects/<slug>/tracker` behind the device token
 (phone only), and the laptop view waits.
+
+done when:
+- [ ] `RESULT.md` in the spike folder says PASS or FAIL, with the commands run and what changes in the plan.

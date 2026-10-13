@@ -2,9 +2,9 @@
 id: ADR-009
 title: When Marcel answers, starts a session, or uses a subagent
 status: Accepted
-date: 2026-10-15
+date: 2026-10-13
 decided_by: owner
-evidence: Owner, 2026-10-15 (chat); Claude Code docs (sub-agents, agent-view, workflows, routines, cross-session-messaging, costs), read 2026-10-15
+evidence: Owner, 2026-10-13 (chat); Claude Code docs (sub-agents, agent-view, workflows, routines, cross-session-messaging, costs), read 2026-10-13
 ---
 
 # ADR-009 — When Marcel answers, starts a session, or uses a subagent

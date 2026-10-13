@@ -2,9 +2,9 @@
 id: ADR-007
 title: A plain chat look replaces the pixel-classic dialogue boxes
 status: Accepted
-date: 2026-10-15
+date: 2026-10-13
 decided_by: owner
-evidence: Owner, 2026-10-15 (chat, wireframe review); project/stories/S-18.3.md, S-18.4.md
+evidence: Owner, 2026-10-13 (chat, wireframe review); project/stories/S-18.3.md, S-18.4.md
 ---
 
 # ADR-007 — A plain chat look replaces the pixel-classic dialogue boxes

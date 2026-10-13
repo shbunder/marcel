@@ -2,9 +2,9 @@
 id: ADR-008
 title: Avatars come from the Pixel Zoo generator
 status: Accepted
-date: 2026-10-15
+date: 2026-10-13
 decided_by: owner
-evidence: Owner, 2026-10-13 and 2026-10-15 (chat); project/stories/S-19.1.md
+evidence: Owner, 2026-10-13 and 2026-10-13 (chat); project/stories/S-19.1.md
 ---
 
 # ADR-008 — Avatars come from the Pixel Zoo generator

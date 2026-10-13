@@ -14,7 +14,7 @@ and keeps me posted — with a living pixel-art giraffe at the top of the screen
 
 | Decision | Answer |
 |---|---|
-| Users | **The owner, then the family** (changed 2026-10-15, B-37…B-40). The owner is the admin. Each family member gets their own helper, running on the owner's Claude login for now. |
+| Users | **The owner, then the family** (changed 2026-10-13, B-37…B-40). The owner is the admin. Each family member gets their own helper, running on the owner's Claude login for now. |
 | Agents | v1 ships **one agent, Marcel**. The data model treats an agent as a generic record (name, animal, palette, persona, memory, owner) so "several agents per person" or "one lead plus specialists" stays possible without a rewrite. |
 | Work Marcel takes on | Coding on my repos · life admin · research and writing · home/NUC ops |
 | Codebase | **Fresh start** in a monorepo (`shbunder/marcel`). The old code is kept on `legacy/v2`. |
@@ -144,7 +144,7 @@ and keeps me posted — with a living pixel-art giraffe at the top of the screen
 
 - **B-29 Made for you.** The sprite comes out of a script (`build.py`): parts, colour ramps and choreography are
   data, so other animals and palettes are new recipes, not new code. v1 ships the giraffe in the Marcel rose palette.
-- **B-29a The look** (changed 2026-10-15, ADR-007; replaces the pixel-classic dialogue boxes). A plain chat look,
+- **B-29a The look** (changed 2026-10-13, ADR-007; replaces the pixel-classic dialogue boxes). A plain chat look,
   see B-43. The pixel art stays in the avatar and in small labels. Body text stays readable at Dynamic Type sizes.
 
 ## Projects  (added 2026-10-12)
@@ -174,7 +174,7 @@ and keeps me posted — with a living pixel-art giraffe at the top of the screen
 - **B-36 Item get.** When a thread finishes with an artifact, the "done" milestone carries a "YOU GOT: <title>!"
   banner and a preview card; tapping opens the artifact. The morning digest (B-17) is itself a board artifact.
 
-## People and sign-in  (added 2026-10-15)
+## People and sign-in  (added 2026-10-13)
 
 - **B-37 The owner is the admin.** The owner is set up once on the NUC (`marcel-hub setup`) and is the person whose
   Claude login the NUC uses. Only the owner can add or remove people and pair phones for them.
@@ -187,7 +187,7 @@ and keeps me posted — with a living pixel-art giraffe at the top of the screen
 - **B-40 Settings.** Opened from the avatar: the helper's look and name; notifications and Face ID; the notebook,
   schedules and usage; people (owner only), phones and sign out.
 
-## Chat clarity  (added 2026-10-15)
+## Chat clarity  (added 2026-10-13)
 
 - **B-41 Answers quote their question.** When an answer, a result or an approval is not for my latest message, it
   shows a small quote of the message it belongs to; tapping it jumps there. Answers to my latest message show no quote.
@@ -198,7 +198,7 @@ and keeps me posted — with a living pixel-art giraffe at the top of the screen
   uses the same cards and colours. The Quests filter uses Claude's own session states: waiting on you, ready for
   review, working, done, archived.
 
-## Avatars and coding projects  (added 2026-10-15)
+## Avatars and coding projects  (added 2026-10-13)
 
 - **B-44 Every helper has its own avatar** from the Pixel Zoo generator: an animal, a colour and a personality,
   picked from the name or by hand, animated for every agent state (ADR-008). Marcel stays the rose giraffe with the

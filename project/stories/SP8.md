@@ -25,3 +25,6 @@ For later, when family members bring their own Claude account (B-38). Not needed
 
 **Pass:** two logins work side by side → a runner story adds `account` to `SpawnRequest`.
 **Fallback:** one Linux user per account, each with its own runner.
+
+done when:
+- [ ] `RESULT.md` in the spike folder says PASS or FAIL, with the commands run and what changes in the plan.
