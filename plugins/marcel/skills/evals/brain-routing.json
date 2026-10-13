@@ -119,6 +119,7 @@
       "id": "kickoff-new-repo",
       "behaviours": ["B-45"],
       "request": "Make a project for my new repo shbunder/garden-planner: it plans the spring planting.",
+      "skills": ["project-kickoff"],
       "answers": {
         "projects_list": "- marcel (prj_eval1): Marcel — The home assistant the family talks to (repo shbunder/marcel) [working 0, needs you 0, done this week 2]\n- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
         "projects_create": "Made project “Garden planner” (garden-planner).",
