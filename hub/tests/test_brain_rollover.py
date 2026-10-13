@@ -483,6 +483,9 @@ def test_the_context_rollover_is_off_by_default(tmp_path: Path) -> None:
     # S-06.8: auto-compact keeps the brain's context; the hub reads no transcript for it.
     base = {'MARCEL_CONFIG': str(tmp_path / 'none.toml')}
     assert load_settings(base).brain_rollover_on_context is False
+    for off in ('false', '0', 'no', ''):
+        env = {**base, 'MARCEL_BRAIN_ROLLOVER_ON_CONTEXT': off}
+        assert load_settings(env).brain_rollover_on_context is False
     for on in ('true', '1', 'yes'):
         env = {**base, 'MARCEL_BRAIN_ROLLOVER_ON_CONTEXT': on}
         assert load_settings(env).brain_rollover_on_context is True

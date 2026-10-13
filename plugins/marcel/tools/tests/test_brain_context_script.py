@@ -259,6 +259,22 @@ def test_a_hand_over_without_a_hub_or_transcript(world: World, cwd: Path, tmp_pa
     assert asked == '' and answered == 'x' * 600 + ' …'
 
 
+def test_no_hand_over_outside_a_brain_workspace(world: World, tmp_path: Path) -> None:
+    # The hub is down, so a worker cannot be told from the brain: no MEMORY.md, no file written.
+    repo = tmp_path / 'some-repo'
+    repo.mkdir()
+    assert ctx.handoff(pre(world.brain_session, repo, None), env(world), Down()) is None
+    assert not (repo / '.marcel').exists()
+
+
+def test_a_malformed_task_is_one_odd_line(world: World, cwd: Path) -> None:
+    fine = {'id': 'tsk_1', 'state': 'working', 'title': 'Fine'}
+    body = {'items': [fine, {'title': 'No id'}, 'x'], 'more': False}
+    out = ctx.compose(start(world.brain_session, cwd), env(world), Answers(200, body))
+    assert NOTES in out
+    assert '## Open threads\n\ntsk_1 working Fine\n? ? No id\n\n' in out
+
+
 def test_a_worker_gets_no_hand_over(world: World, cwd: Path) -> None:
     tid = spawn(world)
     assert (

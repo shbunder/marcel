@@ -113,7 +113,10 @@ class Brain:
         if status != 200 or not isinstance(body, dict):
             message = body.get('message') if isinstance(body, dict) else None
             raise Unreachable(message or f'the hub answered {status}.')
-        return [f'{t["id"]} {t["state"]} {t["title"]}' for t in body.get('items', [])]
+        items = [t for t in body.get('items', []) if isinstance(t, dict)]
+        return [
+            f'{t.get("id", "?")} {t.get("state", "?")} {t.get("title", "")}'.strip() for t in items
+        ]
 
     def summary(self) -> str | None:
         status, body = self.get('/summary')
@@ -175,8 +178,11 @@ def handoff(
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> Path | None:
     """`PreCompact`: write the hand-over; None (and nothing written) for a session that is not
-    Marcel's brain."""
+    Marcel's brain, or outside a brain workspace (no `MEMORY.md`): with the hub down a worker cannot
+    be told from the brain, and a stray file must never land in a repository."""
     cwd = Path(str(hook.get('cwd') or os.getcwd()))
+    if not (cwd / 'MEMORY.md').exists():
+        return None
     try:
         threads = connect(hook, env, transport).open_threads()
         open_part = '\n'.join(threads) if threads else 'None.'
