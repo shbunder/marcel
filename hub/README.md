@@ -1165,10 +1165,12 @@ is set and the hub has a runner.
   does not know makes the hub ask the runner; if the runner lists that session under the agent's
   brain name (`brain-<agent id>`), it is written on the conversation at once (`BrainKeeper.claim`).
   A rollover's new brain is not claimed this way: it takes over at its hello, as before. Until then
-  it may **read** (`GET /brain/...`, as its hook does for the open threads), for the session the keeper
-  waits for, or, while the rollover's spawn has not returned, the one the runner lists as a brain under
-  the agent's brain name (`BrainKeeper.incoming`). Anything else it sends is refused 401
-  `unknown_session` ("until then it can only read"), and the conversation stays the old brain's.
+  it may **read**: the `GET` routes in `brain_api.READ_BEFORE_HELLO` (its hook asks for the open threads
+  and the day's summary). That is the session the keeper waits for, or, while the rollover's spawn has not
+  returned, a live session the runner lists as a brain under the agent's brain name and that is not being
+  retired (`BrainKeeper.incoming`). Anything else it sends is refused 401 `unknown_session` ("until then it
+  can only read"), and the conversation stays the old brain's. A new `GET` route stays closed to it until it
+  is added to that list (a test pins the list to the router's `GET` routes).
 - **When the context fills up.** Off by default since S-06.8 (ADR-010): Claude Code compacts the
   brain's context itself, and the plugin's `SessionStart` (`compact`) hook puts back `MEMORY.md` and
   the open threads (`brain/README.md`). With `brain_rollover_on_context` on, the hub reads the current brain's transcript from the runner

@@ -49,7 +49,8 @@ Each sits behind a small interface on the hub's `app.state.brain_ports` that its
 
 - **Identity:** `CLAUDE_CODE_SESSION_ID` (Claude Code gives it to every plugin server) in
   `X-Marcel-Session`. The hub accepts it only when it is a conversation's `brain_session_id`: the brain
-  or a side thread. A worker or adopted session gets 403; anything else 401.
+  or a side thread. A worker or adopted session gets 403; anything else 401. A rollover's new brain,
+  before its hello, may only read (the hub's `READ_BEFORE_HELLO`), so its hook gets the open threads.
 - **Secret:** the hub secret from `$CLAUDE_PLUGIN_DATA/hub-secret` (the channel's) in
   `X-Marcel-Secret`. No device token is accepted, and the secret is accepted nowhere under `/api`.
 - **Known limit:** worker sessions on the NUC can read the same `hub-secret` file, so the secret only

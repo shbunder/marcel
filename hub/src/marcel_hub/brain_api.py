@@ -15,7 +15,10 @@ Who may call
 - **A brain session.** `X-Marcel-Session` is the caller's `CLAUDE_CODE_SESSION_ID`. It must be the
   session the runner reported for a conversation (`Conversation.brain_session_id`): the brain of
   the main conversation, or a side thread forked from it. A worker's session is refused (403): a
-  worker reports through the channel and never starts or stops other work.
+  worker reports through the channel and never starts or stops other work. One exception: a
+  rollover's new brain, before its hello hands it the conversation, may make the reads in
+  `READ_BEFORE_HELLO` (its `SessionStart` hook asks for the open threads); see
+  `BrainKeeper.incoming`.
 - **Its own agent only.** Every task, project and schedule is looked up within the caller's agent.
   Anything else answers 404, exactly like something that does not exist.
 
@@ -147,6 +150,21 @@ def _hub_secret(gateway: Gateway) -> str | None:
     return secret if len(secret) >= MIN_SECRET else None
 
 
+# What a rollover's new brain may call before its hello hands it the conversation: reads only.
+# A new GET route is not on this list until someone decides it is safe (test_brain_startup pins it).
+READ_BEFORE_HELLO = frozenset(
+    {
+        '/brain/tasks',
+        '/brain/tasks/{task_id}',
+        '/brain/projects',
+        '/brain/memory',
+        '/brain/schedules',
+        '/brain/summary',
+        '/brain/usage',
+    }
+)
+
+
 async def require_brain(request: Request) -> Brain:
     """The brain session behind this request, or an error. Put it on every `/brain` route."""
     if TUNNEL_HEADER in request.headers:
@@ -172,7 +190,8 @@ async def require_brain(request: Request) -> Brain:
     if peer is None and session_id and keeper is not None:
         early = await keeper.incoming(session_id)  # a rollover's brain before its hand-over
         if early is not None:
-            if request.method != 'GET':
+            route = getattr(request.scope.get('route'), 'path', '')
+            if request.method != 'GET' or route not in READ_BEFORE_HELLO:
                 raise ApiError(
                     401,
                     'unknown_session',

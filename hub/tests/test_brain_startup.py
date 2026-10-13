@@ -166,3 +166,103 @@ def test_no_rollover_under_way_lets_no_listed_brain_read(hub: ChannelHub, fake: 
     stranger = fake.add(name=brain_name(hub.agent_id))
     assert run(keeper_of(hub).incoming(stranger)) is None
     assert tasks_as(hub, stranger) == 401
+
+
+def test_the_reads_before_the_hello_are_exactly_the_brain_apis_get_routes() -> None:
+    """A new GET under /brain is closed to a rollover's brain until someone adds it to
+    READ_BEFORE_HELLO, after checking it has no side effects."""
+    from fastapi.routing import APIRoute
+
+    from marcel_hub.brain_api import READ_BEFORE_HELLO, router
+
+    gets = {r.path for r in router.routes if isinstance(r, APIRoute) and 'GET' in r.methods}
+    assert gets == READ_BEFORE_HELLO
+
+
+def test_a_route_not_on_the_list_is_closed_before_the_hand_over(
+    hub: ChannelHub, fake: FakeBrains, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marcel_hub import brain_api
+
+    old, new = rolling_over(hub, fake)
+    monkeypatch.setattr(brain_api, 'READ_BEFORE_HELLO', frozenset({'/brain/usage'}))
+    assert tasks_as(hub, new) == 401
+    assert current(hub) == old
+
+
+def test_once_the_spawn_returns_only_the_session_waited_for_may_read(
+    hub: ChannelHub, fake: FakeBrains
+) -> None:
+    """`rolling` ends with the spawn: another session listed under the brain name is a stranger
+    again. Never clear `rolling` and it could read."""
+    _, new = rolling_over(hub, fake)
+    keeper = keeper_of(hub)
+    wait(lambda: keeper._state(hub.agent_id).pending is not None)
+    assert not keeper._state(hub.agent_id).rolling
+    other = fake.add(name=brain_name(hub.agent_id))
+    assert tasks_as(hub, other) == 401
+    assert tasks_as(hub, new) == 200
+
+
+def test_a_failed_rollover_spawn_ends_the_reading_window(hub: ChannelHub, fake: FakeBrains) -> None:
+    old = wait(lambda: current(hub))
+    keeper = keeper_of(hub)
+    wait(lambda: not keeper._state(hub.agent_id).starting)
+    fake.fail_spawns = 1
+    assert keeper.roll_over(hub.agent_id)
+    wait(lambda: keeper._state(hub.agent_id).failures >= 1)
+    assert not keeper._state(hub.agent_id).rolling
+    assert current(hub) == old
+
+
+def test_the_runner_down_during_a_rollover_read_is_a_401_not_a_crash(
+    hub: ChannelHub, fake: FakeBrains
+) -> None:
+    _, new = rolling_over(hub, fake)
+    assert keeper_of(hub)._state(hub.agent_id).rolling
+    fake.unreachable = True
+    assert tasks_as(hub, new) == 401
+    fake.unreachable = False
+
+
+def test_a_stopped_or_retired_brain_cannot_read_during_a_rollover(
+    hub: ChannelHub, fake: FakeBrains
+) -> None:
+    old, _ = rolling_over(hub, fake)
+    keeper = keeper_of(hub)
+    assert keeper._state(hub.agent_id).rolling
+    stopped = fake.add(name=brain_name(hub.agent_id), state='stopped')  # an earlier, failed try
+    assert tasks_as(hub, stopped) == 401
+    retired = fake.add(name=brain_name(hub.agent_id))
+    keeper._state(hub.agent_id).retiring.add(retired)  # an old brain whose stop failed
+    assert tasks_as(hub, retired) == 401
+    assert run(keeper.incoming(old)) is None  # the current brain resolves on its own
+
+
+def test_incoming_takes_only_a_live_brain_named_session_while_rolling(engine: Any) -> None:
+    """`incoming` on its own, with no keeper loop to retire strangers first: each of its checks
+    decides alone."""
+    from sqlmodel import Session
+
+    from marcel_hub.brain import BrainKeeper
+    from marcel_hub.models import Agent
+
+    with Session(engine) as s:
+        agent = Agent(owner_user_id='usr_owner', name='Marcel', animal='giraffe', palette='marcel',
+                      seed='Marcel')  # fmt: skip
+        s.add(agent)
+        s.commit()
+        agent_id = agent.id
+    fake = FakeBrains()
+    keeper = BrainKeeper(engine, fake, cwd='/home/owner/marcel/brain')
+    name = brain_name(agent_id)
+    live = fake.add(name=name)
+    stopped = fake.add(name=name, state='stopped')
+    retired = fake.add(name=name)
+    assert run(keeper.incoming(live)) is None, 'no rollover under way'
+    st = keeper._state(agent_id)
+    st.rolling = True
+    st.retiring.add(retired)
+    assert run(keeper.incoming(live)) is not None
+    assert run(keeper.incoming(stopped)) is None, 'a stopped brain reads nothing'
+    assert run(keeper.incoming(retired)) is None, 'an old brain being retired reads nothing'

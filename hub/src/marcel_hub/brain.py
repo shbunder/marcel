@@ -717,9 +717,18 @@ class BrainKeeper:
         listed = next((s for s in sessions if s.get('id') == session_id), None)
         if listed is None or listed.get('role') != 'brain':  # never one the runner did not start
             return None
-        for agent_id in rolling:
-            if listed.get('name') == brain_name(agent_id) and self._current(agent_id) != session_id:
-                return agent_id, self._main_id(agent_id)
+        # A brain stopped earlier (an old one, a failed attempt) reads nothing.
+        if not _alive(listed):
+            return None
+        with self._mutex:
+            for agent_id in rolling:
+                st = self._state(agent_id)
+                if (
+                    listed.get('name') == brain_name(agent_id)
+                    and session_id not in st.retiring
+                    and self._current(agent_id) != session_id  # the current brain resolves anyway
+                ):
+                    return agent_id, self._main_id(agent_id)
         return None
 
     def _main_id(self, agent_id: str) -> str:
