@@ -189,14 +189,17 @@ and keeps me posted — with a living pixel-art giraffe at the top of the screen
 
 ## Chat clarity  (added 2026-10-13)
 
-- **B-41 Answers quote their question.** When an answer, a result or an approval is not for my latest message, it
-  shows a small quote of the message it belongs to; tapping it jumps there. Answers to my latest message show no quote.
+- **B-41 Answers say what they answer.** When an answer, a result or an approval is not for my latest message, one
+  line above it says which message it answers ("↩ re: your 08:12 message"); tapping it jumps there. Answers to my
+  latest message have no such line.
 - **B-42 Mentions.** In the composer, `@` picks a quest or an item and `#` picks a project. Marcel treats an `@quest`
   as "this is about that quest".
-- **B-43 The chat look.** Marcel on the left in white or grey bubbles, me on the right in the helper's colour.
-  Special messages (started, needs you, done, failed) get a coloured frame all round and a short label. Every tab
-  uses the same cards and colours. The Quests filter uses Claude's own session states: waiting on you, ready for
-  review, working, done, archived.
+- **B-43 The chat look** (ADR-007). Like the Claude app: my messages in rounded bubbles on the right, in the helper's
+  colour; Marcel's replies as plain formatted text (headings, lists, tables, code, links) across the full width, with
+  no bubble and no avatar per message. The avatar is in the chat header and in a small "thinking" animation while
+  Marcel works. The four special messages (started, needs you, done, failed) are the only boxes: a coloured frame all
+  round and a short label. Long-press a reply to reply in a thread. Every tab uses the same cards and colours. The
+  Quests filter uses Claude's own session states: waiting on you, ready for review, working, done, archived.
 
 ## Avatars and coding projects  (added 2026-10-13)
 
