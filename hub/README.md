@@ -571,6 +571,22 @@ content itself, with no brain turn. The code is `src/marcel_hub/boards.py`.
 
 Needs `jsonschema` at run time and `contracts/dashboard.schema.json` next to `hub/`.
 
+## Agent settings: `GET` and `PATCH /api/agents/{agent_id}`
+
+S-17.3 (B-40, B-44), `hub/src/marcel_hub/agents/`. Only the caller's own agent: another person's
+answers 404 `agent_not_found`, like one that does not exist.
+
+- `GET` gives the contract's `Agent`, with `look` once it has one and `onboarded_at` once set (`/api/me`
+  lists agents the same way).
+- `PATCH` takes `name` (1 to 40 characters), `look` (the whole look, checked against the contract's
+  animals, colours and personalities; `animal` follows it), `onboarded: true` (sets `onboarded_at` the
+  first time, then changes nothing) and the deprecated `palette` (stored only while the agent has no
+  look). Anything else, or an empty body, is 400 `bad_request`.
+- A change is stored with its `agent.updated` event; a request that changes nothing sends no event.
+- A rename also queues a `system_event` `agent_renamed` (`data: {name}`) for the agent's brain, so it
+  answers to the new name without a restart; a brain that is not connected gets it when it is. The
+  triage always wakes the brain for it. The persona file (`brain/CLAUDE.md`) is not rewritten.
+
 ## The avatar's state
 
 What each agent's avatar shows (B-28), as the contract's `AgentState`. It is derived, never stored;

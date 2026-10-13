@@ -65,6 +65,7 @@ class Kind(StrEnum):
     handback = 'handback'  # the owner handed a task back to the brain
     schedule_fired = 'schedule_fired'  # a `brain` schedule
     rollover = 'rollover'  # what a new brain missed while it started
+    agent_renamed = 'agent_renamed'  # the person renamed their helper (S-17.3)
 
 
 @dataclass(frozen=True)
@@ -178,7 +179,8 @@ def wake_policy(event: Event) -> Decision:
         return BrainTurn(
             conv, "A digest is due: the brain writes it from the hub's facts.", 'digest'
         )
-    # handback, schedule_fired, rollover: not in the table; each is addressed to the brain.
+    # handback, schedule_fired, rollover, agent_renamed: not in the table; each is addressed to
+    # the brain.
     return BrainTurn(conv, f'A {k.value.replace("_", " ")} is addressed to the brain.', k.value)
 
 

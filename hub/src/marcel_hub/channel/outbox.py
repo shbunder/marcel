@@ -54,6 +54,7 @@ SYSTEM_EVENTS = {
     'digest_due': Kind.digest_due,
     'schedule_fired': Kind.schedule_fired,
     'rollover': Kind.rollover,
+    'agent_renamed': Kind.agent_renamed,
 }
 
 

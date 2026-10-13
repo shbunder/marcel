@@ -24,6 +24,7 @@ from marcel_hub import (
     __version__,
     adopt,
     agent_state,
+    agents,
     artifacts,
     auth,
     boards,
@@ -431,6 +432,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if client is not None and settings.brain_rollover_on_context:
             keeper_of_brains.turn_ends = functools.partial(brain.tail_turn_ends, client)
     app.include_router(brain.router)  # S-06.7: manual rollover and the rollover history
+    app.include_router(agents.router)  # S-17.3: GET and PATCH /api/agents/{agent_id}
     app.include_router(
         path_health.router
     )  # GET /internal/health: hub, runner and brain, local only

@@ -1,6 +1,7 @@
 """`POST /pair` (public), and the token-protected `/me` and `/devices…` routes."""
 
 import re
+from datetime import UTC
 from typing import Any, Literal, Self
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -62,7 +63,7 @@ def device_json(device: Device, current: Device) -> dict[str, Any]:
 
 def agent_json(agent: Agent, state: dict[str, Any]) -> dict[str, Any]:
     """The contract's `Agent`; `state` is its live `AgentState` (`agent_state.AgentStates`)."""
-    return {
+    body: dict[str, Any] = {
         'id': agent.id,
         'name': agent.name,
         'animal': agent.animal,
@@ -73,6 +74,16 @@ def agent_json(agent: Agent, state: dict[str, Any]) -> dict[str, Any]:
         'model_brain': agent.model_brain,
         'model_worker': agent.model_worker,
     }
+    if agent.look_animal and agent.look_color and agent.look_personality:  # 0.7 (S-17.3)
+        body['look'] = {
+            'animal': agent.look_animal,
+            'color': agent.look_color,
+            'personality': agent.look_personality,
+        }
+    if agent.onboarded_at is not None:
+        at = agent.onboarded_at
+        body['onboarded_at'] = (at if at.tzinfo else at.replace(tzinfo=UTC)).isoformat()
+    return body
 
 
 def own_device(session: Session, device_id: str, me: Device) -> Device:

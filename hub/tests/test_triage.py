@@ -113,7 +113,9 @@ def test_the_status_row_is_counted_on_its_own_and_ordinary_messages_are_not() ->
     assert rule('status? ' + 'x' * 80) == 'main_message'  # a long message is a real request
 
 
-@pytest.mark.parametrize('kind', [Kind.handback, Kind.schedule_fired, Kind.rollover])
+@pytest.mark.parametrize(
+    'kind', [Kind.handback, Kind.schedule_fired, Kind.rollover, Kind.agent_renamed]
+)
 def test_events_addressed_to_the_brain_wake_it(kind: Kind) -> None:
     decision = triage.wake_policy(Event(kind, conversation_id='main'))
     assert isinstance(decision, BrainTurn) and decision.rule == kind.value
