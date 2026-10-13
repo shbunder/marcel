@@ -78,7 +78,7 @@ class Sleeps:
 def add_device(
     engine: Engine,
     device_id: str = 'dev_phone',
-    user_id: str = 'usr_1',
+    user_id: str = 'usr_owner',  # one-person tests: the owner's phone (B-38)
     ntfy_topic: str | None = TOPIC,
     apns_token: str | None = None,
 ) -> None:

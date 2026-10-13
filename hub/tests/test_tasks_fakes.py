@@ -68,9 +68,9 @@ class RecordingPublisher:
 AGENT = 'agt_marcel'
 
 
-def add_agent(engine: Engine, agent_id: str = AGENT) -> None:
+def add_agent(engine: Engine, agent_id: str = AGENT, owner: str = 'usr_1') -> None:
     with Session(engine) as s:
-        s.add(Agent(id=agent_id, owner_user_id='usr_1', name='Marcel', animal='giraffe',
+        s.add(Agent(id=agent_id, owner_user_id=owner, name='Marcel', animal='giraffe',
                     palette='pink', seed='1'))  # fmt: skip
         s.commit()
 

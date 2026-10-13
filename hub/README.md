@@ -129,6 +129,24 @@ when none is given comes with S-19.2.
 `marcel-hub agent create` still makes an extra agent for the owner (`--another`; each agent gets its
 own brain). `setup` is the way to make the first one.
 
+## One person never sees another's (B-38)
+
+Every app route checks the caller's person (S-17.2). Another person's task, item, conversation,
+message, project, schedule, approval, agent or phone answers 404, exactly like one that does not
+exist; the owner-only `/users…` routes answer a member 403. Lists (`/tasks?agent_id=`, `/artifacts`,
+`/approvals`) hold only the caller's own. `tests/test_isolation.py` tries every route with an id
+in its path, read from the app itself: a new one fails until it is classified there.
+
+- **Events** (`/api/ws`) go to the person whose agent the task, project or item belongs to
+  (`ws.OwnerPublisher.person`); an event that names none (usage) goes to the owner.
+- **Pushes** for nobody in particular (usage, something broke) reach the owner's phones only.
+- **Stray items:** one with no task and no project is filed in the owner's Inbox, never a member's.
+- **`/marcel-adopt`** hands a session to the owner's agent (only the owner has an adopt token).
+- **Self-changes:** a card for a PR on Marcel is the owner's, whoever's helper opened it: it shows
+  in the owner's chat and approvals and pushes to the owner; a member may look but answering is 403
+  `owner_only`.
+- Memory is still one repo for everyone until S-17.4.
+
 ## Pairing a phone
 
 ```bash

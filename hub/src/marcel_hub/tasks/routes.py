@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from marcel_hub.auth import require_device
+from marcel_hub.auth import current_device, require_device
 from marcel_hub.models import Task, TaskState
 from marcel_hub.tasks.ports import RunnerUnavailable
 from marcel_hub.tasks.registry import NotArchivable, TaskFinished, TaskNotFound, TaskRegistry
@@ -62,6 +62,14 @@ async def _answer(
     return JSONResponse(registry.to_api(task), status_code=status)
 
 
+def _not_yours(request: Request, task_id: str) -> JSONResponse | None:
+    """404 `task_not_found` unless the task is on one of the caller's agents (B-38): another
+    person's task answers exactly like one that does not exist. Checked before anything else."""
+    if _registry(request).owner_of(task_id) != current_device(request).user_id:
+        return error(404, 'task_not_found', f'There is no task {task_id}.')
+    return None
+
+
 async def _body[M: BaseModel](request: Request, model: type[M], required: bool) -> M | JSONResponse:
     raw = await request.body()
     if not raw.strip():
@@ -97,6 +105,8 @@ def list_tasks(
     if cursor is not None and not cursor.isdigit():
         return bad_request('That page cursor is not valid. Start again without it.')
     registry = _registry(request)
+    if registry.agent_owner(agent_id) != current_device(request).user_id:
+        return {'items': []}  # another person's agent lists like an agent with no tasks
     tasks, nxt = registry.list_tasks(
         agent_id, states, archived == 'true', int(cursor or 0), int(limit), project_id
     )
@@ -108,12 +118,16 @@ def list_tasks(
 
 @router.get('/tasks/{task_id}')
 async def get_task(request: Request, task_id: str) -> Any:
+    if (refused := _not_yours(request, task_id)) is not None:
+        return refused
     registry = _registry(request)
     return await _answer(registry, lambda: registry.get(task_id))
 
 
 @router.get('/tasks/{task_id}/events')
 def list_task_events(request: Request, task_id: str, after: str = '0', limit: str = '50') -> Any:
+    if (refused := _not_yours(request, task_id)) is not None:
+        return refused
     if not after.isdigit():
         return bad_request('after must be a whole number, 0 or more.')
     if not limit.isdigit() or not 1 <= int(limit) <= 200:
@@ -128,6 +142,8 @@ def list_task_events(request: Request, task_id: str, after: str = '0', limit: st
 
 @router.post('/tasks/{task_id}/messages')
 async def steer_task(request: Request, task_id: str) -> Any:
+    if (refused := _not_yours(request, task_id)) is not None:
+        return refused
     body = await _body(request, NewMessage, required=True)
     if isinstance(body, JSONResponse):
         return body
@@ -139,18 +155,24 @@ async def steer_task(request: Request, task_id: str) -> Any:
 
 @router.post('/tasks/{task_id}/stop')
 async def stop_task(request: Request, task_id: str) -> Any:
+    if (refused := _not_yours(request, task_id)) is not None:
+        return refused
     registry = _registry(request)
     return await _answer(registry, lambda: registry.stop(task_id))
 
 
 @router.post('/tasks/{task_id}/archive')
 async def archive_task(request: Request, task_id: str) -> Any:
+    if (refused := _not_yours(request, task_id)) is not None:
+        return refused
     registry = _registry(request)
     return await _answer(registry, lambda: registry.archive(task_id))
 
 
 @router.post('/tasks/{task_id}/handback')
 async def hand_back_task(request: Request, task_id: str) -> Any:
+    if (refused := _not_yours(request, task_id)) is not None:
+        return refused
     body = await _body(request, HandBack, required=False)
     if isinstance(body, JSONResponse):
         return body

@@ -43,10 +43,10 @@ class Hub:
         return self.client.get(f'/api{path}', **kw)
 
 
-def pair(client: TestClient, engine: Engine) -> str:
-    """Pair a device the way the app does, and return its token."""
+def pair(client: TestClient, engine: Engine, user_id: str = 'usr_owner') -> str:
+    """Pair a device the way the app does, for `user_id`, and return its token."""
     with Session(engine) as s:
-        code = create_pairing_code(s)
+        code = create_pairing_code(s, user_id=user_id)
     res = client.post('/api/pair', json={'code': code, 'device_name': 'Test phone'})
     assert res.status_code == 201, res.text
     return res.json()['token']
@@ -56,8 +56,8 @@ def pair(client: TestClient, engine: Engine) -> str:
 def hub(tmp_path: Path) -> Iterator[Hub]:
     app = create_app(Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db'))
     with TestClient(app) as client:
-        add_agent(app.state.engine)
-        client.headers['Authorization'] = f'Bearer {pair(client, app.state.engine)}'
+        add_agent(app.state.engine)  # for usr_1, so the phone is paired as usr_1 too
+        client.headers['Authorization'] = f'Bearer {pair(client, app.state.engine, "usr_1")}'
         yield Hub(client, app.state.tasks)
 
 

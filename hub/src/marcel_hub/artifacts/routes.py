@@ -35,6 +35,14 @@ def _store(request: Request) -> ArtifactStore:
     return request.app.state.artifacts
 
 
+def _not_yours(request: Request, artifact_id: str) -> JSONResponse | None:
+    """404 `artifact_not_found` unless the item belongs to one of the caller's agents (B-38):
+    another person's item answers exactly like one that does not exist."""
+    if _store(request).owner_of(artifact_id) != current_device(request).user_id:
+        return _not_found(artifact_id)
+    return None
+
+
 @router.get('/artifacts')
 def list_artifacts(
     request: Request,
@@ -53,7 +61,12 @@ def list_artifacts(
         return _error(400, 'bad_request', 'That page cursor is not valid. Start again without it.')
     store = _store(request)
     rows, nxt = store.page(
-        task_id, ArtifactKind(kind) if kind else None, int(cursor or 0), int(limit), project_id
+        task_id,
+        ArtifactKind(kind) if kind else None,
+        int(cursor or 0),
+        int(limit),
+        project_id,
+        user_id=current_device(request).user_id,  # only the caller's own items (B-38)
     )
     page: dict[str, Any] = {'items': [store.to_api(a) for a in rows]}
     if nxt is not None:
@@ -63,6 +76,8 @@ def list_artifacts(
 
 @router.get('/artifacts/{artifact_id}')
 def get_artifact(request: Request, artifact_id: str) -> Any:
+    if (refused := _not_yours(request, artifact_id)) is not None:
+        return refused
     try:
         return _store(request).to_api(_store(request).get(artifact_id))
     except ArtifactNotFound:
@@ -71,6 +86,8 @@ def get_artifact(request: Request, artifact_id: str) -> Any:
 
 @router.get('/artifacts/{artifact_id}/versions')
 def list_versions(request: Request, artifact_id: str) -> Any:
+    if (refused := _not_yours(request, artifact_id)) is not None:
+        return refused
     store = _store(request)
     try:
         return [store.version_to_api(v) for v in store.versions(artifact_id)]
@@ -82,6 +99,8 @@ def list_versions(request: Request, artifact_id: str) -> Any:
 def get_artifact_content(
     request: Request, artifact_id: str, version: Annotated[int | None, Query(ge=1)] = None
 ) -> Any:
+    if (refused := _not_yours(request, artifact_id)) is not None:
+        return refused
     try:
         path, art, content_type = _store(request).content_path(artifact_id, version)
     except ArtifactNotFound:

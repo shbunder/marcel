@@ -22,6 +22,7 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session, col, select
 
 from marcel_hub.models import (
+    Agent,
     Approval,
     ApprovalState,
     Artifact,
@@ -113,6 +114,18 @@ class TaskRegistry:
             if task is None:
                 raise TaskNotFound(task_id)
             return task
+
+    def owner_of(self, task_id: str) -> str | None:
+        """The person whose agent the task belongs to, or None when there is no such task."""
+        with Session(self.engine) as s:
+            task = s.get(Task, task_id)
+            agent = s.get(Agent, task.agent_id) if task is not None else None
+            return agent.owner_user_id if agent is not None else None
+
+    def agent_owner(self, agent_id: str) -> str | None:
+        with Session(self.engine) as s:
+            agent = s.get(Agent, agent_id)
+            return agent.owner_user_id if agent is not None else None
 
     def list_tasks(
         self,

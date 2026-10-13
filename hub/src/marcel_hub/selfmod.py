@@ -45,6 +45,7 @@ from fastapi import FastAPI
 from sqlmodel import Session, col, select
 
 from marcel_hub.artifacts import SELF_REPO, ArtifactNotFound, ArtifactStore, PrStatusUnavailable
+from marcel_hub.auth.tokens import OWNER_USER_ID
 from marcel_hub.channel.approvals import ApprovalBook
 from marcel_hub.channel.ports import Push
 from marcel_hub.conversations import agent_of_artifact, ensure_main_conversation, post_message
@@ -453,6 +454,13 @@ class SelfChanges:
                 with Session(self.engine) as s:
                     task = s.get(Task, card.task_id)
                     agent = s.get(Agent, task.agent_id) if task else None
+                    if agent is not None and agent.owner_user_id != OWNER_USER_ID:
+                        # A family helper's PR on Marcel: the owner answers it (B-24, B-38).
+                        agent = s.exec(
+                            select(Agent)
+                            .where(Agent.owner_user_id == OWNER_USER_ID)
+                            .order_by(col(Agent.id))
+                        ).first()
                     if agent is not None:
                         post_message(
                             s, self.events, ensure_main_conversation(s, agent),

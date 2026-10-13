@@ -15,7 +15,8 @@ from sqlmodel import Session
 from marcel_hub.auth import ApiError, current_device, require_device
 from marcel_hub.channel.approvals import approval_json, is_self_change, owner_of_task
 from marcel_hub.channel.gateway import Gateway
-from marcel_hub.models import Approval, ApprovalState
+from marcel_hub.models import Approval, ApprovalState, UserRole
+from marcel_hub.users.store import owner_name, role_of
 
 router = APIRouter(prefix='/api', tags=['approvals'], dependencies=[Depends(require_device)])
 
@@ -34,21 +35,34 @@ def not_found() -> ApiError:
     return ApiError(404, 'approval_not_found', 'That approval is not on this hub.')
 
 
+def _is_owner(request: Request) -> bool:
+    with Session(_gateway(request).engine) as s:
+        return role_of(s, current_device(request).user_id) == UserRole.owner
+
+
 @router.get('/approvals')
 async def list_approvals(request: Request, state: ApprovalState | None = None) -> list[Any]:
-    rows = _gateway(request).approvals.for_owner(current_device(request).user_id, state)
+    """The caller's cards; the owner also sees every self-change card, a family helper's too."""
+    book = _gateway(request).approvals
+    rows = book.for_owner(current_device(request).user_id, state)
+    if _is_owner(request):
+        mine = {r.id for r in rows}
+        rows += [r for r in book.self_changes(state) if r.id not in mine]
     return [approval_json(row) for row in rows]
 
 
 def _own_approval(request: Request, approval_id: str) -> Approval:
-    """The card, if it is on a task of the caller's; otherwise 404 `approval_not_found`."""
+    """The card, if it is on a task of the caller's (or is a self-change card and the caller is
+    the owner); otherwise 404 `approval_not_found`."""
     gateway = _gateway(request)
     row = gateway.approvals.get(approval_id)
     if row is None:
         raise not_found()
     with Session(gateway.engine) as s:
         owner = owner_of_task(s, row.task_id)
-    if owner != current_device(request).user_id:
+    if owner != current_device(request).user_id and not (
+        is_self_change(row) and _is_owner(request)
+    ):
         raise not_found()
     return row
 
@@ -64,6 +78,12 @@ async def answer_approval(approval_id: str, body: ApprovalAnswer, request: Reque
     gateway = _gateway(request)
     card = _own_approval(request, approval_id)
     approve = body.decision == 'approve'
+    if is_self_change(card) and not _is_owner(request):  # B-24, B-38: only the owner changes Marcel
+        with Session(gateway.engine) as s:
+            name = owner_name(s, request.app.state.settings.owner_name)
+        raise ApiError(
+            403, 'owner_only', f'Only {name} can approve a change to Marcel. Ask {name} to do it.'
+        )
     if is_self_change(card):
         answered = await request.app.state.selfmod.answer(approval_id, approve, body.note)
     else:

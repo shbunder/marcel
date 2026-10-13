@@ -32,7 +32,7 @@ def create_engine_for(settings: Settings) -> Engine:
 
 
 def registry_with(engine: Engine, pusher: Pusher, inner: RecordingPublisher) -> TaskRegistry:
-    add_agent(engine)
+    add_agent(engine, owner='usr_owner')
     add_device(engine)
     return TaskRegistry(engine, FakeRunner(), MemoryOutbox(), pusher.task_publisher(inner))
 

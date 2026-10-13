@@ -38,7 +38,7 @@ def drive(pusher: Pusher, action: Any) -> None:
 
 @pytest.fixture
 def setup(engine: Engine) -> tuple[Pusher, RecordingNotifier]:
-    add_agent(engine)
+    add_agent(engine, owner='usr_owner')
     add_device(engine)
     notifier = RecordingNotifier()
     return pusher_for(engine, notifier), notifier
@@ -132,7 +132,7 @@ def test_an_approval_opened_later_pushes_once(
 
 
 def test_long_texts_are_clipped_and_still_valid(engine: Engine) -> None:
-    add_agent(engine)
+    add_agent(engine, owner='usr_owner')
     task = Task(agent_id='agt_marcel', title='T' * 200, location=TaskLocation.nuc, state=S.done,
                 model='sonnet', origin=TaskOrigin.marcel, summary='word ' * 200)  # fmt: skip
     n = for_state(task, S.done)
@@ -159,7 +159,7 @@ def test_a_runner_alert_opens_the_status_screen_not_a_task_or_message(engine: En
     add_device(engine)
     notifier = RecordingNotifier()
     pusher = pusher_for(engine, notifier, clock=Clock())
-    add_agent(engine)
+    add_agent(engine, owner='usr_owner')
     put_task(engine, S.working)  # a task and a message exist: neither is what the push is about
     with Session(engine) as s:
         s.add(Conversation(id='cnv_1', agent_id='agt_marcel', kind=ConversationKind.main))

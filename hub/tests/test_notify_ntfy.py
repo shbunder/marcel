@@ -95,7 +95,7 @@ def test_a_topic_is_never_logged(
     engine: Engine, caplog: pytest.LogCaptureFixture, mode: str | int
 ) -> None:
     caplog.set_level(logging.DEBUG)
-    add_agent(engine)
+    add_agent(engine, owner='usr_owner')
     add_device(engine)
     ntfy = FakeNtfy(mode)
     pusher = pusher_for(engine, ntfy.notifier())
@@ -124,7 +124,7 @@ def test_the_post_has_a_timeout_and_a_slow_server_is_given_up(
         seen.append(request.extensions['timeout'])
         raise httpx.ReadTimeout('', request=request)
 
-    add_agent(engine)
+    add_agent(engine, owner='usr_owner')
     add_device(engine)
     notifier = NtfyNotifier(NTFY)  # the client the hub builds itself, with its own timeout
     notifier.client._transport = httpx.MockTransport(slow)  # type: ignore[attr-defined]

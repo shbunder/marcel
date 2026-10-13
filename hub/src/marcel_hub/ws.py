@@ -27,7 +27,7 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session, col, select
 
 from marcel_hub.auth.tokens import OWNER_USER_ID, hash_secret
-from marcel_hub.models import AppEvent, Device, utcnow
+from marcel_hub.models import Agent, AppEvent, Device, Task, utcnow
 
 # Enough for a phone that was offline for a day or two; older gaps ask for a resync.
 KEEP_EVENTS = 2000
@@ -257,16 +257,26 @@ async def event_stream(ws: WebSocket) -> None:
 
 class OwnerPublisher:
     """Carries events from code that publishes without a database session of its own (the task
-    registry, and through it the runner client) into the event log, for the hub's one owner
-    (plan/02-architecture.md: v1 has one owner)."""
+    registry, and through it the runner client; the project store; the usage guard) into the
+    event log, for the person they belong to (B-38): a task's or project's agent's owner. An
+    event that names no task or agent (usage) goes to the hub's owner, `user_id`."""
 
     def __init__(self, events: EventLog, user_id: str = OWNER_USER_ID) -> None:
         self.events = events
         self.user_id = user_id
 
+    def person(self, session: Session, type: str, data: dict[str, Any]) -> str:
+        agent_id = data.get('agent_id')
+        task_id = data.get('task_id') or (data.get('id') if type.startswith('task.') else None)
+        if agent_id is None and isinstance(task_id, str):
+            task = session.get(Task, task_id)
+            agent_id = task.agent_id if task is not None else None
+        agent = session.get(Agent, agent_id) if isinstance(agent_id, str) else None
+        return agent.owner_user_id if agent is not None else self.user_id
+
     def publish(self, type: str, data: dict[str, Any]) -> None:
         with Session(self.events.engine) as session:
-            self.events.publish(session, self.user_id, type, data)
+            self.events.publish(session, self.person(session, type, data), type, data)
 
 
 def install(app: FastAPI) -> None:

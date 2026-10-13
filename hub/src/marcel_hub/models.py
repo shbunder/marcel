@@ -509,8 +509,9 @@ def _file_in_inbox(_mapper: Any, connection: Connection, task: Task) -> None:
 
 @event.listens_for(Artifact, 'before_insert')
 def _file_artifact(_mapper: Any, connection: Connection, art: Artifact) -> None:
-    """An artifact belongs to its task's project. One with no task goes to the inbox of the
-    hub's first agent (v1 has one owner); with no agent at all it stays unfiled. Its author
+    """An artifact belongs to its task's project. One with no task and no project goes to the
+    inbox of the owner's first agent, never a family member's (B-38, S-17.2); with no such agent
+    it stays unfiled. Its author
     (`updated_by`) is its task's title unless the caller named one."""
     if art.current_version == 1:
         art.updated_at = art.created_at
@@ -525,7 +526,12 @@ def _file_artifact(_mapper: Any, connection: Connection, art: Artifact) -> None:
     if art.project_id is not None or art.task_id is not None:
         return
     agents = Agent.__table__  # type: ignore[attr-defined]
-    first = connection.execute(select(agents.c.id).order_by(agents.c.id).limit(1)).scalar()
+    first = connection.execute(
+        select(agents.c.id)
+        .where(agents.c.owner_user_id == 'usr_owner')  # auth.tokens.OWNER_USER_ID
+        .order_by(agents.c.id)
+        .limit(1)
+    ).scalar()
     if first is not None:
         art.project_id = inbox_id(connection, first)
 

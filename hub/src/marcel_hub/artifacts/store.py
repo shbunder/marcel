@@ -340,6 +340,15 @@ class ArtifactStore:
             raise ArtifactNotFound(artifact_id)
         return art
 
+    def owner_of(self, artifact_id: str) -> str | None:
+        """The person whose agent the artifact belongs to (through its task or its project), or
+        None when there is no such artifact or it is filed nowhere."""
+        with Session(self.engine) as s:
+            row = s.get(Artifact, artifact_id)
+            agent_id = agent_of_artifact(s, row) if row is not None else None
+            agent = s.get(Agent, agent_id) if agent_id is not None else None
+            return agent.owner_user_id if agent is not None else None
+
     def page(
         self,
         task_id: str | None = None,
@@ -347,11 +356,19 @@ class ArtifactStore:
         offset: int = 0,
         limit: int = 50,
         project_id: str | None = None,
+        user_id: str | None = None,
     ) -> tuple[list[Artifact], int | None]:
         """Newest change first. Boards are listed only when asked for (`kind=board`): a project
-        shows its own board, the Items tab shows what tasks made. Returns the page and the offset
-        of the next one (None at the end)."""
+        shows its own board, the Items tab shows what tasks made. With `user_id`, only that
+        person's items (those filed in a project of one of their agents). Returns the page and
+        the offset of the next one (None at the end)."""
         query = select(Artifact)
+        if user_id is not None:
+            query = (
+                query.join(Project, col(Project.id) == col(Artifact.project_id))
+                .join(Agent, col(Agent.id) == col(Project.agent_id))
+                .where(Agent.owner_user_id == user_id)
+            )
         if task_id is not None:
             query = query.where(Artifact.task_id == task_id)
         if project_id is not None:
@@ -522,10 +539,14 @@ class ArtifactStore:
                        and is_self_change_url(content.url))  # fmt: skip
         return self._store(art, content.data, reported.summary)
 
-    def publish_hub_html(self, title: str, html: str, task_id: str | None = None) -> Artifact:
-        """HTML the hub rendered itself: the only artifact that is `trusted`."""
+    def publish_hub_html(
+        self, title: str, html: str, task_id: str | None = None, project_id: str | None = None
+    ) -> Artifact:
+        """HTML the hub rendered itself: the only artifact that is `trusted`. Filed with its task,
+        else in `project_id`, else in the owner's inbox (`models._file_artifact`, B-38)."""
         data = html.encode('utf-8')
         art = Artifact(kind=ArtifactKind.doc, title=title, task_id=task_id, trusted=True,
+                       project_id=project_id if task_id is None else None,
                        content_type='text/html', size_bytes=len(data),
                        updated_by=HUB_AUTHOR)  # fmt: skip
         return self._store(art, data)

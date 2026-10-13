@@ -133,7 +133,14 @@ def test_artifacts_are_filed_with_their_task_or_in_the_inbox(engine: Engine) -> 
         s.add(loose)
         s.commit()
         assert on_task.project_id == garden_id
-        assert loose.project_id == inbox_of(engine).id
+        # AGENT is a family member's (`usr_1`): a loose item is never filed with them (B-38).
+        assert loose.project_id is None
+    add_agent(engine, 'agt_owner', owner='usr_owner')
+    with Session(engine) as s:
+        owners = Artifact(kind=ArtifactKind.link, title='Loose', url='https://a.b')
+        s.add(owners)
+        s.commit()
+        assert owners.project_id == inbox_of(engine, 'agt_owner').id
 
 
 # ---- counts ----------------------------------------------------------------------------------

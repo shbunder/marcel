@@ -40,7 +40,7 @@ def drive(pusher: Pusher, action: Callable[[], object]) -> None:
 
 @pytest.fixture
 def task(engine: Engine) -> str:
-    add_agent(engine)
+    add_agent(engine, owner='usr_owner')
     add_device(engine)
     return put_task(engine, TaskState.done, summary='12 GB free')
 
@@ -112,7 +112,7 @@ class Flaky(RecordingNotifier):
 
 
 def test_a_failed_urgent_push_raises_one_broke_push_to_every_device(engine: Engine) -> None:
-    add_agent(engine)
+    add_agent(engine, owner='usr_owner')
     add_device(engine, 'dev_phone')
     add_device(engine, 'dev_ipad', ntfy_topic='other-topic')
     notifier = Flaky(dead='dev_phone')
@@ -167,7 +167,7 @@ def test_one_broke_push_per_cause_per_hour(engine: Engine, task: str) -> None:
 
 
 def test_a_silent_task_pushes_once_per_hour(engine: Engine) -> None:
-    add_agent(engine)
+    add_agent(engine, owner='usr_owner')
     add_device(engine)
     notifier = RecordingNotifier()
     pusher = pusher_for(engine, notifier)
@@ -355,7 +355,7 @@ def test_each_device_gets_its_own_backend(
 
 def test_no_device_means_nothing_sent(engine: Engine, caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.INFO)
-    add_agent(engine)
+    add_agent(engine, owner='usr_owner')
     pusher = pusher_for(engine, RecordingNotifier())
     task = put_task(engine, TaskState.done)
     drive(pusher, lambda: pusher.on_state(task, 'done'))

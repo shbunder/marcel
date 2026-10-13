@@ -37,6 +37,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from sqlmodel import Session, col, select
 
 from marcel_hub.auth.errors import ApiError, error_response
+from marcel_hub.auth.tokens import OWNER_USER_ID
 from marcel_hub.channel.gateway import Gateway
 from marcel_hub.models import Agent, Conversation, Task, TaskLocation, TaskOrigin, TaskState
 from marcel_hub.runner_client import RunnerWatch
@@ -287,11 +288,16 @@ class Adopter:
             return s.exec(select(Task).where(Task.session_id == session_id)).first()
 
     def _agent(self) -> Agent:
-        """The owner's first agent: the one whose main conversation shows the milestone."""
+        """The owner's first agent: the one whose main conversation shows the milestone. Only
+        the owner has an adopt token, so never a family member's agent (B-38)."""
         with Session(self.engine) as s:
             agent = s.exec(
                 select(Agent)
-                .where(col(Agent.main_conversation_id).is_not(None))
+                .where(
+                    Agent.owner_user_id == OWNER_USER_ID,
+                    col(Agent.main_conversation_id).is_not(None),
+                    col(Agent.archived_at).is_(None),
+                )
                 .order_by(col(Agent.id))
             ).first()
         if agent is None:

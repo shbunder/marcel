@@ -27,6 +27,7 @@ from typing import Any
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, col, or_, select
 
+from marcel_hub.auth.tokens import OWNER_USER_ID
 from marcel_hub.models import Agent, Approval, ApprovalState, Device, Task, TaskState
 from marcel_hub.notify import routing
 from marcel_hub.notify.backends import Notifier, PushFailed, target_kind
@@ -133,7 +134,11 @@ class Pusher:
             if approval is None or task is None or approval.state != ApprovalState.open:
                 return
             n = routing.for_approval(task, approval, agent.name if agent else 'Marcel')
-            self.push(n, agent.owner_user_id if agent else None)
+            from marcel_hub.channel.approvals import is_self_change  # channel/ builds on notify/
+
+            # A change to Marcel itself is the owner's to answer, whoever's helper opened it.
+            person = None if is_self_change(approval) else agent.owner_user_id if agent else None
+            self.push(n, person)
         except Exception:
             log.exception('Could not push approval %s. Nothing was sent.', approval_id)
 
@@ -203,7 +208,8 @@ class Pusher:
     # Sending ----------------------------------------------------------------------------------
 
     def push(self, n: PushNotification, user_id: str | None) -> bool:
-        """Send `n` in the background to `user_id`'s devices (every device when None).
+        """Send `n` in the background to `user_id`'s devices; when None (usage, a broken service,
+        a self-change), to the owner's devices only, never a family member's (B-38).
 
         False when it was held back as a repeat.
         """
@@ -281,8 +287,7 @@ class Pusher:
         query = select(Device).where(
             or_(col(Device.apns_token).is_not(None), col(Device.ntfy_topic).is_not(None))
         )
-        if user_id is not None:
-            query = query.where(Device.user_id == user_id)
+        query = query.where(Device.user_id == (user_id or OWNER_USER_ID))
         with Session(self.engine) as s:
             return list(s.exec(query.order_by(col(Device.id))))
 

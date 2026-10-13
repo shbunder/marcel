@@ -93,6 +93,19 @@ class ApprovalBook:
                 )
             )
 
+    def self_changes(self, state: ApprovalState | None = None) -> list[Approval]:
+        """Every self-change card (`is_self_change`), whoever's helper opened the PR: the owner
+        answers them all (B-24, B-38)."""
+        query = select(Approval).where(
+            Approval.tool == SELF_CHANGE_TOOL,
+            col(Approval.request_id).is_(None),
+            col(Approval.artifact_id).is_not(None),
+        )
+        if state is not None:
+            query = query.where(Approval.state == state)
+        with Session(self.engine) as s:
+            return list(s.exec(query))
+
     def for_owner(self, user_id: str, state: ApprovalState | None = None) -> list[Approval]:
         """The owner's cards, open ones first, then newest first."""
         query = (

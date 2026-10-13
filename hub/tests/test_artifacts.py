@@ -66,7 +66,7 @@ def hub(tmp_path: Path) -> Iterator[Hub]:
     workspace = tmp_path / 'workspaces'
     workspace.mkdir()
     with TestClient(app) as client:
-        add_agent(app.state.engine)
+        add_agent(app.state.engine, owner='usr_owner')  # the paired phone's person (B-38)
         client.headers['Authorization'] = f'Bearer {pair(client, app.state.engine)}'
         store: ArtifactStore = app.state.artifacts
         store.files_root = workspace
