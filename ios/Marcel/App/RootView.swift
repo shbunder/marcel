@@ -61,6 +61,7 @@ struct MainTabs: View {
     @Environment(\.colorScheme) private var scheme
 
     private static let conversationKey = "chat.mainConversationId"
+    private static let agentKey = "chat.agentId"
 
     init(connection: HubConnection, hub: PairedHub, router: LinkRouter) {
         self.connection = connection
@@ -72,7 +73,10 @@ struct MainTabs: View {
         _chat = State(initialValue: ChatModel(
             service: LiveChatService(client: client),
             conversationId: UserDefaults.standard.string(forKey: Self.conversationKey),
-            remember: { UserDefaults.standard.set($0, forKey: Self.conversationKey) }))
+            remember: { UserDefaults.standard.set($0, forKey: Self.conversationKey) },
+            avatarDirectory: ChatModel.avatarDirectory,
+            agentId: UserDefaults.standard.string(forKey: Self.agentKey),
+            rememberAgent: { UserDefaults.standard.set($0, forKey: Self.agentKey) }))
     }
 
     var body: some View {

@@ -1,6 +1,14 @@
-# AvatarKit — Marcel's pixel giraffe
+# AvatarKit — each agent's pixel avatar
 
-Plays the sprite sheet from `shared/avatar/pixel/out/` (B-28): `AvatarView(state:size:)`.
+Plays a sprite sheet (B-28): the bundled giraffe from `shared/avatar/pixel/out/`, or an agent's own sheet from the
+Pixel Zoo (B-44): `AvatarView(state:size:sheet:)`.
+
+- **Each agent's own sheet** (`AvatarSheets`, S-19.3). `refresh(agentId:etag:)` asks the hub through the `fetch` the
+  app passes (`GET /agents/{id}/avatar`, JSON and PNG, with `If-None-Match`; nil means 304) and keeps the sheet in
+  `Library/Caches/avatars/<agent id>.{json,png,etag}`, read back at start so it shows at once and offline. An agent
+  whose sheet the phone never had, or a fetch that fails, plays the bundled giraffe; a failed fetch never drops a
+  sheet the phone has. An `agent.updated` whose ETag matches the kept one fetches nothing.
+  `SpriteSheet(json:png:)` reads a sheet from bytes. A new sheet restarts `AvatarView`'s player on the current state.
 
 - **VoiceOver** says the state with the agent's name: `accessibilityDescription(name:)` ("Gigi is thinking");
   `AvatarView(…, name:)` uses it.
@@ -29,3 +37,7 @@ Run with `make ios-check` (in the simulator, like MarcelKit). `SnapshotTests` re
 every size at 3× and compares it with `Tests/AvatarKitTests/__Snapshots__/`; it also checks every rendered pixel
 is exactly one sprite pixel (no blur). A missing reference is written and the test fails, so it gets looked at.
 Re-record all with `SIMCTL_CHILD_AVATARKIT_RECORD=1 make -C ios test`.
+`AvatarSheetsTests` covers the per-agent sheets with a fox the Pixel Zoo drew (`Tests/AvatarKitTests/Fixtures/`,
+`python -m zoo sheet --animal fox --color tangerine --personality cheerful`): every state's loop, the giraffe until it
+arrives and offline, kept for next launch, the ETag sent and an unchanged one not fetched, an id that is not a plain
+file name (letters, digits, `_`, `-`) never written.

@@ -62,16 +62,41 @@ public final class ChatModel {
     @ObservationIgnored private var previewsAsked: Set<String> = []
 
     @ObservationIgnored let service: any ChatService
+    /// Each agent's own avatar sheet (B-44): the header, the thinking row and speaker lines play it.
+    @ObservationIgnored public let avatars: AvatarSheets
     @ObservationIgnored private let remember: (String) -> Void
+    @ObservationIgnored private let rememberAgent: (String) -> Void
 
     /// - Parameters:
     ///   - conversationId: the main conversation remembered from last time, so the cache shows at once offline.
     ///   - remember: keeps the conversation id for next launch.
-    public init(service: any ChatService, conversationId: String? = nil, remember: @escaping (String) -> Void = { _ in }) {
+    ///   - avatarDirectory: where avatar sheets are kept between launches (`ChatModel.avatarDirectory`); nil keeps
+    ///     them in memory only.
+    ///   - agentId, rememberAgent: the agent remembered from last time, so an offline start plays its kept avatar.
+    public init(service: any ChatService, conversationId: String? = nil,
+                remember: @escaping (String) -> Void = { _ in }, avatarDirectory: URL? = nil, agentId: String? = nil,
+                rememberAgent: @escaping (String) -> Void = { _ in }) {
         self.service = service
         self.conversationId = conversationId
         self.remember = remember
+        self.agentId = agentId
+        self.rememberAgent = rememberAgent
+        let owner = WeakModel()
+        avatars = AvatarSheets(directory: avatarDirectory) { id, etag in try await owner.model?.avatar(id, etag) }
+        owner.model = self
     }
+
+    /// Lets the avatar store ask the hub through this model's service without keeping the model alive.
+    private final class WeakModel: @unchecked Sendable {
+        weak var model: ChatModel?
+    }
+
+    private func avatar(_ agentId: String, _ etag: String?) async throws -> AvatarSheets.Download? {
+        try await service.avatar(agentId: agentId, ifNoneMatch: etag)
+    }
+
+    /// Where the app keeps avatar sheets: `Library/Caches/avatars`.
+    public static var avatarDirectory: URL { AvatarSheets.defaultDirectory() }
 
     /// Asks the hub which conversation is the main one. Offline, the remembered one stays.
     public func start() async {
@@ -81,6 +106,10 @@ public final class ChatModel {
             agentId = agent.id ?? agentId
             bubbleColor = agent.look.map(LookColors.bubble)
             if let state = agent.state { agentState = state }
+            if let id = agent.id {
+                rememberAgent(id)
+                Task { await avatars.refresh(agentId: id) }
+            }
             let id = agent.conversationId
             if id != conversationId {
                 conversationId = id
@@ -99,6 +128,9 @@ public final class ChatModel {
         case .agentState(let id, let state):
             guard agentId == nil || agentId == id else { return }
             agentState = AvatarState(state)
+        case .agentUpdated(let agent, let etag):
+            // A new look: fetch that agent's sheet again (any helper's: speaker lines play theirs too).
+            Task { await avatars.refresh(agentId: agent.id, etag: etag) }
         case .resyncRequired:
             Task { await start() }
         default:
@@ -157,6 +189,13 @@ public final class ChatModel {
         }
         mentionsUnreachable = unreachable
         mentionSuggestions = found.filter { picked in !mentions.contains(picked) }
+    }
+
+    /// The helpers whose speaker lines are on screen: fetch the sheets the phone does not have yet (B-44).
+    public func loadAvatars(for agentIds: Set<String>) async {
+        for id in agentIds.sorted() where avatars.sheets[id] == nil {
+            await avatars.refresh(agentId: id)
+        }
     }
 
     /// "re: your 08:12 message" was tapped: scroll to that message and outline it for a moment.

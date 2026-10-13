@@ -87,9 +87,10 @@ struct FeedRow: View {
     @Environment(\.locale) private var locale
 
     var body: some View {
-        if let quote = item.quote {
+        if item.speaker != nil || item.quote != nil {
             VStack(alignment: .leading, spacing: 2) {
-                ReplyQuoteLine(quote: quote, jump: actions.jump)
+                if let speaker = item.speaker { SpeakerLine(speaker: speaker) }
+                if let quote = item.quote { ReplyQuoteLine(quote: quote, jump: actions.jump) }
                 row
             }
         } else {

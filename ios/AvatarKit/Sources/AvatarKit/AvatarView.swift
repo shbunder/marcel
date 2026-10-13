@@ -24,7 +24,8 @@ public enum AvatarSize: CGFloat, CaseIterable, Sendable {
     }
 }
 
-/// Marcel's giraffe, animated for `state`. Pauses while off screen or in the background; with Reduce Motion it
+/// An agent's avatar (the bundled giraffe unless given its own sheet), animated for `state`. Pauses while off screen
+/// or in the background; with Reduce Motion it
 /// shows each state's first frame and does not move.
 public struct AvatarView: View {
     let state: AvatarState
@@ -75,6 +76,10 @@ public struct AvatarView: View {
         .onAppear { onScreen = true }
         .onDisappear { onScreen = false }
         .onChange(of: state) { _, new in player.setState(new, at: Date.timeIntervalSinceReferenceDate) }
+        // A new sheet (the agent's look changed, or its own sheet arrived): play it from the current state.
+        .onChange(of: ObjectIdentifier(sheet)) {
+            player = AvatarPlayer(sheet: sheet, state: state, at: Date.timeIntervalSinceReferenceDate)
+        }
         .accessibilityElement()
         .accessibilityLabel(state.accessibilityDescription(name: name))
     }

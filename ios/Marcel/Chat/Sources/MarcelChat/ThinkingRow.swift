@@ -3,10 +3,13 @@ import PixelKit
 import SwiftUI
 
 /// At the end of the chat while the agent thinks or works (`agent.state`): the small avatar playing its loop and
-/// "Marcel is working…". With Reduce Motion the avatar holds its first frame (AvatarKit), and in snapshots it is still.
+/// "Marcel is working…". It plays the agent's own avatar (B-44). With Reduce Motion the avatar holds its first frame
+/// (AvatarKit), and in snapshots it is still.
 struct ThinkingRow: View {
     var state: AvatarState
     var name: String
+    /// Whose avatar plays (B-44); nil plays the giraffe.
+    var agentId: String? = nil
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.chatStillAvatars) private var still
@@ -23,7 +26,7 @@ struct ThinkingRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            ChatAvatar(state: state, box: 28, still: still, name: name)
+            ChatAvatar(state: state, box: 28, still: still, name: name, agentId: agentId)
                 .accessibilityHidden(true)
             Text(text)
                 .font(.subheadline)

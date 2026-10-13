@@ -12,6 +12,8 @@ import SwiftUI
 public struct ChatHeaderState: Equatable, Sendable {
     /// The agent's name: `AgentName.fallback` until the hub says otherwise (Settings can rename it).
     public var name: String = AgentName.fallback
+    /// Whose avatar the header plays (B-44); nil plays the bundled giraffe.
+    public var agentId: String?
     public var avatar: AvatarState
     public var running: Int
     public var needsYou: Int
@@ -19,8 +21,9 @@ public struct ChatHeaderState: Equatable, Sendable {
     public var offline: String?
 
     public init(avatar: AvatarState = .idle, running: Int = 0, needsYou: Int = 0, offline: String? = nil,
-                name: String? = nil) {
+                name: String? = nil, agentId: String? = nil) {
         self.name = name ?? AgentName.fallback
+        self.agentId = agentId
         self.avatar = avatar
         self.running = running
         self.needsYou = needsYou
@@ -30,12 +33,12 @@ public struct ChatHeaderState: Equatable, Sendable {
     /// From the cached tasks, and the hub's own word on the avatar (`live`, the last `agent.state`) when the stream
     /// is up. Without it, the contract's precedence (`AgentState`): needs you, then working(n), then idle.
     public init(tasks: some Collection<HubTask>, offline: String? = nil, name: String? = nil,
-                live: AvatarState? = nil) {
+                live: AvatarState? = nil, agentId: String? = nil) {
         let needsYou = tasks.filter { $0.state == .needsYou && $0.archivedAt == nil }.count
         let working = tasks.filter { ($0.state == .working || $0.state == .starting) && $0.archivedAt == nil }.count
         let fromTasks: AvatarState = needsYou > 0 ? .needsYou : working > 0 ? .working(working) : .idle
         let avatar = (offline == nil ? live : nil) ?? fromTasks
-        self.init(avatar: avatar, running: working, needsYou: needsYou, offline: offline, name: name)
+        self.init(avatar: avatar, running: working, needsYou: needsYou, offline: offline, name: name, agentId: agentId)
     }
 
     public var subtitle: String {
@@ -101,41 +104,52 @@ struct AvatarHeader: View, Animatable {
         // At accessibility text sizes the big giraffe would squeeze the title; it stays at 44 pt there.
         let box = dynamicType.isAccessibilitySize ? Self.collapsed : Self.box(collapse: collapse)
         HeartsHeader(title: state.name, subtitle: state.subtitle, needsYou: state.needsYou) {
-            ChatAvatar(state: state.avatar, box: box, still: still, name: state.name)
+            ChatAvatar(state: state.avatar, box: box, still: still, name: state.name, agentId: state.agentId)
         }
         .accessibilityLabel(state.accessibilityText)
     }
 }
 
-/// The giraffe, animated in the app; one still frame in snapshots, where nothing may move. AvatarKit draws it at a
-/// whole-number zoom with nearest-neighbour scaling; with Reduce Motion it holds the state's first frame.
+/// An agent's avatar (its own sheet from `chatAvatars`, else the giraffe), animated in the app; one still frame in
+/// snapshots, where nothing may move. AvatarKit draws it at a whole-number zoom with nearest-neighbour scaling; with
+/// Reduce Motion it holds the state's first frame.
 struct ChatAvatar: View {
     var state: AvatarState
     var box: CGFloat
     var still: Bool
     var name: String = AgentName.fallback
+    var agentId: String?
 
-    init(state: AvatarState, size: AvatarSize, still: Bool, name: String = AgentName.fallback) {
-        self.init(state: state, box: size.points, still: still, name: name)
+    @Environment(\.chatAvatars) private var avatars
+
+    init(state: AvatarState, size: AvatarSize, still: Bool, name: String = AgentName.fallback, agentId: String? = nil) {
+        self.init(state: state, box: size.points, still: still, name: name, agentId: agentId)
     }
 
-    init(state: AvatarState, box: CGFloat, still: Bool, name: String = AgentName.fallback) {
+    init(state: AvatarState, box: CGFloat, still: Bool, name: String = AgentName.fallback, agentId: String? = nil) {
         self.state = state
         self.box = box
         self.still = still
         self.name = name
+        self.agentId = agentId
     }
 
+    var sheet: SpriteSheet { avatars?.sheet(for: agentId) ?? .giraffe }
+
     var body: some View {
+        let sheet = sheet
         if still {
-            AvatarFrameView(frame: SpriteSheet.giraffe.loop(for: state).firstFrame, box: box)
+            AvatarFrameView(sheet: sheet, frame: sheet.loop(for: state).firstFrame, box: box)
         } else {
-            AvatarView(state: state, box: box, name: name)
+            AvatarView(state: state, box: box, sheet: sheet, name: name)
         }
     }
 }
 
 extension EnvironmentValues {
+    /// Each agent's avatar sheet (`ChatModel.avatars`); nil plays the bundled giraffe everywhere.
+    @Entry public var chatAvatars: AvatarSheets? = nil
+
     /// Snapshot tests draw every avatar as its state's first frame, and the composer's field as plain text.
     @Entry public var chatStillAvatars = false
 }

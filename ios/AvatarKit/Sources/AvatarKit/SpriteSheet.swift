@@ -74,6 +74,18 @@ public final class SpriteSheet: Sendable {
         try self.init(info: info, image: image)
     }
 
+    /// A sheet as the hub serves it (`GET /agents/{id}/avatar`): its JSON and its PNG, as bytes.
+    public convenience init(json: Data, png: Data) throws {
+        let info: SheetJSON
+        do { info = try JSONDecoder().decode(SheetJSON.self, from: json) } catch {
+            throw LoadError(description: "The avatar sheet's JSON could not be read: \(error)")
+        }
+        guard let source = CGImageSourceCreateWithData(png as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else { throw LoadError(description: "The avatar image could not be read.") }
+        try self.init(info: info, image: image)
+    }
+
     init(info: SheetJSON, image: CGImage) throws {
         let w = info.frame.width, h = info.frame.height
         var frames: [CGImage] = []

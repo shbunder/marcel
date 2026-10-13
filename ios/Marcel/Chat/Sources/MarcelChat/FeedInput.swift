@@ -10,17 +10,23 @@ public struct FeedInput: Sendable {
     public var tasks: [String: HubTask]
     public var artifacts: [String: Artifact]
     public var projects: [String: Project]
+    /// Every agent's name the phone knows, by id (speaker lines, B-44).
+    public var agents: [String: String]
+    /// The agent whose conversation this is: what a reply without a quest is said by.
+    public var agentId: String?
     /// True when the cache may hold older messages than `messages` (the window is full).
     public var hasEarlier: Bool
 
     public init(
         messages: [Message] = [], tasks: [HubTask] = [], artifacts: [Artifact] = [], projects: [Project] = [],
-        hasEarlier: Bool = false
+        agents: [String: String] = [:], agentId: String? = nil, hasEarlier: Bool = false
     ) {
         self.messages = messages
         self.tasks = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         self.artifacts = Dictionary(artifacts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         self.projects = Dictionary(projects.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        self.agents = agents
+        self.agentId = agentId
         self.hasEarlier = hasEarlier
     }
 
@@ -28,7 +34,7 @@ public struct FeedInput: Sendable {
     /// turned around here. Rows that no longer decode are skipped: one bad row never blanks the chat.
     public static func decode(
         newestMessages: [CachedMessage], limit: Int, tasks: [CachedTask], artifacts: [CachedArtifact],
-        projects: [CachedProject]
+        projects: [CachedProject], agents: [CachedAgent] = [], agentId: String? = nil
     ) -> FeedInput {
         let decoder = ChatJSON.decoder()
         func rows<T: Decodable>(_ payloads: [Data], as _: T.Type) -> [T] {
@@ -39,6 +45,8 @@ public struct FeedInput: Sendable {
             tasks: rows(tasks.map(\.payload), as: HubTask.self),
             artifacts: rows(artifacts.map(\.payload), as: Artifact.self),
             projects: rows(projects.map(\.payload), as: Project.self),
+            agents: Dictionary(agents.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }),
+            agentId: agentId,
             hasEarlier: newestMessages.count >= limit
         )
     }
@@ -54,13 +62,16 @@ public struct FeedInput: Sendable {
 
     /// Reads the same window straight from a context (tests, previews).
     @MainActor
-    public static func read(from context: ModelContext, conversationId: String, limit: Int) throws -> FeedInput {
+    public static func read(from context: ModelContext, conversationId: String, limit: Int,
+                            agentId: String? = nil) throws -> FeedInput {
         decode(
             newestMessages: try context.fetch(messageWindow(conversationId: conversationId, limit: limit)),
             limit: limit,
             tasks: try context.fetch(FetchDescriptor<CachedTask>()),
             artifacts: try context.fetch(FetchDescriptor<CachedArtifact>()),
-            projects: try context.fetch(FetchDescriptor<CachedProject>()))
+            projects: try context.fetch(FetchDescriptor<CachedProject>()),
+            agents: try context.fetch(FetchDescriptor<CachedAgent>()),
+            agentId: agentId)
     }
 }
 

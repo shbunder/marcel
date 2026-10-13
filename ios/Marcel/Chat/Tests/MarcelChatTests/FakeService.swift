@@ -42,6 +42,17 @@ final class FakeService: ChatService {
         return MainAgent(conversationId: Fx.conversation, name: agentName, id: "agt_marcel", state: agentState)
     }
 
+    /// What `avatar` answers (nil: not modified), whether it fails as if offline, and who was asked for.
+    var avatarDownload: AvatarSheets.Download?
+    var avatarFails = false
+    private(set) var avatarAsks: [String] = []
+
+    func avatar(agentId: String, ifNoneMatch: String?) async throws -> AvatarSheets.Download? {
+        avatarAsks.append(agentId)
+        if avatarFails { throw ChatError.unreachable }
+        return avatarDownload?.etag == ifNoneMatch && ifNoneMatch != nil ? nil : avatarDownload
+    }
+
     /// What `searchMentions` answers, and what each send carried.
     var mentionResults: [Mention] = []
     /// Set to make `searchMentions` fail as if the hub were out of reach.

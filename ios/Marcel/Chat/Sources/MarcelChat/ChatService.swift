@@ -43,9 +43,15 @@ public protocol ChatService {
     func answer(approvalId: String, approve: Bool) async throws -> Approval
     /// An artifact's current bytes, for its preview.
     func artifactContent(id: String) async throws -> Data
+    /// An agent's avatar sheet, its JSON and its PNG (`GET /agents/{id}/avatar`, B-44). Nil when `ifNoneMatch` is
+    /// still the current ETag (304).
+    func avatar(agentId: String, ifNoneMatch: String?) async throws -> AvatarSheets.Download?
 }
 
 extension ChatService {
+    /// A service with no avatars to give: every agent plays the bundled giraffe.
+    public func avatar(agentId: String, ifNoneMatch: String?) async throws -> AvatarSheets.Download? { nil }
+
     /// A message without mentions.
     public func send(text: String, clientId: String, conversationId: String, attachment: ItemAttachment?) async throws
         -> Message
@@ -85,6 +91,37 @@ public struct LiveChatService: ChatService {
         self.client = client
     }
 
+    public func avatar(agentId: String, ifNoneMatch: String?) async throws -> AvatarSheets.Download? {
+        // One URL, two bodies by `Accept`: the JSON first, then the PNG. Both carry the same ETag.
+        func get(_ type: Operations.GetAgentAvatar.AcceptableContentType) async throws
+            -> Operations.GetAgentAvatar.Output.Ok?
+        {
+            let output: Operations.GetAgentAvatar.Output
+            do {
+                output = try await client.getAgentAvatar(.init(
+                    path: .init(agentId: agentId),
+                    headers: .init(ifNoneMatch: ifNoneMatch, accept: [.init(contentType: type)])))
+            } catch { throw ChatError.unreachable }
+            switch output {
+            case .ok(let ok): return ok
+            case .notModified: return nil
+            case .unauthorized: throw ChatError.unpaired
+            case .notFound: throw ChatError.unexpected("avatar, HTTP 404")
+            case .undocumented(let status, _): throw ChatError.unexpected("avatar, HTTP \(status)")
+            }
+        }
+        // The look may change between the two: then the timing and the image would not match. Ask again once.
+        for _ in 0..<2 {
+            guard let sheet = try await get(.json) else { return nil }
+            let json = try JSONEncoder().encode(try sheet.body.json)
+            guard let image = try await get(.png) else { return nil }
+            guard image.headers.eTag == sheet.headers.eTag else { continue }
+            let png = try await Data(collecting: try image.body.png, upTo: 2 * 1024 * 1024)
+            return AvatarSheets.Download(json: json, png: png, etag: sheet.headers.eTag)
+        }
+        throw ChatError.unexpected("avatar changed while it was fetched")
+    }
+
     public func mainAgent() async throws -> MainAgent {
         let output: Operations.GetMe.Output
         do { output = try await client.getMe() } catch { throw ChatError.unreachable }
@@ -101,7 +138,8 @@ public struct LiveChatService: ChatService {
     public func searchMentions(query: String, kinds: [MentionKind]) async throws -> [Mention] {
         // One kind is asked for by name; several in one call, so the hub's newest-first order holds across them.
         let output: Operations.SearchMentions.Output
-        do { output = try await client.searchMentions(query: .init(q: query, kind: kinds.count == 1 ? kinds[0] : nil)) } catch {
+        let kind = kinds.count == 1 ? kinds[0] : nil
+        do { output = try await client.searchMentions(query: .init(q: query, kind: kind)) } catch {
             throw ChatError.unreachable
         }
         switch output {

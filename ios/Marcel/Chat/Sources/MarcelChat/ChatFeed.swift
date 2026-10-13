@@ -117,6 +117,8 @@ public struct MarcelLine: Equatable, Sendable {
     public var quest: QuestLine?
     /// "↩ re: your 08:12 message", when it answers something other than your latest message (B-41).
     public var quote: ReplyQuote?
+    /// "Emma" with her avatar above the row, when several helpers speak in this chat (B-44).
+    public var speaker: Speaker? = nil
 
     public init(id: String, markdown: String, quest: QuestLine? = nil, quote: ReplyQuote? = nil) {
         self.id = id
@@ -164,6 +166,8 @@ public struct QuestLine: Hashable, Sendable {
     public var location: Components.Schemas.TaskLocation?
     /// "↩ re: your 08:12 message" above the card (B-41).
     public var quote: ReplyQuote?
+    /// "Emma" with her avatar above the row, when several helpers speak in this chat (B-44).
+    public var speaker: Speaker? = nil
 
     public init(id: String, taskId: String, title: String, state: StateBadge.Kind, project: String?,
                 tone: ProjectChip.Tone, detail: String?, location: Components.Schemas.TaskLocation? = nil,
@@ -203,6 +207,7 @@ public struct ApprovalLine: Equatable, Sendable {
     public var showsDetail: Bool
     /// "↩ re: your 08:12 message" above the card (B-41).
     public var quote: ReplyQuote? = nil
+    public var speaker: Speaker? = nil
 
     /// The resolved state, in plain words; nil while it can still be answered.
     public var outcome: String? {
@@ -230,6 +235,7 @@ public struct ItemLine: Hashable, Sendable {
     public var url: URL?
     /// "↩ re: your 08:12 message" above the card (B-41).
     public var quote: ReplyQuote? = nil
+    public var speaker: Speaker? = nil
 }
 
 /// The message a reply answers, when that is not your latest message before it (B-41): "↩ re: your 08:12 message".
@@ -285,6 +291,41 @@ public struct ChatLocalState: Sendable {
     public init() {}
 }
 
+/// Who says a reply, when more than one helper speaks in the chat (B-44, ADR-007): a tiny avatar and the name.
+public struct Speaker: Hashable, Sendable {
+    public var agentId: String
+    public var name: String
+
+    public init(agentId: String, name: String) {
+        self.agentId = agentId
+        self.name = name
+    }
+}
+
+extension FeedItem {
+    /// The row starting with a speaker line.
+    func speaking(_ speaker: Speaker) -> FeedItem {
+        switch self {
+        case .marcel(var line): line.speaker = speaker; return .marcel(line)
+        case .quest(var line): line.speaker = speaker; return .quest(line)
+        case .approval(var line): line.speaker = speaker; return .approval(line)
+        case .item(var line): line.speaker = speaker; return .item(line)
+        case .user, .time: return self
+        }
+    }
+
+    /// The speaker line above this row, if any.
+    public var speaker: Speaker? {
+        switch self {
+        case .marcel(let line): line.speaker
+        case .quest(let line): line.speaker
+        case .approval(let line): line.speaker
+        case .item(let line): line.speaker
+        case .user, .time: nil
+        }
+    }
+}
+
 extension FeedItem {
     /// The row with its "re:" line (cards and replies; your own messages and time lines have none).
     func quoting(_ quote: ReplyQuote) -> FeedItem {
@@ -318,6 +359,7 @@ public enum ChatFeed {
         var lastShown: Date?            // the newest message that drew a row
         var latestYours: String?        // your newest message so far: answering it needs no quote
         let dates = Dictionary(input.messages.map { ($0.id, $0.createdAt) }, uniquingKeysWith: { a, _ in a })
+        var spokenBy: [String: String] = [:]  // row id → the helper who said it
         for message in input.messages {
             let before = items.count
             // B-41: a reply to something other than your latest message says which message it answers.
@@ -365,12 +407,16 @@ public enum ChatFeed {
             }
             if message.role == .user { latestYours = message.id }
             if let quote, items.count > before { items[before] = items[before].quoting(quote) }
+            if message.role != .user, items.count > before, let agent = speaker(of: message, input: input) {
+                spokenBy[items[before].id] = agent
+            }
             guard items.count > before else { continue }
             if lastShown.map({ message.createdAt.timeIntervalSince($0) > TimeLine.gap }) ?? true {
                 items.insert(.time(TimeLine(id: "time-\(message.id)", date: message.createdAt)), at: before)
             }
             lastShown = message.createdAt
         }
+        items = withSpeakers(items, spokenBy: spokenBy, names: input.agents)
         // Your messages on their way go last, until the hub's copy (same client id) arrives.
         let arrived = Set(input.messages.compactMap(\.clientId))
         for message in local.pending where !arrived.contains(message.clientId) {
@@ -382,6 +428,27 @@ public enum ChatFeed {
             items.append(.user(line))
         }
         return items
+    }
+
+    // MARK: Speakers (B-44)
+
+    /// The helper who said `message`: its quest's agent, or else the agent whose conversation this is.
+    static func speaker(of message: Message, input: FeedInput) -> String? {
+        let taskId = message.taskId ?? message.milestone?.taskId
+        return taskId.flatMap { input.tasks[$0]?.agentId } ?? input.agentId
+    }
+
+    /// A speaker line where the speaker changes, only when more than one helper speaks in the window: with one
+    /// helper the chat never shows one (ADR-007).
+    static func withSpeakers(_ items: [FeedItem], spokenBy: [String: String], names: [String: String]) -> [FeedItem] {
+        guard Set(spokenBy.values).count > 1 else { return items }
+        var previous: String?
+        return items.map { item in
+            guard let agent = spokenBy[item.id] else { return item }
+            defer { previous = agent }
+            guard agent != previous else { return item }
+            return item.speaking(Speaker(agentId: agent, name: names[agent] ?? "A helper"))
+        }
     }
 
     /// True while a question in the window waits for you (the composer then says "Or say something…").

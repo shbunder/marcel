@@ -130,6 +130,21 @@ Code in `Sources/MarcelChat/SideChat/`.
   `task_finished`, and a 404 read by its code — `message_not_found` / `conversation_not_found` mean gone, the generic
   `not_found` (or a bare FastAPI 404) means this hub has not built side chats yet.
 
+## Each helper's own avatar (S-19.3, B-44)
+
+- **The header and the thinking row** play the agent's own sheet: `ChatModel.avatars` (AvatarKit's `AvatarSheets`)
+  fetches it after `GET /me` and again on an `agent.updated` with a new `avatar_etag`, keeps it in
+  `Library/Caches/avatars`, and falls back to the bundled giraffe offline or before it arrives. The agent's id is
+  remembered (`rememberAgent`), so an offline start plays its kept sheet at once. The JSON and the PNG must carry the
+  same ETag; a look that changes between the two is asked for again. Views read the sheets from `\.chatAvatars`;
+  `ChatAvatar` takes the `agentId`.
+- **Several helpers in one chat** (ADR-007): when more than one helper speaks in the window, a reply starts with a
+  speaker line (`SpeakerLine`: a 16-pt avatar and the name) where the speaker changes. Who said it: the agent of the
+  message's quest, else the agent whose conversation this is (a message has no agent of its own in the app API).
+  With one helper no speaker line ever shows. Names come from the cached agents; every helper with a speaker line on
+  screen gets its sheet fetched (`ChatModel.loadAvatars`), not only one whose look just changed.
+- The app icon is not touched (`shared/brand/app-icon/`).
+
 ## Quoted replies and mentions (S-18.5, B-41, B-42)
 
 - **"re:" line.** A message from your helper carries `reply_to_message_id`: the message of yours it answers. When
@@ -181,6 +196,11 @@ Code in `Sources/MarcelChat/SideChat/`.
   reach, a pick after the draft changed, the jump's outline, stored chips, and the
   "Quote-and-mentions" snapshot in light and dark. `ReplyQuoteTapTests` is "tap jumps" one layer down: the line in a
   real window is a button, and pressing it jumps to the message it answers.
+- `OwnAvatarTests` (S-19.3) — an `agent.updated` with a new look through a real cache into `ChatModel.receive` changes
+  the header's and the thinking row's pixels; the same ETag fetches nothing; an offline start draws the giraffe;
+  speaker lines only where the helper changes, none with one helper; speakers' sheets fetched once; the remembered
+  agent's kept sheet offline; the live call through a stub hub (JSON then PNG, 304, a look changing mid-fetch, 401);
+  snapshots "Own-avatar" and "Speakers".
 - `ChatMockHubTests` — the same scenario against the mock hub (not part of the gate):
   `MOCK_DELAY=0.05 MOCK_HUB_PORT=7488 make mock-hub`, then
   `MOCK_HUB=http://127.0.0.1:7488/api make -C ios chat-integration`. The mock runs one thread at a time, so the

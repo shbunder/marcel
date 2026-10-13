@@ -87,12 +87,14 @@ public struct ChatScreen: View {
                          actions: actions, avatar: avatar)
             } else {
                 ChatLayout(header: ChatHeaderState(tasks: [HubTask](), offline: offline, name: model.agentName,
-                                                   live: model.agentState), collapsed: false, problem: model.problem,
+                                                   live: model.agentState, agentId: model.agentId),
+                           collapsed: false, problem: model.problem,
                            avatar: avatar, composer: { EmptyView() }) {
                     PixelText(model.problem == nil ? "Opening the conversation…" : "Nothing saved on this phone yet.",
                               role: .detail)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .environment(\.chatAvatars, model.avatars)
             }
         }
     }
@@ -115,6 +117,7 @@ struct LiveFeed: View {
     @Query private var tasks: [CachedTask]
     @Query private var artifacts: [CachedArtifact]
     @Query private var projects: [CachedProject]
+    @Query private var agents: [CachedAgent]
     private let limit: Int
     @State private var observer: UUID?
     @Environment(\.liveEvents) private var live
@@ -166,10 +169,10 @@ struct LiveFeed: View {
 
     var body: some View {
         let input = FeedInput.decode(newestMessages: window, limit: limit, tasks: tasks, artifacts: artifacts,
-                                     projects: projects)
+                                     projects: projects, agents: agents, agentId: model.agentId)
         let items = ChatFeed.items(input, local: model.local)
         let header = ChatHeaderState(tasks: input.tasks.values, offline: offline, name: model.agentName,
-                                     live: model.agentState)
+                                     live: model.agentState, agentId: model.agentId)
         // Big giraffe while you sit at the latest messages; small once you scroll back or start typing.
         let collapsed = distanceFromBottom > 24 || typing
         @Bindable var model = model
@@ -208,7 +211,7 @@ struct LiveFeed: View {
                         }
                         FeedStack(items: items, actions: threaded(input, name: header.name))
                         if ThinkingRow.shows(header.avatar) {
-                            ThinkingRow(state: header.avatar, name: header.name)
+                            ThinkingRow(state: header.avatar, name: header.name, agentId: header.agentId)
                         }
                     }
                     .padding(FeedMetrics.inset)
@@ -253,9 +256,14 @@ struct LiveFeed: View {
         .environment(\.agentName, header.name)
         .environment(\.chatBubbleColor, model.bubbleColor)
         .environment(\.chatHighlight, model.highlighted)
+        .environment(\.chatAvatars, model.avatars)
         // `@` and `#` in the draft ask the hub what matches (B-42).
         .onChange(of: model.draft) { Task { await model.draftChanged() } }
         .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: collapsed)
+        // Every helper with a speaker line plays its own avatar, not only the ones whose look just changed.
+        .task(id: Set(items.compactMap(\.speaker?.agentId))) {
+            await model.loadAvatars(for: Set(items.compactMap(\.speaker?.agentId)))
+        }
         // Approvals are not in the cache: fetch them when one shows up or its task moves on.
         .task(id: Self.approvalKey(input)) { await model.reconcile(input) }
         // Your messages that came back over the stream show from the cache now.

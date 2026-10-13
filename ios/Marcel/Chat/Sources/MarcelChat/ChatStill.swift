@@ -19,7 +19,7 @@ struct ChatStill: View {
             VStack(alignment: .leading, spacing: FeedMetrics.spacing) {
                 FeedStack(items: items, actions: actions)
                 if ThinkingRow.shows(header.avatar) {
-                    ThinkingRow(state: header.avatar, name: header.name)
+                    ThinkingRow(state: header.avatar, name: header.name, agentId: header.agentId)
                 }
             }
             .padding(FeedMetrics.inset)
