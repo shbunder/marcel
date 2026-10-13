@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Is Marcel up? Checks claude's supervisor, the runner, the hub and the brain, and says what is wrong.
-# Exit 0 when both units are active and the runner and the hub answer ok; 1 otherwise. Waits up to HEALTH_WAIT seconds (default 60) for the hub.
+# Exit 0 when both units are active, the runner and the hub answer ok, and the hub's whole-path check
+# (hub, runner and a live brain) is ok; 1 otherwise. Waits up to HEALTH_WAIT seconds (default 60) for the hub.
 set -uo pipefail
 MARCEL_HOME="${MARCEL_HOME:-$HOME/marcel}"
 WAIT="${HEALTH_WAIT:-60}"
@@ -29,16 +30,18 @@ done
 printf '%-30s %s\n' "hub /api/health" "${hub:-no answer on 127.0.0.1:7420}"
 case "$hub" in *'"ok":true'* | *'"ok": true'*) ;; *) fail=1 ;; esac
 
-# The brain: a live session with role brain (side threads share its folder).
-brain="$(curl -s -m 10 --unix-socket "$sock" 'http://runner/sessions?all=false' 2>/dev/null \
-    | /usr/bin/python3 -c 'import json, sys
-try:
-    rows = json.load(sys.stdin)
-except ValueError:
-    sys.exit()
-if isinstance(rows, list):
-    alive = [r for r in rows if isinstance(r, dict) and r.get("role") == "brain"]
-    print(", ".join(f"{r.get("name")} ({r.get("state")})" for r in alive) or "none running")' 2>/dev/null)"
-printf '%-30s %s\n' "brain" "${brain:-unknown (runner did not list sessions)}"
+# The whole path: hub -> runner -> a brain whose channel is connected and pinging (hub/README.md
+# "Whole-path health"). A hub that is up while the brain is dead or stuck fails here.
+# Right after a deploy the brain may still be starting: wait up to HEALTH_WAIT seconds for it.
+# The route takes the hub secret, which the hub keeps in its data folder.
+secret="$(cat "$MARCEL_HOME/data/hub-secret" 2>/dev/null)"
+path=""
+for _ in $(seq "$WAIT"); do
+    path="$(curl -s -m 10 -H "X-Marcel-Secret: $secret" http://127.0.0.1:7420/internal/health)"
+    case "$path" in *'"ok":true'* | *'"ok": true'*) break ;; esac
+    sleep 1
+done
+printf '%-30s %s\n' "hub /internal/health" "${path:-no answer on 127.0.0.1:7420}"
+case "$path" in *'"ok":true'* | *'"ok": true'*) ;; *) fail=1 ;; esac
 
 exit "$fail"

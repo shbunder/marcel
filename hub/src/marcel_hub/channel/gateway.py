@@ -24,6 +24,7 @@ import contextlib
 import hmac
 import logging
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, tzinfo
@@ -167,6 +168,9 @@ class Gateway:
         self._left_prompt: set[str] = set()  # task ids whose cards wait for a transcript result
         self._alerted: set[str] = set()
         self.links: dict[str, Any] = {}  # target → its live `socket.Link`
+        # session id → when it last sent a frame (time.monotonic): the whole-path health check
+        # (`path_health.py`) reads the brain's; the channel server pings every 20 s.
+        self.last_frame: dict[str, float] = {}
         self.memory: MemoryRepo | None = None  # where a worker's notes go (`install` sets it)
         self.tz: tzinfo = UTC  # the owner's time zone: a note's date
         # `replaced` replies passed on and not delivered yet: call id → (target, seq). An entry
@@ -256,6 +260,7 @@ class Gateway:
 
     async def handle(self, peer: Peer, frame: dict[str, Any]) -> list[dict[str, Any]]:
         """Act on one checked frame; returns the frames to answer with."""
+        self.last_frame[peer.session_id] = time.monotonic()
         kind = frame['type']
         if kind == 'ping':
             return [{'type': 'pong'}]

@@ -27,6 +27,8 @@ SESSION_SOCKETS = {'/channel'}
 # The brain tools' routes (S-05.3) take no device token either: the brain proves itself with the hub
 # secret and its session id (tests/test_brain_api.py). Without them they answer 401, which this
 # test checks like any other route. They are outside /api too.
+# The whole-path health check (`/internal/health`) takes the hub secret the same way, and answers
+# 401 without it, so it is checked here like any other route.
 HUB_SECRET = 'hs_' + 'a1b2c3d4' * 6
 # The session API's routes (contracts/session-api.yaml) take their own tokens, never a device token,
 # and answer a missing or wrong one with a 404 a scanner cannot tell from "no such route". This

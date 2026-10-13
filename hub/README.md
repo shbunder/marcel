@@ -65,6 +65,30 @@ Needs no token. Returns `ok` (false when the database does not answer), `version
 `runner.reachable`: true while the hub's event stream from the runner is open. When it is false,
 `runner.reason` says why. The app shows that as "the NUC is not reachable".
 
+## Whole-path health: `GET /internal/health`
+
+`/api/health` says the hub is up. `/internal/health` says whether Marcel can answer: it checks the
+whole path and is what `deploy/health.sh` (and so every deploy) waits for.
+
+- `hub`: `ok` when the database answers.
+- `runner`: `ok` when the runner's `GET /health` answers ok within 5 s, with `latency_ms`;
+  otherwise `down` and a `reason`.
+- `brains`, one per agent: `ok` when the main conversation has a brain session, its channel socket is
+  connected, and it sent a frame in the last 45 s (`last_seen_s`). The channel server inside the
+  brain's `claude` process pings every 20 s, so this proves the process and its link to the hub are
+  alive without spending a model turn. Otherwise `down`, with a `reason`: no brain session yet, not
+  connected, or silent.
+
+200 with `ok: true` when every link is ok; 503 with the same body otherwise. **Local only**: it is
+outside `/api`, so the tunnel never forwards it, and a request with the tunnel's `cf-connecting-ip`
+header gets 404. It takes the hub secret in `X-Marcel-Secret` (401 `bad_secret` without it), never a
+device token, and changes nothing. Not a contract route (`hub/src/marcel_hub/path_health.py`).
+
+```bash
+curl -s -H "X-Marcel-Secret: $(cat ~/marcel/data/hub-secret)" http://127.0.0.1:7420/internal/health
+# {"ok":true,"hub":"ok","runner":{"state":"ok","latency_ms":4},"brains":[{"agent_id":"agt_…","state":"ok","last_seen_s":7}]}
+```
+
 ## The owner's agent
 
 ```bash
@@ -1059,6 +1083,12 @@ is set and the hub has a runner.
   stopped.
 - **Never held back.** The brain is started through the runner directly, not through the task
   registry, so the worker cap and the usage guard never queue it.
+- **Known before its spawn returns.** The runner answers a spawn only once the new session's
+  channel is registered, but the session is running by then: its `SessionStart` hook and first tool
+  calls reach `/brain` first. While a fresh brain is starting, a `/brain` call from a session the hub
+  does not know makes the hub ask the runner; if the runner lists that session under the agent's
+  brain name (`brain-<agent id>`), it is written on the conversation at once (`BrainKeeper.claim`).
+  A rollover's new brain is not claimed this way: it takes over at its hello, as before.
 - **When the context fills up.** Off by default since S-06.8 (ADR-010): Claude Code compacts the
   brain's context itself, and the plugin's `SessionStart` (`compact`) hook puts back `MEMORY.md` and
   the open threads (`brain/README.md`). With `brain_rollover_on_context` on, the hub reads the current brain's transcript from the runner

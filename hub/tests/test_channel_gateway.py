@@ -178,8 +178,9 @@ def test_the_channel_is_outside_api_so_the_tunnel_never_forwards_it(hub: Channel
     assert '/channel' in paths
     assert not any(p.startswith('/api') and 'channel' in p for p in paths)
     # Everything else the hub serves is under /api, the only prefix the tunnel forwards, except the
-    # brain tools' routes (S-05.3), which are for the NUC alone too.
-    assert {p for p in paths if not p.startswith(('/api/', '/brain/'))} == {'/channel'}
+    # brain tools' routes (S-05.3) and the whole-path health check, which are for the NUC alone too.
+    local = ('/api/', '/brain/', '/internal/')
+    assert {p for p in paths if not p.startswith(local)} == {'/channel'}
 
 
 # Approvals ----------------------------------------------------------------------------------------
