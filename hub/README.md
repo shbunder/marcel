@@ -65,6 +65,18 @@ Needs no token. Returns `ok` (false when the database does not answer), `version
 `runner.reachable`: true while the hub's event stream from the runner is open. When it is false,
 `runner.reason` says why. The app shows that as "the NUC is not reachable".
 
+## The owner's agent
+
+```bash
+marcel-hub agent create --name Marcel   # inside the hub container: docker exec marcel-hub marcel-hub agent create
+marcel-hub agent list
+```
+
+`create` makes the owner's agent (`--animal`, default `giraffe`; `--palette`, default `marcel`;
+`--seed`, default the name) with its main conversation and Inbox. Within a few seconds the hub starts
+its brain in `brain_cwd`; with `brain_cwd` unset it says no brain will start. An agent of the same
+name already there is left as it is. A stop-gap until `marcel-hub setup` (S-17.1).
+
 ## Pairing a phone
 
 ```bash
