@@ -743,9 +743,10 @@ def _not_allowed(path: str, allowed: str, method: str) -> SessionError:
 
 
 def _read_lines(path: Path, start: int = 0) -> list[str]:
+    """The lines past byte `start`; all of them when the file is now shorter (it was rewritten)."""
     try:
         with path.open('rb') as f:
-            f.seek(start)
+            f.seek(start if start <= path.stat().st_size else 0)
             return f.read().decode('utf-8', errors='replace').splitlines()
     except OSError:
         return []

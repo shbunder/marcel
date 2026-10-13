@@ -483,10 +483,7 @@ def write_job(store: Store, s: Session, sc: Scenario) -> None:
         updatedAt=_now_iso(),
         firstTerminalAt=None,
         # What Claude saves to start the session again (2.1.296); a resume without flags uses it.
-        respawnFlags=(['--setting-sources', s['sources']] if s.get('sources') else [])
-        + ['--name', s['name']]
-        + (['--channels', *s.get('channels', [])] if s.get('channels') else [])
-        + (['--debug-file', s['debug_file']] if s.get('debug_file') else []),
+        respawnFlags=s.get('saved') or ['--name', s['name']],
     )
     base.pop('lastTerminalAt', None)
     _write_json(store.job_dir(s['short']) / 'state.json', base)
@@ -512,7 +509,7 @@ def cmd_bg(args: Args, store: Store, env: dict[str, str], out: IO[str], err: IO[
     # Claude keeps a session's options and reuses them on a resume without flags (2.1.296).
     s['debug_file'] = args.value('--debug-file')
     s['channels'] = args.value('--channels') or []
-    s['sources'] = args.value('--setting-sources')
+    s['saved'] = saved_options(args, name)
     if s['debug_file']:
         write_debug_file(s['debug_file'], s['channels'], sc)
     write_job(store, s, sc)
@@ -520,6 +517,18 @@ def cmd_bg(args: Args, store: Store, env: dict[str, str], out: IO[str], err: IO[
     start_player(store, s['short'], cwd)
     out.write(f'backgrounded · {s["short"]} · {name}\n')
     return 0
+
+
+def saved_options(args: Args, name: str) -> list[str]:
+    """What 2.1.296 saves to start a session again, in the order it lists them (recorded on the
+    NUC: fixtures/jobs/respawn-2.1.296/state.json)."""
+    out: list[str] = []
+    for flag in SAVED_OPTIONS:
+        value = name if flag == '--name' else args.value(flag)
+        if value is None:
+            continue
+        out += [flag, *value] if isinstance(value, list) else [flag, str(value)]
+    return out
 
 
 SAVED_OPTIONS = (
@@ -563,6 +572,7 @@ def cmd_resume(args: Args, store: Store, cwd: str, prompt: str, out: IO[str], er
         if args.value('--debug-file'):  # a fork or a copy keeps the options it was given
             s['debug_file'] = args.value('--debug-file')
             s['channels'] = args.value('--channels') or []
+        s['saved'] = saved_options(args, args.value('--name', '-n') or s['name'])
         if store.transcript(old).is_file():
             history = store.transcript(old).read_text('utf-8').replace(old['id'], s['id'])
             store.transcript(s).parent.mkdir(parents=True, exist_ok=True)

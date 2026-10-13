@@ -24,7 +24,9 @@ from pathlib import Path
 from typing import Any
 
 from marcel_runner.sessions import (
+    ALLOWED_TOOLS,
     BACKGROUNDED,
+    CHANNEL,
     SessionError,
     Sessions,
     running,
@@ -40,21 +42,58 @@ def resume_argv(claude: Path, *, session_id: str, prompt: str) -> list[str]:
     return [str(claude), '--bg', '--resume', session_id, '--', prompt]
 
 
-def saved_debug_file(home: Path, short: str, record: dict[str, Any] | None) -> Path | None:
-    """The debug file the session was started with: the runner's record, else the `--debug-file`
-    Claude saved with the session (`~/.claude/jobs/<short>/state.json`, `respawnFlags`)."""
-    if record and isinstance(record.get('debug_file'), str):
-        return Path(record['debug_file'])
+def saved_options(home: Path, short: str) -> list[str] | None:
+    """The options Claude saved to start session `short` again (`respawnFlags` in
+    `~/.claude/jobs/<short>/state.json`, 2.1.296), or None when they cannot be read."""
     try:
-        flags = json.loads((home / '.claude' / 'jobs' / short / 'state.json').read_text('utf-8'))
-        flags = flags.get('respawnFlags') if isinstance(flags, dict) else None
+        state = json.loads((home / '.claude' / 'jobs' / short / 'state.json').read_text('utf-8'))
     except (OSError, ValueError):
         return None
-    if isinstance(flags, list) and '--debug-file' in flags:
-        i = flags.index('--debug-file')
-        if i + 1 < len(flags) and isinstance(flags[i + 1], str):
-            return Path(flags[i + 1])
-    return None
+    flags = state.get('respawnFlags') if isinstance(state, dict) else None
+    if not isinstance(flags, list) or not all(isinstance(f, str) for f in flags):
+        return None
+    return flags
+
+
+def option(flags: list[str], name: str) -> list[str]:
+    """The values that follow `name` in `flags`, up to the next flag; [] when it is absent."""
+    if name not in flags:
+        return []
+    values = []
+    for value in flags[flags.index(name) + 1 :]:
+        if value.startswith('--'):
+            break
+        values.append(value)
+    return values
+
+
+def check_saved(short: str, flags: list[str] | None, channel: bool) -> None:
+    """Refuse to wake a session whose saved options would not keep the runner's controls: the
+    resume passes no flag, so what Claude saved is what the session gets."""
+
+    def refuse(why: str) -> SessionError:
+        return SessionError(422, 'exited', f'Session {short} was not woken: {why}', None)
+
+    if flags is None:
+        raise refuse(
+            f"Claude's saved options for it (~/.claude/jobs/{short}/state.json) cannot be read, "
+            'so the runner cannot tell what it would load.'
+        )
+    if option(flags, '--setting-sources') != ['project,local']:
+        raise refuse(
+            'it was started without --setting-sources project,local, so waking it would load '
+            "the owner's own settings. Start a new session instead."
+        )
+    if channel and not option(flags, '--debug-file'):
+        raise refuse(
+            'the runner cannot find the debug log it was started with, so it could not tell '
+            'whether its channel came back.'
+        )
+    if channel and ALLOWED_TOOLS[0] not in option(flags, '--allowedTools'):
+        raise refuse(
+            f'its saved options do not pre-allow {ALLOWED_TOOLS[0]}, so it would ask before '
+            'every reply.'
+        )
 
 
 def parse_body(raw: bytes, allowed: set[str], required: set[str]) -> dict[str, Any]:
@@ -157,15 +196,20 @@ def resume(sessions: Sessions, ref: str, raw: bytes) -> dict[str, Any]:
     check_supervisor(sessions)
     record = sessions._record_for(row)
     role = (record or {}).get('role')
-    channel = (record or {}).get('channel', True) is not False
+    saved = saved_options(sessions.home, short)
+    # The runner's record says whether the channel is on; without one, Claude's saved options do.
+    if record is not None:
+        channel = record.get('channel', True) is not False
+    else:
+        channel = saved is not None and CHANNEL in option(saved, '--channels')
+    check_saved(short, saved, channel)
+    assert saved is not None  # check_saved refused otherwise
     cwd = session_cwd(row, record)
-    debug_file = saved_debug_file(sessions.home, short, record) if channel else None
-    if channel and debug_file is None:
-        raise SessionError(
-            422,
-            'exited',
-            f'Session {short} was not woken: the runner cannot find the debug log it was started '
-            'with, so it could not tell whether its channel came back.',
+    debug_file = None
+    if channel:  # the runner's own record first, else the log Claude saved
+        recorded = (record or {}).get('debug_file')
+        debug_file = Path(
+            recorded if isinstance(recorded, str) else option(saved, '--debug-file')[0]
         )
     with worker_slot(sessions, role == 'worker'):
         wait_off_roster(sessions.home, (session_id, short), ROSTER_WAIT, sessions.poll)

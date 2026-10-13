@@ -168,6 +168,21 @@ To restore, put `data/` back before `make -C deploy install`.
 - **Supervisor down:** every background session has stopped; the runner refuses to start until it is back.
 - **Tunnel down:** the app cannot reach the hub away from home; everything on the NUC carries on.
 
+## Live checks
+
+Run by hand on the NUC; they start real `claude` sessions on the owner's plan (a few cents of
+`haiku`). Each needs Claude's supervisor up (`marcel-claude-daemon.service`), the owner logged in,
+and `make -C deploy install` done (node 22 in `~/marcel/node`, the trusted `workspaces/scratch`
+with the plugin).
+
+```bash
+make -C runner test-live    # spawn to done, tail, stop, the cap, reply in manual mode after spawn, fork, resume
+```
+
+`MARCEL_LIVE_CWD` (default `~/marcel/workspaces/scratch`), `MARCEL_LIVE_MODEL` (default `haiku`) and
+`MARCEL_LIVE_NODE_BIN` (default `~/marcel/node/bin`) change what they use. They start their own runner
+on a temporary socket with a cap of 1, so the deployed runner and the brain are not touched.
+
 ## Still open on this NUC
 
 Checks the stories left for the first install. Each is recorded on the build board when done.

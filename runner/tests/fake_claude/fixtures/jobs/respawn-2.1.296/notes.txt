@@ -1,0 +1,7 @@
+# Claude Code 2.1.296 on the NUC, 2026-10-13: what `claude --bg --resume` prints on stderr.
+# Without flags (stdout: "backgrounded · a0b2c716 · probe-flagless-202638" and the usual help lines):
+note: woke session a0b2c716 with its saved options (--name, --permission-mode, --channels, --allowedTools, --debug-file, --model).
+# With flags, the same stopped session:
+note: background session 30fd33d9 keeps its own saved options, so the flags you passed started a copy as 76ad3273. Without flags, the same command continues 30fd33d9 itself.
+# With a short id:
+note: started a copy of that conversation as 9a31b91a. To continue a session under its own id, pass its full session id (lowercase, as `claude agents --json` prints it) to --resume.

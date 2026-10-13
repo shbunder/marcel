@@ -500,3 +500,17 @@ def test_project_dir_matches_claude_code() -> None:
         '-home-shbunder-projects-marcel-src'
     )
     assert shim.project_dir('/tmp/work_tree.1') == '-tmp-work-tree-1'
+
+
+def test_the_saved_options_have_the_recorded_shape(inline: Inline, tmp_path: Path) -> None:
+    """The fake saves the options 2.1.296 saved on the NUC (fixtures/jobs/respawn-2.1.296)."""
+    recorded = json.loads(
+        (Path(__file__).parent / 'fixtures' / 'jobs' / 'respawn-2.1.296' / 'state.json').read_text()
+    )['respawnFlags']
+    argv = ['--setting-sources', 'project,local', '--name', 'w', '--permission-mode', 'manual']
+    argv += ['--channels', 'plugin:marcel@marcel-local', '--allowedTools', 'a', 'b']
+    argv += ['--debug-file', str(tmp_path / 'd.log'), '--model', 'haiku']
+    short = inline.spawn(*argv)
+    job = inline.store.job_dir(short) / 'state.json'
+    flags = json.loads(job.read_text())['respawnFlags']
+    assert [f for f in flags if f.startswith('--')] == [f for f in recorded if f.startswith('--')]

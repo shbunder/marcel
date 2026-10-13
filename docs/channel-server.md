@@ -15,7 +15,7 @@ The frames are defined in `contracts/channel.schema.json`; the flow is in `contr
 | Build | `npm ci && npm run build` in the **deployed copy** of `plugins/marcel/channel/` makes `dist/main.js`, which `plugin.json` starts with `node`. `dist/` is gitignored, so a fresh checkout has none |
 | Node | `node` 22 or newer on the PATH of the claude daemon, not just of a login shell |
 | Start flag | `claude --bg --channels plugin:marcel@marcel-local` (ADR-001) |
-| Pre-allowed tools | The session must be started with `--allowedTools mcp__plugin_marcel_marcel__reply mcp__plugin_marcel_marcel__report`, or a session in `manual` mode asks before every reply. A plugin's own `settings.json` cannot do this: Claude Code keeps only `agent` and `subagentStatusLine` from it. The runner passes it on every spawn, fork and resume (`contracts/runner-api.yaml`). |
+| Pre-allowed tools | The session must be started with `--allowedTools mcp__plugin_marcel_marcel__reply mcp__plugin_marcel_marcel__report`, or a session in `manual` mode asks before every reply. A plugin's own `settings.json` cannot do this: Claude Code keeps only `agent` and `subagentStatusLine` from it. The runner passes it on every spawn and fork; a resume passes no flag and keeps it through the options Claude saved with the session, and the runner refuses a resume whose saved options lack it (`docs/runner/workspaces.md`). |
 
 The server has no runtime dependencies.
 

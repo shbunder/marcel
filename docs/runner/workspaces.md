@@ -37,6 +37,12 @@ hub → channel. Resume is only for between turns.
    flag on a resume, or a short id, starts a copy instead (recorded on the NUC, 2026-10-13). So a
    woken session still loads only project and local settings, keeps its mode and tools, and writes
    on in the debug log it was started with. The line is pinned in `runner/tests/test_resume_golden/`.
+
+   Before waking it, the runner reads those saved options and refuses (`422 exited`, the reason in
+   the message, nothing started) when they cannot be read, lack `--setting-sources project,local`,
+   or, with the channel on, lack `--debug-file` or the pre-allowed `reply` tool. A Claude that stops
+   saving one fails loudly instead of quietly bringing the owner's settings back. Without a record
+   of its own, the runner takes the channel setting from the saved `--channels`.
 6. If Claude says `… started a copy as <id>` (on stdout or stderr), or backgrounds another short id,
    the runner stops the copy and answers `409 resume_copied`. The message says whether the stop
    worked.
