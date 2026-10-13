@@ -69,6 +69,7 @@ from marcel_hub.conversations import ensure_main_conversation, post_message
 from marcel_hub.day_summary import day_summary
 from marcel_hub.memory import (
     MAX_FILE_BYTES,
+    AgentMemory,
     InvalidMemoryPath,
     MemoryConflict,
     MemoryFileNotFound,
@@ -751,8 +752,10 @@ class MemoryWrite(BaseModel):
     etag: str | None = Field(default=None, min_length=1, max_length=64)
 
 
-def _memory(request: Request) -> MemoryRepo:
-    return request.app.state.memory
+def _memory(request: Request, brain: Brain) -> AgentMemory:
+    """The brain's own agent's memory, never another person's (S-17.4, B-38)."""
+    repo: MemoryRepo = request.app.state.memory
+    return repo.for_agent(brain.agent_id)
 
 
 def _bad_path(path: str) -> JSONResponse:
@@ -768,7 +771,7 @@ def _bad_path(path: str) -> JSONResponse:
 def read_memory(request: Request, brain: BrainDep, path: str | None = None) -> Any:
     if path is not None and len(path) > MAX_PATH:
         return _bad_path(path[:40] + '…')
-    repo = _memory(request)
+    repo = _memory(request, brain)
     try:
         if path is None:
             return {'files': repo.tree()}
@@ -790,7 +793,7 @@ async def write_memory(request: Request, brain: BrainDep) -> Any:
         return body
     if len(body.content.encode('utf-8')) > MAX_FILE_BYTES:
         return bad_request('The file is too long: memory files stay under 1 MB.')
-    repo = _memory(request)
+    repo = _memory(request, brain)
     try:
         # Off the event loop: the save runs git and holds the write lock.
         return await run_in_threadpool(repo.write, body.path, body.content, body.etag, 'agent')

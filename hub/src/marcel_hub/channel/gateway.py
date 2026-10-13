@@ -47,6 +47,7 @@ from marcel_hub.conversations import (
 )
 from marcel_hub.memory import (
     InvalidMemoryPath,
+    MemoryFileNotFound,
     MemoryFileTooBig,
     MemoryRepo,
     MemoryUnavailable,
@@ -494,7 +495,7 @@ class Gateway:
                     .where(Project.agent_id == task.agent_id)
                     .where(Project.slug == INBOX_SLUG)
                 ).first()
-            slug, title = (project.slug if project else None), task.title
+            slug, title, agent_id = (project.slug if project else None), task.title, task.agent_id
         if slug is None or not SLUG_PATTERN.fullmatch(slug):
             raise CallRefused(
                 'memory_unavailable', f'{refused}: its project has no notes file. {NOTE_FALLBACK}'
@@ -503,7 +504,8 @@ class Gateway:
         today = datetime.now(self.tz).date().isoformat()
         line = f'- {today} {one_line(text)} (from {one_line(title)})'
         try:
-            await run_in_threadpool(self.memory.append, rel, line, f'worker {task_id}', MAX_NOTES)
+            mine = self.memory.for_agent(agent_id)  # the task's own agent's notes (S-17.4)
+            await run_in_threadpool(mine.append, rel, line, f'worker {task_id}', MAX_NOTES)
         except TooManyAppends:
             raise CallRefused(
                 'too_many_notes',
@@ -515,7 +517,7 @@ class Gateway:
                 'notes_full',
                 f'{refused}: the notes of this project are full (1 MB). {NOTE_FALLBACK}',
             ) from None
-        except (MemoryUnavailable, InvalidMemoryPath, ValueError) as exc:
+        except (MemoryUnavailable, InvalidMemoryPath, MemoryFileNotFound, ValueError) as exc:
             log.warning('Task %s: a note was not kept in %s: %s', task_id, rel, exc)
             raise CallRefused(
                 'memory_unavailable',

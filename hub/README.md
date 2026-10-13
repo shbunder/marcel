@@ -147,7 +147,7 @@ in its path, read from the app itself: a new one fails until it is classified th
 - **Self-changes:** a card for a PR on Marcel is the owner's, whoever's helper opened it: it shows
   in the owner's chat and approvals and pushes to the owner; a member may look but answering is 403
   `owner_only`.
-- Memory is still one repo for everyone until S-17.4.
+- **Memory** is per agent (see Memory).
 
 ## Pairing a phone
 
@@ -686,6 +686,22 @@ the code is `src/marcel_hub/agent_state.py`.
 Markdown files in the folder `<data_dir>/memory` (B-20), which the brain can reach. Their git
 database is `<data_dir>/memory.git`, next to it, which only the hub can reach. The hub creates both
 on first use. The code is `src/marcel_hub/memory.py`.
+
+**One folder per agent (S-17.4, B-38).** Each agent's memory is `agents/<folder>/` (its slug; its
+id when it has none): `MEMORY.md`, `memory/…` and `projects/<slug>.md`. Every way in uses the
+caller's own agent, with the paths shown without the prefix, so nothing else changes: the app
+(`/api/memory`: the phone's person's agent), the brain's `memory_read`/`memory_write` (its own
+agent), a worker's notes and a worker's briefing (its task's agent). Commits name the full path,
+e.g. `memory: agents/marcel/MEMORY.md (app)`.
+
+**The owner's memory from before 0.7** sat at the top of the folder. On first use after the
+upgrade the hub moves everything there (except `agents/` and hidden files) into
+`agents/<owner's folder>/` in one commit, so `git log --follow agents/marcel/MEMORY.md` keeps its
+history. It leaves a link at each old place (`MEMORY.md → agents/marcel/MEMORY.md`, `memory`,
+`projects`) so a brain workspace rendered before still finds its files until S-17.7 re-links it.
+The hub itself never follows a link, so those old paths reach nothing through the app. It moves
+nothing while the owner has no agent, or when the target already holds a file of the same name
+(it logs that and leaves both).
 
 - `GET /api/memory` lists every `.md` file; `GET /api/memory/files/{path}` reads one. Its `etag` is
   the git blob id of the file on disk, so an edit made anywhere changes it. The `ETag` header is the

@@ -605,8 +605,9 @@ def test_the_seed_is_built_from_the_hubs_own_records(
     tmp_path: Path,
 ) -> None:
     memory = MemoryRepo(tmp_path / 'memory')
-    memory.root.mkdir()
-    (memory.root / 'MEMORY.md').write_text('# Notes\n\nThe kids eat at 18:00.\n')
+    mine = memory.root / 'agents' / agent_id.lower()  # this agent's own memory (S-17.4)
+    mine.mkdir(parents=True)
+    (mine / 'MEMORY.md').write_text('# Notes\n\nThe kids eat at 18:00.\n')
     now = clock.now
     with Session(engine) as s:
         main = s.exec(select(Conversation).where(Conversation.agent_id == agent_id)).one()
@@ -666,8 +667,9 @@ def test_a_long_memory_is_cut_and_says_so(
     tmp_path: Path,
 ) -> None:
     memory = MemoryRepo(tmp_path / 'memory')
-    memory.root.mkdir()
-    (memory.root / 'MEMORY.md').write_text('a' * (brain.MAX_MEMORY + 10))
+    mine = memory.root / 'agents' / agent_id.lower()  # this agent's own memory (S-17.4)
+    mine.mkdir(parents=True)
+    (mine / 'MEMORY.md').write_text('a' * (brain.MAX_MEMORY + 10))
     prompt, kept = make_keeper(engine, fake, clock, alerts, memory=memory).seed(agent_id, None)
     assert 'read MEMORY.md for the rest' in prompt and 'the first start' in prompt
     assert 'Nothing was said.' in prompt

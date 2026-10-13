@@ -34,8 +34,7 @@ from marcel_hub.users.store import ensure_owner_agent
 # What Emma's phone gets on each route with an id, used on the owner's object. `None`: the route is
 # not reached with a phone token, or its isolation is another story's, with the reason.
 NOT_HERE = {
-    ('GET', '/api/memory/files/{}'): 'memory is per person from S-17.4 (one repo until then)',
-    ('PUT', '/api/memory/files/{}'): 'memory is per person from S-17.4 (one repo until then)',
+    ('PUT', '/api/memory/files/{}'): "saves in the caller's own folder: test_memory_people",
     ('GET', '/api/ws'): 'the event stream: test_events_reach_only_their_person',
     ('GET', '/channel'): 'sessions, not phones: a per-session token (channel/socket.py)',
     ('GET', '/brain/tasks/{}'): 'the brain token: own agent only (brain_api._own_task)',
@@ -86,6 +85,7 @@ CHECKED: dict[tuple[str, str], tuple[int, dict[str, Any] | None]] = {
     ('GET', '/api/agents/{agent_id}'): (404, None),
     ('PATCH', '/api/agents/{agent_id}'): (404, {'name': 'Pip'}),
     ('GET', '/api/agents/{agent_id}/avatar'): (404, None),
+    ('GET', '/api/memory/files/{path}'): (404, None),  # the owner's MEMORY.md is not Emma's
     # Owner-only (S-17.1): a member is refused before the person is even looked up.
     ('DELETE', '/api/users/{user_id}'): (403, None),
     ('POST', '/api/users/{user_id}/pairing-codes'): (403, None),
@@ -127,6 +127,7 @@ class World:
             self.owner,
             {'text': 'Compare the heat-pump offers', 'client_id': 'c1'},
         ).json()['id']
+        self.call('PUT', '/api/memory/files/MEMORY.md', self.owner, {'content': 'Alarm: 1234.\n'})
         self.project_id = self.call(
             'POST', '/api/projects', self.owner, {'agent_id': self.agent_id, 'name': 'House'}
         ).json()['id']
@@ -191,6 +192,7 @@ class World:
             'project_id': self.project_id,
             'schedule_id': self.schedule_id,
             'agent_id': self.agent_id,
+            'path': 'MEMORY.md',
             'user_id': tokens.OWNER_USER_ID,
         }
 

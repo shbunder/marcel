@@ -28,6 +28,7 @@ from marcel_hub.memory import (
     SLICE_MAX_BYTES,
     InvalidMemoryPath,
     MemoryConflict,
+    MemoryFileNotFound,
     MemoryRepo,
     MemoryUnavailable,
 )
@@ -278,11 +279,15 @@ class ProjectStore:
         if self.memory is None:
             return
         try:
-            self.memory.write(notes_path(project.slug), _first_notes(project), None,
-                              'agent' if by == 'agent' else 'app')  # fmt: skip
+            self.memory.for_agent(project.agent_id).write(
+                notes_path(project.slug),
+                _first_notes(project),
+                None,
+                'agent' if by == 'agent' else 'app',
+            )
         except MemoryConflict:
             pass  # it exists already
-        except (MemoryUnavailable, InvalidMemoryPath) as exc:
+        except (MemoryUnavailable, InvalidMemoryPath, MemoryFileNotFound) as exc:
             log.warning('The notes file for project %s was not made: %s', project.slug, exc)
 
     def update(self, project_id: str, user_id: str, changes: dict[str, Any]) -> Project:
@@ -391,9 +396,9 @@ class ProjectStore:
         rel = notes_path(project.slug)
         notes: tuple[str, bool] | None = None
         if self.memory is not None:
-            try:
-                notes = self.memory.read_slice(rel)
-            except InvalidMemoryPath:
+            try:  # the task's own agent's notes (S-17.4)
+                notes = self.memory.for_agent(task.agent_id).read_slice(rel)
+            except (InvalidMemoryPath, MemoryFileNotFound):
                 notes = None
         has_notes = notes is not None and notes[0].strip() != ''
         if project.slug == INBOX_SLUG and not project.instructions and not has_notes:

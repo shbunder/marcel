@@ -1,5 +1,13 @@
 """Memory (B-20): Markdown files in a git working copy at `<data_dir>/memory`; the hub commits.
 
+**One folder per person's agent (S-17.4, B-38).** Each agent's memory lives under
+`agents/<slug>/` (`MEMORY.md`, `memory/…`, `projects/<slug>.md`). Everyone reaches it through
+`MemoryRepo.for_agent(agent_id)`, an `AgentMemory` that shows the paths without the prefix, so the
+app, the brain and workers keep using `MEMORY.md` and `memory/…`. The owner's memory from before
+0.7 is moved under `agents/<their slug>/` once, with git (`git log --follow` keeps its history),
+and links are left at the old places so a brain workspace rendered earlier still finds it; the hub
+never follows a link, so the old paths reach nothing through it.
+
 The brain reads and writes the files directly (they are symlinked into its workspace); the app
 reads and edits them through `/api/memory`. Every save through the hub is one git commit with the
 message `memory: <path> (app|agent)`; a worker's note (`append`) is `memory: <path> (worker <task
@@ -21,12 +29,14 @@ id>)`, which the app reads as `agent`.
 
 import contextlib
 import hashlib
+import logging
 import os
 import re
 import shutil
 import stat
 import subprocess
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -34,9 +44,14 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, ValidationError
+from sqlmodel import Session, col, select
 from starlette.concurrency import run_in_threadpool
 
-from marcel_hub.auth import require_device
+from marcel_hub.auth import current_device, require_device
+from marcel_hub.auth.tokens import OWNER_USER_ID
+from marcel_hub.models import Agent
+
+log = logging.getLogger('marcel_hub')
 
 GIT = 'git'
 MAX_FILE_BYTES = 1_000_000
@@ -51,6 +66,10 @@ SUBJECT = re.compile(r'^memory: .+ \((app|agent|worker)(?: [^)]*)?\)$')
 APPENDER = re.compile(r'^[a-z]+ [A-Za-z0-9_-]{1,80}$')
 
 Writer = Literal['app', 'agent']
+
+AGENTS = 'agents'
+# An agent's folder name: its fixed slug (S-04.15), or its id when it has none.
+AGENT_FOLDER = re.compile(r'^[a-z0-9][a-z0-9_-]{0,79}$')
 
 
 class InvalidMemoryPath(Exception):
@@ -116,10 +135,27 @@ class MemoryRepo:
     """The memory folder (`root`, the work tree the brain can reach) and its git database
     (`git_dir`, default `<root>.git` next to it, which only the hub can reach)."""
 
-    def __init__(self, root: Path, git_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        git_dir: Path | None = None,
+        folder_of: Callable[[str], str | None] = str.lower,
+        owner_folder: Callable[[], str | None] = lambda: None,
+    ) -> None:
         self.root = root
         self.git_dir = git_dir or root.with_name(f'{root.name}.git')
         self._lock = threading.Lock()
+        self._move_lock = threading.Lock()
+        # agent id -> its folder under agents/: `install` reads the agent's slug; alone, its id.
+        self.folder_of = folder_of
+        self.owner_folder = owner_folder  # where the owner's memory from before 0.7 goes
+
+    def for_agent(self, agent_id: str) -> 'AgentMemory':
+        """The memory of one agent: what its brain, its workers and its person's app see."""
+        folder = self.folder_of(agent_id)
+        if folder is None:
+            raise MemoryFileNotFound(agent_id)
+        return AgentMemory(self, folder)
 
     # Git -----------------------------------------------------------------------------------
 
@@ -158,6 +194,41 @@ class MemoryRepo:
         self._migrate()
         if not self.git_dir.is_dir():
             self._git('init', '-q', '-b', 'main')
+        self._move_owners_memory()
+
+    def _move_owners_memory(self) -> None:
+        """Once: move what sits at the top of the memory folder (the owner's memory from before
+        0.7: `MEMORY.md`, `memory/`, `projects/`) under `agents/<owner's folder>/`, with git, and
+        leave a link at each old place for brain workspaces rendered before (S-17.4). Does
+        nothing while the owner has no agent, or when that folder holds a file of the same name."""
+        with self._move_lock:
+            folder = self.owner_folder()
+            if folder is None or not AGENT_FOLDER.fullmatch(folder):
+                return
+            entries = [
+                e for e in sorted(self.root.iterdir())
+                if e.name != AGENTS and not e.name.startswith('.') and not e.is_symlink()
+            ]  # fmt: skip
+            if not entries:
+                return
+            dest = self.root / AGENTS / folder
+            clash = [e.name for e in entries if (dest / e.name).exists()]
+            if clash:
+                log.warning('Did not move the old memory into %s: it has %s already.', dest, clash)
+                return
+            self._refuse_attribute_files()
+            tracked = {p.split('/', 1)[0] for p in self._head_blobs()}
+            dest.mkdir(parents=True, exist_ok=True)
+            for entry in entries:
+                os.replace(entry, dest / entry.name)
+            paths = [e.name for e in entries if e.name in tracked] + [f'{AGENTS}/{folder}']
+            self._git('add', '-A', '--', *paths)
+            if self._git('diff', '--cached', '--quiet', ok=(0, 1)) is None:  # 1: staged changes
+                subject = f"memory: move the owner's memory to {AGENTS}/{folder}/ (S-17.4)"
+                self._git('commit', '-q', '-m', subject)
+            for entry in entries:  # links for brain workspaces rendered before the move
+                entry.symlink_to(Path(AGENTS) / folder / entry.name)
+            log.info('Moved %s into %s/%s/.', [e.name for e in entries], AGENTS, folder)
 
     def _migrate(self) -> None:
         """Move a git folder out of the memory folder, once, so the brain can no longer edit it.
@@ -406,6 +477,48 @@ class MemoryRepo:
             self._git(*args)
 
 
+class AgentMemory:
+    """One agent's memory: `agents/<folder>/` of the repo, with paths shown without the prefix.
+    Nothing here can reach outside the folder: every path is checked as a memory path first."""
+
+    def __init__(self, repo: MemoryRepo, folder: str) -> None:
+        if not AGENT_FOLDER.fullmatch(folder):
+            raise InvalidMemoryPath(folder)
+        self.repo = repo
+        self.prefix = f'{AGENTS}/{folder}/'
+
+    def _full(self, rel: str) -> str:
+        if not PATH_PATTERN.fullmatch(rel) or '//' in rel:
+            raise InvalidMemoryPath(rel)
+        return self.prefix + rel
+
+    def _shown(self, body: dict[str, Any]) -> dict[str, Any]:
+        return body | {'path': body['path'].removeprefix(self.prefix)}
+
+    def read(self, rel: str) -> dict[str, Any]:
+        try:
+            return self._shown(self.repo.read(self._full(rel)))
+        except MemoryFileNotFound as exc:
+            raise MemoryFileNotFound(rel) from exc
+
+    def read_slice(self, rel: str, cap: int = SLICE_MAX_BYTES) -> tuple[str, bool] | None:
+        return self.repo.read_slice(self._full(rel), cap)
+
+    def tree(self) -> list[dict[str, Any]]:
+        return [self._shown(f) for f in self.repo.tree() if f['path'].startswith(self.prefix)]
+
+    def write(self, rel: str, content: str, if_match: str | None, by: Writer) -> dict[str, Any]:
+        try:
+            return self._shown(self.repo.write(self._full(rel), content, if_match, by))
+        except MemoryConflict as exc:
+            raise MemoryConflict(self._shown(exc.current)) from exc
+        except MemoryFileNotFound as exc:
+            raise MemoryFileNotFound(rel) from exc
+
+    def append(self, rel: str, line: str, by: str, max_appends: int | None = None) -> None:
+        self.repo.append(self._full(rel), line, by, max_appends)
+
+
 # Routes ----------------------------------------------------------------------------------
 
 router = APIRouter(prefix='/api', dependencies=[Depends(require_device)])
@@ -463,8 +576,11 @@ async def _capped_body(request: Request) -> bytes | None:
     return bytes(raw)
 
 
-def _repo(request: Request) -> MemoryRepo:
-    return request.app.state.memory
+def _repo(request: Request) -> AgentMemory | None:
+    """The caller's own memory: their person's agent's (B-38). None while they have no agent."""
+    repo: MemoryRepo = request.app.state.memory
+    agent_id = request.app.state.memory_agent_of(current_device(request).user_id)
+    return repo.for_agent(agent_id) if agent_id is not None else None
 
 
 def _etag(header: str | None) -> str | None:
@@ -476,16 +592,22 @@ def _etag(header: str | None) -> str | None:
 
 @router.get('/memory')
 def get_memory_tree(request: Request) -> Any:
+    mine = _repo(request)
+    if mine is None:
+        return {'files': []}
     try:
-        return {'files': _repo(request).tree()}
+        return {'files': mine.tree()}
     except MemoryUnavailable as exc:
         return _error(503, 'memory_unavailable', f'The memory cannot be read: {exc}')
 
 
 @router.get('/memory/files/{path:path}')
 def get_memory_file(request: Request, path: str) -> Any:
+    mine = _repo(request)
+    if mine is None:
+        return _not_found(path)
     try:
-        return _file(_repo(request).read(path))
+        return _file(mine.read(path))
     except InvalidMemoryPath:
         return _invalid_path(path)
     except MemoryFileTooBig:
@@ -512,6 +634,8 @@ async def put_memory_file(request: Request, path: str) -> Any:
         return _too_long()
     if_match = _etag(request.headers.get('If-Match'))
     repo = _repo(request)
+    if repo is None:
+        return _error(404, 'memory_file_not_found', 'You have no helper yet, so no memory to save.')
     try:
         # Off the event loop: the save runs git and holds the write lock.
         saved = await run_in_threadpool(repo.write, path, body.content, if_match, 'app')
@@ -532,9 +656,40 @@ async def put_memory_file(request: Request, path: str) -> Any:
     return _file(saved)
 
 
+def _folder(agent: Agent | None) -> str | None:
+    if agent is None:
+        return None
+    return agent.slug or agent.id.lower()
+
+
 def install(app: FastAPI) -> MemoryRepo:
-    """Put the memory repo on `app.state.memory` and mount `/api/memory`. Git runs on first use."""
-    repo = MemoryRepo(app.state.settings.data_dir / 'memory')
+    """Put the memory repo on `app.state.memory` and mount `/api/memory`. Git runs on first use.
+    The repo learns each agent's folder, and the owner's, from the database."""
+    engine = app.state.engine
+
+    def folder_of(agent_id: str) -> str | None:
+        with Session(engine) as s:
+            return _folder(s.get(Agent, agent_id))
+
+    def first_agent(user_id: str) -> Agent | None:
+        with Session(engine) as s:
+            return s.exec(
+                select(Agent)
+                .where(Agent.owner_user_id == user_id, col(Agent.archived_at).is_(None))
+                .order_by(col(Agent.id))
+            ).first()
+
+    def owner_folder() -> str | None:
+        return _folder(first_agent(OWNER_USER_ID))
+
+    def agent_of(user_id: str) -> str | None:
+        agent = first_agent(user_id)
+        return agent.id if agent is not None else None
+
+    repo = MemoryRepo(
+        app.state.settings.data_dir / 'memory', folder_of=folder_of, owner_folder=owner_folder
+    )
     app.state.memory = repo
+    app.state.memory_agent_of = agent_of
     app.include_router(router)
     return repo

@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import Session
 from test_tasks_fakes import validator
 from test_tasks_routes import pair
 
@@ -28,6 +29,7 @@ from marcel_hub.memory import (
     MemoryUnavailable,
     blob_id,
 )
+from marcel_hub.users.store import ensure_owner_agent
 
 TREE = validator('app-api.yaml#/components/schemas/MemoryTree')
 FILE = validator('app-api.yaml#/components/schemas/MemoryFile')
@@ -58,8 +60,15 @@ def repo(tmp_path: Path) -> MemoryRepo:
 def client(tmp_path: Path) -> Iterator[TestClient]:
     app = create_app(Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db'))
     with TestClient(app) as c:
+        with Session(app.state.engine) as s:
+            ensure_owner_agent(s, 'Marcel')  # slug `marcel`: the phone's memory is agents/marcel/
         c.headers['Authorization'] = f'Bearer {pair(c, app.state.engine)}'
         yield c
+
+
+def mine(tmp_path: Path) -> Path:
+    """The paired phone's memory on disk (S-17.4): its agent's folder in the memory repo."""
+    return tmp_path / 'memory' / 'agents' / 'marcel'
 
 
 # Done when: concurrent edit -> 409; the git log shows one commit per write. ------------------
@@ -89,10 +98,10 @@ def test_the_git_log_shows_one_commit_per_write(client: TestClient, tmp_path: Pa
     client.put(url('memory/2026-10-12.md'), json={'content': 'dinner at 18:30\n'})
 
     assert git_log(tmp_path / 'memory') == [
-        'memory: memory/2026-10-12.md (app)',
-        'memory: MEMORY.md (app)',
-        'memory: MEMORY.md (app)',
-        'memory: MEMORY.md (app)',
+        'memory: agents/marcel/memory/2026-10-12.md (app)',
+        'memory: agents/marcel/MEMORY.md (app)',
+        'memory: agents/marcel/MEMORY.md (app)',
+        'memory: agents/marcel/MEMORY.md (app)',
     ]
 
 
@@ -163,7 +172,7 @@ def test_a_file_changed_on_disk_by_the_brain_changes_its_etag(
     client: TestClient, tmp_path: Path
 ) -> None:
     etag = client.put(url('MEMORY.md'), json={'content': 'v1\n'}).json()['etag']
-    (tmp_path / 'memory' / 'MEMORY.md').write_text('brain wrote this\n')
+    (mine(tmp_path) / 'MEMORY.md').write_text('brain wrote this\n')
 
     res = client.put(url('MEMORY.md'), json={'content': 'app\n'}, headers={'If-Match': etag})
 
@@ -175,11 +184,11 @@ def test_a_file_changed_on_disk_by_the_brain_changes_its_etag(
 def test_saving_only_commits_the_file_that_was_saved(client: TestClient, tmp_path: Path) -> None:
     root = tmp_path / 'memory'
     client.put(url('MEMORY.md'), json={'content': 'v1\n'})
-    (root / 'scratch.md').write_text('the brain is still writing\n')
+    (mine(tmp_path) / 'scratch.md').write_text('the brain is still writing\n')
 
     client.put(url('other.md'), json={'content': 'x\n'})
 
-    assert git(root, 'status', '--porcelain').strip() == '?? scratch.md'
+    assert git(root, 'status', '--porcelain').strip() == '?? agents/marcel/scratch.md'
 
 
 def test_an_unchanged_save_makes_no_commit(client: TestClient, tmp_path: Path) -> None:
@@ -205,7 +214,7 @@ def test_a_missing_file_is_a_404(client: TestClient) -> None:
 def test_the_tree_lists_every_markdown_file(client: TestClient, tmp_path: Path) -> None:
     client.put(url('MEMORY.md'), json={'content': '# Memory\n'})
     client.put(url('memory/2026-10-04.md'), json={'content': 'note\n'})
-    root = tmp_path / 'memory'
+    root = mine(tmp_path)
     (root / 'notes.txt').write_text('not markdown\n')
     (root / '.hidden').mkdir()
     (root / '.hidden' / 'x.md').write_text('hidden\n')
@@ -275,6 +284,8 @@ def test_git_missing_answers_503_with_a_reason(
 def test_reading_without_git_answers_503(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     app = create_app(Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db'))
     with TestClient(app) as c:
+        with Session(app.state.engine) as s:
+            ensure_owner_agent(s, 'Marcel')  # a person with memory to read
         c.headers['Authorization'] = f'Bearer {pair(c, app.state.engine)}'
         monkeypatch.setattr(memory, 'GIT', 'git-that-does-not-exist')
         for res in (c.get('/api/memory'), c.get(url('MEMORY.md'))):
@@ -347,7 +358,7 @@ def test_a_symlinked_folder_pointing_out_is_refused(client: TestClient, tmp_path
     outside.mkdir()
     (outside / 'x.md').write_text('outside\n')
     client.put(url('MEMORY.md'), json={'content': 'x\n'})
-    os.symlink(outside, tmp_path / 'memory' / 'linked')
+    os.symlink(outside, mine(tmp_path) / 'linked')
 
     assert client.get(url('linked/x.md')).status_code == 400
     assert client.put(url('linked/new.md'), json={'content': 'x'}).status_code == 400
@@ -418,7 +429,7 @@ def test_a_file_written_on_disk_over_the_limit_is_not_read_into_memory(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client.put(url('MEMORY.md'), json={'content': 'x\n'})
-    big = tmp_path / 'memory' / 'huge.md'
+    big = mine(tmp_path) / 'huge.md'
     big.write_bytes(b'x' * (memory.MAX_FILE_BYTES + 4096))
 
     read_sizes: list[int] = []

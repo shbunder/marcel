@@ -858,7 +858,7 @@ class BrainKeeper:
             )
             projects = {p.id: p.slug for p in s.exec(select(Project))}
             name = agent.name
-        notes = self._notes()
+        notes = self._notes(agent_id)
 
         why = REASON_WORDS.get(reason or '', 'the first start')
         parts = [
@@ -883,11 +883,11 @@ class BrainKeeper:
             parts.append('## The main chat, last 24 hours\n\nNothing was said.')
         return '\n\n'.join(parts), _kept(bool(notes), len(messages), len(tasks))
 
-    def _notes(self) -> str:
+    def _notes(self, agent_id: str) -> str:
         if self.memory is None:
             return ''
-        try:
-            found = self.memory.read_slice('MEMORY.md', MAX_MEMORY)
+        try:  # this agent's own MEMORY.md (S-17.4)
+            found = self.memory.for_agent(agent_id).read_slice('MEMORY.md', MAX_MEMORY)
         except Exception:  # the seed must never fail because of memory
             log.exception('Could not read MEMORY.md for the new main session.')
             return ''
