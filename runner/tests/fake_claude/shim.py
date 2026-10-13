@@ -74,6 +74,7 @@ VALUE_FLAGS = {
     '--resume',
     '-r',
     '--settings',
+    '--setting-sources',
     '--output-format',
     '--mcp-config',
     '--append-system-prompt',

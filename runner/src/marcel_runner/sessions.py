@@ -27,6 +27,11 @@ from marcel_runner.claude_env import scrubbed_env
 from marcel_runner.health import Settings, cgroup_of, collect_health
 
 CHANNEL = 'plugin:marcel@marcel-local'
+# Every session the runner starts loads only project and local settings, never the owner's own
+# ~/.claude/settings.json and its allow rules. Allow lists merge across files and no file can
+# remove another's allow, so leaving the user file out is the only way (S-03.10). A resume
+# re-reads the files, so spawn, resume and fork all pass it.
+SETTING_SOURCES = ('--setting-sources', 'project,local')
 CHANNEL_SERVER = 'plugin:marcel:marcel'  # how the debug log names the plugin's MCP server (SP1)
 ALLOWED_TOOLS = ('mcp__plugin_marcel_marcel__reply', 'mcp__plugin_marcel_marcel__report')
 # Brain and side sessions also get Marcel's brain tools and Harry's two always-shown tools, by
@@ -122,6 +127,7 @@ def spawn_argv(
     argv = [
         str(claude),
         '--bg',
+        *SETTING_SOURCES,
         '--name',
         name,
         '--model',

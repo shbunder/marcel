@@ -1,6 +1,8 @@
 [
   "{claude}",
   "--bg",
+  "--setting-sources",
+  "project,local",
   "--name",
   "brain",
   "--model",

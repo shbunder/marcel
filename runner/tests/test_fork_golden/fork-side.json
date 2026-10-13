@@ -1,6 +1,8 @@
 [
   "{claude}",
   "--bg",
+  "--setting-sources",
+  "project,local",
   "--resume",
   "{session_id}",
   "--fork-session",

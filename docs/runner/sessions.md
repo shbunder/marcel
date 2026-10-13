@@ -30,7 +30,7 @@ A `repo` spawn, resume and fork: see [workspaces.md](workspaces.md).
 5. It runs, as an argument list (never a shell string), in `cwd`, with `claude` by absolute path:
 
    ```
-   claude --bg --name <name> --model <model> --permission-mode <mode>
+   claude --bg --setting-sources project,local --name <name> --model <model> --permission-mode <mode>
      --channels plugin:marcel@marcel-local
      --allowedTools mcp__plugin_marcel_marcel__reply mcp__plugin_marcel_marcel__report
      --debug-file <state>/debug/<name>-<token>.log -- "<prompt>"
@@ -39,6 +39,10 @@ A `repo` spawn, resume and fork: see [workspaces.md](workspaces.md).
    `brain` and `side` sessions also get Marcel's brain tools and Harry's `harry_find_tools` and
    `harry_mark_done`, by name, after `report` (`sessions.BRAIN_TOOLS`, the list in
    `contracts/runner-api.yaml`); workers never do.
+   `--setting-sources project,local` leaves the owner's own `~/.claude/settings.json` out, so a session never
+   inherits the owner's allow rules, hooks or `~/.claude/CLAUDE.md`. Allow lists merge across settings files and no
+   file can remove another's allow, so leaving the user file out is the only way (S-03.10). MCP servers in
+   `~/.claude.json` still load (see `project/lessons/runner-built-ins.md`).
    `--channels …` is left out with `channel: false`. The prompt goes after `--`, because
    `--channels` and `--allowedTools` take several values and would swallow it (SP1). The exact lines
    are pinned in `runner/tests/test_sessions_golden/`.

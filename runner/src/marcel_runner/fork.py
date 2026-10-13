@@ -23,6 +23,7 @@ from marcel_runner.sessions import (
     MODEL,
     NAME,
     PERMISSION_MODES,
+    SETTING_SOURCES,
     SessionError,
     Sessions,
     SpawnRequest,
@@ -71,7 +72,8 @@ def fork_argv(
 ) -> list[str]:
     """The fork's command line (SP7). Without a known model, `--model` is left out and Claude
     keeps the forked session's own."""
-    argv = [str(claude), '--bg', '--resume', session_id, '--fork-session', '--name', name]
+    argv = [str(claude), '--bg', *SETTING_SOURCES, '--resume', session_id, '--fork-session']
+    argv += ['--name', name]
     if model:
         argv += ['--model', model]
     argv += ['--permission-mode', permission_mode]

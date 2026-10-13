@@ -1,6 +1,8 @@
 [
   "{claude}",
   "--bg",
+  "--setting-sources",
+  "project,local",
   "--name",
   "tsk-01J9ZQ6",
   "--model",

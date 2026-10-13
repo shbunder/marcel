@@ -22,6 +22,7 @@ from marcel_runner.sessions import (
     BACKGROUNDED,
     CHANNEL,
     PERMISSION_MODES,
+    SETTING_SOURCES,
     SessionError,
     Sessions,
     allowed_tools,
@@ -43,9 +44,9 @@ def resume_argv(
     permission_mode: str | None,
 ) -> list[str]:
     """`claude --bg --resume <uuid>`, with the recorded permission mode (left out when the runner
-    did not start the session) and the same `--channels` and `--allowedTools` as spawn. The
-    prompt goes after `--` (SP1)."""
-    argv = [str(claude), '--bg', '--resume', session_id]
+    did not start the session) and the same `--setting-sources`, `--channels` and `--allowedTools`
+    as spawn. The prompt goes after `--` (SP1)."""
+    argv = [str(claude), '--bg', *SETTING_SOURCES, '--resume', session_id]
     if permission_mode:
         argv += ['--permission-mode', permission_mode]
     if channel:

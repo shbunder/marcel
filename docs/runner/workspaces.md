@@ -28,12 +28,14 @@ hub → channel. Resume is only for between turns.
 5. It runs, in the session's own folder (`--resume` only finds a conversation from there):
 
    ```
-   claude --bg --resume <uuid> --permission-mode <recorded mode>
+   claude --bg --setting-sources project,local --resume <uuid> --permission-mode <recorded mode>
      --channels plugin:marcel@marcel-local
      --allowedTools mcp__plugin_marcel_marcel__reply mcp__plugin_marcel_marcel__report
      --debug-file <state>/debug/resume-<short-id>-<token>.log -- "<prompt>"
    ```
 
+   `--setting-sources project,local` is passed again: a resume re-reads the settings files, so without it the
+   owner's user settings would come back (as on spawn, `docs/runner/sessions.md`).
    `--permission-mode` is the one the runner recorded; it is left out for a session the runner did
    not start, so Claude keeps that session's own. `--channels` is left out when the session was
    spawned with `channel: false`. Brain and side sessions also get the brain tools, by name
@@ -46,7 +48,7 @@ hub → channel. Resume is only for between turns.
 ## Fork
 
 ```
-claude --bg --resume <uuid> --fork-session --name <name> [--model <model>]
+claude --bg --setting-sources project,local --resume <uuid> --fork-session --name <name> [--model <model>]
   --permission-mode <mode> --channels plugin:marcel@marcel-local
   --allowedTools <reply> <report> <every brain tool> --debug-file … -- "<opening prompt>"
 ```
