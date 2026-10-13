@@ -42,7 +42,9 @@ class Hub:
     def __init__(self, step_delay: float = 1.0) -> None:
         self.step_delay = step_delay
         self.events: list[dict[str, Any]] = []
-        self.subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
+        # Each listener with the agent whose events it gets (None: every event, for tools).
+        self.subscribers: dict[asyncio.Queue[dict[str, Any]], str | None] = {}
+        self.event_agents: list[str | None] = []  # whose each event is; None: everyone's
         self.agent_state: dict[str, Any] = {'kind': 'idle'}
         self.agent_record: dict[str, Any] = contract.example('Agent')  # the owner's Marcel
         self.messages: list[dict[str, Any]] = []
@@ -162,29 +164,62 @@ class Hub:
             'at': now(),
             'data': copy.deepcopy(data),
         }
+        owner = self.event_agent(type_, data)
         self.events.append(event)
-        for queue in self.subscribers:
-            queue.put_nowait(event)
+        self.event_agents.append(owner)
+        for queue, agent_id in self.subscribers.items():
+            if self._for(owner, agent_id):
+                queue.put_nowait(event)
         return event
 
+    def event_agent(self, type_: str, data: dict[str, Any]) -> str | None:
+        """The agent an event belongs to, so only that person's phones get it. None only for
+        usage, which everyone shares (there is one Claude login). Anything else with no clear
+        owner goes to the owner's phones, never to everyone."""
+        if type_ == 'usage.updated':
+            return None
+        if type_ == 'agent.updated':
+            return data['agent']['id']
+        if type_ == 'message.created':
+            return self.conversations[data['conversation_id']]['agent_id']
+        if type_ == 'artifact.created':
+            return self.project_agent(data.get('project_id'))
+        if type_ == 'artifact.updated':
+            return self.project_agent(data['artifact'].get('project_id'))
+        if 'agent_id' in data:  # tasks, projects, conversations, agent.state, brain.rollover
+            return data['agent_id']
+        if 'task_id' in data:  # task.event, task.moved, approvals
+            return self.task_agent(data['task_id']) or self.agent_record['id']
+        return self.agent_record['id']
+
+    def task_agent(self, task_id: str) -> str | None:
+        task = self.tasks.get(task_id)
+        return task['agent_id'] if task else None
+
+    @staticmethod
+    def _for(owner: str | None, agent_id: str | None) -> bool:
+        return owner is None or agent_id is None or owner == agent_id
+
     def subscribe(
-        self, since: int | None
+        self, since: int | None, agent_id: str | None = None
     ) -> tuple[asyncio.Queue[dict[str, Any]], list[dict[str, Any]]]:
-        """Register a listener and return the frames to send first. No await in between, so no
-        event can fall in the gap between the replay and the live feed."""
+        """Register a listener for one agent's events and return the frames to send first. No
+        await in between, so no event can fall in the gap between the replay and the live feed.
+        Ids stay global: a phone sees gaps where another person's events were."""
         last = len(self.events)
         if since is not None and since > last:
             head = [self._control('resync.required', {'last_event_id': last})]
             replay: list[dict[str, Any]] = []
         else:
-            replay = self.events[since:] if since is not None else []
+            later = range(since, last) if since is not None else range(0)
+            replay = [self.events[i] for i in later if self._for(self.event_agents[i], agent_id)]
             head = [self._control('hello', {'last_event_id': last, 'replayed': len(replay)})]
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-        self.subscribers.add(queue)
+        self.subscribers[queue] = agent_id
         return queue, [*head, *replay]
 
     def unsubscribe(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
-        self.subscribers.discard(queue)
+        self.subscribers.pop(queue, None)
 
     @staticmethod
     def _control(type_: str, data: dict[str, Any]) -> dict[str, Any]:

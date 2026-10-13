@@ -75,12 +75,10 @@ class People:
             return self.users[self.owner_id]
         return self.users[self.tokens[token][0]]
 
-    def owner_only(self) -> Refused:
-        return Refused(
-            403,
-            'owner_only',
-            f'Only {self.owner_name} can manage people. Ask {self.owner_name} to do it.',
-        )
+    def owner_only(
+        self, message: str = 'Only {owner} can manage people. Ask {owner} to do it.'
+    ) -> Refused:
+        return Refused(403, 'owner_only', message.format(owner=self.owner_name))
 
     # ---- agents ----------------------------------------------------------------------------
 

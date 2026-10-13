@@ -106,9 +106,12 @@ def test_the_people_steps_in_order(client: TestClient):
             assert error['code'] == 'owner_only'
             assert 'Ask Shaun' in error['message']
 
-        # 7. Emma finishes onboarding and changes her helper's look: `agent.updated`.
-        client.patch(f'/api/agents/{PIP}', json={'look': LOOK, 'onboarded': True}, headers=emma)
-        frame = frames_until(ws, ('agent.updated', None))[-1]
+        # 7. Emma finishes onboarding and changes her helper's look: `agent.updated`, on her
+        # own phone's stream only.
+        with client.websocket_connect('/api/ws', headers=emma) as emma_ws:
+            assert emma_ws.receive_json()['type'] == 'hello'
+            client.patch(f'/api/agents/{PIP}', json={'look': LOOK, 'onboarded': True}, headers=emma)
+            frame = frames_until(emma_ws, ('agent.updated', None))[-1]
         agent = frame['data']['agent']
         assert (agent['id'], agent['animal'], agent['look']) == (PIP, 'panda', LOOK)
         assert frame['data']['avatar_etag'] == '"lk-panda-teal-cozy"'
@@ -262,3 +265,102 @@ def test_a_mention_that_is_not_yours_stores_nothing(client: TestClient):
         headers=emma,
     )
     assert resp.status_code == 400
+
+
+# ---- each phone gets only its own person's things (contract 0.7: "Each person sees only their
+# own agents and everything under them") ----------------------------------------------------
+
+
+def test_each_phone_gets_only_its_own_persons_events(client: TestClient):
+    emma = as_member(pair_emma(client))
+    with (
+        client.websocket_connect('/api/ws', headers=AUTH) as owner_ws,
+        client.websocket_connect('/api/ws', headers=emma) as emma_ws,
+    ):
+        assert owner_ws.receive_json()['type'] == 'hello'
+        assert emma_ws.receive_json()['type'] == 'hello'
+        # Emma's look change, then the owner's run up to its approval card.
+        client.patch(f'/api/agents/{PIP}', json={'look': LOOK}, headers=emma)
+        client.post(MAIN, json={'text': 'Fix the flaky login test'})
+        owner_frames = frames_until(owner_ws, ('agent.state', 'needs_you'))
+        # A marker on Emma's side: her own message, after everything of the owner's.
+        pip = client.get('/api/me', headers=emma).json()['agents'][0]['main_conversation_id']
+        client.post(f'/api/conversations/{pip}/messages', json={'text': 'hi Pip'}, headers=emma)
+        emma_frames = frames_until(emma_ws, ('message.created', 'text'))
+
+    assert [f['type'] for f in emma_frames] == ['agent.updated', 'message.created']
+    assert emma_frames[1]['data']['conversation_id'] == pip
+    assert 'agent.updated' not in [f['type'] for f in owner_frames]
+    assert all(f['data'].get('agent_id', 'agt_marcel') == 'agt_marcel' for f in owner_frames)
+    # Ids stay global, so Emma's phone sees a gap where the owner's events were.
+    assert emma_frames[1]['id'] - emma_frames[0]['id'] > 1
+
+
+def test_a_replay_gives_only_the_persons_own_events(client: TestClient):
+    emma = as_member(pair_emma(client))
+    client.patch(f'/api/agents/{PIP}', json={'look': LOOK}, headers=emma)
+    client.post('/api/projects', json={'agent_id': 'agt_marcel', 'name': 'Garden'})
+    with client.websocket_connect('/api/ws?since=0', headers=emma) as ws:
+        hello = ws.receive_json()
+        assert hello['data']['replayed'] == 1
+        assert ws.receive_json()['type'] == 'agent.updated'
+    with client.websocket_connect('/api/ws?since=0', headers=AUTH) as ws:
+        hello = ws.receive_json()
+        replayed = [ws.receive_json() for _ in range(hello['data']['replayed'])]
+    assert [f['type'] for f in replayed] == ['artifact.created', 'project.created']
+
+
+def test_actions_by_id_on_someone_elses_things_are_404(client: TestClient):
+    hub = client.app.state.hub  # type: ignore[attr-defined]
+    emma = as_member(pair_emma(client))
+    owners_card = {**hub.approvals['apr_01J9ZR2'], 'id': 'apr_owner_self', 'tool': 'self_change'}
+    hub.approvals['apr_owner_self'] = {**owners_card, 'artifact_id': 'art_01J9ZT1'}
+    task, art, project = 'tsk_01J9ZQ6', 'art_01JA0B1', 'prj_01JA0A1'
+    for method, url, body in (
+        ('POST', f'/api/tasks/{task}/messages', {'text': 'Also this.'}),
+        ('POST', f'/api/tasks/{task}/stop', None),
+        ('POST', f'/api/tasks/{task}/archive', None),
+        ('POST', f'/api/tasks/{task}/handback', {'note': 'Over to you.'}),
+        ('POST', f'/api/tasks/{task}/move', {'project_id': 'prj_inbox'}),
+        ('GET', f'/api/tasks/{task}/events', None),
+        ('POST', '/api/approvals/apr_01J9ZR2', {'decision': 'approve'}),
+        ('POST', '/api/approvals/apr_owner_self', {'decision': 'approve'}),
+        ('POST', '/api/projects', {'agent_id': 'agt_marcel', 'name': 'Not mine'}),
+        ('GET', f'/api/artifacts/{art}/content', None),
+        ('GET', f'/api/artifacts/{art}/versions', None),
+        ('PATCH', f'/api/projects/{project}', {'goal': 'Mine now.'}),
+        ('POST', f'/api/projects/{project}/archive', None),
+    ):
+        resp = client.request(method, url, json=body, headers=emma)
+        assert resp.status_code == 404, url
+        contract.validator('app-api.yaml#/components/schemas/Error').validate(resp.json())
+    # Nothing changed: the owner still sees the approval open and the task where it was.
+    assert any(a['id'] == 'apr_01J9ZR2' for a in client.get('/api/approvals').json())
+    assert client.get(f'/api/tasks/{task}').json()['project_id'] == 'prj_inbox'
+    assert [p['name'] for p in client.get('/api/projects').json()].count('Not mine') == 0
+
+
+def test_a_task_moves_only_into_the_callers_own_project(client: TestClient):
+    hub = client.app.state.hub  # type: ignore[attr-defined]
+    emma = as_member(pair_emma(client))
+    hub.tasks['tsk_emma'] = {**hub.tasks['tsk_01J9ZQ6'], 'id': 'tsk_emma', 'agent_id': PIP}
+    resp = client.post('/api/tasks/tsk_emma/move', json={'project_id': 'prj_01JA0A1'}, headers=emma)
+    assert resp.status_code == 404
+    assert 'project' in resp.json()['message']
+
+
+def test_a_self_change_card_is_answered_by_the_owner_only(client: TestClient):
+    hub = client.app.state.hub  # type: ignore[attr-defined]
+    emma = as_member(pair_emma(client))
+    # A self-change card on a task of Emma's own helper: still the owner's to answer.
+    hub.tasks['tsk_emma'] = {**hub.tasks['tsk_01J9ZQ6'], 'id': 'tsk_emma', 'agent_id': PIP}
+    card = {**hub.approvals['apr_01J9ZR2'], 'id': 'apr_self', 'tool': 'self_change'}
+    card.update(task_id='tsk_emma', artifact_id='art_01J9ZT1')  # the PR it is about (B-24)
+    hub.approvals['apr_self'] = card
+    resp = client.post('/api/approvals/apr_self', json={'decision': 'approve'}, headers=emma)
+    error = valid(resp, '/approvals/{approval_id}', 'post')
+    assert (resp.status_code, error['code']) == (403, 'owner_only')
+    assert 'Ask Shaun' in error['message']
+    assert hub.approvals['apr_self']['state'] == 'open'
+    resp = client.post('/api/approvals/apr_self', json={'decision': 'approve'})
+    assert valid(resp, '/approvals/{approval_id}', 'post')['state'] == 'approved'

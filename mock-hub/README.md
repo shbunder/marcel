@@ -74,9 +74,19 @@ examples.
   answer a member with 403 `owner_only`: "Only Shaun can manage people. Ask Shaun to do it."
 - **Each person sees their own.** `/me`, agents, conversations, messages, tasks, projects, items,
   approvals and mentions are the caller's own agent's; someone else's answers 404, or an empty list.
-  Emma starts with her own main conversation and nothing else. Actions on an item by id (move, answer,
-  archive, versions, content) are not checked per person, answering a self-change approval is not
-  owner-only here, and the event stream goes to every phone.
+  Emma starts with her own main conversation and nothing else. Actions by id on someone else's task,
+  approval, item or project (steer, stop, archive, hand back, move, answer, events, versions, content,
+  change, archive) answer 404 and change nothing; a task moves only into the caller's own project.
+- **Each phone's event stream is its person's.** Every event belongs to an agent (a task's, a
+  project's, a conversation's, an item's project's); a phone gets only its own person's, live and on
+  replay (`?since=`). Event ids stay global, so a phone sees gaps where someone else's events were.
+  Usage events would go to everyone (there is one Claude login); an event with no clear owner goes to
+  the owner's phones only.
+- **A self-change card** (`tool: self_change`, B-24) is answered by the owner only, even on a member's
+  own task: the member gets 403 `owner_only` and the card stays open. Someone else's card is a 404.
+- **Not checked per person:** operations that answer the contract's fixed example and change nothing
+  (`getApproval`, `getMessage`, side threads, `sendToMain`, `moveArtifact`, memory, schedules,
+  devices, brain rollovers). A project is created only under the caller's own agent.
 - **Adding a person** (`POST /api/users`) makes their helper and main conversation; without a look the
   helper gets the `User` example's. **Removing** one signs their phones out at once (401) and removes
   their helper; the owner cannot be removed (409 `cannot_remove_owner`).

@@ -175,12 +175,25 @@ async def get_task(hub: Hub, request: Request) -> Response:
     )
 
 
+def own_task(hub: Hub, request: Request) -> dict[str, Any] | None:
+    """The path's task when it is the caller's; another person's is treated as unknown."""
+    task = hub.tasks.get(request.path_params['task_id'])
+    return task if task and task['agent_id'] == my_agent(request) else None
+
+
+def own_artifact(hub: Hub, request: Request) -> dict[str, Any] | None:
+    artifact = hub.artifacts.get(request.path_params['artifact_id'])
+    if artifact and hub.project_agent(artifact.get('project_id')) == my_agent(request):
+        return artifact
+    return None
+
+
 def task_action(status: int) -> Handler:
     """Steer, stop, archive and hand back answer with the task as it stands: the mock does not
     act on them."""
 
     async def handler(hub: Hub, request: Request) -> Response:
-        task = hub.tasks.get(request.path_params['task_id'])
+        task = own_task(hub, request)
         return JSONResponse(task, status_code=status) if task else not_found('task')
 
     return handler
@@ -188,7 +201,7 @@ def task_action(status: int) -> Handler:
 
 async def list_task_events(hub: Hub, request: Request) -> Response:
     task_id = request.path_params['task_id']
-    if task_id not in hub.tasks:
+    if own_task(hub, request) is None:
         return not_found('task')
     after = query_int(request, 'after', 0, 0) or 0
     limit = limit_of(request)
@@ -204,18 +217,33 @@ async def list_approvals(hub: Hub, request: Request) -> Response:
 
 
 async def answer_approval(hub: Hub, request: Request) -> Response:
-    body = json.loads(await request.body())
-    result = hub.answer(request.path_params['approval_id'], body['decision'])
-    if result is None:
+    """Only the caller's own cards; a self-change card (B-24) is the owner's alone."""
+    approval = hub.approvals.get(request.path_params['approval_id'])
+    if approval is None:
         return not_found('approval')
+    owner = caller(request)['role'] == 'owner'
+    self_change = approval['tool'] == 'self_change'
+    # Someone else's card is unknown, except that the owner answers every self-change card.
+    if hub.task_agent(approval['task_id']) != my_agent(request) and not (owner and self_change):
+        return not_found('approval')
+    if self_change and not owner:
+        raise hub.people.owner_only(
+            'Only {owner} can approve a change to Marcel itself. Ask {owner} to look at it.'
+        )
+    body = json.loads(await request.body())
+    result = hub.answer(approval['id'], body['decision'])
+    assert result is not None
     return JSONResponse(result[1], status_code=result[0])
 
 
 async def move_task(hub: Hub, request: Request) -> Response:
-    task = hub.tasks.get(request.path_params['task_id'])
+    """Only the caller's own task, into one of the caller's own projects."""
+    task = own_task(hub, request)
     if task is None:
         return not_found('task')
     body = json.loads(await request.body())
+    if hub.project_agent(body['project_id']) not in (None, my_agent(request)):
+        return not_found('project')
     return JSONResponse(hub.move_task(task, body['project_id']))
 
 
@@ -235,7 +263,7 @@ async def get_artifact(hub: Hub, request: Request) -> Response:
 
 
 async def get_artifact_content(hub: Hub, request: Request) -> Response:
-    artifact = hub.artifacts.get(request.path_params['artifact_id'])
+    artifact = own_artifact(hub, request)
     version = query_int(request, 'version', None, 1)
     body = hub.content(artifact, version) if artifact else None
     if artifact is None or body is None:
@@ -244,10 +272,10 @@ async def get_artifact_content(hub: Hub, request: Request) -> Response:
 
 
 async def list_artifact_versions(hub: Hub, request: Request) -> Response:
-    versions = hub.versions.get(request.path_params['artifact_id'])
-    if versions is None:
+    artifact = own_artifact(hub, request)
+    if artifact is None:
         return not_found('artifact')
-    return JSONResponse(list(reversed(versions)))
+    return JSONResponse(list(reversed(hub.versions[artifact['id']])))
 
 
 def project_of(hub: Hub, request: Request) -> dict[str, Any] | None:
@@ -265,7 +293,10 @@ async def list_projects(hub: Hub, request: Request) -> Response:
 
 
 async def create_project(hub: Hub, request: Request) -> Response:
+    """Only under the caller's own agent; another person's is treated as unknown."""
     body = json.loads(await request.body())
+    if body['agent_id'] != my_agent(request):
+        return not_found('agent')
     return JSONResponse(hub.create_project(body), status_code=201)
 
 
@@ -427,8 +458,12 @@ def websocket_route(hub: Hub) -> Callable[[WebSocket], Awaitable[None]]:
         ):
             await ws.close(code=1008)
             return
+        person = hub.people.caller(token)
+        assert person is not None
         await ws.accept()
-        queue, frames = hub.subscribe(int(since) if since is not None else None)
+        queue, frames = hub.subscribe(
+            int(since) if since is not None else None, person['agent']['id']
+        )
         listen = asyncio.create_task(ws.receive())
         try:
             for frame in frames:
