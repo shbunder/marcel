@@ -1,5 +1,6 @@
 import Foundation
 import MarcelKit
+import PixelKit
 import XCTest
 
 @testable import MarcelQuests
@@ -68,6 +69,15 @@ final class QuestBoardTests: XCTestCase {
         var filter = QuestFilter(status: .working)
         filter.archived = false
         XCTAssertEqual(filter.status, .working, "leaving archived off keeps the chosen state")
+    }
+
+    /// The card's frame for every state: gold only for "needs you" (a quiet quest is still working).
+    func testTheCardsFrameColourForEveryState() {
+        let frames = Dictionary(uniqueKeysWithValues: StateBadge.Kind.allCases.map { ($0, QuestCard.frame($0)) })
+        XCTAssertEqual(frames, [
+            .needsYou: .needsYou, .starting: .started, .working: .started, .silent: .started, .ready: .done,
+            .failed: .failed, .queued: nil, .done: nil, .stopped: nil, .unknown: nil,
+        ])
     }
 
     @MainActor
@@ -165,7 +175,7 @@ final class QuestBoardTests: XCTestCase {
         XCTAssertEqual(QuestGroup.finished.spokenTitle, "Done, this week")
         let board = QuestBoard(tasks: [], projects: Fx.projects,
                                filter: QuestFilter(projectId: "prj_energy", archived: true), now: Fx.now)
-        XCTAssertEqual(board.spokenFilterTitle, "Archived, Home energy")
+        XCTAssertEqual(board.projectTitle, "Home energy")
         let tasks = [Fx.task("t1", "A", state: "done", project: "prj_dev")]
         let row = QuestBoard(tasks: tasks, artifacts: [Fx.pr("p1", task: "t1", state: "draft")], now: Fx.now).row("t1")
         XCTAssertFalse(row?.spoken.contains("·") ?? true, row?.spoken ?? "")
@@ -205,7 +215,7 @@ final class QuestBoardTests: XCTestCase {
         let board = QuestBoard(tasks: tasks, projects: Fx.projects, filter: QuestFilter(projectId: "prj_family"),
                                now: Fx.now)
         XCTAssertEqual(board.layout, [.waitingOnYou: ["t_family"], .finished: ["t_family2"]])
-        XCTAssertEqual(board.filterTitle, "Family")
+        XCTAssertEqual(board.projectTitle, "Family")
         XCTAssertNil(board.row("t_energy"))
     }
 
@@ -217,10 +227,11 @@ final class QuestBoardTests: XCTestCase {
 
     func testFilterTitles() {
         let all = QuestBoard(tasks: [], projects: Fx.projects, now: Fx.now)
-        XCTAssertEqual(all.filterTitle, "All projects")
+        XCTAssertEqual(all.projectTitle, "All projects")
         let archived = QuestBoard(tasks: [], projects: Fx.projects,
                                   filter: QuestFilter(projectId: "prj_energy", archived: true), now: Fx.now)
-        XCTAssertEqual(archived.filterTitle, "Archived · Home energy")
+        XCTAssertEqual(archived.projectTitle, "Home energy")
+        XCTAssertEqual(archived.filter.status, .archived)
     }
 
     func testAnEmptyLogSaysWhatToDo() {

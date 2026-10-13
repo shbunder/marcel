@@ -52,7 +52,7 @@ final class QuestsLiveTests: XCTestCase {
 
         let board = try fed.board(model.filter)
         XCTAssertEqual(board.layout, [.waitingOnYou: ["t_dentist"], .working: ["t_lunch"]])
-        XCTAssertEqual(board.filterTitle, "Family")
+        XCTAssertEqual(board.projectTitle, "Family")
 
         model.selectProject(nil)
         XCTAssertEqual(try fed.board(model.filter).layout[.working], ["t_energy", "t_lunch"])
@@ -83,7 +83,8 @@ final class QuestsLiveTests: XCTestCase {
         XCTAssertEqual(model.filter, QuestFilter(archived: true))
         let archived = try fed.board(model.filter)
         XCTAssertEqual(archived.layout, [.archived: ["t_bins"]])
-        XCTAssertEqual(archived.filterTitle, "Archived · All projects")
+        XCTAssertEqual(archived.projectTitle, "All projects")
+        XCTAssertEqual(archived.filter.status, .archived)
         XCTAssertTrue(archived.row("t_bins")?.spoken.hasSuffix("Archived.") ?? false)
     }
 

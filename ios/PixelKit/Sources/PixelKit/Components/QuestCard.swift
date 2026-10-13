@@ -38,12 +38,12 @@ public struct QuestCard: View {
         progress.map { "\(Int(($0 * 100).rounded())) percent done" }
     }
 
-    /// The card's frame (S-18.4, ADR-007): gold while it needs you (on a light tint), teal while it works, rose when
-    /// it is ready for review, red when it failed; a thin line otherwise.
+    /// The card's frame (S-18.4, ADR-007): gold only while it needs you (on a light tint), teal while it works (a quiet
+    /// quest still counts as working), rose when it is ready for review, red when it failed; a thin line otherwise.
     public static func frame(_ state: StateBadge.Kind) -> ChatCardKind? {
         switch state {
-        case .needsYou, .silent: .needsYou
-        case .starting, .working: .started
+        case .needsYou: .needsYou
+        case .starting, .working, .silent: .started
         case .ready: .done
         case .failed: .failed
         case .queued, .done, .stopped, .unknown: nil

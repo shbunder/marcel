@@ -44,7 +44,7 @@ enum Snapshot {
         let content = view
             .padding(padding)
             .frame(width: width)
-            .background(PixelTheme(variant.scheme).background.color)
+            .background(ChatPalette(variant.scheme).well.color)
             .environment(\.colorScheme, variant.scheme)
             .environment(\.dynamicTypeSize, variant.dynamicType)
             .environment(\.pixelReduceMotionOverride, true)

@@ -165,20 +165,11 @@ public struct QuestBoard: Equatable, Sendable {
         group.startsCollapsed && filter.status == .all
     }
 
-    /// What the filter button says.
-    public var filterTitle: String {
-        let project = filter.projectId.map { id in projects.first { $0.id == id }?.name ?? "One project" }
-            ?? "All projects"
-        return filter.archived ? "Archived · \(project)" : project
-    }
-
     /// The project filter's own title ("All projects", "Home energy"); the state is the chips'.
     public var projectTitle: String {
         filter.projectId.map { id in projects.first { $0.id == id }?.name ?? "One project" } ?? "All projects"
     }
 
-    /// The filter as VoiceOver says it: "Archived, Home energy".
-    public var spokenFilterTitle: String { filterTitle.replacingOccurrences(of: " · ", with: ", ") }
 
     /// What an empty log says, in plain words.
     public var emptyText: String {
