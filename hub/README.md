@@ -1044,7 +1044,8 @@ tunnel), with the channel's identity: the hub secret and the session id, 401 `ba
 
 - `{event: "stop"}` answers `report_owed`: true only for a worker whose task is `working` or
   `needs_you`. The hook then reminds the worker once to report.
-- `{event: "session_end", reason}` from such a worker moves the task to `failed` with reason
+- `{event: "session_end", reason}` from such a worker, or one whose task is `silent` (task-states.md
+  allows it; the end is the sign a silent task waited for), moves the task to `failed` with reason
   `ended_without_report: the session ended (<reason>) without reporting done or failed`; the triage
   tells the brain (`task_failed`) like any failed task. A task that already ended (the worker
   reported, or the runner's poll got there first) only has the end reason logged.

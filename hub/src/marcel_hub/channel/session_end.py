@@ -10,7 +10,8 @@ Outside `/api` like `/channel` (the tunnel never forwards it; a request with the
   `failed` report moves the task out of those, and a follow-up moves it back (task-states.md).
   For a brain, side-thread or adopted session it is always false.
 - `stop`: only the answer; the `Stop` hook reminds the worker once to report.
-- `session_end` from a worker that owed a report: the task goes to `failed`, reason
+- `session_end` from a worker that owed a report, or whose task was `silent`: the task goes to
+  `failed`, reason
   `ended_without_report` with the hook's own end reason in plain words. The channel gateway sees
   the state change and the triage tells the brain (`task_failed`), like any failed task. A task
   that already ended (the worker reported, or the runner's poll got there first) only has the end
@@ -35,6 +36,9 @@ log = logging.getLogger(__name__)
 
 TUNNEL_HEADER = 'cf-connecting-ip'
 OWING = (TaskState.working, TaskState.needs_you)
+# A session that ends is also the sign a `silent` task waited for (B-23): it fails too
+# (task-states.md: `working, needs_you, silent → failed`), though `report_owed` stays false for it.
+ENDING_FAILS = (*OWING, TaskState.silent)
 
 router = APIRouter()
 
@@ -85,7 +89,7 @@ async def session_ended(request: Request) -> dict[str, bool]:
     if body.event == 'stop':
         return {'report_owed': owed}
     why = body.reason or 'no reason given'
-    if not owed:
+    if task.state not in ENDING_FAILS:
         log.info('The session of task %s ended (%s); the task is already %s.',
                  task.id, why, task.state.value)  # fmt: skip
         return {'report_owed': False}
@@ -93,4 +97,4 @@ async def session_ended(request: Request) -> dict[str, bool]:
     reason = f'ended_without_report: the session ended ({why}) without reporting done or failed'
     with contextlib.suppress(IllegalTransition):  # moved meanwhile; the registry logged it
         await registry.report_state(task.id, TaskState.failed, reason)
-    return {'report_owed': True}
+    return {'report_owed': owed}

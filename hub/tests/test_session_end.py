@@ -71,6 +71,15 @@ def test_a_worker_that_ends_without_a_report_fails_and_the_brain_is_told(hub: Ch
     assert told['task_id'] == task_id and 'ended_without_report' in told['text']
 
 
+def test_a_silent_task_whose_session_ends_fails_too(hub: ChannelHub) -> None:
+    # task-states.md: silent → failed when the session ended without a report. Not "owed" (the
+    # Stop hook does not remind a silent worker), but the end is the sign B-23 waited for.
+    task_id, sid = hub.task(TaskState.silent)
+    res = hook(hub, sid, {'event': 'session_end', 'reason': 'other'})
+    assert res.json() == {'report_owed': False}
+    assert state(hub, task_id) == TaskState.failed
+
+
 def test_a_task_that_already_ended_only_has_its_end_logged(
     hub: ChannelHub, caplog: pytest.LogCaptureFixture
 ) -> None:
