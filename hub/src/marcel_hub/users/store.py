@@ -185,15 +185,22 @@ def unfinished_tasks(session: Session, user_id: str) -> list[str]:
     return list(rows)
 
 
-def remove_member(session: Session, user: User) -> None:
-    """Sign out their phones at once, archive their agents and forget the person. Their chats,
-    items and notes stay. Their running quests are stopped by the caller first."""
+def refuse_owner(user: User) -> None:
     if user.role == UserRole.owner or user.id == OWNER_USER_ID:
         raise ApiError(
             409, 'cannot_remove_owner', 'The owner cannot be removed. Nothing was changed.'
         )
+
+
+def sign_out(session: Session, user: User) -> None:
+    """Their phones out at once (their tokens answer 401), and their unused pairing codes gone."""
     session.exec(delete(Device).where(col(Device.user_id) == user.id))
     session.exec(delete(PairingCode).where(col(PairingCode.user_id) == user.id))
+    session.commit()
+
+
+def forget(session: Session, user: User) -> None:
+    """Archive their agents and forget the person. Their chats, items and notes stay."""
     now = utcnow()
     for agent in session.exec(select(Agent).where(Agent.owner_user_id == user.id)):
         if agent.archived_at is None:

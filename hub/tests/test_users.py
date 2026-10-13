@@ -217,6 +217,43 @@ def test_removing_a_person_stops_their_quests(client: TestClient) -> None:
     assert stopped is not None and stopped.state == TaskState.stopped
 
 
+def test_removing_a_person_signs_them_out_even_when_a_quest_cannot_be_stopped(
+    client: TestClient,
+) -> None:
+    owner = owner_phone(client)
+    emma = add_emma(client, owner)
+    member = member_phone(client, owner, emma['id'])
+    with Session(engine(client)) as s:
+        s.add(
+            Task(
+                agent_id=emma['agent']['id'],
+                title='Homework plan',
+                location=TaskLocation.nuc,
+                state=TaskState.working,
+                model='sonnet',
+                origin=TaskOrigin.marcel,
+                session_id='ses_1',
+            )
+        )
+        s.commit()
+
+    async def runner_down(task_id: str, by: str = 'you') -> None:
+        raise ConnectionError('the runner is not answering')
+
+    client.app.state.tasks.stop = runner_down  # type: ignore[attr-defined]
+    assert client.delete(f'/api/users/{emma["id"]}', headers=owner).status_code == 204
+    assert client.get('/api/me', headers=member).status_code == 401
+    assert [p['name'] for p in client.get('/api/users', headers=owner).json()] == ['Shaun']
+
+
+@pytest.mark.parametrize('blank', [{'name': '   '}, {'agent': {'name': ' '}}])
+def test_a_blank_name_is_refused(client: TestClient, blank: dict[str, Any]) -> None:
+    body = EMMA | blank
+    res = client.post('/api/users', json=body, headers=owner_phone(client))
+    assert res.status_code == 400 and res.json()['code'] == 'bad_request'
+    assert 'at least one letter' in res.json()['message']
+
+
 def test_the_owner_cannot_be_removed(client: TestClient) -> None:
     owner = owner_phone(client)
     res = client.delete(f'/api/users/{tokens.OWNER_USER_ID}', headers=owner)
