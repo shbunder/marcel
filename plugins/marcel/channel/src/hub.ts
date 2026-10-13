@@ -29,6 +29,8 @@ export interface HubOptions {
   quietMs?: number;
   ackTimeoutMs?: number;
   helloTimeoutMs?: number;
+  /** While the hub stays unreachable, log a reminder at most this often (the first failure is always logged). */
+  stillDownLogMs?: number;
 }
 
 export interface CallOutcome {
@@ -71,6 +73,8 @@ export class HubClient {
   private ended = false;
   private everReady = false;
   private helloTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The current outage: failed handshakes since the last welcome, when it began, when we last said so. */
+  private down: { since: number; tries: number; loggedAt: number } | undefined;
   private readonly calls = new Map<string, PendingCall>();
   private readonly permissions = new Map<string, PermissionRequest>();
 
@@ -84,6 +88,7 @@ export class HubClient {
       quietMs: 60_000,
       ackTimeoutMs: 10_000,
       helloTimeoutMs: 15_000,
+      stillDownLogMs: 300_000,
       ...opts,
     };
   }
@@ -187,10 +192,7 @@ export class HubClient {
       this.abandonSocket(socket);
       if (this.ended) return;
       const delay = this.scheduleReconnect();
-      this.o.log(
-        `Could not connect to the hub at ${this.o.url}: it is not running, or it answered with an HTTP error instead of ` +
-          `a WebSocket. Trying again in ${formatDelay(delay)}.`,
-      );
+      this.logDown(delay);
     };
     socket.onclose = () => {
       if (this.socket !== socket) return;
@@ -238,6 +240,23 @@ export class HubClient {
     } catch {
       // already closed
     }
+  }
+
+  /** One line for the first failed handshake, then at most one every `stillDownLogMs` while the hub stays down. */
+  private logDown(delay: number): void {
+    const now = Date.now();
+    if (!this.down) {
+      this.down = { since: now, tries: 1, loggedAt: now };
+      this.o.log(
+        `Could not connect to the hub at ${this.o.url}: it is not running, or it answered with an HTTP error instead of ` +
+          `a WebSocket. Trying again in ${formatDelay(delay)}.`,
+      );
+      return;
+    }
+    this.down.tries += 1;
+    if (now - this.down.loggedAt < this.o.stillDownLogMs) return;
+    this.down.loggedAt = now;
+    this.o.log(`Still can't reach the hub after ${this.down.tries} tries; still retrying every ${formatDelay(delay)}.`);
   }
 
   private clearHelloTimer(): void {
@@ -330,6 +349,10 @@ export class HubClient {
     this.clearPing();
     this.pingTimer = setInterval(() => this.send({ type: 'ping' }), this.o.pingMs);
     this.armQuietTimer();
+    if (this.down) {
+      this.o.log(`Reconnected to the hub after ${formatDelay(Date.now() - this.down.since)}.`);
+      this.down = undefined;
+    }
     this.o.log(`Connected to the hub as ${welcome.role}.`);
     this.o.onWelcome?.(welcome);
     // Anything the hub may not have stored goes again; the hub acks a repeated call_id with `duplicate`.

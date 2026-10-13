@@ -113,6 +113,39 @@ describe('connecting', () => {
     expect(seen).toEqual([1000, 3000, 7000, 15_000, 31_000, 61_000, 91_000, 121_000]);
   });
 
+  it('while the hub stays down, logs the first failure, then at most every 5 minutes, then once when back', async () => {
+    const h = new Harness();
+    h.hub.down = true;
+    h.server.start();
+    await flush();
+    const down = () => h.logs.filter((l) => l.startsWith('Could not connect') || l.startsWith("Still can't"));
+    expect(down()).toEqual([expect.stringMatching(/^Could not connect to the hub at ws:\/\/hub\.test\/channel: .* Trying again in 1 s\.$/)]);
+    await vi.advanceTimersByTimeAsync(299_000); // attempts at 1, 3, 7, 15, 31, 61 s, then every 30 s
+    expect(down()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(31_000); // the first failure 5 minutes after the last line
+    expect(down()).toHaveLength(2);
+    // tries at 0, 1, 3, 7, 15, 31, 61 s, then every 30 s: the 15th fails at 301 s
+    expect(down()[1]).toBe("Still can't reach the hub after 15 tries; still retrying every 30 s.");
+    await vi.advanceTimersByTimeAsync(240_000);
+    expect(down()).toHaveLength(2);
+    h.hub.down = false;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(h.server.hub?.state).toBe('ready');
+    expect(h.logs.filter((l) => l.startsWith('Reconnected'))).toEqual([expect.stringMatching(/^Reconnected to the hub after \d+ s\.$/)]);
+    // a later outage starts its own count with a fresh first line
+    h.hub.down = true;
+    h.hub.drop();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(down().slice(2)).toEqual([expect.stringContaining('Could not connect')]);
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(down()[3]).toMatch(/^Still can't reach the hub after 1[0-4] tries;/); // counted from this outage, not 15+
+  });
+
+  it('logs no "reconnected" line after an ordinary first connect', async () => {
+    const h = await connected();
+    expect(h.logs.some((l) => l.startsWith('Reconnected'))).toBe(false);
+  });
+
   it('starts over at 1 s once the hub answers', async () => {
     const h = new Harness();
     h.hub.down = true;

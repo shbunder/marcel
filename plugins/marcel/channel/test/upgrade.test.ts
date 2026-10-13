@@ -67,10 +67,10 @@ describe('HTTP error or no hub on the WebSocket upgrade', () => {
     await c.delivery();
     expect(c.delivered).toHaveLength(1);
     expect(client?.state).toBe('ready');
+    // two failed tries, one line (the rest are throttled), then one line when it is back
     const tries = c.logs.filter((l) => l.startsWith('Could not connect to the hub'));
-    expect(tries).toHaveLength(2);
-    expect(tries[0]).toMatch(/answered with an HTTP error instead of a WebSocket\. Trying again in 20 ms\.$/);
-    expect(tries[1]).toMatch(/Trying again in 40 ms\.$/);
+    expect(tries).toEqual([expect.stringMatching(/answered with an HTTP error instead of a WebSocket\. Trying again in 20 ms\.$/)]);
+    expect(c.logs.filter((l) => l.startsWith('Reconnected to the hub after'))).toHaveLength(1);
   });
 
   it('connection refused until the hub starts listening: reconnects and delivers', async () => {
