@@ -569,7 +569,7 @@ extension Components {
                 /// Picked from the agent's name when absent.
                 ///
                 /// - Remark: Generated from `#/components/schemas/NewUser/agent/look`.
-                public var look: Components.Schemas.Look?
+                public var look: Components.Schemas.NewLook?
                 /// Creates a new `AgentPayload`.
                 ///
                 /// - Parameters:
@@ -577,7 +577,7 @@ extension Components {
                 ///   - look: Picked from the agent's name when absent.
                 public init(
                     name: Swift.String,
-                    look: Components.Schemas.Look? = nil
+                    look: Components.Schemas.NewLook? = nil
                 ) {
                     self.name = name
                     self.look = look
@@ -593,7 +593,7 @@ extension Components {
                         forKey: .name
                     )
                     self.look = try container.decodeIfPresent(
-                        Components.Schemas.Look.self,
+                        Components.Schemas.NewLook.self,
                         forKey: .look
                     )
                     try decoder.ensureNoAdditionalProperties(knownKeys: [
@@ -1058,7 +1058,7 @@ extension Components {
             /// New in 0.7.0. Replaces the whole look; `animal` follows it.
             ///
             /// - Remark: Generated from `#/components/schemas/AgentUpdate/look`.
-            public var look: Components.Schemas.Look?
+            public var look: Components.Schemas.NewLook?
             /// New in 0.7.0. Sets `onboarded_at` the first time; sending it again changes nothing.
             ///
             /// - Remark: Generated from `#/components/schemas/AgentUpdate/onboarded`.
@@ -1077,7 +1077,7 @@ extension Components {
             ///   - palette: Deprecated in 0.7.0 (use `look`).
             public init(
                 name: Swift.String? = nil,
-                look: Components.Schemas.Look? = nil,
+                look: Components.Schemas.NewLook? = nil,
                 onboarded: Swift.Bool? = nil,
                 palette: Swift.String? = nil
             ) {
@@ -1099,7 +1099,7 @@ extension Components {
                     forKey: .name
                 )
                 self.look = try container.decodeIfPresent(
-                    Components.Schemas.Look.self,
+                    Components.Schemas.NewLook.self,
                     forKey: .look
                 )
                 self.onboarded = try container.decodeIfPresent(
@@ -1121,16 +1121,81 @@ extension Components {
         /// An avatar from the Pixel Zoo (B-44, ADR-008): an animal, a colour and a personality. The
         /// same look always draws the same avatar. New in 0.7.0.
         ///
+        /// **Open values, as the hub sends them** (0.7.1). The zoo grows, so a look the hub sends may
+        /// hold a value this client does not know. The known values are `LookAnimal`, `LookColor` and
+        /// `LookPersonality`. A client treats a look with any unknown value as no look at all and shows
+        /// the default avatar (the bundled giraffe); it never fails to read the rest of the answer.
+        /// What the hub accepts is strict: see `NewLook`.
+        ///
         ///
         /// - Remark: Generated from `#/components/schemas/Look`.
         public struct Look: Codable, Hashable, Sendable {
+            /// Known values: `LookAnimal`.
+            ///
             /// - Remark: Generated from `#/components/schemas/Look/animal`.
-            public var animal: Components.Schemas.LookAnimal
+            public var animal: Swift.String
+            /// Known values: `LookColor`.
+            ///
             /// - Remark: Generated from `#/components/schemas/Look/color`.
-            public var color: Components.Schemas.LookColor
+            public var color: Swift.String
+            /// Known values: `LookPersonality`.
+            ///
             /// - Remark: Generated from `#/components/schemas/Look/personality`.
-            public var personality: Components.Schemas.LookPersonality
+            public var personality: Swift.String
             /// Creates a new `Look`.
+            ///
+            /// - Parameters:
+            ///   - animal: Known values: `LookAnimal`.
+            ///   - color: Known values: `LookColor`.
+            ///   - personality: Known values: `LookPersonality`.
+            public init(
+                animal: Swift.String,
+                color: Swift.String,
+                personality: Swift.String
+            ) {
+                self.animal = animal
+                self.color = color
+                self.personality = personality
+            }
+            public enum CodingKeys: String, CodingKey {
+                case animal
+                case color
+                case personality
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.animal = try container.decode(
+                    Swift.String.self,
+                    forKey: .animal
+                )
+                self.color = try container.decode(
+                    Swift.String.self,
+                    forKey: .color
+                )
+                self.personality = try container.decode(
+                    Swift.String.self,
+                    forKey: .personality
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "animal",
+                    "color",
+                    "personality"
+                ])
+            }
+        }
+        /// A look sent to the hub (`AgentUpdate.look`, `NewUser.agent.look`). Only the known values;
+        /// anything else is 400 `bad_request`. New in 0.7.1 (0.7.0 used `Look` here, with the same rules).
+        ///
+        ///
+        /// - Remark: Generated from `#/components/schemas/NewLook`.
+        public struct NewLook: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/NewLook/animal`.
+            public var animal: Components.Schemas.LookAnimal
+            /// - Remark: Generated from `#/components/schemas/NewLook/color`.
+            public var color: Components.Schemas.LookColor
+            /// - Remark: Generated from `#/components/schemas/NewLook/personality`.
+            public var personality: Components.Schemas.LookPersonality
+            /// Creates a new `NewLook`.
             ///
             /// - Parameters:
             ///   - animal:

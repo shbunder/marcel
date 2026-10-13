@@ -121,7 +121,7 @@ final class CacheTests: XCTestCase {
         try cache.apply(try EventFrame.decode(Self.agentFrame(id: 2, name: "Pippa", etag: "e2")))
 
         XCTAssertEqual(try cache.agents().map(\.name), ["Pippa"])
-        XCTAssertEqual(try cache.agents().first?.look?.color, .sky)
+        XCTAssertEqual(try cache.agents().first?.drawnLook?.color, .sky)
         XCTAssertEqual(try cache.avatarEtag(forAgent: "agt_1"), "e2")
         XCTAssertEqual(cache.lastEventId, 2)
     }

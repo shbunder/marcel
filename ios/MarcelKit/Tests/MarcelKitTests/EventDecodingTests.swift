@@ -47,7 +47,7 @@ final class EventDecodingTests: XCTestCase {
         guard case .agentUpdated(let agent, let etag) = frame.event else { return XCTFail("\(frame.event)") }
         XCTAssertEqual(agent.id, "agt_1")
         XCTAssertEqual(agent.name, "Pip")
-        XCTAssertEqual(agent.look, Look(animal: .fox, color: .tangerine, personality: .cheerful))
+        XCTAssertEqual(agent.drawnLook, KnownLook(animal: .fox, color: .tangerine, personality: .cheerful))
         XCTAssertNotNil(agent.onboardedAt)
         XCTAssertEqual(etag, #"W/"a1""#)
     }

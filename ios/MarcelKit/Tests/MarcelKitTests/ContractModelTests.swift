@@ -21,20 +21,34 @@ final class ContractModelTests: XCTestCase {
         XCTAssertEqual(user.id, "usr_01JA3E1")
         XCTAssertEqual(user.role, .member)
         XCTAssertEqual(user.agent?.name, "Pip")
-        XCTAssertEqual(user.agent?.look, Look(animal: .fox, color: .tangerine, personality: .cheerful))
+        XCTAssertEqual(user.agent?.look?.known, KnownLook(animal: .fox, color: .tangerine, personality: .cheerful))
         try roundTrip(user)
     }
 
     /// `Agent` with a look (0.7.0) and without (the app-api.yaml example: an agent from before 0.7.0).
     func testAgentLookDecodes() throws {
         let agent = try decode(Agent.self, #"{"id":"agt_marcel","name":"Marcel","look":{"animal":"giraffe","color":"rose","personality":"professional"},"animal":"giraffe","onboarded_at":"2026-10-13T17:20:00Z","main_conversation_id":"cnv_main_marcel","state":{"kind":"idle"},"model_brain":"opus","model_worker":"sonnet"}"#)
-        XCTAssertEqual(agent.look?.animal, .giraffe)
-        XCTAssertEqual(agent.look?.color, .rose)
-        XCTAssertEqual(agent.look?.personality, .professional)
+        XCTAssertEqual(agent.drawnLook, KnownLook(animal: .giraffe, color: .rose, personality: .professional))
         try roundTrip(agent)
         let old = try decode(Agent.self, #"{"id":"agt_marcel","name":"Marcel","animal":"giraffe","palette":"marcel","seed":"Marcel","main_conversation_id":"cnv_main_marcel","state":{"kind":"idle"},"model_brain":"opus","model_worker":"sonnet"}"#)
         XCTAssertNil(old.look)
         XCTAssertNil(old.onboardedAt)
+    }
+
+    /// app API 0.7.1: a look with a value this build does not know (a newer zoo) still decodes, with the rest of the
+    /// answer, and is drawn as the default avatar.
+    func testAnUnknownLookValueMeansTheDefaultAvatar() throws {
+        let agent = try decode(Agent.self, #"{"id":"agt_1","name":"Pip","look":{"animal":"axolotl","color":"rose","personality":"cheerful"},"animal":"axolotl","main_conversation_id":"cnv_1","state":{"kind":"idle"},"model_brain":"opus","model_worker":"sonnet"}"#)
+        XCTAssertEqual(agent.name, "Pip")
+        XCTAssertEqual(agent.look?.animal, "axolotl")
+        XCTAssertNil(agent.drawnLook, "unknown animal: the default avatar")
+        for (animal, color, personality) in [("fox", "ultraviolet", "cozy"), ("fox", "sky", "mysterious")] {
+            XCTAssertNil(Look(animal: animal, color: color, personality: personality).known)
+        }
+        // A /me answer with such an agent reads in full: nothing else is lost.
+        let me = try decode(Me.self, #"{"user_id":"usr_1","name":"Emma","role":"member","device_id":"dev_1","agents":[{"id":"agt_1","name":"Pip","look":{"animal":"axolotl","color":"rose","personality":"cheerful"},"animal":"axolotl","main_conversation_id":"cnv_1","state":{"kind":"idle"},"model_brain":"opus","model_worker":"sonnet"}],"push":{"apns":false,"ntfy":false}}"#)
+        XCTAssertEqual(me.agents.map(\.name), ["Pip"])
+        XCTAssertNil(me.agents.first?.drawnLook)
     }
 
     /// Every Pixel Zoo choice the contract lists is a case the app knows.
