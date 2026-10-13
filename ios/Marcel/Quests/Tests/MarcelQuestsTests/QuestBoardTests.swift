@@ -22,12 +22,63 @@ final class QuestBoardTests: XCTestCase {
         let board = QuestBoard(tasks: tasks, artifacts: [Fx.pr("art_pr", task: "t_review")],
                                projects: Fx.projects, now: Fx.now)
 
-        XCTAssertEqual(board.groups, [.waitingOnYou, .working, .queued, .readyForReview, .finished])
+        XCTAssertEqual(board.groups, [.waitingOnYou, .readyForReview, .working, .queued, .finished],
+                       "the filter's order: waiting on you, ready for review, working (and its queue), done")
         XCTAssertEqual(board.layout[.waitingOnYou], ["t_needs"])
         XCTAssertEqual(Set(board.layout[.working] ?? []), ["t_working", "t_starting", "t_silent", "t_unknown"])
         XCTAssertEqual(board.layout[.queued], ["t_queued"])
         XCTAssertEqual(board.layout[.readyForReview], ["t_review"])
         XCTAssertEqual(Set(board.layout[.finished] ?? []), ["t_done", "t_failed", "t_stopped"])
+    }
+
+    /// S-18.4: the state filter, like Claude's session list: All · Waiting on you · Ready for review · Working · Done ·
+    /// Archived, each showing only its quests.
+    func testTheStateFilterHasSixChoicesAndEachShowsItsQuests() {
+        XCTAssertEqual(QuestStatusFilter.allCases.map(\.title),
+                       ["All", "Waiting on you", "Ready for review", "Working", "Done", "Archived"])
+        let tasks = [
+            Fx.task("t_needs", "Dentist booking", state: "needs_you"),
+            Fx.task("t_review", "Avatar sprite in app", state: "done"),
+            Fx.task("t_working", "Energy contracts", state: "working"),
+            Fx.task("t_queued", "Disk usage", state: "queued"),
+            Fx.task("t_done", "Sunday lunch", state: "done", active: 2 * Fx.hour),
+            Fx.task("t_arch", "Old trip", state: "done", extra: ["archived_at": "2026-10-10T08:00:00Z"]),
+        ]
+        func ids(_ status: QuestStatusFilter) -> Set<String> {
+            let board = QuestBoard(tasks: tasks, artifacts: [Fx.pr("art_pr", task: "t_review")],
+                                   filter: QuestFilter(status: status), now: Fx.now)
+            return Set(board.sections.flatMap(\.rows).map(\.id))
+        }
+        XCTAssertEqual(ids(.all), ["t_needs", "t_review", "t_working", "t_queued", "t_done"], "all live quests")
+        XCTAssertEqual(ids(.waitingOnYou), ["t_needs"])
+        XCTAssertEqual(ids(.readyForReview), ["t_review"], "a quest with an open PR (S-12.5)")
+        XCTAssertEqual(ids(.working), ["t_working", "t_queued"], "working includes the queue")
+        XCTAssertEqual(ids(.done), ["t_done"])
+        XCTAssertEqual(ids(.archived), ["t_arch"])
+
+        // "Done" is folded away only in "All".
+        let all = QuestBoard(tasks: tasks, filter: QuestFilter(status: .all), now: Fx.now)
+        let done = QuestBoard(tasks: tasks, filter: QuestFilter(status: .done), now: Fx.now)
+        XCTAssertTrue(all.startsCollapsed(.finished))
+        XCTAssertFalse(done.startsCollapsed(.finished))
+        XCTAssertEqual(QuestBoard(tasks: [], filter: QuestFilter(status: .readyForReview), now: Fx.now).emptyText,
+                       "Nothing is ready for review.")
+        // The archived switch and the "Archived" choice are the same filter.
+        XCTAssertEqual(QuestFilter(archived: true), QuestFilter(status: .archived))
+        var filter = QuestFilter(status: .working)
+        filter.archived = false
+        XCTAssertEqual(filter.status, .working, "leaving archived off keeps the chosen state")
+    }
+
+    @MainActor
+    func testPickingAStateInTheModel() async {
+        let model = QuestsModel()
+        await model.selectStatus(.readyForReview)
+        XCTAssertEqual(model.filter.status, .readyForReview)
+        await model.selectStatus(.archived)
+        XCTAssertTrue(model.filter.archived)
+        await model.selectStatus(.all)
+        XCTAssertEqual(model.filter.status, .all)
     }
 
     func testEmptyGroupsAreLeftOut() {

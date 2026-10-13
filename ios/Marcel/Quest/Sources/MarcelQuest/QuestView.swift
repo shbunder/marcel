@@ -10,7 +10,7 @@ extension EnvironmentValues {
     @Entry public var liveEvents: MarcelCache? = nil
 }
 
-/// Inside one quest (wireframe 2A): its steps first, then the live detail folded away (text, tool rows that open,
+/// Inside one quest (wireframe 2A, in the chat's language since S-18.4): its steps first, then the live detail folded away (text, tool rows that open,
 /// diffs in colour, approval prompts you answer in place), a composer that talks to this quest only, and the actions:
 /// stop, hand back to Marcel, move to another project, open in Claude.
 ///
@@ -62,7 +62,7 @@ public struct QuestView: View {
             }
             QuestComposerBox(model: model)
         }
-        .background(PixelTheme(scheme).background.color)
+        .background(ChatPalette(scheme).well.color)
         .toolbar(.hidden, for: .navigationBar)
         .task {
             if model.cache == nil { model.cache = MarcelCache(container: context.container) }
@@ -167,8 +167,9 @@ struct QuestNote: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        PixelText(text, role: .detail)
-            .foregroundStyle(PixelTheme(scheme).muted.color)
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(ChatPalette(scheme).muted.color)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -248,6 +249,6 @@ struct QuestStill: View {
             }
         }
         .environment(\.questStill, true)
-        .background(PixelTheme(scheme).background.color)
+        .background(ChatPalette(scheme).well.color)
     }
 }

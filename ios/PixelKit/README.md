@@ -46,7 +46,8 @@ done, failed; a 2-pt frame on all four sides, a pixel label with its `ChatGlyph`
 ## Components
 
 `DialogBox` (speaker, text, blinking ▼, optional accessory) · `ChoicePrompt` (▶ follows keyboard and VoiceOver
-focus; arrow keys and Return work) · `QuestCard` (state badge, title, project chip, detail, progress bar) ·
+focus; arrow keys and Return work) · `QuestCard` (S-18.4: a white rounded card framed by its state — gold needs you, teal working, rose ready, red
+failed — with the title, the state word, the project tag, the detail and a thin progress bar) ·
 `ArtifactCard` + `ArtifactRow` (gold header, "updated" badge) · `ItemGetBanner` · `ProjectChip` (five tones) ·
 `StateBadge` (every task state) · `PixelTabBar` · `HeartsHeader` (avatar slot for AvatarKit). `PixelGallery` shows
 them all on one screen. Each file has a SwiftUI preview in light and dark.

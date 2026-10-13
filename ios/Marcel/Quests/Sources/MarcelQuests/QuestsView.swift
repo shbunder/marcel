@@ -5,9 +5,10 @@ import PixelKit
 import SwiftData
 import SwiftUI
 
-/// The Quests tab (wireframe 2C): every thread as a quest card, grouped waiting on you (pinned), working, queued,
-/// ready for review and done this week (folded). A project filter at the top, with "Archived quests" in the same
-/// menu. Swipe a running quest to stop it, a finished one to archive it.
+/// The Quests tab (S-18.4, the chat's language): every thread as a quest card on the soft background, its state as
+/// the card's frame colour, grouped waiting on you (pinned), ready for review, working, queued and done this week
+/// (folded). The state chips filter like Claude's session list (All · Waiting on you · Ready for review · Working ·
+/// Done · Archived); the project filter is at the top. Swipe a running quest to stop it, a finished one to archive it.
 ///
 /// Everything comes from the cache (`MarcelKit`'s SwiftData rows), which the live event stream keeps current, so a
 /// `task.updated` moves a card as soon as it arrives. Needs the app's `.modelContainer`.
@@ -41,7 +42,7 @@ public struct QuestsView: View {
                                         now: timeline.date)
             content(board)
         }
-        .background(PixelTheme(scheme).background.color)
+        .background(ChatPalette(scheme).well.color)
         .onAppear {
             if model.cache == nil { model.cache = MarcelCache(container: context.container) }
             if model.service == nil { model.service = LiveQuestService.paired() }
@@ -66,6 +67,8 @@ public struct QuestsView: View {
         VStack(spacing: 0) {
             QuestLogHeader { filterMenu(board) }
             List {
+                StatusChips(selected: board.filter.status) { status in Task { await model.selectStatus(status) } }
+                    .questListRow()
                 if let problem = model.problem {
                     ProblemLine(text: problem) { model.problem = nil }
                         .questListRow()
@@ -75,7 +78,7 @@ public struct QuestsView: View {
                         .questListRow()
                 }
                 ForEach(board.sections) { section in
-                    let collapsible = section.group.startsCollapsed
+                    let collapsible = board.startsCollapsed(section.group)
                     let open = !collapsible || model.showsFinished
                     SectionTitle(section: section, open: open,
                                  toggle: collapsible ? { model.showsFinished.toggle() } : nil)
@@ -123,13 +126,11 @@ public struct QuestsView: View {
                 Text("All projects").tag(String?.none)
                 ForEach(board.projects) { Text($0.name).tag(Optional($0.id)) }
             }
-            Toggle("Archived quests",
-                   isOn: Binding(get: { model.filter.archived }, set: { on in Task { await model.showArchived(on) } }))
         } label: {
-            FilterLabel(title: board.filterTitle)
+            FilterLabel(title: board.projectTitle)
         }
-        .accessibilityLabel("Filter: \(board.spokenFilterTitle)")
-        .accessibilityHint("Pick a project, or show archived quests")
+        .accessibilityLabel("Project: \(board.projectTitle)")
+        .accessibilityHint("Pick a project")
     }
 }
 

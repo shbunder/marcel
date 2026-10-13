@@ -28,6 +28,15 @@ public final class QuestsModel {
         filter.projectId = projectId
     }
 
+    /// Picks a state in the filter; "Archived" fetches the archived quests from the hub.
+    public func selectStatus(_ status: QuestStatusFilter) async {
+        if status == .archived {
+            await showArchived(true)
+        } else {
+            filter.status = status
+        }
+    }
+
     /// Shows archived quests (fetched from the hub, since the stream does not carry them) or the live ones.
     public func showArchived(_ archived: Bool) async {
         filter.archived = archived

@@ -16,7 +16,8 @@ enum QuestMetrics {
     static let textLines = 80
 }
 
-/// The quest's top strip (wireframe 2A): ◀ back, the quest's name, and "project · NUC · sonnet" with its state.
+/// The quest's top strip (S-18.4, the chat's language): ‹ back, the quest's name as a plain header, and
+/// "Project · NUC · sonnet" with its state word, on white with a thin line under it.
 struct QuestHeader: View {
     var title: String
     var project: String?
@@ -28,40 +29,40 @@ struct QuestHeader: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
-        HStack(alignment: .center, spacing: PixelMetrics.steps(3)) {
+        let palette = ChatPalette(scheme)
+        HStack(alignment: .center, spacing: 4) {
             Button(action: back) {
-                PixelGlyph(.pointer, color: theme.text, pixel: 3)
-                    .scaleEffect(x: -1)
+                Image(systemName: "chevron.left")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(palette.ink.color)
                     .frame(width: PixelMetrics.minTapTarget, height: PixelMetrics.minTapTarget)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
-            VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
-                PixelText(title, role: .title)
-                    .foregroundStyle(theme.text.color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(palette.ink.color)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
-                FlowLayout(spacing: PixelMetrics.steps(3)) {
-                    if let state { StateBadge(state) }
-                    if let project { ProjectChip(project, tone: tone) }
-                    if let place {
-                        PixelText(place, role: .detail)
-                            .foregroundStyle(theme.muted.color)
-                            .accessibilityLabel(place.replacingOccurrences(of: " · ", with: ", "))
-                    }
+                let line = [state.map(\.spokenTitle), project, place].compactMap { $0 }.joined(separator: " · ")
+                if !line.isEmpty {
+                    Text(line)
+                        .font(.subheadline)
+                        .foregroundStyle(palette.muted.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel(line.replacingOccurrences(of: " · ", with: ", "))
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(.leading, PixelMetrics.steps(1))
-        .padding(.trailing, PixelMetrics.padding)
-        .padding(.vertical, PixelMetrics.steps(3))
+        .padding(.trailing, 16)
+        .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.bar.color)
+        .background(palette.card.color)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.line.color).frame(height: PixelMetrics.thickBorder)
+            Rectangle().fill(palette.line.color).frame(height: 1)
         }
     }
 }
@@ -102,23 +103,24 @@ struct QuestSectionTitle: View {
     }
 }
 
-/// The steps checklist: ✓ done, ▶ now, · not started, × where it stopped.
+/// The steps checklist: ✓ done, ▶ now, · not started, × where it stopped. Body text, like the chat.
 struct StepsList: View {
     var steps: [QuestStep]
 
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
-        VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
+        let palette = ChatPalette(scheme)
+        VStack(alignment: .leading, spacing: 6) {
             ForEach(steps) { step in
-                HStack(alignment: .firstTextBaseline, spacing: PixelMetrics.steps(4)) {
-                    PixelText(step.mark.symbol, role: .body)
-                        .foregroundStyle((step.mark == .current ? theme.accent : step.mark == .done ? theme.text
-                                          : theme.muted).color)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(step.mark.symbol)
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(color(step.mark, palette).color)
                         .frame(minWidth: 22, alignment: .center)
-                    PixelText(step.text, role: .body)
-                        .foregroundStyle((step.mark == .next ? theme.muted : theme.text).color)
+                    Text(step.text)
+                        .font(.body.weight(step.mark == .current ? .semibold : .regular))
+                        .foregroundStyle((step.mark == .next ? palette.muted : palette.ink).color)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .accessibilityElement(children: .ignore)
@@ -126,6 +128,15 @@ struct StepsList: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func color(_ mark: QuestStep.Mark, _ palette: ChatPalette) -> PixelColor {
+        switch mark {
+        case .done: ChatCardKind.started.label(in: palette)
+        case .current: ChatCardKind.done.label(in: palette)
+        case .stopped: ChatCardKind.failed.label(in: palette)
+        case .next: palette.muted
+        }
     }
 }
 
@@ -147,16 +158,15 @@ struct DetailRowView: View {
         let theme = PixelTheme(scheme)
         switch row.kind {
         case .text(let fromUser, let text):
+            // Claude's text reads like the chat: plain formatted text with the shared Markdown blocks.
             let capped = CappedText(text, maxLines: QuestMetrics.textLines)
             VStack(alignment: .leading, spacing: PixelMetrics.steps(1)) {
                 if fromUser {
                     PixelText("Prompt", role: .smallLabel).foregroundStyle(theme.muted.color)
                 }
-                PixelText(capped.text, role: .body)
-                    .foregroundStyle(theme.text.color)
-                    .fixedSize(horizontal: false, vertical: true)
+                MarkdownView(parts: ItemMarkdown.parse(capped.text), style: .chat)
                 if let more = capped.moreLine {
-                    PixelText(more, role: .detail).foregroundStyle(theme.muted.color)
+                    Text(more).font(.footnote).foregroundStyle(theme.muted.color)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -176,12 +186,14 @@ struct DetailRowView: View {
                 : (prompt ? "Marcel → this quest · the task" : "Marcel → this quest")
             let spoken = fromUser ? (handback ? "You, handing back to Marcel" : "You, to this quest")
                 : (prompt ? "Marcel's task for this quest" : "Marcel, to this quest")
-            DialogBox(speaker: speaker, text: capped.text + (capped.moreLine.map { "\n\($0)" } ?? ""))
+            QuestNoteView(speaker: speaker, text: capped.text + (capped.moreLine.map { "\n\($0)" } ?? ""),
+                          fromUser: fromUser)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(spoken): \(capped.text)")
         case .line(let kind, let text):
             let capped = CappedText(text, maxLines: 6)
-            PixelText(capped.text + (capped.moreLine.map { " \($0)" } ?? ""), role: .detail)
+            Text(capped.text + (capped.moreLine.map { " \($0)" } ?? ""))
+                .font(.footnote)
                 .foregroundStyle((kind == .error ? theme.accent : theme.muted).color)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -247,8 +259,8 @@ struct ToolRow: View {
                 .accessibilityElement(children: .combine)
             }
         }
-        .background(theme.bar.color)
-        .overlay(Rectangle().strokeBorder(theme.line.color.opacity(0.35), lineWidth: PixelMetrics.thinBorder))
+        .background(ChatPalette(scheme).well.color, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(ChatPalette(scheme).line.color, lineWidth: 1))
     }
 }
 
@@ -310,8 +322,8 @@ struct DiffRow: View {
                 }.joined(separator: "\n"))
             }
         }
-        .background(theme.bar.color)
-        .overlay(Rectangle().strokeBorder(theme.line.color.opacity(0.35), lineWidth: PixelMetrics.thinBorder))
+        .background(ChatPalette(scheme).well.color, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(ChatPalette(scheme).line.color, lineWidth: 1))
     }
 }
 
@@ -372,7 +384,8 @@ struct DiffLineView: View {
     }
 }
 
-/// An inline approval prompt (B-12): what the quest wants to do, Approve / Deny, and once answered, the answer.
+/// An inline approval prompt (B-12), as the chat's "needs you" card: what the quest wants to do, Approve / Not now,
+/// and once answered, the answer.
 struct ApprovalPrompt: View {
     var tool: String
     var summary: String
@@ -382,30 +395,69 @@ struct ApprovalPrompt: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
-        DialogBox(speaker: "Asks to use \(tool)", text: summary.isEmpty ? "Wants to use \(tool)." : summary) {
+        let palette = ChatPalette(scheme)
+        ChatCard(.needsYou, label: "Needs you", meta: tool) {
+            Text(summary.isEmpty ? "Wants to use \(tool)." : summary)
+                .font(.body)
+                .foregroundStyle(palette.ink.color)
+                .fixedSize(horizontal: false, vertical: true)
             if status.isOpen {
-                ChoicePrompt([.init(id: "approve", title: "Approve"), .init(id: "deny", title: "Deny")]) { choice in
-                    answer(choice.id == "approve")
+                HStack(spacing: 8) {
+                    ChatCardButton("Approve", kind: .needsYou, filled: true) { answer(true) }
+                    ChatCardButton("Not now", kind: .needsYou) { answer(false) }
                 }
             } else if let words = status.words {
-                PixelText(words, role: .smallLabel)
-                    .foregroundStyle(theme.muted.color)
+                Text(words)
+                    .font(.subheadline)
+                    .foregroundStyle(palette.muted.color)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("Answer: \(words)")
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Asks to use \(tool)")
     }
 }
 
-/// A message you sent that the transcript does not show yet.
+/// A message you sent that the transcript does not show yet: your bubble, with "Sending…" or "Sent" under it.
 struct PendingNoteView: View {
     var note: PendingNote
 
     var body: some View {
-        DialogBox(speaker: note.sent ? "You → this quest · sent" : "You → this quest · sending…", text: note.text)
+        QuestNoteView(speaker: note.sent ? "Sent to this quest" : "Sending…", text: note.text, fromUser: true)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("You, to this quest, \(note.sent ? "sent" : "sending"): \(note.text)")
+    }
+}
+
+/// A note in the transcript, like the chat: yours in your bubble on the right, Marcel's as plain text, each with who
+/// it went to in small muted words.
+struct QuestNoteView: View {
+    var speaker: String
+    var text: String
+    var fromUser: Bool
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let palette = ChatPalette(scheme)
+        VStack(alignment: fromUser ? .trailing : .leading, spacing: 4) {
+            if fromUser {
+                HStack {
+                    Spacer(minLength: 64)
+                    ChatBubble(text)
+                }
+            } else {
+                Text(text)
+                    .font(.body)
+                    .foregroundStyle(palette.ink.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(speaker)
+                .font(.caption)
+                .foregroundStyle(palette.muted.color)
+        }
+        .frame(maxWidth: .infinity, alignment: fromUser ? .trailing : .leading)
     }
 }
 
@@ -458,20 +510,21 @@ struct QuestToolbar<Move: View>: View {
     }
 }
 
-/// A chip-styled action: an outlined label at least a tap target tall.
+/// An action under the quest, outlined like the chat's card buttons: rounded, at least a tap target tall.
 struct QuestChip: View {
     var title: String
     var ink: PixelColor
 
     var body: some View {
-        PixelText(title, role: .smallLabel)
+        Text(title)
+            .font(.subheadline.weight(.semibold))
             .lineLimit(1)
             .foregroundStyle(ink.color)
-            .padding(.horizontal, PixelMetrics.steps(4))
-            .padding(.vertical, PixelMetrics.steps(2) + 1)
-            .overlay(Rectangle().strokeBorder(ink.color, lineWidth: PixelMetrics.thinBorder))
+            .padding(.horizontal, 12)
+            .frame(minHeight: 34)
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(ink.color, lineWidth: 1.5))
             .fixedSize()
-            .frame(minHeight: PixelMetrics.minTapTarget)
+            .padding(.vertical, 5)
             .contentShape(Rectangle())
     }
 }
@@ -492,7 +545,8 @@ struct QuestComposer: View {
         let theme = PixelTheme(scheme)
         HStack(alignment: .center, spacing: PixelMetrics.steps(3)) {
             if still {
-                PixelText(text.isEmpty ? Self.placeholder : text, role: .body)
+                Text(text.isEmpty ? Self.placeholder : text)
+                    .font(.body)
                     .foregroundStyle((text.isEmpty ? theme.muted : theme.text).color)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
@@ -500,14 +554,16 @@ struct QuestComposer: View {
                     Text(Self.placeholder).foregroundStyle(theme.muted.color)
                 }
                 .lineLimit(1...5)
-                .pixelText(.body)
+                .font(.body)
                 .foregroundStyle(theme.text.color)
                 .tint(theme.accent.color)
                 .accessibilityLabel("Message to this quest")
                 .accessibilityHint("Goes to this quest only, not to Marcel")
             }
             Button(action: send) {
-                PixelGlyph(.pointer, color: canSend ? theme.accent : theme.muted, pixel: 3)
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle((canSend ? ChatCardKind.done.label(in: ChatPalette(scheme)) : theme.muted).color)
                     .frame(width: PixelMetrics.minTapTarget, height: PixelMetrics.minTapTarget)
                     .contentShape(Rectangle())
             }
@@ -515,9 +571,10 @@ struct QuestComposer: View {
             .disabled(!canSend)
             .accessibilityLabel("Send to this quest")
         }
-        .padding(.leading, PixelMetrics.padding)
-        .padding(.vertical, PixelMetrics.steps(1))
-        .pixelBox(fill: theme.dialog, line: theme.line, shadow: nil)
+        .padding(.leading, 14)
+        .padding(.vertical, 2)
+        .background(ChatPalette(scheme).card.color, in: RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(ChatPalette(scheme).line.color, lineWidth: 1))
         .padding(.horizontal, QuestMetrics.inset.leading)
         .padding(.top, PixelMetrics.steps(2))
         .padding(.bottom, PixelMetrics.steps(4))
@@ -534,12 +591,15 @@ struct QuestProblem: View {
     var body: some View {
         let theme = PixelTheme(scheme)
         Button(action: dismiss) {
-            PixelText(text, role: .detail)
-                .foregroundStyle(theme.accent.color)
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(ChatCardKind.failed.label(in: ChatPalette(scheme)).color)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(PixelMetrics.steps(4))
-                .pixelBox(fill: theme.dialog, line: theme.accent, shadow: nil, border: PixelMetrics.thinBorder)
+                .padding(12)
+                .background(ChatPalette(scheme).card.color, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(ChatCardKind.failed.frame(in: ChatPalette(scheme)).color, lineWidth: 2))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(text)

@@ -2,22 +2,59 @@ import Foundation
 import MarcelKit
 import PixelKit
 
-/// What the quest log shows: which project, and live quests or the archived ones.
-public struct QuestFilter: Equatable, Hashable, Sendable {
-    /// Only this project's quests; nil for every project.
-    public var projectId: String?
-    /// Archived quests instead of live ones.
-    public var archived: Bool
+/// The state filter (S-18.4): the same states, in the same order, as Claude's own session list.
+public enum QuestStatusFilter: String, CaseIterable, Sendable {
+    case all, waitingOnYou, readyForReview, working, done, archived
 
-    public init(projectId: String? = nil, archived: Bool = false) {
-        self.projectId = projectId
-        self.archived = archived
+    public var title: String {
+        switch self {
+        case .all: "All"
+        case .waitingOnYou: "Waiting on you"
+        case .readyForReview: "Ready for review"
+        case .working: "Working"
+        case .done: "Done"
+        case .archived: "Archived"
+        }
+    }
+
+    /// The groups this filter shows. "Working" includes the queue; "Done" is this week's finished quests.
+    public var groups: Set<QuestGroup> {
+        switch self {
+        case .all: [.waitingOnYou, .readyForReview, .working, .queued, .finished]
+        case .waitingOnYou: [.waitingOnYou]
+        case .readyForReview: [.readyForReview]
+        case .working: [.working, .queued]
+        case .done: [.finished]
+        case .archived: [.archived]
+        }
     }
 }
 
-/// The groups of the quest log, top to bottom. "Waiting on you" is always first (pinned).
+/// What the quest log shows: which project, and which state (the archived quests are one of them).
+public struct QuestFilter: Equatable, Hashable, Sendable {
+    /// Only this project's quests; nil for every project.
+    public var projectId: String?
+    public var status: QuestStatusFilter
+
+    public init(projectId: String? = nil, status: QuestStatusFilter = .all) {
+        self.projectId = projectId
+        self.status = status
+    }
+
+    public init(projectId: String? = nil, archived: Bool) {
+        self.init(projectId: projectId, status: archived ? .archived : .all)
+    }
+
+    /// Archived quests instead of live ones.
+    public var archived: Bool {
+        get { status == .archived }
+        set { status = newValue ? .archived : (status == .archived ? .all : status) }
+    }
+}
+
+/// The groups of the quest log, top to bottom, in the filter's order. "Waiting on you" is always first (pinned).
 public enum QuestGroup: String, CaseIterable, Sendable {
-    case waitingOnYou, working, queued, readyForReview, finished, archived
+    case waitingOnYou, readyForReview, working, queued, finished, archived
 
     public var title: String {
         switch self {
@@ -103,7 +140,8 @@ public struct QuestBoard: Equatable, Sendable {
         for task in tasks {
             if let projectId = filter.projectId, task.projectId != projectId { continue }
             let pr = prs[task.id]
-            guard let group = Self.group(for: task, pr: pr, archivedView: filter.archived, now: now) else { continue }
+            guard let group = Self.group(for: task, pr: pr, archivedView: filter.archived, now: now),
+                  filter.status.groups.contains(group) else { continue }
             buckets[group, default: []].append(
                 Self.row(task: task, pr: pr, project: projectsById[task.projectId], group: group, now: now))
         }
@@ -122,6 +160,11 @@ public struct QuestBoard: Equatable, Sendable {
 
     public var isEmpty: Bool { sections.isEmpty }
 
+    /// "Done · this week" starts folded away in "All"; picked on its own, it is open.
+    public func startsCollapsed(_ group: QuestGroup) -> Bool {
+        group.startsCollapsed && filter.status == .all
+    }
+
     /// What the filter button says.
     public var filterTitle: String {
         let project = filter.projectId.map { id in projects.first { $0.id == id }?.name ?? "One project" }
@@ -129,12 +172,24 @@ public struct QuestBoard: Equatable, Sendable {
         return filter.archived ? "Archived · \(project)" : project
     }
 
+    /// The project filter's own title ("All projects", "Home energy"); the state is the chips'.
+    public var projectTitle: String {
+        filter.projectId.map { id in projects.first { $0.id == id }?.name ?? "One project" } ?? "All projects"
+    }
+
     /// The filter as VoiceOver says it: "Archived, Home energy".
     public var spokenFilterTitle: String { filterTitle.replacingOccurrences(of: " · ", with: ", ") }
 
     /// What an empty log says, in plain words.
     public var emptyText: String {
-        switch (filter.archived, filter.projectId != nil) {
+        switch filter.status {
+        case .waitingOnYou: return "Nothing waits on you."
+        case .readyForReview: return "Nothing is ready for review."
+        case .working: return "Nothing is running."
+        case .done: return "Nothing finished this week."
+        case .all, .archived: break
+        }
+        return switch (filter.archived, filter.projectId != nil) {
         case (true, false): "No archived quests."
         case (true, true): "No archived quests in this project."
         case (false, false): "No quests yet. Ask Marcel for something in Chat."

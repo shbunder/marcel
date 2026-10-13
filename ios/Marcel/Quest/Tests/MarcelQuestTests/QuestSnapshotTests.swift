@@ -208,7 +208,7 @@ final class QuestAccessibilityTests: XCTestCase {
                 "Doing now: Modelling with and without solar", "Live detail",
                 "Command: python model.py --solar 4.2kWp, done", "Change to energy/model.py: 2 lines added, 1 line removed",
                 "Claude: Modelling the yearly cost with and without the solar panels.",
-                "Approve", "Deny", "Stop this quest", "Hand back to Marcel", "Send to this quest",
+                "Approve", "Not now", "Stop this quest", "Hand back to Marcel", "Send to this quest",
             ] {
                 XCTAssertTrue(labels.contains(expected), "\(size): no element reads \"\(expected)\" in \(labels)")
             }

@@ -8,15 +8,18 @@ MarcelKit and PixelKit, so any tab can open it without a dependency cycle; keep 
 
 ## What it shows
 
-- **Header:** ◀ back, the quest's name, its state, its project and "NUC · sonnet".
+- **The look** (S-18.4, the chat's language): a plain header, the soft background, Claude's text as plain formatted
+  text (the shared Markdown's chat style), your notes as your bubbles, approvals as the chat's "needs you" card; tool
+  rows and diffs are the only boxes.
+- **Header:** ‹ back, the quest's name, and "Working · Home energy · NUC · sonnet".
 - **Progress first:** the worker's `report(progress)` events as a checklist. Every report but the last is ✓ done;
   the last is ▶ what it is doing now, ✓ once the quest is done, × where it stopped if it failed or was stopped.
   While the quest runs, the latest report's `next` steps (app API 0.5) follow as "· next". Each report replaces that
   list; a report without `next` shows none (the worker gave none, which is not "nothing left"). A finished quest shows
   no plan. Before the first report, "· Waiting for its turn" for a queued quest.
-- **Live detail** (folds away as a whole): Claude's text, Marcel's and your notes as dialogue boxes, tool calls as
+- **Live detail** (folds away as a whole): Claude's text, Marcel's notes as plain text and yours as bubbles, tool calls as
   one-line rows that open to show what came back (30 lines, then "…and N more lines"), diffs that open to their lines
-  with + and − in the margin and the code in syntax colours (60 lines), approval prompts with Approve / Deny in place,
+  with + and − in the margin and the code in syntax colours (60 lines), approval prompts with Approve / Not now in place,
   and one plain line for state changes, items made, helpers, errors and anything the app can't show.
 - **Toolbar:** Stop (after a confirmation), Hand back to Marcel (with an optional note), Move to project (a menu of
   the live projects), Open in Claude (`cloud_url` for a cloud quest, `remote_url` for a NUC session with Remote

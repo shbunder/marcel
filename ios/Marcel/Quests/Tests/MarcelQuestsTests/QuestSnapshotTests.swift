@@ -120,7 +120,7 @@ final class QuestAccessibilityTests: XCTestCase {
             for row in board.sections.flatMap(\.rows) {
                 XCTAssertTrue(labels.contains(row.spoken), "\(size): no element reads \"\(row.spoken)\"")
             }
-            XCTAssertTrue(labels.contains("Quest log"))
+            XCTAssertTrue(labels.contains("Quests"))
             XCTAssertTrue(labels.contains("Waiting on you"))
             XCTAssertTrue(labels.contains("Done, this week, 5 quests"))
             for label in labels {

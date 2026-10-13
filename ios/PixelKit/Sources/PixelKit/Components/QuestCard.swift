@@ -38,65 +38,73 @@ public struct QuestCard: View {
         progress.map { "\(Int(($0 * 100).rounded())) percent done" }
     }
 
+    /// The card's frame (S-18.4, ADR-007): gold while it needs you (on a light tint), teal while it works, rose when
+    /// it is ready for review, red when it failed; a thin line otherwise.
+    public static func frame(_ state: StateBadge.Kind) -> ChatCardKind? {
+        switch state {
+        case .needsYou, .silent: .needsYou
+        case .starting, .working: .started
+        case .ready: .done
+        case .failed: .failed
+        case .queued, .done, .stopped, .unknown: nil
+        }
+    }
+
     public var body: some View {
-        let theme = PixelTheme(scheme)
-        VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
-            HStack(alignment: .center, spacing: PixelMetrics.steps(4)) {
-                StateBadge(state, text: stateText)
-                PixelText(title, role: .label)
-                    .foregroundStyle(theme.text.color)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if project != nil || detail != nil {
-                // With accessibility text sizes the detail goes under the chip instead of beside it.
-                let layout = dynamicType.isAccessibilitySize
-                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: PixelMetrics.steps(2)))
-                    : AnyLayout(HStackLayout(alignment: .center, spacing: PixelMetrics.steps(3)))
-                layout {
-                    if let project { ProjectChip(project, tone: tone) }
-                    if let detail {
-                        PixelText(detail, role: .detail)
-                            .foregroundStyle(theme.muted.color)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+        let palette = ChatPalette(scheme)
+        let frame = Self.frame(state)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.body.weight(.bold))
+                .foregroundStyle(palette.ink.color)
+                .fixedSize(horizontal: false, vertical: true)
+            // With accessibility text sizes the detail goes under the tag instead of beside it.
+            let layout = dynamicType.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+                : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
+            layout {
+                PixelText(stateText ?? state.title, role: .smallLabel)
+                    .foregroundStyle((frame?.label(in: palette) ?? palette.muted).color)
+                    .fixedSize()
+                if let project { ChatTag(project) }
+                if let detail {
+                    Text(detail)
+                        .font(.subheadline)
+                        .foregroundStyle(palette.muted.color)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if let progress {
-                PixelProgressBar(value: progress, theme: theme)
+                ChatProgressBar(value: progress, color: (frame ?? .started).frame(in: palette), track: palette.line)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, PixelMetrics.padding)
-        .padding(.vertical, PixelMetrics.steps(4))
-        .pixelBox(fill: theme.card, line: theme.line, shadow: nil, border: PixelMetrics.thinBorder)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background((frame?.ground(in: palette) ?? palette.card).color, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder((frame?.frame(in: palette) ?? palette.line).color,
+                                                                  lineWidth: frame == nil ? 1 : 2))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         .accessibilityValue(accessibilityProgress ?? "")
     }
 }
 
-/// A hard-edged bar: a 2-pt border around a track, filled in whole grid steps. The fill ends in a 2-pt line in the
-/// border colour, so where it stops is clear even where rose and the light track are close (non-text contrast).
-struct PixelProgressBar: View {
+/// A thin rounded progress bar in the card's frame colour.
+struct ChatProgressBar: View {
     var value: Double
-    var theme: PixelTheme
+    var color: PixelColor
+    var track: PixelColor
 
     var body: some View {
         GeometryReader { proxy in
-            let inner = proxy.size.width - 2 * PixelMetrics.thinBorder
-            let width = (inner * value / PixelMetrics.grid).rounded() * PixelMetrics.grid
-            HStack(spacing: 0) {
-                Rectangle().fill(theme.fill.color)
-                if width > 0, width < inner {
-                    Rectangle().fill(theme.line.color).frame(width: PixelMetrics.grid)
+            Capsule().fill(track.color)
+                .overlay(alignment: .leading) {
+                    Capsule().fill(color.color).frame(width: max(6, proxy.size.width * value))
                 }
-            }
-            .frame(width: max(0, width))
-            .padding(PixelMetrics.thinBorder)
         }
-        .frame(height: PixelMetrics.steps(6))
-        .background(Rectangle().fill(theme.track.color))
-        .overlay(Rectangle().strokeBorder(theme.line.color, lineWidth: PixelMetrics.thinBorder))
+        .frame(height: 6)
+        .accessibilityHidden(true)
     }
 }
 
