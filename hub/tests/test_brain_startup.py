@@ -111,3 +111,58 @@ def test_an_unreachable_runner_claims_nothing(hub: ChannelHub, fake: FakeBrains)
     fake.unreachable = True
     assert tasks_as(hub, sid) == 401
     fake.unreachable = False
+
+
+# --- a rollover's new brain (found live on the NUC: its SessionStart hook got 401 six times) ------
+
+
+def rolling_over(hub: ChannelHub, fake: FakeBrains) -> tuple[str, str]:
+    """(old brain, new brain): the old one current, the new one listed by the runner but not
+    handed the conversation (FakeBrains never says hello)."""
+    old = wait(lambda: current(hub))
+    wait(lambda: not keeper_of(hub)._state(hub.agent_id).starting)
+    assert keeper_of(hub).roll_over(hub.agent_id)
+    new = wait(lambda: next((s for s in fake.by_id if s != old), None))
+    return old, new
+
+
+def test_a_rollovers_brain_reads_its_context_before_the_hand_over(
+    hub: ChannelHub, fake: FakeBrains
+) -> None:
+    """Its `SessionStart` hook asks for the open threads before its hello. Delete `incoming` in
+    `require_brain` and both reads go 401."""
+    old, new = rolling_over(hub, fake)
+    assert tasks_as(hub, new) == 200, 'while its spawn is still under way'
+    wait(lambda: keeper_of(hub)._state(hub.agent_id).pending is not None)
+    assert tasks_as(hub, new) == 200, 'and while the keeper waits for its hello'
+    assert current(hub) == old, 'reading hands it nothing: the old brain keeps the conversation'
+
+
+def test_a_rollovers_brain_cannot_act_before_the_hand_over(
+    hub: ChannelHub, fake: FakeBrains
+) -> None:
+    old, new = rolling_over(hub, fake)
+    headers = {'X-Marcel-Secret': SECRET, 'X-Marcel-Session': new}
+    res = hub.client.post('/brain/notify', headers=headers, json={'title': 't', 'body': 'b'})
+    assert res.status_code == 401
+    assert res.json()['code'] == 'unknown_session'
+    assert 'only read' in res.json()['message']
+    assert current(hub) == old
+
+
+def test_during_a_rollover_strangers_are_still_refused(hub: ChannelHub, fake: FakeBrains) -> None:
+    rolling_over(hub, fake)
+    assert tasks_as(hub, str(uuid.uuid4())) == 401  # not listed at all
+    assert tasks_as(hub, fake.add(name='harry-worker')) == 401  # listed, not as this brain
+    impostor = fake.add(name=brain_name(hub.agent_id), role='')  # same name, no brain role
+    assert tasks_as(hub, impostor) == 401
+
+
+def test_no_rollover_under_way_lets_no_listed_brain_read(hub: ChannelHub, fake: FakeBrains) -> None:
+    # Control: delete the "only while rolling over" check in `incoming` and this goes red.
+    sid = starting_brain(hub, fake)
+    wait(lambda: current(hub) == sid)
+    wait(lambda: not keeper_of(hub)._state(hub.agent_id).starting)
+    stranger = fake.add(name=brain_name(hub.agent_id))
+    assert run(keeper_of(hub).incoming(stranger)) is None
+    assert tasks_as(hub, stranger) == 401

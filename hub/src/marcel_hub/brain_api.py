@@ -169,6 +169,22 @@ async def require_brain(request: Request) -> Brain:
     keeper = getattr(request.app.state, 'brain', None)
     if peer is None and session_id and keeper is not None and await keeper.claim(session_id):
         peer = gateway.resolve(session_id)  # a fresh brain that called before its spawn returned
+    if peer is None and session_id and keeper is not None:
+        early = await keeper.incoming(session_id)  # a rollover's brain before its hand-over
+        if early is not None:
+            if request.method != 'GET':
+                raise ApiError(
+                    401,
+                    'unknown_session',
+                    'This session takes over as Marcel’s brain at its hello; until then it can '
+                    'only read.',
+                )
+            agent_id, conversation_id = early
+            with Session(request.app.state.engine) as s:
+                agent = s.get(Agent, agent_id)
+            if agent is None:  # pragma: no cover - a foreign key
+                raise _hidden()
+            return Brain(session_id, 'brain', agent.id, agent.owner_user_id, conversation_id)
     if peer is None:
         raise ApiError(
             401,

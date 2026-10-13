@@ -286,6 +286,7 @@ class _AgentBrain:
     next_try: float = 0.0
     alerted: bool = False
     starting: bool = False  # a fresh brain's spawn is under way (`claim` may let it in early)
+    rolling: bool = False  # a rollover's spawn is under way (`incoming` may let it read early)
 
 
 class BrainKeeper:
@@ -652,7 +653,12 @@ class BrainKeeper:
             self._published(agent_id, 'crashed', kept, dead, sid)
 
     async def _start_rollover(self, agent_id: str, reason: str) -> None:
-        started = await self._spawn(agent_id, reason)
+        st = self._state(agent_id)
+        st.rolling = True
+        try:
+            started = await self._spawn(agent_id, reason)
+        finally:
+            st.rolling = False
         if started is None:
             return
         sid, kept, seeded_at = started
@@ -690,6 +696,37 @@ class BrainKeeper:
                          session_id[:8])  # fmt: skip
                 return True
         return False
+
+    async def incoming(self, session_id: str) -> tuple[str, str] | None:
+        """(agent, main conversation) when `session_id` is a rollover's new brain that has not
+        taken over yet: the session the keeper waits for, or, while that rollover's spawn has not
+        returned, the one the runner lists as a brain under the agent's brain name. Its
+        `SessionStart` hook may then read the agent's context before its hello; the conversation
+        is still the old brain's until the hand-over (`said_hello`)."""
+        with self._mutex:
+            for agent_id, st in self._agents.items():
+                if st.pending is not None and st.pending.session_id == session_id:
+                    return agent_id, self._main_id(agent_id)
+            rolling = [a for a, st in self._agents.items() if st.rolling]
+        if not rolling or self.runner is None:
+            return None
+        try:
+            sessions = await self.runner.sessions()
+        except RunnerUnavailable:
+            return None
+        listed = next((s for s in sessions if s.get('id') == session_id), None)
+        if listed is None or listed.get('role') != 'brain':  # never one the runner did not start
+            return None
+        for agent_id in rolling:
+            if listed.get('name') == brain_name(agent_id) and self._current(agent_id) != session_id:
+                return agent_id, self._main_id(agent_id)
+        return None
+
+    def _main_id(self, agent_id: str) -> str:
+        with Session(self.engine) as s:
+            agent = s.get(Agent, agent_id)
+            assert agent is not None
+            return ensure_main_conversation(s, agent).id
 
     def _set_brain(self, agent_id: str, session_id: str) -> str:
         with Session(self.engine) as s:
