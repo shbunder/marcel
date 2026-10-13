@@ -1,0 +1,11 @@
+{
+  "name": "marcel-local",
+  "owner": { "name": "shbunder" },
+  "plugins": [
+    {
+      "name": "marcel",
+      "source": "./marcel",
+      "description": "Marcel: connects Claude Code sessions to the Marcel hub (channel, brain tools, /marcel-adopt)."
+    }
+  ]
+}

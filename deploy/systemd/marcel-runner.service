@@ -1,0 +1,28 @@
+# Marcel's runner: the only process that runs claude (docs/runner.md).
+[Unit]
+Description=Marcel runner (starts and watches claude sessions)
+# The runner talks to claude's supervisor and refuses to start without it; it must never start it.
+Requires=marcel-claude-daemon.service
+After=marcel-claude-daemon.service
+# A slow supervisor start makes the first tries fail: allow them.
+StartLimitIntervalSec=300
+StartLimitBurst=30
+
+[Service]
+WorkingDirectory=%h/marcel/src/runner
+ExecStart=/usr/bin/python3 -m marcel_runner.server
+Environment=PYTHONPATH=%h/marcel/src/runner/src
+Environment=PYTHONUNBUFFERED=1
+# systemd's user PATH has no ~/.local/bin, where claude lives; node 22 is for the channel server.
+Environment=PATH=%h/marcel/node/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=MARCEL_CLAUDE=%h/.local/bin/claude
+# On disk, mounted into the hub at /run/marcel (see docker-compose.yml).
+Environment=MARCEL_RUNNER_SOCK=%h/marcel/run/runner.sock
+# Every session the runner starts inherits this environment, so it gets only MARCEL_HARRY_TOKEN,
+# never the hub's secrets in deploy/.env.local.
+EnvironmentFile=-%h/.config/marcel/session.env
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

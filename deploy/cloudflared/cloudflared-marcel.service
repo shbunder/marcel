@@ -1,0 +1,17 @@
+# /etc/systemd/system/cloudflared-marcel.service — a system unit, installed once with sudo
+# (`make -C deploy tunnel` prints the commands). It runs the tunnel from its config file, whose
+# ingress forwards only /api/*. (Old Marcel ran it with `--url`, which forwards every path.)
+[Unit]
+Description=Cloudflare Tunnel - Marcel
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+ExecStart=/usr/bin/cloudflared --no-autoupdate --config @HOME@/.cloudflared/marcel.yml tunnel run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

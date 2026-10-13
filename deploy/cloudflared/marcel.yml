@@ -1,0 +1,8 @@
+# Cloudflare tunnel "marcel" (marcel-bot.com). Only /api/* reaches the hub: the channel (/channel)
+# and anything else stay on the NUC. `make -C deploy tunnel` fills in the paths and the tunnel id.
+tunnel: @TUNNEL_ID@
+credentials-file: @HOME@/.cloudflared/@TUNNEL_ID@.json
+ingress:
+  - path: ^/api/
+    service: http://127.0.0.1:7420
+  - service: http_status:404
