@@ -22,7 +22,11 @@ RUN uv sync --frozen --no-dev --no-install-project && rm -rf /tmp/uv-cache
 COPY hub/README.md ./
 COPY hub/src ./src
 COPY hub/migrations ./migrations
+# The hub reads JSON Schemas from contracts/ at run time (artifacts/store.py: CONTRACTS_DIR).
+COPY contracts /app/contracts
 RUN uv sync --frozen --no-dev && rm -rf /tmp/uv-cache
+# Fail the build, not a live request, when a file the hub reads at run time is missing.
+RUN /app/venv/bin/python -c "from marcel_hub import db; from marcel_hub.artifacts.store import _dashboard_validator; assert db.MIGRATIONS_DIR.is_dir(); _dashboard_validator()"
 
 ENV PATH=/app/venv/bin:$PATH \
     PYTHONUNBUFFERED=1
