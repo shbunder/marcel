@@ -180,4 +180,94 @@ final class ChatMockHubTests: XCTestCase {
         let header = ChatHeaderState(tasks: [HubTask](), name: model.agentName, live: model.agentState)
         XCTAssertEqual(header.accessibilityText, "\(model.agentName ?? "Marcel") is free. Nothing running")
     }
+
+    /// S-18.5's UI tests, one layer down: an older answer shows the "re:" line and the latest does not; the line points
+    /// at the message a tap scrolls to; `@fi` → a chip → sent with `mentions`, stored by the hub.
+    func testQuotedRepliesAndMentionsOnTheMockHub() async throws {
+        guard let hub = ProcessInfo.processInfo.environment["MARCEL_MOCK_HUB"], let serverURL = URL(string: hub) else {
+            throw XCTSkip("Set MARCEL_MOCK_HUB (make -C ios chat-integration) to run against the mock hub.")
+        }
+        let tokens = FixedToken()
+        let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
+        let stream = EventStream(connector: URLSessionEventSocketConnector(serverURL: serverURL, tokenStore: tokens),
+                                 sink: cache)
+        let streaming = Task { await stream.run() }
+        defer { streaming.cancel() }
+        let service = LiveChatService(client: HubClient.make(serverURL: serverURL, tokenStore: tokens))
+        let model = ChatModel(service: service)
+        await model.start()
+        for approval in try await service.approvals() where approval.state == .open {
+            _ = try await service.answer(approvalId: approval.id, approve: false)
+            try await Task.sleep(for: .seconds(2))
+        }
+        let conversation = try XCTUnwrap(model.conversationId)
+        try await waitUntil("the stream to go live") { stream.status == .live }
+        func input() throws -> FeedInput {
+            try FeedInput.read(from: cache.container.mainContext, conversationId: conversation, limit: 500)
+        }
+        func items() throws -> [FeedItem] {
+            let input = try input()
+            model.prune(input)
+            return ChatFeed.items(input, local: model.local)
+        }
+        func yours(_ prefix: String) throws -> String? {
+            try items().compactMap { if case .user(let u) = $0, u.text.hasPrefix(prefix), u.id.hasPrefix("msg") { u.id } else { nil } }.last
+        }
+
+        // Ask for the login fix: its card answers your latest message, so it has no "re:" line.
+        func quests() throws -> [QuestLine] { try items().compactMap { if case .quest(let q) = $0 { q } else { nil } } }
+        func dones() throws -> Int {
+            try items().filter { if case .marcel(let m) = $0 { m.text.hasPrefix("Done: Fix the flaky login test") } else { false } }.count
+        }
+        let cardsBefore = try quests().count
+        let donesBefore = try dones()
+        let tag = UUID().uuidString.prefix(6)
+        model.draft = "Can you fix the flaky login test? (quotes \(tag))"
+        await model.send()
+        try await waitUntil("your question back from the hub") { try yours("Can you fix the flaky login test? (quotes \(tag))") != nil }
+        let asked = try XCTUnwrap(yours("Can you fix the flaky login test? (quotes \(tag))"))
+        try await waitUntil("the login card") { try quests().count == cardsBefore + 1 }
+        let card = try XCTUnwrap(quests().last)
+        XCTAssertNil(FeedItem.quest(card).quote, "the first card answers your latest message: no line")
+        var question: ApprovalLine?
+        try await waitUntil("the login question") {
+            question = try items().compactMap { if case .approval(let a) = $0, a.taskId == card.taskId { a } else { nil } }.last
+            return question != nil
+        }
+
+        // Say something else while it waits, then approve: what the quest says next answers an older message.
+        model.draft = "What's on Thursday? (\(tag))"
+        await model.send()
+        try await waitUntil("your second message back") { try yours("What's on Thursday? (\(tag))") != nil }
+        await model.reconcile(try input())
+        await model.answer(approvalId: try XCTUnwrap(question).approvalId, approve: true)
+        XCTAssertNil(model.problem)
+        try await waitUntil("a later message of the login quest") { try items().contains { $0.quote?.messageId == asked } }
+        let quote = try XCTUnwrap(items().first { $0.quote?.messageId == asked }?.quote)
+        XCTAssertNotNil(quote.date, "the answered message is in the window, so the line says its time")
+        XCTAssertTrue(try items().contains { $0.id == quote.messageId }, "a tap has a message to scroll to")
+        try await waitUntil("the mock to finish the login run") {
+            try dones() == donesBefore + 1
+        }
+        try await Task.sleep(for: .milliseconds(500))
+
+        // @fi → the quest as a chip → sent with mentions, and the hub keeps them.
+        model.draft = "also run it on iPad @fi"
+        await model.draftChanged()
+        let fix = try XCTUnwrap(model.mentionSuggestions.first { $0.kind == .task && $0.title == "Fix the flaky login test" },
+                                "the hub offers the quest for @fi")
+        model.pick(fix)
+        XCTAssertEqual(model.draft, "also run it on iPad")
+        await model.send()
+        XCTAssertNil(model.problem)
+        try await waitUntil("the message with its chip back from the hub") {
+            try items().contains { if case .user(let u) = $0 { u.id.hasPrefix("msg") && u.mentions.contains(fix) } else { false } }
+        }
+
+        // Leave the mock free for the next run: say no to the quest's open question.
+        await model.reconcile(try input())
+        for approval in try await service.approvals() where approval.state == .open {
+            _ = try await service.answer(approvalId: approval.id, approve: false)
+        }
+    }
 }

@@ -55,9 +55,11 @@ public struct UserLine: Equatable, Sendable {
     public var attachment: String?
     /// Not sent because the attached item is gone from the hub: a tap sends it without the item.
     public var itemGone = false
+    /// The quests, items and projects picked with `@` and `#` (B-42), drawn as chips under the message.
+    public var mentions: [Mention] = []
 
     public init(id: String, text: String, status: Status = .sent, clientId: String? = nil, project: String? = nil,
-                tone: ProjectChip.Tone = .teal, attachment: String? = nil) {
+                tone: ProjectChip.Tone = .teal, attachment: String? = nil, mentions: [Mention] = []) {
         self.id = id
         self.text = text
         self.status = status
@@ -65,11 +67,13 @@ public struct UserLine: Equatable, Sendable {
         self.project = project
         self.tone = tone
         self.attachment = attachment
+        self.mentions = mentions
     }
 
     /// What VoiceOver reads.
     public var accessibilityText: String {
         let about = (project.map { ", about \($0)" } ?? "") + (attachment.map { ", with the item \($0)" } ?? "")
+            + mentions.map { ", mentioning \($0.title)" }.joined()
         return switch status {
         case .sent: "You said\(about): \(text)"
         case .sending: "Sending\(about): \(text)"
@@ -91,13 +95,17 @@ public struct PendingMessage: Equatable, Sendable {
     public var attachment: ItemAttachment?
     /// The hub said the item is gone (404 `artifact_not_found`): a retry goes without it.
     public var itemGone = false
+    /// The chips picked with `@` and `#`.
+    public var mentions: [Mention] = []
 
-    public init(clientId: String, text: String, failed: Bool, stored: Bool = false, attachment: ItemAttachment? = nil) {
+    public init(clientId: String, text: String, failed: Bool, stored: Bool = false, attachment: ItemAttachment? = nil,
+                mentions: [Mention] = []) {
         self.clientId = clientId
         self.text = text
         self.failed = failed
         self.stored = stored
         self.attachment = attachment
+        self.mentions = mentions
     }
 }
 
@@ -107,11 +115,14 @@ public struct MarcelLine: Equatable, Sendable {
     public var parts: [ItemMarkdown.Part]
     /// The thread this message is about (a follow-up Marcel routed to it), drawn live under the text.
     public var quest: QuestLine?
+    /// "↩ re: your 08:12 message", when it answers something other than your latest message (B-41).
+    public var quote: ReplyQuote?
 
-    public init(id: String, markdown: String, quest: QuestLine? = nil) {
+    public init(id: String, markdown: String, quest: QuestLine? = nil, quote: ReplyQuote? = nil) {
         self.id = id
         self.parts = ItemMarkdown.parse(markdown)
         self.quest = quest
+        self.quote = quote
     }
 
     /// The reply's words, for VoiceOver summaries and the side chat's quote.
@@ -151,9 +162,13 @@ public struct QuestLine: Hashable, Sendable {
     public var detail: String?
     /// Where it runs, for the "started" card's label ("NUC", "Cloud").
     public var location: Components.Schemas.TaskLocation?
+    /// "↩ re: your 08:12 message" above the card (B-41).
+    public var quote: ReplyQuote?
 
     public init(id: String, taskId: String, title: String, state: StateBadge.Kind, project: String?,
-                tone: ProjectChip.Tone, detail: String?, location: Components.Schemas.TaskLocation? = nil) {
+                tone: ProjectChip.Tone, detail: String?, location: Components.Schemas.TaskLocation? = nil,
+                quote: ReplyQuote? = nil) {
+        self.quote = quote
         self.id = id
         self.taskId = taskId
         self.title = title
@@ -186,6 +201,8 @@ public struct ApprovalLine: Equatable, Sendable {
     public var detail: String?
     public var status: Status
     public var showsDetail: Bool
+    /// "↩ re: your 08:12 message" above the card (B-41).
+    public var quote: ReplyQuote? = nil
 
     /// The resolved state, in plain words; nil while it can still be answered.
     public var outcome: String? {
@@ -211,6 +228,35 @@ public struct ItemLine: Hashable, Sendable {
     /// The morning board (a `board` artifact): a preview card, no banner.
     public var isDigest: Bool
     public var url: URL?
+    /// "↩ re: your 08:12 message" above the card (B-41).
+    public var quote: ReplyQuote? = nil
+}
+
+/// The message a reply answers, when that is not your latest message before it (B-41): "↩ re: your 08:12 message".
+public struct ReplyQuote: Hashable, Sendable {
+    /// Your message it answers; a tap scrolls to it.
+    public var messageId: String
+    /// When you sent it; nil when it is no longer in the window.
+    public var date: Date?
+
+    public init(messageId: String, date: Date?) {
+        self.messageId = messageId
+        self.date = date
+    }
+
+    /// "re: your 08:12 message" the same day, "re: your message yesterday 21:40", "re: your message Mon 12 Oct 08:00",
+    /// "re: your earlier message" when the window no longer has it.
+    public func text(now: Date, calendar: Calendar = .current, locale: Locale = .current) -> String {
+        guard let date else { return "re: your earlier message" }
+        var style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone)
+        let clock = date.formatted(style.hour().minute())
+        if calendar.isDate(date, inSameDayAs: now) { return "re: your \(clock) message" }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return "re: your message yesterday \(clock)"
+        }
+        style = style.weekday(.abbreviated).day().month(.abbreviated)
+        return "re: your message \(date.formatted(style)) \(clock)"
+    }
 }
 
 public struct PreviewRow: Hashable, Sendable {
@@ -239,6 +285,30 @@ public struct ChatLocalState: Sendable {
     public init() {}
 }
 
+extension FeedItem {
+    /// The row with its "re:" line (cards and replies; your own messages and time lines have none).
+    func quoting(_ quote: ReplyQuote) -> FeedItem {
+        switch self {
+        case .marcel(var line): line.quote = quote; return .marcel(line)
+        case .quest(var line): line.quote = quote; return .quest(line)
+        case .approval(var line): line.quote = quote; return .approval(line)
+        case .item(var line): line.quote = quote; return .item(line)
+        case .user, .time: return self
+        }
+    }
+
+    /// The "re:" line above this row, if any.
+    public var quote: ReplyQuote? {
+        switch self {
+        case .marcel(let line): line.quote
+        case .quest(let line): line.quote
+        case .approval(let line): line.quote
+        case .item(let line): line.quote
+        case .user, .time: nil
+        }
+    }
+}
+
 public enum ChatFeed {
     /// The rows for a window of the conversation, oldest first.
     public static func items(_ input: FeedInput, local: ChatLocalState = ChatLocalState()) -> [FeedItem] {
@@ -246,8 +316,14 @@ public enum ChatFeed {
         var carded = Set<String>()      // tasks that already have their card in this window
         var shownItems = Set<String>()  // artifacts already announced in this window
         var lastShown: Date?            // the newest message that drew a row
+        var latestYours: String?        // your newest message so far: answering it needs no quote
+        let dates = Dictionary(input.messages.map { ($0.id, $0.createdAt) }, uniquingKeysWith: { a, _ in a })
         for message in input.messages {
             let before = items.count
+            // B-41: a reply to something other than your latest message says which message it answers.
+            let quote = message.role == .user ? nil : message.replyToMessageId.flatMap { answered in
+                answered == latestYours ? nil : ReplyQuote(messageId: answered, date: dates[answered])
+            }
             switch message.kind {
             case .text, .quote:
                 let text = message.text ?? ""
@@ -258,10 +334,10 @@ public enum ChatFeed {
                     let attached = message.artifactId.map { input.artifacts[$0]?.title ?? "An item" }
                     items.append(.user(UserLine(id: message.id, text: text, project: project?.name,
                                                 tone: project.map { tone(for: $0.id) } ?? .teal,
-                                                attachment: attached)))
+                                                attachment: attached, mentions: message.mentions ?? [])))
                 } else {
                     let routed = message.taskId.flatMap { Self.quest(id: "\(message.id)#quest", taskId: $0, input: input) }
-                    items.append(.marcel(MarcelLine(id: message.id, markdown: text, quest: routed)))
+                    items.append(.marcel(MarcelLine(id: message.id, markdown: text, quest: routed, quote: quote)))
                 }
             case .milestone:
                 guard let milestone = message.milestone else { continue }
@@ -276,7 +352,7 @@ public enum ChatFeed {
                                      location: milestone.location)))
                 } else {
                     // A later milestone of a thread already on screen: one line, never a second card.
-                    items.append(.marcel(MarcelLine(id: message.id, markdown: says(milestone))))
+                    items.append(.marcel(MarcelLine(id: message.id, markdown: says(milestone), quote: quote)))
                 }
             case .approval:
                 guard let approvalId = message.approvalId else { continue }
@@ -287,6 +363,8 @@ public enum ChatFeed {
                 guard shownItems.insert(artifactId).inserted else { continue }
                 items.append(.item(item(message: message, artifactId: artifactId, input: input, local: local)))
             }
+            if message.role == .user { latestYours = message.id }
+            if let quote, items.count > before { items[before] = items[before].quoting(quote) }
             guard items.count > before else { continue }
             if lastShown.map({ message.createdAt.timeIntervalSince($0) > TimeLine.gap }) ?? true {
                 items.insert(.time(TimeLine(id: "time-\(message.id)", date: message.createdAt)), at: before)
@@ -298,7 +376,8 @@ public enum ChatFeed {
         for message in local.pending where !arrived.contains(message.clientId) {
             var line = UserLine(id: "pending-\(message.clientId)", text: message.text,
                                 status: message.failed ? .failed : message.stored ? .sent : .sending,
-                                clientId: message.clientId, attachment: message.attachment?.title)
+                                clientId: message.clientId, attachment: message.attachment?.title,
+                                mentions: message.mentions)
             line.itemGone = message.itemGone
             items.append(.user(line))
         }

@@ -1,5 +1,6 @@
 import AvatarKit
 import MarcelItems
+import MarcelKit
 import PixelKit
 import SwiftUI
 
@@ -14,6 +15,10 @@ public struct ChatActions {
     public var reply: ((FeedItem) -> Void)?
     /// "n replies" under each message that has a side thread, by message id (`SideChats.summaries`).
     public var threads: [String: ThreadSummary] = [:]
+    /// A "re:" line was tapped: scroll to that message of yours (B-41).
+    public var jump: (_ messageId: String) -> Void = { _ in }
+    /// A mention chip on a sent message was tapped: open that quest, project room or item (B-42).
+    public var openMention: (Mention) -> Void = { _ in }
 
     public init() {}
 }
@@ -82,15 +87,36 @@ struct FeedRow: View {
     @Environment(\.locale) private var locale
 
     var body: some View {
+        if let quote = item.quote {
+            VStack(alignment: .leading, spacing: 2) {
+                ReplyQuoteLine(quote: quote, jump: actions.jump)
+                row
+            }
+        } else {
+            row
+        }
+    }
+
+    @ViewBuilder private var row: some View {
         switch item {
         case .user(let line):
-            if line.status == .failed, let clientId = line.clientId {
-                Button { actions.retry(clientId) } label: { UserBubble(line: line) }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(line.accessibilityText)
-            } else {
-                UserBubble(line: line)
+            VStack(alignment: .trailing, spacing: 0) {
+                if line.status == .failed, let clientId = line.clientId {
+                    Button { actions.retry(clientId) } label: { UserBubble(line: line) }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(line.accessibilityText)
+                } else {
+                    UserBubble(line: line)
+                }
+                if !line.mentions.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(line.mentions, id: \.id) { mention in
+                            MentionChip(mention: mention, open: { actions.openMention(mention) })
+                        }
+                    }
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         case .marcel(let line):
             MarcelReply(line: line, actions: actions)
         case .quest(let line):
@@ -121,6 +147,8 @@ struct UserBubble: View {
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.chatBubbleColor) private var color
+    @Environment(\.chatHighlight) private var highlight
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(line: UserLine) {
         self.line = line
@@ -136,6 +164,12 @@ struct UserBubble: View {
             HStack {
                 Spacer(minLength: 64)
                 ChatBubble(line.text, color: color)
+                    .overlay {
+                        if highlight == line.id {
+                            ChatBubbleShape().stroke(ChatPalette(scheme).link.color, lineWidth: 3)
+                        }
+                    }
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: highlight == line.id)
             }
             if let project = line.project {
                 ProjectChip(project, tone: line.tone)

@@ -134,7 +134,7 @@ chat-test: chat-bundle $(RUNNER) boot
 # This also redraws the avatar header's snapshots. (The app icon is drawn by shared/brand/app-icon/generate.py.)
 chat-record: chat-bundle $(RUNNER) boot
 	-SIMCTL_CHILD_MARCELCHAT_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(CHAT_TESTS) ChatSnapshotTests \
-	  AvatarHeaderSnapshotTests ChatLookSnapshotTests SideChatSnapshotTests
+	  AvatarHeaderSnapshotTests ChatLookSnapshotTests SideChatSnapshotTests QuoteAndMentionTests
 	xcrun simctl spawn $(SIM) $(RUNNER) $(CHAT_TESTS)
 
 # The chat's scenario against the mock hub (start it first: MOCK_HUB_PORT=7488 make mock-hub). Not part of the gate.

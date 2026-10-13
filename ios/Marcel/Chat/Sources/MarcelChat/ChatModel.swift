@@ -25,6 +25,13 @@ public final class ChatModel {
 
     /// What you are typing.
     public var draft = ""
+    /// The quests, items and projects picked with `@` and `#` for the next message (B-42).
+    public private(set) var mentions: [Mention] = []
+    /// The `@word` or `#word` being typed, and what the hub found for it.
+    public private(set) var mentionTrigger: MentionTrigger?
+    public private(set) var mentionSuggestions: [Mention] = []
+    /// The hub could not be asked what matches: the suggestions say so instead of "no match".
+    public private(set) var mentionsUnreachable = false
     /// An item going with your next message ("Ask about this" on an item); shown above the composer until sent.
     public var attachment: ItemAttachment?
     /// The agent's name for the header, as the hub last said it (`GET /me`, or Settings after a rename).
@@ -39,6 +46,10 @@ public final class ChatModel {
     /// A message to bring into view (a `marcel://message/<id>` link). The feed scrolls to it, loading older pages
     /// from the cache if needed, then clears it.
     public var focus: String?
+    /// Your message a "re:" line pointed at, outlined for a moment after the jump (B-41).
+    public private(set) var highlighted: String?
+    /// How long that outline stays.
+    static let highlightFor: Duration = .seconds(2.5)
     /// The side chat open over the feed (B-08), if any.
     public var sideChat: SideChatModel?
     /// Threads and drafts of every side chat, kept while the app runs.
@@ -110,9 +121,70 @@ public final class ChatModel {
         guard !text.isEmpty else { return }
         draft = ""
         let clientId = UUID().uuidString.lowercased()
-        local.pending.append(PendingMessage(clientId: clientId, text: text, failed: false, attachment: attachment))
+        local.pending.append(PendingMessage(clientId: clientId, text: text, failed: false, attachment: attachment,
+                                            mentions: mentions))
         attachment = nil
+        mentions = []
+        mentionTrigger = nil
+        mentionSuggestions = []
         await deliver(clientId)
+    }
+
+    // MARK: Mentions (B-42)
+
+    /// The draft changed: if you are typing `@word` or `#word`, ask the hub what matches.
+    public func draftChanged() async {
+        let trigger = MentionTrigger.find(in: draft)
+        mentionTrigger = trigger
+        guard let trigger else {
+            mentionSuggestions = []
+            return
+        }
+        let found: [Mention]
+        var unreachable = false
+        do { found = try await service.searchMentions(query: trigger.query, kinds: trigger.kinds) } catch {
+            found = []
+            unreachable = true
+        }
+        // Only if you are still typing the same thing.
+        guard mentionTrigger == trigger else { return }
+        // A stray sign ("I paid #5 for it"): once a space follows and nothing matches, it is ordinary text.
+        if found.isEmpty, !unreachable, trigger.query.contains(" ") {
+            mentionTrigger = nil
+            mentionSuggestions = []
+            mentionsUnreachable = false
+            return
+        }
+        mentionsUnreachable = unreachable
+        mentionSuggestions = found.filter { picked in !mentions.contains(picked) }
+    }
+
+    /// "re: your 08:12 message" was tapped: scroll to that message and outline it for a moment.
+    public func jump(to messageId: String) {
+        focus = messageId
+        highlighted = messageId
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.highlightFor)
+            if self?.highlighted == messageId { self?.highlighted = nil }
+        }
+    }
+
+    /// A suggestion was tapped: it becomes a chip on the next message and the `@word` leaves the text.
+    public func pick(_ mention: Mention) {
+        // Found again in the draft as it is now: it may have changed while the hub was asked.
+        if mentionTrigger != nil, let trigger = MentionTrigger.find(in: draft) {
+            draft.removeSubrange(trigger.range)
+            while draft.last == " " { draft.removeLast() }
+        }
+        if !mentions.contains(mention), mentions.count < 10 { mentions.append(mention) }
+        mentionTrigger = nil
+        mentionSuggestions = []
+        mentionsUnreachable = false
+    }
+
+    /// Takes a chip off the next message.
+    public func unpick(_ mention: Mention) {
+        mentions.removeAll { $0 == mention }
     }
 
     /// "Ask about this" on an item: the item goes with your next message. What you were typing stays.
@@ -161,7 +233,7 @@ public final class ChatModel {
         }
         do {
             _ = try await service.send(text: message.text, clientId: clientId, conversationId: conversationId,
-                                       attachment: message.attachment)
+                                       attachment: message.attachment, mentions: message.mentions)
             if let index = local.pending.firstIndex(where: { $0.clientId == clientId }) {
                 local.pending[index].stored = true
             }

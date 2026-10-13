@@ -65,6 +65,17 @@ public struct ChatScreen: View {
         actions.answer = { id, approve in Task { await model.answer(approvalId: id, approve: approve) } }
         actions.toggleDetails = { model.toggleDetails(approvalId: $0) }
         actions.retry = { id in Task { await model.retry(clientId: id) } }
+        // A mention chip (B-42): a quest or an item opens here; a project room is the Map's (LiveFeed handles it).
+        actions.openMention = { mention in
+            switch mention.kind {
+            case .task: path.append(.quest(Self.questLine(mention.id)))
+            case .artifact:
+                path.append(.item(ItemLine(id: "mention-\(mention.id)", artifactId: mention.id, title: mention.title,
+                                           savedTo: nil, badge: "", rows: [], showsBanner: false, isDigest: false,
+                                           url: nil)))
+            case .project: break
+            }
+        }
         return actions
     }
 
@@ -110,6 +121,8 @@ struct LiveFeed: View {
     @Environment(\.modelContext) private var context
 
     @State private var distanceFromBottom: CGFloat = 0
+    /// The message a "re:" line jumped to, lit up for a moment (B-41).
+    @Environment(\.openURL) private var openURL
     @State private var scrolledTo: String?
     @FocusState private var typing: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -128,6 +141,18 @@ struct LiveFeed: View {
     /// The feed's actions plus "Reply in thread" and "n replies", when the hub does side chats.
     private func threaded(_ input: FeedInput, name: String) -> ChatActions {
         var actions = actions
+        // "re: your 08:12 message": scroll to it (loading older pages if needed) and light it up.
+        actions.jump = { [model] id in model.jump(to: id) }
+        // A #project chip opens its room on the Map, through the app's own link.
+        let open = actions.openMention
+        actions.openMention = { [openURL] mention in
+            if mention.kind == .project, let slug = input.projects[mention.id]?.slug,
+               let url = URL(string: "marcel://project/\(slug)") {
+                openURL(url)
+            } else {
+                open(mention)
+            }
+        }
         guard model.canReplyInThread else { return actions }
         let messages = Dictionary(input.messages.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         actions.reply = { [model] item in
@@ -149,6 +174,16 @@ struct LiveFeed: View {
         let collapsed = distanceFromBottom > 24 || typing
         @Bindable var model = model
         ChatLayout(header: header, collapsed: collapsed, problem: model.problem, avatar: avatar, composer: {
+            if let trigger = model.mentionTrigger {
+                MentionSuggestions(trigger: trigger, found: model.mentionSuggestions,
+                                   unreachable: model.mentionsUnreachable) { model.pick($0) }
+                    .padding(.horizontal, FeedMetrics.inset)
+                    .padding(.top, PixelMetrics.steps(2))
+            }
+            if !model.mentions.isEmpty {
+                ComposerMentions(mentions: model.mentions) { model.unpick($0) }
+                    .padding(.horizontal, FeedMetrics.inset)
+            }
             if let attachment = model.attachment {
                 AttachedItem(title: attachment.title, remove: { model.attachment = nil })
                     .padding(.horizontal, FeedMetrics.inset)
@@ -217,6 +252,9 @@ struct LiveFeed: View {
         }
         .environment(\.agentName, header.name)
         .environment(\.chatBubbleColor, model.bubbleColor)
+        .environment(\.chatHighlight, model.highlighted)
+        // `@` and `#` in the draft ask the hub what matches (B-42).
+        .onChange(of: model.draft) { Task { await model.draftChanged() } }
         .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: collapsed)
         // Approvals are not in the cache: fetch them when one shows up or its task moves on.
         .task(id: Self.approvalKey(input)) { await model.reconcile(input) }

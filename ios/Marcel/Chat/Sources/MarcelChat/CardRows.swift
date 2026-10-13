@@ -9,6 +9,8 @@ extension EnvironmentValues {
     @Entry public var chatBubbleColor: PixelColor?
     /// "Now", for the time lines ("Today 08:12"); nil means the real clock. Snapshots pin it.
     @Entry public var chatNow: Date?
+    /// Your message a "re:" line just jumped to: it lights up for a moment (B-41).
+    @Entry public var chatHighlight: String?
 }
 
 /// A thread's quest card, following its task: started while it runs, needs you, done, or failed with the reason.

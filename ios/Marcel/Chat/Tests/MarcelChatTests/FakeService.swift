@@ -42,10 +42,24 @@ final class FakeService: ChatService {
         return MainAgent(conversationId: Fx.conversation, name: agentName, id: "agt_marcel", state: agentState)
     }
 
-    func send(text: String, clientId: String, conversationId: String, attachment: ItemAttachment?) async throws
-        -> Message
+    /// What `searchMentions` answers, and what each send carried.
+    var mentionResults: [Mention] = []
+    /// Set to make `searchMentions` fail as if the hub were out of reach.
+    var mentionsFail = false
+    private(set) var searches: [(query: String, kinds: [MentionKind])] = []
+    private(set) var sentMentions: [[Mention]] = []
+
+    func searchMentions(query: String, kinds: [MentionKind]) async throws -> [Mention] {
+        searches.append((query, kinds))
+        if mentionsFail { throw ChatError.unreachable }
+        return mentionResults.filter { kinds.contains($0.kind) && $0.title.localizedCaseInsensitiveContains(query) }
+    }
+
+    func send(text: String, clientId: String, conversationId: String, attachment: ItemAttachment?,
+              mentions: [Mention]) async throws -> Message
     {
         sent.append((text, clientId, attachment))
+        sentMentions.append(mentions)
         if holdSends { await withCheckedContinuation { held.append($0) } }
         if failing { throw ChatError("Not sent: can't reach the hub. Tap the message to try again.") }
         if let sendError { throw sendError }

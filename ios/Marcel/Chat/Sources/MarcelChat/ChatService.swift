@@ -33,14 +33,25 @@ public protocol ChatService {
     /// Stores your message (`POST /conversations/{id}/messages`). It never waits for Marcel; the same
     /// `clientId` sent again returns the same message, so a retry never doubles it. An attached item goes as
     /// `artifact_id`, tagged with the item's project (`project_id`).
-    func send(text: String, clientId: String, conversationId: String, attachment: ItemAttachment?) async throws
-        -> Message
+    func send(text: String, clientId: String, conversationId: String, attachment: ItemAttachment?,
+              mentions: [Mention]) async throws -> Message
+    /// Quests and items (`@`) or projects (`#`) whose title holds `query`, newest first (`GET /mentions`, B-42).
+    func searchMentions(query: String, kinds: [MentionKind]) async throws -> [Mention]
     /// Every approval, open ones first (`GET /approvals`).
     func approvals() async throws -> [Approval]
     /// Approve or deny. An approval already answered elsewhere comes back as it stands.
     func answer(approvalId: String, approve: Bool) async throws -> Approval
     /// An artifact's current bytes, for its preview.
     func artifactContent(id: String) async throws -> Data
+}
+
+extension ChatService {
+    /// A message without mentions.
+    public func send(text: String, clientId: String, conversationId: String, attachment: ItemAttachment?) async throws
+        -> Message
+    {
+        try await send(text: text, clientId: clientId, conversationId: conversationId, attachment: attachment, mentions: [])
+    }
 }
 
 /// A failure said for the person holding the phone.
@@ -87,15 +98,29 @@ public struct LiveChatService: ChatService {
         }
     }
 
-    public func send(text: String, clientId: String, conversationId: String, attachment: ItemAttachment?) async throws
-        -> Message
+    public func searchMentions(query: String, kinds: [MentionKind]) async throws -> [Mention] {
+        // One kind is asked for by name; several in one call, so the hub's newest-first order holds across them.
+        let output: Operations.SearchMentions.Output
+        do { output = try await client.searchMentions(query: .init(q: query, kind: kinds.count == 1 ? kinds[0] : nil)) } catch {
+            throw ChatError.unreachable
+        }
+        switch output {
+        case .ok(let ok): return try ok.body.json.filter { kinds.contains($0.kind) }
+        case .unauthorized: throw ChatError.unpaired
+        case .badRequest: throw ChatError.unexpected("mentions, HTTP 400")
+        case .undocumented(let status, _): throw ChatError.unexpected("mentions, HTTP \(status)")
+        }
+    }
+
+    public func send(text: String, clientId: String, conversationId: String, attachment: ItemAttachment?,
+                     mentions: [Mention]) async throws -> Message
     {
         let output: Operations.SendMessage.Output
         do {
             output = try await client.sendMessage(
                 path: .init(conversationId: conversationId),
                 body: .json(.init(text: text, clientId: clientId, projectId: attachment?.projectId,
-                                  artifactId: attachment?.artifactId)))
+                                  artifactId: attachment?.artifactId, mentions: mentions.isEmpty ? nil : mentions)))
         } catch {
             throw ChatError("Not sent: can't reach the hub. Tap the message to try again.")
         }

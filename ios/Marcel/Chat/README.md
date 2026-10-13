@@ -130,6 +130,22 @@ Code in `Sources/MarcelChat/SideChat/`.
   `task_finished`, and a 404 read by its code — `message_not_found` / `conversation_not_found` mean gone, the generic
   `not_found` (or a bare FastAPI 404) means this hub has not built side chats yet.
 
+## Quoted replies and mentions (S-18.5, B-41, B-42)
+
+- **"re:" line.** A message from your helper carries `reply_to_message_id`: the message of yours it answers. When
+  that is not your latest message before it, the row gets a small line above it — "re: your 08:12 message",
+  "re: your message yesterday 21:40", or "re: your earlier message" when the message is outside the window
+  (`ChatFeed.items` sets `FeedItem.quote`; `ReplyQuoteLine` draws it). Cards, replies and milestones all get it.
+  Tapping it scrolls to your message and outlines it for 2.5 s (`ChatModel.jump(to:)`, `chatHighlight`; no fade
+  with Reduce Motion).
+- **Mentions.** Typing `@` at the start of a word asks the hub (`GET /mentions`) for your quests and items, `#` for
+  your projects (`MentionTrigger`). Picking one takes the `@word` out of the text and shows it as a chip above the
+  composer (tap the chip to take it off); the message is sent with `mentions`. `@` asks the hub once and drops
+  projects, so the newest-first order holds. A sign followed by a space with nothing matching ("I paid #5 for") is
+  plain text and the list closes; a hub out of reach says "Can't reach the hub to look that up." A sent message shows its chips under
+  the bubble: a quest chip opens the quest, an item chip the item, a project chip `marcel://project/<slug>`.
+  VoiceOver reads ", mentioning …" after the message.
+
 ## Tests (`make -C ios chat-test`, part of `make ios-check`)
 
 - `FeedTests`, `CardTests`, `ComposerTests` — the feed, the cards and sending, driven through a real in-memory
@@ -160,6 +176,11 @@ Code in `Sources/MarcelChat/SideChat/`.
   colour too), card colours per task state. `LongPressTests` is the story's UI test one layer down: the chat in a
   real window, the "Reply in thread" action found on a reply and on a card in the accessibility tree, and run.
   `ReplyTests`, `TimeLineTests` — replies through the shared Markdown, and the time lines.
+- `QuoteAndMentionTests` (S-18.5) — when an answer gets the "re:" line and when not, its words, where `@` and `#`
+  start a mention, `@fi` → chip → sent with `mentions`, `#` lists projects only, a stray sign, the hub out of
+  reach, a pick after the draft changed, the jump's outline, stored chips, and the
+  "Quote-and-mentions" snapshot in light and dark. `ReplyQuoteTapTests` is "tap jumps" one layer down: the line in a
+  real window is a button, and pressing it jumps to the message it answers.
 - `ChatMockHubTests` — the same scenario against the mock hub (not part of the gate):
   `MOCK_DELAY=0.05 MOCK_HUB_PORT=7488 make mock-hub`, then
   `MOCK_HUB=http://127.0.0.1:7488/api make -C ios chat-integration`. The mock runs one thread at a time, so the
@@ -167,3 +188,6 @@ Code in `Sources/MarcelChat/SideChat/`.
   model-level test stands in for the UI test.
   `testAgentStateFromTheMockHubShowsInTheHeader` follows a run's `agent.state` events into the header: thinking,
   working(1), needs you, working(1) after the approval, done, idle.
+  `testQuotedRepliesAndMentionsOnTheMockHub` is S-18.5's UI test one layer down: the first card has no "re:" line;
+  after a second message and the approval, the quest's later messages quote the first one; `@fi` → the quest as a
+  chip → the hub stores the message with it.
