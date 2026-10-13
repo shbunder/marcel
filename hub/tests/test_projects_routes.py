@@ -105,7 +105,7 @@ def test_creating_sends_project_created_and_makes_the_notes_file(
     sent = frames(client, before)
     assert [f['type'] for f in sent] == ['project.created']
     assert sent[0]['data'] == project
-    notes = tmp_path / 'memory' / 'projects' / 'garden.md'
+    [notes] = (tmp_path / 'memory' / 'agents').glob('*/projects/garden.md')  # its agent's (S-17.4)
     assert notes.read_text().startswith('# Garden\n\n## What it is for\n\nSpring planting.')
 
 

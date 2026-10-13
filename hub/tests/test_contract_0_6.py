@@ -90,7 +90,7 @@ def memory(hub: ChannelHub) -> MemoryRepo:
 
 
 def notes(hub: ChannelHub, slug: str) -> str:
-    path = memory(hub).root / 'projects' / f'{slug}.md'
+    path = memory(hub).root / 'agents' / 'marcel' / 'projects' / f'{slug}.md'  # S-17.4
     return path.read_text() if path.exists() else ''
 
 
@@ -121,7 +121,9 @@ def test_a_note_lands_in_its_projects_notes_with_a_date_and_the_thread(hub: Chan
     assert last.endswith(f' {FACT} (from Compare energy offers)')
     stamp = last.removeprefix('- ').split(' ', 1)[0]
     assert abs(datetime.fromisoformat(stamp).date() - today) <= timedelta(days=1)
-    assert subjects(hub)[0] == f'memory: projects/energy-contracts.md (worker {task_id})'
+    assert (
+        subjects(hub)[0] == f'memory: agents/marcel/projects/energy-contracts.md (worker {task_id})'
+    )
     # Never another project's notes.
     assert notes(hub, garden['slug']) == garden_before
     assert FACT not in notes(hub, 'inbox')
@@ -244,7 +246,9 @@ def test_a_malformed_call_is_answered_with_its_reason(hub: ChannelHub) -> None:
 
 def test_a_full_notes_file_refuses_the_note(hub: ChannelHub) -> None:
     _task_id, sid = hub.task()
-    memory(hub).write('projects/inbox.md', 'x' * (MAX_FILE_BYTES - 10) + '\n', None, 'app')
+    memory(hub).write(
+        'agents/marcel/projects/inbox.md', 'x' * (MAX_FILE_BYTES - 10) + '\n', None, 'app'
+    )
     [ack] = note(hub, sid, FACT)
     assert ack['error']['code'] == 'notes_full'
     assert FACT not in notes(hub, 'inbox')

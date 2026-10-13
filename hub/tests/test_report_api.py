@@ -130,7 +130,7 @@ def test_a_note_goes_to_the_projects_notes_and_posts_nothing(rh: ReportHub) -> N
     task = rh.spawn()
     res = rh.post(rh.token(), {'kind': 'note', 'text': FACT})
     assert res.status_code == 202, res.text
-    inbox = rh.hub.app.state.memory.root / 'projects' / 'inbox.md'
+    inbox = rh.hub.app.state.memory.root / 'agents' / 'marcel' / 'projects' / 'inbox.md'
     assert inbox.read_text().endswith(f'{FACT} (from Fix flaky login test)\n')
     assert rh.milestones() == []
     assert rh.registry.get(task.id).state == TaskState.starting
