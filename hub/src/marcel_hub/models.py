@@ -374,6 +374,21 @@ class Schedule(SQLModel, table=True):
     next_run_at: datetime | None = None
 
 
+class BrainRollover(SQLModel, table=True):
+    """One brain rollover (S-06.7): the facts of its `brain.rollover` event, kept apart from the
+    app event log (which keeps only the latest events) so the notebook can list past ones."""
+
+    __tablename__ = 'brain_rollover'  # type: ignore[assignment]
+
+    id: str = Field(default_factory=lambda: new_id('rol'), primary_key=True)
+    agent_id: str = Field(foreign_key='agent.id', index=True)
+    at: datetime = Field(default_factory=utcnow, index=True)
+    reason: str  # context_full | crashed | daily | manual
+    kept: str
+    old_session_id: str | None = None  # None: there was no brain before (never for a rollover)
+    new_session_id: str
+
+
 class UsageSnapshot(SQLModel, table=True):
     __tablename__ = 'usage_snapshot'  # type: ignore[assignment]
 

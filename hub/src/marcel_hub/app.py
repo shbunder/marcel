@@ -5,6 +5,7 @@ environment, which wins. A missing file is fine: defaults apply. A broken file s
 start with a message that names the file.
 """
 
+import functools
 import logging
 import os
 import sys
@@ -69,6 +70,8 @@ class Settings:
     worker_cwd: str | None = None
     # None: no brain keeper (tests). The brain workspace on the NUC, e.g. /home/<you>/marcel/brain.
     brain_cwd: str | None = None
+    # The brain model's context window in tokens; past 70 % of it the brain rolls over (S-06.7).
+    brain_context_window: int = brain.CONTEXT_WINDOW
     # None: no ntfy pushes. e.g. 'https://ntfy.sh' or a self-hosted server (S-08.1).
     ntfy_server: str | None = None
     # None: no APNs pushes (`push.apns` false). The .p8 key and its ids; never shown (S-08.2).
@@ -104,6 +107,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         'runner_sock',
         'worker_cwd',
         'brain_cwd',
+        'brain_context_window',
         'ntfy_server',
         'apns_key',
         'apns_key_id',
@@ -127,6 +131,9 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             runner_sock=Path(values.get('runner_sock', DEFAULT_SOCKET)),
             worker_cwd=str(values['worker_cwd']) if values.get('worker_cwd') else None,
             brain_cwd=str(values['brain_cwd']) if values.get('brain_cwd') else None,
+            brain_context_window=_context_window(
+                values.get('brain_context_window', brain.CONTEXT_WINDOW)
+            ),
             ntfy_server=_ntfy_server(values.get('ntfy_server')),
             apns=_apns(values),
             github_token=str(values['github_token']).strip() or None
@@ -168,6 +175,19 @@ def _tz(value: Any) -> str:
     return str(value)
 
 
+def _context_window(value: Any) -> int:
+    try:
+        tokens = int(value)
+    except (TypeError, ValueError):
+        tokens = 0
+    if tokens < 10_000:
+        raise SettingsError(
+            f'brain_context_window must be a number of tokens, at least 10000 (got {value!r}). '
+            'Leave it out for 200000, the Opus window.'
+        )
+    return tokens
+
+
 def _is_setting(name: str) -> bool:
     return name in {
         'MARCEL_DATA_DIR',
@@ -178,6 +198,7 @@ def _is_setting(name: str) -> bool:
         'MARCEL_RUNNER_SOCK',
         'MARCEL_WORKER_CWD',
         'MARCEL_BRAIN_CWD',
+        'MARCEL_BRAIN_CONTEXT_WINDOW',
         'MARCEL_NTFY_SERVER',
         'MARCEL_APNS_KEY',
         'MARCEL_APNS_KEY_ID',
@@ -354,6 +375,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             alerts=pusher,
             memory=repo,
             tz=zone(settings.tz),  # 04:00 in the owner's time zone, never the process's
+            window=settings.brain_context_window,
         )
         if settings.brain_cwd
         else None
@@ -373,6 +395,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         keeper_of_brains.hand_over = gateway.hand_over  # what the seed could not hold
         if watch is not None:
             watch.pokes.append(keeper_of_brains.poke)
+        if client is not None:  # S-06.7: how full the brain's context is, from its transcript
+            keeper_of_brains.turn_ends = functools.partial(brain.tail_turn_ends, client)
+    app.include_router(brain.router)  # S-06.7: manual rollover and the rollover history
     return app
 
 
