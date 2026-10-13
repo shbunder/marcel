@@ -41,10 +41,22 @@ final class EventDecodingTests: XCTestCase {
             ])
     }
 
-    func testAgentUpdatedCarriesTheNameAndTheAvatarEtag() throws {
+    func testAgentUpdatedCarriesTheWholeAgentAndTheAvatarEtag() throws {
+        let json = #"{"id":7,"type":"agent.updated","at":"2026-10-13T17:25:00Z","data":{"agent":{"id":"agt_1","name":"Pip","look":{"animal":"fox","color":"tangerine","personality":"cheerful"},"animal":"fox","onboarded_at":"2026-10-13T17:24:00Z","main_conversation_id":"cnv_1","state":{"kind":"idle"},"model_brain":"opus","model_worker":"sonnet"},"avatar_etag":"W/\"a1\""}}"#
+        let frame = try EventFrame.decode(Data(json.utf8))
+        guard case .agentUpdated(let agent, let etag) = frame.event else { return XCTFail("\(frame.event)") }
+        XCTAssertEqual(agent.id, "agt_1")
+        XCTAssertEqual(agent.name, "Pip")
+        XCTAssertEqual(agent.look, Look(animal: .fox, color: .tangerine, personality: .cheerful))
+        XCTAssertNotNil(agent.onboardedAt)
+        XCTAssertEqual(etag, #"W/"a1""#)
+    }
+
+    func testAgentUpdatedWithoutAnEtagOrALook() throws {
         let json = #"{"id":7,"type":"agent.updated","at":"2026-10-13T17:25:00Z","data":{"agent":{"id":"agt_1","name":"Pip","animal":"fox","main_conversation_id":"cnv_1","state":{"kind":"idle"},"model_brain":"opus","model_worker":"sonnet"}}}"#
         let frame = try EventFrame.decode(Data(json.utf8))
-        guard case .agentUpdated("agt_1", "Pip", nil) = frame.event else { return XCTFail("\(frame.event)") }
+        guard case .agentUpdated(let agent, nil) = frame.event else { return XCTFail("\(frame.event)") }
+        XCTAssertNil(agent.look)
     }
 
     func testHelloAndResyncAreControlFrames() throws {

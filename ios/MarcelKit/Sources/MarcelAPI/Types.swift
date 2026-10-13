@@ -58,12 +58,55 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `PUT /devices/{device_id}/push`.
     /// - Remark: Generated from `#/paths//devices/{device_id}/push/put(setDevicePush)`.
     func setDevicePush(_ input: Operations.SetDevicePush.Input) async throws -> Operations.SetDevicePush.Output
+    /// Everyone who uses this Marcel, with their helper. Owner only. New in 0.7.0.
+    ///
+    /// - Remark: HTTP `GET /users`.
+    /// - Remark: Generated from `#/paths//users/get(listUsers)`.
+    func listUsers(_ input: Operations.ListUsers.Input) async throws -> Operations.ListUsers.Output
+    /// Add a family member and their helper. Owner only. New in 0.7.0.
+    ///
+    /// Stores the person as a `member`, with their own agent (`agent.name`, and `agent.look`, or a
+    /// look picked from the agent's name when absent), main conversation and Inbox. Pair their
+    /// first phone with `POST /users/{user_id}/pairing-codes`.
+    ///
+    ///
+    /// - Remark: HTTP `POST /users`.
+    /// - Remark: Generated from `#/paths//users/post(addUser)`.
+    func addUser(_ input: Operations.AddUser.Input) async throws -> Operations.AddUser.Output
+    /// Remove a family member. Owner only. New in 0.7.0.
+    ///
+    /// Their phones are signed out at once (their tokens answer 401), their running quests stop,
+    /// and their helper is archived: no brain, no schedules, no digests. Their chats, items and
+    /// notes stay on the NUC.
+    ///
+    ///
+    /// - Remark: HTTP `DELETE /users/{user_id}`.
+    /// - Remark: Generated from `#/paths//users/{user_id}/delete(removeUser)`.
+    func removeUser(_ input: Operations.RemoveUser.Input) async throws -> Operations.RemoveUser.Output
+    /// A one-time code that pairs a phone to this person. Owner only. New in 0.7.0.
+    ///
+    /// The same kind of code `marcel-hub pair` prints: it works once, for 10 minutes, with
+    /// `POST /pair`, and the phone it pairs belongs to `user_id`. Show `link` as a QR code, or share
+    /// it as a link.
+    ///
+    ///
+    /// - Remark: HTTP `POST /users/{user_id}/pairing-codes`.
+    /// - Remark: Generated from `#/paths//users/{user_id}/pairing-codes/post(createPairingCode)`.
+    func createPairingCode(_ input: Operations.CreatePairingCode.Input) async throws -> Operations.CreatePairingCode.Output
     /// One agent, with its current state for the avatar.
+    ///
+    /// Only the caller's own agent; another person's answers 404, like one that does not exist.
     ///
     /// - Remark: HTTP `GET /agents/{agent_id}`.
     /// - Remark: Generated from `#/paths//agents/{agent_id}/get(getAgent)`.
     func getAgent(_ input: Operations.GetAgent.Input) async throws -> Operations.GetAgent.Output
-    /// Rename an agent or change its palette.
+    /// Rename an agent, change its look, or finish onboarding.
+    ///
+    /// Only for the caller's own agent; another person's answers 404. A change sends the
+    /// `agent.updated` event. A rename also tells the agent's brain its new name (channel
+    /// `system_event` `agent_renamed`), so it answers to it without a restart. `look` and
+    /// `onboarded` are new in 0.7.0; `palette` is deprecated and ignored once the agent has a `look`.
+    ///
     ///
     /// - Remark: HTTP `PATCH /agents/{agent_id}`.
     /// - Remark: Generated from `#/paths//agents/{agent_id}/patch(updateAgent)`.
@@ -87,6 +130,27 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /agents/{agent_id}/brain/rollovers`.
     /// - Remark: Generated from `#/paths//agents/{agent_id}/brain/rollovers/get(listBrainRollovers)`.
     func listBrainRollovers(_ input: Operations.ListBrainRollovers.Input) async throws -> Operations.ListBrainRollovers.Output
+    /// The agent's avatar sprite sheet, built from its look. New in 0.7.0.
+    ///
+    /// Two bodies at one URL, picked by the `Accept` header: `application/json` (the default) is the
+    /// sheet's JSON, an `avatar-sheet.schema.json` document; `image/png` is the sheet's image
+    /// (the JSON's `image` names it, but fetch it here). Both carry the same `ETag`, which changes
+    /// with the look and equals `avatar_etag` in the `agent.updated` event; send it back as
+    /// `If-None-Match` to get 304 when nothing changed.
+    ///
+    ///
+    /// - Remark: HTTP `GET /agents/{agent_id}/avatar`.
+    /// - Remark: Generated from `#/paths//agents/{agent_id}/avatar/get(getAgentAvatar)`.
+    func getAgentAvatar(_ input: Operations.GetAgentAvatar.Input) async throws -> Operations.GetAgentAvatar.Output
+    /// One 32×32 frame of a look, for the look picker. New in 0.7.0.
+    ///
+    /// Any look, not only an agent's: the picker shows a live preview while the person chooses.
+    /// `mood` defaults to the personality's resting mood. Cached; the same query gives the same image.
+    ///
+    ///
+    /// - Remark: HTTP `GET /avatar-previews`.
+    /// - Remark: Generated from `#/paths//avatar-previews/get(getAvatarPreview)`.
+    func getAvatarPreview(_ input: Operations.GetAvatarPreview.Input) async throws -> Operations.GetAvatarPreview.Output
     /// The main conversation and every side thread of an agent.
     ///
     /// An agent that does not exist or is not yours gives an empty list, so the answer does not reveal which agents exist.
@@ -106,6 +170,11 @@ public protocol APIProtocol: Sendable {
     /// same message instead of a duplicate. With `artifact_id` ("Ask about this", B-21) the item
     /// is attached: the stored message carries it, and Marcel is told which item it is about; an
     /// unknown item answers 404 `artifact_not_found`. New in 0.5.0.
+    ///
+    /// With `mentions` (new in 0.7.0, B-42), each one must be the caller's own quest, project or
+    /// item, or the message is refused with 404 `mention_not_found` and nothing is stored. The
+    /// stored message carries them, with the hub's current titles, and Marcel gets them too. A
+    /// `project` mention also sets the message's `project_id` when the message has none.
     ///
     ///
     /// - Remark: HTTP `POST /conversations/{conversation_id}/messages`.
@@ -135,6 +204,16 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /conversations/{conversation_id}/send-to-main`.
     /// - Remark: Generated from `#/paths//conversations/{conversation_id}/send-to-main/post(sendToMain)`.
     func sendToMain(_ input: Operations.SendToMain.Input) async throws -> Operations.SendToMain.Output
+    /// Quests, projects and items to mention, for `@` and `#` in the composer. New in 0.7.0.
+    ///
+    /// The caller's own quests (`task`), projects and items (`artifact`) whose title contains `q`
+    /// (any case), newest first, at most 20. An empty or absent `q` lists the newest. `@` asks for
+    /// `task` and `artifact`, `#` for `project`.
+    ///
+    ///
+    /// - Remark: HTTP `GET /mentions`.
+    /// - Remark: Generated from `#/paths//mentions/get(searchMentions)`.
+    func searchMentions(_ input: Operations.SearchMentions.Input) async throws -> Operations.SearchMentions.Output
     /// Tasks (threads) for the Quests tab, optionally for one project.
     ///
     /// - Remark: HTTP `GET /tasks`.
@@ -198,6 +277,10 @@ public protocol APIProtocol: Sendable {
     /// - Remark: Generated from `#/paths//approvals/{approval_id}/get(getApproval)`.
     func getApproval(_ input: Operations.GetApproval.Input) async throws -> Operations.GetApproval.Output
     /// Approve or deny (B-12). The first answer wins, from the app or a terminal.
+    ///
+    /// A self-change card (`tool: self_change`, B-24) is answered by the owner only; a member gets
+    /// 403 `owner_only` (new in 0.7.0).
+    ///
     ///
     /// - Remark: HTTP `POST /approvals/{approval_id}`.
     /// - Remark: Generated from `#/paths//approvals/{approval_id}/post(answerApproval)`.
@@ -404,7 +487,70 @@ extension APIProtocol {
             body: body
         ))
     }
+    /// Everyone who uses this Marcel, with their helper. Owner only. New in 0.7.0.
+    ///
+    /// - Remark: HTTP `GET /users`.
+    /// - Remark: Generated from `#/paths//users/get(listUsers)`.
+    public func listUsers(headers: Operations.ListUsers.Input.Headers = .init()) async throws -> Operations.ListUsers.Output {
+        try await listUsers(Operations.ListUsers.Input(headers: headers))
+    }
+    /// Add a family member and their helper. Owner only. New in 0.7.0.
+    ///
+    /// Stores the person as a `member`, with their own agent (`agent.name`, and `agent.look`, or a
+    /// look picked from the agent's name when absent), main conversation and Inbox. Pair their
+    /// first phone with `POST /users/{user_id}/pairing-codes`.
+    ///
+    ///
+    /// - Remark: HTTP `POST /users`.
+    /// - Remark: Generated from `#/paths//users/post(addUser)`.
+    public func addUser(
+        headers: Operations.AddUser.Input.Headers = .init(),
+        body: Operations.AddUser.Input.Body
+    ) async throws -> Operations.AddUser.Output {
+        try await addUser(Operations.AddUser.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Remove a family member. Owner only. New in 0.7.0.
+    ///
+    /// Their phones are signed out at once (their tokens answer 401), their running quests stop,
+    /// and their helper is archived: no brain, no schedules, no digests. Their chats, items and
+    /// notes stay on the NUC.
+    ///
+    ///
+    /// - Remark: HTTP `DELETE /users/{user_id}`.
+    /// - Remark: Generated from `#/paths//users/{user_id}/delete(removeUser)`.
+    public func removeUser(
+        path: Operations.RemoveUser.Input.Path,
+        headers: Operations.RemoveUser.Input.Headers = .init()
+    ) async throws -> Operations.RemoveUser.Output {
+        try await removeUser(Operations.RemoveUser.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// A one-time code that pairs a phone to this person. Owner only. New in 0.7.0.
+    ///
+    /// The same kind of code `marcel-hub pair` prints: it works once, for 10 minutes, with
+    /// `POST /pair`, and the phone it pairs belongs to `user_id`. Show `link` as a QR code, or share
+    /// it as a link.
+    ///
+    ///
+    /// - Remark: HTTP `POST /users/{user_id}/pairing-codes`.
+    /// - Remark: Generated from `#/paths//users/{user_id}/pairing-codes/post(createPairingCode)`.
+    public func createPairingCode(
+        path: Operations.CreatePairingCode.Input.Path,
+        headers: Operations.CreatePairingCode.Input.Headers = .init()
+    ) async throws -> Operations.CreatePairingCode.Output {
+        try await createPairingCode(Operations.CreatePairingCode.Input(
+            path: path,
+            headers: headers
+        ))
+    }
     /// One agent, with its current state for the avatar.
+    ///
+    /// Only the caller's own agent; another person's answers 404, like one that does not exist.
     ///
     /// - Remark: HTTP `GET /agents/{agent_id}`.
     /// - Remark: Generated from `#/paths//agents/{agent_id}/get(getAgent)`.
@@ -417,7 +563,13 @@ extension APIProtocol {
             headers: headers
         ))
     }
-    /// Rename an agent or change its palette.
+    /// Rename an agent, change its look, or finish onboarding.
+    ///
+    /// Only for the caller's own agent; another person's answers 404. A change sends the
+    /// `agent.updated` event. A rename also tells the agent's brain its new name (channel
+    /// `system_event` `agent_renamed`), so it answers to it without a restart. `look` and
+    /// `onboarded` are new in 0.7.0; `palette` is deprecated and ignored once the agent has a `look`.
+    ///
     ///
     /// - Remark: HTTP `PATCH /agents/{agent_id}`.
     /// - Remark: Generated from `#/paths//agents/{agent_id}/patch(updateAgent)`.
@@ -469,6 +621,43 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// The agent's avatar sprite sheet, built from its look. New in 0.7.0.
+    ///
+    /// Two bodies at one URL, picked by the `Accept` header: `application/json` (the default) is the
+    /// sheet's JSON, an `avatar-sheet.schema.json` document; `image/png` is the sheet's image
+    /// (the JSON's `image` names it, but fetch it here). Both carry the same `ETag`, which changes
+    /// with the look and equals `avatar_etag` in the `agent.updated` event; send it back as
+    /// `If-None-Match` to get 304 when nothing changed.
+    ///
+    ///
+    /// - Remark: HTTP `GET /agents/{agent_id}/avatar`.
+    /// - Remark: Generated from `#/paths//agents/{agent_id}/avatar/get(getAgentAvatar)`.
+    public func getAgentAvatar(
+        path: Operations.GetAgentAvatar.Input.Path,
+        headers: Operations.GetAgentAvatar.Input.Headers = .init()
+    ) async throws -> Operations.GetAgentAvatar.Output {
+        try await getAgentAvatar(Operations.GetAgentAvatar.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// One 32×32 frame of a look, for the look picker. New in 0.7.0.
+    ///
+    /// Any look, not only an agent's: the picker shows a live preview while the person chooses.
+    /// `mood` defaults to the personality's resting mood. Cached; the same query gives the same image.
+    ///
+    ///
+    /// - Remark: HTTP `GET /avatar-previews`.
+    /// - Remark: Generated from `#/paths//avatar-previews/get(getAvatarPreview)`.
+    public func getAvatarPreview(
+        query: Operations.GetAvatarPreview.Input.Query,
+        headers: Operations.GetAvatarPreview.Input.Headers = .init()
+    ) async throws -> Operations.GetAvatarPreview.Output {
+        try await getAvatarPreview(Operations.GetAvatarPreview.Input(
+            query: query,
+            headers: headers
+        ))
+    }
     /// The main conversation and every side thread of an agent.
     ///
     /// An agent that does not exist or is not yours gives an empty list, so the answer does not reveal which agents exist.
@@ -506,6 +695,11 @@ extension APIProtocol {
     /// same message instead of a duplicate. With `artifact_id` ("Ask about this", B-21) the item
     /// is attached: the stored message carries it, and Marcel is told which item it is about; an
     /// unknown item answers 404 `artifact_not_found`. New in 0.5.0.
+    ///
+    /// With `mentions` (new in 0.7.0, B-42), each one must be the caller's own quest, project or
+    /// item, or the message is refused with 404 `mention_not_found` and nothing is stored. The
+    /// stored message carries them, with the hub's current titles, and Marcel gets them too. A
+    /// `project` mention also sets the message's `project_id` when the message has none.
     ///
     ///
     /// - Remark: HTTP `POST /conversations/{conversation_id}/messages`.
@@ -569,6 +763,24 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// Quests, projects and items to mention, for `@` and `#` in the composer. New in 0.7.0.
+    ///
+    /// The caller's own quests (`task`), projects and items (`artifact`) whose title contains `q`
+    /// (any case), newest first, at most 20. An empty or absent `q` lists the newest. `@` asks for
+    /// `task` and `artifact`, `#` for `project`.
+    ///
+    ///
+    /// - Remark: HTTP `GET /mentions`.
+    /// - Remark: Generated from `#/paths//mentions/get(searchMentions)`.
+    public func searchMentions(
+        query: Operations.SearchMentions.Input.Query = .init(),
+        headers: Operations.SearchMentions.Input.Headers = .init()
+    ) async throws -> Operations.SearchMentions.Output {
+        try await searchMentions(Operations.SearchMentions.Input(
+            query: query,
+            headers: headers
         ))
     }
     /// Tasks (threads) for the Quests tab, optionally for one project.
@@ -722,6 +934,10 @@ extension APIProtocol {
         ))
     }
     /// Approve or deny (B-12). The first answer wins, from the app or a terminal.
+    ///
+    /// A self-change card (`tool: self_change`, B-24) is answered by the owner only; a member gets
+    /// 403 `owner_only` (new in 0.7.0).
+    ///
     ///
     /// - Remark: HTTP `POST /approvals/{approval_id}`.
     /// - Remark: Generated from `#/paths//approvals/{approval_id}/post(answerApproval)`.

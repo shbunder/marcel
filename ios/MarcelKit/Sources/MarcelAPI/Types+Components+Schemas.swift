@@ -25,8 +25,10 @@ extension Components {
             /// `agent_not_found`; agents: `rollover_running` (409); artifacts and memory:
             /// `artifact_not_found`, `artifact_is_board`, `invalid_memory_path`,
             /// `memory_file_not_found`, `memory_file_too_big`, `memory_unavailable` (503); schedules:
-            /// `schedule_not_found` (404), `schedule_builtin` (409); usage: `no_reading` (503). New
-            /// codes may be added; treat an unknown code by its HTTP status.
+            /// `schedule_not_found` (404), `schedule_builtin` (409); usage: `no_reading` (503); people
+            /// (0.7.0): `owner_only` (403), `user_not_found` (404), `cannot_remove_owner` (409);
+            /// mentions (0.7.0): `mention_not_found` (404). New codes may be added; treat an unknown
+            /// code by its HTTP status.
             ///
             ///
             /// - Remark: Generated from `#/components/schemas/Error/code`.
@@ -262,6 +264,10 @@ extension Components {
             public var userId: Swift.String
             /// - Remark: Generated from `#/components/schemas/Me/name`.
             public var name: Swift.String
+            /// New in 0.7.0. The app shows People only to the owner.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Me/role`.
+            public var role: Components.Schemas.UserRole?
             /// - Remark: Generated from `#/components/schemas/Me/device_id`.
             public var deviceId: Swift.String
             /// - Remark: Generated from `#/components/schemas/Me/agents`.
@@ -330,18 +336,21 @@ extension Components {
             /// - Parameters:
             ///   - userId:
             ///   - name:
+            ///   - role: New in 0.7.0. The app shows People only to the owner.
             ///   - deviceId:
             ///   - agents:
             ///   - push: Which push backends the hub can use. Register APNs only when `apns` is true;
             public init(
                 userId: Swift.String,
                 name: Swift.String,
+                role: Components.Schemas.UserRole? = nil,
                 deviceId: Swift.String,
                 agents: [Components.Schemas.Agent],
                 push: Components.Schemas.Me.PushPayload
             ) {
                 self.userId = userId
                 self.name = name
+                self.role = role
                 self.deviceId = deviceId
                 self.agents = agents
                 self.push = push
@@ -349,6 +358,7 @@ extension Components {
             public enum CodingKeys: String, CodingKey {
                 case userId = "user_id"
                 case name
+                case role
                 case deviceId = "device_id"
                 case agents
                 case push
@@ -362,6 +372,10 @@ extension Components {
                 self.name = try container.decode(
                     Swift.String.self,
                     forKey: .name
+                )
+                self.role = try container.decodeIfPresent(
+                    Components.Schemas.UserRole.self,
+                    forKey: .role
                 )
                 self.deviceId = try container.decode(
                     Swift.String.self,
@@ -378,9 +392,300 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "user_id",
                     "name",
+                    "role",
                     "device_id",
                     "agents",
                     "push"
+                ])
+            }
+        }
+        /// `owner`: runs Marcel at home and whose Claude login the NUC uses (B-37). `member`: a family member the owner added.
+        ///
+        /// - Remark: Generated from `#/components/schemas/UserRole`.
+        @frozen public enum UserRole: String, Codable, Hashable, Sendable, CaseIterable {
+            case owner = "owner"
+            case member = "member"
+        }
+        /// A person, as the owner's People screen shows them (B-37, B-40). New in 0.7.0.
+        ///
+        /// - Remark: Generated from `#/components/schemas/User`.
+        public struct User: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/User/id`.
+            public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/User/name`.
+            public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/User/role`.
+            public var role: Components.Schemas.UserRole
+            /// - Remark: Generated from `#/components/schemas/User/created_at`.
+            public var createdAt: Foundation.Date
+            /// The person's helper. Absent only while it is still being set up.
+            ///
+            /// - Remark: Generated from `#/components/schemas/User/agent`.
+            public struct AgentPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/User/agent/id`.
+                public var id: Swift.String
+                /// - Remark: Generated from `#/components/schemas/User/agent/name`.
+                public var name: Swift.String
+                /// - Remark: Generated from `#/components/schemas/User/agent/look`.
+                public var look: Components.Schemas.Look?
+                /// Creates a new `AgentPayload`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                ///   - name:
+                ///   - look:
+                public init(
+                    id: Swift.String,
+                    name: Swift.String,
+                    look: Components.Schemas.Look? = nil
+                ) {
+                    self.id = id
+                    self.name = name
+                    self.look = look
+                }
+                public enum CodingKeys: String, CodingKey {
+                    case id
+                    case name
+                    case look
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    self.id = try container.decode(
+                        Swift.String.self,
+                        forKey: .id
+                    )
+                    self.name = try container.decode(
+                        Swift.String.self,
+                        forKey: .name
+                    )
+                    self.look = try container.decodeIfPresent(
+                        Components.Schemas.Look.self,
+                        forKey: .look
+                    )
+                    try decoder.ensureNoAdditionalProperties(knownKeys: [
+                        "id",
+                        "name",
+                        "look"
+                    ])
+                }
+            }
+            /// The person's helper. Absent only while it is still being set up.
+            ///
+            /// - Remark: Generated from `#/components/schemas/User/agent`.
+            public var agent: Components.Schemas.User.AgentPayload?
+            /// Phones paired to this person and not revoked.
+            ///
+            /// - Remark: Generated from `#/components/schemas/User/device_count`.
+            public var deviceCount: Swift.Int
+            /// Quests their helper started in the last 7 days.
+            ///
+            /// - Remark: Generated from `#/components/schemas/User/quests_this_week`.
+            public var questsThisWeek: Swift.Int
+            /// Creates a new `User`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - name:
+            ///   - role:
+            ///   - createdAt:
+            ///   - agent: The person's helper. Absent only while it is still being set up.
+            ///   - deviceCount: Phones paired to this person and not revoked.
+            ///   - questsThisWeek: Quests their helper started in the last 7 days.
+            public init(
+                id: Swift.String,
+                name: Swift.String,
+                role: Components.Schemas.UserRole,
+                createdAt: Foundation.Date,
+                agent: Components.Schemas.User.AgentPayload? = nil,
+                deviceCount: Swift.Int,
+                questsThisWeek: Swift.Int
+            ) {
+                self.id = id
+                self.name = name
+                self.role = role
+                self.createdAt = createdAt
+                self.agent = agent
+                self.deviceCount = deviceCount
+                self.questsThisWeek = questsThisWeek
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case name
+                case role
+                case createdAt = "created_at"
+                case agent
+                case deviceCount = "device_count"
+                case questsThisWeek = "quests_this_week"
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.name = try container.decode(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.role = try container.decode(
+                    Components.Schemas.UserRole.self,
+                    forKey: .role
+                )
+                self.createdAt = try container.decode(
+                    Foundation.Date.self,
+                    forKey: .createdAt
+                )
+                self.agent = try container.decodeIfPresent(
+                    Components.Schemas.User.AgentPayload.self,
+                    forKey: .agent
+                )
+                self.deviceCount = try container.decode(
+                    Swift.Int.self,
+                    forKey: .deviceCount
+                )
+                self.questsThisWeek = try container.decode(
+                    Swift.Int.self,
+                    forKey: .questsThisWeek
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "id",
+                    "name",
+                    "role",
+                    "created_at",
+                    "agent",
+                    "device_count",
+                    "quests_this_week"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/NewUser`.
+        public struct NewUser: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/NewUser/name`.
+            public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/NewUser/agent`.
+            public struct AgentPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/NewUser/agent/name`.
+                public var name: Swift.String
+                /// Picked from the agent's name when absent.
+                ///
+                /// - Remark: Generated from `#/components/schemas/NewUser/agent/look`.
+                public var look: Components.Schemas.Look?
+                /// Creates a new `AgentPayload`.
+                ///
+                /// - Parameters:
+                ///   - name:
+                ///   - look: Picked from the agent's name when absent.
+                public init(
+                    name: Swift.String,
+                    look: Components.Schemas.Look? = nil
+                ) {
+                    self.name = name
+                    self.look = look
+                }
+                public enum CodingKeys: String, CodingKey {
+                    case name
+                    case look
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    self.name = try container.decode(
+                        Swift.String.self,
+                        forKey: .name
+                    )
+                    self.look = try container.decodeIfPresent(
+                        Components.Schemas.Look.self,
+                        forKey: .look
+                    )
+                    try decoder.ensureNoAdditionalProperties(knownKeys: [
+                        "name",
+                        "look"
+                    ])
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/NewUser/agent`.
+            public var agent: Components.Schemas.NewUser.AgentPayload
+            /// Creates a new `NewUser`.
+            ///
+            /// - Parameters:
+            ///   - name:
+            ///   - agent:
+            public init(
+                name: Swift.String,
+                agent: Components.Schemas.NewUser.AgentPayload
+            ) {
+                self.name = name
+                self.agent = agent
+            }
+            public enum CodingKeys: String, CodingKey {
+                case name
+                case agent
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.name = try container.decode(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.agent = try container.decode(
+                    Components.Schemas.NewUser.AgentPayload.self,
+                    forKey: .agent
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "name",
+                    "agent"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/IssuedPairingCode`.
+        public struct IssuedPairingCode: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/IssuedPairingCode/code`.
+            public var code: Swift.String
+            /// The same code as a `marcel://pair` link, for the QR code and for sharing.
+            ///
+            /// - Remark: Generated from `#/components/schemas/IssuedPairingCode/link`.
+            public var link: Components.Schemas.PairingCode
+            /// 10 minutes after it was made; the app shows the time left.
+            ///
+            /// - Remark: Generated from `#/components/schemas/IssuedPairingCode/expires_at`.
+            public var expiresAt: Foundation.Date
+            /// Creates a new `IssuedPairingCode`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - link: The same code as a `marcel://pair` link, for the QR code and for sharing.
+            ///   - expiresAt: 10 minutes after it was made; the app shows the time left.
+            public init(
+                code: Swift.String,
+                link: Components.Schemas.PairingCode,
+                expiresAt: Foundation.Date
+            ) {
+                self.code = code
+                self.link = link
+                self.expiresAt = expiresAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case link
+                case expiresAt = "expires_at"
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Swift.String.self,
+                    forKey: .code
+                )
+                self.link = try container.decode(
+                    Components.Schemas.PairingCode.self,
+                    forKey: .link
+                )
+                self.expiresAt = try container.decode(
+                    Foundation.Date.self,
+                    forKey: .expiresAt
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "link",
+                    "expires_at"
                 ])
             }
         }
@@ -595,18 +900,34 @@ extension Components {
             public var id: Swift.String
             /// - Remark: Generated from `#/components/schemas/Agent/name`.
             public var name: Swift.String
-            /// A recipe in `shared/avatar/recipes/`.
+            /// How the avatar looks (B-44, ADR-008); the source of truth for the avatar. Its sheet is
+            /// `GET /agents/{agent_id}/avatar`. New in 0.7.0.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/Agent/look`.
+            public var look: Components.Schemas.Look?
+            /// A read-only copy of `look.animal` (since 0.7.0). Before 0.7.0, a recipe in
+            /// `shared/avatar/recipes/`.
+            ///
             ///
             /// - Remark: Generated from `#/components/schemas/Agent/animal`.
             public var animal: Swift.String
-            /// A palette id from `shared/avatar/palettes.json`.
+            /// Deprecated in 0.7.0 (use `look.color`). A palette id from `shared/avatar/palettes.json`.
             ///
             /// - Remark: Generated from `#/components/schemas/Agent/palette`.
-            public var palette: Swift.String
-            /// Feeds the avatar's deterministic details (spots, blink timing).
+            @available(*, deprecated)
+            public var palette: Swift.String?
+            /// Deprecated in 0.7.0. Fed the old avatar's deterministic details (spots, blink timing).
             ///
             /// - Remark: Generated from `#/components/schemas/Agent/seed`.
-            public var seed: Swift.String
+            @available(*, deprecated)
+            public var seed: Swift.String?
+            /// When the person finished "Meet your helper" after pairing (`AgentUpdate.onboarded`).
+            /// Absent until then, and the app shows onboarding. New in 0.7.0.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/Agent/onboarded_at`.
+            public var onboardedAt: Foundation.Date?
             /// Where to send messages to this agent's main conversation.
             ///
             /// - Remark: Generated from `#/components/schemas/Agent/main_conversation_id`.
@@ -622,9 +943,11 @@ extension Components {
             /// - Parameters:
             ///   - id:
             ///   - name:
-            ///   - animal: A recipe in `shared/avatar/recipes/`.
-            ///   - palette: A palette id from `shared/avatar/palettes.json`.
-            ///   - seed: Feeds the avatar's deterministic details (spots, blink timing).
+            ///   - look: How the avatar looks (B-44, ADR-008); the source of truth for the avatar. Its sheet is
+            ///   - animal: A read-only copy of `look.animal` (since 0.7.0). Before 0.7.0, a recipe in
+            ///   - palette: Deprecated in 0.7.0 (use `look.color`). A palette id from `shared/avatar/palettes.json`.
+            ///   - seed: Deprecated in 0.7.0. Fed the old avatar's deterministic details (spots, blink timing).
+            ///   - onboardedAt: When the person finished "Meet your helper" after pairing (`AgentUpdate.onboarded`).
             ///   - mainConversationId: Where to send messages to this agent's main conversation.
             ///   - state:
             ///   - modelBrain:
@@ -632,9 +955,11 @@ extension Components {
             public init(
                 id: Swift.String,
                 name: Swift.String,
+                look: Components.Schemas.Look? = nil,
                 animal: Swift.String,
-                palette: Swift.String,
-                seed: Swift.String,
+                palette: Swift.String? = nil,
+                seed: Swift.String? = nil,
+                onboardedAt: Foundation.Date? = nil,
                 mainConversationId: Swift.String,
                 state: Components.Schemas.AgentState,
                 modelBrain: Swift.String,
@@ -642,9 +967,11 @@ extension Components {
             ) {
                 self.id = id
                 self.name = name
+                self.look = look
                 self.animal = animal
                 self.palette = palette
                 self.seed = seed
+                self.onboardedAt = onboardedAt
                 self.mainConversationId = mainConversationId
                 self.state = state
                 self.modelBrain = modelBrain
@@ -653,9 +980,11 @@ extension Components {
             public enum CodingKeys: String, CodingKey {
                 case id
                 case name
+                case look
                 case animal
                 case palette
                 case seed
+                case onboardedAt = "onboarded_at"
                 case mainConversationId = "main_conversation_id"
                 case state
                 case modelBrain = "model_brain"
@@ -671,17 +1000,25 @@ extension Components {
                     Swift.String.self,
                     forKey: .name
                 )
+                self.look = try container.decodeIfPresent(
+                    Components.Schemas.Look.self,
+                    forKey: .look
+                )
                 self.animal = try container.decode(
                     Swift.String.self,
                     forKey: .animal
                 )
-                self.palette = try container.decode(
+                self.palette = try container.decodeIfPresent(
                     Swift.String.self,
                     forKey: .palette
                 )
-                self.seed = try container.decode(
+                self.seed = try container.decodeIfPresent(
                     Swift.String.self,
                     forKey: .seed
+                )
+                self.onboardedAt = try container.decodeIfPresent(
+                    Foundation.Date.self,
+                    forKey: .onboardedAt
                 )
                 self.mainConversationId = try container.decode(
                     Swift.String.self,
@@ -702,9 +1039,11 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "id",
                     "name",
+                    "look",
                     "animal",
                     "palette",
                     "seed",
+                    "onboarded_at",
                     "main_conversation_id",
                     "state",
                     "model_brain",
@@ -716,22 +1055,41 @@ extension Components {
         public struct AgentUpdate: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/AgentUpdate/name`.
             public var name: Swift.String?
+            /// New in 0.7.0. Replaces the whole look; `animal` follows it.
+            ///
+            /// - Remark: Generated from `#/components/schemas/AgentUpdate/look`.
+            public var look: Components.Schemas.Look?
+            /// New in 0.7.0. Sets `onboarded_at` the first time; sending it again changes nothing.
+            ///
+            /// - Remark: Generated from `#/components/schemas/AgentUpdate/onboarded`.
+            public var onboarded: Swift.Bool?
+            /// Deprecated in 0.7.0 (use `look`).
+            ///
             /// - Remark: Generated from `#/components/schemas/AgentUpdate/palette`.
+            @available(*, deprecated)
             public var palette: Swift.String?
             /// Creates a new `AgentUpdate`.
             ///
             /// - Parameters:
             ///   - name:
-            ///   - palette:
+            ///   - look: New in 0.7.0. Replaces the whole look; `animal` follows it.
+            ///   - onboarded: New in 0.7.0. Sets `onboarded_at` the first time; sending it again changes nothing.
+            ///   - palette: Deprecated in 0.7.0 (use `look`).
             public init(
                 name: Swift.String? = nil,
+                look: Components.Schemas.Look? = nil,
+                onboarded: Swift.Bool? = nil,
                 palette: Swift.String? = nil
             ) {
                 self.name = name
+                self.look = look
+                self.onboarded = onboarded
                 self.palette = palette
             }
             public enum CodingKeys: String, CodingKey {
                 case name
+                case look
+                case onboarded
                 case palette
             }
             public init(from decoder: any Swift.Decoder) throws {
@@ -740,15 +1098,158 @@ extension Components {
                     Swift.String.self,
                     forKey: .name
                 )
+                self.look = try container.decodeIfPresent(
+                    Components.Schemas.Look.self,
+                    forKey: .look
+                )
+                self.onboarded = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .onboarded
+                )
                 self.palette = try container.decodeIfPresent(
                     Swift.String.self,
                     forKey: .palette
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "name",
+                    "look",
+                    "onboarded",
                     "palette"
                 ])
             }
+        }
+        /// An avatar from the Pixel Zoo (B-44, ADR-008): an animal, a colour and a personality. The
+        /// same look always draws the same avatar. New in 0.7.0.
+        ///
+        ///
+        /// - Remark: Generated from `#/components/schemas/Look`.
+        public struct Look: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/Look/animal`.
+            public var animal: Components.Schemas.LookAnimal
+            /// - Remark: Generated from `#/components/schemas/Look/color`.
+            public var color: Components.Schemas.LookColor
+            /// - Remark: Generated from `#/components/schemas/Look/personality`.
+            public var personality: Components.Schemas.LookPersonality
+            /// Creates a new `Look`.
+            ///
+            /// - Parameters:
+            ///   - animal:
+            ///   - color:
+            ///   - personality:
+            public init(
+                animal: Components.Schemas.LookAnimal,
+                color: Components.Schemas.LookColor,
+                personality: Components.Schemas.LookPersonality
+            ) {
+                self.animal = animal
+                self.color = color
+                self.personality = personality
+            }
+            public enum CodingKeys: String, CodingKey {
+                case animal
+                case color
+                case personality
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.animal = try container.decode(
+                    Components.Schemas.LookAnimal.self,
+                    forKey: .animal
+                )
+                self.color = try container.decode(
+                    Components.Schemas.LookColor.self,
+                    forKey: .color
+                )
+                self.personality = try container.decode(
+                    Components.Schemas.LookPersonality.self,
+                    forKey: .personality
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "animal",
+                    "color",
+                    "personality"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/LookAnimal`.
+        @frozen public enum LookAnimal: String, Codable, Hashable, Sendable, CaseIterable {
+            case giraffe = "giraffe"
+            case crocodile = "crocodile"
+            case frog = "frog"
+            case cat = "cat"
+            case fox = "fox"
+            case bear = "bear"
+            case panda = "panda"
+            case rabbit = "rabbit"
+            case dog = "dog"
+            case pig = "pig"
+            case mouse = "mouse"
+        }
+        /// `natural` keeps the animal's own colours (a look picked from a name can be `natural`).
+        ///
+        /// - Remark: Generated from `#/components/schemas/LookColor`.
+        @frozen public enum LookColor: String, Codable, Hashable, Sendable, CaseIterable {
+            case natural = "natural"
+            case rose = "rose"
+            case coral = "coral"
+            case tangerine = "tangerine"
+            case honey = "honey"
+            case lime = "lime"
+            case green = "green"
+            case teal = "teal"
+            case sky = "sky"
+            case blue = "blue"
+            case lavender = "lavender"
+            case plum = "plum"
+            case cocoa = "cocoa"
+            case sand = "sand"
+            case slate = "slate"
+            case snow = "snow"
+            case ink = "ink"
+        }
+        /// Sets the accessory, the resting mood and how lively the avatar is.
+        ///
+        /// - Remark: Generated from `#/components/schemas/LookPersonality`.
+        @frozen public enum LookPersonality: String, Codable, Hashable, Sendable, CaseIterable {
+            case professional = "professional"
+            case cheerful = "cheerful"
+            case curious = "curious"
+            case cozy = "cozy"
+            case bold = "bold"
+            case cool = "cool"
+            case sporty = "sporty"
+            case shy = "shy"
+            case grumpy = "grumpy"
+        }
+        /// A face the avatar can pull (`GET /avatar-previews`). The avatar's states map onto moods.
+        ///
+        /// - Remark: Generated from `#/components/schemas/Mood`.
+        @frozen public enum Mood: String, Codable, Hashable, Sendable, CaseIterable {
+            case neutral = "neutral"
+            case happy = "happy"
+            case laughing = "laughing"
+            case love = "love"
+            case excited = "excited"
+            case wink = "wink"
+            case proud = "proud"
+            case calm = "calm"
+            case thinking = "thinking"
+            case idea = "idea"
+            case focused = "focused"
+            case working = "working"
+            case surprised = "surprised"
+            case confused = "confused"
+            case worried = "worried"
+            case sad = "sad"
+            case crying = "crying"
+            case angry = "angry"
+            case grumpy = "grumpy"
+            case sleepy = "sleepy"
+            case dizzy = "dizzy"
+            case embarrassed = "embarrassed"
+            case singing = "singing"
+            case shocked = "shocked"
+            case kiss = "kiss"
         }
         /// - Remark: Generated from `#/components/schemas/Conversation`.
         public struct Conversation: Codable, Hashable, Sendable {
@@ -905,6 +1406,12 @@ extension Components {
             ///
             /// - Remark: Generated from `#/components/schemas/NewMessage/artifact_id`.
             public var artifactId: Swift.String?
+            /// The quests, items (`@`) and projects (`#`) picked in the composer (B-42). Each must be
+            /// the caller's own (see `POST /conversations/{conversation_id}/messages`). New in 0.7.0.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/NewMessage/mentions`.
+            public var mentions: [Components.Schemas.Mention]?
             /// Creates a new `NewMessage`.
             ///
             /// - Parameters:
@@ -912,22 +1419,26 @@ extension Components {
             ///   - clientId: Chosen by the app; makes retries safe.
             ///   - projectId: Sent from a project room (B-32). The message still goes to the main conversation; the tag
             ///   - artifactId: An item attached to the message ("Ask about this" on an item, B-21). The stored message
+            ///   - mentions: The quests, items (`@`) and projects (`#`) picked in the composer (B-42). Each must be
             public init(
                 text: Swift.String,
                 clientId: Swift.String? = nil,
                 projectId: Swift.String? = nil,
-                artifactId: Swift.String? = nil
+                artifactId: Swift.String? = nil,
+                mentions: [Components.Schemas.Mention]? = nil
             ) {
                 self.text = text
                 self.clientId = clientId
                 self.projectId = projectId
                 self.artifactId = artifactId
+                self.mentions = mentions
             }
             public enum CodingKeys: String, CodingKey {
                 case text
                 case clientId = "client_id"
                 case projectId = "project_id"
                 case artifactId = "artifact_id"
+                case mentions
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -947,11 +1458,79 @@ extension Components {
                     Swift.String.self,
                     forKey: .artifactId
                 )
+                self.mentions = try container.decodeIfPresent(
+                    [Components.Schemas.Mention].self,
+                    forKey: .mentions
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "text",
                     "client_id",
                     "project_id",
-                    "artifact_id"
+                    "artifact_id",
+                    "mentions"
+                ])
+            }
+        }
+        /// `task`: a quest (`@`). `artifact`: an item (`@`). `project`: a project (`#`).
+        ///
+        /// - Remark: Generated from `#/components/schemas/MentionKind`.
+        @frozen public enum MentionKind: String, Codable, Hashable, Sendable, CaseIterable {
+            case task = "task"
+            case project = "project"
+            case artifact = "artifact"
+        }
+        /// A quest, project or item named in a message (B-42). New in 0.7.0.
+        ///
+        /// - Remark: Generated from `#/components/schemas/Mention`.
+        public struct Mention: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/Mention/kind`.
+            public var kind: Components.Schemas.MentionKind
+            /// The task, project or artifact id.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Mention/id`.
+            public var id: Swift.String
+            /// The chip's text. On a stored message, the hub's title when the message was sent.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Mention/title`.
+            public var title: Swift.String
+            /// Creates a new `Mention`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - id: The task, project or artifact id.
+            ///   - title: The chip's text. On a stored message, the hub's title when the message was sent.
+            public init(
+                kind: Components.Schemas.MentionKind,
+                id: Swift.String,
+                title: Swift.String
+            ) {
+                self.kind = kind
+                self.id = id
+                self.title = title
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case id
+                case title
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.MentionKind.self,
+                    forKey: .kind
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.title = try container.decode(
+                    Swift.String.self,
+                    forKey: .title
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "id",
+                    "title"
                 ])
             }
         }
@@ -1150,6 +1729,18 @@ extension Components {
             public var projectId: Swift.String?
             /// - Remark: Generated from `#/components/schemas/Message/client_id`.
             public var clientId: Swift.String?
+            /// The user message this one answers (B-41): set for a brain reply that names it, and for
+            /// a task's milestones, approval cards and items (the message that started the task). The
+            /// app shows a small quote when it is not the person's latest message before this one. New
+            /// in 0.7.0.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/Message/reply_to_message_id`.
+            public var replyToMessageId: Swift.String?
+            /// On a user message, what it mentions (`NewMessage.mentions`). New in 0.7.0.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Message/mentions`.
+            public var mentions: [Components.Schemas.Mention]?
             /// Present when this message has a side thread.
             ///
             /// - Remark: Generated from `#/components/schemas/Message/thread`.
@@ -1211,6 +1802,8 @@ extension Components {
             ///   - taskId:
             ///   - projectId: The project a user message was sent from (B-32), or the project of an `artifact` message.
             ///   - clientId:
+            ///   - replyToMessageId: The user message this one answers (B-41): set for a brain reply that names it, and for
+            ///   - mentions: On a user message, what it mentions (`NewMessage.mentions`). New in 0.7.0.
             ///   - thread: Present when this message has a side thread.
             ///   - createdAt:
             public init(
@@ -1226,6 +1819,8 @@ extension Components {
                 taskId: Swift.String? = nil,
                 projectId: Swift.String? = nil,
                 clientId: Swift.String? = nil,
+                replyToMessageId: Swift.String? = nil,
+                mentions: [Components.Schemas.Mention]? = nil,
                 thread: Components.Schemas.Message.ThreadPayload? = nil,
                 createdAt: Foundation.Date
             ) {
@@ -1241,6 +1836,8 @@ extension Components {
                 self.taskId = taskId
                 self.projectId = projectId
                 self.clientId = clientId
+                self.replyToMessageId = replyToMessageId
+                self.mentions = mentions
                 self.thread = thread
                 self.createdAt = createdAt
             }
@@ -1257,6 +1854,8 @@ extension Components {
                 case taskId = "task_id"
                 case projectId = "project_id"
                 case clientId = "client_id"
+                case replyToMessageId = "reply_to_message_id"
+                case mentions
                 case thread
                 case createdAt = "created_at"
             }
@@ -1310,6 +1909,14 @@ extension Components {
                     Swift.String.self,
                     forKey: .clientId
                 )
+                self.replyToMessageId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .replyToMessageId
+                )
+                self.mentions = try container.decodeIfPresent(
+                    [Components.Schemas.Mention].self,
+                    forKey: .mentions
+                )
                 self.thread = try container.decodeIfPresent(
                     Components.Schemas.Message.ThreadPayload.self,
                     forKey: .thread
@@ -1331,6 +1938,8 @@ extension Components {
                     "task_id",
                     "project_id",
                     "client_id",
+                    "reply_to_message_id",
+                    "mentions",
                     "thread",
                     "created_at"
                 ])
@@ -2892,6 +3501,13 @@ extension Components {
             ///
             /// - Remark: Generated from `#/components/schemas/Project/board_artifact_id`.
             public var boardArtifactId: Swift.String
+            /// A coding project's tracker (B-46), a page readable on the phone and the laptop. Set when
+            /// a worker reports a `link` artifact with `role: tracker` (channel.schema.json `Artifact`);
+            /// a later one replaces it. New in 0.7.0.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/Project/tracker_url`.
+            public var trackerUrl: Swift.String?
             /// - Remark: Generated from `#/components/schemas/Project/archived`.
             public var archived: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/Project/counts`.
@@ -2966,6 +3582,7 @@ extension Components {
             ///   - instructions: Standing instructions every thread in the project starts with (Markdown).
             ///   - claudeProjectUrl: A linked Claude Code Project (B-33a); informational in v1.
             ///   - boardArtifactId: The project's board (B-35), an artifact of kind `board`.
+            ///   - trackerUrl: A coding project's tracker (B-46), a page readable on the phone and the laptop. Set when
             ///   - archived:
             ///   - counts:
             ///   - createdAt:
@@ -2981,6 +3598,7 @@ extension Components {
                 instructions: Swift.String? = nil,
                 claudeProjectUrl: Swift.String? = nil,
                 boardArtifactId: Swift.String,
+                trackerUrl: Swift.String? = nil,
                 archived: Swift.Bool,
                 counts: Components.Schemas.Project.CountsPayload,
                 createdAt: Foundation.Date,
@@ -2996,6 +3614,7 @@ extension Components {
                 self.instructions = instructions
                 self.claudeProjectUrl = claudeProjectUrl
                 self.boardArtifactId = boardArtifactId
+                self.trackerUrl = trackerUrl
                 self.archived = archived
                 self.counts = counts
                 self.createdAt = createdAt
@@ -3012,6 +3631,7 @@ extension Components {
                 case instructions
                 case claudeProjectUrl = "claude_project_url"
                 case boardArtifactId = "board_artifact_id"
+                case trackerUrl = "tracker_url"
                 case archived
                 case counts
                 case createdAt = "created_at"
@@ -3059,6 +3679,10 @@ extension Components {
                     Swift.String.self,
                     forKey: .boardArtifactId
                 )
+                self.trackerUrl = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .trackerUrl
+                )
                 self.archived = try container.decode(
                     Swift.Bool.self,
                     forKey: .archived
@@ -3086,6 +3710,7 @@ extension Components {
                     "instructions",
                     "claude_project_url",
                     "board_artifact_id",
+                    "tracker_url",
                     "archived",
                     "counts",
                     "created_at",

@@ -107,4 +107,45 @@ final class CacheTests: XCTestCase {
         try await cache.resync(upTo: 1288)
         XCTAssertEqual(heard, ["resync 1288"])
     }
+
+    // MARK: app API 0.7.0
+
+    private static func agentFrame(id: Int, name: String, etag: String?) -> Data {
+        let tag = etag.map { #","avatar_etag":"\#($0)""# } ?? ""
+        return Data(#"{"id":\#(id),"type":"agent.updated","at":"2026-10-13T17:25:00Z","data":{"agent":{"id":"agt_1","name":"\#(name)","look":{"animal":"fox","color":"sky","personality":"cozy"},"animal":"fox","main_conversation_id":"cnv_1","state":{"kind":"idle"},"model_brain":"opus","model_worker":"sonnet"}\#(tag)}}"#.utf8)
+    }
+
+    func testAgentUpdatedIsCachedWithItsAvatarEtag() throws {
+        let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
+        try cache.apply(try EventFrame.decode(Self.agentFrame(id: 1, name: "Pip", etag: "e1")))
+        try cache.apply(try EventFrame.decode(Self.agentFrame(id: 2, name: "Pippa", etag: "e2")))
+
+        XCTAssertEqual(try cache.agents().map(\.name), ["Pippa"])
+        XCTAssertEqual(try cache.agents().first?.look?.color, .sky)
+        XCTAssertEqual(try cache.avatarEtag(forAgent: "agt_1"), "e2")
+        XCTAssertEqual(cache.lastEventId, 2)
+    }
+
+    func testAnUpdateWithoutAnEtagKeepsTheLastOne() throws {
+        let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
+        try cache.apply(try EventFrame.decode(Self.agentFrame(id: 1, name: "Pip", etag: "e1")))
+        let agent = try XCTUnwrap(try cache.agents().first)
+        try cache.upsert(agent)  // what a REST refresh does: /me carries no ETag
+
+        XCTAssertEqual(try cache.avatarEtag(forAgent: "agt_1"), "e1")
+        XCTAssertNil(try cache.avatarEtag(forAgent: "agt_unknown"))
+        try cache.clear()
+        XCTAssertEqual(try cache.agents(), [])
+    }
+
+    func testAQuotedReplyFindsItsQuestion() throws {
+        let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
+        let reply = try HubDates.decoder().decode(Message.self, from: Data(#"{"id":"msg_2","conversation_id":"cnv_main_marcel","role":"agent","kind":"text","text":"Yes.","reply_to_message_id":"msg_1","created_at":"2026-10-13T18:00:00Z"}"#.utf8))
+        try cache.upsert(try EventFrameFixture.message(id: "msg_1", text: "Is it done?"))
+        try cache.upsert(reply)
+
+        XCTAssertEqual(try cache.replies(to: "msg_1").map(\.id), ["msg_2"])
+        XCTAssertEqual(try cache.replies(to: "msg_2"), [])
+        XCTAssertEqual(try cache.messages(in: "cnv_main_marcel").last?.replyToMessageId, "msg_1")
+    }
 }

@@ -14,6 +14,8 @@ extension Components {
     public enum Parameters {
         /// - Remark: Generated from `#/components/parameters/AgentId`.
         public typealias AgentId = Swift.String
+        /// - Remark: Generated from `#/components/parameters/UserId`.
+        public typealias UserId = Swift.String
         /// - Remark: Generated from `#/components/parameters/DeviceId`.
         public typealias DeviceId = Swift.String
         /// - Remark: Generated from `#/components/parameters/ConversationId`.

@@ -9,14 +9,34 @@ public final class CachedMessage {
     @Attribute(.unique) public var id: String
     public var conversationId: String
     public var taskId: String?
+    /// The user message this one answers (app API 0.7.0), so a quoted reply can find its question.
+    public var replyToMessageId: String?
     public var createdAt: Date
     public var payload: Data
 
-    init(id: String, conversationId: String, taskId: String?, createdAt: Date, payload: Data) {
+    init(id: String, conversationId: String, taskId: String?, replyToMessageId: String?, createdAt: Date, payload: Data) {
         self.id = id
         self.conversationId = conversationId
         self.taskId = taskId
+        self.replyToMessageId = replyToMessageId
         self.createdAt = createdAt
+        self.payload = payload
+    }
+}
+
+/// One family member's agent (app API 0.7.0): its name, look and onboarding, from `/me` and `agent.updated`.
+@Model
+public final class CachedAgent {
+    @Attribute(.unique) public var id: String
+    public var name: String
+    /// The avatar sheet's ETag from the last `agent.updated`; the app reloads the sheet when it changes.
+    public var avatarEtag: String?
+    public var payload: Data
+
+    init(id: String, name: String, avatarEtag: String?, payload: Data) {
+        self.id = id
+        self.name = name
+        self.avatarEtag = avatarEtag
         self.payload = payload
     }
 }
@@ -95,7 +115,7 @@ public protocol CacheRefresher {
 @MainActor
 public final class MarcelCache: EventSink {
     public static let schema = Schema([
-        CachedMessage.self, CachedTask.self, CachedArtifact.self, CachedProject.self, SyncState.self,
+        CachedMessage.self, CachedTask.self, CachedArtifact.self, CachedProject.self, CachedAgent.self, SyncState.self,
     ])
 
     public let container: ModelContainer
@@ -127,7 +147,8 @@ public final class MarcelCache: EventSink {
         case .projectCreated(let project), .projectUpdated(let project): try upsert(project)
         case .taskMoved(let taskId, _, let toProjectId): try move(taskId: taskId, to: toProjectId)
         case .artifactMoved(let artifactId, _, let toProjectId): try move(artifactId: artifactId, to: toProjectId)
-        default: break  // other events drive live UI only (avatar, approvals, usage, transcripts, rollovers)
+        case .agentUpdated(let agent, let avatarEtag): try upsert(agent, avatarEtag: avatarEtag)
+        default: break  // other events drive live UI only (avatar state, approvals, usage, transcripts, rollovers)
         }
         setLastEventId(frame.id)
         try context.save()
@@ -165,13 +186,14 @@ public final class MarcelCache: EventSink {
         if let row = try context.fetch(FetchDescriptor<CachedMessage>(predicate: #Predicate { $0.id == id })).first {
             row.conversationId = message.conversationId
             row.taskId = message.taskId
+            row.replyToMessageId = message.replyToMessageId
             row.createdAt = message.createdAt
             row.payload = payload
         } else {
             context.insert(
                 CachedMessage(
                     id: id, conversationId: message.conversationId, taskId: message.taskId,
-                    createdAt: message.createdAt, payload: payload))
+                    replyToMessageId: message.replyToMessageId, createdAt: message.createdAt, payload: payload))
         }
     }
 
@@ -219,6 +241,20 @@ public final class MarcelCache: EventSink {
         }
     }
 
+    /// An agent from `/me` or `agent.updated`. `avatarEtag` replaces the stored one only when given, so a REST
+    /// refresh (which carries no ETag) keeps the one the last `agent.updated` set.
+    public func upsert(_ agent: Agent, avatarEtag: String? = nil) throws {
+        let payload = try encoder.encode(agent)
+        let id = agent.id
+        if let row = try context.fetch(FetchDescriptor<CachedAgent>(predicate: #Predicate { $0.id == id })).first {
+            row.name = agent.name
+            if let avatarEtag { row.avatarEtag = avatarEtag }
+            row.payload = payload
+        } else {
+            context.insert(CachedAgent(id: id, name: agent.name, avatarEtag: avatarEtag, payload: payload))
+        }
+    }
+
     /// `task.moved`: the task now belongs to another project. A task the cache has not seen is left for REST.
     public func move(taskId: String, to projectId: String) throws {
         guard let row = try context.fetch(FetchDescriptor<CachedTask>(predicate: #Predicate { $0.id == taskId })).first
@@ -250,6 +286,7 @@ public final class MarcelCache: EventSink {
         try context.delete(model: CachedTask.self)
         try context.delete(model: CachedArtifact.self)
         try context.delete(model: CachedProject.self)
+        try context.delete(model: CachedAgent.self)
         try context.delete(model: SyncState.self)
         try context.save()
     }
@@ -263,6 +300,26 @@ public final class MarcelCache: EventSink {
                 predicate: #Predicate { $0.conversationId == conversationId },
                 sortBy: [SortDescriptor(\.createdAt)]))
         return try rows.map { try decoder.decode(Message.self, from: $0.payload) }
+    }
+
+    /// The replies that answer one message (a quoted reply's question), oldest first.
+    public func replies(to messageId: String) throws -> [Message] {
+        let rows = try context.fetch(
+            FetchDescriptor<CachedMessage>(
+                predicate: #Predicate { $0.replyToMessageId == messageId },
+                sortBy: [SortDescriptor(\.createdAt)]))
+        return try rows.map { try decoder.decode(Message.self, from: $0.payload) }
+    }
+
+    /// Every cached agent, by name.
+    public func agents() throws -> [Agent] {
+        try context.fetch(FetchDescriptor<CachedAgent>(sortBy: [SortDescriptor(\.name)]))
+            .map { try decoder.decode(Agent.self, from: $0.payload) }
+    }
+
+    /// The avatar sheet ETag the last `agent.updated` gave for this agent, if any.
+    public func avatarEtag(forAgent agentId: String) throws -> String? {
+        try context.fetch(FetchDescriptor<CachedAgent>(predicate: #Predicate { $0.id == agentId })).first?.avatarEtag
     }
 
     /// Tasks, most recently changed first; only one project's when `projectId` is given.

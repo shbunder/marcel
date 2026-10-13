@@ -31,6 +31,8 @@ public enum QuestViewError: Error, Equatable, LocalizedError {
     case projectArchived
     /// 409 on an answer: someone answered first (a terminal, another phone) or it expired. Carries it as it stands.
     case alreadyAnswered(Approval)
+    /// 403 `owner_only` (app API 0.7): only the owner may answer this (a change to Marcel itself).
+    case ownerOnly
     /// 400 on a message: the hub says what to change.
     case badMessage(String)
     case notFound
@@ -52,6 +54,7 @@ public enum QuestViewError: Error, Equatable, LocalizedError {
             case .denied: "It was already denied."
             default: "The question went away before your answer arrived."
             }
+        case .ownerOnly: "Only the owner can answer this. Ask them to approve it on their phone."
         case .badMessage(let message): message
         case .notFound: "The hub no longer has this quest."
         case .unauthorized: "The hub no longer accepts this phone. Pair it again."
@@ -168,6 +171,7 @@ public struct LiveQuestViewService: QuestViewService {
         case .ok(let ok): return try ok.body.json
         // 409: answered first somewhere else, or expired. The body is the approval as it stands.
         case .conflict(let conflict): throw QuestViewError.alreadyAnswered(try conflict.body.json)
+        case .forbidden: throw QuestViewError.ownerOnly
         case .badRequest: throw QuestViewError.unexpected("answer, HTTP 400")
         case .unauthorized: throw QuestViewError.unauthorized
         case .notFound: throw QuestViewError.notFound

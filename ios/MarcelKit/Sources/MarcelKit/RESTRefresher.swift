@@ -12,7 +12,7 @@ public enum RefreshError: Error, LocalizedError, Equatable {
     }
 }
 
-/// Re-fetches the newest page of every conversation, the tasks and the artifacts over REST.
+/// Re-fetches the agents, the newest page of every conversation, the tasks and the artifacts over REST.
 @MainActor
 public struct RESTCacheRefresher: CacheRefresher {
     let client: Client
@@ -29,6 +29,7 @@ public struct RESTCacheRefresher: CacheRefresher {
         case .undocumented(let status, _): throw RefreshError.unexpectedAnswer("me, HTTP \(status)")
         }
         for agent in me.agents {
+            try cache.upsert(agent)
             switch try await client.listConversations(query: .init(agentId: agent.id)) {
             case .ok(let ok):
                 for conversation in try ok.body.json {

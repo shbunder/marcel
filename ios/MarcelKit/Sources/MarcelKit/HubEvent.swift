@@ -29,10 +29,9 @@ public enum HubEvent: Sendable {
     /// The brain session was replaced; `kept` says, for people, what the new one starts with.
     case brainRollover(agentId: String, reason: String, kept: String)
     case agentState(agentId: String, state: AgentState)
-    /// An agent's name, look or onboarding changed (app API 0.7.0). `avatarEtag` is the avatar sheet's new
-    /// ETag, absent while the hub builds no sheets. Only the id and name are read until the app catches up
-    /// with 0.7.0's agent fields.
-    case agentUpdated(agentId: String, name: String, avatarEtag: String?)
+    /// An agent's name, look or onboarding changed (app API 0.7.0): the agent as it now stands. `avatarEtag` is
+    /// its avatar sheet's new ETag, absent while the hub builds no sheets.
+    case agentUpdated(Agent, avatarEtag: String?)
     case usageUpdated(Usage)
     /// A type this build does not know yet. Kept so the event id still advances.
     case unknown(type: String)
@@ -90,12 +89,7 @@ extension EventFrame {
     }
 
     private struct AgentUpdatedData: Decodable {
-        struct AgentHead: Decodable {
-            let id: String
-            let name: String
-        }
-
-        let agent: AgentHead
+        let agent: Agent
         let avatar_etag: String?
     }
 
@@ -143,7 +137,7 @@ extension EventFrame {
             event = .agentState(agentId: state.agent_id, state: state.state)
         case "agent.updated":
             let update = try payload(AgentUpdatedData.self)
-            event = .agentUpdated(agentId: update.agent.id, name: update.agent.name, avatarEtag: update.avatar_etag)
+            event = .agentUpdated(update.agent, avatarEtag: update.avatar_etag)
         case "usage.updated": event = .usageUpdated(try payload(Usage.self))
         default: event = .unknown(type: head.type)
         }

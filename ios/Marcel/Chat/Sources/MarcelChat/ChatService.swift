@@ -129,6 +129,8 @@ public struct LiveChatService: ChatService {
         case .ok(let ok): return try ok.body.json
         case .conflict(let conflict): return try conflict.body.json  // answered elsewhere, or expired
         case .notFound: throw ChatError("That question is gone from the hub.")
+        // 403 owner_only (app API 0.7): a change to Marcel itself, which only the owner approves.
+        case .forbidden: throw ChatError("Only the owner can answer this. Ask them to approve it on their phone.")
         case .unauthorized: throw ChatError.unpaired
         case .badRequest: throw ChatError.unexpected("answer, HTTP 400")
         case .undocumented(let status, _): throw ChatError.unexpected("answer, HTTP \(status)")
