@@ -40,6 +40,7 @@ names the file.
 | `apns_topic` | `MARCEL_APNS_TOPIC` | unset. The iOS app's bundle id, e.g. `com.<you>.marcel`. Set all four `apns_*` or none: half of them stops the hub at start, naming what is missing |
 | `apns_sandbox` | `MARCEL_APNS_SANDBOX` | `false`: Apple's production server. `true` for an app built and run from Xcode (development push environment). Check this first when pushes stop: set wrong, Apple answers `BadDeviceToken` for every push, and the hub removes each phone's token until its app opens again |
 | `github_token` | `MARCEL_GITHUB_TOKEN` | unset: PR cards are not refreshed and say the token is missing. A fine-grained, **read-only** GitHub token (Pull requests: read, Checks and Commit statuses: read) on the owner's repos (ADR-002). Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown |
+| `redeploy_flag` | `MARCEL_REDEPLOY_FLAG` | `/state/redeploy.flag`. The file the hub writes the merge commit to when an approved self-change is merged ("Self-changes" below). Compose mounts the host's `~/marcel/state` at `/state`; the host's `marcel-redeploy.path` unit watches the file (S-11.2) |
 | `tz` | `MARCEL_TZ` | `Europe/Brussels`. The owner's time zone (IANA name), and the only one the hub uses: the built-in digests run in it (ones the owner has not edited move when it changes), their facts and the usage guard's pushes show times in it, and the brain's nightly rollover runs at 04:00 in it. The process's own `TZ` is never used. A name that is not a time zone stops the hub at start |
 
 `MARCEL_CONFIG` moves the config file itself (tests use it).
@@ -410,6 +411,44 @@ only ever sends `GET` requests to `https://api.github.com`.
   header) is dropped: the hub raises its own error outside the `except`, with no `__context__` or
   `__cause__`, built from the status or the kind of failure only.
   `tests/test_github.py` captures every logger at DEBUG and fails if the token shows up.
+- **After each good refresh** the hooks in `PrRefresher.after_refresh` run with the artifact
+  (self-changes, below). A hook that raises `PrStatusUnavailable` makes the refresh count as
+  failed, so it is tried again. `watch(id)` refreshes a PR at the next pass, whatever its state.
+
+## Self-changes
+
+`src/marcel_hub/selfmod.py` (S-11.1, B-24, ADR-005). Marcel changes its own code only through a PR
+on `shbunder/marcel`. **The owner merges it on GitHub; the hub never merges anything** (its token is
+read-only, ADR-002).
+
+- **The flag.** The store sets `self_change: true` on a `pr` artifact whose address is exactly
+  `https://github.com/shbunder/marcel/pull/<n>` (owner and repository in any case), and decides it
+  again when a new version changes the address. A worker cannot set or avoid it.
+- **The card.** At the PR's first good refresh the hub reads the PR from GitHub and opens an
+  approval card on the task that handed it in: tool `self_change`, `artifact_id` the PR,
+  `summary` "Marcel wants to change itself: <PR title>", `detail` the diff stats ("3 files changed:
+  40 lines added, 12 removed.") and the PR address. It is posted in the main conversation and
+  pushed like any card. It has no `request_id`, so it never goes to a session, and it stays open
+  when its task ends. A PR handed in without a task gets no card (so it can never be redeployed).
+- **Approve** (`POST /api/approvals/{id}`, the app only) records the go-ahead and posts a note:
+  "open the PR and merge it on GitHub", with the PR address and `marcel://artifact/<id>`.
+- **Deny** records the no, posts a note that the owner may close the PR on GitHub, and sends the
+  task a `steer` (author `marcel`): do not merge, close the PR with a comment if your git
+  credentials allow it (with the owner's note, if any). A stopped or failed task gets nothing.
+- **Merged.** When a refresh sees the PR merged, the hub redeploys only if the card was
+  **approved in the app** (`answered_via: app`) **for this same PR address**. Then it reads the PR
+  from GitHub again and takes `merge_commit_sha` from that answer, only when GitHub says
+  `merged: true` and the SHA is 40 lowercase hex characters (otherwise it asks again at the next
+  refresh). `request_redeploy(sha, flag)` writes the SHA to `redeploy_flag` (a temporary file,
+  then a rename) and nothing else; the host does the rest (S-11.2). Merged without that approval
+  (never answered, denied, answered in a terminal, or approved for another PR address): no
+  redeploy, the open card expires, and one alert: "A change to Marcel was merged without approval
+  in the app; not redeploying." A flag that cannot be written is an alert too.
+- **Closed** without merging: the open card expires.
+- **The record.** `meta_json.self_change` on the artifact keeps `approval_id`, `url`, `decision`,
+  `outcome` (`redeploy_requested`, `not_redeployed`, `redeploy_failed`, `closed`) and `sha`. Once
+  there is an outcome nothing more happens. At start the hub refreshes again every merged or closed
+  self-change with no outcome yet, so a restart between the merge and the redeploy loses nothing.
 
 ## Project boards
 
@@ -829,7 +868,9 @@ second card, whatever state the card is in.
 - `GET /api/approvals/{id}` reads one card in any state, for a `marcel://approval/<id>` deep link
   (404 `approval_not_found` for a missing card or someone else's).
 - `POST /api/approvals/{id}` with `{"decision": "approve" | "deny", "note"?}` answers a card and
-  sends the session its `permission_decision`. A denial's note follows as a `steer`. Only the
+  sends the session its `permission_decision`. A denial's note follows as a `steer`. A
+  self-change card (tool `self_change`, no `request_id`) is answered by `selfmod.py` instead
+  ("Self-changes"). Only the
   owner of the task's agent sees or answers a card (404 for anyone else). A card that is no
   longer open answers 409 with the card as it stands.
 - **Answered in a terminal.** When the runner shows the session left the permission prompt and the
@@ -839,7 +880,8 @@ second card, whatever state the card is in.
   arrived after the card opened. Two prompts for the same tool at once can be matched the wrong
   way round (a known limit).
 - **Expired.** When a task ends (`done`, `failed` or `stopped`) with an open card, the card is
-  resolved from the transcript if it can be, and otherwise becomes `expired`. At start the hub does
+  resolved from the transcript if it can be, and otherwise becomes `expired`. A self-change card
+  stays open: it closes with its PR. At start the hub does
   the same for cards left open while it was down.
 - Every change to a card sends `approval.resolved`.
 

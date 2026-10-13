@@ -25,7 +25,7 @@ import email.utils
 import logging
 import re
 import time
-from collections.abc import Callable, Generator
+from collections.abc import Awaitable, Callable, Generator
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -145,14 +145,21 @@ class GitHubPrStatus:
     def __repr__(self) -> str:
         return f'<GitHubPrStatus token={"set" if self._auth else "missing"}>'
 
-    async def fetch(self, url: str) -> dict[str, Any]:
+    async def pull(self, url: str) -> dict[str, Any]:
+        """GitHub's own answer for the PR (`GET /repos/{o}/{r}/pulls/{n}`): its title, diff stats,
+        `merged` and `merge_commit_sha`. Read-only, like everything here."""
         owner, repo, number = parse_pr_url(url)
         if self._auth is None:
             raise PrStatusUnavailable(NO_TOKEN)
-        where = f'{owner}/{repo}'
-        pull = await self._get(f'/repos/{owner}/{repo}/pulls/{number}', where, number)
+        pull = await self._get(f'/repos/{owner}/{repo}/pulls/{number}', f'{owner}/{repo}', number)
         if not isinstance(pull, dict):
             raise PrStatusUnavailable('GitHub sent an answer about this PR the hub cannot read.')
+        return pull
+
+    async def fetch(self, url: str) -> dict[str, Any]:
+        owner, repo, number = parse_pr_url(url)
+        where = f'{owner}/{repo}'
+        pull = await self.pull(url)
         sha = (pull.get('head') or {}).get('sha')
         runs: Any = {}
         if isinstance(sha, str) and re.fullmatch(r'[0-9a-f]{40}', sha):
@@ -259,6 +266,9 @@ class PrRefresher:
         self._due: dict[str, float] = {}  # artifact id → when to refresh it next
         self._seen: dict[str, int] = {}  # artifact id → the version last refreshed
         self._task: asyncio.Task[None] | None = None
+        # Called with the artifact after each good refresh (S-11.1: self-changes). One that
+        # raises `PrStatusUnavailable` makes the refresh count as failed: it is tried again.
+        self.after_refresh: list[Callable[[Artifact], Awaitable[None]]] = []
 
     # Which PRs ------------------------------------------------------------------------------
 
@@ -270,6 +280,11 @@ class PrRefresher:
         for artifact_id in found:
             self._due[artifact_id] = self.clock()
         return found
+
+    def watch(self, artifact_id: str) -> None:
+        """Refresh this PR at the next pass, whatever its state (a merged self-change whose
+        follow-up did not finish before a restart)."""
+        self._due[artifact_id] = self.clock()
 
     def due(self) -> dict[str, float]:
         return dict(self._due)
@@ -310,6 +325,8 @@ class PrRefresher:
             art = self.store.get(artifact_id)
             self._seen[artifact_id] = art.current_version
             row = await self.store.refresh_pr(artifact_id)
+            for hook in self.after_refresh:
+                await hook(row)
         except (ArtifactNotFound, ArtifactRefused):
             self._forget(artifact_id)
             return

@@ -2,6 +2,7 @@
 
 Only the owner of the task's agent sees or answers a card; anyone else gets 404, as for a card
 that does not exist. A card that is no longer open answers 409 with the card as it stands.
+A self-change card (S-11.1) is answered by `selfmod.SelfChanges`, never sent to a session.
 """
 
 from typing import Any
@@ -12,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session
 
 from marcel_hub.auth import ApiError, current_device, require_device
-from marcel_hub.channel.approvals import approval_json, owner_of_task
+from marcel_hub.channel.approvals import approval_json, is_self_change, owner_of_task
 from marcel_hub.channel.gateway import Gateway
 from marcel_hub.models import Approval, ApprovalState
 
@@ -61,8 +62,12 @@ async def get_approval(approval_id: str, request: Request) -> Any:
 @router.post('/approvals/{approval_id}')
 async def answer_approval(approval_id: str, body: ApprovalAnswer, request: Request) -> Any:
     gateway = _gateway(request)
-    _own_approval(request, approval_id)
-    answered = await gateway.answer(approval_id, body.decision == 'approve', body.note)
+    card = _own_approval(request, approval_id)
+    approve = body.decision == 'approve'
+    if is_self_change(card):
+        answered = await request.app.state.selfmod.answer(approval_id, approve, body.note)
+    else:
+        answered = await gateway.answer(approval_id, approve, body.note)
     if answered is None:
         current = gateway.approvals.get(approval_id)
         assert current is not None

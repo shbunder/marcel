@@ -8,6 +8,9 @@
   never answers its own prompt, and only the agent's owner sees or answers its cards.
 - A prompt answered in a terminal is read from the transcript (`tool_result.denied`), once the
   runner shows the session left the prompt. A task that stops or fails expires its open cards.
+- A self-change card (S-11.1, tool `self_change`, no `request_id`) is opened by `selfmod.py`, not
+  by a prompt. Only the app answers it, and it outlives its task: the PR is still there when the
+  worker that made it has finished. `selfmod.py` closes it when the PR merges or closes.
 """
 
 import logging
@@ -33,6 +36,8 @@ from marcel_hub.tasks.registry import iso
 from marcel_hub.ws import EventLog
 
 log = logging.getLogger(__name__)
+
+SELF_CHANGE_TOOL = 'self_change'  # app-api.yaml `Approval.tool` for a self-modification PR
 
 
 def approval_json(row: Approval) -> dict[str, Any]:
@@ -128,6 +133,26 @@ class ApprovalBook:
         self._publish('approval.created', row)
         return row
 
+    def open_self_change(
+        self, task_id: str, artifact_id: str, summary: str, detail: str
+    ) -> Approval:
+        """A self-change card for a PR artifact (S-11.1). It has no `request_id`: no session
+        waits on it, so nothing is sent to a session when it is answered."""
+        with self._lock, Session(self.engine) as s:
+            row = Approval(
+                task_id=task_id,
+                request_id=None,
+                tool=SELF_CHANGE_TOOL,
+                artifact_id=artifact_id,
+                summary=summary,
+                detail=detail,
+            )
+            s.add(row)
+            s.commit()
+            s.refresh(row)
+        self._publish('approval.created', row)
+        return row
+
     def resolve(
         self, approval_id: str, state: ApprovalState, via: AnsweredVia | None
     ) -> Approval | None:
@@ -150,6 +175,8 @@ class ApprovalBook:
         """The task stopped or failed: its open cards can no longer be answered."""
         expired = []
         for row in self.open_on(task_id):
+            if is_self_change(row):
+                continue  # the PR outlives the task; selfmod closes the card with the PR
             done = self.resolve(row.id, ApprovalState.expired, None)
             if done is not None:
                 expired.append(done)
@@ -215,3 +242,9 @@ class ApprovalBook:
             user_id = owner_of_task(s, row.task_id)
             if user_id is not None:
                 events.publish(s, user_id, type_, approval_json(row))
+
+
+def is_self_change(row: Approval) -> bool:
+    """A card `selfmod.py` opened. A worker's prompt can name any tool, even `self_change`, but
+    it always has a `request_id`, so it is never one of these."""
+    return row.tool == SELF_CHANGE_TOOL and row.request_id is None and row.artifact_id is not None
