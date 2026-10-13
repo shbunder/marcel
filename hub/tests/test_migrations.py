@@ -16,6 +16,7 @@ from marcel_hub import db
 from marcel_hub.models import Agent, Message, Project, User, UserRole
 
 NOW = "'2026-10-12 00:00:00.000000'"
+MENTION = {'kind': 'task', 'id': 'tsk_01J9ZQ5', 'title': 'Fix flaky login test'}  # app-api
 NEW_AGENT = {'look_animal', 'look_color', 'look_personality', 'onboarded_at', 'archived_at', 'slug'}
 
 
@@ -71,7 +72,7 @@ def test_the_new_columns_work_after_the_upgrade(tmp_path: Path) -> None:
         s.add(User(id='usr_owner', name='Shaun', role=UserRole.owner))
         s.add(Message(id='msg_3', conversation_id='cnv_main', role='user', kind='text',
                       body_json={'text': '@Marcel yes'}, reply_to_message_id='msg_2',
-                      mentions_json=[{'agent_id': 'agt_marcel'}]))  # fmt: skip
+                      mentions_json=[MENTION]))  # fmt: skip
         project = s.get(Project, 'prj_garden')
         assert project is not None
         project.tracker_url = 'https://github.com/shbunder/garden/issues'
@@ -79,7 +80,7 @@ def test_the_new_columns_work_after_the_upgrade(tmp_path: Path) -> None:
         s.commit()
         reply = s.get(Message, 'msg_3')
         assert reply is not None and reply.reply_to_message_id == 'msg_2'
-        assert reply.mentions_json == [{'agent_id': 'agt_marcel'}]
+        assert reply.mentions_json == [MENTION]
         owner = s.get(User, 'usr_owner')
         assert owner is not None and owner.role is UserRole.owner
 

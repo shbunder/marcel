@@ -35,6 +35,7 @@ def contract_enum(path: tuple[str, ...]) -> list[str]:
         (models.ConversationKind, ('Conversation', 'properties', 'kind')),
         (models.TaskOrigin, ('Task', 'properties', 'origin')),
         (models.AnsweredVia, ('Approval', 'properties', 'answered_via')),
+        (models.UserRole, ('UserRole',)),
     ],
 )
 def test_enum_matches_contract(model_enum: type[StrEnum], path: tuple[str, ...]) -> None:
@@ -59,6 +60,7 @@ DERIVED = {
     'TaskEvent': {'data'},
     'Artifact': {'pr'},
     'Project': {'counts'},
+    'User': {'agent', 'device_count', 'quests_this_week'},
 }
 
 
@@ -86,7 +88,7 @@ MODELS = {
         ('Agent', models.Agent), ('Device', models.Device), ('Conversation', models.Conversation),
         ('Message', models.Message), ('Task', models.Task), ('TaskEvent', models.TaskEvent),
         ('Approval', models.Approval), ('Artifact', models.Artifact),
-        ('Schedule', models.Schedule), ('Project', models.Project),
+        ('Schedule', models.Schedule), ('Project', models.Project), ('User', models.User),
     ],
 )  # fmt: skip
 def test_every_contract_field_is_stored_or_derived(schema: str, model: type) -> None:
