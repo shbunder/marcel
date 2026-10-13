@@ -668,9 +668,9 @@ class BrainKeeper:
         """A session the hub does not know yet called in. While a fresh brain is starting, the
         runner already runs it but answers the spawn only once its channel is registered, so the
         session's `SessionStart` hook and first tool calls arrive first. If the runner lists this
-        session under a starting agent's brain name, it is that brain: write it on the
-        conversation now. True when it was. A rollover's new brain is not claimed: it takes over
-        at its hello."""
+        session as a brain (`role`), under a starting agent's brain name, it is that brain: write it
+        on the conversation now. True when it was. A rollover's new brain is not claimed: it takes
+        over at its hello."""
         with self._mutex:
             starting = [a for a, st in self._agents.items() if st.starting]
         if not starting or self.runner is None:
@@ -680,7 +680,7 @@ class BrainKeeper:
         except RunnerUnavailable:
             return False
         listed = next((s for s in sessions if s.get('id') == session_id), None)
-        if listed is None:
+        if listed is None or listed.get('role') != 'brain':  # never one the runner did not start
             return False
         for agent_id in starting:
             if listed.get('name') == brain_name(agent_id):

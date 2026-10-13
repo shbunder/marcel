@@ -33,14 +33,20 @@ case "$hub" in *'"ok":true'* | *'"ok": true'*) ;; *) fail=1 ;; esac
 # The whole path: hub -> runner -> a brain whose channel is connected and pinging (hub/README.md
 # "Whole-path health"). A hub that is up while the brain is dead or stuck fails here.
 # Right after a deploy the brain may still be starting: wait up to HEALTH_WAIT seconds for it.
-# The route takes the hub secret, which the hub keeps in its data folder.
-secret="$(cat "$MARCEL_HOME/data/hub-secret" 2>/dev/null)"
+# The route takes the hub secret, which the hub keeps in its data folder. It goes to curl on stdin,
+# never on the command line, so it never shows in the process list. Each try takes up to 10 s.
+secret_file="$MARCEL_HOME/data/hub-secret"
 path=""
-for _ in $(seq "$WAIT"); do
-    path="$(curl -s -m 10 -H "X-Marcel-Secret: $secret" http://127.0.0.1:7420/internal/health)"
-    case "$path" in *'"ok":true'* | *'"ok": true'*) break ;; esac
-    sleep 1
-done
+if [ ! -r "$secret_file" ]; then
+    path="no hub secret at $secret_file (make -C deploy install writes it)"
+else
+    for _ in $(seq "$WAIT"); do
+        path="$(printf 'X-Marcel-Secret: %s\n' "$(cat "$secret_file")" \
+            | curl -s -m 10 -H @- http://127.0.0.1:7420/internal/health)"
+        case "$path" in *'"ok":true'* | *'"ok": true'*) break ;; esac
+        sleep 1
+    done
+fi
 printf '%-30s %s\n' "hub /internal/health" "${path:-no answer on 127.0.0.1:7420}"
 case "$path" in *'"ok":true'* | *'"ok": true'*) ;; *) fail=1 ;; esac
 

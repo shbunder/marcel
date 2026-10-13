@@ -31,6 +31,7 @@ from sqlalchemy import text
 from sqlmodel import Session, select
 
 from marcel_hub.auth.errors import ApiError
+from marcel_hub.brain_api import _hub_secret
 from marcel_hub.channel.gateway import Gateway
 from marcel_hub.channel.outbox import conversation_target
 from marcel_hub.conversations import ensure_main_conversation
@@ -61,7 +62,7 @@ async def _runner(request: Request) -> dict[str, Any]:
     try:
         answer = await asyncio.wait_for(client.health(), RUNNER_TIMEOUT_S)
     except TimeoutError:
-        return {'state': 'down', 'reason': f'No answer in {RUNNER_TIMEOUT_S:.0f} s.'}
+        return {'state': 'down', 'reason': f'No answer in {RUNNER_TIMEOUT_S:g} s.'}
     except Exception as exc:  # the runner client says what went wrong in plain words
         return {'state': 'down', 'reason': str(exc) or type(exc).__name__}
     latency = round((time.monotonic() - started) * 1000)
@@ -98,17 +99,15 @@ async def whole_path(request: Request) -> JSONResponse:
     if TUNNEL_HEADER in request.headers:
         raise ApiError(404, 'not_found', 'Not found.')
     gateway: Gateway = request.app.state.channel
-    try:
-        secret = gateway.secret_path.read_text().strip()
-    except OSError:
-        secret = ''
+    secret = _hub_secret(gateway)  # None when missing or shorter than the channel's minimum
     given = request.headers.get(SECRET_HEADER, '')
-    if not secret or not hmac.compare_digest(secret.encode(), given.encode()):
+    if secret is None or not hmac.compare_digest(secret.encode(), given.encode()):
         raise ApiError(401, 'bad_secret', 'Send the hub secret in X-Marcel-Secret.')
     hub = _db(request)
     runner = await _runner(request)
     brains = _brains(request)
-    ok = hub == 'ok' and runner['state'] == 'ok' and bool(brains)
-    ok = ok and all(b['state'] == 'ok' for b in brains)
-    body = {'ok': ok, 'hub': hub, 'runner': runner, 'brains': brains}
+    ok = hub == 'ok' and runner['state'] == 'ok' and all(b['state'] == 'ok' for b in brains)
+    body: dict[str, Any] = {'ok': ok, 'hub': hub, 'runner': runner, 'brains': brains}
+    if not brains:  # a fresh install: nothing to answer yet, so not a failure (install.sh)
+        body['note'] = 'No agent yet: create one (docs/operating.md, Install).'
     return JSONResponse(body, status_code=200 if ok else 503)

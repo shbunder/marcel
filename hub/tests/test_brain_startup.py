@@ -11,6 +11,8 @@ import time
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from test_brain import FakeBrains
@@ -75,13 +77,33 @@ def test_only_the_session_listed_as_this_brain_is_let_in(hub: ChannelHub, fake: 
 def test_no_start_under_way_means_no_runner_call_and_no_claim(
     hub: ChannelHub, fake: FakeBrains
 ) -> None:
+    # Control: delete the "only while starting" check in `claim` and this goes red.
     sid = starting_brain(hub, fake)
     wait(lambda: current(hub) == sid)
-    wait(lambda: not keeper_of(hub)._state(hub.agent_id).starting)
-    fake.unreachable = True  # any runner call now would fail loudly in `claim`
-    stranger = fake.add(name=brain_name(hub.agent_id))  # even one named like the brain
-    assert run(keeper_of(hub).claim(stranger)) is False
+    keeper = keeper_of(hub)
+    wait(lambda: not keeper._state(hub.agent_id).starting)
+    asked: list[int] = []
+    listing = fake.sessions
+
+    async def counting() -> list[dict[str, Any]]:
+        asked.append(1)
+        return await listing()
+
+    keeper.runner = SimpleNamespace(sessions=counting)  # type: ignore[assignment]
+    stranger = fake.add(name=brain_name(hub.agent_id))  # even one listed like the brain
+    assert run(keeper.claim(stranger)) is False
+    assert asked == [], 'no brain starting: the runner is not asked'
     assert current(hub) == sid
+
+
+def test_a_session_the_runner_did_not_start_as_a_brain_is_refused(
+    hub: ChannelHub, fake: FakeBrains
+) -> None:
+    starting_brain(hub, fake)
+    # Someone ran `claude --bg --name brain-<agent>` on the NUC: listed, same name, no brain role.
+    impostor = fake.add(name=brain_name(hub.agent_id), role='')
+    assert tasks_as(hub, impostor) == 401
+    assert current(hub) != impostor
 
 
 def test_an_unreachable_runner_claims_nothing(hub: ChannelHub, fake: FakeBrains) -> None:

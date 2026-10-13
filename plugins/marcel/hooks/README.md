@@ -13,8 +13,8 @@ it says so in one line, or says nothing, and exits 0.
 Only Marcel's brain and its side threads get anything: the brain API refuses any other session (a
 worker, an adopted session), and then the hook prints and writes nothing. A brain that has just
 started can call before the hub has its id; the hub asks the runner then (`hub/README.md`, "Known
-before its spawn returns"), and on start or resume the hook asks again up to 5 times, 1 s apart, with
-one line on stderr each time.
+before its spawn returns"), and on start or resume in the brain's workspace (it has `MEMORY.md`) the hook
+asks again up to 5 times, 1 s apart, with one line on stderr each time. A worker never waits.
 
 Why `type: command` and not `type: http`: the hub secret is a file (`$CLAUDE_PLUGIN_DATA/hub-secret`),
 and an http hook can only put environment variables in its headers.

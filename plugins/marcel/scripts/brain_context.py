@@ -18,10 +18,10 @@ The marcel plugin runs this for two hooks (`hooks/hooks.json`):
 
 Any other session (a worker, an adopted session) is refused by the brain API: then it prints and
 writes nothing. A brain that has just started may call before the hub knows its id: on start or
-resume an unknown session is asked about again, up to `START_RETRIES` times one second apart, with
-one line on stderr each time. When the hub
-cannot be reached, it still gives `MEMORY.md` and one line saying so. It always exits 0: a hook
-error must never block the session.
+resume in a brain workspace (one with `MEMORY.md`), an unknown session is asked about again, up to
+`START_RETRIES` times one second apart, with one line on stderr each time. A worker never waits.
+When the hub cannot be reached, it still gives `MEMORY.md` and one line saying so. It always exits
+0: a hook error must never block the session.
 
 It reads the hook's JSON on stdin (`hook_event_name`, `session_id`, `cwd`, `source`, `trigger`,
 `transcript_path`), the hub secret from `$CLAUDE_PLUGIN_DATA/hub-secret`, and calls the hub like
@@ -260,7 +260,9 @@ def compose(
     if notes:
         parts.append('## MEMORY.md\n\n' + notes)
     try:
-        retries = 0 if source == 'compact' else START_RETRIES
+        # Only a brain workspace (it has MEMORY.md) waits for the hub: a worker never does.
+        in_brain = (cwd / 'MEMORY.md').exists()
+        retries = START_RETRIES if source != 'compact' and in_brain else 0
         brain = connect(hook, env, transport, retries, sleep)
         threads = brain.open_threads()
         parts.append('## Open threads\n\n' + ('\n'.join(threads) if threads else 'None.'))

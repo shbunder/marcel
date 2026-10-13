@@ -187,4 +187,5 @@ async def channel(ws: WebSocket) -> None:
         gateway.outbox.detach(peer.target, link.wake)
         if gateway.links.get(peer.target) is link:
             del gateway.links[peer.target]
+            gateway.last_frame.pop(peer.session_id, None)  # the health check reads only live ones
         log.info('Channel session %s disconnected.', peer.session_id[:8])

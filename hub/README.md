@@ -79,13 +79,15 @@ whole path and is what `deploy/health.sh` (and so every deploy) waits for.
   alive without spending a model turn. Otherwise `down`, with a `reason`: no brain session yet, not
   connected, or silent.
 
-200 with `ok: true` when every link is ok; 503 with the same body otherwise. **Local only**: it is
+200 with `ok: true` when every link is ok; 503 with the same body otherwise. With no agent yet (a
+fresh install, before `agent create`) `brains` is empty and a `note` says so: not a failure, so
+`make -C deploy install` passes; the brain is checked from the first agent on. **Local only**: it is
 outside `/api`, so the tunnel never forwards it, and a request with the tunnel's `cf-connecting-ip`
 header gets 404. It takes the hub secret in `X-Marcel-Secret` (401 `bad_secret` without it), never a
 device token, and changes nothing. Not a contract route (`hub/src/marcel_hub/path_health.py`).
 
 ```bash
-curl -s -H "X-Marcel-Secret: $(cat ~/marcel/data/hub-secret)" http://127.0.0.1:7420/internal/health
+printf 'X-Marcel-Secret: %s\n' "$(cat ~/marcel/data/hub-secret)" | curl -s -H @- http://127.0.0.1:7420/internal/health
 # {"ok":true,"hub":"ok","runner":{"state":"ok","latency_ms":4},"brains":[{"agent_id":"agt_…","state":"ok","last_seen_s":7}]}
 ```
 

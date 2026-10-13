@@ -175,6 +175,16 @@ def test_a_just_started_brain_is_asked_about_again(
     assert err.count('the hub does not know this session yet; asking again in 1 s.') == 3
 
 
+def test_a_worker_never_waits(world: World, tmp_path: Path) -> None:
+    # A worker's folder has no MEMORY.md: an unknown session there is not asked about again.
+    repo = tmp_path / 'some-repo'
+    repo.mkdir()
+    naps: list[float] = []
+    stranger = start(str(uuid.uuid4()), repo, 'startup')
+    assert ctx.compose(stranger, env(world), ClientTransport(world.client), sleep=naps.append) == ''
+    assert naps == []
+
+
 def test_a_compaction_never_waits(world: World, cwd: Path) -> None:
     # The brain was known long before its first compaction: no retry, no delay.
     naps: list[float] = []

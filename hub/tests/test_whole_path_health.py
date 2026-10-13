@@ -63,6 +63,7 @@ def test_no_brain_or_a_dropped_socket_is_down(hub: ChannelHub) -> None:
     status, body = check(hub)
     assert status == 503 and body['ok'] is False
     assert body['brains'][0]['reason'] == 'No brain session yet.'
+    assert 'note' not in body
     sid = hub.brain()
     with hub.connect() as channel:
         channel.hello(sid)
@@ -90,7 +91,7 @@ def test_a_silent_brain_is_down(hub: ChannelHub, monkeypatch: pytest.MonkeyPatch
     [
         (lambda r: setattr(r, 'down', True), 'The runner is not answering on its socket.'),
         (lambda r: setattr(r, 'answer', {'ok': False}), 'The runner says it is not ok.'),
-        (lambda r: setattr(r, 'delay', 0.3), 'No answer in 0 s.'),
+        (lambda r: setattr(r, 'delay', 0.3), 'No answer in 0.1 s.'),
     ],
 )
 def test_a_runner_problem_is_down(
@@ -110,6 +111,21 @@ def test_a_runner_problem_is_down(
     assert status == 503
     assert body['runner']['state'] == 'down' and body['runner']['reason'] == reason
     assert body['brains'][0]['state'] == 'ok', 'each link is told apart'
+
+
+def test_a_fresh_install_without_an_agent_is_not_a_failure(tmp_path: Path) -> None:
+    # install.sh runs health.sh before the owner creates the agent (docs/operating.md).
+    from fastapi.testclient import TestClient
+
+    from marcel_hub.app import Settings, create_app
+
+    (tmp_path / 'hub-secret').write_text(SECRET + '\n')
+    app = create_app(Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db'))
+    app.state.runner_client = FakeRunnerHealth()
+    with TestClient(app) as client:
+        res = client.get('/internal/health', headers={'X-Marcel-Secret': SECRET})
+    assert res.status_code == 200
+    assert res.json()['brains'] == [] and res.json()['note'].startswith('No agent yet')
 
 
 def test_no_runner_set_up(hub: ChannelHub) -> None:
