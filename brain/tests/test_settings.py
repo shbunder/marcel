@@ -31,6 +31,9 @@ ALLOWED_KEYS = {
     'autoCompactWindow',
 }
 RESTARTS = ('docker restart', 'docker compose restart', 'systemctl restart', 'systemctl --user restart')
+# ADR-009: the brain routes; subagents and workflows are for quests. Their results would land in the
+# brain's context and cost Opus turns.
+NO_HELPERS = ('Agent', 'Task', 'Workflow')  # Task: the subagent tool's older name
 
 
 def load(path: Path = SETTINGS) -> dict[str, Any]:
@@ -112,3 +115,12 @@ def test_no_api_key_or_model_endpoint() -> None:
     text = SETTINGS.read_text()
     for banned in ('ANTHROPIC', 'apiKeyHelper', 'api.anthropic.com', '"env"'):
         assert banned not in text
+
+
+def test_the_brain_may_not_use_subagents_or_workflows(tmp_path: Path, values: dict[str, str]) -> None:
+    """ADR-009 and S-21.1: Agent and Workflow are denied in the brain's settings, which its side
+    threads (forks in the same folder) load too. Removing either rule turns this red."""
+    deny = rendered(tmp_path, values)['permissions']['deny']
+    for tool in NO_HELPERS:
+        assert tool in deny, f'the brain could start a {tool}: it is not denied'
+    assert not set(NO_HELPERS) & set(rendered(tmp_path, values)['permissions'].get('allow', []))

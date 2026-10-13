@@ -131,6 +131,111 @@
         { "tool": "reply", "args": { "text": "Kickoff" } }
       ],
       "forbid": ["tasks_send"]
+    },
+    {
+      "id": "delegate-answer-fact",
+      "behaviours": ["B-03"],
+      "request": "How many grams are in an ounce?",
+      "answers": {},
+      "expect": [
+        {"tool": "reply", "args": {"text": "28"}}
+      ],
+      "forbid": ["tasks_spawn", "schedule_create"]
+    },
+    {
+      "id": "delegate-answer-thread",
+      "behaviours": ["B-03"],
+      "request": "Is anything still running for me right now?",
+      "answers": {
+        "tasks_list": "No threads yet."
+      },
+      "expect": [
+        {"tool": "tasks_list", "args": {}},
+        {"tool": "reply", "args": {}}
+      ],
+      "forbid": ["tasks_spawn"]
+    },
+    {
+      "id": "delegate-nuc-docker",
+      "behaviours": ["B-04"],
+      "request": "Clear out the old Docker images on the NUC.",
+      "answers": {
+        "tasks_list": "No threads yet.",
+        "projects_list": "- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
+        "tasks_spawn": "Started “Clear old Docker images” on the NUC (tsk_eval11)."
+      },
+      "expect": [
+        {"tool": "tasks_spawn", "args": {"location": "nuc"}}
+      ],
+      "forbid": ["tasks_send", "schedule_create"]
+    },
+    {
+      "id": "delegate-nuc-photos",
+      "behaviours": ["B-04"],
+      "request": "Sort the photos on the NAS into one folder per year.",
+      "answers": {
+        "tasks_list": "No threads yet.",
+        "projects_list": "- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
+        "tasks_spawn": "Started “Sort the NAS photos by year” on the NUC (tsk_eval12)."
+      },
+      "expect": [
+        {"tool": "tasks_spawn", "args": {"location": "nuc"}}
+      ],
+      "forbid": ["tasks_send", "schedule_create"]
+    },
+    {
+      "id": "delegate-nuc-approve",
+      "behaviours": ["B-04"],
+      "request": "Renew the TLS certificate on the NUC, and ask me before you restart anything.",
+      "answers": {
+        "tasks_list": "No threads yet.",
+        "projects_list": "- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
+        "tasks_spawn": "Started “Renew the TLS certificate” on the NUC (tsk_eval13)."
+      },
+      "expect": [
+        {"tool": "tasks_spawn", "args": {"location": "nuc"}}
+      ],
+      "forbid": ["tasks_send", "schedule_create"]
+    },
+    {
+      "id": "delegate-cloud-typo",
+      "behaviours": ["B-04"],
+      "request": "Fix the typo 'recieve' in the README of shbunder/harry.",
+      "answers": {
+        "tasks_list": "No threads yet.",
+        "projects_list": "- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
+        "tasks_spawn": "Started “Fix a README typo in Harry” in the cloud (tsk_eval14)."
+      },
+      "expect": [
+        {"tool": "tasks_spawn", "args": {"location": "cloud", "repo": "shbunder/harry"}}
+      ],
+      "forbid": ["tasks_send", "schedule_create"]
+    },
+    {
+      "id": "delegate-cloud-bump",
+      "behaviours": ["B-04", "B-13"],
+      "request": "Open a PR in shbunder/marcel that bumps ruff to its latest version.",
+      "answers": {
+        "tasks_list": "No threads yet.",
+        "projects_list": "- inbox (prj_eval0): Inbox [working 0, needs you 0, done this week 3]",
+        "tasks_spawn": "Started “Bump ruff in Marcel” in the cloud (tsk_eval15)."
+      },
+      "expect": [
+        {"tool": "tasks_spawn", "args": {"location": "cloud", "repo": "shbunder/marcel"}}
+      ],
+      "forbid": ["tasks_send", "schedule_create"]
+    },
+    {
+      "id": "delegate-schedule",
+      "behaviours": ["B-03"],
+      "request": "Every Monday at 8, send me this week's energy prices.",
+      "answers": {
+        "schedule_create": "Made “Monday energy prices”: every Monday at 08:00 (Europe/Brussels), on the NUC."
+      },
+      "expect": [
+        {"tool": "schedule_create", "args": {"tz": "Europe"}}
+      ],
+      "forbid": ["tasks_spawn"]
     }
   ]
 }

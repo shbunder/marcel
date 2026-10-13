@@ -122,8 +122,9 @@ def serve(case_id: str, log: Path) -> None:
         server.handle_line(line)
 
 
-# The brain routes; it must not do the work itself or hand it to a subagent (Task, or Agent).
-BLOCKED = 'Bash Edit Write Read Glob Grep WebFetch WebSearch Task Agent NotebookEdit'
+# The brain routes; it must not do the work itself or hand it to a subagent (Task, or Agent) or a
+# workflow (ADR-009).
+BLOCKED = 'Bash Edit Write Read Glob Grep WebFetch WebSearch Task Agent Workflow NotebookEdit'
 
 
 def claude_command(case: dict[str, Any], mcp_config: Path, claude: str = 'claude') -> list[str]:

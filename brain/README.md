@@ -8,7 +8,7 @@ the workspace cannot grant auto mode, so `settings.json` does not try. Side thre
 | File | What it is |
 |---|---|
 | `CLAUDE.md` | Marcel's persona and hard rules. Short on purpose: how to handle a message lives in the plugin's `orchestrate` skill, which it points at. |
-| `.claude/settings.json` | Opus, auto-compact at a 200k-token window (see "Keeping the context"), the `marcel-local` marketplace and the `marcel@marcel-local` plugin, cross-session messages refused (ADR-003), and restarts denied. |
+| `.claude/settings.json` | Opus, auto-compact at a 200k-token window (see "Keeping the context"), the `marcel-local` marketplace and the `marcel@marcel-local` plugin, cross-session messages refused (ADR-003), restarts denied, and subagents and workflows denied (`Agent`, its older name `Task`, and `Workflow`: ADR-009, the brain routes and quests work). |
 | `render.py` | Fills the deploy variables and makes the memory links. Standard library only. |
 | `tests/` | The gate: the template renders, the settings validate, the persona names tools exactly. |
 

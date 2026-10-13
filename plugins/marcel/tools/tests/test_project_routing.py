@@ -93,8 +93,12 @@ def test_only_the_repo_field_ties_the_repo_request_to_its_project(
 
 def test_every_project_case_has_a_recorded_turn() -> None:
     replays = load_replays()
-    # the mention case: S-18.2; the kickoff case: S-20.1
-    assert set(replays) == {*PROJECT_CASES, 'mention-quest', 'kickoff-new-repo'}
+    # the mention case: S-18.2; the kickoff case: S-20.1; the delegate-* cases: S-21.1
+    others = {'mention-quest', 'kickoff-new-repo'} | {
+        r for r in replays if r.startswith('delegate-')
+    }
+    assert set(replays) == {*PROJECT_CASES, *others}
+    assert len(others) == 2 + 8
     for case_id in PROJECT_CASES:
         assert case_named(case_id)['behaviours'] == ['B-31']
 

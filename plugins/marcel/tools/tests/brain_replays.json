@@ -1,5 +1,5 @@
 {
-  "about": "Recorded brain turns for the scripted project-routing test (tests/fake_brain.py, S-06.6; the mention case, S-18.2; the kickoff case, S-20.1). Each replay is what the brain does for one eval case in skills/evals/brain-routing.json, following the orchestrate skill. `skill_says` are the rules the turn relies on: the fake claude refuses to replay when the skill it is given no longer says them. `calls` go, in order, through the real tools server to an in-process hub.",
+  "about": "Recorded brain turns for the scripted project-routing test (tests/fake_brain.py, S-06.6; the mention case, S-18.2; the kickoff case, S-20.1; the delegate-* cases, S-21.1). Each replay is what the brain does for one eval case in skills/evals/brain-routing.json, following the orchestrate skill. `skill_says` are the rules the turn relies on: the fake claude refuses to replay when the skill it is given no longer says them. `calls` go, in order, through the real tools server to an in-process hub.",
   "replays": {
     "project-by-repo": {
       "skill_says": [
@@ -106,6 +106,89 @@
           "tool": "reply",
           "args": { "text": "Made *Garden planner* and started *Kickoff garden-planner* on the NUC: it adds what the repo lacks for Claude Code." }
         }
+      ]
+    },
+    "delegate-answer-fact": {
+      "skill_says": [
+        "| A quick fact, a question about a thread, a memory lookup: two minutes or less, no files changed | **Answer** with `reply` |"
+      ],
+      "calls": [
+        {"tool": "reply", "args": {"text": "About 28 grams (28.35, to be exact)."}}
+      ]
+    },
+    "delegate-answer-thread": {
+      "skill_says": [
+        "| A quick fact, a question about a thread, a memory lookup: two minutes or less, no files changed | **Answer** with `reply` |"
+      ],
+      "calls": [
+        {"tool": "tasks_list", "args": {}},
+        {"tool": "reply", "args": {"text": "Nothing is running right now."}}
+      ]
+    },
+    "delegate-nuc-docker": {
+      "skill_says": [
+        "| Work that needs the house or the NUC, anything over about ten minutes, anything the owner may want to watch, steer or approve, or that must outlive a restart of you | **A quest on the NUC**: `tasks_spawn` with `location: nuc` |"
+      ],
+      "calls": [
+        {"tool": "tasks_list", "args": {}},
+        {"tool": "projects_list", "args": {}},
+        {"tool": "tasks_spawn", "args": {"title": "Clear old Docker images", "prompt": "Remove Docker images on the NUC that no container uses and that are older than 30 days. Done means one line: how much space came free.", "location": "nuc", "project": "inbox", "expected_minutes": 15}},
+        {"tool": "reply", "args": {"text": "Started *Clear old Docker images* on the NUC, in the Inbox."}}
+      ]
+    },
+    "delegate-nuc-photos": {
+      "skill_says": [
+        "| Work that needs the house or the NUC, anything over about ten minutes, anything the owner may want to watch, steer or approve, or that must outlive a restart of you | **A quest on the NUC**: `tasks_spawn` with `location: nuc` |"
+      ],
+      "calls": [
+        {"tool": "tasks_list", "args": {}},
+        {"tool": "projects_list", "args": {}},
+        {"tool": "tasks_spawn", "args": {"title": "Sort the NAS photos by year", "prompt": "Sort the photos on the NAS into one folder per year, by the date they were taken. Move, never delete. Done means one line per year with the count.", "location": "nuc", "project": "inbox", "expected_minutes": 60}},
+        {"tool": "reply", "args": {"text": "Started *Sort the NAS photos by year* on the NUC, in the Inbox."}}
+      ]
+    },
+    "delegate-nuc-approve": {
+      "skill_says": [
+        "| Work that needs the house or the NUC, anything over about ten minutes, anything the owner may want to watch, steer or approve, or that must outlive a restart of you | **A quest on the NUC**: `tasks_spawn` with `location: nuc` |"
+      ],
+      "calls": [
+        {"tool": "tasks_list", "args": {}},
+        {"tool": "projects_list", "args": {}},
+        {"tool": "tasks_spawn", "args": {"title": "Renew the TLS certificate", "prompt": "Renew the TLS certificate on the NUC. Ask the owner before restarting any service. Done means the new expiry date.", "location": "nuc", "project": "inbox", "expected_minutes": 20}},
+        {"tool": "reply", "args": {"text": "Started *Renew the TLS certificate* on the NUC, in the Inbox."}}
+      ]
+    },
+    "delegate-cloud-typo": {
+      "skill_says": [
+        "| Work that needs only GitHub, nothing in the house or on the NUC | **A cloud quest**: `tasks_spawn` with `location: cloud` and the `repo` |",
+        "Work that needs only GitHub is a cloud quest, even in a repo."
+      ],
+      "calls": [
+        {"tool": "tasks_list", "args": {}},
+        {"tool": "projects_list", "args": {}},
+        {"tool": "tasks_spawn", "args": {"title": "Fix a README typo in Harry", "prompt": "In shbunder/harry, fix the typo 'recieve' in README.md. Done means a PR.", "location": "cloud", "repo": "shbunder/harry", "project": "inbox", "expected_minutes": 10}},
+        {"tool": "reply", "args": {"text": "Started *Fix a README typo in Harry* in the cloud, in the Inbox."}}
+      ]
+    },
+    "delegate-cloud-bump": {
+      "skill_says": [
+        "| Work that needs only GitHub, nothing in the house or on the NUC | **A cloud quest**: `tasks_spawn` with `location: cloud` and the `repo` |",
+        "Work that needs only GitHub is a cloud quest, even in a repo."
+      ],
+      "calls": [
+        {"tool": "tasks_list", "args": {}},
+        {"tool": "projects_list", "args": {}},
+        {"tool": "tasks_spawn", "args": {"title": "Bump ruff in Marcel", "prompt": "In shbunder/marcel, bump ruff to its latest version in every pyproject.toml, fix what the new rules flag, and run the checks. Done means a PR with green checks.", "location": "cloud", "repo": "shbunder/marcel", "project": "inbox", "expected_minutes": 30}},
+        {"tool": "reply", "args": {"text": "Started *Bump ruff in Marcel* in the cloud, in the Inbox."}}
+      ]
+    },
+    "delegate-schedule": {
+      "skill_says": [
+        "| Something recurring (\"every Monday at 8, …\") | **A schedule**: `schedule_create` |"
+      ],
+      "calls": [
+        {"tool": "schedule_create", "args": {"name": "Monday energy prices", "cron": "0 8 * * 1", "tz": "Europe/Brussels", "location": "nuc", "prompt": "Look up this week's gas and electricity prices for the house and send them to the owner in three lines."}},
+        {"tool": "reply", "args": {"text": "Every Monday at 8 I'll send you that week's energy prices."}}
       ]
     }
   }

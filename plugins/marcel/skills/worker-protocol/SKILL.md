@@ -16,6 +16,16 @@ brain's tools answer a worker with an error.
 Before you start, read your project's notes (they reach you at the start): follow **How to check the
 work** and **What needs a go-ahead first**.
 
+## Helpers inside your quest (ADR-009)
+
+- A **subagent** (the Agent tool) for a side job whose summary is all you need: search the code,
+  review a diff, research a question.
+- A **workflow** for the same job on five or more like items with one combined report (update 12
+  repos).
+- **Monitor** to watch a build, a deploy or a log while you keep working.
+- Report **one** `progress` step per subagent or workflow, not one per item inside it, so your quest
+  view stays readable.
+
 ## The four rules
 
 1. **Start:** call `report(started)` once, as soon as you understand the job.

@@ -150,10 +150,11 @@ def test_the_linter_catches_a_wrong_tool(tmp_path: Path) -> None:
 # The eval's cases (run live on the NUC) are checked here, so a renamed tool breaks the gate.
 
 
-def test_ten_cases_naming_real_tools_and_arguments() -> None:
+def test_eighteen_cases_naming_real_tools_and_arguments() -> None:
     cases = load_cases()
-    assert len(cases) == 10  # mention-quest: S-18.2; kickoff-new-repo: S-20.1
-    assert len({c['id'] for c in cases}) == 10
+    # mention-quest: S-18.2; kickoff-new-repo: S-20.1; the eight delegate-* cases: S-21.1
+    assert len(cases) == 18
+    assert len({c['id'] for c in cases}) == 18
     schemas = {tool.name: tool.schema for tool in TOOLS} | {REPLY['name']: REPLY['inputSchema']}
     for case in cases:
         named = {s['tool'] for s in case['expect']} | set(case['forbid']) | set(case['answers'])

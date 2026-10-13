@@ -8,7 +8,10 @@
       "Bash(docker compose restart:*)",
       "Bash(docker-compose restart:*)",
       "Bash(systemctl restart:*)",
-      "Bash(systemctl --user restart:*)"
+      "Bash(systemctl --user restart:*)",
+      "Agent",
+      "Task",
+      "Workflow"
     ]
   },
   "extraKnownMarketplaces": {

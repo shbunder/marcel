@@ -25,17 +25,19 @@ It also checks the eval cases below against the real tool list, so renaming a to
 `project-kickoff/scripts/missing.py` is linted, type-checked and tested here too
 (`tests/test_kickoff_missing.py`).
 
-The three project cases and the kickoff case also run in the gate, without a model: `tests/fake_brain.py` is a fake `claude -p`
+The three project cases, the kickoff case and the eight delegation cases also run in the gate,
+without a model: `tests/fake_brain.py` is a fake `claude -p`
 that replays the brain turn recorded for each request (`tests/brain_replays.json`) through the real tools
 server to the hub in-process, and `tests/test_project_routing.py` checks each thread lands in the expected
 project. The fake refuses to play when the `orchestrate` skill no longer says the rule a turn relies on.
 
 ## The live eval (NUC only)
 
-`evals/brain-routing.json` holds ten owner requests and the tool calls the brain should make for each
+`evals/brain-routing.json` holds eighteen owner requests and the tool calls the brain should make for each
 (start in the cloud, start on the NUC, send a follow-up to the running thread, answer "what's going on?"
 from `tasks_list`, honour "use opus", file a thread in a project by its repo, by its goal, or in the
-Inbox, and start a Kickoff for a new project with a repo). On the NUC, logged in to the Max plan:
+Inbox, start a Kickoff for a new project with a repo, and eight delegation cases for ADR-009: answer,
+quest on the NUC, cloud quest or schedule). On the NUC, logged in to the Max plan:
 
 ```bash
 make -C plugins/marcel/tools test-live
