@@ -17,26 +17,28 @@ the brain workspace, `~/marcel/brain` on the NUC). `BrainKeeper` keeps one runni
   5 min. After `ALERT_AFTER` failures in a row the owner gets one "something broke" alert; it is
   cleared when a brain starts again.
 - **Rollover.** Nightly at 04:00 in the owner's time zone (the `tz` setting), when the brain's
-  context is more than `CONTEXT_FULL` full (S-06.7), or on request (`roll_over`, and the app's
-  `POST /api/agents/{agent_id}/brain/rollover`), the keeper starts a new brain next to the old
-  one, seeded with what the hub kept (`seed`). The old brain keeps answering until the new one
-  says hello on the channel; the hello is the hand-over (`said_hello`, called by the channel
-  gateway), and only once the old brain is between turns. The new id goes on the conversation,
-  the old session is stopped, and a `brain.rollover` event is stored and sent to the app. A new
-  brain that never says hello within `HELLO_WAIT_S` is stopped and the old one stays: there is
-  never zero brains, and never two answering (the gateway refuses a `reply` from a session that
-  is no longer the conversation's).
+  context is more than `CONTEXT_FULL` full (S-06.7, only with `brain_rollover_on_context`), or on
+  request (`roll_over`, and the app's `POST /api/agents/{agent_id}/brain/rollover`), the keeper
+  starts a new brain next to the old one, seeded with what the hub kept (`seed`). The old brain
+  keeps answering until the new one says hello on the channel; the hello is the hand-over
+  (`said_hello`, called by the channel gateway), and only once the old brain is between turns. The
+  new id goes on the conversation, the old session is stopped, and a `brain.rollover` event is
+  stored and sent to the app. A new brain that never says hello within `HELLO_WAIT_S` is stopped and
+  the old one stays: there is never zero brains, and never two answering (the gateway refuses a
+  `reply` from a session that is no longer the conversation's).
 - **Extras.** Any other live brain session of the agent the runner still has (one left over from a
   hub restart in the middle of a rollover) is stopped.
 - **The seed** is built by the hub from its own records — the last 24 h of the main conversation
   (messages and task milestones), the open threads and `MEMORY.md` — with no model call.
-- **Context size** (S-06.7). The keeper reads the current brain's transcript from the runner
-  (`tail_turn_ends`) and, at each `turn_end`, adds up its `usage` (input, cache and output tokens:
-  what the session carries into its next turn). Past `CONTEXT_FULL` of the model's context window
-  it asks for a `context_full` rollover — once: while one is asked for or waiting for its hello,
-  and for any session that is no longer the conversation's brain, nothing more is asked. The
-  window is the `brain_context_window` setting (`CONTEXT_WINDOW` by default), or `LONG_CONTEXT`
-  for a model named with Claude Code's `[1m]` suffix.
+- **Context size** (S-06.7), off by default since S-06.8 (ADR-010): Claude Code's own auto-compact
+  keeps the brain's context, and the `brain_rollover_on_context` setting turns this back on. The
+  keeper reads the current brain's transcript from the runner (`tail_turn_ends`) and, at each
+  `turn_end`, adds up its `usage` (input, cache and output tokens: what the session carries into its
+  next turn). Past `CONTEXT_FULL` of the model's context window it asks for a `context_full`
+  rollover — once: while one is asked for or waiting for its hello, and for any session that is no
+  longer the conversation's brain, nothing more is asked. The window is the `brain_context_window`
+  setting (`CONTEXT_WINDOW` by default), or `LONG_CONTEXT` for a model named with Claude Code's
+  `[1m]` suffix.
 - **History** (S-06.7). Every rollover is a `brain_rollover` row, written with its
   `brain.rollover` event, so the notebook can list past ones after the event log has moved on
   (`GET /api/agents/{agent_id}/brain/rollovers`).
@@ -301,6 +303,7 @@ class BrainKeeper:
         monotonic: Callable[[], float] = time.monotonic,
         tz: tzinfo | None = None,
         window: int = CONTEXT_WINDOW,
+        on_context: bool = False,
     ) -> None:
         self.engine = engine
         self.runner = runner
@@ -312,6 +315,7 @@ class BrainKeeper:
         self.monotonic = monotonic
         self.tz = tz  # the app passes the `tz` setting; None: the process's local zone
         self.window = window  # the `brain_context_window` setting
+        self.on_context = on_context  # the `brain_rollover_on_context` setting (S-06.8)
         self._lock = asyncio.Lock()  # one check at a time
         self._mutex = threading.Lock()  # the per-agent state, shared with `said_hello`
         self._agents: dict[str, _AgentBrain] = {}
@@ -385,7 +389,10 @@ class BrainKeeper:
     def turn_ended(self, session_id: str, data: dict[str, Any]) -> bool:
         """A brain session ended a turn (`turn_end` `data`). Past `CONTEXT_FULL` of its context
         window, ask for a `context_full` rollover; True when one was asked for. Only the
-        conversation's current brain counts, and only once (`roll_over` refuses a second)."""
+        conversation's current brain counts, and only once (`roll_over` refuses a second). Off
+        unless `on_context` (S-06.8): Claude Code's auto-compact keeps the brain's context."""
+        if not self.on_context:
+            return False
         tokens = context_tokens(data.get('usage'))
         if tokens is None:
             return False

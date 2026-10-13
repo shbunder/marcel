@@ -8,7 +8,7 @@ the workspace cannot grant auto mode, so `settings.json` does not try. Side thre
 | File | What it is |
 |---|---|
 | `CLAUDE.md` | Marcel's persona and hard rules. Short on purpose: how to handle a message lives in the plugin's `orchestrate` skill, which it points at. |
-| `.claude/settings.json` | Opus, the `marcel-local` marketplace and the `marcel@marcel-local` plugin, cross-session messages refused (ADR-003), and restarts denied. |
+| `.claude/settings.json` | Opus, auto-compact at a 200k-token window (see "Keeping the context"), the `marcel-local` marketplace and the `marcel@marcel-local` plugin, cross-session messages refused (ADR-003), and restarts denied. |
 | `render.py` | Fills the deploy variables and makes the memory links. Standard library only. |
 | `tests/` | The gate: the template renders, the settings validate, the persona names tools exactly. |
 
@@ -47,6 +47,25 @@ git database sits next to it, out of the brain's reach. The workspace links into
 Rendering creates `memory/` and an empty `MEMORY.md` in `$MEMORY_DIR` when they are missing (never
 overwriting one), so a first deploy never links to nothing. The brain reads them directly. It saves through `memory_write`, so each save is one commit with an
 etag check; an edit made straight in the file is picked up by the next etag.
+
+## Keeping the context (S-06.8, ADR-010)
+
+Claude Code keeps the brain's context itself: it compacts the conversation when it fills up.
+`autoCompactWindow` is `200000` tokens (Claude Code accepts 100000 to 1000000, capped at the model's
+own window). The brain routes and summarises while quests do the work, so a small window keeps each
+turn cheap. Claude Code decides how far into that window it compacts; `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`
+in the brain's environment can only make it compact earlier.
+
+The marcel plugin's hooks (`plugins/marcel/hooks/README.md`) keep the brain on track across a
+compaction: just before one, a `PreCompact` hook writes a short hand-over to `.marcel/handoff.md` (the
+open threads and the last exchange); when the session starts, resumes or has just been compacted, a
+`SessionStart` hook puts back the hand-over (after a compaction, once), `MEMORY.md`, the open threads,
+and today's summary with the live sessions from the hub once it has one.
+
+The hub no longer rolls the brain over when its context is 70 % full (S-06.7): that rollover is off
+unless the hub setting `brain_rollover_on_context` is true (`hub/README.md`). The other ways to a fresh
+brain stay: a crashed brain is started again, the owner can ask for a fresh start from the app, and
+the nightly 04:00 rollover remains as a safety net for anything compaction does not catch.
 
 ## After rendering (S-14.1)
 

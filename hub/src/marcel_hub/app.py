@@ -71,8 +71,10 @@ class Settings:
     worker_cwd: str | None = None
     # None: no brain keeper (tests). The brain workspace on the NUC, e.g. /home/<you>/marcel/brain.
     brain_cwd: str | None = None
-    # The brain model's context window in tokens; past 70 % of it the brain rolls over (S-06.7).
+    # The brain model's context window in tokens; past 70 % of it the brain rolls over (S-06.7),
+    # but only with `brain_rollover_on_context`: Claude Code's auto-compact keeps it (S-06.8).
     brain_context_window: int = brain.CONTEXT_WINDOW
+    brain_rollover_on_context: bool = False
     # None: no ntfy pushes. e.g. 'https://ntfy.sh' or a self-hosted server (S-08.1).
     ntfy_server: str | None = None
     # None: no APNs pushes (`push.apns` false). The .p8 key and its ids; never shown (S-08.2).
@@ -112,6 +114,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         'worker_cwd',
         'brain_cwd',
         'brain_context_window',
+        'brain_rollover_on_context',
         'ntfy_server',
         'apns_key',
         'apns_key_id',
@@ -138,6 +141,9 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             brain_cwd=str(values['brain_cwd']) if values.get('brain_cwd') else None,
             brain_context_window=_context_window(
                 values.get('brain_context_window', brain.CONTEXT_WINDOW)
+            ),
+            brain_rollover_on_context=_on_off(
+                'brain_rollover_on_context', values.get('brain_rollover_on_context', False)
             ),
             ntfy_server=_ntfy_server(values.get('ntfy_server')),
             apns=_apns(values),
@@ -194,6 +200,17 @@ def _context_window(value: Any) -> int:
     return tokens
 
 
+def _on_off(name: str, value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in ('1', 'true', 'yes', 'on'):
+        return True
+    if text in ('', '0', 'false', 'no', 'off'):
+        return False
+    raise SettingsError(f'{name} must be true or false (got {value!r}).')
+
+
 def _is_setting(name: str) -> bool:
     return name in {
         'MARCEL_DATA_DIR',
@@ -205,6 +222,7 @@ def _is_setting(name: str) -> bool:
         'MARCEL_WORKER_CWD',
         'MARCEL_BRAIN_CWD',
         'MARCEL_BRAIN_CONTEXT_WINDOW',
+        'MARCEL_BRAIN_ROLLOVER_ON_CONTEXT',
         'MARCEL_NTFY_SERVER',
         'MARCEL_APNS_KEY',
         'MARCEL_APNS_KEY_ID',
@@ -386,6 +404,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             memory=repo,
             tz=zone(settings.tz),  # 04:00 in the owner's time zone, never the process's
             window=settings.brain_context_window,
+            on_context=settings.brain_rollover_on_context,
         )
         if settings.brain_cwd
         else None
@@ -405,7 +424,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         keeper_of_brains.hand_over = gateway.hand_over  # what the seed could not hold
         if watch is not None:
             watch.pokes.append(keeper_of_brains.poke)
-        if client is not None:  # S-06.7: how full the brain's context is, from its transcript
+        # S-06.7: how full the brain's context is, from its transcript. Off by default (S-06.8):
+        # Claude Code's auto-compact keeps the brain's context, so the transcript is not read.
+        if client is not None and settings.brain_rollover_on_context:
             keeper_of_brains.turn_ends = functools.partial(brain.tail_turn_ends, client)
     app.include_router(brain.router)  # S-06.7: manual rollover and the rollover history
     return app

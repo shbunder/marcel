@@ -84,6 +84,9 @@ def clock() -> Clock:
 
 
 def make_keeper(engine: Engine, fake: FakeBrains, clock: Clock, **kw: Any) -> BrainKeeper:
+    kw.setdefault(
+        'on_context', True
+    )  # these tests are about the S-06.7 rollover; S-06.8 turns it off
     return BrainKeeper(
         engine,
         fake,
@@ -108,6 +111,19 @@ def history(engine: Engine) -> list[BrainRollover]:
 
 
 # By context size --------------------------------------------------------------------------------
+
+
+def test_by_default_a_full_context_never_rolls_over(
+    engine: Engine, fake: FakeBrains, clock: Clock, agent_id: str
+) -> None:
+    # Control (S-06.8): Claude Code's auto-compact keeps the brain's context, so without the
+    # `brain_rollover_on_context` setting a turn past 70 % (or at 99 %) asks for nothing.
+    keeper = make_keeper(engine, fake, clock, on_context=False)
+    sid = started(keeper, engine, agent_id)
+    assert keeper.turn_ended(sid, usage(199_000)) is False
+    run(keeper.check())
+    assert len(fake.spawned) == 1, 'no second brain'
+    assert history(engine) == []
 
 
 def test_a_turn_past_70_percent_rolls_over_once(
@@ -454,11 +470,35 @@ def test_the_context_window_is_a_setting(tmp_path: Path) -> None:
             brain_cwd=CWD,
             runner_sock=tmp_path / 'runner.sock',
             brain_context_window=300_000,
+            brain_rollover_on_context=True,
         )
     )
     keeper: BrainKeeper = app.state.brain
     assert keeper.window == 300_000
+    assert keeper.on_context
     assert keeper.turn_ends is not None, 'with a runner the keeper reads the brain transcript'
+
+
+def test_the_context_rollover_is_off_by_default(tmp_path: Path) -> None:
+    # S-06.8: auto-compact keeps the brain's context; the hub reads no transcript for it.
+    base = {'MARCEL_CONFIG': str(tmp_path / 'none.toml')}
+    assert load_settings(base).brain_rollover_on_context is False
+    for on in ('true', '1', 'yes'):
+        env = {**base, 'MARCEL_BRAIN_ROLLOVER_ON_CONTEXT': on}
+        assert load_settings(env).brain_rollover_on_context is True
+    with pytest.raises(SettingsError, match='brain_rollover_on_context must be true or false'):
+        load_settings({**base, 'MARCEL_BRAIN_ROLLOVER_ON_CONTEXT': 'sometimes'})
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            db_path=tmp_path / 'marcel.db',
+            brain_cwd=CWD,
+            runner_sock=tmp_path / 'runner.sock',
+        )
+    )
+    keeper: BrainKeeper = app.state.brain
+    assert not keeper.on_context
+    assert keeper.turn_ends is None, 'off: the brain transcript is not read'
 
 
 # No lost answer ---------------------------------------------------------------------------------

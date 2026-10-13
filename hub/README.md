@@ -33,7 +33,8 @@ names the file.
 | `runner_sock` | `MARCEL_RUNNER_SOCK` | `/run/marcel/runner.sock` (the runner's socket, mounted into the container) |
 | `worker_cwd` | `MARCEL_WORKER_CWD` | unset. Where workers without a repository run, e.g. `/home/<you>/marcel/workspaces/scratch` (a path on the NUC). Unset: such tasks fail with a reason |
 | `brain_cwd` | `MARCEL_BRAIN_CWD` | unset: the hub starts no brain. The brain workspace on the NUC, e.g. `/home/<you>/marcel/brain` (`brain/README.md`). Set: the hub keeps one brain running (see "The brain: keep-alive and rollover") |
-| `brain_context_window` | `MARCEL_BRAIN_CONTEXT_WINDOW` | `200000`, the Opus context window in tokens. Once a brain turn ends with its context past 70 % of this, the brain rolls over (reason `context_full`). A brain model named with Claude Code's `[1m]` suffix (e.g. `opus[1m]`) uses 1 000 000 instead. Less than 10000, or not a number, stops the hub at start |
+| `brain_rollover_on_context` | `MARCEL_BRAIN_ROLLOVER_ON_CONTEXT` | `false`. Claude Code's own auto-compact keeps the brain's context (S-06.8, ADR-010). `true` turns the S-06.7 rollover by context size back on; anything other than true or false stops the hub at start |
+| `brain_context_window` | `MARCEL_BRAIN_CONTEXT_WINDOW` | `200000`, the Opus context window in tokens. Only with `brain_rollover_on_context`: once a brain turn ends with its context past 70 % of this, the brain rolls over (reason `context_full`). A brain model named with Claude Code's `[1m]` suffix (e.g. `opus[1m]`) uses 1 000 000 instead. Less than 10000, or not a number, stops the hub at start |
 | `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no pushes. The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
 | `apns_key` | `MARCEL_APNS_KEY` | unset: no APNs pushes (`push.apns` false; phones use ntfy). The APNs auth key: the text of the `AuthKey_<id>.p8` file from the Apple developer site (Keys, with Apple Push Notifications service). The whole file, the file on one line with `\n` for its line breaks, or only the lines between `BEGIN` and `END`. Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown. A key that is not a P-256 `.p8` key stops the hub at start |
 | `apns_key_id` | `MARCEL_APNS_KEY_ID` | unset. The key's 10-character id (in the file name and on the Keys page). `deploy/.env.local`; never logged |
@@ -1046,7 +1047,9 @@ is set and the hub has a runner.
   stopped.
 - **Never held back.** The brain is started through the runner directly, not through the task
   registry, so the worker cap and the usage guard never queue it.
-- **When the context fills up.** The hub reads the current brain's transcript from the runner
+- **When the context fills up.** Off by default since S-06.8 (ADR-010): Claude Code compacts the
+  brain's context itself, and the plugin's `SessionStart` (`compact`) hook puts back `MEMORY.md` and
+  the open threads (`brain/README.md`). With `brain_rollover_on_context` on, the hub reads the current brain's transcript from the runner
   (`GET /sessions/{id}/tail`: first the latest turn already there, then each new one). At every
   `turn_end` it adds up `usage` (input + cache creation + cache read + output tokens, what the
   session carries into its next turn) and compares it with the model's context window (the

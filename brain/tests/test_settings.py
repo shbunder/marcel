@@ -28,6 +28,7 @@ ALLOWED_KEYS = {
     'extraKnownMarketplaces',
     'enabledPlugins',
     'crossSessionInbound',
+    'autoCompactWindow',
 }
 RESTARTS = ('docker restart', 'docker compose restart', 'systemctl restart', 'systemctl --user restart')
 
@@ -75,6 +76,15 @@ def test_the_plugin_the_runner_starts_the_channel_with_is_enabled(
     assert settings['extraKnownMarketplaces'][marketplace] == {
         'source': {'source': 'directory', 'path': values['MARKETPLACE_DIR']}
     }
+
+
+def test_auto_compact_keeps_the_context(tmp_path: Path, values: dict[str, str]) -> None:
+    # S-06.8 (ADR-010): Claude Code compacts the brain at a 200k-token window instead of the hub
+    # rolling it over; a tokens value between 100000 and 1000000 (Claude Code's range).
+    window = rendered(tmp_path, values)['autoCompactWindow']
+    assert window == 200_000
+    assert isinstance(window, int)
+    assert 100_000 <= window <= 1_000_000
 
 
 def test_cross_session_messages_are_refused() -> None:
