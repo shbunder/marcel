@@ -20,7 +20,7 @@ ios/
   AvatarKit/            Swift package: the giraffe sprite player (see AvatarKit/README.md)
   Tools/APIGenerator/   pins swift-openapi-generator for `make -C ios generate`
   Tools/SimTestRunner/  runs the tests inside the simulator with Keychain access
-  scripts/              generate-api.sh, strip_conditionals.py, pick-simulator.py
+  scripts/              generate-api.sh, strip_conditionals.py, pick-simulator.py, preview-simulator.py
 ```
 
 ## Commands
@@ -28,6 +28,9 @@ ios/
 ```bash
 make ios-check              # the lane gate (from the repo root) = make -C ios check
 make -C ios app             # build the app for the simulator
+make -C ios run             # build it and open it in the "Marcel Preview" simulator (see "Trying the app")
+make -C ios run-mock        # the same, with the mock hub started and the pairing link on the clipboard
+make -C ios stop            # shut down "Marcel Preview", and the mock hub if run-mock started it
 make -C ios test            # MarcelKit's and AvatarKit's tests on a simulator (stubs only, no network)
 make -C ios pixelkit-test   # PixelKit's snapshot, contrast and accessibility tests
 make -C ios pixelkit-record # re-record PixelKit's reference snapshots after a deliberate change
@@ -52,6 +55,21 @@ SIM=<udid> make -C ios test # pick the simulator yourself (default: an iPhone on
 
 The Makefile uses `/Applications/Xcode.app` even when `xcode-select` points at the Command Line Tools.
 Override with `DEVELOPER_DIR=…`.
+
+## Trying the app
+
+`make -C ios run` builds the app, starts a simulator called **Marcel Preview** (an iPhone 17 on the newest iOS
+runtime, made the first time you run it), opens the Simulator app, installs Marcel and launches it. The tests use a
+different simulator, so trying the app never disturbs them.
+
+`make -C ios run-mock` does the same with a fake hub behind it. It starts the mock hub (unless it already runs) and
+copies the pairing link onto the simulator's clipboard. On the pairing screen, tap the link field, paste, and tap
+**Pair**. Opening a `marcel://pair` link does not pair the phone, on purpose (see Marcel/Settings/README.md).
+
+`make -C ios stop` shuts the simulator down, and the mock hub if `run-mock` started it.
+
+To use Xcode's own Run button (and XCUITest) instead, install the iOS 26.5 simulator in Xcode → Settings →
+Components. Until then Xcode shows no simulator to run on (next section).
 
 ## How the gate runs, and why not `xcodebuild test`
 

@@ -28,12 +28,17 @@ NOTEBOOK_TESTS := $(BUILD)/notebook-sim/$(ARCH)-apple-ios-simulator/debug/Marcel
 RUNNER  := $(BUILD)/runner/SimTestRunner
 SIM     ?= $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun simctl list devices available -j | python3 scripts/pick-simulator.py $(SDK_VER))
 MOCK_HUB ?= http://127.0.0.1:7499/api
+APP_PATH := $(BUILD)/xcode/Debug-iphonesimulator/Marcel.app
+BUNDLE_ID := com.shbunder.marcel
+PREVIEW := Marcel Preview
+MOCK_STARTED := $(BUILD)/mock-hub.started
+PAIR_LINK := marcel://pair?hub=http%3A%2F%2F127.0.0.1%3A7499%2Fapi&code=K7Q2M9
 
 .PHONY: check app test tests-bundle avatar-tests-bundle pixelkit-test pixelkit-bundle pixelkit-record integration \
   chat-test chat-bundle chat-record chat-integration quests-test quests-bundle quests-record quests-integration \
   map-test map-bundle map-record map-integration items-test items-bundle items-record items-integration quest-test \
   quest-bundle quest-record settings-test settings-bundle settings-record notebook-test notebook-bundle notebook-record \
-  generate boot clean
+  generate boot run run-mock stop clean
 
 check: app test pixelkit-test chat-test quests-test map-test items-test quest-test settings-test notebook-test
 
@@ -41,6 +46,33 @@ check: app test pixelkit-test chat-test quests-test map-test items-test quest-te
 app:
 	xcodebuild build -quiet -project Marcel.xcodeproj -target Marcel -sdk iphonesimulator -configuration Debug \
 	  SYMROOT=$(BUILD)/xcode ARCHS=$(ARCH) SWIFT_ENABLE_EXPLICIT_MODULES=NO
+
+# Try the app: build it, boot the "Marcel Preview" simulator (created on first use, never the one the tests use),
+# open Simulator, install and launch. Xcode's Run button needs the iOS platform component the gate works around.
+run: app
+	@udid=$$(python3 scripts/preview-simulator.py $(SDK_VER)) && echo "Simulator: $(PREVIEW) ($$udid)" && \
+	  xcrun simctl bootstatus $$udid -b >/dev/null && open -a Simulator --args -CurrentDeviceUDID $$udid && \
+	  xcrun simctl install $$udid $(APP_PATH) && xcrun simctl launch $$udid $(BUNDLE_ID)
+
+# The same, against the mock hub: starts it in the background unless it already answers, then puts the pairing link
+# on the simulator's clipboard. Paste it on the pairing screen and tap Pair: the app never pairs from an opened
+# marcel://pair link (Marcel/Settings/README.md). `make -C ios stop` shuts both down.
+run-mock:
+	@mkdir -p $(BUILD)
+	@if curl -sf --max-time 2 $(MOCK_HUB)/health >/dev/null; then echo "Mock hub: already running"; else \
+	  echo "Mock hub: starting (log in $(BUILD)/mock-hub.log)"; touch $(MOCK_STARTED); \
+	  nohup $(MAKE) -C .. mock-hub >$(BUILD)/mock-hub.log 2>&1 & \
+	  for i in $$(seq 240); do curl -sf --max-time 2 $(MOCK_HUB)/health >/dev/null && break; sleep 0.5; done; \
+	  curl -sf --max-time 2 $(MOCK_HUB)/health >/dev/null || { echo "Mock hub did not start; see $(BUILD)/mock-hub.log"; exit 1; }; fi
+	@$(MAKE) --no-print-directory run
+	@printf '%s' '$(PAIR_LINK)' | xcrun simctl pbcopy "$(PREVIEW)"
+	@echo "Pairing link copied to the simulator: paste it on the pairing screen and tap Pair."
+
+# Shut down the preview simulator, and the mock hub if run-mock started it (whatever listens on 7499 now).
+stop:
+	-xcrun simctl shutdown "$(PREVIEW)"
+	@if [ -f $(MOCK_STARTED) ]; then pids=$$(lsof -ti tcp:7499 -sTCP:LISTEN); [ -z "$$pids" ] || kill $$pids; \
+	  rm -f $(MOCK_STARTED); echo "Mock hub: stopped"; fi
 
 $(RUNNER): Tools/SimTestRunner/main.swift Tools/SimTestRunner/entitlements.plist
 	@mkdir -p $(dir $@)
