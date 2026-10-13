@@ -1,0 +1,209 @@
+<title>Pixel Zoo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=Nunito:wght@400;600;800&display=swap">
+<style>
+/* Layout: a Game Boy-era "dialogue box" maker on top, then the faces grid, then a crowd made from names. */
+:root {
+  --bg: #f6eff3; --panel: #fffaf6; --ink: #3a1f35; --muted: #8a6a80; --line: #3a1f35;
+  --accent: #e0607e; --stage: #e9f3df; --stage-dot: #d6e8c6;
+  --display: "Pixelify Sans", "Courier New", monospace; --body: "Nunito", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #1d1520; --panel: #2a1f2e; --ink: #f6e6ef; --muted: #b59aac; --line: #0d080f;
+  --accent: #ff8aa5; --stage: #263423; --stage-dot: #2f402b; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #1d1520; --panel: #2a1f2e; --ink: #f6e6ef; --muted: #b59aac; --line: #0d080f;
+  --accent: #ff8aa5; --stage: #263423; --stage-dot: #2f402b; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5 }
+.wrap { max-width: 1040px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 48px; display: grid; gap: 28px }
+h1, h2 { font-family: var(--display); font-weight: 700; margin: 0; text-wrap: balance; letter-spacing: .02em }
+h1 { font-size: clamp(28px, 5vw, 40px) }
+h2 { font-size: 20px }
+.lede { color: var(--muted); max-width: 62ch; margin: 6px 0 0 }
+.box { background: var(--panel); border: 3px solid var(--line); border-radius: 6px; box-shadow: 4px 4px 0 var(--line); padding: 18px }
+.maker { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 22px; align-items: start }
+@media (max-width: 720px) { .maker { grid-template-columns: minmax(0, 1fr) } }
+.stage { background: var(--stage); background-image: radial-gradient(var(--stage-dot) 1.5px, transparent 1.5px); background-size: 12px 12px;
+  border: 3px solid var(--line); border-radius: 6px; aspect-ratio: 1; display: grid; place-items: center; max-width: 100% }
+canvas { image-rendering: pixelated; display: block }
+#big { width: 82%; height: auto }
+.caption { font-family: var(--display); font-size: 18px; text-align: center; margin-top: 10px }
+.sub { color: var(--muted); font-size: 13px; text-align: center }
+.controls { display: grid; gap: 14px }
+label { font-family: var(--display); font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); display: block; margin-bottom: 4px }
+input[type=text], select { width: 100%; font: inherit; font-weight: 600; color: var(--ink); background: var(--bg); border: 2px solid var(--line); border-radius: 4px; padding: 8px 10px }
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px }
+.row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px }
+.chips { display: flex; flex-wrap: wrap; gap: 6px }
+.chip { border: 2px solid var(--line); border-radius: 4px; width: 30px; height: 30px; cursor: pointer; padding: 0 }
+.chip[aria-pressed=true] { box-shadow: 0 0 0 3px var(--accent) }
+.chip.natural { background: conic-gradient(#f08aa0 0 25%, #5fb85a 0 50%, #f07a35 0 75%, #b5794c 0); }
+button.act { font-family: var(--display); font-size: 15px; background: var(--accent); color: #fff; border: 2px solid var(--line); border-radius: 4px;
+  box-shadow: 3px 3px 0 var(--line); padding: 8px 14px; cursor: pointer }
+button.act:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--line) }
+.buttons { display: flex; gap: 10px; flex-wrap: wrap }
+.faces { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; margin-top: 14px }
+.face { background: var(--stage); border: 2px solid var(--line); border-radius: 4px; padding: 6px 4px 4px; cursor: pointer; text-align: center; color: var(--ink); font: inherit }
+.face[aria-pressed=true] { box-shadow: 0 0 0 3px var(--accent) }
+.face canvas { width: 72px; height: 72px; margin: 0 auto }
+.face span { font-size: 12px; font-weight: 700 }
+.states { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 14px }
+.state { display: flex; gap: 10px; align-items: center; background: var(--stage); border: 2px solid var(--line); border-radius: 4px; padding: 6px 10px }
+.state canvas { width: 56px; height: 56px; flex: none }
+.state b { font-family: var(--display); font-weight: 500; display: block }
+.state small { color: var(--muted) }
+.crowd { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 10px; margin-top: 14px }
+.who { text-align: center; cursor: pointer; background: none; border: 0; color: var(--ink); font: inherit; padding: 0 }
+.who canvas { width: 80px; height: 80px; margin: 0 auto; background: var(--stage); border: 2px solid var(--line); border-radius: 50% }
+.who span { font-weight: 700; font-size: 13px }
+.howto { color: var(--muted); font-size: 14px; max-width: 70ch; margin: 6px 0 0 }
+@media (prefers-reduced-motion: reduce) { button.act:active { transform: none } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Pixel Zoo</h1>
+    <p class="lede">Old-school pixel avatars for Marcel and the family. Pick an animal, a colour, a personality and a mood, or just type a name: the same name always gives the same animal.</p>
+  </header>
+
+  <section class="box maker" aria-label="Avatar maker">
+    <div>
+      <div class="stage"><canvas id="big" width="32" height="32"></canvas></div>
+      <div class="caption" id="cap">Marcel</div>
+      <div class="sub" id="capsub"></div>
+    </div>
+    <div class="controls">
+      <div>
+        <label for="name">Name</label>
+        <input id="name" type="text" value="Marcel" autocomplete="off">
+      </div>
+      <div class="row2">
+        <div><label for="species">Animal</label><select id="species"></select></div>
+        <div><label for="personality">Personality</label><select id="personality"></select></div>
+      </div>
+      <div class="row2">
+        <div><label for="mood">Mood</label><select id="mood"></select></div>
+        <div><label for="acc">Accessory</label><select id="acc"></select></div>
+      </div>
+      <div class="row2">
+        <div><label for="sessions">Sessions running (laptop lights)</label><select id="sessions"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div>
+      </div>
+      <div>
+        <label id="colorlabel">Colour</label>
+        <div class="chips" id="colors" role="group" aria-labelledby="colorlabel"></div>
+      </div>
+      <div class="buttons">
+        <button class="act" id="fromname">Pick from name</button>
+        <button class="act" id="shuffle">Surprise me</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="box" aria-labelledby="h-faces">
+    <h2 id="h-faces">Every mood</h2>
+    <p class="howto">The same face parts work on every animal. Tap one to try it on the big avatar.</p>
+    <div class="faces" id="faces"></div>
+  </section>
+
+  <section class="box" aria-labelledby="h-states">
+    <h2 id="h-states">What Marcel is doing</h2>
+    <p class="howto">The five states the app shows map onto moods.</p>
+    <div class="states" id="states"></div>
+  </section>
+
+  <section class="box" aria-labelledby="h-crowd">
+    <h2 id="h-crowd">Made from names</h2>
+    <p class="howto">Each name is turned into a number, which picks the animal, colour and personality. Tap one to open it in the maker.</p>
+    <div class="crowd" id="crowd"></div>
+  </section>
+</div>
+
+<script>
+/*ZOO*/
+</script>
+<script>
+(function () {
+  const Z = window.PixelZoo;
+  const $ = (id) => document.getElementById(id);
+  const state = { name: "Marcel", species: "giraffe", color: "natural", personality: "professional", mood: "", accessory: "", sessions: 2 };
+  const live = []; // canvases that animate: {cv, opts}
+
+  function paint(cv, opts, f) {
+    const img = Z.toRGBA(Z.frame(opts, f), 1);
+    cv.getContext("2d").putImageData(new ImageData(img.data, 32, 32), 0, 0);
+  }
+  function cell(opts) { const cv = document.createElement("canvas"); cv.width = cv.height = 32; const c = { cv, opts }; live.push(c); return c; }
+  const fill = (sel, obj, extra) => { sel.innerHTML = (extra || "") + Object.entries(obj).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join(""); };
+
+  fill($("species"), Z.SPECIES); fill($("personality"), Z.PERSONALITIES);
+  fill($("mood"), Z.MOODS, '<option value="">Resting face</option>');
+  fill($("acc"), Z.ACCESSORIES, '<option value="">Fits the personality</option>');
+  const chips = $("colors");
+  chips.innerHTML = [["natural", null]].concat(Object.entries(Z.COLORS)).map(([k, v]) =>
+    `<button class="chip ${k === "natural" ? "natural" : ""}" data-c="${k}" title="${k}" aria-label="${k}" style="${v ? "background:" + v : ""}"></button>`).join("");
+
+  const big = { cv: $("big"), opts: {} }; live.push(big);
+  const moodCells = [], stateCells = [];
+  const opts = () => ({ species: state.species, color: state.color, personality: state.personality, mood: state.mood || null, accessory: state.accessory || null, sessions: state.sessions });
+
+  function sync() {
+    $("name").value = state.name; $("species").value = state.species; $("personality").value = state.personality;
+    $("mood").value = state.mood; $("acc").value = state.accessory;
+    chips.querySelectorAll(".chip").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.c === state.color)));
+    $("cap").textContent = state.name || "Nameless";
+    const per = Z.PERSONALITIES[state.personality];
+    $("capsub").textContent = `${per.label} ${Z.SPECIES[state.species].label.toLowerCase()} · ${Z.MOODS[state.mood || per.rest].label.toLowerCase()}`;
+    big.opts = opts();
+    for (const c of moodCells.concat(stateCells)) c.opts = { ...opts(), mood: c.mood };
+    document.querySelectorAll(".face").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.m === state.mood)));
+  }
+  function applyName() { const p = Z.fromName(state.name); Object.assign(state, { species: p.species, color: p.color, personality: p.personality, mood: "", accessory: "" }); sync(); }
+
+  for (const [k, m] of Object.entries(Z.MOODS)) {
+    const b = document.createElement("button"); b.className = "face"; b.dataset.m = k;
+    const c = cell({}); c.mood = k; moodCells.push(c);
+    b.append(c.cv); b.insertAdjacentHTML("beforeend", `<span>${m.label}</span>`);
+    b.onclick = () => { state.mood = state.mood === k ? "" : k; sync(); };
+    $("faces").append(b);
+  }
+  const STATE_TEXT = { idle: "Waiting for you", thinking: "Working out a plan", working: "On the laptop, one light per session", needs_you: "Needs your answer", done: "Finished a task" };
+  for (const [k, m] of Object.entries(Z.STATES)) {
+    const d = document.createElement("div"); d.className = "state";
+    const c = cell({}); c.mood = m; stateCells.push(c);
+    d.append(c.cv); d.insertAdjacentHTML("beforeend", `<div><b>${k.replace("_", " ")}</b><small>${STATE_TEXT[k]}</small></div>`);
+    $("states").append(d);
+  }
+  const NAMES = ["Shaun", "Emma", "Lucas", "Noor", "Oma", "Opa", "Lotte", "Finn", "Juna", "Mila", "Bram", "Sofie", "Kobe", "Ines", "Wout", "Elise", "Victor", "Hanna", "Rosa", "Jules", "Nina", "Arne", "Lien", "Tibo"];
+  for (const n of NAMES) {
+    const b = document.createElement("button"); b.className = "who";
+    const c = cell(Z.fromName(n));
+    b.append(c.cv); b.insertAdjacentHTML("beforeend", `<span>${n}</span>`);
+    b.onclick = () => { state.name = n; applyName(); window.scrollTo({ top: 0, behavior: "smooth" }); };
+    $("crowd").append(b);
+  }
+
+  $("name").addEventListener("input", (e) => { state.name = e.target.value; $("cap").textContent = state.name || "Nameless"; });
+  $("name").addEventListener("change", applyName);
+  $("fromname").onclick = applyName;
+  $("shuffle").onclick = () => {
+    const r = (o) => { const k = Object.keys(o); return k[Math.floor(Math.random() * k.length)]; };
+    Object.assign(state, { species: r(Z.SPECIES), color: Math.random() < .3 ? "natural" : r(Z.COLORS), personality: r(Z.PERSONALITIES), mood: Math.random() < .5 ? "" : r(Z.MOODS), accessory: "" });
+    sync();
+  };
+  $("species").onchange = (e) => { state.species = e.target.value; sync(); };
+  $("personality").onchange = (e) => { state.personality = e.target.value; sync(); };
+  $("mood").onchange = (e) => { state.mood = e.target.value; sync(); };
+  $("acc").onchange = (e) => { state.accessory = e.target.value; sync(); };
+  $("sessions").value = "2";
+  $("sessions").onchange = (e) => { state.sessions = Number(e.target.value); if (!state.mood) state.mood = "working"; sync(); };
+  chips.onclick = (e) => { const b = e.target.closest(".chip"); if (b) { state.color = b.dataset.c; sync(); } };
+
+  sync();
+  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let f = 0;
+  function tick() { for (const c of live) paint(c.cv, c.opts, f); f = (f + 1) % 16; }
+  tick();
+  if (!still) setInterval(tick, 140);
+})();
+</script>
