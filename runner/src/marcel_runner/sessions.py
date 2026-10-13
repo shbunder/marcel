@@ -29,8 +29,8 @@ from marcel_runner.health import Settings, cgroup_of, collect_health
 CHANNEL = 'plugin:marcel@marcel-local'
 CHANNEL_SERVER = 'plugin:marcel:marcel'  # how the debug log names the plugin's MCP server (SP1)
 ALLOWED_TOOLS = ('mcp__plugin_marcel_marcel__reply', 'mcp__plugin_marcel_marcel__report')
-# Brain and side sessions also get Marcel's brain tools, by name, never a wildcard
-# (contracts/runner-api.yaml). Workers never do.
+# Brain and side sessions also get Marcel's brain tools and Harry's two always-shown tools, by
+# name, never a wildcard (contracts/runner-api.yaml). Workers never do.
 BRAIN_TOOLS = tuple(
     f'mcp__plugin_marcel_tools__{name}'
     for name in (
@@ -53,6 +53,10 @@ BRAIN_TOOLS = tuple(
         'tasks_stop',
         'usage_get',
     )
+) + (
+    # Harry's two always-shown tools (runner-api 0.1.8); its others come and go, so never listed.
+    'mcp__plugin_marcel_harry__harry_find_tools',
+    'mcp__plugin_marcel_harry__harry_mark_done',
 )
 REGISTERED = 'Channel notifications registered'
 SKIPPED = 'Channel notifications skipped'

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — brain API
-  version: 0.1.1
+  version: 0.1.2
   description: |
     The routes Marcel's brain tools call (`plugins/marcel/tools`, the `tools` MCP server of the
     marcel plugin). Each tool call is one HTTP call to the hub on the NUC; the hub side is
@@ -796,7 +796,9 @@ components:
             `SystemEvent.data`). The hub then counts this publish as that digest, whatever its title,
             and stores the id on the version. Without it the hub matches a digest on the event's
             `data.title` or `data.artifact_id`. An id the hub does not know is 404 `digest_not_found`.
-            New in 0.1.1.
+            New in 0.1.1. This hub always sends `digest_id` on a `digest_due` event, but the field
+            is optional there, so a client passes `in_reply_to` when `data.digest_id` is present and
+            leaves it out otherwise (0.1.2).
       example: { kind: link, title: Luminus offer, url: 'https://www.luminus.be/en/offer', project: energy-contracts }
 
     MemoryWrite:

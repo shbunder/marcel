@@ -203,6 +203,7 @@ def test_a_note_never_follows_a_slug_out_of_the_notes_folder(hub: ChannelHub) ->
     ('fields', 'says'),
     [({'text': 'x' * 1001}, 'the note is 1001 characters; keep it to 1000'),
      ({'text': ''}, 'a note needs the fact as text'),
+     ({'text': ' \n\t '}, 'a note needs the fact as text'),
      ({}, 'a note needs the fact as text')],
 )  # fmt: skip
 def test_a_note_past_the_contract_is_answered_bad_note(

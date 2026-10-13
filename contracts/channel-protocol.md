@@ -85,7 +85,10 @@ and a short settle delay has passed: the session registers its channel handler a
   it after a reconnect. The hub stores each `call_id` once and acks a repeat again (`duplicate:
   true`), so a re-send is harmless. A call the hub will not take (a worker's `reply`, a brain's
   `report`, an artifact it does not know) gets `call_ack {call_id, error: {code, message}}` and
-  nothing is stored; the server drops that call and never re-sends it.
+  nothing is stored; the server drops that call and never re-sends it. The codes the hub uses are
+  named in channel.schema.json `CallAck.error`: `not_allowed`, `bad_reply`, `bad_report`,
+  `bad_next`, `bad_note`, `unknown_artifact`, `replaced`, and for a note it cannot keep
+  `too_many_notes`, `notes_full`, `memory_unavailable` (0.6.1).
 - **Session not connected:** the hub queues its frames (the Outbox, S-04.6). A worker's frames for a
   `queued` or `starting` task wait for its hello.
 - **Approvals answered elsewhere:** a prompt can also be answered in a terminal attached to the
