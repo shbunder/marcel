@@ -94,14 +94,17 @@ printf 'X-Marcel-Secret: %s\n' "$(cat ~/marcel/data/hub-secret)" | curl -s -H @-
 ## The owner's agent
 
 ```bash
-marcel-hub agent create --name Marcel   # inside the hub container: docker exec marcel-hub marcel-hub agent create
+marcel-hub agent create      # inside the hub container: docker exec marcel-hub marcel-hub agent create
 marcel-hub agent list
 ```
 
-`create` makes the owner's agent (`--animal`, default `giraffe`; `--palette`, default `marcel`;
-`--seed`, default the name) with its main conversation and Inbox. Within a few seconds the hub starts
-its brain in `brain_cwd`; with `brain_cwd` unset it says no brain will start. An agent of the same
-name already there is left as it is. A stop-gap until `marcel-hub setup` (S-17.1).
+`create` makes the owner's agent, named `MARCEL_AGENT_NAME` (else `Marcel`, or `--name`), with
+`--animal` (default `giraffe`), `--palette` (default `marcel`) and `--seed` (default the name), and
+its main conversation and Inbox, in one transaction. Once the hub and the runner are up, the hub
+starts its brain in `brain_cwd` (with `brain_cwd` unset it says no brain will start). An agent of
+the same name is left as it is. When the owner already has an agent under another name it makes
+nothing and exits 1, since each agent gets its own brain; `--another` makes a second one anyway. A
+stop-gap until `marcel-hub setup` (S-17.1).
 
 ## Pairing a phone
 
