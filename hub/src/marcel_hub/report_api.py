@@ -11,11 +11,13 @@ task a token is for, and `CloudTasks.report` stores the report exactly as a NUC 
   lookup's time does not depend on how much of a guess was right. The report lands on the token's
   task; nothing in the body can name another one.
 - **Wrong tokens are limited per caller** (Cloudflare's `cf-connecting-ip`, else the peer): past
-  `MAX_WRONG_TOKENS` in a minute that caller's wrong tokens get 429 `too_many_requests` (the
-  contract's answer for this route), and past `WRONG_TOKEN_CEILING` in a minute from everyone
-  together all wrong tokens do. A good token always gets in. Each lockout is said once in the log.
+  `MAX_WRONG_TOKENS` in a minute that caller is locked out, and past `WRONG_TOKEN_CEILING` in a
+  minute from everyone together all wrong tokens are. A lockout answers the same hidden 404 (a 429
+  would show the route exists; session-api 0.1.5), stops counting, and is said once in the log. A
+  good token always gets in.
 - **Good tokens are limited per task**: past `MAX_REPORTS` in a minute a task's reports get 429
-  `too_many_reports`, so a worker stuck in a loop cannot flood the owner's phone.
+  `too_many_reports` (the only 429 here), so a worker stuck in a loop cannot flood the owner's
+  phone.
 - **Hidden.** Any other method on the address, or a trailing slash, is the same 404.
 - **Size.** A body over `MAX_BODY` is refused (400 `bad_report`) before it is parsed.
 - **A retried report is taken once.** The contract has no report id, so the hub takes the same
@@ -84,7 +86,7 @@ class ReportGate:
     # Tokens ---------------------------------------------------------------------------------
 
     def task_for(self, authorization: str | None, caller: str) -> str:
-        """The task the bearer token is for; otherwise count it and raise 404 (or 429)."""
+        """The task the bearer token is for; otherwise count it (unless locked) and raise 404."""
         scheme, _, token = (authorization or '').partition(' ')
         token = token.strip()
         if scheme.lower() == 'bearer' and token.startswith(TOKEN_PREFIX):
@@ -99,15 +101,10 @@ class ReportGate:
                 self._said_locked.add(caller)
                 log.warning(
                     'Too many wrong report tokens from %s (or overall) in the last minute: '
-                    'answering 429 for a minute. Good tokens still work.',
+                    'refusing them for a minute. Good tokens still work.',
                     caller,
                 )
-            raise ApiError(
-                429,
-                'too_many_requests',
-                'Too many wrong report tokens from here. Wait a minute and try again.',
-                {'Retry-After': '60'},
-            )
+            raise hidden()
         self._said_locked.discard(caller)
         self._forget_quiet_callers(now)  # first, so a full map makes room
         if caller in self.failures or len(self.failures) < MAX_CALLERS:
@@ -151,12 +148,16 @@ class ReportGate:
         seen[key] = now
         try:
             await self.cloud.report(task_id, body)
-        except BadReport as exc:
+        except BaseException as exc:
+            # Nothing was stored (a refusal, a locked database, a crash): the retry must be taken.
             seen.pop(key, None)
-            raise ApiError(400, _bad_code(body, str(exc)), _bad_message(body, str(exc))) from None
-        except ReportRefused as exc:
-            seen.pop(key, None)
-            raise ApiError(STATUS.get(exc.code, 409), exc.code, exc.message) from None
+            if isinstance(exc, BadReport):
+                raise ApiError(
+                    400, _bad_code(body, str(exc)), _bad_message(body, str(exc))
+                ) from None
+            if isinstance(exc, ReportRefused):
+                raise ApiError(STATUS.get(exc.code, 409), exc.code, exc.message) from None
+            raise
         self.accepted[task_id].append(now)
         if len(seen) > MAX_REMEMBERED:
             del seen[min(seen, key=seen.__getitem__)]

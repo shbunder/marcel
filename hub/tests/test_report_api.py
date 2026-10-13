@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 import yaml
+from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
 from sqlmodel import Session, select
 from test_channel_fakes import channel_hub
@@ -289,11 +290,11 @@ def test_wrong_tokens_are_limited_per_caller_and_a_good_token_still_gets_in(
         assert rh.post(wrong, {}).status_code == 404
     with caplog.at_level(logging.WARNING, logger='marcel_hub.report_api'):
         locked = rh.post(wrong, {})
-        assert rh.post(wrong, {}).status_code == 429
-    assert locked.status_code == 429 and locked.json()['code'] == 'too_many_requests'
-    assert locked.headers['retry-after'] == '60'
-    ERROR.validate(locked.json())
-    assert [r.message for r in caplog.records].count(caplog.records[0].message) == 1
+        assert is_hidden(rh, rh.post(wrong, {}))
+    # Locked out: the same hidden 404 (session-api 0.1.5), no longer counted, said once.
+    assert is_hidden(rh, locked)
+    assert len(rh.gate.failures['203.0.113.7']) == MAX_WRONG_TOKENS
+    assert len(caplog.records) == 1
     assert 'Too many wrong report tokens from 203.0.113.7' in caplog.records[0].message
     # Another caller is not locked out, and the right token always gets in.
     assert rh.post(wrong, {}, caller='198.51.100.1').status_code == 404
@@ -311,7 +312,8 @@ def test_wrong_tokens_from_everyone_together_have_a_ceiling(
     wrong = 'mrt_' + 'e' * 64
     for n in range(3):
         assert rh.post(wrong, {}, caller=f'192.0.2.{n}').status_code == 404
-    assert rh.post(wrong, {}, caller='192.0.2.99').status_code == 429
+    assert is_hidden(rh, rh.post(wrong, {}, caller='192.0.2.99'))
+    assert len(rh.gate.overall) == 3 and '192.0.2.99' not in rh.gate.failures
     rh.spawn()
     assert rh.post(rh.token(), {'kind': 'started'}, caller='192.0.2.99').status_code == 202
 
@@ -336,6 +338,8 @@ def test_a_task_that_reports_too_often_is_told_to_wait(rh: ReportHub) -> None:
         assert rh.post(token, {'kind': 'progress', 'text': f'Step {n}.'}).status_code == 202
     res = rh.post(token, {'kind': 'progress', 'text': 'One too many.'})
     assert res.status_code == 429 and res.json()['code'] == 'too_many_reports'
+    assert res.headers['retry-after'] == '60'
+    ERROR.validate(res.json())
     assert len(rh.events(task.id)) == MAX_REPORTS
     rh.clock.now += 61
     assert rh.post(token, {'kind': 'progress', 'text': 'Later.'}).status_code == 202
@@ -406,3 +410,25 @@ def test_the_same_report_twice_at_once_is_taken_once(
 
     run(both())
     assert rh.milestones() == ['started']
+
+
+def test_a_report_the_hub_failed_to_store_is_taken_on_retry(
+    rh: ReportHub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task = rh.spawn()
+    token = rh.token()
+    real = rh.hub.gateway.handle
+
+    async def locked(_peer: Any, _frame: dict[str, Any]) -> list[dict[str, Any]]:
+        raise RuntimeError('database is locked')
+
+    monkeypatch.setattr(rh.hub.gateway, 'handle', locked)
+    done = {'kind': 'done', 'summary': 'Fixed it.'}
+    first = TestClient(rh.hub.app, raise_server_exceptions=False).post(
+        URL, headers={'authorization': f'Bearer {token}'}, json=done
+    )
+    assert first.status_code == 500 and first.json()['code'] == 'internal_error'
+    monkeypatch.setattr(rh.hub.gateway, 'handle', real)
+    assert rh.post(token, done).status_code == 202
+    assert rh.registry.get(task.id).state == TaskState.done
+    assert rh.milestones() == ['done']

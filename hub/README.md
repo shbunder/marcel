@@ -335,10 +335,11 @@ S-07.2). Code: `src/marcel_hub/report_api.py`; it only checks the caller and han
   broken body. So is any other method on the address, or a trailing slash. A report lands on the
   token's own task; the body cannot name another (an unknown field is a 400).
 - **Too many wrong tokens.** Counted per caller (Cloudflare's `cf-connecting-ip`, else the peer):
-  past 10 in a minute that caller gets 429 `too_many_requests` (the contract's answer here, unlike
-  adopt's 404), and past 1000 in a minute from everyone together all wrong tokens do. Said once in
-  the log per lockout. A good token always gets in.
-- **Too many reports.** A task may send 30 reports a minute; the next gets 429 `too_many_reports`.
+  past 10 in a minute that caller is locked out, and past 1000 in a minute from everyone together
+  all wrong tokens are. A lockout answers the same 404, as adopt does (a 429 would show the route
+  exists; session-api 0.1.5), and is said once in the log. A good token always gets in.
+- **Too many reports.** A task may send 30 reports a minute; the next gets 429 `too_many_reports`,
+  the only 429 this route sends.
 - **Size.** A body over 64 kB is a 400 `bad_report`, refused before it is parsed.
 - **A retry is taken once.** The contract has no report id, so the same report (the same JSON, key
   order aside) from the same task within 10 minutes is answered 202 and stores nothing, also when
@@ -346,7 +347,8 @@ S-07.2). Code: `src/marcel_hub/report_api.py`; it only checks the caller and han
   forgets recent reports when it restarts.
 - **Answers.** 202 `{task_id}`. 400 `bad_note`, `bad_next` or `bad_report` say what to change; 409
   `too_many_notes` / `notes_full` and 503 `memory_unavailable` tell the worker to put the fact in
-  its done summary. Nothing is stored for a refused report, and it can be sent again.
+  its done summary. Nothing is stored for a refused report, and it can be sent again; so can a
+  report the hub failed to store for any other reason (a 500).
 
 ## Artifacts
 
