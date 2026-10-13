@@ -1204,6 +1204,11 @@ routes, bodies and error codes are the contract `contracts/brain-api.yaml`;
   decides how loud), linking to that message. At most 6 pushes per hour per agent: past that the
   message is still posted, the push is dropped and logged, and the answer says `pushed: false`.
   `broke` stays for the hub's own system faults.
+- `GET /brain/summary` (`day_summary.py`, ADR-010): the day so far, for the brain after a
+  compaction (the plugin's `SessionStart` hook). From the hub's own records, no model call, in the
+  `tz` setting, oldest first: the main conversation's messages today (in the rollover seed's words),
+  threads started and finished today, then one "Running now:" line. At most 4 KB of UTF-8 (the
+  oldest lines go first, and one line says so); a quiet day says "Nothing happened yet today."
 - Parts built by other stories sit behind `app.state.brain_ports` (`boards`, `schedules`,
   `usage`, `artifacts`). `boards` is plugged in (`boards.BrainBoards`, S-04.11), `schedules` is
   the scheduler (`schedule.Scheduler`, S-09.1), and `usage` is

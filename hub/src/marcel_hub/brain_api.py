@@ -63,6 +63,7 @@ from marcel_hub.artifacts import ArtifactRefused, ArtifactStore
 from marcel_hub.auth import ApiError
 from marcel_hub.channel.gateway import CHAT_ROLES, MIN_SECRET, Gateway
 from marcel_hub.conversations import ensure_main_conversation, post_message
+from marcel_hub.day_summary import day_summary
 from marcel_hub.memory import (
     MAX_FILE_BYTES,
     InvalidMemoryPath,
@@ -890,6 +891,16 @@ def get_usage(request: Request, brain: BrainDep) -> Any:
         return _ports(request).usage.current()
     except NotSetUp as exc:
         return not_set_up(exc)
+
+
+@router.get('/summary')
+def get_summary(request: Request, brain: BrainDep) -> dict[str, str]:
+    """`DaySummary`: the day so far, for the brain after a compaction (`day_summary.py`)."""
+    with Session(request.app.state.engine) as s:
+        agent = s.get(Agent, brain.agent_id)
+        assert agent is not None  # require_brain found it
+        today, text = day_summary(s, agent, ZoneInfo(request.app.state.settings.tz), utcnow())
+    return {'date': today.isoformat(), 'text': text}
 
 
 # Wiring -------------------------------------------------------------------------------------

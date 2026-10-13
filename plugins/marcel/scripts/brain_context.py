@@ -13,8 +13,9 @@ The marcel plugin runs this for two hooks (`hooks/hooks.json`):
      old one never comes back);
   2. `MEMORY.md` from the session's folder (the first 8 KB, like the rollover seed);
   3. the open threads, from the hub's `GET /brain/tasks`: one line each, `<id> <state> <title>`;
-  4. today's summary and the live sessions, from `GET /brain/summary` (contract request S-06.8).
-     Until the hub has that route, or when it answers 404 or 503, one line says it is missing.
+  4. today's summary and the live sessions, from `GET /brain/summary` (brain-api.yaml 0.1.3, the
+     hub's `day_summary.py`). An older hub without that route, or one that answers 404 or 503,
+     gets one line saying it is missing.
 
 Any other session (a worker, an adopted session) is refused by the brain API: then it prints and
 writes nothing. A brain that has just started may call before the hub knows its id: on start or

@@ -62,6 +62,7 @@ from sqlmodel import Session, col, select
 from marcel_hub.auth import ApiError, current_device, require_device
 from marcel_hub.auth.deps import DbSession
 from marcel_hub.conversations import ensure_main_conversation
+from marcel_hub.day_summary import message_line
 from marcel_hub.memory import MemoryRepo
 from marcel_hub.models import (
     Agent,
@@ -69,8 +70,6 @@ from marcel_hub.models import (
     Conversation,
     ConversationKind,
     Message,
-    MessageKind,
-    MessageRole,
     Project,
     Task,
     TaskState,
@@ -106,7 +105,6 @@ MAX_ROLLOVERS = 50  # the most past rollovers one request lists (app-api `limit`
 
 SUMMARY_HOURS = 24
 MAX_MESSAGES = 60
-MAX_LINE = 400
 MAX_MEMORY = 8000
 MAX_TASKS = 30
 
@@ -854,26 +852,7 @@ class BrainKeeper:
         return text + ('\n\n(cut short; read MEMORY.md for the rest)' if cut else '')
 
     def _line(self, msg: Message, name: str) -> str:
-        at = msg.created_at if msg.created_at.tzinfo else msg.created_at.replace(tzinfo=UTC)
-        local = at.astimezone(self.tz) if self.tz is not None else at.astimezone()
-        who = {MessageRole.user: 'Owner', MessageRole.agent: name}.get(msg.role, 'Marcel hub')
-        body = msg.body_json or {}
-        if msg.kind == MessageKind.milestone:
-            m = body.get('milestone', {})
-            who = f'Report from thread "{m.get("task_title", "?")}"'
-            text = f'[{m.get("event", "?")}]'
-            if m.get('summary'):
-                text += f' {m["summary"]}'
-        elif msg.kind == MessageKind.approval:
-            text = '[an approval card]'
-        elif msg.kind == MessageKind.artifact:
-            text = f'[an item arrived: {msg.artifact_id}]'
-        else:
-            text = str(body.get('text', ''))
-        text = ' '.join(text.split())
-        if len(text) > MAX_LINE:
-            text = text[: MAX_LINE - 1] + '…'
-        return f'- {local:%H:%M} {who}: {text}'
+        return message_line(msg, name, self.tz)
 
 
 def _kept(notes: bool, messages: int, tasks: int) -> str:

@@ -20,12 +20,7 @@ PENDING_OPERATIONS: dict[tuple[str, str], str] = {
 }
 # The same for brain-api.yaml (under `/brain`) and session-api.yaml (under `/api`, except a path
 # with its own `servers`, served at the hub's root). Each list can only shrink.
-PENDING_BRAIN_OPERATIONS: dict[tuple[str, str], str] = {
-    (
-        'GET',
-        '/brain/summary',
-    ): "the brain's day summary: the S-06.8 hook reads it; no hub story yet",
-}
+PENDING_BRAIN_OPERATIONS: dict[tuple[str, str], str] = {}
 PENDING_SESSION_OPERATIONS: dict[tuple[str, str], str] = {
     ('POST', '/channel/session-end'): 'session-end hooks: S-05.8',
 }

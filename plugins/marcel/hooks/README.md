@@ -8,7 +8,7 @@ it says so in one line, or says nothing, and exits 0.
 | Event | Matcher | Runs | What it does |
 |---|---|---|---|
 | `PreCompact` | (all) | `scripts/brain_context.py` | Just before Claude Code compacts the brain's context (S-06.8, ADR-010), writes `.marcel/handoff.md` in the session's folder: when and why, the open threads (`GET /brain/tasks`), the last message to Marcel and Marcel's last words (read from the end of the transcript). Prints nothing. |
-| `SessionStart` | `startup\|resume\|compact` | `scripts/brain_context.py` | Prints what the brain must not lose: after a compaction the hand-over above (once; then it is removed), `MEMORY.md`, the open threads, and today's summary with the live sessions (`GET /brain/summary`, once the hub has it; until then one line says it is missing). |
+| `SessionStart` | `startup\|resume\|compact` | `scripts/brain_context.py` | Prints what the brain must not lose: after a compaction the hand-over above (once; then it is removed), `MEMORY.md`, the open threads, and today's summary with the live sessions (`GET /brain/summary`, the hub's `day_summary.py`; an older hub without it gets one line saying it is missing). |
 
 Only Marcel's brain and its side threads get anything: the brain API refuses any other session (a
 worker, an adopted session), and then the hook prints and writes nothing. A brain that has just

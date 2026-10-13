@@ -129,11 +129,26 @@ def test_start_and_resume_get_the_same_context(
     assert NOTES in out and '## Open threads' in out and 'Shaun asked' in out
 
 
-def test_without_the_summary_route_it_says_so(world: World, cwd: Path) -> None:
-    # Today's hub has no GET /brain/summary (404): the hook still gives the rest.
+def test_the_hubs_own_summary_is_given(world: World, cwd: Path) -> None:
+    # The real hub serves GET /brain/summary (day_summary.py): a quiet day says so in words.
     out = ctx.compose(start(world.brain_session, cwd), env(world), ClientTransport(world.client))
     assert NOTES in out
     assert '## Open threads\n\nNone.' in out
+    assert '## Today and the live sessions\n\nNothing happened yet today.' in out
+    assert ctx.NO_SUMMARY not in out
+
+
+@pytest.mark.parametrize('status', [404, 503])
+def test_without_the_summary_route_it_says_so(world: World, cwd: Path, status: int) -> None:
+    # An older hub without GET /brain/summary, or one that cannot give it: the rest still comes.
+    class NoSummary(ClientTransport):
+        def request(self, method: str, path: str, **kw: Any) -> tuple[int, Any]:
+            if path == '/brain/summary':
+                return status, {'code': 'not_found', 'message': 'Not found.'}
+            return super().request(method, path, **kw)
+
+    out = ctx.compose(start(world.brain_session, cwd), env(world), NoSummary(world.client))
+    assert NOTES in out and '## Open threads' in out
     assert ctx.NO_SUMMARY in out
 
 
