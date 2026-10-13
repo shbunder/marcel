@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — app API
-  version: 0.7.0
+  version: 0.7.1
   description: |
     The API the iPhone app uses to talk to the hub on the NUC. **Every path, including `/health`,
     `/pair` and `/ws`, sits under the server URL** (`https://marcel-bot.com/api/...`); the tunnel
@@ -1612,7 +1612,7 @@ components:
           properties:
             name: { type: string, minLength: 1, maxLength: 40 }
             look:
-              $ref: '#/components/schemas/Look'
+              $ref: '#/components/schemas/NewLook'
               description: Picked from the agent's name when absent.
       example:
         name: Emma
@@ -1759,7 +1759,7 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 40 }
         look:
-          $ref: '#/components/schemas/Look'
+          $ref: '#/components/schemas/NewLook'
           description: New in 0.7.0. Replaces the whole look; `animal` follows it.
         onboarded:
           type: boolean
@@ -1776,13 +1776,32 @@ components:
       description: |
         An avatar from the Pixel Zoo (B-44, ADR-008): an animal, a colour and a personality. The
         same look always draws the same avatar. New in 0.7.0.
+
+        **Open values, as the hub sends them** (0.7.1). The zoo grows, so a look the hub sends may
+        hold a value this client does not know. The known values are `LookAnimal`, `LookColor` and
+        `LookPersonality`. A client treats a look with any unknown value as no look at all and shows
+        the default avatar (the bundled giraffe); it never fails to read the rest of the answer.
+        What the hub accepts is strict: see `NewLook`.
+      required: [animal, color, personality]
+      additionalProperties: false
+      properties:
+        animal: { type: string, minLength: 1, description: 'Known values: `LookAnimal`.' }
+        color: { type: string, minLength: 1, description: 'Known values: `LookColor`.' }
+        personality: { type: string, minLength: 1, description: 'Known values: `LookPersonality`.' }
+      example: { animal: giraffe, color: rose, personality: professional }
+
+    NewLook:
+      type: object
+      description: |
+        A look sent to the hub (`AgentUpdate.look`, `NewUser.agent.look`). Only the known values;
+        anything else is 400 `bad_request`. New in 0.7.1 (0.7.0 used `Look` here, with the same rules).
       required: [animal, color, personality]
       additionalProperties: false
       properties:
         animal: { $ref: '#/components/schemas/LookAnimal' }
         color: { $ref: '#/components/schemas/LookColor' }
         personality: { $ref: '#/components/schemas/LookPersonality' }
-      example: { animal: giraffe, color: rose, personality: professional }
+      example: { animal: fox, color: tangerine, personality: cheerful }
 
     LookAnimal:
       type: string

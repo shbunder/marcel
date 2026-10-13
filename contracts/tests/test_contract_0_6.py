@@ -29,7 +29,7 @@ def flat(text: str) -> str:
 def test_the_versions_were_bumped() -> None:
     # Later contracts bumped these again (test_contract_0_6_1.py, test_contract_0_7.py,
     # test_contract_s02_9.py).
-    assert load_yaml('app-api.yaml')['info']['version'] == '0.7.0'
+    assert load_yaml('app-api.yaml')['info']['version'] == '0.7.1'  # 0.7.1 in S-02.9
     assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.10'
     assert load_yaml('session-api.yaml')['info']['version'] == '0.1.6'
     assert load_yaml('brain-api.yaml')['info']['version'] == '0.1.3'

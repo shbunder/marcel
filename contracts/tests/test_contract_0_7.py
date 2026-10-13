@@ -55,7 +55,7 @@ def refused(validator: Draft202012Validator, instance: Any) -> None:
 
 
 def test_the_versions_were_bumped() -> None:
-    assert load_yaml('app-api.yaml')['info']['version'] == '0.7.0'
+    assert load_yaml('app-api.yaml')['info']['version'] == '0.7.1'  # 0.7.1 in S-02.9
     assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.10'  # again in S-02.9
 
 
@@ -181,14 +181,46 @@ def test_the_look_enums_are_the_zoos() -> None:
     assert runner['properties']['persona']['properties']['personality']['enum'] == PERSONALITIES
 
 
-def test_a_look_is_all_three(registry: Registry) -> None:
-    look = app('Look', registry)
+def test_a_look_sent_to_the_hub_is_all_three_known_values(registry: Registry) -> None:
+    look = app('NewLook', registry)
     look.validate({'animal': 'giraffe', 'color': 'rose', 'personality': 'professional'})
     look.validate({'animal': 'frog', 'color': 'natural', 'personality': 'shy'})
     refused(look, {'animal': 'giraffe', 'color': 'rose'})
     refused(look, {'animal': 'unicorn', 'color': 'rose', 'personality': 'shy'})
     refused(look, {'animal': 'cat', 'color': '#f08aa0', 'personality': 'shy'})
     refused(look, {'animal': 'cat', 'color': 'rose', 'personality': 'shy', 'mood': 'happy'})
+
+
+def test_a_look_from_the_hub_is_open_so_old_apps_still_read_it(registry: Registry) -> None:
+    # 0.7.1: a new zoo animal must not break an older app's /me; it shows the default avatar.
+    look = app('Look', registry)
+    look.validate({'animal': 'unicorn', 'color': 'galaxy', 'personality': 'dreamy'})
+    refused(look, {'animal': 'giraffe', 'color': 'rose'})
+    refused(look, {'animal': '', 'color': 'rose', 'personality': 'shy'})
+    refused(look, {'animal': 'cat', 'color': 'rose', 'personality': 'shy', 'mood': 'happy'})
+    text = flat(schema('Look')['description'])
+    assert 'treats a look with any unknown value as no look' in text and '`NewLook`' in text
+    for name in ('animal', 'color', 'personality'):
+        known = 'Look' + name.capitalize()
+        assert f'`{known}`' in schema('Look')['properties'][name]['description']
+    me = app('Me', registry)
+    agent = {
+        **example('Me')['agents'][0],
+        'look': {'animal': 'unicorn', 'color': 'x', 'personality': 'y'},
+    }
+    me.validate({**example('Me'), 'agents': [agent]})
+
+
+def test_what_the_hub_accepts_stays_strict() -> None:
+    new_user = schema('NewUser')['properties']['agent']['properties']['look']
+    assert new_user['$ref'] == '#/components/schemas/NewLook'
+    assert schema('AgentUpdate')['properties']['look']['$ref'] == '#/components/schemas/NewLook'
+    preview = load_yaml('app-api.yaml')['paths']['/avatar-previews']['get']['parameters']
+    assert [p['schema']['$ref'].rsplit('/', 1)[1] for p in preview[:3]] == [
+        'LookAnimal',
+        'LookColor',
+        'LookPersonality',
+    ]
 
 
 def agent_07() -> dict[str, Any]:
@@ -217,6 +249,7 @@ def test_an_agent_update_takes_name_look_and_onboarded(registry: Registry) -> No
     update = app('AgentUpdate', registry)
     update.validate(example('AgentUpdate'))
     update.validate({'look': {'animal': 'cat', 'color': 'sky', 'personality': 'cool'}})
+    refused(update, {'look': {'animal': 'unicorn', 'color': 'sky', 'personality': 'cool'}})
     update.validate({'onboarded': True})
     update.validate({'palette': 'dusk'})  # deprecated, still accepted
     refused(update, {})
@@ -437,6 +470,7 @@ def test_the_runner_prepares_a_brain_folder(registry: Registry) -> None:
 
 
 def test_every_new_example_is_valid_json_for_its_schema(registry: Registry) -> None:
-    for name in ('User', 'NewUser', 'IssuedPairingCode', 'Look', 'Mention', 'MentionKind',
-                 'UserRole', 'LookAnimal', 'LookColor', 'LookPersonality', 'Mood'):  # fmt: skip
+    for name in ('User', 'NewUser', 'IssuedPairingCode', 'Look', 'NewLook', 'Mention',
+                 'MentionKind', 'UserRole', 'LookAnimal', 'LookColor', 'LookPersonality',
+                 'Mood'):  # fmt: skip
         app(name, registry).validate(json.loads(json.dumps(example(name))))

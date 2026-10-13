@@ -26,7 +26,9 @@ mark from the contract, so a new owner route is guarded as soon as it is marked.
 
 **Additive bumps.** app-api 0.7.0 adds people, agent looks, quoted replies, mentions and project
 trackers without breaking 0.6 clients: every field it adds to an existing schema is optional, and
-`Agent.palette` and `Agent.seed` stay readable, marked `deprecated`. New operations the hub does not
+`Agent.palette` and `Agent.seed` stay readable, marked `deprecated`. In 0.7.1 a `Look` the hub sends
+holds open strings (a client treats an unknown value as no look and shows the default avatar), while
+`NewLook`, what the hub accepts, keeps the closed lists. New operations the hub does not
 serve yet are listed in `hub/tests/test_contract_routes.py` `PENDING_OPERATIONS`, new fields in
 `hub/tests/test_contract.py` `PENDING` and `hub/tests/test_channel_frames.py` `PENDING_FIELDS`; each
 list only shrinks.
