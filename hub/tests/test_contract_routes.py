@@ -18,6 +18,14 @@ METHODS = {'get', 'post', 'put', 'patch', 'delete'}
 PENDING_OPERATIONS: dict[tuple[str, str], str] = {
     ('GET', '/api/mentions'): 'mentions: S-18.2',
 }
+# The same for brain-api.yaml (under `/brain`) and session-api.yaml (under `/api`, except a path
+# with its own `servers`, served at the hub's root). Each list can only shrink.
+PENDING_BRAIN_OPERATIONS: dict[tuple[str, str], str] = {
+    ('GET', '/brain/summary'): "the brain's day summary: the S-06.8 hook reads it; no hub story yet",
+}
+PENDING_SESSION_OPERATIONS: dict[tuple[str, str], str] = {
+    ('POST', '/channel/session-end'): 'session-end hooks: S-05.8',
+}
 
 
 def normalise(path: str) -> str:
@@ -25,9 +33,10 @@ def normalise(path: str) -> str:
 
 
 def contract_routes(doc: str, prefix: str) -> set[tuple[str, str]]:
+    """The document's operations under `prefix`; a path with its own `servers` sits at the root."""
     paths = yaml.safe_load((CONTRACTS / doc).read_text())['paths']
     return {
-        (method.upper(), normalise(prefix + path))
+        (method.upper(), normalise(('' if 'servers' in item else prefix) + path))
         for path, item in paths.items()
         for method in item
         if method in METHODS
@@ -65,9 +74,18 @@ def test_the_hub_serves_nothing_under_api_the_contract_does_not_name(
 
 
 def test_the_brain_routes_are_exactly_the_brain_api(served: set[tuple[str, str]]) -> None:
-    assert under(served, '/brain/') == contract_routes('brain-api.yaml', '/brain')
+    contract = contract_routes('brain-api.yaml', '/brain')
+    assert set(PENDING_BRAIN_OPERATIONS) <= contract, 'a pending operation is not in the contract'
+    assert under(served, '/brain/') == contract - set(PENDING_BRAIN_OPERATIONS)
+
+
+def test_every_session_api_operation_is_served_or_pending(served: set[tuple[str, str]]) -> None:
+    contract = contract_routes('session-api.yaml', '/api')
+    assert set(PENDING_SESSION_OPERATIONS) <= contract, 'a pending operation is not in the contract'
+    assert contract - served - set(PENDING_SESSION_OPERATIONS) == set()
 
 
 def test_pending_operations_are_still_pending(served: set[tuple[str, str]]) -> None:
-    now_served = set(PENDING_OPERATIONS) & served
-    assert not now_served, f'{now_served} are served now: remove them from PENDING_OPERATIONS'
+    for pending in (PENDING_OPERATIONS, PENDING_BRAIN_OPERATIONS, PENDING_SESSION_OPERATIONS):
+        now_served = set(pending) & served
+        assert not now_served, f'{now_served} are served now: remove them from the pending list'

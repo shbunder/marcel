@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — session API
-  version: 0.1.5
+  version: 0.1.6
   description: |
     The two hub endpoints that Claude Code sessions call themselves, over HTTPS through the tunnel.
     They sit under the same `/api` server as the app API but use their own tokens, never a device
@@ -21,10 +21,62 @@ info:
     gets 404 on both routes (a 429 would show that the route exists). The right token is always
     accepted, so a stranger cannot lock the owner or a worker out. `report` answers 429
     `too_many_reports` only to a valid token that sends too fast (0.1.5).
+
+    - **session-end** (0.1.6, S-05.8, ADR-010): the marcel plugin's `Stop` and `SessionEnd` hooks, in
+      every NUC session. This one route is **not** under `/api` and not reachable through the tunnel:
+      it sits on the hub's NUC port next to `/channel` (its own `servers` entry), and a request
+      carrying Cloudflare's `cf-connecting-ip` header is answered 404 `not_found`. It is
+      authenticated like the channel: the hub secret and a session id the runner reported.
 servers:
   - url: https://marcel-bot.com/api
 
 paths:
+  /channel/session-end:
+    servers:
+      - url: http://127.0.0.1:7420
+        description: The hub's port on the NUC, outside `/api` (like `/channel`)
+    post:
+      operationId: sessionEnded
+      summary: A NUC session stopped a turn or ended (the plugin's `Stop` and `SessionEnd` hooks).
+      description: |
+        `event: stop`: the session is about to finish a turn; the hook asks whether it owes a report.
+        `event: session_end`: the session ended; `reason` is the `SessionEnd` hook's own (`clear`,
+        `logout`, `prompt_input_exit`, `other`, …).
+
+        `report_owed` is true only for a worker whose task is `working` or `needs_you` with no
+        `done` or `failed` report since its last prompt; for a brain, side or adopted session it is
+        always false. On `session_end` from such a worker the hub moves the task to `failed` with
+        reason `ended_without_report` (task-states.md) and tells the brain; when the task already
+        ended, the hub only records the end reason. The hooks never block on the answer: a hub
+        that does not answer means "nothing owed".
+      security:
+        - secret: []
+          session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SessionEnd' }
+      responses:
+        '200':
+          description: Recorded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionEndAnswer' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: |
+            Exactly like the channel's `rejected`: the secret does not match (`bad_secret`), or the
+            runner never reported this session and it was not adopted (`unknown_session`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '503':
+          description: The hub has no secret, so it refuses every session (`no_secret`). Redeploy to write it.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+
   /session/adopt:
     post:
       operationId: adoptSession
@@ -109,6 +161,16 @@ components:
       type: http
       scheme: bearer
       description: The per-task token from the worker's prompt.
+    secret:
+      type: apiKey
+      in: header
+      name: X-Marcel-Secret
+      description: The hub secret (`$CLAUDE_PLUGIN_DATA/hub-secret`), as the channel's `hello` carries it. New in 0.1.6.
+    session:
+      type: apiKey
+      in: header
+      name: X-Marcel-Session
+      description: The caller's `CLAUDE_CODE_SESSION_ID` (the hook input's `session_id`). New in 0.1.6.
 
   responses:
     BadRequest:
@@ -131,6 +193,31 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    SessionEnd:
+      type: object
+      required: [event]
+      additionalProperties: false
+      properties:
+        event:
+          type: string
+          enum: [stop, session_end]
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: For `session_end`, the `SessionEnd` hook's `reason`, passed on unchanged. New values may appear.
+      example: { event: session_end, reason: prompt_input_exit }
+
+    SessionEndAnswer:
+      type: object
+      required: [report_owed]
+      additionalProperties: false
+      properties:
+        report_owed:
+          type: boolean
+          description: True when this worker should still call `report(done)` or `report(failed)`.
+      example: { report_owed: true }
+
     Error:
       type: object
       required: [code, message]

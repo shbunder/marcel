@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel runner API
-  version: 0.1.9
+  version: 0.1.10
   description: |
     The runner is the only process that runs `claude` (native on the NUC, a systemd user unit). The
     hub (in Docker) talks to it over HTTP on a unix socket: `/run/user/<uid>/marcel/runner.sock` on
@@ -109,7 +109,9 @@ paths:
           description: |
             The session did not start properly. `code` is one of `not_trusted`, `channel_skipped`,
             `channel_timeout`, `exited` (with the session's own `detail`), `no_supervisor`,
-            `clone_failed`.
+            `clone_failed`, `claude_version` (0.1.10: the installed Claude Code is not the version
+            Marcel is tested with, `runner/claude-version`; nothing was started, and `message` names
+            both versions).
 
             For a `repo` spawn: `clone_failed` covers every workspace step (the clone, the fetch, the
             task worktree, the plugin install and the check that the install left the repo's tracked
@@ -228,7 +230,8 @@ paths:
           description: |
             The session did not wake properly, with the same wording as spawn: `no_supervisor`,
             `exited` (Claude refused, did not say which session it woke, or the folder the session
-            ran in is gone; `detail` holds what it said), `channel_skipped`, `channel_timeout`.
+            ran in is gone; `detail` holds what it said), `channel_skipped`, `channel_timeout`,
+            `claude_version` (as on spawn; nothing was woken).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -278,7 +281,7 @@ paths:
         '422':
           description: |
             The fork did not start properly (same codes as spawn): `no_supervisor`, `exited`,
-            `channel_skipped`, `channel_timeout`.
+            `channel_skipped`, `channel_timeout`, `claude_version` (as on spawn; nothing was started).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -463,7 +466,8 @@ paths:
         '422':
           description: |
             `cloud_unparsed`: `claude --cloud` exited without printing a session id and URL on
-            `claude.ai`; `message` holds its output. For a `repo` create also `clone_failed` (the
+            `claude.ai`; `message` holds its output. `claude_version` (as on spawn; nothing was
+            started). For a `repo` create also `clone_failed` (the
             clone, the fetch or the checkout of `base`), with git's own words in `detail`.
           content:
             application/json:
@@ -584,6 +588,12 @@ components:
         claude_version:
           type: string
           description: '`claude --version`, or empty when the binary is missing.'
+        claude_version_expected:
+          type: string
+          description: |
+            The version Marcel is tested with (`runner/claude-version`), so the hub and the app can
+            show "installed 2.1.301, expected 2.1.290". When `claude_version` differs, `ok` is false
+            and every start answers 422 `claude_version`. New in 0.1.10.
         supervisor:
           type: object
           required: [running, own_unit]

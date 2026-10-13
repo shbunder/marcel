@@ -151,6 +151,7 @@ BRAIN_ROUTES = {
     ('delete', '/schedules/{schedule_id}'),
     ('post', '/notify'),
     ('get', '/usage'),
+    ('get', '/summary'),  # S-02.9: read by the plugin's SessionStart hook, not a tool
 }
 METHODS = {'get', 'post', 'put', 'patch', 'delete'}
 

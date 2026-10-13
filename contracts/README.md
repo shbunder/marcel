@@ -7,11 +7,11 @@
 | [task-states.md](task-states.md) | the task state machine every lane follows | S-02.1 |
 | [dashboard.schema.json](dashboard.schema.json) | worker or hub → app (the content of a `dashboard` or project `board` artifact) | S-02.1, S-02.5 |
 | [avatar-sheet.schema.json](avatar-sheet.schema.json) | `shared/avatar/zoo` (each agent's look, served by the hub) or `shared/avatar/pixel/build.py` (the bundled giraffe) → AvatarKit (the sprite sheet's loops) | S-02.5; zoo S-19.1 |
-| [runner-api.yaml](runner-api.yaml) | hub → runner (HTTP over a unix socket) | S-02.2; a brain folder per agent (`POST /brains`) S-02.7 |
+| [runner-api.yaml](runner-api.yaml) | hub → runner (HTTP over a unix socket) | S-02.2; a brain folder per agent (`POST /brains`) S-02.7; the pinned claude version (`claude_version`) S-02.9 |
 | [transcript.schema.json](transcript.schema.json) | runner → hub (one normalised event per transcript line) | S-02.2 |
 | [channel-protocol.md](channel-protocol.md) + [channel.schema.json](channel.schema.json) | session's channel server ↔ hub (WebSocket, outside `/api`) | S-02.2 |
-| [session-api.yaml](session-api.yaml) | sessions → hub over the tunnel (`/api/session/adopt`, `/api/session/report`) | S-02.2 |
-| [brain-api.yaml](brain-api.yaml) | the brain's tools server (`plugins/marcel/tools`) → hub (`/brain/*`, NUC only) | S-05.3 |
+| [session-api.yaml](session-api.yaml) | sessions → hub over the tunnel (`/api/session/adopt`, `/api/session/report`); the plugin's session-end hooks on the NUC (`/channel/session-end`, outside `/api`) | S-02.2; session-end S-02.9 |
+| [brain-api.yaml](brain-api.yaml) | the brain's tools server (`plugins/marcel/tools`) and the plugin's hooks → hub (`/brain/*`, NUC only) | S-05.3; `/brain/summary` S-02.9 |
 
 Only the lead changes these files (the guard hook enforces it). Implementers who find a contract
 wrong or missing something write `project/contract-requests/<story>.md` instead.

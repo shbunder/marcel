@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — brain API
-  version: 0.1.2
+  version: 0.1.3
   description: |
     The routes Marcel's brain tools call (`plugins/marcel/tools`, the `tools` MCP server of the
     marcel plugin). Each tool call is one HTTP call to the hub on the NUC; the hub side is
@@ -517,6 +517,28 @@ paths:
         '413': { $ref: '#/components/responses/TooLarge' }
         '503': { $ref: '#/components/responses/NoSecret' }
 
+  /summary:
+    get:
+      tags: [memory]
+      operationId: brainGetSummary
+      summary: The day so far in the main conversation, for the brain after a compaction. New in 0.1.3.
+      description: |
+        Plain text, at most 4 KB: what was asked today, which threads started and finished, and the
+        sessions running now, oldest first, in the agent's time zone. Called by the marcel
+        plugin's `SessionStart` hook (matcher `compact`) after an auto-compact, so the brain keeps
+        the thread of the day without a rollover (ADR-010). A day with nothing yet gives a short
+        text saying so, never an empty one. Same auth and errors as the other routes; a worker gets
+        403 `not_brain`.
+      responses:
+        '200':
+          description: Today's summary.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DaySummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '503': { $ref: '#/components/responses/NoSecret' }
+
   /usage:
     get:
       tags: [notify]
@@ -864,6 +886,27 @@ components:
           enum: [normal, urgent]
           default: normal
       example: { text: 'The Luminus quote came in: 12 % cheaper than Engie.', level: normal }
+
+    DaySummary:
+      type: object
+      required: [date, text]
+      additionalProperties: false
+      properties:
+        date:
+          type: string
+          format: date
+          description: Today, in the agent's time zone.
+        text:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: Plain text for the brain, at most 4 KB (in UTF-8).
+      example:
+        date: '2026-10-13'
+        text: |
+          08:12 Shaun asked to fix the flaky login test; started "Fix flaky login test" (cloud).
+          09:40 "Fix flaky login test" finished: PR #14.
+          Running now: "Compare energy offers" (NUC, needs you: approve Bash).
 
     Notified:
       type: object

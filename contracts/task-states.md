@@ -39,7 +39,7 @@ done`); the hub never has to invent a state in between.
 | working, silent | needs_you | A permission request, or the runner reports `blocked` | channel, runner |
 | needs_you | working | The approval is answered (app or terminal), or a steer message arrives | app, terminal, channel |
 | starting, working, needs_you, silent | done | The worker reports `done`, or the runner reports `done` (a short task can finish between two polls) | channel, runner |
-| working, needs_you, silent | failed | The worker reports `failed`, or the runner reports `failed` | channel, runner |
+| working, needs_you, silent | failed | The worker reports `failed`, or the runner reports `failed`, or the session ended without a report (plugin `SessionEnd` hook, `reason: ended_without_report`) | channel, runner, session-end hook |
 | starting, working, needs_you, silent, unknown | stopped | Stopped | app or brain (`tasks_stop`) |
 | starting, working | silent | No activity past `expected_by`, including a session that never got past starting | hub watchdog |
 | silent | working | Activity resumes | runner, channel |

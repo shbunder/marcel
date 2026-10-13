@@ -56,7 +56,7 @@ def refused(validator: Draft202012Validator, instance: Any) -> None:
 
 def test_the_versions_were_bumped() -> None:
     assert load_yaml('app-api.yaml')['info']['version'] == '0.7.0'
-    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.9'
+    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.10'  # again in S-02.9
 
 
 # 1. People --------------------------------------------------------------------------------------

@@ -73,6 +73,22 @@ The channel server holds hub frames, unacked, until Claude Code has sent `notifi
 and a short settle delay has passed: the session registers its channel handler a little after
 `initialized` (SP1), and a notification sent before that is lost.
 
+## Session-end hooks
+
+The marcel plugin's `Stop` and `SessionEnd` hooks (S-05.8, ADR-010) tell the hub when a session finishes a
+turn or ends, so the hub hears it from Claude Code itself instead of guessing from the runner's 2-second poll.
+They call `POST http://127.0.0.1:7420/channel/session-end` (session-api.yaml `sessionEnded`), on the same port
+as `/channel` and outside `/api`, with the hub secret in `X-Marcel-Secret` and `CLAUDE_CODE_SESSION_ID` in
+`X-Marcel-Session`. The hub knows the session the same way it knows a channel `hello`, and refuses it the
+same way (401 `bad_secret` / `unknown_session`).
+
+- `Stop` sends `{event: "stop"}`. When the answer says `report_owed`, the hook blocks the stop once with
+  "Call report(done) or report(failed) before you finish." (never when Claude Code says a stop hook is
+  already active, so a worker is never looped).
+- `SessionEnd` sends `{event: "session_end", reason}`. A worker that ended owing a report goes to `failed`
+  with reason `ended_without_report` ([task-states.md](task-states.md)), and the brain gets a system event.
+- A hub that does not answer means "nothing owed"; the hooks always exit 0.
+
 ## Delivery guarantees
 
 - **Hub → session:** every frame carries `seq` (per session, increasing), and the hub sends them in

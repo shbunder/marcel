@@ -17,10 +17,10 @@ def flat(text: str) -> str:
 
 
 def test_the_versions_were_bumped() -> None:
-    # 0.7 bumped runner-api again (test_contract_0_7.py).
-    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.9'
-    assert load_yaml('session-api.yaml')['info']['version'] == '0.1.5'
-    assert load_yaml('brain-api.yaml')['info']['version'] == '0.1.2'
+    # Bumped again by test_contract_0_7.py and test_contract_s02_9.py.
+    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.10'
+    assert load_yaml('session-api.yaml')['info']['version'] == '0.1.6'
+    assert load_yaml('brain-api.yaml')['info']['version'] == '0.1.3'
 
 
 # session-api.yaml: report tokens (S-07.1) -------------------------------------------------------

@@ -92,7 +92,9 @@ def test_bad_case_is_rejected(doc: str, name: str, instance: Any, registry: Regi
 def test_session_routes_hide_bad_tokens_as_404():
     """SP3: scanners probe the tunnel; a wrong token must look like no route at all."""
     api = load_yaml('session-api.yaml')
-    for path in api['paths'].values():
+    tunnel = [item for item in api['paths'].values() if 'servers' not in item]
+    assert len(tunnel) == 2  # adopt and report; session-end is NUC-only (its own server)
+    for path in tunnel:
         for op in path.values():
             responses = op['responses']
             assert '404' in responses and '401' not in responses and '403' not in responses
