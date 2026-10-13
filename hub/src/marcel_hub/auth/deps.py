@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 
 from marcel_hub.auth.errors import ApiError
 from marcel_hub.auth.tokens import hash_secret
-from marcel_hub.models import Device, utcnow
+from marcel_hub.models import Device, UserRole, utcnow
 
 bearer = HTTPBearer(auto_error=False, description='The device token from `POST /pair`.')
 
@@ -63,4 +63,16 @@ def current_device(request: Request) -> Device:
     device = getattr(request.state, 'device', None)
     if device is None:
         raise RuntimeError(f'{request.url.path} has no device: its router needs require_device.')
+    return device
+
+
+def require_owner(
+    request: Request, device: Annotated[Device, Depends(require_device)], session: DbSession
+) -> Device:
+    """The owner's device, or 403 `owner_only` (B-37). For every `x-owner-only` operation."""
+    from marcel_hub.users.store import owner_name, role_of  # users/ builds on auth/
+
+    if role_of(session, device.user_id) != UserRole.owner:
+        name = owner_name(session, request.app.state.settings.owner_name)
+        raise ApiError(403, 'owner_only', f'Only {name} can do this. Ask {name} to do it.')
     return device

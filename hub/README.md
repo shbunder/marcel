@@ -87,7 +87,7 @@ whole path and is what `deploy/health.sh` (and so every deploy) waits for.
   connected, or silent.
 
 200 with `ok: true` when every link is ok; 503 with the same body otherwise. With no agent yet (a
-fresh install, before `agent create`) `brains` is empty and a `note` says so: not a failure, so
+fresh install, before `setup`) `brains` is empty and a `note` says so: not a failure, so
 `make -C deploy install` passes; the brain is checked from the first agent on. **Local only**: it is
 outside `/api`, so the tunnel never forwards it, and a request with the tunnel's `cf-connecting-ip`
 header gets 404. It takes the hub secret in `X-Marcel-Secret` (401 `bad_secret` without it), never a
@@ -98,20 +98,35 @@ printf 'X-Marcel-Secret: %s\n' "$(cat ~/marcel/data/hub-secret)" | curl -s -H @-
 # {"ok":true,"hub":"ok","runner":{"state":"ok","latency_ms":4},"brains":[{"agent_id":"agt_…","state":"ok","last_seen_s":7}]}
 ```
 
-## The owner's agent
+## The owner and their agent: `marcel-hub setup`
 
 ```bash
-marcel-hub agent create      # inside the hub container: docker exec marcel-hub marcel-hub agent create
+marcel-hub setup             # inside the hub container: docker exec -it marcel-hub marcel-hub setup
 marcel-hub agent list
 ```
 
-`create` makes the owner's agent, named `MARCEL_AGENT_NAME` (else `Marcel`, or `--name`), with
-`--animal` (default `giraffe`), `--palette` (default `marcel`) and `--seed` (default the name), and
-its main conversation and Inbox, in one transaction. Once the hub and the runner are up, the hub
-starts its brain in `brain_cwd` (with `brain_cwd` unset it says no brain will start). An agent of
-the same name is left as it is. When the owner already has an agent under another name it makes
-nothing and exits 1, since each agent gets its own brain; `--another` makes a second one anyway. A
-stop-gap until `marcel-hub setup` (S-17.1).
+`setup` (S-17.1) is the first step on a new NUC and is safe to run again. It makes:
+
+- **the owner** (`usr_owner`, role `owner`, named `MARCEL_OWNER_NAME`): the person whose Claude login
+  the NUC uses (B-37, B-38). The hub also makes this row at every start-up, so phones paired before
+  0.7 keep working.
+- **the owner's agent**, named `MARCEL_AGENT_NAME` (else `Marcel`, or `--agent-name`), with slug
+  `marcel`, Marcel's look (giraffe, rose, professional), `persona_path` `<brain_cwd>/CLAUDE.md`, and its
+  main conversation and Inbox, in one transaction. An agent already there (an older `agent create`
+  made one) is reused: it gets the slug `marcel` and the look if it has none, and nothing is made twice.
+- **a QR code** that pairs the owner's first phone, only while the owner has none
+  (`marcel-hub pair` pairs more).
+
+Family members are added from the owner's app: `POST /api/users` makes the person (role `member`)
+and their own agent, main conversation and Inbox; `POST /api/users/{id}/pairing-codes` makes a code
+that pairs a phone to them; `DELETE /api/users/{id}` signs out their phones at once, stops their
+quests and archives their agent (their chats and notes stay; the owner cannot be removed, 409). All
+four are owner-only (`x-owner-only` in the contract; `require_owner` in `auth/deps.py`): a member
+gets 403 `owner_only`. A member's brain workspace comes with S-17.7; a look picked from the name
+when none is given comes with S-19.2.
+
+`marcel-hub agent create` still makes an extra agent for the owner (`--another`; each agent gets its
+own brain). `setup` is the way to make the first one.
 
 ## Pairing a phone
 

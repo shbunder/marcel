@@ -11,7 +11,7 @@ from sqlmodel import Session, col, select
 from marcel_hub.auth.deps import DbSession, current_device, require_device
 from marcel_hub.auth.errors import ApiError
 from marcel_hub.auth.tokens import PairGuessLimit, redeem_pairing_code
-from marcel_hub.models import Agent, Device
+from marcel_hub.models import Agent, Device, User
 
 pair_router = APIRouter(prefix='/api', tags=['access'])
 router = APIRouter(prefix='/api', tags=['access'], dependencies=[Depends(require_device)])
@@ -114,9 +114,14 @@ def me(request: Request, session: DbSession) -> dict[str, Any]:
         .where(Agent.owner_user_id == device.user_id, col(Agent.main_conversation_id).is_not(None))
         .order_by(col(Agent.id))
     ).all()
+    from marcel_hub.users.store import role_of  # users/ builds on auth/
+
+    person = session.get(User, device.user_id)
+    fallback = request.app.state.settings.owner_name  # the owner's name before their row exists
     return {
         'user_id': device.user_id,
-        'name': request.app.state.settings.owner_name,
+        'name': person.name if person is not None else fallback,
+        'role': role_of(session, device.user_id).value,
         'device_id': device.id,
         'agents': [agent_json(a, request.app.state.agent_states.current(a.id)) for a in agents],
         'push': request.app.state.pusher.capabilities(),  # notify/ (S-08.1)

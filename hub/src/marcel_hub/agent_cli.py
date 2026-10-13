@@ -1,7 +1,7 @@
-"""`marcel-hub agent create|list`: make the owner's agent, so the hub starts a brain for it.
+"""`marcel-hub agent create|list`: list the owner's agents, or make an extra one.
 
-A stop-gap until `marcel-hub setup` (S-17.1) makes the owner and their agent; `setup` must reuse an
-agent made here (same owner, same name) rather than make a second one.
+`marcel-hub setup` (S-17.1, `users/cli.py`) makes the owner and their first agent and reuses one
+made here; `create` stays for a second agent (`--another`).
 """
 
 import argparse

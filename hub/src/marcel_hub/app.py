@@ -19,6 +19,7 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, Request
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from sqlmodel import Session
 
 from marcel_hub import (
     __version__,
@@ -47,6 +48,7 @@ from marcel_hub import (
     task_threads,
     tasks,
     usage,
+    users,
     ws,
 )
 from marcel_hub.runner_client import DEFAULT_SOCKET, OffsetStore, RunnerClient, RunnerWatch
@@ -269,6 +271,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         db.upgrade(engine)
+        with Session(engine) as session:  # S-17.1: the owner's row, before the first request
+            users.ensure_owner(session, settings.owner_name)
         app.state.channel.recheck()  # approval cards left open while the hub was down
         pusher.start()
         await app.state.tasks.drain()  # tasks queued before a restart start if there is room
@@ -363,6 +367,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.runner_client = client  # the whole-path health check asks it (`path_health.py`)
     ws.install(app)
     app.include_router(conversations.router)
+    users.install(app)  # S-17.1: the owner's People routes
     artifacts.install(app)  # S-04.7, after tasks: an artifact is recorded on its task
     # S-04.12: PR cards follow GitHub (read-only token); new PR artifacts are seen in the event log.
     prs = github.install(app, settings.github_token)
@@ -442,7 +447,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 def main(argv: list[str] | None = None) -> None:
     """`marcel-hub`: start the hub on the configured host and port.
 
-    `marcel-hub pair` prints a QR code that pairs a phone instead; `marcel-hub adopt-token` makes
+    `marcel-hub setup` makes the owner and their agent on a fresh NUC; `marcel-hub pair` prints a
+    QR code that pairs a phone instead; `marcel-hub adopt-token` makes
     the token `/marcel-adopt` needs and prints it once; `marcel-hub agent create|list` makes or
     lists the owner's agent.
     """
@@ -455,6 +461,10 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(pair(args[1:]))
     if args[:1] == ['adopt-token']:
         raise SystemExit(adopt.token_cli(args[1:]))
+    if args[:1] == ['setup']:
+        from marcel_hub.users.cli import setup
+
+        raise SystemExit(setup(args[1:]))
     if args[:1] == ['agent']:
         from marcel_hub.agent_cli import agent
 

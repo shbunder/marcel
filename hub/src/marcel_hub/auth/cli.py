@@ -8,9 +8,12 @@ from sqlmodel import Session
 
 from marcel_hub import db
 from marcel_hub.app import SettingsError, load_settings
-from marcel_hub.auth.tokens import PAIRING_CODE_TTL, create_pairing_code, pairing_url
-
-DEFAULT_HUB = 'https://marcel-bot.com/api'
+from marcel_hub.auth.tokens import (
+    DEFAULT_HUB,
+    PAIRING_CODE_TTL,
+    create_pairing_code,
+    pairing_url,
+)
 
 
 def pair(argv: list[str]) -> int:

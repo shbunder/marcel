@@ -23,6 +23,8 @@ CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 CODE_LENGTH = 8
 
 PAIR_AGAIN = 'Run `marcel-hub pair` again for a new one.'
+# The address the phone reaches the hub at, through the tunnel; a pairing link carries it.
+DEFAULT_HUB = 'https://marcel-bot.com/api'
 
 # `POST /pair` is public. After this many unknown codes in a window it refuses every code, the
 # right one too, until the window ends: guessing a live 40-bit code then takes centuries.

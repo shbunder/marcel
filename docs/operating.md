@@ -58,12 +58,17 @@ make -C deploy install
 make -C deploy tunnel                 # then run the two sudo lines it prints
 ```
 
-On a new install, make the owner's agent once; the hub then starts its brain:
+On a new install, set up the owner once: it makes you the owner (`MARCEL_OWNER_NAME`, the person
+whose Claude login the NUC uses), your agent (`MARCEL_AGENT_NAME`, else Marcel), and prints a QR code
+that pairs your first phone. The hub then starts the agent's brain. It is safe to run again, and it
+reuses an agent an older `agent create` made:
 
 ```bash
-docker exec marcel-hub marcel-hub agent create   # named MARCEL_AGENT_NAME, else Marcel
+docker exec -it marcel-hub marcel-hub setup
 make -C deploy health                 # waits up to a minute for "hub /internal/health" to say ok
 ```
+
+Family members are added from the app (Settings › People), not here.
 
 `make -C deploy install` is safe to run again. It installs node 22, builds the plugin, points the
 `marcel-local` marketplace at `~/marcel/plugins`, writes the hub secret, renders the brain workspace,
@@ -153,7 +158,7 @@ To restore, put `data/` back before `make -C deploy install`.
 | App says the hub is unreachable | `make -C deploy health`; `systemctl status cloudflared-marcel` | Hub container down: `make -C deploy deploy`. Tunnel down: `sudo systemctl restart cloudflared-marcel` |
 | `hub /api/health` says the runner is not answering | `journalctl --user -u marcel-runner -n 50` | The runner refuses to start without Claude's supervisor: `systemctl --user start marcel-claude-daemon` |
 | Runner log: supervisor "inside the runner's cgroup" | `claude daemon status` | A supervisor started outside its unit. Stop the session work, then `systemctl --user restart marcel-claude-daemon` |
-| `hub /internal/health`: brain "No brain session yet" | `docker exec marcel-hub marcel-hub agent list`; `make -C deploy logs` | No agent yet: `agent create` (see Install). `MARCEL_BRAIN_CWD` unset, or the brain workspace is not trusted: run `make -C deploy install` |
+| `hub /internal/health`: brain "No brain session yet" | `docker exec marcel-hub marcel-hub agent list`; `make -C deploy logs` | No agent yet: `marcel-hub setup` (see Install). `MARCEL_BRAIN_CWD` unset, or the brain workspace is not trusted: run `make -C deploy install` |
 | `hub /internal/health`: brain "not connected" or "sent nothing for over 45 s" | `curl -s --unix-socket ~/marcel/run/runner.sock http://runner/sessions`; `make -C deploy logs` | The brain's `claude` process died or hangs. The hub starts a new one when the runner shows it gone; a hung one: ask for a fresh start from the app (Settings) |
 | "Marcel is unreachable. A deploy wrote a different secret." | `~/marcel/data/hub-secret` vs `~/.claude/plugins/data/marcel-marcel-local/hub-secret` | Run `make -C deploy install`, which copies it again, then `claude respawn --all`: after a wrong secret the channel never retries |
 | Nothing starts after a reboot | `loginctl show-user $USER -p Linger` | Linger is off: `sudo loginctl enable-linger $USER` |
