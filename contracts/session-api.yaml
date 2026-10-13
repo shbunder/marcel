@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — session API
-  version: 0.1.4
+  version: 0.1.5
   description: |
     The two hub endpoints that Claude Code sessions call themselves, over HTTPS through the tunnel.
     They sit under the same `/api` server as the app API but use their own tokens, never a device
@@ -17,9 +17,10 @@ info:
       or `stopped` (clarified in 0.1.4).
 
     Scanners probed the tunnel within minutes during SP3: anything without a valid token gets 404,
-    not 401. Wrong tokens are rate-limited per caller address. `report` answers 429 when limited;
-    `adopt` answers 404 then too (a 429 would show that the route exists), and the right adopt token
-    is always accepted, so a stranger cannot lock the owner out.
+    not 401. Wrong tokens are rate-limited per caller address, and a caller limited for wrong tokens
+    gets 404 on both routes (a 429 would show that the route exists). The right token is always
+    accepted, so a stranger cannot lock the owner or a worker out. `report` answers 429
+    `too_many_reports` only to a valid token that sends too fast (0.1.5).
 servers:
   - url: https://marcel-bot.com/api
 
@@ -82,7 +83,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
-        '429': { $ref: '#/components/responses/TooMany' }
+        '429':
+          description: |
+            `too_many_reports`: this task's valid token sent reports faster than the hub takes them
+            (new in 0.1.5). Wait and send again. Never sent for a wrong token, which gets 404.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '503':
           description: |
             `memory_unavailable`: a `note` could not be kept (the hub has no notes folder, git failed,

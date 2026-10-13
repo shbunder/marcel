@@ -18,7 +18,7 @@ def flat(text: str) -> str:
 
 def test_the_versions_were_bumped() -> None:
     assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.8'
-    assert load_yaml('session-api.yaml')['info']['version'] == '0.1.4'
+    assert load_yaml('session-api.yaml')['info']['version'] == '0.1.5'
     assert load_yaml('brain-api.yaml')['info']['version'] == '0.1.2'
 
 
@@ -102,3 +102,8 @@ def test_harrys_two_tools_are_pre_allowed_by_name() -> None:
     assert '`mcp__plugin_marcel_harry__harry_mark_done`' in text
     assert 'mcp__plugin_marcel_harry__*' not in text
     assert "Workers get the plugin's `harry` server but none of its tools pre-allowed" in text
+
+
+def test_report_429_is_only_too_many_reports_for_a_valid_token():
+    r429 = load_yaml('session-api.yaml')['paths']['/session/report']['post']['responses']['429']
+    assert 'too_many_reports' in r429['description'] and 'wrong token' in r429['description']
