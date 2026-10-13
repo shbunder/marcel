@@ -35,10 +35,12 @@ server `harry`:
 - **Tool names.** Claude Code names them `mcp__plugin_marcel_harry__<tool>`, for example
   `mcp__plugin_marcel_harry__harry_find_tools`. Harry shows only a few tools at first; `harry_find_tools`
   brings in the others.
-- **Who may call them without asking.** The brain runs in `auto` mode, so its calls go through Claude
-  Code's own check. Harry's tools are not in the runner's `--allowedTools` list (`contracts/runner-api.yaml`);
-  adding them is a contract change, asked for in `project/contract-requests/S-15.1.md`. NUC workers have
-  the server but are never pre-allowed its tools, like Marcel's own brain tools.
+- **Who may call them without asking.** Brain and side sessions are pre-allowed the two tools Harry always
+  shows, `harry_find_tools` and `harry_mark_done` (the runner's `--allowedTools` list,
+  `contracts/runner-api.yaml` 0.1.8). Harry's other tools appear only after `harry_find_tools` and change
+  with Harry, so they are not listed: the brain runs in `auto` mode, so those calls go through Claude
+  Code's own check. NUC workers have the server but are never pre-allowed its tools, like Marcel's own
+  brain tools.
 - **Workers can read the token.** The runner passes `MARCEL_HARRY_TOKEN` into every session it starts on the
   NUC, so a worker (or text that misleads one) can print it. It only works against `localhost` on the NUC.
   Giving it to the brain alone would take a runner contract change.

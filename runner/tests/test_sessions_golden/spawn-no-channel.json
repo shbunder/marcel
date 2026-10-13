@@ -28,6 +28,8 @@
   "mcp__plugin_marcel_tools__tasks_spawn",
   "mcp__plugin_marcel_tools__tasks_stop",
   "mcp__plugin_marcel_tools__usage_get",
+  "mcp__plugin_marcel_harry__harry_find_tools",
+  "mcp__plugin_marcel_harry__harry_mark_done",
   "--debug-file",
   "{state}/debug/brain-token1.log",
   "--",

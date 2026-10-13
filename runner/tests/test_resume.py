@@ -300,6 +300,15 @@ def test_allowed_tools_by_role() -> None:
     assert all('*' not in t for t in BRAIN_TOOLS)  # by name, never a wildcard
 
 
+def test_harrys_two_tools_are_pre_allowed_for_brain_and_side_only() -> None:
+    harry = [
+        'mcp__plugin_marcel_harry__harry_find_tools',
+        'mcp__plugin_marcel_harry__harry_mark_done',
+    ]
+    assert list(allowed_tools('brain')[-2:]) == list(allowed_tools('side')[-2:]) == harry
+    assert not any('harry' in t for t in allowed_tools('worker') + allowed_tools('adopted'))
+
+
 def test_resume_passes_the_recorded_permission_mode(up: Rig) -> None:
     spawned = stopped(up, permission_mode='plan')
     assert up.call('POST', f'/sessions/{spawned["session_id"]}/resume', {'prompt': 'go'})[0] == 200

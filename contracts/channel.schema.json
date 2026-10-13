@@ -116,7 +116,7 @@
         "kind": { "enum": ["task_failed", "task_silent", "task_question", "handback", "digest_due", "schedule_fired", "rollover"] },
         "text": { "type": "string", "description": "One line for the brain, in plain words." },
         "task_id": { "type": "string" },
-        "data": { "type": "object", "description": "For `handback`: `{title, state, note}` (the task's title and state, and what the owner wrote, `\"\"` if nothing). For `digest_due`: `{digest, title, facts, digest_id?, artifact_id?}`: `digest` is one of `morning`, `evening`, `weekly`, `usage` (`usage` only when the owner moved the usage report away from the evening digest's time); `title` is the title the published doc takes (\"Evening digest — Monday 12 October\"); `facts` is the facts bundle (its fields are in hub/README.md § Digests and the `digest` skill; no schema until it settles); `digest_id` names this digest, for brain-api.yaml `NewArtifact.in_reply_to` (new in 0.6); `artifact_id` is the agent's digest board once it has one, and the digest is published as a new version of it. For `rollover`: `{messages}` at a hand-over (what came after the new brain's notes, already answered: `[{role, kind, text}]`), or `{unsent_reply, in_reply_to?}` when the old brain's `reply` was refused with `replaced` (see `CallAck`)." }
+        "data": { "type": "object", "description": "For `handback`: `{title, state, note}` (the task's title and state, and what the owner wrote, `\"\"` if nothing). For `digest_due`: `{digest, title, facts, digest_id?, artifact_id?}`: `digest` is one of `morning`, `evening`, `weekly`, `usage` (`usage` only when the owner moved the usage report away from the evening digest's time); `title` is the title the published doc takes (\"Evening digest — Monday 12 October\"); `facts` is the facts bundle (its fields are in hub/README.md § Digests and the `digest` skill; no schema until it settles); `digest_id` names this digest, for brain-api.yaml `NewArtifact.in_reply_to` (new in 0.6; this hub always sends it, but it stays optional, so the brain passes it on when present); `artifact_id` is the agent's digest board once it has one, and the digest is published as a new version of it. For `rollover`: `{messages}` at a hand-over (what came after the new brain's notes, already answered: `[{role, kind, text}]`), or `{unsent_reply, in_reply_to?}` when the old brain's `reply` was refused with `replaced` (see `CallAck`)." }
       },
       "allOf": [
         {
@@ -163,7 +163,7 @@
         "call_id": { "type": "string" },
         "duplicate": { "type": "boolean", "description": "True when the hub had already stored this `call_id`." },
         "error": {
-          "description": "The hub refused this call and stored nothing (e.g. an unknown `artifact_id`, or a frame this session may not send). The server's tool returns `message` to the session and drops the call; it is not re-sent. Codes with a defined meaning: `replaced`: a `reply` from a brain or side session that a rollover has replaced (channel-protocol.md § Brain rollover). Nothing reaches the owner from it; the hub hands the text to the new brain as a `rollover` system event with `data.unsent_reply`, and the new brain decides whether it still needs saying. `too_many_notes`: a worker's 11th `report(note)` on one task.",
+          "description": "The hub refused this call and stored nothing (e.g. an unknown `artifact_id`, or a frame this session may not send). The server's tool returns `message` to the session and drops the call; it is not re-sent. Codes with a defined meaning: `replaced`: a `reply` from a brain or side session that a rollover has replaced (channel-protocol.md § Brain rollover). Nothing reaches the owner from it; the hub hands the text to the new brain as a `rollover` system event with `data.unsent_reply`, and the new brain decides whether it still needs saying. `too_many_notes`: a worker's 11th `report(note)` on one task. Named in 0.6.1, each with nothing stored: `notes_full`: a `report(note)` that would take the project's notes past 1 MB. `memory_unavailable`: a `report(note)` the hub cannot save now (no notes folder, git failed, or the task's project has no usable notes file). `bad_note`: a `report(note)` with no text, text of only spaces, or more than 1000 characters. The four note codes' messages tell the worker to put the fact in its done summary instead. `bad_next`: a `progress` report whose `next` breaks its bounds. `bad_reply` / `bad_report`: a `reply` or `report` that breaks this schema but names its `call_id` (any other bad frame is logged and dropped). `unknown_artifact`: an `artifact_id` the hub does not know, or one this task may not update. `not_allowed`: a frame this session may not send (a worker's `reply`, a brain or side session's `report`).",
           "type": "object",
           "required": ["code", "message"],
           "additionalProperties": false,
@@ -194,7 +194,7 @@
         "type": { "const": "report" },
         "call_id": { "type": "string" },
         "kind": { "enum": ["started", "progress", "artifact", "done", "failed", "note"] },
-        "text": { "type": "string", "description": "For `progress`, one line. For `note` (new in 0.6), one durable fact later threads in the same project need, at most 1000 characters (see session-api.yaml `Report`)." },
+        "text": { "type": "string", "description": "For `progress`, one line. For `note` (new in 0.6), one durable fact later threads in the same project need, at most 1000 characters, at least one of them not a space (0.6.1; see session-api.yaml `Report`)." },
         "next": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "description": "For `progress`: the steps the worker still plans, in order, after `text`. Each progress report replaces the previous list. The hub copies it into the task event (app-api.yaml `ProgressEventData.next`)." },
         "summary": { "type": "string" },
         "artifact": { "$ref": "#/$defs/Artifact" },
@@ -202,7 +202,7 @@
       },
       "allOf": [
         { "if": { "properties": { "kind": { "const": "progress" } } }, "then": { "required": ["text"] } },
-        { "if": { "properties": { "kind": { "const": "note" } } }, "then": { "required": ["text"], "properties": { "text": { "minLength": 1, "maxLength": 1000 } } } },
+        { "if": { "properties": { "kind": { "const": "note" } } }, "then": { "required": ["text"], "properties": { "text": { "minLength": 1, "maxLength": 1000, "pattern": "\\S" } } } },
         { "if": { "properties": { "kind": { "const": "artifact" } } }, "then": { "required": ["artifact"] } },
         { "if": { "properties": { "kind": { "enum": ["done", "failed"] } } }, "then": { "required": ["summary"] } }
       ],

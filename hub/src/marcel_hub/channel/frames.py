@@ -24,6 +24,7 @@ MAX_NEXT_STEPS = 20
 MAX_NEXT_STEP_CHARS = 200
 # A `note` report's text: one fact for the project's notes (channel.schema.json `Report`).
 MAX_NOTE_CHARS = 1000
+NON_SPACE = re.compile(r'\S')  # a note's text needs one character that is not a space
 CALLS = frozenset({'reply', 'report'})  # the frames a session waits on a `call_ack` for
 
 # Every field each `ToHub` frame may carry, and whether it is required. `type` is implied.
@@ -69,7 +70,7 @@ class BadCall(BadFrame):
 
 def note_problem(text: Any) -> str | None:
     """Why a `note` report's text breaks the contract, in plain words; None when it is fine."""
-    if not isinstance(text, str) or not text:
+    if not isinstance(text, str) or NON_SPACE.search(text) is None:  # the contract's pattern `\S`
         return 'a note needs the fact as text'
     if len(text) > MAX_NOTE_CHARS:
         return f'the note is {len(text)} characters; keep it to {MAX_NOTE_CHARS}'
