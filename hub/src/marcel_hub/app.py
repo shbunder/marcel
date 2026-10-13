@@ -37,6 +37,7 @@ from marcel_hub import (
     memory,
     notify,
     projects,
+    report_api,
     schedule,
     side,
     task_threads,
@@ -319,6 +320,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     channel.install(app, gateway, registry, watch)  # after artifacts: reports store through it
     # S-07.1: cloud tasks open claude.ai/code sessions; their reports and a deadline watchdog.
     clouds = cloud.install(app, registry, gateway, client, settings.data_dir)
+    # S-07.2: `POST /api/session/report`, where cloud workers report with their task's token.
+    report_api.install(app, clouds)
     # S-05.4: `/marcel-adopt` hands a session Marcel did not start to it, as an adopted task.
     adopt.install(app, registry, gateway, watch)
     # S-04.9: a task's own thread steers the task and shows its later milestones.
