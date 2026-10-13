@@ -30,7 +30,7 @@ def test_the_versions_were_bumped() -> None:
     assert load_yaml('app-api.yaml')['info']['version'] == '0.6.0'
     # 0.6.1 bumped these again (test_contract_0_6_1.py).
     assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.8'
-    assert load_yaml('session-api.yaml')['info']['version'] == '0.1.4'
+    assert load_yaml('session-api.yaml')['info']['version'] == '0.1.5'
     assert load_yaml('brain-api.yaml')['info']['version'] == '0.1.2'
 
 
