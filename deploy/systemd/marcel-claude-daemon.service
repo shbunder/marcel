@@ -1,3 +1,4 @@
+# marcel-v3-unit: installed by deploy/install.sh from deploy/systemd/
 # Claude Code's background-session supervisor, in its own cgroup (SP6). `claude --bg` connects to it
 # instead of starting one inside the runner, where a runner restart would kill every session.
 # Stopping this unit stops every background session (brain and workers): restart it only on purpose.

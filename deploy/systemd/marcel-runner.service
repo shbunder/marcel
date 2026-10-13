@@ -1,3 +1,4 @@
+# marcel-v3-unit: installed by deploy/install.sh from deploy/systemd/
 # Marcel's runner: the only process that runs claude (docs/runner.md).
 [Unit]
 Description=Marcel runner (starts and watches claude sessions)

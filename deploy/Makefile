@@ -5,7 +5,7 @@ MARCEL_HOME ?= $(HOME)/marcel
 export MARCEL_HOME
 TUNNEL ?= marcel
 
-.PHONY: install deploy logs health status tunnel check
+.PHONY: install deploy logs health status tunnel tunnel-rules check
 
 # Everything, from nothing or over an earlier install: node, plugin, brain, units, hub.
 install:
@@ -37,10 +37,20 @@ tunnel:
 	test -n "$$id" || { echo "No Cloudflare tunnel named $(TUNNEL)."; exit 1; }; \
 	sed -e "s|@TUNNEL_ID@|$$id|g" -e "s|@HOME@|$(HOME)|g" cloudflared/marcel.yml > $(HOME)/.cloudflared/marcel.yml; \
 	cloudflared tunnel --config $(HOME)/.cloudflared/marcel.yml ingress validate; \
+	$(MAKE) --no-print-directory tunnel-rules; \
 	sed -e "s|@USER@|$(USER)|g" -e "s|@HOME@|$(HOME)|g" cloudflared/cloudflared-marcel.service > $(MARCEL_HOME)/cloudflared-marcel.service; \
 	echo "Wrote $(HOME)/.cloudflared/marcel.yml. To use it, run once:"; \
 	echo "  sudo install -m 644 $(MARCEL_HOME)/cloudflared-marcel.service /etc/systemd/system/cloudflared-marcel.service"; \
 	echo "  sudo systemctl daemon-reload && sudo systemctl restart cloudflared-marcel"
+
+# Only /api/* reaches the hub; the channel and everything else get a 404.
+tunnel-rules:
+	@set -e; cfg=$(HOME)/.cloudflared/marcel.yml; \
+	rule() { cloudflared tunnel --config $$cfg ingress rule "https://marcel-bot.com$$1" 2>/dev/null | grep -q "$$2" \
+	  || { echo "Tunnel rule wrong: $$1 should go to $$2."; exit 1; }; }; \
+	rule /api/health 127.0.0.1:7420; rule /api/ws 127.0.0.1:7420; \
+	rule /channel http_status:404; rule /brain/x http_status:404; rule /apix http_status:404; rule /api http_status:404; \
+	echo "Tunnel rules: only /api/* reaches the hub."
 
 # The deploy lane's own gate: the scripts parse, the compose file and the units are valid.
 check:

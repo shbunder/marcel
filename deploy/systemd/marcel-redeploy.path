@@ -1,3 +1,4 @@
+# marcel-v3-unit: installed by deploy/install.sh from deploy/systemd/
 # Runs marcel-redeploy.service when the hub writes the flag for an approved, merged self-change
 # (.claude/rules/self-modification.md). `make install` enables it once deploy/redeploy.sh exists (S-11.2).
 [Unit]

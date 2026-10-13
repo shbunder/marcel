@@ -36,6 +36,9 @@ check_host() {
         || die "/usr/bin/python3 must be 3.12 or newer (the runner runs on it)."
     [ -f "$ENV_LOCAL" ] || die "$ENV_LOCAL is missing. Create it first (docs/operating.md, \"Secrets\")."
     [ -n "$(env_value MARCEL_OWNER_NAME)" ] || die "set MARCEL_OWNER_NAME in $ENV_LOCAL."
+    # The units name these paths (%h/marcel, %h/marcel/src): anything else would half-install.
+    [ "$MARCEL_HOME" = "$HOME/marcel" ] || die "MARCEL_HOME must be $HOME/marcel (the units use it)."
+    [ "$SRC" = "$MARCEL_HOME/src" ] || die "run it from $MARCEL_HOME/src, the deployed checkout, not $SRC."
 }
 
 make_dirs() {
@@ -67,7 +70,7 @@ install_node() {
 
 install_plugin() {
     say "Plugin: the marcel-local marketplace in $MARCEL_HOME/plugins"
-    local dest="$MARCEL_HOME/plugins/marcel"
+    local dest="$MARCEL_HOME/plugins/marcel" registered
     # A released copy, never the working tree: a directory plugin runs in place (SP1).
     mkdir -p "$dest"
     rsync -a --delete --exclude node_modules --exclude dist --exclude .venv --exclude __pycache__ \
@@ -75,13 +78,73 @@ install_plugin() {
     # dist/ is gitignored: build it. The channel server needs ws from node_modules at run time.
     (cd "$dest/channel" && PATH="$MARCEL_HOME/node/bin:$PATH" npm ci --silent --no-audit --no-fund \
         && PATH="$MARCEL_HOME/node/bin:$PATH" npm run --silent build)
+    # Claude Code caches an installed plugin by its version, so each deploy gets its own:
+    # <version>+<commit>. The channel's hello still reports the version in its code.
+    PLUGIN_VERSION="$(/usr/bin/python3 - "$dest/.claude-plugin/plugin.json" "$(git -C "$SRC" rev-parse --short=12 HEAD)" <<'PY'
+import json, sys
+path, sha = sys.argv[1], sys.argv[2]
+data = json.load(open(path))
+data['version'] = f"{data['version'].split('+')[0]}+{sha}"
+json.dump(data, open(path, 'w'), indent=2)
+print(data['version'])
+PY
+)"
     mkdir -p "$MARCEL_HOME/plugins/.claude-plugin"
     cp "$DEPLOY/marketplace.json" "$MARCEL_HOME/plugins/.claude-plugin/marketplace.json"
-    if "$CLAUDE" plugin marketplace list 2>/dev/null | grep -q 'marcel-local'; then
+    registered="$(/usr/bin/python3 -c 'import json, os, sys
+try:
+    d = json.load(open(os.path.expanduser("~/.claude/plugins/known_marketplaces.json")))
+    print(d["marcel-local"]["source"].get("path", ""))
+except (OSError, ValueError, KeyError):
+    pass')"
+    if [ "$registered" = "$MARCEL_HOME/plugins" ]; then
         "$CLAUDE" plugin marketplace update marcel-local
     else
+        # Missing, or registered somewhere else (an earlier spike): point it here.
+        [ -z "$registered" ] || "$CLAUDE" plugin marketplace remove marcel-local
         "$CLAUDE" plugin marketplace add "$MARCEL_HOME/plugins"
     fi
+}
+
+# Install or update the plugin for one folder, then check that this deploy's version is the one installed.
+plugin_into() {
+    local dir="$1" scope="$2"
+    installed() {
+        /usr/bin/python3 - "$1" <<'PY'
+import json, os, sys
+try:
+    d = json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json')))
+except (OSError, ValueError):
+    sys.exit()
+rows = d.get('plugins', d).get('marcel@marcel-local', [])
+print(next((r.get('version', '') for r in rows if r.get('projectPath') == sys.argv[1]), ''))
+PY
+    }
+    if [ -z "$(installed "$dir")" ]; then
+        (cd "$dir" && "$CLAUDE" plugin install marcel@marcel-local --scope "$scope")
+    else
+        (cd "$dir" && "$CLAUDE" plugin update marcel@marcel-local --scope "$scope")
+    fi
+    [ "$(installed "$dir")" = "$PLUGIN_VERSION" ] \
+        || die "the plugin in $dir is $(installed "$dir" | grep . || echo missing), not $PLUGIN_VERSION."
+    echo "Plugin $PLUGIN_VERSION in $dir."
+}
+
+# The trust prompt, accepted the way the runner does it for a clone (SP2), once per folder.
+trust() {
+    PYTHONPATH="$SRC/runner/src" /usr/bin/python3 - "$CLAUDE" "$1" <<'PY'
+import os, sys
+from pathlib import Path
+from marcel_runner.claude_env import scrubbed_env
+from marcel_runner.workspaces import accept_trust, trust_problem
+
+claude, cwd = Path(sys.argv[1]), Path(sys.argv[2])
+if trust_problem(Path.home(), cwd) is None:
+    print(f'{cwd} is trusted.')
+else:
+    accept_trust(claude, cwd, scrubbed_env(os.environ))
+    print(f'Trusted {cwd}.')
+PY
 }
 
 write_secrets() {
@@ -104,28 +167,27 @@ write_secrets() {
     [ -n "$harry" ] || echo "MARCEL_HARRY_TOKEN is not set: sessions run without Harry's tools."
 }
 
-install_brain() {
+install_workspaces() {
     say "Brain workspace in $MARCEL_HOME/brain"
     /usr/bin/python3 "$SRC/brain/render.py" --out "$MARCEL_HOME/brain" \
         --var "AGENT_NAME=$(env_value MARCEL_AGENT_NAME | grep . || echo Marcel)" \
         --var "OWNER_NAME=$(env_value MARCEL_OWNER_NAME)" \
         --var "MARKETPLACE_DIR=$MARCEL_HOME/plugins" \
         --var "MEMORY_DIR=$MARCEL_HOME/data/memory"
-    (cd "$MARCEL_HOME/brain" && "$CLAUDE" plugin install marcel@marcel-local --scope project)
-    # The trust prompt, accepted the way the runner does it for a clone (SP2), once.
-    PYTHONPATH="$SRC/runner/src" /usr/bin/python3 - "$CLAUDE" "$MARCEL_HOME/brain" <<'PY'
-import os, sys
-from pathlib import Path
-from marcel_runner.claude_env import scrubbed_env
-from marcel_runner.workspaces import accept_trust, trust_problem
+    plugin_into "$MARCEL_HOME/brain" project
+    trust "$MARCEL_HOME/brain"
 
-claude, cwd = Path(sys.argv[1]), Path(sys.argv[2])
-if trust_problem(Path.home(), cwd) is None:
-    print(f'{cwd} is trusted.')
-else:
-    accept_trust(claude, cwd, scrubbed_env(os.environ))
-    print(f'Trusted {cwd}.')
-PY
+    say "Worker folders"
+    # Tasks with no repository run in scratch/ (MARCEL_WORKER_CWD); the runner trusts clones itself.
+    plugin_into "$MARCEL_HOME/workspaces/scratch" project
+    trust "$MARCEL_HOME/workspaces/scratch"
+    # Clones the runner already set up get this deploy's plugin too.
+    local ready
+    for ready in "$MARCEL_HOME"/workspaces/*/.git/marcel-ready; do
+        if [ -e "$ready" ]; then
+            plugin_into "$(dirname "$(dirname "$ready")")" local
+        fi
+    done
 }
 
 install_units() {
@@ -136,7 +198,7 @@ install_units() {
         name="$(basename "$unit")"
         target="$UNIT_DIR/$name"
         # A unit of the same name that is not ours (old Marcel's) is kept aside, never lost.
-        if [ -f "$target" ] && ! grep -q 'marcel/src' "$target"; then
+        if [ -f "$target" ] && ! grep -q 'marcel-v3-unit' "$target" && [ ! -e "$backup/$name" ]; then
             mkdir -p "$backup"
             cp -p "$target" "$backup/$name"
             echo "Kept the old $name in $backup/."
@@ -157,6 +219,10 @@ install_units() {
         echo "WARNING: linger is off, so these units stop at logout and do not start at boot."
         echo "         Run once: sudo loginctl enable-linger $USER"
     fi
+    if [ "$(systemctl is-enabled marcel.service 2>/dev/null)" = "enabled" ]; then
+        echo "WARNING: old Marcel's system marcel.service is enabled and takes port 7420 at boot."
+        echo "         Run once: sudo systemctl disable --now marcel.service"
+    fi
 }
 
 start_hub() {
@@ -170,6 +236,6 @@ make_dirs
 install_node
 install_plugin
 write_secrets
-install_brain
+install_workspaces
 install_units
 start_hub
