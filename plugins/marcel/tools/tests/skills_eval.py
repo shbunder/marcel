@@ -128,7 +128,11 @@ BLOCKED = 'Bash Edit Write Read Glob Grep WebFetch WebSearch Task Agent Workflow
 
 
 def claude_command(case: dict[str, Any], mcp_config: Path, claude: str = 'claude') -> list[str]:
-    skill = (SKILLS / 'orchestrate' / 'SKILL.md').read_text()
+    """`claude -p` with the orchestrate skill, plus the skills the case names in `skills` (the
+    brain has every plugin skill; a case that relies on one the orchestrate skill points to,
+    such as `project-kickoff`, names it, or the run would be less than the brain gets)."""
+    names = ['orchestrate', *case.get('skills', [])]
+    skill = '\n\n'.join((SKILLS / name / 'SKILL.md').read_text() for name in names)
     allowed = [f'mcp__{SERVER_NAME}__{name}' for name in sorted(tool_names())]
     return [
         claude, '-p', case['request'],

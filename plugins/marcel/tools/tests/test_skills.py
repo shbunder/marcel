@@ -251,3 +251,15 @@ def test_the_live_claude_gets_no_api_key() -> None:
     })  # fmt: skip
     assert 'ANTHROPIC_API_KEY' not in env
     assert env == {'PATH': '/usr/bin', 'HOME': '/home/me', 'CLAUDE_CODE_SESSION_ID': 'abc'}
+
+
+def test_a_case_can_add_the_skills_its_request_relies_on(tmp_path: Path) -> None:
+    """The brain has every plugin skill; the kickoff case also needs `project-kickoff`
+    (where the Kickoff runs and how it is named). Without it the live run routed it to the cloud."""
+    case = next(c for c in load_cases() if c['id'] == 'kickoff-new-repo')
+    prompt = claude_command(case, tmp_path / 'mcp.json')
+    text = prompt[prompt.index('--append-system-prompt') + 1]
+    assert '# Orchestrate' in text and '# Project kickoff' in text
+    for other in load_cases():
+        for name in other.get('skills', []):
+            assert (SKILLS / name / 'SKILL.md').is_file(), name
