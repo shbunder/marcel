@@ -1,5 +1,6 @@
 import Foundation
 import MarcelKit
+import PixelKit
 import SwiftData
 import XCTest
 

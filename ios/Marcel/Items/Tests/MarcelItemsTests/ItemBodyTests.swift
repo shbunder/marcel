@@ -216,48 +216,4 @@ final class ItemBodyTests: XCTestCase {
         XCTAssertEqual(DashboardWidget.Cell.empty.text, "—")
         XCTAssertEqual(DashboardWidget.Cell.empty.spoken, "empty")
     }
-
-    // MARK: Markdown
-
-    func testMarkdownBlocksTablesAndOnlyWebLinks() {
-        let parts = ItemMarkdown.parse(String(decoding: Fx.comparison, as: UTF8.self))
-        XCTAssertEqual(parts.map(\.block), [
-            .heading(level: 1, text: "Switch to Supplier A"),
-            .paragraph("Cheapest of 4 offers on our address. With 4 kWp solar the yearly bill drops to €1,010."),
-            .table(header: ["Offer", "Per year"], rows: [["Current", "€1,496"], ["Supplier A", "€1,284"],
-                                                         ["A + solar", "€1,010"]]),
-            .heading(level: 2, text: "Open questions"),
-            .listItem(marker: "• ", text: "Solar quote expected Friday", depth: 0),
-            .listItem(marker: "• ", text: "Heat pump: wait for the 2027 subsidy news", depth: 0),
-            .paragraph("Sources: the offers are in the bills folder."),
-        ])
-        XCTAssertEqual(parts[5].links.map(\.title), ["2027 subsidy"])
-        XCTAssertEqual(parts[5].links.first?.url.absoluteString, "https://www.vlaanderen.be/premies")
-        XCTAssertEqual(parts[6].links, [], "a javascript: link stays plain words")
-    }
-
-    func testMarkdownListsQuotesCodeAndRules() {
-        let parts = ItemMarkdown.parse("""
-            1. First
-            2. Second
-               - inner
-
-            > A quote
-
-            ```
-            let x = 1
-            ```
-
-            ---
-            """)
-        XCTAssertEqual(parts.map(\.block), [
-            .listItem(marker: "1. ", text: "First", depth: 0),
-            .listItem(marker: "2. ", text: "Second", depth: 0),
-            .listItem(marker: "• ", text: "inner", depth: 1),
-            .quote("A quote"),
-            .code("let x = 1"),
-            .rule,
-        ])
-        XCTAssertEqual(ItemMarkdown.parse("   "), [])
-    }
 }

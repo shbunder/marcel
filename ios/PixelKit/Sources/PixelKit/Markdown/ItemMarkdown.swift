@@ -1,9 +1,10 @@
 import Foundation
 
-/// A Markdown document as blocks the viewer draws natively: headings, paragraphs, list items, quotes, code and
-/// tables. The pixel fonts have no bold or italic, so emphasis is dropped and the words stay. Links stay as their
-/// words in the text and are listed under their block as buttons — only `http` and `https` addresses with a host;
-/// `javascript:`, `file:`, `tel:` and app links stay plain words.
+/// A Markdown document as blocks drawn natively — headings, paragraphs, list items, quotes, code and tables — for
+/// Marcel's replies, items and notebook (`MarkdownView`). Each block keeps its words (`Block`) and, for paragraphs,
+/// list items and quotes, the same words as styled `spans`: bold, italic, inline code and links. Links are kept only
+/// for `http` and `https` addresses with a host, and are also listed under their block; `javascript:`, `file:`,
+/// `tel:` and app links stay plain words. HTML is never run: it stays as the words it was written with.
 public enum ItemMarkdown {
     public enum Block: Equatable, Sendable {
         case heading(level: Int, text: String)
@@ -21,9 +22,39 @@ public enum ItemMarkdown {
         public var url: URL
     }
 
+    /// A run of words with one style. `link` is set only for an http(s) address with a host.
+    public struct Span: Equatable, Sendable {
+        public var text: String
+        public var bold = false
+        public var italic = false
+        public var code = false
+        public var link: URL?
+
+        public init(_ text: String, bold: Bool = false, italic: Bool = false, code: Bool = false, link: URL? = nil) {
+            self.text = text
+            self.bold = bold
+            self.italic = italic
+            self.code = code
+            self.link = link
+        }
+
+        func sameStyle(as other: Span) -> Bool {
+            bold == other.bold && italic == other.italic && code == other.code && link == other.link
+        }
+    }
+
     public struct Part: Equatable, Sendable {
         public var block: Block
         public var links: [Link]
+        /// The block's words with their inline style (paragraphs, list items and quotes); empty for the others,
+        /// which are drawn from `block` alone.
+        public var spans: [Span] = []
+
+        public init(block: Block, links: [Link], spans: [Span] = []) {
+            self.block = block
+            self.links = links
+            self.spans = spans
+        }
     }
 
     public static func parse(_ markdown: String) -> [Part] {
@@ -36,7 +67,7 @@ public enum ItemMarkdown {
 
         var parts: [Part] = []
         // The block being collected: its identity, what it is, its text and links.
-        var current: (id: Int, kind: Kind, text: String, links: [Link])?
+        var current: (id: Int, kind: Kind, text: String, links: [Link], spans: [Span])?
         // A table being collected: its identity, header and rows (cells keyed by row, then column).
         var table: (id: Int, header: [Int: String], rows: [Int: [Int: String]])?
         var lastLink: URL?
@@ -50,7 +81,8 @@ public enum ItemMarkdown {
             case .code: parts.append(Part(block: .code(block.text.trimmingCharacters(in: .newlines)), links: []))
             default:
                 guard !text.isEmpty else { return }
-                parts.append(Part(block: block.kind.block(text), links: tidy(block.links)))
+                let spans = block.kind.isStyled ? trimmed(block.spans) : []
+                parts.append(Part(block: block.kind.block(text), links: tidy(block.links), spans: spans))
             }
         }
 
@@ -98,9 +130,20 @@ public enum ItemMarkdown {
             let identity = components.first?.identity ?? -1
             if current?.id != identity {
                 flushBlock()
-                current = (identity, Kind(components), "", [])
+                current = (identity, Kind(components), "", [], [])
             }
             current?.text += piece
+            let inline = run.inlinePresentationIntent ?? []
+            let span = Span(piece, bold: inline.contains(.stronglyEmphasized), italic: inline.contains(.emphasized),
+                            code: inline.contains(.code), link: link)
+            if var spans = current?.spans {
+                if let last = spans.last, last.sameStyle(as: span) {
+                    spans[spans.count - 1].text += piece
+                } else {
+                    spans.append(span)
+                }
+                current?.spans = spans
+            }
             if let link {
                 if link == lastLink, var links = current?.links, !links.isEmpty {
                     links[links.count - 1].title += piece  // one link split over runs (a bold word inside it)
@@ -136,6 +179,24 @@ public enum ItemMarkdown {
         }
         .filter { !$0.isEmpty }
         .joined(separator: "\n")
+    }
+
+    /// The block's spans without the whitespace its text was trimmed of, and without empty ones.
+    private static func trimmed(_ spans: [Span]) -> [Span] {
+        var spans = spans
+        while let first = spans.first, first.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            spans.removeFirst()
+        }
+        while let last = spans.last, last.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            spans.removeLast()
+        }
+        guard !spans.isEmpty else { return [] }
+        spans[0].text = String(spans[0].text.drop(while: { $0.isWhitespace || $0.isNewline }))
+        let lastIndex = spans.count - 1
+        while let end = spans[lastIndex].text.last, end.isWhitespace || end.isNewline {
+            spans[lastIndex].text.removeLast()
+        }
+        return spans
     }
 
     private static func tidy(_ links: [Link]) -> [Link] {
@@ -180,6 +241,14 @@ public enum ItemMarkdown {
                 if let marker { kind = .listItem(marker, max(0, depth)) } else if quoted { kind = .quote }
             }
             self = kind
+        }
+
+        /// Paragraphs, list items and quotes keep their inline style; headings (label font), code and rules do not.
+        var isStyled: Bool {
+            switch self {
+            case .paragraph, .listItem, .quote: true
+            case .heading, .code, .rule: false
+            }
         }
 
         func block(_ text: String) -> Block {

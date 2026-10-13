@@ -1,5 +1,6 @@
 import Foundation
 import MarcelKit
+import PixelKit
 
 /// What the viewer draws for an item, by kind. Pure: worked out from the item and its bytes, so the tests check
 /// exactly what each kind becomes.

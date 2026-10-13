@@ -21,6 +21,18 @@ The look chosen in spike SP5 (B-29a): the wireframes in `scratch/spikes/SP5-avat
   with their SIL Open Font License files. They register themselves on first use (`PixelKit.registerFonts()` does it
   early).
 
+## Markdown
+
+`ItemMarkdown.parse` turns Markdown into blocks (headings, paragraphs, lists, quotes, code, tables, rules) and
+`MarkdownView` draws them, for the item viewer, Marcel's notebook and (ADR-007) Marcel's replies. Paragraphs, list
+items and quotes keep their inline style as spans: **bold** in Pixelify's bold weight; *italic* in the rose tone (the
+font has no slanted face and iOS does not fake one); `code` in the system monospaced font in teal; links underlined.
+The safety rules hold everywhere: only an `http`/`https` link with a host is kept (`javascript:`, `file:`, `tel:` and
+app links stay plain words); a link opens only when it is tapped, in the text or on the button listed under its block;
+HTML is shown as the words it was written with, never run. A table draws at most `MarkdownLimits.tableRows` (200) rows
+and counts the rest, scrolls sideways when wider than the screen, and becomes one card per row at accessibility sizes.
+Tests: `MarkdownTests`.
+
 ## Components
 
 `DialogBox` (speaker, text, blinking ▼, optional accessory) · `ChoicePrompt` (▶ follows keyboard and VoiceOver

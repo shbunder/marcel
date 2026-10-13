@@ -1,5 +1,5 @@
 import Foundation
-import MarcelItems
+import PixelKit
 
 /// The words the notebook shows, worked out from the hub's data. Pure, so tests read them.
 public struct NotebookText: Sendable {

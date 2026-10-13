@@ -4,8 +4,7 @@ Marcel's memory as plain notes you can read and edit (B-20), and what Marcel car
 Wireframe 6B in `scratch/spikes/SP5-avatar/wireframes/`. Drawn with PixelKit components.
 
 It is a Swift package (`MarcelNotebook`) so its tests run in the simulator like the other packages'. It depends on
-MarcelKit, PixelKit and MarcelItems (for the Markdown preview; Items depends only on MarcelKit and PixelKit, so there
-is no cycle). The app opens `NotebookView` from the avatar header: a tap on the giraffe asks "Marcel's notebook" or
+MarcelKit and PixelKit (whose shared `MarkdownView` draws the preview). The app opens `NotebookView` from the avatar header: a tap on the giraffe asks "Marcel's notebook" or
 "Settings" (`AvatarLinks` in MarcelChat; VoiceOver hears "Opens Marcel's notebook or Settings" and gets both as named
 actions), wired in `ios/Marcel/App/RootView.swift`.
 
@@ -24,8 +23,9 @@ A row with unsaved changes on this phone says so ("Updated yesterday 18:40 · un
 ## Editing a note
 
 - **Preview / Edit.** An existing note opens on its preview; a new note on the editor. The preview is the item
-  viewer's `MarkdownView` (MarcelItems), with its rules: nothing opens by itself; a link is a button under its block,
-  and only for an `http`/`https` address with a host; HTML in a note is shown as words, never run (there is no web view).
+  shared `MarkdownView` (PixelKit), as in the item viewer, with its rules: nothing opens by itself; only an
+  `http`/`https` address with a host is a link (tappable in the text, and a button under its block); HTML in a note is
+  shown as words, never run (there is no web view).
 - **Save** sends `PUT /memory/files/{path}` with `If-Match: <etag>` of the version the edit started from (bare: the
   generated client URI-encodes header values, so quotes would arrive as `%22`; the contract allows a bare etag). A new
   note is sent without `If-Match`, so the hub creates it, and answers 409 if it exists after all.

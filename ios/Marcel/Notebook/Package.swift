@@ -13,7 +13,6 @@ let package = Package(
     dependencies: [
         .package(path: "../../MarcelKit"),
         .package(path: "../../PixelKit"),
-        .package(path: "../Items"),
     ],
     targets: [
         .target(
@@ -21,7 +20,6 @@ let package = Package(
             dependencies: [
                 .product(name: "MarcelKit", package: "MarcelKit"),
                 .product(name: "PixelKit", package: "PixelKit"),
-                .product(name: "MarcelItems", package: "Items"),
             ]
         ),
         .testTarget(name: "MarcelNotebookTests", dependencies: ["MarcelNotebook"], exclude: ["__Snapshots__"]),

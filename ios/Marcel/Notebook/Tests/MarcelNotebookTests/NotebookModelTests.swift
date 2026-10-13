@@ -1,5 +1,5 @@
 import Foundation
-import MarcelItems
+import PixelKit
 import MarcelKit
 import SwiftUI
 import UIKit
@@ -133,7 +133,7 @@ final class MemoryPathTests: XCTestCase {
     }
 }
 
-/// The preview is the item viewer's Markdown (MarcelItems): it never opens a link by itself, only http(s) links get a
+/// The preview is the shared Markdown (PixelKit's `MarkdownView`, as in the item viewer): it never opens a link by itself, only http(s) links get a
 /// button, and HTML is shown as words, never run.
 @MainActor
 final class PreviewSafetyTests: XCTestCase {
