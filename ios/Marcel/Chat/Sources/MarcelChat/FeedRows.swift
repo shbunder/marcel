@@ -77,6 +77,9 @@ struct FeedRow: View {
     var first = false
 
     @Environment(\.chatNow) private var now
+    @Environment(\.calendar) private var calendar
+    @Environment(\.timeZone) private var timeZone
+    @Environment(\.locale) private var locale
 
     var body: some View {
         switch item {
@@ -97,8 +100,17 @@ struct FeedRow: View {
         case .item(let line):
             ItemRow(line: line, actions: actions)
         case .time(let line):
-            ChatTimeLine(line.text(now: now ?? Date(), first: first))
+            ChatTimeLine(line.text(now: now ?? Date(), first: first, calendar: zoned, locale: locale))
         }
+    }
+}
+
+extension FeedRow {
+    /// The environment's calendar in the environment's time zone (snapshots pin both).
+    var zoned: Calendar {
+        var calendar = calendar
+        calendar.timeZone = timeZone
+        return calendar
     }
 }
 
@@ -153,10 +165,17 @@ struct MarcelReply: View {
     var line: MarcelLine
     var actions: ChatActions
 
+    @Environment(\.openURL) private var openURL
+
+    /// The reply's web links, which VoiceOver offers as actions on the reply ("Open the offers").
+    var links: [ItemMarkdown.Link] { line.parts.flatMap(\.links) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: PixelMetrics.steps(5)) {
+            // One element, so "Reply in thread" is on the whole reply; its links stay reachable as named actions.
             MarkdownView(parts: line.parts, style: .chat)
                 .accessibilityElement(children: .combine)
+                .modifier(LinkActions(links: links, open: { openURL($0) }))
             if let quest = line.quest {
                 // The thread Marcel routed this to, live: the same card as where it started.
                 QuestRow(line: quest, actions: actions)
@@ -201,5 +220,17 @@ struct AttachedItem: View {
         .overlay(Rectangle().strokeBorder(ink, lineWidth: PixelMetrics.thinBorder))
         .accessibilityElement(children: remove == nil ? .ignore : .contain)
         .accessibilityLabel("Item: \(title)")
+    }
+}
+
+/// Each web link of a reply as a VoiceOver action ("Open the offers"), opened through `openURL` like a tap.
+struct LinkActions: ViewModifier {
+    var links: [ItemMarkdown.Link]
+    var open: (URL) -> Void
+
+    func body(content: Content) -> some View {
+        links.reduce(AnyView(content)) { view, link in
+            AnyView(view.accessibilityAction(named: "Open \(link.title)") { open(link.url) })
+        }
     }
 }

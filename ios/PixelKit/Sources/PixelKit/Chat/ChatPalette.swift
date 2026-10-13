@@ -60,7 +60,8 @@ public struct ChatPalette: Equatable, Sendable {
     /// darker, like the wireframe's rose. Either way it is lightened until the dark text on it reaches 4.5:1, so a
     /// dark colour such as "ink" still gives a readable bubble.
     public func bubble(_ base: PixelColor?) -> PixelColor {
-        guard let base else { return you }
+        // Marcel's rose is the wireframe's own bubble colour, in both themes.
+        guard let base, base != ChatPalette.light.you else { return you }
         var fill = isDark ? base.mixed(with: PixelColor(0x000000), amount: 0.08) : base
         var step = 0
         while fill.contrast(with: youInk) < 4.5, step < 20 {
@@ -70,7 +71,7 @@ public struct ChatPalette: Equatable, Sendable {
         return fill
     }
 
-    /// The text pairs the chat draws, each held to 4.5:1 by `ContrastTests`.
+    /// The text pairs the chat draws, each held to 4.5:1 by MarcelChat's `ChatLookTests`.
     public var textPairs: [(name: String, text: PixelColor, on: PixelColor)] {
         var pairs: [(String, PixelColor, PixelColor)] = [
             ("ink on screen", ink, screen), ("muted on screen", muted, screen), ("ink on card", ink, card),

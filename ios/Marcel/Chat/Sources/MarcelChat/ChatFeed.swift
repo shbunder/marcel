@@ -126,14 +126,17 @@ public struct TimeLine: Hashable, Sendable {
     /// Groups more than this far apart get a time line between them.
     public static let gap: TimeInterval = 15 * 60
 
-    /// "08:12" today, "Yesterday 21:40", "Mon 12 Oct 08:00" before that; "Today" on the first line of a window.
+    /// "08:12" today, "Yesterday 21:40", "Mon 12 Oct 08:00" before that; "Today" on the first line of a window. The
+    /// clock follows the phone's 12- or 24-hour setting (`locale`) and the day its time zone (`calendar`).
     public func text(now: Date, first: Bool, calendar: Calendar = .current, locale: Locale = .current) -> String {
-        let clock = date.formatted(Date.FormatStyle(locale: locale).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+        var style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone)
+        let clock = date.formatted(style.hour().minute())
+        style = style.weekday(.abbreviated).day().month(.abbreviated)
         if calendar.isDate(date, inSameDayAs: now) { return first ? "Today \(clock)" : clock }
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
             return "Yesterday \(clock)"
         }
-        let day = date.formatted(Date.FormatStyle(locale: locale).weekday(.abbreviated).day().month(.abbreviated))
+        let day = date.formatted(style)
         return "\(day) \(clock)"
     }
 }
@@ -190,7 +193,7 @@ public struct ApprovalLine: Equatable, Sendable {
         case .loading, .open: nil
         case .sending: "Sending your answer…"
         case .approved(let terminal): terminal ? "Approved in a terminal." : "You approved this."
-        case .denied(let terminal): terminal ? "Denied in a terminal." : "You said no."
+        case .denied(let terminal): terminal ? "Denied in a terminal." : "Not now: the quest won't do this."
         case .expired: "This question went away without an answer."
         }
     }

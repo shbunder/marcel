@@ -102,7 +102,9 @@ final class ChatLookSnapshotTests: XCTestCase {
                                        question: "May I read 3 PDFs in ~/Downloads?", detail: nil, status: .open,
                                        showsDetail: false)),
             ])
-            .environment(\.chatNow, now),
+            .environment(\.chatNow, now)
+            .environment(\.timeZone, TimeZone(identifier: "Europe/Brussels")!)
+            .environment(\.locale, Locale(identifier: "en_GB")),
             named: "Look-chat", variants: [.light, .dark], padding: 0)
     }
 }
@@ -137,8 +139,9 @@ final class ChatLookTests: XCTestCase {
                 }
             }
         }
-        XCTAssertEqual(LookColors.bubble(KnownLook(animal: .giraffe, color: .natural, personality: .professional)),
-                       PixelColor(0xF08AA0), "Marcel the rose giraffe gives rose")
+        let rose = LookColors.bubble(KnownLook(animal: .giraffe, color: .natural, personality: .professional))
+        XCTAssertEqual(rose, PixelColor(0xF08AA0), "Marcel the rose giraffe gives rose")
+        XCTAssertEqual(ChatPalette.dark.bubble(rose), ChatPalette.dark.you, "and the wireframe's dark rose in dark mode")
     }
 
     func testCardColoursFollowTheTask() {
@@ -219,7 +222,7 @@ final class LongPressTests: XCTestCase {
                               project: "House", tone: .teal, detail: "Reading 3 offers", location: .nuc)
         let found = elements(of: VStack(alignment: .leading, spacing: 12) {
             FeedStack(items: [
-                .marcel(MarcelLine(id: "m1", markdown: "Dentist at **9:30**, then nothing until pickup.")),
+                .marcel(MarcelLine(id: "m1", markdown: "Dentist at **9:30**. See [the calendar](https://example.com/cal).")),
                 .quest(quest),
             ], actions: actions)
         }.padding(16))
@@ -228,6 +231,8 @@ final class LongPressTests: XCTestCase {
                                   "the reply is one element")
         let card = try XCTUnwrap(found.first { ($0.accessibilityLabel ?? "").hasPrefix("Started: Compare heat-pump") },
                                  "the card is one element")
+        // VoiceOver reaches the reply's link as a named action on the same element.
+        XCTAssertNotNil(reply.accessibilityCustomActions?.first { $0.name == "Open the calendar" })
         for (element, id) in [(reply, "m1"), (card, "q1")] {
             let action = try XCTUnwrap(replyInThread(element), "\(id) has Reply in thread")
             _ = action.actionHandler?(action)
