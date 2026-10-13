@@ -1,16 +1,22 @@
+import AvatarKit
 import Foundation
 import MarcelItems
 import MarcelKit
 import OpenAPIRuntime
 
-/// Who the chat is with: the agent's main conversation and its name (the header's title; Settings can rename it).
+/// Who the chat is with: the agent's main conversation and its name (the header's title; Settings can rename it),
+/// its id (which `agent.state` events name) and what its avatar shows now.
 public struct MainAgent: Equatable, Sendable {
     public var conversationId: String
     public var name: String
+    public var id: String?
+    public var state: AvatarState?
 
-    public init(conversationId: String, name: String) {
+    public init(conversationId: String, name: String, id: String? = nil, state: AvatarState? = nil) {
         self.conversationId = conversationId
         self.name = name
+        self.id = id
+        self.state = state
     }
 }
 
@@ -70,7 +76,8 @@ public struct LiveChatService: ChatService {
         switch output {
         case .ok(let ok):
             guard let agent = try ok.body.json.agents.first else { throw ChatError("This hub has no agent yet.") }
-            return MainAgent(conversationId: agent.mainConversationId, name: agent.name)
+            return MainAgent(conversationId: agent.mainConversationId, name: agent.name, id: agent.id,
+                             state: AvatarState(agent.state))
         case .unauthorized: throw ChatError.unpaired
         case .undocumented(let status, _): throw ChatError.unexpected("me, HTTP \(status)")
         }
@@ -143,5 +150,12 @@ public struct LiveChatService: ChatService {
         case .badRequest: throw ChatError.unexpected("item content, HTTP 400")
         case .undocumented(let status, _): throw ChatError.unexpected("item content, HTTP \(status)")
         }
+    }
+}
+
+extension AvatarState {
+    /// The avatar for the contract's `AgentState` (`GET /me`, and the `agent.state` event).
+    public init(_ state: AgentState) {
+        self.init(kind: state.kind.rawValue, activeTasks: state.activeTasks)
     }
 }

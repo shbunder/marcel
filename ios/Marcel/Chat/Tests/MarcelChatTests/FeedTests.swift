@@ -98,8 +98,8 @@ final class FeedTests: XCTestCase {
         XCTAssertEqual(ChatHeaderState(tasks: []).subtitle, "Nothing running")
         XCTAssertEqual(ChatHeaderState(tasks: [], offline: "Offline · showing what's saved").subtitle,
                        "Offline · showing what's saved")
-        XCTAssertEqual(ChatHeader(state: header, collapsed: false).accessibilityText,
-                       "Marcel. Marcel needs you. 2 quests running. 1 thing needs you")
+        XCTAssertEqual(AvatarHeader(state: header, collapsed: false).state.accessibilityText,
+                       "Marcel needs you. 2 quests running. 1 thing needs you")
     }
 }
 

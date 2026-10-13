@@ -40,7 +40,8 @@ enum Snapshot {
     /// Renders `view` the way the snapshot tests see it: on the theme's background, 390 pt wide, Reduce Motion
     /// pinned on so the blinking ▼ is always drawn.
     @MainActor
-    static func render<V: View>(_ view: V, variant: Variant, width: CGFloat = width, padding: CGFloat = 16) -> CGImage? {
+    static func render<V: View>(_ view: V, variant: Variant, width: CGFloat = width, padding: CGFloat = 16,
+                                scale: CGFloat = scale) -> CGImage? {
         let content = view
             .padding(padding)
             .frame(width: width)
@@ -81,12 +82,12 @@ enum Snapshot {
     @MainActor
     static func assert<V: View>(
         _ view: V, named name: String, variants: [Variant] = Variant.allCases, width: CGFloat = width,
-        padding: CGFloat = 16, file: StaticString = #filePath, line: UInt = #line
+        padding: CGFloat = 16, scale: CGFloat = scale, file: StaticString = #filePath, line: UInt = #line
     ) {
         guard checkRuntime(file: file, line: line) else { return }
         for variant in variants {
             let fileName = "\(name).\(variant.rawValue).png"
-            guard let image = render(view, variant: variant, width: width, padding: padding) else {
+            guard let image = render(view, variant: variant, width: width, padding: padding, scale: scale) else {
                 XCTFail("\(fileName): the view did not render", file: file, line: line)
                 continue
             }
@@ -94,12 +95,13 @@ enum Snapshot {
         }
     }
 
-    static func compare(_ image: CGImage, fileName: String, file: StaticString, line: UInt) {
-        let reference = referenceFolder.appendingPathComponent(fileName)
+    static func compare(_ image: CGImage, fileName: String, folder: URL = referenceFolder, file: StaticString,
+                        line: UInt) {
+        let reference = folder.appendingPathComponent(fileName)
         let exists = FileManager.default.fileExists(atPath: reference.path)
         if isRecording || !exists {
             do {
-                try FileManager.default.createDirectory(at: referenceFolder, withIntermediateDirectories: true)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 try png(image).write(to: reference)
             } catch {
                 XCTFail("\(fileName): could not record (\(error))", file: file, line: line)

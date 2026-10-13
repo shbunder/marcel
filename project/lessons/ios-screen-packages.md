@@ -55,3 +55,11 @@
   `renderedPath`, which percent-encodes everything but `A-Z a-z 0-9 - . _ ~`, so `memory/x.md` arrives as one segment
   `memory%2Fx.md` — pass the raw value, never a pre-encoded one (it would become `%252F`). A header such as `If-Match`
   is encoded the same way, so a quoted etag would arrive as `%22…%22`: send it bare (the memory routes accept that).
+- **No asset catalogs on the owner's Mac** (S-13.3): actool fails on any `.xcassets`, for the simulator and for a
+  device alike ("No simulator runtime version … available to use with iphonesimulator SDK version 23F81a"), because
+  the iOS 26.5 platform component is missing — and that fails `make app`. The app icon is therefore loose PNGs in
+  `Marcel/App/AppIcon/` listed under `CFBundleIcons` in `Config/Marcel-Info.plist`; iOS shows them on the home screen
+  (checked on a 26.4 simulator). Move them into an asset catalog once the platform is installed.
+- **An `Animatable` SwiftUI view under Swift 6** needs `nonisolated var animatableData` (the `View` is main-actor
+  isolated; the conformance is not). `AvatarHeader` animates its collapse this way, so each in-between value goes
+  through `body` and the sprite can snap to whole zooms instead of being scaled.

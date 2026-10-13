@@ -2,6 +2,8 @@
 
 Plays the sprite sheet from `shared/avatar/pixel/out/` (B-28): `AvatarView(state:size:)`.
 
+- **VoiceOver** says the state with the agent's name: `accessibilityDescription(name:)` ("Gigi is thinking");
+  `AvatarView(…, name:)` uses it.
 - **States → loops.** `AvatarState` mirrors the hub's `AgentState` (`AvatarState(kind:activeTasks:)`):
   `idle`, `thinking`, `working(n)` → `working1`…`working3` (n clamps to 1…3), `needs_you`, `done`.
   An unknown kind shows `idle`.
@@ -10,6 +12,8 @@ Plays the sprite sheet from `shared/avatar/pixel/out/` (B-28): `AvatarView(state
 - **Sharp pixels.** `AvatarSize` is 24, 32, 44 or 120 pt (a square box). The sprite is drawn at the largest
   whole number of screen pixels per sprite pixel that fits (at least 1), nearest-neighbour. On a 3× screen
   that is 1× at 24 and 32 pt, 2× at 44 pt, 6× at 120 pt.
+  `AvatarView(state:box:)` takes a box of any size: the chat header shrinks from 120 to 44 pt and the sprite steps
+  down whole zooms on the way (S-13.3).
 - **Quiet when unseen.** The `TimelineView` pauses off screen and in the background. With Reduce Motion the
   avatar shows each state's first frame and does not move.
 

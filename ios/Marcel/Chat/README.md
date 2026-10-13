@@ -42,8 +42,7 @@ and shows `ChatScreen(model:offline:)`; the Xcode project keeps this folder out 
 - **Sending** never waits on Marcel: the message shows at once ("Sending…"), and if the hub cannot be reached it
   stays, marked "Not sent · tap to try again". A retry reuses the `client_id`, so the hub keeps one copy.
 - **Scrolling**: the newest 50 messages; reaching the top loads 50 more from the cache. "Latest ▼" jumps back.
-  The giraffe is 120 pt at the latest messages and 44 pt once you scroll back or type (and always 44 pt at
-  accessibility text sizes). Reduce Motion turns the animations off.
+  Reduce Motion turns the animations off.
 - **Settings** and **Marcel's notebook** open from a tap on the avatar header (`ChatScreen(openSettings:)`, S-12.10):
   `AvatarLinks` opens the only one or asks which, and gives VoiceOver the hint "Opens Marcel's notebook or Settings" and
   one named action per screen (S-12.9; `AvatarLinksTests`).
@@ -52,6 +51,33 @@ and shows `ChatScreen(model:offline:)`; the Xcode project keeps this folder out 
   does not have leaves the feed at the latest messages.
 - Tapping an item opens the artifact viewer (`ArtifactViewer` from MarcelItems, S-12.8). A quest card opens the
   quest view (`QuestView` from MarcelQuest, S-12.6).
+
+## The avatar header and the app icon (S-13.3, B-28)
+
+Code in `Sources/MarcelChat/AvatarHeader.swift` (the story names `Marcel/Chat/AvatarHeader.swift`; Chat is a package,
+so it sits in the package's sources). Drawn with AvatarKit's sheet and loops; nothing is redrawn here.
+
+- **What the giraffe shows** is the hub's word: `GET /me` gives the agent's state, then every `agent.state` event
+  moves it (`ChatModel.agentState`; `LiveFeed` passes the app's `liveEvents` frames to `ChatModel.receive`). An event
+  for another agent is ignored; after a `resync.required` the app asks `GET /me` again. Until the hub has said, and
+  while the live stream is down, the header works the state out from the cached tasks (needs you, working(n), idle).
+- **Size**: 120 pt at the latest messages, 44 pt once you scroll back or type (always 44 pt at accessibility text
+  sizes). `AvatarHeader` is `Animatable` in `collapse` (0 → 1), so the strip shrinks smoothly while the sprite steps
+  through whole zooms only (6×, 5×, 4×, 3×, 2× on a 3× phone): every sprite pixel stays a sharp square, never a blurred
+  in-between. With Reduce Motion there is no animation and the giraffe holds its state's first frame (AvatarKit).
+- **VoiceOver** reads the whole header as one line with the agent's name: "Marcel is thinking. Nothing running.
+  1 thing needs you" (`AvatarState.accessibilityDescription(name:)`).
+- **Dialogue boxes** have the 32-pt giraffe on the left (`MarcelSays`). On a 3× phone AvatarKit's whole-pixel rule
+  draws it at 1× (16 × 18 pt of the 32-pt box).
+- **The app icon** is drawn from the sheet's idle frame by `AppIcon` in `Tests/MarcelChatTests/AppIconTests.swift`:
+  the giraffe at the largest whole zoom that fits 82 % of the icon (the 40-px icon is too small for the whole giraffe
+  at 1×, so it shows the head and neck), on the screens' cream, no transparency. The PNGs are in
+  `../App/AppIcon/`, named the way iOS looks them up (`AppIcon60x60@3x.png`), and listed in
+  `Config/Marcel-Info.plist` (`CFBundleIconFiles`). They are loose files, not an asset catalog: actool cannot compile
+  a catalog on a Mac without the iOS platform component. `AppIcon-1024.png` is the App Store size, for a catalog
+  later. **To redraw the icon** after the giraffe changes: `make -C ios chat-record`, look at the PNGs, commit them;
+  `AppIconTests` fails while a committed icon differs from the sheet. `__Snapshots__/AppIcon-on-home-screen.png` is
+  a screenshot of the built app on a simulator's home screen (not a test reference).
 
 ## Side chat — reply in thread (S-12.4, B-08, wireframe 2B)
 
@@ -106,8 +132,16 @@ Code in `Sources/MarcelChat/SideChat/`.
   plain words, "Start a new one"), drafts per thread, offline and gone, and the real client's answers through
   `StubHub`. `SideChatSnapshotTests` draws the sheet (light, dark, largest text), a stopped task's thread and
   "n replies" in the main chat.
+- `AvatarHeaderStateTests` — S-13.3's "UI test: state changes from the mock hub show up in the header", one layer
+  down: `agent.state` frames through a real in-memory cache into `ChatModel.receive`, as `LiveFeed` wires it, and the
+  header's state and VoiceOver line read back. Also: another agent's events ignored, offline falls back to the cached
+  tasks, a re-sync asks `GET /me` again, and the collapse stepping through whole zooms.
+  `AvatarHeaderSnapshotTests` draws the header at 3× in light and dark, expanded and collapsed in every state, half-way
+  through the collapse, and the dialogue box's giraffe. `AppIconTests` — see above.
 - `ChatMockHubTests` — the same scenario against the mock hub (not part of the gate):
   `MOCK_DELAY=0.05 MOCK_HUB_PORT=7488 make mock-hub`, then
   `MOCK_HUB=http://127.0.0.1:7488/api make -C ios chat-integration`. The mock runs one thread at a time, so the
   two started cards come from two runs. XCUITest cannot run on this Mac's Xcode (see ../../README.md), so this
   model-level test stands in for the UI test.
+  `testAgentStateFromTheMockHubShowsInTheHeader` follows a run's `agent.state` events into the header: thinking,
+  working(1), needs you, working(1) after the approval, done, idle.
