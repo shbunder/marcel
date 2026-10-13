@@ -1,4 +1,16 @@
 # deploy/ — running Marcel on the NUC
 
-Docker Compose for the hub, systemd user units for the runner and redeploys, and the Cloudflare
-tunnel ingress. Secrets live in `deploy/.env.local`, which is never committed. Filled in by F14.
+How to install and run it: [docs/operating.md](../docs/operating.md).
+
+| File | What it is |
+|---|---|
+| `Makefile` | `install`, `deploy`, `logs`, `health`, `status`, `tunnel`, and `check` (this folder's gate) |
+| `install.sh` | Installs or upgrades everything under `~/marcel`, as the owner. Safe to run again |
+| `docker-compose.yml`, `hub.Dockerfile` | The hub container on `127.0.0.1:7420`. Run it through `compose.sh` |
+| `compose.sh` | `docker compose` with `MARCEL_HOME`, `MARCEL_UID` and `MARCEL_GID` set |
+| `health.sh` | Checks the units, the runner, the hub and the brain |
+| `systemd/` | User units: Claude's supervisor, the runner, and the redeploy path and service |
+| `cloudflared/` | The tunnel's ingress (`/api/*` only) and its system unit |
+| `marketplace.json` | The `marcel-local` marketplace listing the deployed plugin |
+
+Secrets live in `deploy/.env.local`, which is never committed.

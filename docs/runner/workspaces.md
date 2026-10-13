@@ -80,7 +80,10 @@ claude --bg --resume <uuid> --fork-session --name <name> [--model <model>]
 3. The trust prompt is accepted: an interactive `claude` on a pseudo-terminal. The runner reads the
    screen and presses keys only for the trust dialog: once it shows exactly one highlighted option,
    a "No" option and "Yes, I trust this folder", it moves to Yes with the arrow keys (the default is
-   "No, exit", SP2) and presses Enter only when the screen shows Yes highlighted. It never answers
+   "No, exit", SP2) and presses Enter only when the screen shows Yes highlighted. It presses nothing
+   until the screen has been still for half a second: claude 2.1.289 redraws the dialog while it
+   starts and loses a key pressed meanwhile. The screen is read as a terminal would show it (claude
+   places words with cursor moves and draws the options without numbers). It never answers
    anything else — a repo with `.mcp.json` asks "use these MCP servers?" next — and leaves with
    Ctrl-C. Then `~/.claude.json` must show the folder with `hasTrustDialogAccepted: true` and no
    `enabledMcpjsonServers` or `enableAllProjectMcpServers`. Otherwise the clone fails with

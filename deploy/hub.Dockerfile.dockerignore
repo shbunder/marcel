@@ -1,0 +1,8 @@
+# Only hub/ goes into the image.
+*
+!hub/pyproject.toml
+!hub/uv.lock
+!hub/README.md
+!hub/src/
+!hub/migrations/
+**/__pycache__

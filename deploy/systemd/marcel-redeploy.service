@@ -1,0 +1,10 @@
+# marcel-v3-unit: installed by deploy/install.sh from deploy/systemd/
+# Redeploys an approved self-change, with a health check and rollback (S-11.2). Never run by hand.
+[Unit]
+Description=Redeploy Marcel after an approved self-change
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/marcel/src
+ExecStart=%h/marcel/src/deploy/redeploy.sh
+Environment=PATH=%h/marcel/node/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin

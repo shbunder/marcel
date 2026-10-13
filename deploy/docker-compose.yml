@@ -1,0 +1,36 @@
+# Marcel's hub. Started by `make -C deploy deploy`, which sets MARCEL_HOME, MARCEL_UID and MARCEL_GID.
+# The runner and claude's supervisor are native systemd user units (deploy/systemd/).
+name: marcel
+services:
+  hub:
+    build:
+      context: ..
+      dockerfile: deploy/hub.Dockerfile
+    image: marcel-hub:local
+    container_name: marcel-hub
+    # The host user that owns the runner's socket and runs the redeploy units: the hub writes
+    # /state/redeploy.flag owner-only, and reaches the socket by group (SP6).
+    user: "${MARCEL_UID:?run through make -C deploy}:${MARCEL_GID:?run through make -C deploy}"
+    restart: unless-stopped
+    # Loopback only. The Cloudflare tunnel forwards /api/* here; the channel (/channel) stays on the NUC.
+    ports:
+      - "127.0.0.1:7420:7420"
+    env_file:
+      - path: .env.local
+        required: false
+    environment:
+      MARCEL_DATA_DIR: /data
+      MARCEL_RUNNER_SOCK: /run/marcel/runner.sock
+      MARCEL_REDEPLOY_FLAG: /state/redeploy.flag
+      # Paths on the host: the runner starts sessions there.
+      MARCEL_BRAIN_CWD: ${MARCEL_HOME}/brain
+      MARCEL_WORKER_CWD: ${MARCEL_HOME}/workspaces/scratch
+      HOME: /tmp
+    volumes:
+      # Host folders, not named volumes: the brain's MEMORY.md and memory/ link into data/memory.
+      - ${MARCEL_HOME}/data:/data
+      - ${MARCEL_HOME}/state:/state
+      # The runner's socket directory, never the socket file (the runner recreates it). It lives on
+      # disk, not under /run/user/<uid>: at boot Docker starts the hub before the user manager mounts
+      # /run/user/<uid>, and a bind source made there early is hidden by that mount.
+      - ${MARCEL_HOME}/run:/run/marcel
