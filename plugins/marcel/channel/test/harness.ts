@@ -50,7 +50,8 @@ export class FakeHub {
   received: ToHub[] = [];
   /** Hello frames only. */
   hellos: ToHub[] = [];
-  /** `true`: the connection attempt fails (hub down). */
+  /** `true`: the connection attempt fails (hub down, or an HTTP error on the upgrade). Like Node's WebSocket, a
+   *  failed handshake fires `error` and never `close`. */
   down = false;
   /** What the hub answers to a hello. */
   helloReply: HelloReply = { type: 'welcome', role: 'worker', agent_id: 'agt_marcel', task_id: 'tsk_01J9ZQ6' };
@@ -63,7 +64,7 @@ export class FakeHub {
     const socket = new FakeSocket(this);
     this.sockets.push(socket);
     queueMicrotask(() => {
-      if (this.down) socket.onclose?.({});
+      if (this.down) socket.onerror?.({});
       else socket.onopen?.({});
     });
     return socket;

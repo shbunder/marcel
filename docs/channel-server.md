@@ -38,7 +38,7 @@ answers "Queued" and the session carries on. The call is sent again after a reco
 
 | What | What the server does | What the session sees |
 |---|---|---|
-| Hub down at start, or the connection drops | Retries after 1 s, 2 s, 4 s, up to every 30 s. Frames wait in the hub's queue | `reply` and `report` answer "Queued: Marcel is connecting" (first connect) or "reconnecting" at once |
+| Hub down at start, or the connection drops — including a hub that answers the WebSocket upgrade with an HTTP error (404, 5xx) or refuses the connection | Retries after 1 s, 2 s, 4 s, up to every 30 s, and logs "Could not connect to the hub … Trying again in N s." Only a `rejected` frame stops it: `bad_secret` and `plugin_too_old` at once, `unknown_session` after 2 minutes (below). Frames wait in the hub's queue | `reply` and `report` answer "Queued: Marcel is connecting" (first connect) or "reconnecting" at once |
 | Hub takes the connection but never answers hello | Closes it after 15 s, logs it, and reconnects with the same backoff | Same as above |
 | Hub drops in the middle of a call | Sends the call again after the reconnect | "Queued" after 10 s |
 | A permission prompt is waiting during a reconnect | Sends it again after the reconnect. The answer still reaches the session | Nothing changes |

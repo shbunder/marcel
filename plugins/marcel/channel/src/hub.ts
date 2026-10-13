@@ -36,6 +36,10 @@ export interface CallOutcome {
   text: string;
 }
 
+function formatDelay(ms: number): string {
+  return ms < 1000 ? `${ms} ms` : `${Math.round(ms / 1000)} s`;
+}
+
 const STOP_TEXT: Record<RejectReason, string> = {
   bad_secret: 'The hub does not accept this session’s secret. A deploy wrote a different one.',
   plugin_too_old: 'The marcel plugin is older than the hub needs. Update the plugin.',
@@ -155,8 +159,10 @@ export class HubClient {
       return;
     }
     this.socket = socket;
+    let opened = false;
     socket.onopen = () => {
       if (this.socket !== socket) return;
+      opened = true;
       const hello: Hello = {
         type: 'hello',
         session_id: this.o.sessionId,
@@ -171,7 +177,20 @@ export class HubClient {
       if (this.socket === socket) this.onData(ev.data);
     };
     socket.onerror = () => {
-      // A close always follows; reconnecting is decided there.
+      // On an open socket a close follows, and reconnecting is decided there. A handshake that fails — connection
+      // refused, or an HTTP error such as 404 instead of the WebSocket upgrade — fires only `error` in Node, so
+      // that is the hub being down: retry with backoff. Only the hub's explicit `rejected` frame stops retries.
+      if (this.socket !== socket || opened) return;
+      this.socket = undefined;
+      // abandonSocket clears the handlers before close(): on Node 22, close() on a socket that is still
+      // connecting fires `error` again, which would otherwise re-enter here.
+      this.abandonSocket(socket);
+      if (this.ended) return;
+      const delay = this.scheduleReconnect();
+      this.o.log(
+        `Could not connect to the hub at ${this.o.url}: it is not running, or it answered with an HTTP error instead of ` +
+          `a WebSocket. Trying again in ${formatDelay(delay)}.`,
+      );
     };
     socket.onclose = () => {
       if (this.socket !== socket) return;
@@ -184,8 +203,9 @@ export class HubClient {
     };
   }
 
-  private scheduleReconnect(retryAfterMs?: number): void {
-    if (this.ended || this.state === 'stopped') return;
+  /** Reconnect later; returns the delay in ms. */
+  private scheduleReconnect(retryAfterMs?: number): number {
+    if (this.ended || this.state === 'stopped') return 0;
     this.state = 'reconnecting';
     let delay = retryAfterMs;
     if (delay === undefined) {
@@ -193,6 +213,7 @@ export class HubClient {
       this.failures += 1;
     }
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
+    return delay;
   }
 
   private teardown(): void {
@@ -207,13 +228,15 @@ export class HubClient {
   private abandon(): void {
     const socket = this.socket;
     this.socket = undefined;
-    if (socket) {
-      socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
-      try {
-        socket.close();
-      } catch {
-        // already closed
-      }
+    if (socket) this.abandonSocket(socket);
+  }
+
+  private abandonSocket(socket: SocketLike): void {
+    socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
+    try {
+      socket.close();
+    } catch {
+      // already closed
     }
   }
 
