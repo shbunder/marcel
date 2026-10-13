@@ -50,10 +50,11 @@ def test_task_states_match_the_state_machine_doc() -> None:
 
 # Contract fields that are derived or joined at read time, not stored on the row.
 DERIVED = {
-    'Agent': {'state'},
+    'Agent': {'state', 'look'},  # look: look_animal, look_color, look_personality (S-04.15)
     'Device': {'push', 'current', 'last_seen_at'},
     'Conversation': {'reply_count', 'last_message_at'},
-    'Message': {'text', 'milestone', 'approval_id', 'quoted_message_id', 'thread'},
+    # mentions: stored as mentions_json (S-04.15)
+    'Message': {'text', 'milestone', 'approval_id', 'quoted_message_id', 'thread', 'mentions'},
     'Task': {'approval_ids', 'artifact_count'},
     'TaskEvent': {'data'},
     'Artifact': {'pr'},
@@ -64,13 +65,9 @@ DERIVED = {
 # Added to the contract by S-02.5 (projects and living artifacts) before the hub stores them.
 # The owning story removes its entries when it adds the columns; the last test below fails as
 # soon as an entry is stored, so this list can only shrink.
-# S-04.11 stored the last of them. Contract 0.7 (S-02.7) added the ones below; S-04.15 stores them
-# (and lists any it keeps under another name in DERIVED).
-PENDING: dict[str, set[str]] = {
-    'Agent': {'look', 'onboarded_at'},
-    'Message': {'reply_to_message_id', 'mentions'},
-    'Project': {'tracker_url'},
-}
+# S-04.11 stored the last of them. Contract 0.7 (S-02.7) added more; S-04.15 stored them all (the
+# ones kept under another name are in DERIVED). Empty, until a contract adds a field again.
+PENDING: dict[str, set[str]] = {}
 PENDING_ENUM_VALUES: dict[str, set[str]] = {}
 MODELS = {
     'Agent': models.Agent,

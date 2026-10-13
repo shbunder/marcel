@@ -11,7 +11,7 @@ from marcel_hub import db, models  # noqa: F401
 TABLES = {
     'agent', 'device', 'conversation', 'message', 'task', 'task_event',
     'approval', 'artifact', 'schedule', 'usage_snapshot', 'pairing_code', 'app_event',
-    'channel_frame', 'channel_call', 'project', 'artifact_version', 'brain_rollover',
+    'channel_frame', 'channel_call', 'project', 'artifact_version', 'brain_rollover', 'user',
 }  # fmt: skip
 
 

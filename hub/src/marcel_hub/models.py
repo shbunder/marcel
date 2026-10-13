@@ -24,6 +24,11 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+class UserRole(StrEnum):
+    owner = 'owner'
+    member = 'member'
+
+
 class ConversationKind(StrEnum):
     main = 'main'
     side = 'side'
@@ -124,6 +129,16 @@ def _json() -> Any:
     return Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
 
 
+class User(SQLModel, table=True):
+    """A person who uses Marcel (B-37): the owner, or a family member the owner added. The owner
+    keeps the id `usr_owner`; its row is made at start-up (S-17.1), not by the migration."""
+
+    id: str = Field(default_factory=lambda: new_id('usr'), primary_key=True)
+    name: str
+    role: UserRole
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class Agent(SQLModel, table=True):
     id: str = Field(default_factory=lambda: new_id('agt'), primary_key=True)
     owner_user_id: str = Field(index=True)
@@ -135,6 +150,16 @@ class Agent(SQLModel, table=True):
     model_brain: str = 'opus'
     model_worker: str = 'sonnet'
     main_conversation_id: str | None = None
+    # The Pixel Zoo look (B-44, ADR-008): the contract's `look` object, one column per part. None
+    # until the agent is onboarded; the routes check the values against the contract's enums.
+    look_animal: str | None = None
+    look_color: str | None = None
+    look_personality: str | None = None
+    onboarded_at: datetime | None = None
+    archived_at: datetime | None = None
+    # Fixed when the agent is made and never changed by a rename (its workspace and memory folders
+    # use it). Unique; the owner's agent from before 0.7 is `marcel` (migration 0010).
+    slug: str | None = Field(default=None, unique=True, index=True)
 
 
 class Device(SQLModel, table=True):
@@ -191,6 +216,7 @@ class Project(SQLModel, table=True):
     folder: str | None = None
     instructions: str | None = None
     claude_project_url: str | None = None
+    tracker_url: str | None = None  # B-46: the project's issue tracker, a link only
     board_artifact_id: str = Field(default_factory=lambda: new_id('art'))
     archived: bool = False
     created_at: datetime = Field(default_factory=utcnow)
@@ -220,6 +246,12 @@ class Message(SQLModel, table=True):
     # For `artifact`: the item that arrived (B-36).
     artifact_id: str | None = None
     client_id: str | None = Field(default=None, index=True)
+    # B-41: the message this one answers ("reply to" in the app).
+    reply_to_message_id: str | None = Field(default=None, foreign_key='message.id')
+    # B-42: the contract's `mentions`, as a JSON list; empty when there are none.
+    mentions_json: list[Any] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False, server_default='[]')
+    )
     created_at: datetime = Field(default_factory=utcnow, index=True)
 
 

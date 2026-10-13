@@ -59,6 +59,13 @@ e = db.make_engine('/tmp/new.db'); command.revision(db.alembic_config(e), messag
 
 A test fails if the models and the migrations disagree. Timestamps are timezone-aware UTC.
 
+**Stored for app-api 0.7, not used yet** (migration 0010, S-04.15): the `user` table (`id`, `name`,
+`role` owner|member, `created_at`); on `agent` the look (`look_animal`, `look_color`,
+`look_personality`, the contract's `look`), `onboarded_at`, `archived_at` and a unique `slug` that a
+rename never changes (the owner's agent from before 0.7 is `marcel`); on `message`
+`reply_to_message_id` and `mentions_json` (the contract's `mentions`, `[]` by default); on `project`
+`tracker_url`. The routes and the owner's `user` row come with S-17.x, S-18.x and S-19.2.
+
 ## GET /api/health
 
 Needs no token. Returns `ok` (false when the database does not answer), `version`, and
