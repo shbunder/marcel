@@ -63,3 +63,8 @@ Option B.
 - The hub's GitHub token stays read-only (ADR-002 unchanged).
 - The redeploy flag lives at `redeploy_flag` (default `/state/redeploy.flag`); S-11.2 / S-14.1 mount the host's
   `~/marcel/state` at `/state`.
+
+## Deploy step (added after the S-11.1 security review, 2026-10-15)
+
+`main` on GitHub is branch-protected: only the owner merges, nobody pushes directly or force-pushes. Otherwise code a
+worker merged without approval would ride along with the next approved self-change. Recorded in S-14.1.
