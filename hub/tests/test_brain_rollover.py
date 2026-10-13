@@ -418,12 +418,13 @@ def test_past_rollovers_are_listed_newest_first_after_2000_later_events(
     second = wait(lambda: (sid := current_in(hub)) != first and sid)
     fake.die(second)
     wait(lambda: current_in(hub) not in (first, second))
-    filler = EventLog(hub.engine)  # the app's log, without its observers
+    wait(lambda: len(history(hub.engine)) == 2)  # the brain is set before its event is stored
+    events: EventLog = hub.app.state.events  # the app's own log: one numbering, no race
     with Session(hub.engine) as s:
         owner = s.get(Agent, hub.agent_id)
         assert owner is not None
         for i in range(2100):  # more than the event log keeps
-            filler.publish(s, owner.owner_user_id, 'filler', {'i': i})
+            events.publish(s, owner.owner_user_id, 'filler', {'i': i})
         left = s.exec(select(AppEvent).where(AppEvent.type == 'brain.rollover')).all()
     assert left == [], 'the event log has moved on'
     listed = hub.client.get(url).json()
@@ -482,11 +483,13 @@ def test_a_replaced_reply_reaches_the_new_brain_once(hub: ChannelHub, fake: Fake
             assert ack[0]['error']['code'] == 'replaced'
         queued = hub.gateway.outbox.pending(conversation_target(hub.main_id))
         assert [f['kind'] for f in queued] == ['rollover'], 'the unsent reply, once'
+        assert len(hub.gateway._unsent) == 1
         frame = ch.deliver()
         assert frame['type'] == 'system_event' and frame['kind'] == 'rollover'
         assert frame['data'] == {
             'unsent_reply': 'The pasta needs 12 minutes.',
             'in_reply_to': 'msg_01',
         }
+        wait(lambda: not hub.gateway._unsent)  # forgotten once delivered: memory stays bounded
         reply = ch.call('reply', call_id='c_new', text='About 12 minutes.')
         assert reply == {'type': 'call_ack', 'call_id': 'c_new'}, 'nothing else was queued'

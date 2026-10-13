@@ -169,7 +169,9 @@ class Gateway:
         self.links: dict[str, Any] = {}  # target → its live `socket.Link`
         self.memory: MemoryRepo | None = None  # where a worker's notes go (`install` sets it)
         self.tz: tzinfo = UTC  # the owner's time zone: a note's date
-        self._unsent: set[str] = set()  # call ids of `replaced` replies already passed on
+        # `replaced` replies passed on and not delivered yet: call id → (target, seq). An entry
+        # goes when the new session acks its frame, so this holds only what is in flight.
+        self._unsent: dict[str, tuple[str, int]] = {}
 
     def tasks(self) -> TaskRegistry:
         assert self.registry is not None, 'install the gateway with the task registry'
@@ -259,6 +261,7 @@ class Gateway:
             return [{'type': 'pong'}]
         if kind == 'ack':
             self.outbox.ack(peer.target, frame['seq'])
+            self._delivered(peer.target, frame['seq'])
             return []
         if kind == 'reply':
             if peer.role not in CHAT_ROLES:
@@ -364,12 +367,13 @@ class Gateway:
         with self._calls_lock:
             if frame['call_id'] in self._unsent:
                 return
-            self._unsent.add(frame['call_id'])
+            self._unsent[frame['call_id']] = (conversation_target(conversation_id), 0)
         data = {'unsent_reply': frame['text']}
         if frame.get('in_reply_to'):
             data['in_reply_to'] = frame['in_reply_to']
-        self.outbox.put(
-            conversation_target(conversation_id),
+        target = conversation_target(conversation_id)
+        seq = self.outbox.put(
+            target,
             {
                 'type': 'system_event',
                 'kind': 'rollover',
@@ -378,7 +382,15 @@ class Gateway:
                 'data': data,
             },
         )
+        with self._calls_lock:
+            self._unsent[frame['call_id']] = (target, seq)
         log.info('Passed a reply the replaced session wrote on to the new one.')
+
+    def _delivered(self, target: str, seq: int) -> None:
+        """The session acked `seq`: an unsent reply in that frame is delivered; forget it."""
+        with self._calls_lock:
+            for call_id in [c for c, at in self._unsent.items() if at == (target, seq)]:
+                del self._unsent[call_id]
 
     async def _store_report(self, peer: Peer, frame: dict[str, Any]) -> None:
         assert peer.task_id is not None
