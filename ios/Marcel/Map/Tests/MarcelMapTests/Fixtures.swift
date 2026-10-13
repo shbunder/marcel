@@ -23,7 +23,8 @@ enum Fx {
 
     static func projectJSON(
         _ id: String, _ name: String, slug: String? = nil, goal: String? = nil, working: Int = 0, needsYou: Int = 0,
-        done: Int = 0, updated: TimeInterval = Fx.hour, claude: String? = nil, archived: Bool = false
+        done: Int = 0, updated: TimeInterval = Fx.hour, claude: String? = nil, tracker: String? = nil,
+        archived: Bool = false
     ) -> [String: Any] {
         var json: [String: Any] = [
             "id": id, "agent_id": "agt_marcel", "slug": slug ?? id.replacingOccurrences(of: "prj_", with: ""),
@@ -33,6 +34,7 @@ enum Fx {
         ]
         if let goal { json["goal"] = goal }
         if let claude { json["claude_project_url"] = claude }
+        if let tracker { json["tracker_url"] = tracker }
         return json
     }
 
@@ -107,7 +109,7 @@ enum Fx {
                     updated: 28 * minute),
         projectJSON("prj_family", "Family", working: 1, updated: 2 * hour),
         projectJSON("prj_dev", "Marcel dev", working: 3, updated: 3 * hour,
-                    claude: "https://claude.ai/project/marcel-dev"),
+                    claude: "https://claude.ai/project/marcel-dev", tracker: "https://claude.ai/artifact/marcel-tracker"),
         projectJSON("prj_health", "Health", updated: 2 * day),
         projectJSON("prj_inbox", "Inbox", slug: "inbox", updated: 5 * minute),
     ] }

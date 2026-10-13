@@ -50,7 +50,7 @@ public struct ArtifactViewer: View {
                 missing
             }
         }
-        .background(PixelTheme(scheme).background.color)
+        .background(ChatPalette(scheme).well.color)
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
             if model.cache == nil { model.cache = MarcelCache(container: context.container) }
@@ -103,7 +103,7 @@ public struct ArtifactViewer: View {
                 }
                 .padding(ItemsMetrics.inset)
             }
-            .background(PixelTheme(scheme).background.color)
+            .background(ChatPalette(scheme).well.color)
             .presentationDetents([.medium, .large])
         }
     }
@@ -129,10 +129,10 @@ public struct ArtifactViewer: View {
     }
 
     private var missing: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         return VStack(spacing: 0) {
             ViewerHeader(title: "Item", line: nil, back: { dismiss() })
-            PixelText(model.problem ?? "Opening the item…", role: .body)
+            Text(model.problem ?? "Opening the item…").font(.body)
                 .foregroundStyle(theme.muted.color)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(ItemsMetrics.inset)

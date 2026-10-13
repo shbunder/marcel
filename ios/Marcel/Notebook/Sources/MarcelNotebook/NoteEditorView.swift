@@ -17,7 +17,7 @@ struct NoteEditorView: View {
             }
             .scrollDismissesKeyboard(.interactively)
         }
-        .background(PixelTheme(scheme).background.color)
+        .background(ChatPalette(scheme).well.color)
         .toolbar(.hidden, for: .navigationBar)
         .task { if model.state == .loading { await model.load() } }
     }
@@ -71,7 +71,7 @@ struct NoteEditorContent: View {
     }
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(6)) {
             switch model.state {
             case .loading:
@@ -97,7 +97,7 @@ struct NoteEditorContent: View {
                 }
                 switch model.mode {
                 case .edit: editor(theme)
-                case .preview: MarkdownView(parts: ItemMarkdown.parse(model.text))
+                case .preview: MarkdownView(parts: ItemMarkdown.parse(model.text), style: .chat)
                 }
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: PixelMetrics.steps(4)) { buttons }
@@ -126,10 +126,10 @@ struct NoteEditorContent: View {
         }
     }
 
-    @ViewBuilder private func editor(_ theme: PixelTheme) -> some View {
+    @ViewBuilder private func editor(_ theme: ChatPalette) -> some View {
         Group {
             if still {
-                PixelText(model.text, role: .body)
+                Text(model.text).font(.body)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
             } else {
@@ -140,9 +140,9 @@ struct NoteEditorContent: View {
                     .accessibilityLabel("Text of \(model.title)")
             }
         }
-        .foregroundStyle(theme.text.color)
+        .foregroundStyle(theme.ink.color)
         .padding(PixelMetrics.steps(4))
-        .pixelBox(fill: theme.card, line: theme.line, shadow: nil, border: PixelMetrics.thinBorder, offset: 0)
+        .chatSurface()
     }
 }
 
@@ -156,13 +156,13 @@ struct ConflictCard: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         NotebookCard("Changed elsewhere") {
-            PixelText(text, role: .detail)
+            Text(text).font(.footnote)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: PixelMetrics.steps(5)) {
-                key("−", "the hub's version", ProjectChip.Tone.blue.color(in: theme))
-                key("+", "yours", ProjectChip.Tone.green.color(in: theme))
+                key("−", "the hub's version", ProjectChip.Tone.blue.color(in: PixelTheme(scheme)))
+                key("+", "yours", ProjectChip.Tone.green.color(in: PixelTheme(scheme)))
             }
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: PixelMetrics.steps(1)) {
@@ -188,7 +188,7 @@ struct ConflictCard: View {
     }
 
     private func key(_ mark: String, _ label: String, _ color: PixelColor) -> some View {
-        PixelText("\(mark) \(label)", role: .detail)
+        Text("\(mark) \(label)").font(.footnote)
             .foregroundStyle(color.color)
     }
 }
@@ -200,11 +200,11 @@ struct DiffLineView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         let (mark, words, color, fill): (String, String, PixelColor, PixelColor?) = switch line {
         case .same(let text): (" ", text, theme.muted, nil)
-        case .theirs(let text): ("−", text, ProjectChip.Tone.blue.color(in: theme), theme.card)
-        case .yours(let text): ("+", text, ProjectChip.Tone.green.color(in: theme), theme.card)
+        case .theirs(let text): ("−", text, ProjectChip.Tone.blue.color(in: PixelTheme(scheme)), theme.card)
+        case .yours(let text): ("+", text, ProjectChip.Tone.green.color(in: PixelTheme(scheme)), theme.card)
         case .folded: ("", line.spoken, theme.muted, nil)
         }
         HStack(alignment: .firstTextBaseline, spacing: PixelMetrics.steps(3)) {

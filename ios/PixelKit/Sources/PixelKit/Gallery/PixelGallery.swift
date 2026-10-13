@@ -19,12 +19,11 @@ public struct PixelGallery: View {
                           detail: "step 1 of 4", progress: 0.22)
                 QuestCard(title: "Dentist booking", state: .needsYou, project: "Family", tone: .rose,
                           detail: "pick Tue 9:10 or Thu 8:30")
-                DialogBox(speaker: "Marcel",
-                          text: "Supplier A is cheapest: €486 a year less with solar, no exit fee. Switch now?",
-                          showsMore: true) {
-                    ChoicePrompt([.init("Yes"), .init("Not now"), .init("Details")])
+                ChatCard(.needsYou, label: "Needs you", meta: "Home energy") {
+                    Text("Supplier A is cheapest: €486 a year less with solar, no exit fee. Switch now?")
+                        .font(.body)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                ItemGetBanner(item: "Energy comparison", savedTo: "Home energy")
                 ArtifactCard(title: "Energy comparison", badge: "Updated now") {
                     ArtifactRow("Supplier A + solar", value: "€1,010", emphasised: true)
                     ArtifactRow("Supplier A", value: "€1,284")

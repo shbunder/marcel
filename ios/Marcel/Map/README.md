@@ -1,8 +1,16 @@
 # Map — projects and their rooms (S-12.7)
 
 The Map tab: one tile per project, and behind each tile the project's room. Wireframes 5A and 5B in
-`scratch/spikes/SP5-avatar/wireframes/`. Drawn only with PixelKit components, plus the chat's composer and board
-preview (MarcelChat), the quest log's grouping (MarcelQuests) and the quest view (MarcelQuest).
+`scratch/spikes/SP5-avatar/wireframes/`; since S-18.6 in the chat's language (wireframe Q2 v10): white header,
+white rounded tiles and cards on the soft ground, gold frame and badge on a tile that needs you, a rounded composer
+(PixelKit's `Chat/ChatScreens.swift`), plus the board preview rows (MarcelChat), the quest log's grouping
+(MarcelQuests) and the quest view (MarcelQuest).
+
+- **"Open tracker"** (B-46) on a project's tile and at the top of its room, only when `project.tracker_url` is an
+  http(s) address (`TrackerButton.url`). The tile opens its room on a tap; the tracker is a button of its own.
+- **The notes preview** (from S-20.1): a notes file opens with the project brief (ADR-011); the room shows only what
+  quests wrote under `## Notes` (`NotesPreview`), up to six lines, in the chat's Markdown style. An older file without
+  that heading is shown from the top.
 
 It is a Swift package (`MarcelMap`) so its tests run in the simulator like the other packages'. The app links it and
 the tab bar shows `MapView` (`ios/Marcel/App/RootView.swift`). Xcode leaves a folder with a `Package.swift` out of
@@ -26,7 +34,7 @@ map opens that room and sets it back to nil.
   comes from the `agentName` environment value (MarcelItems), never a hard-coded "Marcel".
 - **"+ New"** opens the chat with "Start a new project: " in the composer: Marcel makes projects. It never overwrites
   what you were typing there (the app calls `ChatModel.propose`, which adds it after your words).
-- **A room** has the pinned board (an `ArtifactCard` with up to eight entries from `GET /artifacts/{id}/content`,
+- **A room** has the pinned board (a white card with up to eight entries from `GET /artifacts/{id}/content`,
   fetched once per version), the project's quests grouped like the quest log (waiting on you first), its items as
   chips, and its notes (`memory/projects/<slug>.md`, read-only here). Tapping the board or an item opens
   the artifact viewer (`ArtifactViewer` from MarcelItems, S-12.8); tapping a quest card opens the quest view

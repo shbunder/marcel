@@ -1,7 +1,8 @@
 # Notebook — Marcel's notebook (S-12.9)
 
 Marcel's memory as plain notes you can read and edit (B-20), and what Marcel carries across a fresh start (B-33).
-Wireframe 6B in `scratch/spikes/SP5-avatar/wireframes/`. Drawn with PixelKit components.
+Wireframe 6B in `scratch/spikes/SP5-avatar/wireframes/`; since S-18.6 in the chat's language (white header, rounded
+cards on the soft ground), and a note's preview in the chat's Markdown style (`MarkdownView(style: .chat)`).
 
 It is a Swift package (`MarcelNotebook`) so its tests run in the simulator like the other packages'. It depends on
 MarcelKit and PixelKit (whose shared `MarkdownView` draws the preview). The app opens `NotebookView` from the avatar header: a tap on the giraffe asks "Marcel's notebook" or

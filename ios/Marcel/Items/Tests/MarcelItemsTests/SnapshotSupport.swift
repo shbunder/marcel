@@ -37,14 +37,14 @@ enum Snapshot {
 
     static var isRecording: Bool { ProcessInfo.processInfo.environment["MARCELITEMS_RECORD"] == "1" }
 
-    /// Renders `view` the way the snapshot tests see it: on the theme's background, 390 pt wide, Reduce Motion
+    /// Renders `view` the way the snapshot tests see it: on the chat's soft ground, 390 pt wide, Reduce Motion
     /// pinned on so the blinking ▼ is always drawn.
     @MainActor
     static func render<V: View>(_ view: V, variant: Variant, width: CGFloat = width, padding: CGFloat = 16) -> CGImage? {
         let content = view
             .padding(padding)
             .frame(width: width)
-            .background(PixelTheme(variant.scheme).background.color)
+            .background(ChatPalette(variant.scheme).well.color)  // the chat look's soft ground (S-18.6)
             .environment(\.colorScheme, variant.scheme)
             .environment(\.dynamicTypeSize, variant.dynamicType)
             .environment(\.pixelReduceMotionOverride, true)

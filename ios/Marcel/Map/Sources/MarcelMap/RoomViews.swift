@@ -5,51 +5,19 @@ import MarcelQuests
 import PixelKit
 import SwiftUI
 
-/// The room's top strip (wireframe 5B): ◀ back to the map, the project's name and its goal.
+/// The room's top strip (wireframe Q2 v10): "‹" back to the map, the project's name and its goal, on white.
 struct RoomHeader: View {
     var room: ProjectRoom
     var back: () -> Void
 
-    @Environment(\.colorScheme) private var scheme
-
     var body: some View {
-        let theme = PixelTheme(scheme)
-        HStack(alignment: .center, spacing: PixelMetrics.steps(3)) {
-            Button(action: back) {
-                PixelGlyph(.pointer, color: theme.text, pixel: 3)
-                    .scaleEffect(x: -1)
-                    .frame(width: PixelMetrics.minTapTarget, height: PixelMetrics.minTapTarget)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back to the map")
-            VStack(alignment: .leading, spacing: PixelMetrics.steps(1)) {
-                PixelText(room.name, role: .title)
-                    .foregroundStyle(theme.text.color)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let goal = room.goal {
-                    PixelText(goal, role: .detail)
-                        .foregroundStyle(theme.muted.color)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(room.spokenTitle)
-            .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, PixelMetrics.steps(1))
-        .padding(.trailing, PixelMetrics.padding)
-        .padding(.vertical, PixelMetrics.steps(3))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.bar.color)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.line.color).frame(height: PixelMetrics.thickBorder)
-        }
+        ChatHeader(room.name, subtitle: room.goal, spoken: room.spokenTitle, back: back,
+                   backLabel: "Back to the map")
     }
 }
 
-/// The pinned board: PixelKit's `ArtifactCard` with the board's first entries. Tapping it opens the board.
+/// The pinned board as a white card: a small label ("PROJECT BOARD · PINNED · V7") and the board's first entries.
+/// Tapping it opens the board.
 struct BoardView: View {
     var board: BoardCard
     var state: BoardState?
@@ -67,16 +35,38 @@ struct BoardView: View {
         return ([board.title, board.spokenBadge] + lines).joined(separator: ". ")
     }
 
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
-        ArtifactCard(title: board.title, badge: board.badge) {
-            ForEach(rows, id: \.self) { ArtifactRow($0.label, value: $0.value, emphasised: $0.emphasised) }
+        let palette = ChatPalette(scheme)
+        VStack(alignment: .leading, spacing: 6) {
+            PixelText("\(board.title) · \(board.badge)", role: .smallLabel)
+                .foregroundStyle(palette.muted.color)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(rows, id: \.self) { row in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(row.label)
+                        .font(row.emphasised ? .subheadline.weight(.bold) : .subheadline)
+                        .foregroundStyle(palette.ink.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let value = row.value {
+                        Spacer(minLength: 8)
+                        Text(value)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(palette.ink.color)
+                    }
+                }
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(ChatScreenMetrics.padding)
+        .chatSurface()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
     }
 }
 
-/// A group title in the room ("Waiting on you", "Items"), small and muted like the wireframe's `.sec`.
+/// A group title in the room ("WAITING ON YOU", "ITEMS"): small pixel capitals, muted.
 struct RoomSectionTitle: View {
     var title: String
     var spoken: String
@@ -86,17 +76,8 @@ struct RoomSectionTitle: View {
         self.spoken = spoken ?? title
     }
 
-    @Environment(\.colorScheme) private var scheme
-
     var body: some View {
-        PixelText(title, role: .smallLabel)
-            .foregroundStyle(PixelTheme(scheme).muted.color)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, PixelMetrics.steps(3))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(spoken)
-            .accessibilityAddTraits(.isHeader)
+        ChatSectionTitle(title, spoken: spoken)
     }
 }
 
@@ -120,56 +101,125 @@ struct RoomQuest: View {
     }
 }
 
-/// The project's notes, read-only: the first lines of `memory/projects/<slug>.md`.
+/// Which part of a project's notes the room previews (S-18.6, from S-20.1): a notes file made since ADR-011 opens
+/// with the project brief (five headings, "(not known yet)"); the room shows only what quests wrote under its
+/// `## Notes` heading. An older file without that heading is shown from the top.
+enum NotesPreview {
+    /// The line the hub puts under `## Notes` in a new file: not a note, so not shown.
+    static let placeholder = "What later threads in this project need to know."
+
+    /// The Markdown under the `Notes` heading (up to the next heading of the same or a higher level), or the whole
+    /// file when it has none, without the placeholder and empty lines.
+    static func lines(_ markdown: String) -> [String] {
+        let all = markdown.components(separatedBy: .newlines)
+        var body = all[...]
+        if let start = all.firstIndex(where: { level(of: $0, named: "notes") != nil }),
+           let depth = level(of: all[start], named: "notes") {
+            let rest = all[(start + 1)...]
+            let end = rest.firstIndex { line in
+                guard let found = headingLevel(line) else { return false }
+                return found <= depth
+            } ?? all.endIndex
+            body = all[(start + 1)..<end]
+        }
+        return body.map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && $0 != placeholder }
+    }
+
+    /// The heading level of a Markdown heading line (`## Notes` is 2), else nil.
+    static func headingLevel(_ line: String) -> Int? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let hashes = trimmed.prefix { $0 == "#" }.count
+        guard (1...6).contains(hashes), trimmed.dropFirst(hashes).first == " " else { return nil }
+        return hashes
+    }
+
+    private static func level(of line: String, named name: String) -> Int? {
+        guard let level = headingLevel(line) else { return nil }
+        let title = line.trimmingCharacters(in: .whitespaces).dropFirst(level).trimmingCharacters(in: .whitespaces)
+        return title.lowercased() == name ? level : nil
+    }
+}
+
+/// The project's notes, read-only (editing them is the notebook's job): the first lines quests wrote under `## Notes`,
+/// in the chat's text style (Marcel's text uses the S-18.3 Markdown blocks), in a white card.
 struct NotesView: View {
     var state: NotesState?
     @Environment(\.agentName) private var agentName
+    @Environment(\.colorScheme) private var scheme
 
     static let maxLines = 6
 
-    var lines: [String] {
+    /// What the card shows: Markdown and how many more lines there are, or a sentence.
+    enum Shown: Equatable {
+        case notes(markdown: String, more: Int)
+        case message(String)
+    }
+
+    var shown: Shown {
         switch state {
         case .text(let markdown):
-            let all = ItemMarkdown.plainText(ItemMarkdown.parse(markdown)).split(separator: "\n").map {
-                $0.trimmingCharacters(in: .whitespaces)
-            }.filter { !$0.isEmpty }
-            guard !all.isEmpty else { return ["No notes yet."] }
-            let more = all.count - Self.maxLines
-            return Array(all.prefix(Self.maxLines)) + (more > 0 ? ["…and \(more) more \(more == 1 ? "line" : "lines")."] : [])
-        case .empty?: return ["No notes yet. \(agentName) writes down what every quest here should know."]
-        case .failed(let problem): return [problem]
-        case .loading?, nil: return ["Loading the notes…"]
+            let kept = NotesPreview.lines(markdown)
+            guard !kept.isEmpty else { return .message(emptyText) }
+            return .notes(markdown: kept.prefix(Self.maxLines).joined(separator: "\n"),
+                          more: max(0, kept.count - Self.maxLines))
+        case .empty?: return .message(emptyText)
+        case .failed(let problem): return .message(problem)
+        case .loading?, nil: return .message("Loading the notes…")
         }
     }
 
-    @Environment(\.colorScheme) private var scheme
+    private var emptyText: String { "No notes yet. \(agentName) writes down what every quest here should know." }
+
+    /// What VoiceOver reads (and the tests check): the shown notes as plain lines, then "…and 3 more lines."
+    var lines: [String] {
+        switch shown {
+        case .message(let text): return [text]
+        case .notes(let markdown, let more):
+            let plain = ItemMarkdown.plainText(ItemMarkdown.parse(markdown)).split(separator: "\n")
+                .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            return plain + (more > 0 ? [Self.moreText(more)] : [])
+        }
+    }
+
+    static func moreText(_ more: Int) -> String { "…and \(more) more \(more == 1 ? "line" : "lines")." }
 
     var body: some View {
-        let theme = PixelTheme(scheme)
-        VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                PixelText(line, role: .detail)
-                    .foregroundStyle(theme.text.color)
+        let palette = ChatPalette(scheme)
+        VStack(alignment: .leading, spacing: 6) {
+            switch shown {
+            case .message(let text):
+                Text(text)
+                    .font(.subheadline)
+                    .foregroundStyle(palette.muted.color)
                     .fixedSize(horizontal: false, vertical: true)
+            case .notes(let markdown, let more):
+                MarkdownView(parts: ItemMarkdown.parse(markdown), style: .chat)
+                if more > 0 {
+                    Text(Self.moreText(more))
+                        .font(.footnote)
+                        .foregroundStyle(palette.muted.color)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(PixelMetrics.padding)
-        .pixelBox(fill: theme.card, line: theme.line, shadow: nil, border: PixelMetrics.thinBorder)
+        .padding(ChatScreenMetrics.padding)
+        .chatSurface()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Notes: " + lines.joined(separator: " "))
     }
 }
 
-/// A line under the composer: a sent message's confirmation, in the muted colour.
+/// A line over the composer: a sent message's confirmation, in the muted colour.
 struct SentLine: View {
     var text: String
 
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        PixelText(text, role: .detail)
-            .foregroundStyle(PixelTheme(scheme).muted.color)
+        Text(text)
+            .font(.footnote)
+            .foregroundStyle(ChatPalette(scheme).muted.color)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -212,8 +262,8 @@ struct FlowLayout: Layout {
     }
 }
 
-/// The room's body under its header: the board, the quests by state, the items and the notes. The screen passes
-/// tappable pieces; the snapshot the bare ones.
+/// The room's body under its header: "Open tracker" when the project has one (B-46), the board, the quests by
+/// state, the items and the notes. The screen passes tappable pieces; the snapshot the bare ones.
 struct RoomContent<Board: View, Quest: View, Item: View>: View {
     var room: ProjectRoom
     var notes: NotesState?
@@ -226,13 +276,18 @@ struct RoomContent<Board: View, Quest: View, Item: View>: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
+        let palette = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: MapMetrics.gap) {
             if let problem { ProblemLine(text: problem, dismiss: dismiss) }
+            if let tracker = room.tracker {
+                TrackerButton(url: tracker)
+            }
             board()
             if room.quests.isEmpty {
                 RoomSectionTitle("Quests")
-                PixelText("No quests in this project right now.", role: .detail)
-                    .foregroundStyle(PixelTheme(scheme).muted.color)
+                Text("No quests in this project right now.")
+                    .font(.subheadline)
+                    .foregroundStyle(palette.muted.color)
             }
             ForEach(room.quests.sections) { section in
                 RoomSectionTitle(section.group.title, spoken: section.group.spokenTitle)
@@ -240,10 +295,11 @@ struct RoomContent<Board: View, Quest: View, Item: View>: View {
             }
             RoomSectionTitle("Items")
             if room.items.isEmpty {
-                PixelText("No items yet.", role: .detail)
-                    .foregroundStyle(PixelTheme(scheme).muted.color)
+                Text("No items yet.")
+                    .font(.subheadline)
+                    .foregroundStyle(palette.muted.color)
             } else {
-                FlowLayout(spacing: PixelMetrics.steps(3)) {
+                FlowLayout(spacing: 8) {
                     ForEach(room.items) { item($0) }
                 }
             }
@@ -254,21 +310,29 @@ struct RoomContent<Board: View, Quest: View, Item: View>: View {
     }
 }
 
-/// An item's chip, in the project's colour.
+/// An item as a rounded chip on white, at least 44 pt tall.
 struct ItemChip: View {
     var item: RoomItem
     var tone: ProjectChip.Tone
 
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
-        ProjectChip(item.title, tone: tone)
+        let palette = ChatPalette(scheme)
+        Text(item.title)
+            .font(.subheadline)
+            .foregroundStyle(palette.ink.color)
+            .lineLimit(2)
+            .padding(.horizontal, 12)
             .frame(minHeight: PixelMetrics.minTapTarget)
+            .chatSurface(radius: 22)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(item.spoken)
     }
 }
 
 /// The room laid out in a plain stack, composer included, for the snapshot tests (`ImageRenderer` draws nothing in
-/// a `ScrollView` and a yellow box for a `TextField`; `chatStillAvatars` makes the composer draw its text).
+/// a `ScrollView` and a yellow box for a `TextField`, so the composer draws its words).
 struct RoomStill: View {
     var room: ProjectRoom
     var board: BoardState?
@@ -286,18 +350,19 @@ struct RoomStill: View {
                         board: { BoardView(board: room.board, state: board) },
                         quest: { RoomQuest(row: $0, moving: false) },
                         item: { ItemChip(item: $0, tone: room.tone) })
-            RoomComposer(room: room, draft: .constant(draft), sent: sent, send: {})
-                .environment(\.chatStillAvatars, true)
+            RoomComposer(room: room, draft: .constant(draft), sent: sent, still: true, send: {})
         }
-        .background(PixelTheme(scheme).background.color)
+        .background(ChatPalette(scheme).well.color)
     }
 }
 
-/// The chat's composer, saying what a message here does, with the last message's confirmation over it.
+/// The room's rounded composer, saying what a message here does, with the last message's confirmation over it. A
+/// message goes to the one chat, tagged with the project (B-32).
 struct RoomComposer: View {
     var room: ProjectRoom
     @Binding var draft: String
     var sent: String?
+    var still = false
     var focused: FocusState<Bool>.Binding?
     var send: () -> Void
 
@@ -310,9 +375,11 @@ struct RoomComposer: View {
             if let sent {
                 SentLine(text: sent)
                     .padding(.horizontal, MapMetrics.inset.leading)
-                    .padding(.top, PixelMetrics.steps(2))
+                    .padding(.vertical, 6)
             }
-            Composer(text: $draft, placeholder: Self.placeholder(name: agentName), focused: focused, send: send)
+            ChatComposerField(text: $draft, placeholder: Self.placeholder(name: agentName),
+                              fieldLabel: "Message to \(agentName) about \(room.name)", still: still,
+                              focused: focused, send: send)
         }
     }
 }

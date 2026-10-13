@@ -1,7 +1,9 @@
 # Items — the Items tab and the artifact viewer (S-12.8)
 
 The Items tab (wireframe 4C, B-21) and the viewer every item opens in (wireframe 4B, B-34, B-35), in
-`scratch/spikes/SP5-avatar/wireframes/`. Drawn with PixelKit components.
+`scratch/spikes/SP5-avatar/wireframes/`; since S-18.6 in the chat's language (white header, rounded cards and
+buttons on the soft ground, PixelKit's `Chat/ChatScreens.swift`). A document's own text keeps the pixel Markdown
+style with its link buttons.
 
 It is a Swift package (`MarcelItems`) so its tests run in the simulator like the other packages'. The app links it and
 the tab bar shows `ItemsView` (`ios/Marcel/App/RootView.swift`). The Chat tab (an item card) and the Map tab (a

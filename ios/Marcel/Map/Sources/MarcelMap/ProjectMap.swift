@@ -16,6 +16,8 @@ public struct ProjectTile: Identifiable, Hashable, Sendable {
     public var updated: String
     /// The linked Claude Code Project (B-33a), shown as a chip.
     public var claudeProject: URL?
+    /// The coding project's tracker (B-46): "Open tracker" shows only when there is one the app may open.
+    public var tracker: URL? = nil
     /// What VoiceOver says for the whole tile, in full words.
     public var spoken: String
 }
@@ -95,12 +97,13 @@ public struct ProjectMap: Equatable, Sendable {
         spoken.append("\(what) \(when.spoken)")
         let claude = project.claudeProjectUrl.flatMap(URL.init(string:))
         if claude != nil { spoken.append("Linked to a Claude Code project") }
+        let tracker = TrackerButton.url(project.trackerUrl)
 
         return ProjectTile(
             id: project.id, name: project.name, tone: tone(for: project.id),
             needsYou: counts.needsYou > 0 ? "\(counts.needsYou) needs you" : nil,
             detail: shown.joined(separator: " · "), updated: "\(what) \(when.short)", claudeProject: claude,
-            spoken: spoken.joined(separator: ". ") + ".")
+            tracker: tracker, spoken: spoken.joined(separator: ". ") + ".")
     }
 
     /// A project's colour, from its id: the same hash as the Chat and Quests tabs, so a project keeps its colour.

@@ -58,6 +58,40 @@ final class MapSnapshotTests: XCTestCase {
             named: "Room-sent", variants: [.light, .dark], padding: 0)
     }
 
+    /// A coding project with a tracker (B-46): "Open tracker" over its board.
+    func testACodingRoomWithATracker() throws {
+        let room = try XCTUnwrap(try FedCache.seeded().room("prj_dev"))
+        Snapshot.assert(RoomStill(room: room, board: .rows([PreviewRow("PR #41 · CI green")]), notes: Self.briefNotes),
+                        named: "Room-tracker", variants: [.light, .dark], padding: 0)
+    }
+
+    /// A notes file with the ADR-011 brief: the room previews only what quests wrote under `## Notes`.
+    static let briefNotes: NotesState = .text("""
+        # Marcel dev
+
+        ## What it is for
+
+        The home assistant the family talks to
+
+        ## Where the work happens
+
+        shbunder/marcel
+
+        ## How to check the work
+
+        `make check`
+
+        ## What needs a go-ahead first
+
+        (not known yet)
+
+        ## Notes
+
+        What later threads in this project need to know.
+        - 2026-10-12 The iOS gate needs a private simulator (from Fix the board).
+        - 2026-10-13 **Contracts** change only through the lead (from Add mentions).
+        """)
+
     func testAnEmptyRoom() throws {
         let fed = try FedCache()
         try fed.apply("project.created", Fx.projectJSON("prj_garden", "Garden", goal: "A vegetable patch by May"))
@@ -146,6 +180,17 @@ final class MapAccessibilityTests: XCTestCase {
             let tile = found.first { $0.label == map.tiles[0].spoken }
             XCTAssertGreaterThanOrEqual(tile?.frame.height ?? 0, 44, "\(size): a tile is a comfortable target")
         }
+    }
+
+    /// S-18.6: a tile opens its room on a tap, not as a Button (it holds "Open tracker"), so VoiceOver must still find
+    /// the tile's summary as a button that opens the room, and the tracker as a button of its own.
+    func testATileIsAButtonForVoiceOverAndTheTrackerIsAnother() throws {
+        let map = try MapSnapshotTests.wireframeMap
+        let dev = try XCTUnwrap(map.tiles.first { $0.id == "prj_dev" })
+        let found = elements(of: TileView(tile: dev, open: {}).frame(width: 180))
+        let summary = found.first { $0.label == dev.spoken }
+        XCTAssertTrue(summary?.traits.contains(.button) ?? false, "the tile's summary is not a button")
+        XCTAssertTrue(found.contains { $0.label == "Open tracker" && $0.traits.contains(.button) })
     }
 
     func testTheRoomReadsInPlainWords() throws {

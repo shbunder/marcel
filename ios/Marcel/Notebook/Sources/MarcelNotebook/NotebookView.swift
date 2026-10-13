@@ -22,7 +22,7 @@ public struct NotebookView: View {
             }
             .refreshable { await model.load() }
         }
-        .background(PixelTheme(scheme).background.color)
+        .background(ChatPalette(scheme).well.color)
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $open) { row in
             NoteEditorView(model: model.editor(for: row))
@@ -60,7 +60,7 @@ struct NotebookContent: View {
                     NotebookNote(text: NotebookText.noRollovers)
                 } else {
                     ForEach(carried) { rollover in
-                        PixelText(model.text.rollover(rollover), role: .detail)
+                        Text(model.text.rollover(rollover)).font(.footnote)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -87,7 +87,7 @@ struct NotebookContent: View {
     @ViewBuilder private var notes: some View {
         NotebookCard("About you") {
             ForEach(Array(model.aboutYouPreview.enumerated()), id: \.offset) { _, line in
-                PixelText(line, role: .body)
+                Text(line).font(.body)
                     .fixedSize(horizontal: false, vertical: true)
             }
             NoteRowView(title: model.aboutYouPreview.isEmpty ? "What Marcel knows about you" : "Open and edit",

@@ -12,18 +12,18 @@ struct DashboardView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: ItemsMetrics.gap) {
             if dashboard.title != itemTitle || dashboard.subtitle != nil {
                 VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
                     if dashboard.title != itemTitle {
-                        PixelText(dashboard.title, role: .label)
-                            .foregroundStyle(theme.text.color)
+                        Text(dashboard.title).font(.body.weight(.semibold))
+                            .foregroundStyle(theme.ink.color)
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityAddTraits(.isHeader)
                     }
                     if let subtitle = dashboard.subtitle {
-                        PixelText(subtitle, role: .detail)
+                        Text(subtitle).font(.footnote)
                             .foregroundStyle(theme.muted.color)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -46,8 +46,8 @@ struct MoreLine: View {
 
     var body: some View {
         if let text {
-            PixelText(text, role: .detail)
-                .foregroundStyle(PixelTheme(scheme).muted.color)
+            Text(text).font(.footnote)
+                .foregroundStyle(ChatPalette(scheme).muted.color)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -78,7 +78,7 @@ struct WidgetTitle: View {
 
     var body: some View {
         PixelText(text, role: .smallLabel)
-            .foregroundStyle(PixelTheme(scheme).muted.color)
+            .foregroundStyle(ChatPalette(scheme).muted.color)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityAddTraits(.isHeader)
     }
@@ -90,10 +90,10 @@ struct SectionView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(4)) {
-            PixelText(section.title, role: .label)
-                .foregroundStyle(theme.text.color)
+            Text(section.title).font(.body.weight(.semibold))
+                .foregroundStyle(theme.ink.color)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, PixelMetrics.steps(2))
@@ -102,7 +102,7 @@ struct SectionView: View {
                 }
                 .accessibilityAddTraits(.isHeader)
             if section.widgets.isEmpty {
-                PixelText(section.emptyText ?? "Nothing here yet.", role: .detail)
+                Text(section.emptyText ?? "Nothing here yet.").font(.footnote)
                     .foregroundStyle(theme.muted.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -131,29 +131,29 @@ struct StatView: View {
     }
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         let ink: PixelColor = switch stat.tone {
-        case .good?: ProjectChip.Tone.teal.color(in: theme)
-        case .warning?: ProjectChip.Tone.gold.color(in: theme)
-        case .bad?: ProjectChip.Tone.rose.color(in: theme)
-        case .neutral?, nil: theme.text
+        case .good?: ProjectChip.Tone.teal.color(in: PixelTheme(scheme))
+        case .warning?: ProjectChip.Tone.gold.color(in: PixelTheme(scheme))
+        case .bad?: ProjectChip.Tone.rose.color(in: PixelTheme(scheme))
+        case .neutral?, nil: theme.ink
         }
         VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
             PixelText(stat.label, role: .smallLabel)
                 .foregroundStyle(theme.muted.color)
                 .fixedSize(horizontal: false, vertical: true)
-            PixelText(stat.value, role: .title)
+            Text(stat.value).font(.headline)
                 .foregroundStyle(ink.color)
                 .fixedSize(horizontal: false, vertical: true)
             if let delta = stat.delta {
-                PixelText(delta, role: .detail)
+                Text(delta).font(.footnote)
                     .foregroundStyle(theme.muted.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(PixelMetrics.padding)
-        .pixelBox(fill: theme.card, line: theme.line, shadow: nil, border: PixelMetrics.thinBorder)
+        .chatSurface()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel([stat.label, stat.value, stat.delta, toneWords.map { "This is \($0)" }]
             .compactMap { $0 }.joined(separator: ", "))
@@ -166,21 +166,21 @@ struct ListWidgetView: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
             if let title = list.title { WidgetTitle(text: title) }
             let items = Capped(list.items, limit: DashboardLimits.rows)
             ForEach(Array(items.shown.enumerated()), id: \.offset) { _, item in
                 let link = item.url.flatMap(URL.init(string:)).flatMap(ItemMarkdown.webLink)
                 HStack(alignment: .firstTextBaseline, spacing: PixelMetrics.steps(3)) {
-                    PixelText("•", role: .body).foregroundStyle(theme.muted.color)
+                    Text("•").font(.body).foregroundStyle(theme.muted.color)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: PixelMetrics.steps(1)) {
-                        PixelText(item.text, role: .body)
-                            .foregroundStyle(theme.text.color)
+                        Text(item.text).font(.body)
+                            .foregroundStyle(theme.ink.color)
                             .fixedSize(horizontal: false, vertical: true)
                         if let detail = item.detail {
-                            PixelText(detail, role: .detail)
+                            Text(detail).font(.footnote)
                                 .foregroundStyle(theme.muted.color)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -206,7 +206,7 @@ struct ChecklistView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
             if let title = checklist.title { WidgetTitle(text: title) }
             let items = Capped(checklist.items, limit: DashboardLimits.rows)
@@ -216,12 +216,12 @@ struct ChecklistView: View {
                         Rectangle().strokeBorder(theme.line.color, lineWidth: PixelMetrics.thinBorder)
                             .frame(width: 18, height: 18)
                         if item.done {
-                            PixelText("✓", role: .detail).foregroundStyle(theme.text.color)
+                            Text("✓").font(.footnote).foregroundStyle(theme.ink.color)
                         }
                     }
                     .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 3 }
-                    PixelText(item.text, role: .body)
-                        .foregroundStyle(item.done ? theme.muted.color : theme.text.color)
+                    Text(item.text).font(.body)
+                        .foregroundStyle(item.done ? theme.muted.color : theme.ink.color)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
@@ -252,7 +252,7 @@ struct TableView: View {
     var capped: Capped<[String]> { Capped(rows, limit: DashboardLimits.rows) }
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         let rows = capped.shown
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
             if let title { WidgetTitle(text: title) }
@@ -260,14 +260,14 @@ struct TableView: View {
                 ForEach(rows.indices, id: \.self) { index in
                     VStack(alignment: .leading, spacing: PixelMetrics.steps(1)) {
                         ForEach(columns.indices, id: \.self) { column in
-                            PixelText("\(columns[column]): \(cell(rows[index], column))", role: .detail)
-                                .foregroundStyle(theme.text.color)
+                            Text("\(columns[column]): \(cell(rows[index], column))").font(.footnote)
+                                .foregroundStyle(theme.ink.color)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(PixelMetrics.steps(4))
-                    .pixelBox(fill: theme.card, line: theme.line, shadow: nil, border: PixelMetrics.thinBorder)
+                    .chatSurface()
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(spoken(index))
                 }
@@ -288,8 +288,8 @@ struct TableView: View {
                     ForEach(rows.indices, id: \.self) { index in
                         GridRow {
                             ForEach(columns.indices, id: \.self) { column in
-                                PixelText(cell(rows[index], column), role: .detail)
-                                    .foregroundStyle(theme.text.color)
+                                Text(cell(rows[index], column)).font(.footnote)
+                                    .foregroundStyle(theme.ink.color)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }
@@ -299,7 +299,7 @@ struct TableView: View {
                 }
                 .padding(PixelMetrics.steps(5))
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .pixelBox(fill: theme.card, line: theme.line, shadow: nil, border: PixelMetrics.thinBorder)
+                .chatSurface()
             }
             MoreLine(text: capped.moreLine("row", "rows"))
         }
@@ -336,12 +336,12 @@ struct ChartView: View {
         return ([head] + lines + [note].compactMap { $0 }).joined(separator: ". ") + "."
     }
 
-    static func palette(_ theme: PixelTheme) -> [Color] {
+    static func palette(_ theme: ChatPalette) -> [Color] {
         [PixelColor.deep, .teal, .gold, .rose, PixelColor(0x4F6396), PixelColor(0x4E6A38)].map(\.color)
     }
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         let colors = Self.palette(theme)
         let names = chart.series.map(\.name)
         let drawn = drawn
@@ -370,18 +370,18 @@ struct ChartView: View {
             .chartLegend(names.count > 1 ? .visible : .hidden)
             .chartXAxis {
                 AxisMarks { _ in
-                    AxisValueLabel().font(.custom(PixelFonts.bodyFace, size: 12)).foregroundStyle(theme.text.color)
+                    AxisValueLabel().font(.custom(PixelFonts.bodyFace, size: 12)).foregroundStyle(theme.ink.color)
                 }
             }
             .chartYAxis {
                 AxisMarks { _ in
                     AxisGridLine().foregroundStyle(theme.muted.color.opacity(0.4))
-                    AxisValueLabel().font(.custom(PixelFonts.bodyFace, size: 12)).foregroundStyle(theme.text.color)
+                    AxisValueLabel().font(.custom(PixelFonts.bodyFace, size: 12)).foregroundStyle(theme.ink.color)
                 }
             }
             .frame(height: 180)
             .padding(PixelMetrics.steps(5))
-            .pixelBox(fill: theme.card, line: theme.line, shadow: nil, border: PixelMetrics.thinBorder)
+            .chatSurface()
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(spoken)
             MoreLine(text: drawn.note)
@@ -410,20 +410,19 @@ struct NoteView: View {
     }
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
-            PixelText(note.text, role: .body)
-                .foregroundStyle(theme.text.color)
+            Text(note.text).font(.body)
+                .foregroundStyle(theme.ink.color)
                 .fixedSize(horizontal: false, vertical: true)
             if let byline {
-                PixelText(byline, role: .detail)
+                Text(byline).font(.footnote)
                     .foregroundStyle(theme.muted.color)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(PixelMetrics.padding)
-        .pixelBox(fill: theme.dialog, line: theme.line, shadow: theme.shadow, border: PixelMetrics.thickBorder,
-                  offset: PixelMetrics.smallShadow)
+        .chatSurface()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Note\(note.author.map { " from \($0)" } ?? ""): \(note.text)")
     }

@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The bottom tab strip: Chat, Quests, Map, Items. The selected tab is in the accent colour and underlined.
-/// Each tab is a button VoiceOver reads by name, with the "selected" trait on the current one.
+/// The bottom tab strip: Chat, Quests, Map, Items, in the chat's language (S-18.6, wireframe Q2 v10): white with a
+/// thin line above it, the selected tab in Marcel's rose with a short bar over it. Each tab is a button VoiceOver
+/// reads by name, with the "selected" trait on the current one.
 public struct PixelTabBar: View {
     public struct Tab: Identifiable, Hashable, Sendable {
         public var id: String
@@ -30,7 +31,8 @@ public struct PixelTabBar: View {
     }
 
     public var body: some View {
-        let theme = PixelTheme(scheme)
+        let palette = ChatPalette(scheme)
+        let active = ChatCardKind.done.label(in: palette)
         HStack(spacing: 0) {
             ForEach(tabs) { tab in
                 let isSelected = tab.id == selection
@@ -40,14 +42,13 @@ public struct PixelTabBar: View {
                     PixelText(tab.title, role: .smallLabel)
                         .lineLimit(1)
                         .fixedSize()
-                        .foregroundStyle((isSelected ? theme.accent : theme.muted).color)
-                        .padding(.bottom, PixelMetrics.steps(2))
-                        .overlay(alignment: .bottom) {
+                        .foregroundStyle((isSelected ? active : palette.muted).color)
+                        .frame(maxWidth: .infinity, minHeight: PixelMetrics.minTapTarget)
+                        .overlay(alignment: .top) {
                             if isSelected {
-                                Rectangle().fill(theme.accent.color).frame(height: PixelMetrics.grid)
+                                Capsule().fill(active.color).frame(width: 28, height: 2)
                             }
                         }
-                        .frame(maxWidth: .infinity, minHeight: PixelMetrics.minTapTarget)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -55,12 +56,11 @@ public struct PixelTabBar: View {
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
-        .padding(.top, PixelMetrics.steps(1))
-        .padding(.bottom, PixelMetrics.steps(2))
+        .padding(.bottom, PixelMetrics.steps(1))
         .frame(maxWidth: .infinity)
-        .background(Rectangle().fill(theme.bar.color))
+        .background(palette.card.color)
         .overlay(alignment: .top) {
-            Rectangle().fill(theme.line.color).frame(height: PixelMetrics.thickBorder)
+            Rectangle().fill(palette.line.color).frame(height: 1)
         }
     }
 }

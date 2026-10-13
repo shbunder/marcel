@@ -126,7 +126,7 @@ struct HTMLStill: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
             ForEach(Array(WebPolicy.text(of: html).split(separator: "\n").enumerated()), id: \.offset) { _, line in
                 Text(String(line)).font(.system(.body)).foregroundStyle(Color.black)
@@ -159,17 +159,17 @@ struct FileCard: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
-            PixelText(file.fileName, role: .label)
-                .foregroundStyle(theme.text.color)
+            Text(file.fileName).font(.body.weight(.semibold))
+                .foregroundStyle(theme.ink.color)
                 .fixedSize(horizontal: false, vertical: true)
-            PixelText("\(file.type) · \(ItemWords.size(file.size))", role: .detail)
+            Text("\(file.type) · \(ItemWords.size(file.size))").font(.footnote)
                 .foregroundStyle(theme.muted.color)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(PixelMetrics.padding)
-        .pixelBox(fill: theme.card, line: theme.line, shadow: nil, border: PixelMetrics.thinBorder)
+        .chatSurface()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(file.fileName). \(file.spoken)")
     }
@@ -225,8 +225,8 @@ struct FileItemView: View {
             case .success(let url)?:
                 QuickLookView(url: url)
             case .failure?:
-                PixelText("The phone couldn't open this file.", role: .body)
-                    .foregroundStyle(PixelTheme(scheme).muted.color)
+                Text("The phone couldn't open this file.").font(.body)
+                    .foregroundStyle(ChatPalette(scheme).muted.color)
                 Spacer()
             case nil:
                 Spacer()

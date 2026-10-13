@@ -2,58 +2,61 @@ import MarcelItems
 import PixelKit
 import SwiftUI
 
-/// The top strip (wireframe 5A): "Map · projects", on the bar colour with a heavy line under it.
+/// The top strip (wireframe Q2 v10): "Projects" on a white strip with a thin line under it.
 struct MapHeader: View {
-    @Environment(\.colorScheme) private var scheme
-
     var body: some View {
-        let theme = PixelTheme(scheme)
-        PixelText("Map · projects", role: .title)
-            .foregroundStyle(theme.text.color)
-            .accessibilityLabel("Map of your projects")
-            .accessibilityAddTraits(.isHeader)
-            .padding(.horizontal, PixelMetrics.padding + PixelMetrics.steps(1))
-            .padding(.vertical, PixelMetrics.steps(5))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(theme.bar.color)
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(theme.line.color).frame(height: PixelMetrics.thickBorder)
-            }
+        ChatHeader("Projects", spoken: "Map of your projects")
     }
 }
 
-/// One project on the map: its name, a "needs you" badge, what is going on in it, when its board last changed, and
-/// its Claude Code link. VoiceOver reads it as one sentence in full words.
+/// One project on the map (wireframe Q2 v10): a white rounded tile, framed in gold with a gold badge when something
+/// waits on you; its name, what is going on in it, when its board last changed, its Claude Code link, and "Open
+/// tracker" when it has a tracker (B-46). VoiceOver reads the tile as one sentence in full words; the tracker is a
+/// button of its own.
 struct TileView: View {
     var tile: ProjectTile
+    /// Opens the project's room. The summary VoiceOver lands on is the button for it; nil in snapshots.
+    var open: (() -> Void)? = nil
 
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
-        VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
-            PixelText(tile.name, role: .label)
-                .foregroundStyle(theme.text.color)
-                .fixedSize(horizontal: false, vertical: true)
-            PixelText(tile.detail, role: .detail)
-                .foregroundStyle(theme.muted.color)
-                .fixedSize(horizontal: false, vertical: true)
-            PixelText(tile.updated, role: .detail)
-                .foregroundStyle(theme.muted.color)
-                .fixedSize(horizontal: false, vertical: true)
-            if let needsYou = tile.needsYou {
-                StateBadge(.needsYou, text: needsYou)
+        let palette = ChatPalette(scheme)
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 5) {
+                if let needsYou = tile.needsYou {
+                    ChatBadge(needsYou)
+                }
+                Text(tile.name)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(palette.ink.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                PixelText(tile.detail, role: .smallLabel)
+                    .foregroundStyle(palette.muted.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                PixelText(tile.updated, role: .smallLabel)
+                    .foregroundStyle(palette.muted.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                if tile.claudeProject != nil {
+                    Text("Claude Code →")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(palette.link.color)
+                }
             }
-            if tile.claudeProject != nil {
-                ProjectChip("Claude Code →", tone: .blue)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(tile.spoken)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Opens the project room")
+            .accessibilityAction { open?() }
             Spacer(minLength: 0)
+            if let tracker = tile.tracker {
+                TrackerButton(url: tracker)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(PixelMetrics.padding)
-        .pixelBox(fill: theme.card, line: theme.line, shadow: theme.shadow)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(tile.spoken)
+        .padding(ChatScreenMetrics.padding)
+        .chatSurface(tile.needsYou == nil ? .plain : .framed(.needsYou))
     }
 }
 
@@ -63,21 +66,21 @@ struct NewTile: View {
     @Environment(\.agentName) private var agentName
 
     var body: some View {
-        let theme = PixelTheme(scheme)
-        VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
-            PixelText("+ New", role: .label)
-                .foregroundStyle(theme.text.color)
-            PixelText("or just ask \(agentName)", role: .detail)
-                .foregroundStyle(theme.muted.color)
+        let palette = ChatPalette(scheme)
+        VStack(alignment: .leading, spacing: 5) {
+            Text("+ New")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(palette.ink.color)
+            Text("or just ask \(agentName)")
+                .font(.footnote)
+                .foregroundStyle(palette.muted.color)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .frame(minHeight: PixelMetrics.minTapTarget)
-        .padding(PixelMetrics.padding)
-        .overlay(
-            Rectangle().strokeBorder(theme.line.color, style: StrokeStyle(lineWidth: PixelMetrics.thickBorder,
-                                                                          dash: [PixelMetrics.steps(3)])))
+        .padding(ChatScreenMetrics.padding)
+        .chatSurface(.dashed)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("New project")
         .accessibilityHint("Opens the chat to ask \(agentName) for one")
@@ -128,8 +131,9 @@ struct EmptyMap: View {
     @Environment(\.agentName) private var agentName
 
     var body: some View {
-        PixelText("No projects yet. \(agentName) files every thread in one; ask to start one.", role: .body)
-            .foregroundStyle(PixelTheme(scheme).muted.color)
+        Text("No projects yet. \(agentName) files every thread in one; ask to start one.")
+            .font(.body)
+            .foregroundStyle(ChatPalette(scheme).muted.color)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -143,14 +147,15 @@ struct ProblemLine: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let palette = ChatPalette(scheme)
         Button(action: dismiss) {
-            PixelText(text, role: .detail)
-                .foregroundStyle(theme.text.color)
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(palette.ink.color)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, minHeight: PixelMetrics.minTapTarget, alignment: .leading)
-                .padding(.horizontal, PixelMetrics.padding)
-                .pixelBox(fill: theme.dialog, line: theme.line, shadow: nil, border: PixelMetrics.thinBorder)
+                .padding(.horizontal, 12)
+                .chatSurface(.framed(.failed))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(text)
@@ -171,7 +176,7 @@ struct MapStill: View {
             MapHeader()
             MapContent(map: map, problem: problem, dismiss: {}, tile: { TileView(tile: $0) }, new: { NewTile() })
         }
-        .background(PixelTheme(scheme).background.color)
+        .background(ChatPalette(scheme).well.color)
     }
 }
 
@@ -194,6 +199,6 @@ struct MapContent<Tile: View, New: View>: View {
 }
 
 enum MapMetrics {
-    static let inset = EdgeInsets(top: PixelMetrics.steps(5), leading: 12, bottom: 16, trailing: 12)
-    static let gap: CGFloat = PixelMetrics.steps(5)
+    static let inset = ChatScreenMetrics.content
+    static let gap: CGFloat = ChatScreenMetrics.gap
 }

@@ -14,6 +14,8 @@ public struct ProjectRoom: Equatable, Sendable {
     public var slug: String
     public var tone: ProjectChip.Tone
     public var claudeProject: URL?
+    /// The coding project's tracker (B-46); nil hides "Open tracker".
+    public var tracker: URL?
     public var board: BoardCard
     /// The project's quests, grouped like the quest log (waiting on you first).
     public var quests: QuestBoard
@@ -31,6 +33,7 @@ public struct ProjectRoom: Equatable, Sendable {
         slug = project.slug
         tone = ProjectMap.tone(for: project.id)
         claudeProject = project.claudeProjectUrl.flatMap(URL.init(string:))
+        tracker = TrackerButton.url(project.trackerUrl)
 
         let mine = artifacts.filter { $0.projectId == project.id }
         let pinned = artifacts.first { $0.id == project.boardArtifactId }
@@ -62,7 +65,7 @@ public struct ProjectRoom: Equatable, Sendable {
     }
 }
 
-/// The pinned board: an `ArtifactCard` titled "Project board" with "Pinned · v7". Its rows come from the board's
+/// The pinned board: a white card labelled "Project board · Pinned · v7". Its rows come from the board's
 /// content, which the room fetches per version.
 public struct BoardCard: Equatable, Sendable {
     public var artifactId: String

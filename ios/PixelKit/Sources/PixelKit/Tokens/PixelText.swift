@@ -35,7 +35,7 @@ public struct PixelText: View {
             .accessibilityLabel(Text(verbatim: string))
     }
 
-    /// The styled `Text` alone, for composing several pieces into one paragraph (see `ItemGetBanner`).
+    /// The styled `Text` alone, for composing several pieces into one paragraph (e.g. a label and a value in one line).
     static func text(_ string: String, role: PixelTextRole, capitals: Bool = true, dynamicType: DynamicTypeSize) -> Text {
         let shown = role.isLabel && capitals ? string.uppercased() : string
         return PixelGlyphFallback.text(shown, face: role.isLabel ? .silkscreen : .pixelify,

@@ -18,50 +18,19 @@ struct ItemsClock: Equatable {
 }
 
 enum ItemsMetrics {
-    static let inset = EdgeInsets(top: PixelMetrics.steps(5), leading: 12, bottom: 16, trailing: 12)
-    static let gap: CGFloat = PixelMetrics.steps(5)
+    static let inset = ChatScreenMetrics.content
+    static let gap: CGFloat = ChatScreenMetrics.gap
 }
 
-/// The viewer's top strip (wireframe 4B): ◀ back, the item's name, and its version line, on the artifact gold.
+/// The viewer's top strip in the chat's language: "‹" back, the item's name, and its version line, on white.
 struct ViewerHeader: View {
     var title: String
     var line: VersionLine?
     var back: () -> Void
 
-    @Environment(\.colorScheme) private var scheme
-
     var body: some View {
-        let theme = PixelTheme(scheme)
-        HStack(alignment: .center, spacing: PixelMetrics.steps(3)) {
-            Button(action: back) {
-                PixelGlyph(.pointer, color: theme.onHeader, pixel: 3)
-                    .scaleEffect(x: -1)
-                    .frame(width: PixelMetrics.minTapTarget, height: PixelMetrics.minTapTarget)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-            VStack(alignment: .leading, spacing: PixelMetrics.steps(1)) {
-                PixelText(title, role: .title)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
-                if let line {
-                    PixelText(line.text, role: .detail)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel(line.spoken)
-                }
-            }
-            .foregroundStyle(theme.onHeader.color)
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, PixelMetrics.steps(1))
-        .padding(.trailing, PixelMetrics.padding)
-        .padding(.vertical, PixelMetrics.steps(3))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.header.color)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.line.color).frame(height: PixelMetrics.thickBorder)
-        }
+        // The name (a heading) and the version line are two items for VoiceOver, the line in full words.
+        ChatHeader(title, subtitle: line?.text, subtitleSpoken: line?.spoken ?? "", back: back)
     }
 }
 
@@ -73,13 +42,15 @@ struct PRCardView: View {
     @Environment(\.itemsClock) private var clock
     @Environment(\.openURL) private var openURL
 
-    var badge: StateBadge.Kind {
+    /// The PR's state as the chat colours it: rose ready for review, teal merged, red closed, gold for a draft or an
+    /// unknown state (it still needs looking at).
+    var kind: ChatCardKind {
         switch card.state {
-        case .open?: .ready
-        case .draft?: .queued
-        case .merged?: .done
-        case .closed?: .stopped
-        case nil: .unknown
+        case .open?: .done
+        case .draft?: .needsYou
+        case .merged?: .started
+        case .closed?: .failed
+        case nil: .needsYou
         }
     }
 
@@ -95,54 +66,54 @@ struct PRCardView: View {
     }
 
     private func content(now: Date, timeZone: TimeZone) -> some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         let checked = card.checked(now: now, timeZone: timeZone)
         return VStack(alignment: .leading, spacing: ItemsMetrics.gap) {
             VStack(alignment: .leading, spacing: PixelMetrics.steps(4)) {
                 HStack(alignment: .center, spacing: PixelMetrics.steps(4)) {
-                    StateBadge(badge, text: card.stateText)
+                    ChatBadge(card.stateText, kind: kind)
                     if let number = card.number {
-                        PixelText("#\(number)", role: .label).foregroundStyle(theme.text.color)
+                        Text("#\(number)").font(.body.weight(.semibold)).foregroundStyle(theme.ink.color)
                     }
                     Spacer(minLength: 0)
                 }
-                PixelText(card.title, role: .body)
-                    .foregroundStyle(theme.text.color)
+                Text(card.title).font(.body)
+                    .foregroundStyle(theme.ink.color)
                     .fixedSize(horizontal: false, vertical: true)
                 if let repository = card.repository {
-                    PixelText(repository, role: .detail).foregroundStyle(theme.muted.color)
+                    Text(repository).font(.footnote).foregroundStyle(theme.muted.color)
                 }
                 ForEach([card.checks, card.review].compactMap { $0 }, id: \.self) { line in
-                    PixelText(line, role: .detail)
-                        .foregroundStyle(theme.text.color)
+                    Text(line).font(.footnote)
+                        .foregroundStyle(theme.ink.color)
                 }
                 if let note = card.note {
-                    PixelText(note, role: .detail)
+                    Text(note).font(.footnote)
                         .foregroundStyle(theme.muted.color)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let checked {
-                    PixelText(checked.short, role: .detail)
+                    Text(checked.short).font(.footnote)
                         .foregroundStyle(theme.muted.color)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if card.selfChange {
-                    PixelText("This changes Marcel itself. It is merged only when you approve it.",
-                              role: .detail)
-                        .foregroundStyle(theme.accent.color)
+                    Text("This changes Marcel itself. It is merged only when you approve it.")
+                        .font(.footnote)
+                        .foregroundStyle(theme.link.color)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(PixelMetrics.padding)
-            .pixelBox(fill: theme.card, line: theme.line, shadow: theme.shadow)
+            .chatSurface()
             .accessibilityElement(children: .ignore)
             .accessibilityLabel([card.spoken, checked?.spoken].compactMap { $0 }.joined(separator: ". "))
             if let github = card.github {
                 ActionChip(title: "Open in GitHub", tone: .blue) { openURL(github) }
                     .accessibilityHint("Opens the pull request in Safari")
             } else {
-                PixelText("This pull request has no GitHub address the app can open.", role: .detail)
+                Text("This pull request has no GitHub address the app can open.").font(.footnote)
                     .foregroundStyle(theme.muted.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -158,54 +129,49 @@ struct LinkCardView: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: ItemsMetrics.gap) {
             VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
-                PixelText(card.isBranch ? "A branch, with no pull request yet" : "A link", role: .detail)
+                Text(card.isBranch ? "A branch, with no pull request yet" : "A link").font(.footnote)
                     .foregroundStyle(theme.muted.color)
-                PixelText(card.title, role: .body)
-                    .foregroundStyle(theme.text.color)
+                Text(card.title).font(.body)
+                    .foregroundStyle(theme.ink.color)
                     .fixedSize(horizontal: false, vertical: true)
                 if let host = card.host {
-                    PixelText(host, role: .detail).foregroundStyle(theme.muted.color)
+                    Text(host).font(.footnote).foregroundStyle(theme.muted.color)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(PixelMetrics.padding)
-            .pixelBox(fill: theme.card, line: theme.line, shadow: theme.shadow)
+            .chatSurface()
             .accessibilityElement(children: .combine)
             if let url = card.url {
                 ActionChip(title: card.buttonTitle, tone: .blue) { openURL(url) }
             } else {
-                PixelText("This link can't be opened from the app.", role: .detail)
+                Text("This link can't be opened from the app.").font(.footnote)
                     .foregroundStyle(theme.muted.color)
             }
         }
     }
 }
 
-/// An outlined chip button ("Ask about this", "Open in GitHub"), at least 44 pt tall.
+/// An outlined rounded button ("Ask about this", "Open in GitHub"), at least 44 pt tall, in the colour of its tone.
 struct ActionChip: View {
     var title: String
     var tone: ProjectChip.Tone
     var action: () -> Void
 
-    @Environment(\.colorScheme) private var scheme
+    /// The chat colour for each tone the viewer uses.
+    var kind: ChatCardKind {
+        switch tone {
+        case .teal, .blue, .green: .started
+        case .gold: .needsYou
+        case .rose: .done
+        }
+    }
 
     var body: some View {
-        let ink = tone.color(in: PixelTheme(scheme)).color
-        Button(action: action) {
-            PixelText(title, role: .smallLabel)
-                .foregroundStyle(ink)
-                .lineLimit(1)
-                .padding(.horizontal, PixelMetrics.steps(5))
-                .frame(minHeight: PixelMetrics.minTapTarget)
-                .overlay(Rectangle().strokeBorder(ink, lineWidth: PixelMetrics.thinBorder))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .fixedSize()
-        .accessibilityLabel(title)
+        ChatPillButton(title, kind: kind, action: action)
     }
 }
 
@@ -218,17 +184,17 @@ struct NativeBody: View {
     @Environment(\.itemsStill) private var still
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         switch body_ {
         case .loading:
-            PixelText("Opening…", role: .body).foregroundStyle(theme.muted.color)
+            Text("Opening…").font(.body).foregroundStyle(theme.muted.color)
         case .failed(let problem), .brokenDashboard(let problem):
-            PixelText(problem, role: .body)
-                .foregroundStyle(theme.text.color)
+            Text(problem).font(.body)
+                .foregroundStyle(theme.ink.color)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(PixelMetrics.padding)
-                .pixelBox(fill: theme.dialog, line: theme.line, shadow: nil, border: PixelMetrics.thinBorder)
+                .chatSurface()
         case .markdown(let parts): MarkdownView(parts: parts)
         case .dashboard(let dashboard): DashboardView(dashboard: dashboard, itemTitle: title)
         case .pr(let card): PRCardView(card: card)
@@ -243,7 +209,7 @@ struct NativeBody: View {
             VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
                 FileCard(file: file)
                 if still {
-                    PixelText("QuickLook shows the file here.", role: .detail).foregroundStyle(theme.muted.color)
+                    Text("QuickLook shows the file here.").font(.footnote).foregroundStyle(theme.muted.color)
                 }
             }
         }
@@ -257,9 +223,9 @@ struct ScriptsLine: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        PixelText(trusted ? "Made by the hub. Its scripts run."
-                  : "Scripts are off on this page, and links open in Safari.", role: .detail)
-            .foregroundStyle(PixelTheme(scheme).muted.color)
+        Text(trusted ? "Made by the hub. Its scripts run."
+                  : "Scripts are off on this page, and links open in Safari.").font(.footnote)
+            .foregroundStyle(ChatPalette(scheme).muted.color)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -286,16 +252,16 @@ struct ViewerActions: View {
     @Environment(\.agentName) private var agentName
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
             if let problem {
-                PixelText(problem, role: .detail)
-                    .foregroundStyle(theme.accent.color)
+                Text(problem).font(.footnote)
+                    .foregroundStyle(theme.link.color)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("Problem: \(problem)")
             }
             if let sent {
-                PixelText(sent, role: .detail)
+                Text(sent).font(.footnote)
                     .foregroundStyle(theme.muted.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -304,12 +270,12 @@ struct ViewerActions: View {
             ChipFlow(spacing: PixelMetrics.steps(4), lineSpacing: PixelMetrics.steps(3)) { chips }
         }
         .padding(.horizontal, ItemsMetrics.inset.leading)
-        .padding(.top, PixelMetrics.steps(4))
-        .padding(.bottom, PixelMetrics.steps(5))
+        .padding(.top, 10)
+        .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.background.color)
+        .background(theme.card.color)
         .overlay(alignment: .top) {
-            Rectangle().fill(theme.line.color).frame(height: PixelMetrics.thinBorder)
+            Rectangle().fill(theme.line.color).frame(height: 1)
         }
     }
 
@@ -330,25 +296,25 @@ struct ViewerActions: View {
         }
     }
 
-    private func askBox(_ theme: PixelTheme) -> some View {
+    private func askBox(_ theme: ChatPalette) -> some View {
         let canSend = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !sending
         return HStack(alignment: .center, spacing: PixelMetrics.steps(3)) {
             if still {
-                PixelText(draft.isEmpty ? "Ask \(agentName) about this…" : draft, role: .body)
-                    .foregroundStyle((draft.isEmpty ? theme.muted : theme.text).color)
+                Text(draft.isEmpty ? "Ask \(agentName) about this…" : draft).font(.body)
+                    .foregroundStyle((draft.isEmpty ? theme.muted : theme.ink).color)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 TextField(text: $draft, axis: .vertical) {
                     Text("Ask \(agentName) about this…").foregroundStyle(theme.muted.color)
                 }
                 .lineLimit(1...4)
-                .pixelText(.body)
-                .foregroundStyle(theme.text.color)
-                .tint(theme.accent.color)
+                .font(.body)
+                .foregroundStyle(theme.ink.color)
+                .tint(theme.link.color)
                 .accessibilityLabel("Question for \(agentName) about this item")
             }
             Button(action: send) {
-                PixelGlyph(.pointer, color: canSend ? theme.accent : theme.muted, pixel: 3)
+                PixelGlyph(.pointer, color: canSend ? theme.link : theme.muted, pixel: 3)
                     .frame(width: PixelMetrics.minTapTarget, height: PixelMetrics.minTapTarget)
                     .contentShape(Rectangle())
             }
@@ -356,7 +322,7 @@ struct ViewerActions: View {
             .disabled(!canSend)
             .accessibilityLabel("Send")
             Button(action: toggleAsk) {
-                PixelText("X", role: .label)
+                Text("X").font(.body.weight(.semibold))
                     .foregroundStyle(theme.muted.color)
                     .frame(width: PixelMetrics.minTapTarget, height: PixelMetrics.minTapTarget)
                     .contentShape(Rectangle())
@@ -364,9 +330,9 @@ struct ViewerActions: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Close the question")
         }
-        .padding(.leading, PixelMetrics.padding)
-        .padding(.vertical, PixelMetrics.steps(1))
-        .pixelBox(fill: theme.dialog, line: theme.line, shadow: nil)
+        .padding(.leading, 14)
+        .padding(.vertical, 2)
+        .chatSurface(.well, radius: 22)
     }
 }
 
@@ -380,16 +346,16 @@ struct HistoryList: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(4)) {
-            PixelText("History", role: .label)
-                .foregroundStyle(theme.text.color)
+            Text("History").font(.body.weight(.semibold))
+                .foregroundStyle(theme.ink.color)
                 .accessibilityAddTraits(.isHeader)
             switch state {
             case .failed(let problem)?:
-                PixelText(problem, role: .detail).foregroundStyle(theme.muted.color)
+                Text(problem).font(.footnote).foregroundStyle(theme.muted.color)
             case .loading?, nil:
-                PixelText("Loading the history…", role: .detail).foregroundStyle(theme.muted.color)
+                Text("Loading the history…").font(.footnote).foregroundStyle(theme.muted.color)
             case .loaded?:
                 ForEach(rows) { row in
                     Button { open(row.version) } label: { VersionRowView(row: row, selected: row.version == shown) }
@@ -409,25 +375,24 @@ struct VersionRowView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         HStack(alignment: .firstTextBaseline, spacing: PixelMetrics.steps(5)) {
-            PixelText("v\(row.version)", role: .label)
-                .foregroundStyle(theme.text.color)
+            Text("v\(row.version)").font(.body.weight(.semibold))
+                .foregroundStyle(theme.ink.color)
                 .frame(minWidth: 36, alignment: .leading)
             VStack(alignment: .leading, spacing: PixelMetrics.steps(1)) {
-                PixelText(row.summary, role: .body)
-                    .foregroundStyle(theme.text.color)
+                Text(row.summary).font(.body)
+                    .foregroundStyle(theme.ink.color)
                     .fixedSize(horizontal: false, vertical: true)
-                PixelText(row.isCurrent ? "Current · \(row.detail)" : row.detail, role: .detail)
+                Text(row.isCurrent ? "Current · \(row.detail)" : row.detail).font(.footnote)
                     .foregroundStyle(theme.muted.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
-        .padding(PixelMetrics.padding)
+        .padding(ChatScreenMetrics.padding)
         .frame(minHeight: PixelMetrics.minTapTarget)
-        .pixelBox(fill: selected ? theme.dialog : theme.card, line: theme.line, shadow: nil,
-                  border: selected ? PixelMetrics.thickBorder : PixelMetrics.thinBorder)
+        .chatSurface(selected ? .framed(.done) : .plain)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(row.spoken + (selected ? ". Showing" : ""))
@@ -468,7 +433,7 @@ struct ViewerStill: View {
                           historyCount: historyCount, showingOld: line?.isOld == true, toggleAsk: {},
                           pin: pinnable ? {} : nil, send: {}, history: {}, latest: {})
         }
-        .background(PixelTheme(scheme).background.color)
+        .background(ChatPalette(scheme).well.color)
         .environment(\.itemsStill, true)
         .environment(\.itemsClock, clock)
     }

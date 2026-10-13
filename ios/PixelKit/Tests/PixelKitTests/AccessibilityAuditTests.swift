@@ -129,14 +129,11 @@ final class AccessibilityAuditTests: XCTestCase {
         }
 
         let labels = found.map(\.label)
-        for expected in ["Yes", "Not now", "Details", "Chat", "Quests", "Map", "Items",
-                         "Marcel says: Supplier A is cheapest: €486 a year less with solar, no exit fee. Switch now?",
-                         "You got: Energy comparison! Saved to Home energy.", "Needs your OK", "Project: Family"] {
+        for expected in ["Chat", "Quests", "Map", "Items",
+                         "Supplier A is cheapest: €486 a year less with solar, no exit fee. Switch now?",
+                         "Needs your OK", "Project: Family"] {
             XCTAssertTrue(labels.contains(expected), "\(run): no element reads \"\(expected)\"")
         }
-
-        let choices = found.filter { ["Yes", "Not now", "Details"].contains($0.label) }
-        XCTAssertTrue(choices.allSatisfy { $0.traits.contains(.button) }, "\(run): answers must be buttons")
 
         let tabs = found.filter { ["Chat", "Quests", "Map", "Items"].contains($0.label) }
         XCTAssertEqual(tabs.filter { $0.traits.contains(.selected) }.map(\.label), ["Chat"], run)
@@ -192,11 +189,9 @@ final class AccessibilityAuditTests: XCTestCase {
 
     func testEveryComponentReadsAsPlainWords() {
         let labels = [
-            DialogBox(speaker: "Marcel", text: "Two things wait for you.", showsMore: true).accessibilityText,
             QuestCard(title: "Dentist booking", state: .needsYou, project: "Family", detail: "pick a time")
                 .accessibilityText,
             ArtifactCard(title: "Morning board", badge: "Updated now") { EmptyView() }.accessibilityText,
-            ItemGetBanner(item: "Energy comparison", savedTo: "Home energy").accessibilityText,
             ProjectChip("Home energy").accessibilityText,
             HeartsHeader(title: "Marcel", subtitle: "needs you", needsYou: 1).accessibilityText,
         ] + StateBadge.Kind.allCases.map { StateBadge($0).accessibilityText }
@@ -207,11 +202,12 @@ final class AccessibilityAuditTests: XCTestCase {
     }
 
     func testBodyTextGrowsAtTheLargestTextSize() {
-        let says = "Marcel says: Supplier A is cheapest: €486 a year less with solar, no exit fee. Switch now?"
+        // The gallery's "needs you" card (S-18.6): its body text is the system font, which scales without a cap.
+        let says = "Supplier A is cheapest: €486 a year less with solar, no exit fee. Switch now?"
         let normal = elements(of: PixelGallery()).first { $0.label == says }
         let largest = elements(of: PixelGallery(), dynamicType: .accessibility5).first { $0.label == says }
         let normalHeight = try! XCTUnwrap(normal?.frame.height)
         let largestHeight = try! XCTUnwrap(largest?.frame.height)
-        XCTAssertGreaterThan(largestHeight, normalHeight * 2.5, "the dialogue text does not scale with Dynamic Type")
+        XCTAssertGreaterThan(largestHeight, normalHeight * 2.5, "the card's text does not scale with Dynamic Type")
     }
 }

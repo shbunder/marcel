@@ -45,7 +45,7 @@ public struct MapView: View {
                 let input = MapInput.read(tasks: tasks, artifacts: artifacts, projects: projects)
                 map(ProjectMap(projects: input.projects, artifacts: input.artifacts, now: timeline.date))
             }
-            .background(PixelTheme(scheme).background.color)
+            .background(ChatPalette(scheme).well.color)
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: MapRoute.self) { route in
                 switch route {
@@ -78,9 +78,10 @@ public struct MapView: View {
             ScrollView {
                 MapContent(map: map, problem: model.problem, dismiss: { model.problem = nil },
                            tile: { tile in
-                               Button { navigation.openRoom(tile.id) } label: { TileView(tile: tile) }
-                                   .buttonStyle(.plain)
-                                   .accessibilityHint("Opens the project room")
+                               // A tap, not a Button: the tile holds "Open tracker", a button of its own.
+                               TileView(tile: tile) { navigation.openRoom(tile.id) }
+                                   .contentShape(RoundedRectangle(cornerRadius: ChatScreenMetrics.radius))
+                                   .onTapGesture { navigation.openRoom(tile.id) }
                            },
                            new: {
                                Button { newProject(ProjectMap.newProjectRequest) } label: { NewTile() }
@@ -171,7 +172,7 @@ struct ProjectRoomView: View {
                 gone
             }
         }
-        .background(PixelTheme(scheme).background.color)
+        .background(ChatPalette(scheme).well.color)
         .toolbar(.hidden, for: .navigationBar)
         .sheet(item: $showing) { sheet in
             ArtifactViewer(artifactId: sheet.artifactId, conversationId: model.conversationId)
@@ -198,6 +199,7 @@ struct ProjectRoomView: View {
                     item: { item in
                         Button { showing = .item(item) } label: { ItemChip(item: item, tone: room.tone) }
                             .buttonStyle(.plain)
+                            .accessibilityHint("Opens the item")
                     })
             }
             .refreshable {
@@ -231,10 +233,11 @@ struct ProjectRoomView: View {
     }
 
     private var gone: some View {
-        VStack(spacing: PixelMetrics.steps(6)) {
-            PixelText("This project is no longer on the map.", role: .body)
-                .foregroundStyle(PixelTheme(scheme).muted.color)
-            Button("Back to the map", action: back)
+        VStack(spacing: 16) {
+            Text("This project is no longer on the map.")
+                .font(.body)
+                .foregroundStyle(ChatPalette(scheme).muted.color)
+            ChatPillButton("Back to the map", kind: .done, action: back)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

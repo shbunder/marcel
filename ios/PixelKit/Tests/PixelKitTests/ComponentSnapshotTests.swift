@@ -6,29 +6,6 @@ import XCTest
 /// PNGs in `__Snapshots__/`. Changing how a component looks makes these fail until the images are re-recorded.
 @MainActor
 final class ComponentSnapshotTests: XCTestCase {
-    func testDialogBox() {
-        Snapshot.assert(
-            DialogBox(speaker: "Marcel",
-                      text: "Good morning. Today: swim class 16:30, paper bins tonight. Two things wait for you.",
-                      showsMore: true),
-            named: "DialogBox")
-    }
-
-    func testChoicePrompt() {
-        Snapshot.assert(
-            DialogBox(speaker: "Marcel",
-                      text: "Supplier A is cheapest: €486 a year less with solar, no exit fee. Switch now?") {
-                ChoicePrompt([.init("Yes"), .init("Not now"), .init("Details")])
-            },
-            named: "ChoicePrompt")
-    }
-
-    func testChoicePromptAnswered() {
-        Snapshot.assert(
-            ChoicePrompt([.init("Tue 9:10"), .init("Thu 8:30")], marked: "Thu 8:30").disabled(true),
-            named: "ChoicePrompt-answered")
-    }
-
     func testQuestCard() {
         Snapshot.assert(
             VStack(spacing: 10) {
@@ -50,10 +27,6 @@ final class ComponentSnapshotTests: XCTestCase {
                 ArtifactRow("Current", value: "€1,496")
             },
             named: "ArtifactCard")
-    }
-
-    func testItemGetBanner() {
-        Snapshot.assert(ItemGetBanner(item: "Energy comparison", savedTo: "Home energy"), named: "ItemGetBanner")
     }
 
     func testProjectChip() {

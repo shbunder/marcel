@@ -45,7 +45,7 @@ public struct ItemsView: View {
                     .refreshable { await model.refresh() }
                 }
             }
-            .background(PixelTheme(scheme).background.color)
+            .background(ChatPalette(scheme).well.color)
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: String.self) { id in
                 ArtifactViewer(artifactId: id, service: service, conversationId: conversationId)
@@ -59,28 +59,15 @@ public struct ItemsView: View {
     }
 }
 
-/// The top strip: "Items", grouped by project.
+/// The top strip: "Items", grouped by project, on white.
 struct ItemsHeader: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
-        HStack(alignment: .firstTextBaseline) {
-            PixelText("Items", role: .title)
-                .foregroundStyle(theme.text.color)
-                .accessibilityLabel("Items, by project")
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: PixelMetrics.steps(4))
+        ChatHeader("Items", spoken: "Items, by project") {
             PixelText("By project", role: .smallLabel)
-                .foregroundStyle(theme.muted.color)
+                .foregroundStyle(ChatPalette(scheme).muted.color)
                 .accessibilityHidden(true)
-        }
-        .padding(.horizontal, PixelMetrics.padding + PixelMetrics.steps(1))
-        .padding(.vertical, PixelMetrics.steps(5))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.bar.color)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.line.color).frame(height: PixelMetrics.thickBorder)
         }
     }
 }
@@ -92,26 +79,26 @@ struct ItemTileView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
-            PixelText(tile.title, role: .label)
-                .foregroundStyle(theme.text.color)
+            Text(tile.title).font(.body.weight(.semibold))
+                .foregroundStyle(theme.ink.color)
                 .fixedSize(horizontal: false, vertical: true)
-            PixelText(tile.detail, role: .detail)
+            Text(tile.detail).font(.footnote)
                 .foregroundStyle(theme.muted.color)
                 .fixedSize(horizontal: false, vertical: true)
-            PixelText(tile.updated, role: .detail)
+            Text(tile.updated).font(.footnote)
                 .foregroundStyle(theme.muted.color)
                 .fixedSize(horizontal: false, vertical: true)
             if let badge = tile.badge {
-                StateBadge(.needsYou, text: badge)
+                ChatBadge(badge, kind: .done)
             }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .frame(minHeight: PixelMetrics.minTapTarget)
         .padding(PixelMetrics.padding)
-        .pixelBox(fill: theme.card, line: theme.line, shadow: theme.shadow)
+        .chatSurface()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(tile.spoken)
     }
@@ -128,27 +115,23 @@ struct ItemsContent<Tile: View>: View {
     @Environment(\.dynamicTypeSize) private var dynamicType
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         let columns = dynamicType.isAccessibilitySize ? 1 : 2
         VStack(alignment: .leading, spacing: ItemsMetrics.gap) {
             if let problem {
-                PixelText(problem, role: .detail)
-                    .foregroundStyle(theme.accent.color)
+                Text(problem).font(.footnote)
+                    .foregroundStyle(theme.link.color)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("Problem: \(problem)")
             }
             if library.isEmpty {
-                PixelText("No items yet. When a quest makes something — a document, a pull request, a board — it "
-                          + "shows here.", role: .body)
+                Text("No items yet. When a quest makes something — a document, a pull request, a board — it "
+                          + "shows here.").font(.body)
                     .foregroundStyle(theme.muted.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
             ForEach(library.sections) { section in
-                ProjectChip(section.name, tone: section.tone)
-                    .padding(.top, PixelMetrics.steps(2))
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(section.name)
-                    .accessibilityAddTraits(.isHeader)
+                ChatSectionTitle(section.name)
                 let rows = stride(from: 0, to: section.tiles.count, by: columns).map {
                     Array(section.tiles[$0..<min($0 + columns, section.tiles.count)])
                 }
@@ -182,6 +165,6 @@ struct ItemsStill: View {
             ItemsHeader()
             ItemsContent(library: library, problem: problem) { ItemTileView(tile: $0) }
         }
-        .background(PixelTheme(scheme).background.color)
+        .background(ChatPalette(scheme).well.color)
     }
 }

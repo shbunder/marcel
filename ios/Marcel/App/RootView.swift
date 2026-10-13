@@ -100,7 +100,8 @@ struct MainTabs: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             PixelTabBar(selection: $tab)
         }
-        .background(PixelTheme(scheme).background.color)
+        // White behind the tab bar and the home indicator, like the tab bar itself (S-18.6).
+        .background(ChatPalette(scheme).card.color)
         // A link that could not be opened says why, over the tabs, until tapped away.
         .overlay(alignment: .top) {
             if let notice = router.notice {
