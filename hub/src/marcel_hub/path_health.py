@@ -6,7 +6,11 @@ stuck. This route checks each link:
 
 - **hub**: its database answers.
 - **runner**: `GET /health` on the runner's socket answers ok within `RUNNER_TIMEOUT_S`;
-  `latency_ms` is that round trip.
+  `latency_ms` is that round trip, and `claude_version` / `claude_version_expected` are the
+  runner's. When it is not ok, `reason` is the runner's own. `state` is `version_drift` when the
+  only thing wrong is that the installed claude differs from the pin (the runner refuses new
+  sessions until `deploy/install-claude.sh` runs): a separate state, so a redeploy watchdog does
+  not take it for a broken merge. Anything else is `down`.
 - **brain**, per agent: the main conversation has a brain session, its channel socket is connected,
   and that session sent a frame within `BRAIN_SILENT_S`. The channel server inside the brain's
   `claude` process pings the hub every 20 s (channel-protocol.md), so a recent frame proves that
@@ -40,6 +44,11 @@ from marcel_hub.models import Agent
 TUNNEL_HEADER = 'cf-connecting-ip'
 SECRET_HEADER = 'x-marcel-secret'
 RUNNER_TIMEOUT_S = 5.0
+VERSION_FIELDS = ('claude_version', 'claude_version_expected')
+DRIFT_REASON = (
+    'Claude Code {claude_version} is installed, but Marcel is tested with '
+    '{claude_version_expected}. Run deploy/install-claude.sh.'
+)
 BRAIN_SILENT_S = 45.0  # the channel server pings every 20 s: two missed pings is down
 
 router = APIRouter(prefix='/internal')
@@ -66,9 +75,33 @@ async def _runner(request: Request) -> dict[str, Any]:
     except Exception as exc:  # the runner client says what went wrong in plain words
         return {'state': 'down', 'reason': str(exc) or type(exc).__name__}
     latency = round((time.monotonic() - started) * 1000)
-    if not (isinstance(answer, dict) and answer.get('ok')):
+    if not isinstance(answer, dict):
         return {'state': 'down', 'reason': 'The runner says it is not ok.', 'latency_ms': latency}
-    return {'state': 'ok', 'latency_ms': latency}
+    versions = {k: answer[k] for k in VERSION_FIELDS if isinstance(answer.get(k), str)}
+    if answer.get('ok'):
+        return {'state': 'ok', 'latency_ms': latency, **versions}
+    state = 'version_drift' if _drift(answer) else 'down'
+    reason = answer.get('reason') or (
+        DRIFT_REASON.format(**versions)
+        if state == 'version_drift'
+        else 'The runner says it is not ok.'
+    )
+    return {'state': state, 'reason': str(reason), 'latency_ms': latency, **versions}
+
+
+def _drift(answer: dict[str, Any]) -> bool:
+    """The runner is up and well except for the claude version: installed is not the pin
+    (runner-api.yaml `Health.claude_version_expected`, 0.1.10). Its supervisor runs on its own, so
+    only installing the pinned claude is needed, not a rollback."""
+    installed = str(answer.get('claude_version') or '').split()
+    expected = str(answer.get('claude_version_expected') or '').strip()
+    supervisor = answer.get('supervisor') or {}
+    return (
+        bool(installed and expected)
+        and installed[0] != expected
+        and supervisor.get('running') is True
+        and supervisor.get('own_unit') is True
+    )
 
 
 def _brains(request: Request) -> list[dict[str, Any]]:

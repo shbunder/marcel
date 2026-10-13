@@ -157,3 +157,71 @@ def test_a_broken_database_is_down(hub: ChannelHub, monkeypatch: pytest.MonkeyPa
         channel.until_pong()
         status, body = check(hub)
     assert status == 503 and body['hub'] == 'down'
+
+
+# Claude version drift (S-03.10's pin, runner-api 0.1.10) ---------------------------------------
+
+UP = {'running': True, 'own_unit': True}
+
+
+def drifted(**over: Any) -> dict[str, Any]:
+    return {'ok': False, 'version': '0.1.10', 'claude_version': '2.1.301 (Claude Code)',
+            'claude_version_expected': '2.1.296', 'supervisor': UP, 'cap': 4, 'active_workers': 0,
+            **over}  # fmt: skip
+
+
+def connected_check(hub: ChannelHub) -> tuple[int, dict[str, Any]]:
+    sid = hub.brain()
+    with hub.connect() as channel:
+        channel.hello(sid)
+        channel.until_pong()
+        return check(hub)
+
+
+def test_version_drift_is_its_own_state_with_the_runners_words(
+    hub: ChannelHub, runner: FakeRunnerHealth
+) -> None:
+    runner.answer = drifted(reason='Claude Code 2.1.301 is installed, but Marcel needs 2.1.296.')
+    status, body = connected_check(hub)
+    assert status == 503 and body['ok'] is False
+    assert body['runner']['state'] == 'version_drift'
+    assert body['runner']['reason'] == 'Claude Code 2.1.301 is installed, but Marcel needs 2.1.296.'
+    assert body['runner']['claude_version'] == '2.1.301 (Claude Code)'
+    assert body['runner']['claude_version_expected'] == '2.1.296'
+
+
+def test_drift_without_the_runners_reason_says_what_to_run(
+    hub: ChannelHub, runner: FakeRunnerHealth
+) -> None:
+    runner.answer = drifted()
+    _, body = connected_check(hub)
+    assert body['runner']['reason'] == (
+        'Claude Code 2.1.301 (Claude Code) is installed, but Marcel is tested with 2.1.296. '
+        'Run deploy/install-claude.sh.'
+    )
+
+
+@pytest.mark.parametrize(
+    'answer',
+    [
+        drifted(supervisor={'running': False, 'own_unit': True}),  # drift, and no supervisor
+        drifted(claude_version=''),  # the binary is missing: not a drift
+        drifted(claude_version='2.1.296 (Claude Code)', reason='Spawns are failing.'),  # pinned
+        {'ok': False, 'claude_version': '2.1.296', 'supervisor': UP},  # no pin known
+    ],
+)
+def test_anything_else_not_ok_is_down_with_the_runners_reason(
+    hub: ChannelHub, runner: FakeRunnerHealth, answer: dict[str, Any]
+) -> None:
+    runner.answer = answer
+    _, body = connected_check(hub)
+    assert body['runner']['state'] == 'down'
+    assert body['runner']['reason'] == answer.get('reason', 'The runner says it is not ok.')
+
+
+def test_an_ok_runner_shows_its_versions(hub: ChannelHub, runner: FakeRunnerHealth) -> None:
+    runner.answer = {'ok': True, 'claude_version': '2.1.296 (Claude Code)',
+                     'claude_version_expected': '2.1.296'}  # fmt: skip
+    status, body = connected_check(hub)
+    assert status == 200
+    assert body['runner']['claude_version_expected'] == '2.1.296'

@@ -78,8 +78,11 @@ Needs no token. Returns `ok` (false when the database does not answer), `version
 whole path and is what `deploy/health.sh` (and so every deploy) waits for.
 
 - `hub`: `ok` when the database answers.
-- `runner`: `ok` when the runner's `GET /health` answers ok within 5 s, with `latency_ms`;
-  otherwise `down` and a `reason`.
+- `runner`: `ok` when the runner's `GET /health` answers ok within 5 s, with `latency_ms`, and the
+  runner's `claude_version` / `claude_version_expected`. Otherwise `down` with the runner's own
+  `reason`, or `version_drift` when the only thing wrong is that the installed claude differs from
+  the pin (its supervisor runs): the fix is `deploy/install-claude.sh`, not a rollback, and
+  `deploy/health.sh` exits 2 for it instead of 1.
 - `brains`, one per agent: `ok` when the main conversation has a brain session, its channel socket is
   connected, and it sent a frame in the last 45 s (`last_seen_s`). The channel server inside the
   brain's `claude` process pings every 20 s, so this proves the process and its link to the hub are

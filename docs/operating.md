@@ -105,10 +105,18 @@ stops every session; the hub starts the brain again): sessions get the superviso
 ## Day to day
 
 ```bash
-make -C deploy health    # units, runner, hub, and the whole path (hub → runner → a live brain). Exit 1 when any is not ok
+make -C deploy health    # units, runner, hub, and the whole path (hub → runner → a live brain); exit codes below
 make -C deploy logs      # hub, runner and supervisor logs, followed
 make -C deploy deploy    # rebuild and restart the hub only; sessions keep running
 ```
+
+`deploy/health.sh` (`make -C deploy health`) exits with:
+
+| Code | Means | Do |
+|---|---|---|
+| 0 | Everything is up: both units, the runner, the hub, and a live brain | Nothing |
+| 1 | Something is down | Read the lines above it, then the troubleshooting table below |
+| 2 | Only Claude Code's version drifted: everything runs, but the installed `claude` is not the pinned one, so the runner starts no new sessions | Run `deploy/install-claude.sh` (or `make -C deploy install`). Nothing needs rolling back: a redeploy watchdog treats 2 as "not a broken deploy" (S-11.2) |
 
 ## Pairing a phone
 
@@ -146,8 +154,9 @@ installs exactly it (`deploy/install-claude.sh`, Claude Code's installer with th
 The `claude` binary is shared with the owner's own sessions, which still update it unless
 `deploy/managed-settings.json` is installed (its `env` turns updates off for everyone). When it changes anyway,
 the runner says so and refuses: `make -C deploy health` shows "Claude Code 2.1.301 is installed, but Marcel is
-tested with 2.1.296 …", and every spawn, resume, fork and cloud start answers `422 claude_version`. Running
-sessions carry on. Fix it with `make -C deploy install`, which puts the pinned version back.
+tested with 2.1.296 …" and exits 2 (not 1: nothing is broken, see the exit codes above), and every spawn,
+resume, fork and cloud start answers `422 claude_version`. Running sessions carry on. Fix it with
+`deploy/install-claude.sh` or `make -C deploy install`, which put the pinned version back.
 
 Installing a version does not move Claude's running supervisor (`marcel-claude-daemon.service`) onto it: it keeps
 the version it started with until it restarts, and restarting it stops every session. `install-claude.sh` says so
