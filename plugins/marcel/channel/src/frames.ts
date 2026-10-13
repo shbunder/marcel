@@ -78,6 +78,13 @@ export interface UserMessage {
   project_id?: string;
   /** The item the owner attached ("Ask about this"). */
   artifact_id?: string;
+  /** The quests, projects and items the message mentions, already checked by the hub (0.7). */
+  mentions?: Mention[];
+}
+export interface Mention {
+  kind: 'task' | 'project' | 'artifact';
+  id: string;
+  title: string;
 }
 export interface Steer {
   type: 'steer';

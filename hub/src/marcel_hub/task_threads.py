@@ -52,6 +52,7 @@ class TaskThreads:
         client_id: str | None = None,
         project_id: str | None = None,
         artifact_id: str | None = None,
+        mentions: list[dict[str, Any]] | None = None,
     ) -> Message:
         """Steer the thread's task with `text`, then store it as your message in the thread.
 
@@ -78,6 +79,7 @@ class TaskThreads:
             project_id=project_id,
             client_id=client_id,
             artifact_id=artifact_id,
+            mentions=mentions,
         )
 
     # Mirroring --------------------------------------------------------------------------------

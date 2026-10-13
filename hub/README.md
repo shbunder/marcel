@@ -249,7 +249,14 @@ anyone else gets a 404 `conversation_not_found`.
   the message still goes to the main conversation, and `message.project_id` tells Marcel which
   project it is about. An `artifact_id` ("Ask about this" on an item, B-21) must be one of the
   agent's items (404 `artifact_not_found` otherwise, and nothing is stored); it is stored on the
-  message and passed to the brain on its `user_message`.
+  message and passed to the brain on its `user_message`. `mentions` (B-42, S-18.2: at most 10
+  quests, projects and items picked with `@` and `#`) must each be the agent's own, or the message
+  is refused with 404 `mention_not_found` and nothing is stored. They are stored with the hub's
+  current titles and passed to the brain; a `#project` mention also sets `project_id` when the
+  message has none.
+- `GET /api/mentions?q=&kind=` (`mentions.py`): your own quests, projects and items whose title
+  holds `q` (any case, `%` and `_` taken literally), newest change first, at most 20. Archived
+  quests and projects, and boards, are left out. Another person's are never listed.
 - `GET /api/messages/{id}`: one message in any of your conversations, for a
   `marcel://message/<id>` deep link (`conversation_id` says main or side thread). Someone else's
   message answers 404 `message_not_found`, like one that does not exist.
@@ -1029,7 +1036,7 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
   that conversation's session. Only your own messages go: Marcel's replies are never sent back to
   it. A message sent from a project room carries its `project_id` on the `user_message`, so the
   brain knows which project it is about; one sent with "Ask about this" carries the item's
-  `artifact_id`, so the brain can read it. A conversation with no session yet (`brain_session_id` unset) gets nothing queued: the
+  `artifact_id`, so the brain can read it; one with mentions carries them as `mentions`. A conversation with no session yet (`brain_session_id` unset) gets nothing queued: the
   session that starts for it reads the conversation. A thread that belongs to a task never goes to
   a session: it steers its task (see "Task threads"). Where each one goes is the triage's call
   (see "Waking the brain").

@@ -17,6 +17,7 @@ from sqlmodel import Session, col, select
 
 from marcel_hub.auth import ApiError, current_device, require_device
 from marcel_hub.auth.deps import DbSession
+from marcel_hub.mentions import Mention, resolve
 from marcel_hub.models import (
     Agent,
     Artifact,
@@ -47,6 +48,8 @@ class NewMessage(BaseModel):
     project_id: str | None = None
     # "Ask about this" on an item (B-21): stored on the message and passed to the brain.
     artifact_id: str | None = None
+    # B-42: the quests, projects and items picked in the composer; each must be the agent's own.
+    mentions: list[Mention] = Field(default_factory=list, max_length=10)
 
 
 class SendToMain(BaseModel):
@@ -76,6 +79,8 @@ def message_json(msg: Message, thread: dict[str, Any] | None = None) -> dict[str
     for key in ('text', 'milestone', 'approval_id', 'quoted_message_id'):
         if key in msg.body_json:
             body[key] = msg.body_json[key]
+    if msg.mentions_json:
+        body['mentions'] = msg.mentions_json
     if msg.task_id is not None:
         body['task_id'] = msg.task_id
     if msg.project_id is not None:
@@ -175,6 +180,7 @@ def post_message(
     client_id: str | None = None,
     artifact_id: str | None = None,
     reply_to_message_id: str | None = None,
+    mentions: list[dict[str, Any]] | None = None,
 ) -> Message:
     """Store a message and send `message.created` to every device of the owner.
 
@@ -210,6 +216,7 @@ def post_message(
             client_id=client_id,
             artifact_id=artifact_id,
             reply_to_message_id=reply_to_message_id,
+            mentions_json=mentions or [],
         )
         session.add(msg)
         session.flush()
@@ -326,9 +333,14 @@ async def send_message(
 
     A `project_id` (sent from a project room, B-32) and an `artifact_id` ("Ask about this", B-21)
     are stored on the message; the channel gateway passes both to the brain with the text. An
-    item that is not this agent's answers 404 `artifact_not_found`. In a task's own thread the
+    item that is not this agent's answers 404 `artifact_not_found`. `mentions` (B-42) must be
+    the agent's own, or nothing is stored (404 `mention_not_found`); a `#project` mention files
+    the message in that project when it has no `project_id`. In a task's own thread the
     message steers that task instead (`task_threads`, S-04.9)."""
     conv = own_conversation(session, conversation_id, current_device(request))
+    mentions = resolve(session, body.mentions, conv.agent_id)
+    if body.project_id is None:
+        body.project_id = next((m['id'] for m in mentions if m['kind'] == 'project'), None)
     if body.project_id is not None:
         project = session.get(Project, body.project_id)
         if project is None or project.agent_id != conv.agent_id:
@@ -343,6 +355,7 @@ async def send_message(
             client_id=body.client_id,
             project_id=body.project_id,
             artifact_id=body.artifact_id,
+            mentions=mentions,
         )
         return message_json(msg, threads_of(session, [msg.id]).get(msg.id))
     msg = post_message(
@@ -355,6 +368,7 @@ async def send_message(
         project_id=body.project_id,
         client_id=body.client_id,
         artifact_id=body.artifact_id,
+        mentions=mentions,
     )
     return message_json(msg, threads_of(session, [msg.id]).get(msg.id))
 

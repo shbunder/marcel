@@ -93,7 +93,7 @@ def test_only_the_repo_field_ties_the_repo_request_to_its_project(
 
 def test_every_project_case_has_a_recorded_turn() -> None:
     replays = load_replays()
-    assert set(replays) == set(PROJECT_CASES)
+    assert set(replays) == {*PROJECT_CASES, 'mention-quest'}  # the mention case: S-18.2
     for case_id in PROJECT_CASES:
         assert case_named(case_id)['behaviours'] == ['B-31']
 

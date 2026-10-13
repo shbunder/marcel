@@ -309,6 +309,24 @@ describe('inbound messages', () => {
     expect(h.hub.of('ack').map((a) => a.seq)).toEqual([1, 2, 3, 4]);
   });
 
+  it('passes mentions in meta as a JSON string, and leaves them out when there are none', async () => {
+    const h = await connected();
+    const mentions = [
+      { kind: 'task', id: 'tsk_01J9ZQ5', title: 'Fix flaky login test' },
+      { kind: 'project', id: 'prj_kitchen', title: 'Kitchen' },
+    ] as const;
+    const base = { type: 'user_message', conversation_id: 'c', text: '@Fix flaky login test' } as const;
+    h.hub.push({ ...base, seq: 1, message_id: 'm1', mentions: [...mentions] });
+    h.hub.push({ ...base, seq: 2, message_id: 'm2', mentions: [] });
+    h.hub.push({ ...base, seq: 3, message_id: 'm3' });
+    await flush();
+    const metas = h.notifications('notifications/claude/channel').map((n) => (n.params as { meta: Record<string, string> }).meta);
+    expect(JSON.parse(metas[0]?.mentions ?? 'null')).toEqual(mentions);
+    expect(typeof metas[0]?.mentions).toBe('string');
+    expect(metas[1]).not.toHaveProperty('mentions');
+    expect(metas[2]).not.toHaveProperty('mentions');
+  });
+
   it('uses meta keys that are identifiers only', async () => {
     const h = await connected();
     h.hub.push({ type: 'user_message', seq: 3, message_id: 'm', conversation_id: 'c', text: 'x', quoted_message_id: 'q', project_id: 'p', artifact_id: 'a' });

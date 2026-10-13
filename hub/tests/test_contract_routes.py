@@ -15,9 +15,7 @@ METHODS = {'get', 'post', 'put', 'patch', 'delete'}
 
 # App API operations the contract has and the hub does not serve yet, with the work that adds
 # them. The last test fails as soon as one is served, so this list can only shrink.
-PENDING_OPERATIONS: dict[tuple[str, str], str] = {
-    ('GET', '/api/mentions'): 'mentions: S-18.2',
-}
+PENDING_OPERATIONS: dict[tuple[str, str], str] = {}
 # The same for brain-api.yaml (under `/brain`) and session-api.yaml (under `/api`, except a path
 # with its own `servers`, served at the hub's root). Each list can only shrink.
 PENDING_BRAIN_OPERATIONS: dict[tuple[str, str], str] = {}

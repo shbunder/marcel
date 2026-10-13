@@ -23,6 +23,8 @@ The server has no runtime dependencies.
 
 - Messages arrive as channel events. `meta.kind` is `user_message`, `steer` or `system_event`.
   A quoted message adds `meta.quoted_message_id`; a hand-back steer adds `meta.handback` = `"true"`.
+  A message with `@` or `#` mentions adds `meta.mentions`: the hub's checked list as a JSON string
+  (`meta` values are strings), e.g. `[{"kind":"task","id":"tsk_…","title":"Fix flaky login test"}]`.
 - Tool `reply(text, in_reply_to?)` for the brain and side threads.
 - Tool `report(kind, …)` for workers: `started`, `progress` (needs `text`), `artifact` (needs `artifact`), `done` and `failed` (need `summary`),
   and `note` (needs `text`, 1 to 1000 characters: one lasting fact for the project's notes).

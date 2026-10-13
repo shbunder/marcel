@@ -1,5 +1,5 @@
 {
-  "about": "Recorded brain turns for the scripted project-routing test (tests/fake_brain.py, S-06.6). Each replay is what the brain does for one eval case in skills/evals/brain-routing.json, following the orchestrate skill. `skill_says` are the rules the turn relies on: the fake claude refuses to replay when the skill it is given no longer says them. `calls` go, in order, through the real tools server to an in-process hub.",
+  "about": "Recorded brain turns for the scripted project-routing test (tests/fake_brain.py, S-06.6; the mention case, S-18.2). Each replay is what the brain does for one eval case in skills/evals/brain-routing.json, following the orchestrate skill. `skill_says` are the rules the turn relies on: the fake claude refuses to replay when the skill it is given no longer says them. `calls` go, in order, through the real tools server to an in-process hub.",
   "replays": {
     "project-by-repo": {
       "skill_says": [
@@ -66,6 +66,18 @@
           }
         },
         { "tool": "reply", "args": { "text": "Started *Find a banana bread recipe* on the NUC, in the Inbox." } }
+      ]
+    },
+    "mention-quest": {
+      "skill_says": [
+        "**An `@` quest mention** (the message's `mentions`, `kind: task`; checked by the hub, so the id is the owner's) means \"this is about that quest\": `tasks_send` to that quest's id, unless the message clearly asks for something new. Say which quest it went to."
+      ],
+      "calls": [
+        {
+          "tool": "tasks_send",
+          "args": { "id": "tsk_login", "text": "The owner asks: also check the login fix on Safari, not only Chrome." }
+        },
+        { "tool": "reply", "args": { "text": "Sent to *Fix flaky login test*: also check it on Safari." } }
       ]
     }
   }

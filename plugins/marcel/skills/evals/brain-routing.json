@@ -100,6 +100,20 @@
         { "tool": "reply", "args": { "text": "Inbox" } }
       ],
       "forbid": ["tasks_send", "projects_create"]
+    },
+    {
+      "id": "mention-quest",
+      "behaviours": ["B-42"],
+      "request": "<channel source=\"plugin:marcel:marcel\" kind=\"user_message\" message_id=\"msg_eval9\" conversation_id=\"cnv_main\" mentions='[{\"kind\":\"task\",\"id\":\"tsk_login\",\"title\":\"Fix flaky login test\"}]'>@Fix flaky login test also check it on Safari</channel>",
+      "answers": {
+        "tasks_list": "1 thread:\n- tsk_login: “Fix flaky login test” — working in the cloud (shbunder/marcel), 12 min in.",
+        "tasks_send": "Sent to “Fix flaky login test”."
+      },
+      "expect": [
+        { "tool": "tasks_send", "args": { "id": "tsk_login" } },
+        { "tool": "reply", "args": { "text": "Fix flaky login test" } }
+      ],
+      "forbid": ["tasks_spawn"]
     }
   ]
 }

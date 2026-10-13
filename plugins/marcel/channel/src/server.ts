@@ -116,6 +116,8 @@ export class ChannelServer {
         if (frame.quoted_message_id) meta.quoted_message_id = frame.quoted_message_id;
         if (frame.project_id) meta.project_id = frame.project_id;
         if (frame.artifact_id) meta.artifact_id = frame.artifact_id;
+        // `meta` values are strings, so the mentions travel as a JSON string of the array (0.7).
+        if (frame.mentions?.length) meta.mentions = JSON.stringify(frame.mentions);
         this.mcp.notify('notifications/claude/channel', { content: frame.text, meta });
         break;
       }

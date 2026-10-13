@@ -856,6 +856,8 @@ def user_frame(conversation_id: str, data: dict[str, Any]) -> dict[str, Any]:
         frame['project_id'] = data['project_id']
     if data.get('artifact_id'):  # "Ask about this" on an item (B-21)
         frame['artifact_id'] = data['artifact_id']
+    if data.get('mentions'):  # already checked: the agent's own (B-42)
+        frame['mentions'] = data['mentions']
     return frame
 
 
