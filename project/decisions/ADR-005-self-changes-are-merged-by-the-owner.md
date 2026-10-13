@@ -35,6 +35,12 @@ Option B.
   app for that same PR address, the hub calls `request_redeploy(sha)`: it writes the merge commit to the redeploy
   flag, the only legal restart path. The SHA comes only from GitHub's answer for the merged PR
   (`merge_commit_sha`, 40 hex characters), never from a worker or the owner.
+- **An approval covers exactly one commit (the PR head at approval time) and only a PR into `main`** of
+  `shbunder/marcel`. The card names both ("Approve change abc1234 into main"). A push while the card is open
+  replaces the card; a push after approval opens a fresh card. Merged with a head other than the approved one:
+  no redeploy, one plain alert ("New commits were added after you approved; not redeploying"), and a fresh card
+  for the merged head, whose approval redeploys the merge. Merged into another branch or repository: no
+  redeploy, one plain alert. (Amended 2026-10-13 after the PR #89 security review.)
 - **Merged without that approval** (never answered, denied, answered in a terminal, or approved for another PR
   address): no redeploy, and one plain alert — "A change to Marcel was merged without approval in the app; not
   redeploying."
@@ -52,8 +58,8 @@ Option B.
 - B-24 and S-11.1 are amended: approving no longer merges; the owner merges on GitHub.
 - The owner does two things for a self-change: approve in the app, merge on GitHub. Merging alone redeploys
   nothing.
-- Commits pushed to the PR after the approval are not re-approved in the app; the owner sees the final diff on
-  GitHub when merging, which is the real gate.
+- Commits pushed after the approval are never redeployed on that approval: the owner approves again in the
+  app for the new head.
 - The hub's GitHub token stays read-only (ADR-002 unchanged).
 - The redeploy flag lives at `redeploy_flag` (default `/state/redeploy.flag`); S-11.2 / S-14.1 mount the host's
   `~/marcel/state` at `/state`.
