@@ -30,8 +30,9 @@ SESSION_SOCKETS = {'/channel'}
 HUB_SECRET = 'hs_' + 'a1b2c3d4' * 6
 # The session API's routes (contracts/session-api.yaml) take their own tokens, never a device token,
 # and answer a missing or wrong one with a 404 a scanner cannot tell from "no such route". This
-# test holds them to that 404 instead of 401 (S-05.4: tests/test_adopt.py).
-HIDDEN = {('POST', '/api/session/adopt')}
+# test holds them to that 404 instead of 401 (S-05.4: tests/test_adopt.py; S-07.2:
+# tests/test_report_api.py).
+HIDDEN = {('POST', '/api/session/adopt'), ('POST', '/api/session/report')}
 HIDDEN_ANSWER = {'code': 'not_found', 'message': 'There is nothing at that address.'}
 
 
