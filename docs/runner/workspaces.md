@@ -151,5 +151,5 @@ steps of up to 600 s each.
 | `not_trusted` | 422 | The trust dialog never showed, Yes could not be reached, or `~/.claude.json` does not show the folder trusted (or shows the repo's MCP servers enabled). |
 | `clone_failed` | 422 | A git step or the plugin install failed; `detail` is what it said. |
 | `git_timeout`, `claude_timeout` | 503 | A git step or the plugin install took too long. Try again later. |
-| `no_supervisor`, `exited`, `channel_skipped`, `channel_timeout` | 422 | As for a spawn. |
+| `no_supervisor`, `claude_version`, `exited`, `channel_skipped`, `channel_timeout` | 422 | As for a spawn. |
 | `not_found` | 404 | No such session. |

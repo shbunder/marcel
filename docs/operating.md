@@ -76,7 +76,8 @@ builds and starts the hub, then prints the health check. The deployed plugin's v
 install stops if a folder did not get it. A unit with
 the same name from old Marcel is copied to `~/marcel-v2-units/` before it is replaced.
 
-It stops with one sentence when something is missing: Docker, `claude`, Python 3.12, `.env.local` or
+It installs the pinned Claude Code first when it is missing or another version. It stops with one sentence when
+something is missing: Docker, Python 3.12, `.env.local` or
 `MARCEL_OWNER_NAME`, or when it is not run from `~/marcel/src` (the units name that path). It warns when
 linger is off or old Marcel's `marcel.service` is enabled.
 
@@ -147,6 +148,10 @@ The `claude` binary is shared with the owner's own sessions, which still update 
 the runner says so and refuses: `make -C deploy health` shows "Claude Code 2.1.301 is installed, but Marcel is
 tested with 2.1.296 …", and every spawn, resume, fork and cloud start answers `422 claude_version`. Running
 sessions carry on. Fix it with `make -C deploy install`, which puts the pinned version back.
+
+Installing a version does not move Claude's running supervisor (`marcel-claude-daemon.service`) onto it: it keeps
+the version it started with until it restarts, and restarting it stops every session. `install-claude.sh` says so
+when it installed something; restart it when no work is running (the hub starts the brain again).
 
 To move to a new version:
 

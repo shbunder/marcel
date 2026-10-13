@@ -45,7 +45,8 @@ A `repo` spawn, resume and fork: see [workspaces.md](workspaces.md).
    file can remove another's allow, so leaving the user file out is the only way (S-03.10). MCP servers in
    `~/.claude.json` still load (see `project/lessons/runner-built-ins.md`).
    A worker also gets `--settings role_settings/worker.json`: the five restart commands denied (as the brain's own
-   settings deny them) and cross-session messages refused. The brain and side threads need none: the brain
+   settings deny them), cross-session messages refused, `Workflow` allowed and subagents' prompt cache kept for an
+   hour (`subagentPromptCacheTtl`, ADR-009). No `Agent` allow: auto mode drops it, so subagent calls are judged. The brain and side threads need none: the brain
    workspace's `.claude/settings.json` is their project settings. Claude saves `--settings` with the session, so a
    resume keeps it (`docs/runner/workspaces.md`).
    Before every spawn the runner checks that Claude Code is the version in `runner/claude-version`; another one
@@ -81,6 +82,7 @@ whether the stop worked. A session older than the spawn is never touched.
 | `cap_reached` | 409 | The worker cap is reached. Nothing was started. |
 | `claude_timeout`, `claude_unavailable` | 503 | `claude` did not answer in time, or could not be run. |
 | `no_supervisor` | 422 | Claude's supervisor is down, in the runner's cgroup, or claude is missing; or the workers cannot be counted. |
+| `claude_version` | 422 | The installed Claude Code is not `runner/claude-version`; the message names both versions. Checked before the supervisor. |
 | `not_trusted` | 422 | The workspace was never trusted. `detail` is Claude's own line. |
 | `exited` | 422 | Claude refused to start, or printed something the runner cannot read. `detail` is what it said. |
 | `channel_skipped` | 422 | The channel was skipped. The session was stopped. `detail` is the debug line. |
