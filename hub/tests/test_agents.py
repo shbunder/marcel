@@ -3,16 +3,19 @@
 
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
+import yaml
 from sqlmodel import Session, select
 from test_channel_fakes import ChannelHub, channel_hub
 from test_tasks_fakes import validator
 
+from marcel_hub.agents import routes
 from marcel_hub.models import Agent, ChannelFrame
 
 AGENT = validator('app-api.yaml#/components/schemas/Agent')
+APP_API = Path(__file__).resolve().parents[2] / 'contracts' / 'app-api.yaml'
 FOX = {'animal': 'fox', 'color': 'tangerine', 'personality': 'cheerful'}
 
 
@@ -95,12 +98,30 @@ def test_another_persons_agent_is_not_found(hub: ChannelHub) -> None:
         {'look': {'animal': 'fox', 'color': 'teal'}},
         {'onboarded': False},
         {'nickname': 'Pip'},
+        {'name': None},
+        {'look': None},
+        {'onboarded': None},
+        {'palette': None},
     ],
 )
 def test_a_bad_body_is_400_and_changes_nothing(hub: ChannelHub, body: dict[str, Any]) -> None:
     res = patch(hub, body)
     assert res.status_code == 400 and res.json()['code'] == 'bad_request', res.json()
     assert hub.events('agent.updated') == []
+
+
+@pytest.mark.parametrize(
+    ('literal', 'schema'),
+    [
+        (routes.LookAnimal, 'LookAnimal'),
+        (routes.LookColor, 'LookColor'),
+        (routes.LookPersonality, 'LookPersonality'),
+    ],
+)
+def test_the_looks_match_the_contract(literal: Any, schema: str) -> None:
+    # The values are copied by hand; a contract change without the copy turns this red.
+    contract = yaml.safe_load(APP_API.read_text())['components']['schemas'][schema]['enum']
+    assert list(get_args(literal)) == contract
 
 
 def test_a_40_character_name_is_fine(hub: ChannelHub) -> None:

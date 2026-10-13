@@ -56,7 +56,10 @@ class AgentUpdate(BaseModel):
     @model_validator(mode='after')
     def _something(self) -> 'AgentUpdate':
         if not self.model_fields_set:
-            raise ValueError('send at least one of name, look, onboarded')
+            raise ValueError('send at least one of name, look, onboarded, palette')
+        sent_null = sorted(f for f in self.model_fields_set if getattr(self, f) is None)
+        if sent_null:  # the contract has no nullable field here
+            raise ValueError(f'{", ".join(sent_null)} cannot be null')
         return self
 
 
