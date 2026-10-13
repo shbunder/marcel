@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from conftest import apart, request, write_script
+from conftest import CLAUDE_VERSION_LINE, apart, request, write_script
 
 from marcel_runner import server
 from marcel_runner.health import Settings
@@ -39,7 +39,7 @@ def test_server_answers_health_on_a_temp_socket(running: Path) -> None:
     status, body = request(running, 'GET', '/health')
     assert status == 200
     assert body['ok'] is True
-    assert body['claude_version'] == '2.1.289 (Claude Code)'
+    assert body['claude_version'] == CLAUDE_VERSION_LINE
     assert body['cap'] == 4
     assert body['active_workers'] == 0
 
@@ -188,7 +188,7 @@ def test_start_is_refused_without_a_supervisor_outside_our_cgroup(
 def test_start_is_refused_when_no_supervisor_runs(sock_path: Path, tmp_path: Path) -> None:
     c = write_script(
         tmp_path / 'c2',
-        'if [ "$1" = "--version" ]; then echo "2.1.289 (Claude Code)"; exit 0; fi\n'
+        f'if [ "$1" = "--version" ]; then echo "{CLAUDE_VERSION_LINE}"; exit 0; fi\n'
         'echo "not running"; exit 1\n',
     )
     with pytest.raises(StartupError, match='marcel-claude-daemon.service'):
@@ -258,7 +258,7 @@ def test_start_refused_with_cannot_tell_when_the_supervisor_pid_is_unknown(
 ) -> None:
     c = write_script(
         tmp_path / 'c3',
-        'if [ "$1" = "--version" ]; then echo "2.1.289 (Claude Code)"; exit 0; fi\n'
+        f'if [ "$1" = "--version" ]; then echo "{CLAUDE_VERSION_LINE}"; exit 0; fi\n'
         'echo "running"; exit 0\n',
     )
     with pytest.raises(StartupError) as e:

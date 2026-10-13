@@ -36,7 +36,11 @@ HERE = Path(__file__).resolve().parent
 FIXTURES = HERE / 'fixtures'
 SCENARIOS = HERE / 'scenarios'
 EXECUTABLE = HERE / 'bin' / 'claude'
-VERSION = '2.1.289'
+# The version Marcel is pinned to (runner/claude-version); a test can make the fake report another.
+VERSION = (
+    os.environ.get('MARCEL_FAKE_CLAUDE_VERSION')
+    or (Path(__file__).resolve().parents[2] / 'claude-version').read_text('utf-8').strip()
+)
 MARKER = '.fake-claude'
 DEFAULT_SCENARIO = 'worker-happy-path'
 STATES = ('working', 'blocked', 'done', 'failed', 'stopped')
@@ -533,6 +537,7 @@ def saved_options(args: Args, name: str) -> list[str]:
 
 SAVED_OPTIONS = (
     '--setting-sources',
+    '--settings',
     '--name',
     '--permission-mode',
     '--channels',

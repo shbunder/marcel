@@ -40,7 +40,9 @@ hub → channel. Resume is only for between turns.
 
    Before waking it, the runner reads those saved options and refuses (`422 exited`, the reason in
    the message, nothing started) when they cannot be read, lack `--setting-sources project,local`,
-   or, with the channel on, lack `--debug-file` or the pre-allowed `reply` tool. A Claude that stops
+   lack the role's `--settings` file (a worker's `role_settings/worker.json`), or, with the channel on,
+   lack `--debug-file` or the pre-allowed `reply` tool. A resume, like every start, also answers
+   `422 claude_version` when Claude Code is not the pinned version. A Claude that stops
    saving one fails loudly instead of quietly bringing the owner's settings back. Without a record
    of its own, the runner takes the channel setting from the saved `--channels`.
 6. If Claude says `… started a copy as <id>` (on stdout or stderr), or backgrounds another short id,

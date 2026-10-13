@@ -358,6 +358,7 @@ def forget(up: Rig) -> None:
     [
         ('--setting-sources', "load the owner's own settings"),
         ('--allowedTools', 'would ask before every reply'),
+        ('--settings', 'would drop their deny list'),
     ],
 )
 def test_resume_refuses_when_the_saved_options_would_lose_a_control(

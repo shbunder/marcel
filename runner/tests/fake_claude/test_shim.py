@@ -24,7 +24,8 @@ def scenario(tmp_path: Path, text: str) -> str:
 
 
 def test_version_and_attach(inline: Inline) -> None:
-    assert inline('--version').out == '2.1.289 (Claude Code)\n'
+    pin = (Path(__file__).resolve().parents[2] / 'claude-version').read_text().strip()
+    assert inline('--version').out == f'{pin} (Claude Code)\n'  # from runner/claude-version
     attached = inline('attach', 'bf4bd301')
     assert (attached.code, attached.out, attached.err) == (0, '', '')
 

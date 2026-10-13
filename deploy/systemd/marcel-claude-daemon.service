@@ -12,6 +12,8 @@ ExecStart=%h/.local/bin/claude daemon run
 Environment=PATH=%h/marcel/node/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # MARCEL_HARRY_TOKEN only, copied from deploy/.env.local by `make install`.
 EnvironmentFile=-%h/.config/marcel/session.env
+# Marcel is tested with one Claude Code version (runner/claude-version): no background updates.
+Environment=DISABLE_AUTOUPDATER=1
 # 2.1.289's daemon "runs on demand and exits when the last client disconnects": keep it up.
 Restart=always
 RestartSec=5

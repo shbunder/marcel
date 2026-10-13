@@ -29,6 +29,7 @@ from marcel_runner.sessions import (
     CHANNEL,
     SessionError,
     Sessions,
+    role_settings,
     running,
 )
 
@@ -67,7 +68,9 @@ def option(flags: list[str], name: str) -> list[str]:
     return values
 
 
-def check_saved(short: str, flags: list[str] | None, channel: bool) -> None:
+def check_saved(
+    short: str, flags: list[str] | None, channel: bool, role: str | None = None
+) -> None:
     """Refuse to wake a session whose saved options would not keep the runner's controls: the
     resume passes no flag, so what Claude saved is what the session gets."""
 
@@ -83,6 +86,12 @@ def check_saved(short: str, flags: list[str] | None, channel: bool) -> None:
         raise refuse(
             'it was started without --setting-sources project,local, so waking it would load '
             "the owner's own settings. Start a new session instead."
+        )
+    wanted = role_settings(role)
+    if wanted is not None and option(flags, '--settings') != [str(wanted)]:
+        raise refuse(
+            f"it was started without Marcel's {role} settings ({wanted.name}), so waking it "
+            'would drop their deny list. Start a new session instead.'
         )
     if channel and not option(flags, '--debug-file'):
         raise refuse(
@@ -129,9 +138,8 @@ def session_cwd(row: dict[str, Any], record: dict[str, Any] | None) -> Path:
 
 
 def check_supervisor(sessions: Sessions) -> None:
-    reason = sessions._supervisor_reason()
-    if reason:
-        raise SessionError(422, 'no_supervisor', f'Nothing was started. {reason}')
+    """The pinned Claude Code version and the supervisor, as on spawn (`Sessions.refuse_start`)."""
+    sessions.refuse_start('Nothing was started.')
 
 
 @contextlib.contextmanager
@@ -202,7 +210,7 @@ def resume(sessions: Sessions, ref: str, raw: bytes) -> dict[str, Any]:
         channel = record.get('channel', True) is not False
     else:
         channel = saved is not None and CHANNEL in option(saved, '--channels')
-    check_saved(short, saved, channel)
+    check_saved(short, saved, channel, role)
     assert saved is not None  # check_saved refused otherwise
     cwd = session_cwd(row, record)
     debug_file = None

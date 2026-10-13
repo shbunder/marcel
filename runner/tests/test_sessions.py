@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import UnixConnection, apart
+from conftest import CLAUDE_VERSION_LINE, UnixConnection, apart
 from fake_claude import EXECUTABLE, FakeClaude
 
 from marcel_runner import server
@@ -26,6 +26,7 @@ from marcel_runner.server import UnixHTTPServer, serve
 from marcel_runner.sessions import (
     ALLOWED_TOOLS,
     BRAIN_TOOLS,
+    ROLE_SETTINGS,
     SessionError,
     Sessions,
     StateFileError,
@@ -167,7 +168,12 @@ class Rig:
         return [c for c in self.calls() if word in c['argv'][1:]]
 
     def golden(self, name: str, **values: str) -> list[str]:
-        values = {'claude': str(self.claude), 'state': str(self.state), **values}
+        values = {
+            'claude': str(self.claude),
+            'state': str(self.state),
+            'role_settings': str(ROLE_SETTINGS),
+            **values,
+        }
         out = []
         for arg in json.loads((GOLDEN / name).read_text()):
             for k, v in values.items():
@@ -871,7 +877,7 @@ def _env_recorder(tmp_path: Path) -> tuple[Path, Path]:
     script = tmp_path / 'claude'
     script.write_text(
         f'#!/bin/sh\nenv > {out}\n'
-        'if [ "$1" = "--version" ]; then echo "2.1.289 (Claude Code)"; exit 0; fi\n'
+        f'if [ "$1" = "--version" ]; then echo "{CLAUDE_VERSION_LINE}"; exit 0; fi\n'
         'echo "running"; echo "  pid: 1"; exit 0\n'
     )
     script.chmod(0o755)

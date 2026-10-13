@@ -9,6 +9,8 @@
   "sonnet",
   "--permission-mode",
   "manual",
+  "--settings",
+  "{role_settings}/worker.json",
   "--channels",
   "plugin:marcel@marcel-local",
   "--allowedTools",

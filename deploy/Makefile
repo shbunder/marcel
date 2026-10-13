@@ -54,6 +54,7 @@ tunnel-rules:
 
 # The deploy lane's own gate: the scripts parse, the compose file and the units are valid.
 check:
-	bash -n install.sh compose.sh health.sh
+	bash -n install.sh install-claude.sh compose.sh health.sh
+	python3 -c 'import json; json.load(open("managed-settings.json"))'
 	MARCEL_UID=1000 MARCEL_GID=1000 MARCEL_HOME=/tmp/marcel docker compose -f docker-compose.yml config -q
 	systemd-analyze --user verify systemd/*.service systemd/*.path 2>&1 | grep -v 'Command .* is not executable' | { ! grep . ; }

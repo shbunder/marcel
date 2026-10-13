@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(docker restart:*)",
+      "Bash(docker compose restart:*)",
+      "Bash(docker-compose restart:*)",
+      "Bash(systemctl restart:*)",
+      "Bash(systemctl --user restart:*)"
+    ]
+  },
+  "crossSessionInbound": "refuse"
+}

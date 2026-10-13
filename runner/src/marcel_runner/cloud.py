@@ -259,8 +259,11 @@ class Cloud:
         on_pty: Runner = run_on_pty,
         piped: Runner = run_piped,
         workspaces: Workspaces | None = None,
+        check_version: Callable[[], None] | None = None,
     ) -> None:
         self.claude = claude
+        # Raises 422 `claude_version` when Claude Code is not the pinned version (S-03.10).
+        self.check_version = check_version
         self.home = home
         self.cwd = cwd or home
         self.spawn_timeout = spawn_timeout
@@ -274,6 +277,8 @@ class Cloud:
 
     def spawn(self, raw: bytes) -> dict[str, Any]:
         prompt, repo = parse_create(raw)
+        if self.check_version is not None:
+            self.check_version()
         if repo is None:
             return self._create(prompt, self.cwd)
         if self.workspaces is None:

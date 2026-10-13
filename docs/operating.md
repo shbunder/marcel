@@ -35,18 +35,16 @@ sudo systemctl disable --now marcel.service   # old Marcel, if present: it takes
 ```
 
 `/etc/claude-code/managed-settings.json` (root, ADR-001) must allow the channel. The list replaces
-Claude Code's default allowlist, so it names every channel plugin that may run:
+Claude Code's default allowlist, so it names every channel plugin that may run. The file to install is
+`deploy/managed-settings.json`:
 
-```json
-{
-  "channelsEnabled": true,
-  "allowedChannelPlugins": [
-    {"plugin": "marcel", "marketplace": "marcel-local"},
-    {"plugin": "telegram", "marketplace": "claude-plugins-official"},
-    {"plugin": "imessage", "marketplace": "claude-plugins-official"}
-  ]
-}
+```bash
+sudo install -m 644 deploy/managed-settings.json /etc/claude-code/managed-settings.json
 ```
+
+It also sets `DISABLE_AUTOUPDATER=1` for every `claude` on the machine, the owner's own included (see
+"Upgrading Claude Code"). That part is optional: without it, Marcel's units still turn updates off for
+Marcel's sessions.
 
 Then, as the owner:
 
@@ -137,6 +135,24 @@ That rebuilds the plugin and the hub and restarts the runner. It never restarts
 `claude respawn --all` rather than restarting the supervisor. Stopping the supervisor any way
 (including `claude daemon stop --keep-workers`) stops every session under this unit: systemd ends
 the unit's whole process group.
+
+## Upgrading Claude Code
+
+Marcel is tested with one Claude Code version: `runner/claude-version` (2.1.296 today). `make -C deploy install`
+installs exactly it (`deploy/install-claude.sh`, Claude Code's installer with the version), and both user units set
+`DISABLE_AUTOUPDATER=1`, which the sessions they start inherit.
+
+The `claude` binary is shared with the owner's own sessions, which still update it unless
+`deploy/managed-settings.json` is installed (its `env` turns updates off for everyone). When it changes anyway,
+the runner says so and refuses: `make -C deploy health` shows "Claude Code 2.1.301 is installed, but Marcel is
+tested with 2.1.296 …", and every spawn, resume, fork and cloud start answers `422 claude_version`. Running
+sessions carry on. Fix it with `make -C deploy install`, which puts the pinned version back.
+
+To move to a new version:
+
+1. In a PR, change `runner/claude-version`.
+2. `make -C runner check`, then on the NUC the live tests (`make -C runner test-live`, "Live checks").
+3. Merge, then `make -C deploy install`.
 
 ## Backups
 

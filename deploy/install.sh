@@ -232,6 +232,7 @@ start_hub() {
 }
 
 check_host
+"$DEPLOY/install-claude.sh"
 make_dirs
 install_node
 install_plugin
