@@ -34,6 +34,7 @@ from marcel_hub.models import (
     TaskState,
 )
 from marcel_hub.selfmod import (
+    NEW_COMMITS,
     UNAPPROVED,
     NoPulls,
     RedeployFailed,
@@ -61,10 +62,15 @@ class FakeGitHub:
         self.pulls[number] = {
             'state': 'open', 'draft': False, 'merged': False, 'merged_at': None,
             'merge_commit_sha': None, 'head': {'sha': HEAD}, 'requested_reviewers': [],
+            'base': {'ref': 'main', 'repo': {'full_name': 'shbunder/marcel'}},
             'title': 'Hub: answer faster at night', 'changed_files': 3, 'additions': 40,
             'deletions': 12, **fields,
         }  # fmt: skip
         return self.pulls[number]
+
+    def push(self, sha: str, number: int = 14) -> None:
+        """Someone pushed a commit to the PR's branch."""
+        self.pulls[number]['head'] = {'sha': sha}
 
     def merge(self, number: int = 14, sha: Any = MERGE) -> None:
         self.pulls[number].update(
@@ -189,12 +195,14 @@ def test_a_self_change_pr_opens_one_card_with_its_diff_stats(rig: Rig) -> None:
     rig.refresh(art_id)  # a second refresh opens no second card
     card = rig.card()
     assert card['summary'] == 'Marcel wants to change itself: Hub: answer faster at night'
-    assert card['detail'] == f'3 files changed: 40 lines added, 12 removed.\n{PR}'
+    assert card['detail'] == (
+        f'Approve change aaaaaaa into main. 3 files changed: 40 lines added, 12 removed.\n{PR}'
+    )
     assert (card['artifact_id'], card['task_id'], card['state']) == (art_id, rig.task_id, 'open')
     assert rig.hub.pushes.sent == [card['id']]
     shown = [m for m in rig.hub.messages() if m.kind == MessageKind.approval]
     assert [m.body_json['approval_id'] for m in shown] == [card['id']]
-    assert rig.record(art_id) == {'approval_id': card['id'], 'url': PR}
+    assert rig.record(art_id) == {'approval_id': card['id'], 'url': PR, 'head': HEAD}
     assert {r.method for r in rig.gh.requests} == {'GET'}  # the hub only ever reads GitHub
 
 
@@ -538,3 +546,242 @@ def test_a_failed_message_or_push_never_loses_the_card(rig: Rig, monkeypatch: An
     rig.hub.answer(rig.card()['id'], 'approve')  # the note fails quietly too
     with Session(rig.hub.engine) as s:
         assert s.get(Artifact, art_id) is not None
+
+
+# Review fix 1: an approval covers exactly one commit (the PR head when the card opened). ----
+
+PUSHED = 'c' * 40
+
+
+def test_approved_at_one_commit_and_merged_with_more_is_not_redeployed(rig: Rig) -> None:
+    """The control. Approve at X, push Y, merge: no redeploy, one alert, a fresh card for Y.
+    Remove the head check in `SelfChanges._merged` and this fails."""
+    art_id = rig.add_pr()
+    rig.refresh(art_id)
+    first = rig.card()['id']
+    rig.hub.answer(first, 'approve')
+    rig.gh.push(PUSHED)
+    rig.gh.merge()  # pushed and merged between two refreshes
+    rig.refresh(art_id)
+    assert not rig.flag.exists()
+    assert rig.hub.alerts.raised == [(f'self_change:{art_id}:new_commits',
+                                      'Marcel is not redeploying', NEW_COMMITS)]  # fmt: skip
+    (fresh,) = [c for c in rig.cards() if c['id'] != first]
+    assert fresh['state'] == 'open' and fresh['detail'].startswith(
+        'Approve change ccccccc into main.'
+    )
+    assert rig.record(art_id)['head'] == PUSHED and 'outcome' not in rig.record(art_id)
+    # Approving the fresh card redeploys the merge.
+    res = rig.hub.answer(fresh['id'], 'approve')
+    assert res.status_code == 200
+    assert 'merged already' in rig.notes()[-1]
+    assert art_id in rig.refresher.due()
+    rig.refresh(art_id)
+    assert rig.flag.read_text() == MERGE + '\n'
+    assert len(rig.hub.alerts.raised) == 1
+
+
+def test_approved_and_merged_at_the_same_commit_redeploys(rig: Rig) -> None:
+    art_id = rig.add_pr()
+    rig.refresh(art_id)
+    rig.hub.answer(rig.card()['id'], 'approve')
+    rig.gh.merge()  # head is still the approved commit
+    rig.refresh(art_id)
+    assert rig.flag.read_text() == MERGE + '\n'
+
+
+def test_a_push_while_the_card_is_open_replaces_the_card(rig: Rig) -> None:
+    art_id = rig.add_pr()
+    rig.refresh(art_id)
+    first = rig.card()['id']
+    rig.gh.push(PUSHED)
+    rig.refresh(art_id)
+    cards = {c['id']: c for c in rig.cards()}
+    assert cards[first]['state'] == 'expired'
+    (new,) = [c for c in cards.values() if c['id'] != first]
+    assert new['state'] == 'open' and 'Approve change ccccccc' in new['detail']
+    rig.hub.answer(new['id'], 'approve')
+    rig.gh.merge()
+    rig.refresh(art_id)
+    assert rig.flag.read_text() == MERGE + '\n'
+
+
+def test_a_push_after_approval_asks_again_before_the_merge(rig: Rig) -> None:
+    art_id = rig.add_pr()
+    rig.refresh(art_id)
+    first = rig.card()['id']
+    rig.hub.answer(first, 'approve')
+    rig.gh.push(PUSHED)
+    rig.refresh(art_id)  # still open on GitHub
+    (new,) = [c for c in rig.cards() if c['id'] != first]
+    assert new['state'] == 'open'
+    assert 'New commits were added' in rig.notes()[-1] and 'ccccccc' in rig.notes()[-1]
+    rig.gh.merge()  # merged without approving the new version
+    rig.refresh(art_id)
+    assert not rig.flag.exists()
+    assert [a[2] for a in rig.hub.alerts.raised] == [UNAPPROVED]
+
+
+def test_new_commits_on_a_denied_pr_do_not_ask_again(rig: Rig) -> None:
+    art_id = rig.add_pr()
+    rig.refresh(art_id)
+    rig.hub.answer(rig.card()['id'], 'deny')
+    rig.gh.push(PUSHED)
+    rig.refresh(art_id)
+    assert [c['state'] for c in rig.cards()] == ['denied']
+
+
+def test_denying_the_fresh_card_after_a_merge_ends_it(rig: Rig) -> None:
+    art_id = rig.add_pr()
+    rig.refresh(art_id)
+    rig.hub.answer(rig.card()['id'], 'approve')
+    rig.gh.push(PUSHED)
+    rig.gh.merge()
+    rig.refresh(art_id)
+    fresh = next(c for c in rig.cards() if c['state'] == 'open')
+    rig.hub.answer(fresh['id'], 'deny')
+    assert rig.record(art_id)['outcome'] == 'not_redeployed'
+    assert rig.changes.pending_merges() == []
+    assert not rig.flag.exists()
+
+
+def test_a_fresh_card_waits_quietly_across_a_restart(rig: Rig) -> None:
+    art_id = rig.add_pr()
+    rig.refresh(art_id)
+    rig.hub.answer(rig.card()['id'], 'approve')
+    rig.gh.push(PUSHED)
+    rig.gh.merge()
+    rig.refresh(art_id)
+    assert rig.changes.pending_merges() == [art_id]
+    rig.refresh(art_id)  # what `resume` causes after a restart
+    assert len(rig.hub.alerts.raised) == 1
+    assert next(c for c in rig.cards() if c['state'] == 'open')
+    assert not rig.flag.exists()
+
+
+def test_a_merged_pr_with_no_task_and_new_commits_ends(rig: Rig) -> None:
+    art_id = rig.add_pr()
+    rig.refresh(art_id)
+    rig.hub.answer(rig.card()['id'], 'approve')
+    with Session(rig.hub.engine) as s:
+        row = s.get(Artifact, art_id)
+        assert row is not None
+        row.task_id, row.project_id = None, rig.store.get(art_id).project_id
+        s.add(row)
+        s.commit()
+    rig.gh.push(PUSHED)
+    rig.gh.merge()
+    rig.refresh(art_id)
+    assert rig.record(art_id)['outcome'] == 'not_redeployed'
+    assert not rig.flag.exists()
+
+
+def test_a_pr_without_a_head_commit_opens_no_card_yet(rig: Rig) -> None:
+    rig.gh.pulls[14]['head'] = {'sha': 'not-a-sha'}
+    art_id = rig.add_pr()
+    rig.refresh(art_id)
+    assert rig.cards() == []
+    assert 'latest commit' in (rig.store.get(art_id).meta_json.get('pr_note') or '')
+
+
+# Review fix 2: only a PR into main of shbunder/marcel redeploys. -------------------------------
+
+
+@pytest.mark.parametrize(
+    ('base', 'said'),
+    [
+        ({'ref': 'dev', 'repo': {'full_name': 'shbunder/marcel'}},
+         'merged into dev of shbunder/marcel'),
+        ({'ref': 'main', 'repo': {'full_name': 'someone/marcel'}},
+         'merged into main of someone/marcel'),
+        ({}, 'merged into an unknown branch of an unknown repository'),
+    ],
+)  # fmt: skip
+def test_only_a_pr_into_main_redeploys(rig: Rig, base: dict[str, Any], said: str) -> None:
+    """The control. Remove the `into_main` check in `SelfChanges._merged` and this fails."""
+    rig.gh.pulls[14]['base'] = base
+    art_id = rig.add_pr()
+    rig.refresh(art_id)
+    assert ' into ' in rig.card()['detail']
+    rig.hub.answer(rig.card()['id'], 'approve')
+    rig.gh.merge()
+    rig.refresh(art_id)
+    assert not rig.flag.exists()
+    ((cause, _, body),) = rig.hub.alerts.raised
+    assert cause == f'self_change:{art_id}:branch' and said in body and 'not redeploying' in body
+    assert rig.record(art_id)['outcome'] == 'not_redeployed'
+
+
+def test_the_card_names_the_target_branch(rig: Rig) -> None:
+    rig.gh.pulls[14]['base'] = {'ref': 'dev', 'repo': {'full_name': 'shbunder/marcel'}}
+    art_id = rig.add_pr()
+    rig.refresh(art_id)
+    assert rig.card()['detail'].startswith('Approve change aaaaaaa into dev.')
+
+
+# Review fix 3: the flag file is written safely. ------------------------------------------------
+
+
+def test_a_planted_symlink_at_the_temp_path_is_never_followed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    victim = tmp_path / 'victim.txt'
+    victim.write_text('keep me\n')
+    monkeypatch.setattr(selfmod.secrets, 'token_hex', lambda _n: 'fixed')
+    flag = tmp_path / 'redeploy.flag'
+    (tmp_path / '.redeploy.flag.fixed').symlink_to(victim)
+    with pytest.raises(RedeployFailed, match='cannot write'):
+        request_redeploy(MERGE, flag)
+    assert victim.read_text() == 'keep me\n'
+    assert not flag.exists()
+    assert (tmp_path / '.redeploy.flag.fixed').is_symlink()  # left alone, not removed
+
+
+def test_the_flag_is_owner_only(tmp_path: Path) -> None:
+    flag = tmp_path / 'redeploy.flag'
+    request_redeploy(MERGE, flag)
+    assert flag.stat().st_mode & 0o777 == 0o600
+
+
+def test_a_failed_rename_leaves_no_temp_file(tmp_path: Path) -> None:
+    flag = tmp_path / 'redeploy.flag'
+    flag.mkdir()  # a folder in the way: the rename fails
+    with pytest.raises(RedeployFailed, match='cannot write'):
+        request_redeploy(MERGE, flag)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['redeploy.flag']
+
+
+# Review fix 4: writing the same SHA twice is harmless. ----------------------------------------
+
+
+def test_the_same_sha_written_twice_is_the_same_flag(tmp_path: Path) -> None:
+    flag = tmp_path / 'redeploy.flag'
+    request_redeploy(MERGE, flag)
+    request_redeploy(MERGE, flag)
+    assert flag.read_text() == MERGE + '\n'
+    assert [p.name for p in tmp_path.iterdir()] == ['redeploy.flag']
+
+
+def test_a_lost_outcome_writes_the_same_sha_again(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    art_id = rig.add_pr()
+    rig.refresh(art_id)
+    rig.hub.answer(rig.card()['id'], 'approve')
+    rig.gh.merge()
+    real = rig.changes._set
+    failed: list[bool] = []
+
+    def flaky(artifact_id: str, **values: Any) -> None:
+        if values.get('outcome') and not failed:
+            failed.append(True)
+            raise RuntimeError('database locked')
+        real(artifact_id, **values)
+
+    monkeypatch.setattr(rig.changes, '_set', flaky)
+    rig.refresh(art_id)  # the flag is written, the outcome is not saved
+    assert rig.flag.read_text() == MERGE + '\n' and 'outcome' not in rig.record(art_id)
+    assert art_id in rig.refresher.due()  # tried again
+    rig.refresh(art_id)
+    assert rig.flag.read_text() == MERGE + '\n'
+    assert rig.record(art_id)['outcome'] == 'redeploy_requested'

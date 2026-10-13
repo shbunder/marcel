@@ -39,6 +39,8 @@ ADR-005). Nothing else changes a running Marcel: no edit on the NUC, no restart,
   redeploy script, no writing the redeploy flag. After the owner merges, the hub asks for the redeploy
   itself, and the host rolls it back on its own if the health check fails.
 - Never point an approved PR's artifact at another PR. A new PR needs a new approval.
+- An approval covers one commit. If you push again after the owner approved, Marcel asks the owner
+  again, so push everything before you finish. Open the PR against `main`: nothing else redeploys.
 
 ## If the owner says no
 

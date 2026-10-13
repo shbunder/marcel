@@ -426,27 +426,40 @@ read-only, ADR-002).
   again when a new version changes the address. A worker cannot set or avoid it.
 - **The card.** At the PR's first good refresh the hub reads the PR from GitHub and opens an
   approval card on the task that handed it in: tool `self_change`, `artifact_id` the PR,
-  `summary` "Marcel wants to change itself: <PR title>", `detail` the diff stats ("3 files changed:
-  40 lines added, 12 removed.") and the PR address. It is posted in the main conversation and
+  `summary` "Marcel wants to change itself: <PR title>", `detail` the commit and target branch and
+  the diff stats ("Approve change abc1234 into main. 3 files changed: 40 lines added, 12 removed.")
+  and the PR address. It is posted in the main conversation and
   pushed like any card. It has no `request_id`, so it never goes to a session, and it stays open
   when its task ends. A PR handed in without a task gets no card (so it can never be redeployed).
+- **One commit per approval.** The card is for the PR's head commit when it opened. Each refresh of
+  an open PR reads GitHub again: a push while the card is open expires it and opens a new one for
+  the new head; a push after the owner approved opens a fresh card and says "approve the new
+  version before you merge it". New commits on a denied PR open nothing.
 - **Approve** (`POST /api/approvals/{id}`, the app only) records the go-ahead and posts a note:
   "open the PR and merge it on GitHub", with the PR address and `marcel://artifact/<id>`.
 - **Deny** records the no, posts a note that the owner may close the PR on GitHub, and sends the
   task a `steer` (author `marcel`): do not merge, close the PR with a comment if your git
   credentials allow it (with the owner's note, if any). A stopped or failed task gets nothing.
-- **Merged.** When a refresh sees the PR merged, the hub redeploys only if the card was
-  **approved in the app** (`answered_via: app`) **for this same PR address**. Then it reads the PR
-  from GitHub again and takes `merge_commit_sha` from that answer, only when GitHub says
-  `merged: true` and the SHA is 40 lowercase hex characters (otherwise it asks again at the next
-  refresh). `request_redeploy(sha, flag)` writes the SHA to `redeploy_flag` (a temporary file,
-  then a rename) and nothing else; the host does the rest (S-11.2). Merged without that approval
+- **Merged.** When a refresh sees the PR merged, it reads the PR from GitHub again. The hub
+  redeploys only if the card was **approved in the app** (`answered_via: app`) **for this same PR
+  address**, the PR went into **`main` of `shbunder/marcel`**, and the merged PR's head is **the
+  commit that was approved**. It takes `merge_commit_sha` from GitHub's answer, only when GitHub
+  says `merged: true` and the SHA is 40 lowercase hex characters (otherwise it asks again at the
+  next refresh). `request_redeploy(sha, flag)` writes the SHA to `redeploy_flag` and nothing else;
+  the host does the rest (S-11.2). The write is a new owner-only temporary file with a random name
+  in the same folder, created with `O_CREAT|O_EXCL|O_NOFOLLOW` (a file or symlink planted there is
+  refused, never followed), synced, then renamed over the flag. Writing the same SHA twice (the
+  outcome was not saved) is harmless.
+- **Merged with commits added after the approval:** no redeploy, one alert ("New commits were
+  added after you approved; not redeploying."), and a fresh card for the merged head. Approving it
+  redeploys the merge; denying it ends the self-change. Merged into another branch or repository:
+  no redeploy and one alert naming it. Merged without that approval
   (never answered, denied, answered in a terminal, or approved for another PR address): no
   redeploy, the open card expires, and one alert: "A change to Marcel was merged without approval
   in the app; not redeploying." A flag that cannot be written is an alert too.
 - **Closed** without merging: the open card expires.
-- **The record.** `meta_json.self_change` on the artifact keeps `approval_id`, `url`, `decision`,
-  `outcome` (`redeploy_requested`, `not_redeployed`, `redeploy_failed`, `closed`) and `sha`. Once
+- **The record.** `meta_json.self_change` on the artifact keeps `approval_id`, `url`, `head` (the
+  commit the card is for), `decision`, `after_merge` (the card was opened after the merge), `outcome` (`redeploy_requested`, `not_redeployed`, `redeploy_failed`, `closed`) and `sha`. Once
   there is an outcome nothing more happens. At start the hub refreshes again every merged or closed
   self-change with no outcome yet, so a restart between the merge and the redeploy loses nothing.
 
