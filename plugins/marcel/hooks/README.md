@@ -9,12 +9,17 @@ it says so in one line, or says nothing, and exits 0.
 |---|---|---|---|
 | `PreCompact` | (all) | `scripts/brain_context.py` | Just before Claude Code compacts the brain's context (S-06.8, ADR-010), writes `.marcel/handoff.md` in the session's folder: when and why, the open threads (`GET /brain/tasks`), the last message to Marcel and Marcel's last words (read from the end of the transcript). Prints nothing. |
 | `SessionStart` | `startup\|resume\|compact` | `scripts/brain_context.py` | Prints what the brain must not lose: after a compaction the hand-over above (once; then it is removed), `MEMORY.md`, the open threads, and today's summary with the live sessions (`GET /brain/summary`, the hub's `day_summary.py`; an older hub without it gets one line saying it is missing). |
+| `Stop` | (all) | `scripts/session_end.py` | When a session is about to finish a turn (S-05.8, ADR-010): posts `{event: "stop"}` to the hub's `POST /channel/session-end`. When the hub answers `report_owed: true` (a worker whose task is still `working` or `needs_you`), blocks the stop once with "Call report(done) or report(failed) before you finish." Never when Claude Code says this hook is already active, so a worker is never looped. |
+| `SessionEnd` | (all) | `scripts/session_end.py` | When a session ends: posts `{event: "session_end", reason}` (the hook's own reason, e.g. `prompt_input_exit`). A worker that ended owing a report is marked `failed` (`ended_without_report`) and the brain is told. Prints nothing; 5 s at most. |
 
 Only Marcel's brain and its side threads get anything: the brain API refuses any other session (a
 worker, an adopted session), and then the hook prints and writes nothing. A brain that has just
 started can call before the hub has its id; the hub asks the runner then (`hub/README.md`, "Known
 before its spawn returns"), and on start or resume in the brain's workspace (it has `MEMORY.md`) the hook
 asks again up to 5 times, 1 s apart, with one line on stderr each time. A worker never waits.
+
+`session_end.py` asks nothing on a computer without `$CLAUDE_PLUGIN_DATA/hub-secret` (an adopted
+session on a laptop), and treats a hub that does not answer as "nothing owed".
 
 Why `type: command` and not `type: http`: the hub secret is a file (`$CLAUDE_PLUGIN_DATA/hub-secret`),
 and an http hook can only put environment variables in its headers.

@@ -1034,6 +1034,22 @@ Every Claude Code session on the NUC (the brain, a side thread, a worker) holds 
   a session: it steers its task (see "Task threads"). Where each one goes is the triage's call
   (see "Waking the brain").
 
+### Session-end hooks: `POST /channel/session-end`
+
+S-05.8 (ADR-010), `channel/session_end.py`. The marcel plugin's `Stop` and `SessionEnd` hooks
+(`plugins/marcel/hooks/README.md`) tell the hub a session is finishing a turn or has ended, so the hub
+does not rely on a worker remembering `report()`. Next to `/channel` (outside `/api`, 404 through the
+tunnel), with the channel's identity: the hub secret and the session id, 401 `bad_secret` /
+`unknown_session` (checked before the body is read), 503 `no_secret`.
+
+- `{event: "stop"}` answers `report_owed`: true only for a worker whose task is `working` or
+  `needs_you`. The hook then reminds the worker once to report.
+- `{event: "session_end", reason}` from such a worker moves the task to `failed` with reason
+  `ended_without_report: the session ended (<reason>) without reporting done or failed`; the triage
+  tells the brain (`task_failed`) like any failed task. A task that already ended (the worker
+  reported, or the runner's poll got there first) only has the end reason logged.
+- A brain, side-thread or adopted session never owes a report.
+
 ### Approvals
 
 A worker's permission prompt becomes an approval card: the task goes to `needs_you`, a

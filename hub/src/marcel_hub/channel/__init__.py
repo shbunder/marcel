@@ -12,6 +12,7 @@ from marcel_hub import triage
 from marcel_hub.channel.gateway import SECRET_FILE, Gateway, Peer, Rejection
 from marcel_hub.channel.ports import Push
 from marcel_hub.channel.routes import router as approvals_router
+from marcel_hub.channel.session_end import router as session_end_router
 from marcel_hub.channel.socket import MAX_FRAME
 from marcel_hub.channel.socket import router as socket_router
 from marcel_hub.runner_client import Alerts, RunnerWatch
@@ -46,3 +47,4 @@ def install(
         watch.listeners.append(gateway)
     app.include_router(socket_router)
     app.include_router(approvals_router)
+    app.include_router(session_end_router)  # S-05.8: the plugin's Stop and SessionEnd hooks
