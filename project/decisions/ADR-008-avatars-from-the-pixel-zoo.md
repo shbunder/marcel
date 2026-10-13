@@ -28,6 +28,10 @@ on a 32×32 grid, including the laptop for "working", and picks a stable look fr
 Option A (B-44). The agent's `look` is data; the hub serves the sheet and previews; the bundled giraffe stays as the
 offline fallback and the app icon.
 
+*Amended 2026-10-13 (owner):* the app icon is no longer the giraffe. It is the app's own pixel M (Silkscreen's M) in
+white on rose, wearing Marcel's soft teal bow tie, approved by the owner on 2026-10-13 and drawn by
+`shared/brand/app-icon/generate.py`. The bundled giraffe stays the offline fallback.
+
 ## Consequences
 
 - `avatar-sheet.schema.json` allows 32×32 frames. The Python port must match `zoo.js` pixel for pixel on committed fixtures.

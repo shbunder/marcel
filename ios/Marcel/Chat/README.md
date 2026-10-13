@@ -52,7 +52,7 @@ and shows `ChatScreen(model:offline:)`; the Xcode project keeps this folder out 
 - Tapping an item opens the artifact viewer (`ArtifactViewer` from MarcelItems, S-12.8). A quest card opens the
   quest view (`QuestView` from MarcelQuest, S-12.6).
 
-## The avatar header and the app icon (S-13.3, B-28)
+## The avatar header (S-13.3, B-28)
 
 Code in `Sources/MarcelChat/AvatarHeader.swift` (the story names `Marcel/Chat/AvatarHeader.swift`; Chat is a package,
 so it sits in the package's sources). Drawn with AvatarKit's sheet and loops; nothing is redrawn here.
@@ -69,15 +69,14 @@ so it sits in the package's sources). Drawn with AvatarKit's sheet and loops; no
   1 thing needs you" (`AvatarState.accessibilityDescription(name:)`).
 - **Dialogue boxes** have the 32-pt giraffe on the left (`MarcelSays`). On a 3× phone AvatarKit's whole-pixel rule
   draws it at 1× (16 × 18 pt of the 32-pt box).
-- **The app icon** is drawn from the sheet's idle frame by `AppIcon` in `Tests/MarcelChatTests/AppIconTests.swift`:
-  the giraffe at the largest whole zoom that fits 82 % of the icon (the 40-px icon is too small for the whole giraffe
-  at 1×, so it shows the head and neck), on the screens' cream, no transparency. The PNGs are in
-  `../App/AppIcon/`, named the way iOS looks them up (`AppIcon60x60@3x.png`), and listed in
-  `Config/Marcel-Info.plist` (`CFBundleIconFiles`). They are loose files, not an asset catalog: actool cannot compile
-  a catalog on a Mac without the iOS platform component. `AppIcon-1024.png` is the App Store size, for a catalog
-  later. **To redraw the icon** after the giraffe changes: `make -C ios chat-record`, look at the PNGs, commit them;
-  `AppIconTests` fails while a committed icon differs from the sheet. `__Snapshots__/AppIcon-on-home-screen.png` is
-  a screenshot of the built app on a simulator's home screen (not a test reference).
+- **The app icon** is not drawn here any more: it is a white pixel M with a teal bow tie, drawn by
+  `shared/brand/app-icon/generate.py` (see its README). The PNGs are in `../App/AppIcon/`, named the way iOS looks
+  them up (`AppIcon60x60@3x.png`), and listed in `Config/Marcel-Info.plist` (`CFBundleIconFiles`). They are loose
+  files, not an asset catalog: actool cannot compile a catalog on a Mac without the iOS platform component.
+  `AppIcon-1024.png` is the App Store size. `AppIconTests` (`Tests/MarcelChatTests/AppIconTests.swift`) fails while a
+  committed icon differs from the script's `checksums.txt`, has the wrong size or has transparency.
+  `__Snapshots__/AppIcon-on-home-screen.png` is a screenshot of the built app on a simulator's home screen (not a
+  test reference).
 
 ## Side chat — reply in thread (S-12.4, B-08, wireframe 2B)
 

@@ -59,7 +59,8 @@
   device alike ("No simulator runtime version … available to use with iphonesimulator SDK version 23F81a"), because
   the iOS 26.5 platform component is missing — and that fails `make app`. The app icon is therefore loose PNGs in
   `Marcel/App/AppIcon/` listed under `CFBundleIcons` in `Config/Marcel-Info.plist`; iOS shows them on the home screen
-  (checked on a 26.4 simulator). Move them into an asset catalog once the platform is installed.
+  (checked on a 26.4 simulator). Move them into an asset catalog once the platform is installed (next step in
+  ios/README.md: the dark icon is waiting in `shared/brand/app-icon/out/`).
 - **An `Animatable` SwiftUI view under Swift 6** needs `nonisolated var animatableData` (the `View` is main-actor
   isolated; the conformance is not). `AvatarHeader` animates its collapse this way, so each in-between value goes
   through `body` and the sprite can snap to whole zooms instead of being scaled.

@@ -1,0 +1,11 @@
+6f411bb9498907dc265af04a2c69587174f63dee42d0303cf9f62a2b6d1eefe9  ios/Marcel/App/AppIcon/AppIcon-1024.png
+c95c57db1cc2153cc810082d3f1a26160fd9f02b62c3d249bf0b65f3fcde71f0  ios/Marcel/App/AppIcon/AppIcon20x20@2x.png
+16258192a11917290723209d251b75d37e3e329eb724b936366bdbfffc0e3255  ios/Marcel/App/AppIcon/AppIcon20x20@3x.png
+1d76c4280c1d97329dc7d2c4bead3461b55d4e0e7223e7d9b6d73a182e1a14f0  ios/Marcel/App/AppIcon/AppIcon29x29@2x.png
+287a69f63a6f9cd12396c8cc044e2fa09d037f2219a27f57bd8c0cfc06bfd063  ios/Marcel/App/AppIcon/AppIcon29x29@3x.png
+12a39e70151ae7f1c25c11923fa2fe97b2b51d58caf088b32470c0946b18b70f  ios/Marcel/App/AppIcon/AppIcon40x40@2x.png
+f6e70d1a825729b48df7bbad0a0193dfac0d2a568be6da09c56d676386214d35  ios/Marcel/App/AppIcon/AppIcon40x40@3x.png
+f6e70d1a825729b48df7bbad0a0193dfac0d2a568be6da09c56d676386214d35  ios/Marcel/App/AppIcon/AppIcon60x60@2x.png
+08378f724a67891eb355a756a1bbefd15be0065fbde4252ba9e110b028e929e4  ios/Marcel/App/AppIcon/AppIcon60x60@3x.png
+6f411bb9498907dc265af04a2c69587174f63dee42d0303cf9f62a2b6d1eefe9  shared/brand/app-icon/out/app-icon-1024.png
+9df0238b2d40a0d778884dba9e46cc9df0bf09a021ccc3ad2ee0e080b402a786  shared/brand/app-icon/out/app-icon-dark-1024.png

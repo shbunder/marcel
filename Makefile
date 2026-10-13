@@ -4,9 +4,13 @@ PY_LANES := brain contracts hub mock-hub runner plugins/marcel/tools shared/avat
 GATED    := $(filter-out mock-hub,$(PY_LANES))
 CHANNEL  := plugins/marcel/channel
 
-.PHONY: check test ios-check board lanes start scripts $(PY_LANES) channel mock-hub-check fake-claude
+.PHONY: check test ios-check board lanes start scripts $(PY_LANES) channel mock-hub-check fake-claude app-icon
 
-check: scripts $(GATED) mock-hub-check channel
+check: scripts $(GATED) mock-hub-check channel app-icon
+
+# The app icon's PNGs are what shared/brand/app-icon/generate.py draws (uv installs Pillow for it).
+app-icon:
+	uv run --quiet shared/brand/app-icon/generate.py --check
 
 # The board CLI and the guard hook are a lane like any other: format, lint, types, covered tests.
 SCRIPTS_ENV := uv run --quiet --python 3.12 --with pytest --with pytest-cov --with ruff --with pyright

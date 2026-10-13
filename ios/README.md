@@ -86,7 +86,16 @@ though the iOS 18 and 26.x simulators work. `xcodebuild test` and `-destination`
    refuses one added to a code signature, so the runner carries it the way simulator apps do: in a
    `__TEXT,__entitlements` section. That makes the Keychain tests use the simulator's real Keychain.
 
-**Pending the iOS 26.5 platform install:** XCUITest's `performAccessibilityAudit()` on PixelKit's gallery (story
+**Pending the iOS 26.5 platform install — the app icon's asset catalog.** The icon is loose PNGs in
+`Marcel/App/AppIcon/` listed in `Config/Marcel-Info.plist`, because actool cannot compile an asset catalog here.
+Loose PNGs give the home screen only the default icon: no dark, clear or tinted icon. **Before the first
+TestFlight build**, install the platform and move the icon into `Marcel/App/Assets.xcassets/AppIcon.appiconset`:
+one 1024 px "Any appearance" image (`shared/brand/app-icon/out/app-icon-1024.png`), the dark one
+(`app-icon-dark-1024.png`), and a tinted one (a grey-scale version for iOS to tint; add it to
+`shared/brand/app-icon/generate.py`). Then set `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon`, drop
+`CFBundleIcons` from the plist, delete `Marcel/App/AppIcon/`, and point `AppIconTests` at the catalog.
+
+**Also pending the iOS 26.5 platform install:** XCUITest's `performAccessibilityAudit()` on PixelKit's gallery (story
 S-12.2). Until then `PixelKitTests/AccessibilityAuditTests` runs the same checks on SwiftUI's accessibility tree
 (see PixelKit/README.md).
 

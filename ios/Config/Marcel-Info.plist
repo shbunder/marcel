@@ -14,7 +14,7 @@
 			</array>
 		</dict>
 	</array>
-	<!-- The app icon (S-13.3): loose PNGs drawn from the giraffe sprite sheet, in Marcel/App/AppIcon/. Not an asset
+	<!-- The app icon: loose PNGs drawn by shared/brand/app-icon/generate.py, in Marcel/App/AppIcon/. Not an asset
 	     catalog: actool cannot compile one on a Mac without the iOS platform component (ios/README.md). -->
 	<key>CFBundleIcons</key>
 	<dict>
