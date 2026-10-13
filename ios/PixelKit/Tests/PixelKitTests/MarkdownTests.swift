@@ -115,6 +115,15 @@ final class MarkdownTests: XCTestCase {
         XCTAssertEqual(spans, [.init("Hi", bold: true), .init(" there")])
     }
 
+    /// Link text keeps PixelText's per-character fonts: € in body text is Silkscreen's (Pixelify's reads as a digit).
+    func testLinkTextUsesTheSameFontsAsBodyText() {
+        let words = PixelGlyphFallback.attributed("Pay €5", face: .pixelify, size: 17)
+        let runs = words.runs.map { (String(words[$0.range].characters), $0.font) }
+        XCTAssertEqual(runs.map(\.0), ["Pay ", "€", "5"])
+        XCTAssertEqual(runs.map(\.1), [.custom(PixelFonts.bodyFace, fixedSize: 17), .custom(PixelFonts.labelFace, fixedSize: 17),
+                                       .custom(PixelFonts.bodyFace, fixedSize: 17)])
+    }
+
     // MARK: Drawing
 
     @MainActor

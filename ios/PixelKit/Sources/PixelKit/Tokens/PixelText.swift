@@ -138,6 +138,31 @@ public enum PixelGlyphFallback {
         return result
     }
 
+    /// The same routes as an `AttributedString`, for text that must stay one attributed run (a tappable link).
+    /// A pixel bitmap cannot live in an attributed string, so those characters (→ ← ✓ ✔) keep the face's font.
+    static func attributed(_ string: String, face: Face, size: CGFloat) -> AttributedString {
+        var result = AttributedString()
+        for character in string {
+            var piece: AttributedString
+            switch route(for: character, in: face) {
+            case .font(let routed):
+                piece = AttributedString(String(character))
+                piece.font = .custom(routed.postScriptName, fixedSize: size)
+            case .replacement(let replacement, let routed):
+                piece = AttributedString(replacement)
+                piece.font = .custom(routed.postScriptName, fixedSize: size)
+            case .bitmap:
+                piece = AttributedString(String(character))
+                piece.font = .custom(face.postScriptName, fixedSize: size)
+            case .system:
+                piece = AttributedString(String(character))
+                piece.font = .system(size: size)
+            }
+            result += piece
+        }
+        return result
+    }
+
     private static func segment(_ run: String, route: Route, size: CGFloat) -> Text {
         switch route {
         case .font(let face):

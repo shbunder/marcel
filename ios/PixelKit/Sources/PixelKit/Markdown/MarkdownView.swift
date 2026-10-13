@@ -119,9 +119,9 @@ enum MarkdownInline {
         }
         var text: Text
         if let url = span.link {
-            var words = AttributedString(span.text)
+            // The same per-character fonts as body text (Silkscreen's € reads better than Pixelify's), as one link.
+            var words = PixelGlyphFallback.attributed(span.text, face: .pixelify, size: size)
             words.link = url
-            words.font = .custom(PixelFonts.bodyFace, fixedSize: size)
             words.foregroundColor = ProjectChip.Tone.blue.color(in: theme).color
             words.underlineStyle = .single
             text = Text(words)
@@ -129,7 +129,8 @@ enum MarkdownInline {
             text = PixelGlyphFallback.text(span.text, face: .pixelify, size: size)
         }
         if span.bold { text = text.fontWeight(.bold) }
-        if span.italic { text = text.italic().foregroundStyle(ProjectChip.Tone.rose.color(in: theme).color) }
+        // A link keeps the link colour; other italic words are rose.
+        if span.italic { text = span.link == nil ? text.italic().foregroundStyle(ProjectChip.Tone.rose.color(in: theme).color) : text.italic() }
         return text
     }
 }

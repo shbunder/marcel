@@ -21,9 +21,10 @@ package's only screens. It depends on MarcelKit and PixelKit only, so Chat and M
   the viewer fetches that version's bytes (`GET /artifacts/{id}/content?version=n`, always by number, once per
   version). An item the cache does not have yet is fetched with `GET /artifacts/{id}`.
 - **By kind** (`ItemBody.make`):
-  - `doc` as Markdown or plain text: drawn natively (`ItemMarkdown`): headings, paragraphs, lists, quotes, code,
-    tables. Links become buttons under their block, and only `http`/`https` with a host — like the chat's Markdown.
-    `MarkdownView` is public: Marcel's notebook (`Marcel/Notebook`) previews a note with it, under the same rules.
+  - `doc` as Markdown or plain text: drawn natively by PixelKit's shared `ItemMarkdown` + `MarkdownView` (S-18.7,
+    also used by Marcel's notebook): headings, paragraphs with bold, italic, inline code and links, lists, quotes,
+    code, tables. Only `http`/`https` links with a host; each is tappable in the text and also a button under its
+    block. See `ios/PixelKit/README.md` § Markdown.
   - `doc` as HTML: a `WKWebView` under `WebPolicy`. JavaScript is **off** unless the hub marked the item `trusted`;
     an untrusted page also gets a content security policy that blocks scripts and every network load; nothing is
     stored between pages; the web view never navigates away — a tapped web link opens in Safari, anything else is
@@ -65,8 +66,9 @@ package's only screens. It depends on MarcelKit and PixelKit only, so Chat and M
 
 - `ItemsLibraryTests` — grouping and order, the words on each tile, the "updated" badge, times and sizes in words.
 - `ItemBodyTests` — each kind from the mock hub's recordings (`Tests/MarcelItemsTests/MockHub/`, recorded with curl
-  from `make mock-hub`) and the contract's dashboard examples; Markdown blocks and web-only links; GitHub-only PR
-  buttons; eleven dashboards that break the schema, each a plain sentence.
+  from `make mock-hub`) and the contract's dashboard examples; GitHub-only PR
+  buttons; eleven dashboards that break the schema, each a plain sentence. (The Markdown parser's own tests are
+  PixelKit's `MarkdownTests`.)
 - `ViewerLiveTests` — the story's UI test one layer down (XCUITest cannot run on this Mac's Xcode, see
   ../../README.md): an in-memory cache fed with event frames, the viewer's model with a fake hub. An
   `artifact.updated` refreshes an open document and a board and bumps the version; the history and read-only old
