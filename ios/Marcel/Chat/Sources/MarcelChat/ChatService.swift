@@ -11,12 +11,16 @@ public struct MainAgent: Equatable, Sendable {
     public var name: String
     public var id: String?
     public var state: AvatarState?
+    /// The agent's Pixel Zoo look (app API 0.7); nil before one is chosen or when this build does not know it.
+    public var look: KnownLook?
 
-    public init(conversationId: String, name: String, id: String? = nil, state: AvatarState? = nil) {
+    public init(conversationId: String, name: String, id: String? = nil, state: AvatarState? = nil,
+                look: KnownLook? = nil) {
         self.conversationId = conversationId
         self.name = name
         self.id = id
         self.state = state
+        self.look = look
     }
 }
 
@@ -77,7 +81,7 @@ public struct LiveChatService: ChatService {
         case .ok(let ok):
             guard let agent = try ok.body.json.agents.first else { throw ChatError("This hub has no agent yet.") }
             return MainAgent(conversationId: agent.mainConversationId, name: agent.name, id: agent.id,
-                             state: AvatarState(agent.state))
+                             state: AvatarState(agent.state), look: agent.drawnLook)
         case .unauthorized: throw ChatError.unpaired
         case .undocumented(let status, _): throw ChatError.unexpected("me, HTTP \(status)")
         }

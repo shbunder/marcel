@@ -77,8 +77,7 @@ struct SideChatLayout<Feed: View, ComposerView: View>: View {
         VStack(spacing: 0) {
             SideChatTop(look: look, actions: actions)
             VStack(alignment: .leading, spacing: FeedMetrics.spacing) {
-                DialogBox(speaker: "On: \(parent.speaker)", text: parent.text)
-                    .opacity(0.7)
+                ChatQuote(speaker: "On: \(parent.speaker)", text: parent.text)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Side chat on what \(parent.speaker) said: \(parent.text)")
                     .padding(.horizontal, FeedMetrics.inset)

@@ -14,10 +14,15 @@ import XCTest
 enum Snapshot {
     /// The three looks every component is checked in.
     enum Variant: String, CaseIterable {
-        case light, dark, largestText = "ax5"
+        case light, dark, largestText = "ax5", darkLargestText = "dark.ax5"
 
-        var scheme: ColorScheme { self == .dark ? .dark : .light }
-        var dynamicType: DynamicTypeSize { self == .largestText ? .accessibility5 : .large }
+        var scheme: ColorScheme { self == .dark || self == .darkLargestText ? .dark : .light }
+        var dynamicType: DynamicTypeSize {
+            self == .largestText || self == .darkLargestText ? .accessibility5 : .large
+        }
+
+        /// What most snapshots are drawn in; the chat look (S-18.3) adds dark at the largest text size.
+        static let standard: [Variant] = [.light, .dark, .largestText]
     }
 
     static let width: CGFloat = 390
@@ -81,7 +86,7 @@ enum Snapshot {
     /// Checks `view` in every variant against its reference images.
     @MainActor
     static func assert<V: View>(
-        _ view: V, named name: String, variants: [Variant] = Variant.allCases, width: CGFloat = width,
+        _ view: V, named name: String, variants: [Variant] = Variant.standard, width: CGFloat = width,
         padding: CGFloat = 16, scale: CGFloat = scale, file: StaticString = #filePath, line: UInt = #line
     ) {
         guard checkRuntime(file: file, line: line) else { return }

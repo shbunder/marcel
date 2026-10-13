@@ -7,16 +7,25 @@ import SwiftUI
 /// tapped, and only an http(s) one; HTML stays words.
 public struct MarkdownView: View {
     var parts: [ItemMarkdown.Part]
+    var style: MarkdownStyle
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dynamicTypeSize) private var dynamicType
     @Environment(\.openURL) private var openURL
 
-    public init(parts: [ItemMarkdown.Part]) {
+    public init(parts: [ItemMarkdown.Part], style: MarkdownStyle = .pixel) {
         self.parts = parts
+        self.style = style
     }
 
     public var body: some View {
+        switch style {
+        case .pixel: pixelBody
+        case .chat: ChatMarkdownBody(parts: parts)
+        }
+    }
+
+    @ViewBuilder private var pixelBody: some View {
         let theme = PixelTheme(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(5)) {
             if parts.isEmpty {
@@ -97,6 +106,16 @@ public struct MarkdownView: View {
                 .accessibilityLabel(Text(verbatim: text))
         }
     }
+}
+
+/// How a Markdown document is drawn.
+public enum MarkdownStyle: Sendable {
+    /// Pixel-classic: the pixel body font, headings in the label font, each link also a button under its block (the
+    /// item viewer, the notebook).
+    case pixel
+    /// Marcel's replies in the chat (ADR-007): the system font with Dynamic Type, real bold and italic, links in the
+    /// text only, plain tables. See `ChatMarkdownBody`.
+    case chat
 }
 
 /// Builds one `Text` from styled spans in the body font: bold uses the font's bold weight; italic is drawn in the rose

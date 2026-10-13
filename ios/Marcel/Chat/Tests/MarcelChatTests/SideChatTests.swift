@@ -80,10 +80,10 @@ final class SideChatTests: XCTestCase {
         model.prune(thread.messages)
         XCTAssertTrue(model.pending.isEmpty)
         items = SideChatFeed.items(thread, model: model, approvals: ChatLocalState())
-        XCTAssertEqual(items.map(\.id), ["s1", "s2"], "one copy of the reply, then the answer")
+        XCTAssertEqual(items.rowIds, ["s1", "s2"], "one copy of the reply, then the answer")
 
         // The main chat does not see the thread, but its message says "2 replies", kept live.
-        XCTAssertEqual(try fed.items().map(\.id), ["m1"])
+        XCTAssertEqual(try fed.items().rowIds, ["m1"])
         let summary = chat.sideChats.summaries(for: try fed.input().messages, counts: try counts(fed))["m1"]
         XCTAssertEqual(summary?.label, "2 replies")
         XCTAssertEqual(summary?.accessibilityLabel, "Side chat, 2 replies")
@@ -107,7 +107,7 @@ final class SideChatTests: XCTestCase {
         try fed.send("message.created", Fx.message("m2", at: 20, role: "user", kind: "quote", text:
             "Then the covered terrace: same plan, ten metres closer to the kitchen.",
             extra: ["quoted_message_id": "s2"]))
-        XCTAssertEqual(try fed.items().map(\.id), ["m1", "m2"])
+        XCTAssertEqual(try fed.items().rowIds, ["m1", "m2"])
     }
 
     func testCancellingSendToMainSendsNothing() async throws {
@@ -362,7 +362,7 @@ final class SideChatTests: XCTestCase {
         await model.open()
         XCTAssertEqual(model.problem, "Can't reach the hub right now. Check the connection and try again.")
         let items = SideChatFeed.items(try threadInput(fed, side), model: model, approvals: ChatLocalState())
-        XCTAssertEqual(items.map(\.id), ["s1"])
+        XCTAssertEqual(items.rowIds, ["s1"])
 
         // A reply offline stays, marked not sent; a retry reuses its client id.
         hub.side.replyError = .offline
@@ -469,7 +469,7 @@ final class SideChatTests: XCTestCase {
         XCTAssertEqual(parent.taskId, "t1")
         let pending = FeedItem.user(UserLine(id: "pending-c1", text: "Hi", status: .sending, clientId: "c1"))
         XCTAssertNil(SideChatParent.of(pending, message: nil, agentName: "Marcella"), "no thread on a message on its way")
-        let said = FeedItem.marcel(MarcelLine(id: "m2", body: ChatMarkdown.render("Hello")))
+        let said = FeedItem.marcel(MarcelLine(id: "m2", markdown: "Hello"))
         let agentMessage: Message = Fx.decode(Fx.message("m2", at: 2, text: "Hello"))
         XCTAssertEqual(SideChatParent.of(said, message: agentMessage, agentName: "Marcella")?.speaker, "Marcella")
     }

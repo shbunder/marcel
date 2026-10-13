@@ -99,7 +99,7 @@ final class ChatMockHubTests: XCTestCase {
 
         // Once the mock is free: the energy run → the second started card, its item, and version 2.
         try await waitUntil("the mock to finish the login run") {
-            try items().contains { if case .marcel(let m) = $0 { m.body.text.hasPrefix("Done: Fix the flaky login test") } else { false } }
+            try items().contains { if case .marcel(let m) = $0 { m.text.hasPrefix("Done: Fix the flaky login test") } else { false } }
         }
         try await Task.sleep(for: .milliseconds(500))
         model.draft = "Compare the energy offers for us"

@@ -26,41 +26,43 @@ struct FeedStack: View {
 
     var body: some View {
         ForEach(items) { item in
-            ThreadedRow(item: item, actions: actions)
+            ThreadedRow(item: item, actions: actions, first: item.id == items.first?.id)
                 .id(item.id)
         }
     }
 }
 
 /// A row, with "Reply in thread" on a long-press (and as a VoiceOver action) and "n replies" under it once its side
-/// chat has replies (B-08). Your messages still on their way have no thread yet.
+/// chat has replies (B-08). Your messages still on their way, and time lines, have no thread.
 struct ThreadedRow: View {
     var item: FeedItem
     var actions: ChatActions
-
-    @Environment(\.dynamicTypeSize) private var dynamicType
+    var first = false
 
     private var isStored: Bool {
-        if case .user(let line) = item { line.clientId == nil } else { true }
+        switch item {
+        case .user(let line): line.clientId == nil
+        case .time: false
+        default: true
+        }
     }
 
     var body: some View {
         if let reply = actions.reply, isStored {
             VStack(alignment: isMine ? .trailing : .leading, spacing: PixelMetrics.steps(1)) {
-                FeedRow(item: item, actions: actions)
+                FeedRow(item: item, actions: actions, first: first)
+                    .contentShape(Rectangle())
                     .contextMenu {
                         Button("Reply in thread") { reply(item) }
                     }
                     .accessibilityAction(named: "Reply in thread") { reply(item) }
                 if let summary = actions.threads[item.id] {
                     RepliesButton(summary: summary) { reply(item) }
-                        .padding(.leading, isMine || dynamicType.isAccessibilitySize ? 0
-                                 : MarcelSays<EmptyView>.indent)
                 }
             }
             .frame(maxWidth: .infinity, alignment: isMine ? .trailing : .leading)
         } else {
-            FeedRow(item: item, actions: actions)
+            FeedRow(item: item, actions: actions, first: first)
         }
     }
 
@@ -72,7 +74,9 @@ struct ThreadedRow: View {
 struct FeedRow: View {
     var item: FeedItem
     var actions: ChatActions
-    @Environment(\.dynamicTypeSize) private var dynamicType
+    var first = false
+
+    @Environment(\.chatNow) private var now
 
     var body: some View {
         switch item {
@@ -85,30 +89,26 @@ struct FeedRow: View {
                 UserBubble(line: line)
             }
         case .marcel(let line):
-            VStack(alignment: .leading, spacing: PixelMetrics.steps(4)) {
-                MarcelSays(body: line.body, actions: actions)
-                if let quest = line.quest {
-                    // The thread Marcel routed this to, live: the same card as where it started.
-                    QuestRow(line: quest, actions: actions)
-                        .padding(.leading, dynamicType.isAccessibilitySize ? 0 : MarcelSays<EmptyView>.indent)
-                }
-            }
+            MarcelReply(line: line, actions: actions)
         case .quest(let line):
             QuestRow(line: line, actions: actions)
         case .approval(let line):
             ApprovalRow(line: line, actions: actions)
         case .item(let line):
             ItemRow(line: line, actions: actions)
+        case .time(let line):
+            ChatTimeLine(line.text(now: now ?? Date(), first: first))
         }
     }
 }
 
-/// Your message: a teal box on the right, at most four fifths of the width. One on its way says "Sending…"
-/// under it; one that did not get through says so, and tapping it sends it again.
+/// Your message: a rounded bubble on the right in your helper's colour, with the notch (bottom-right corner squared
+/// off). One on its way says "Sending…" under it; one that did not get through says so, and tapping it sends it again.
 struct UserBubble: View {
     var line: UserLine
 
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.chatBubbleColor) private var color
 
     init(line: UserLine) {
         self.line = line
@@ -122,14 +122,8 @@ struct UserBubble: View {
         let theme = PixelTheme(scheme)
         VStack(alignment: .trailing, spacing: PixelMetrics.steps(2)) {
             HStack {
-                Spacer(minLength: 56)
-                PixelText(line.text, role: .body)
-                    .foregroundStyle(UserBubble.ink(scheme).color)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, PixelMetrics.padding)
-                    .padding(.vertical, PixelMetrics.steps(4))
-                    .pixelBox(fill: .teal, line: theme.line, shadow: theme.shadow, border: PixelMetrics.thinBorder,
-                              offset: PixelMetrics.smallShadow)
+                Spacer(minLength: 64)
+                ChatBubble(line.text, color: color)
             }
             if let project = line.project {
                 ProjectChip(project, tone: line.tone)
@@ -151,98 +145,24 @@ struct UserBubble: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(line.accessibilityText)
     }
-
-    /// White on teal in light (5.9:1), cream in dark (5.3:1): both pass AA for the small pixel font.
-    static func ink(_ scheme: ColorScheme) -> PixelColor {
-        scheme == .dark ? .cream : PixelColor(0xFFFFFF)
-    }
 }
 
-/// Marcel speaking: the 32-pt giraffe beside a dialogue box. Links in the Markdown become buttons under the text.
-struct MarcelSays<Accessory: View>: View {
-    var text: String
-    var links: [ChatMarkdown.Link]
-    var accessory: Accessory
-
-    @Environment(\.chatStillAvatars) private var still
-    @Environment(\.dynamicTypeSize) private var dynamicType
-
-    /// How far the box sits from the left edge: the 32-pt giraffe and the gap after it.
-    static var indent: CGFloat { AvatarSize.small.points + PixelMetrics.steps(3) }
-
-    /// The agent's name on the box, as the header says it.
-    @Environment(\.agentName) private var agentName
-
-    init(text: String, links: [ChatMarkdown.Link] = [], @ViewBuilder accessory: () -> Accessory) {
-        self.text = text
-        self.links = links
-        self.accessory = accessory()
-    }
+/// Marcel's reply (ADR-007): plain formatted text across the full width, no bubble and no avatar, drawn by PixelKit's
+/// shared Markdown view in its chat style. A follow-up Marcel routed to a quest carries that quest's live card.
+struct MarcelReply: View {
+    var line: MarcelLine
+    var actions: ChatActions
 
     var body: some View {
-        HStack(alignment: .top, spacing: PixelMetrics.steps(3)) {
-            // At accessibility text sizes the text gets the whole width.
-            if !dynamicType.isAccessibilitySize {
-                ChatAvatar(state: .idle, size: .small, still: still)
-                    .padding(.top, PixelMetrics.steps(1))
-                    .accessibilityHidden(true)
-            }
-            DialogBox(speaker: agentName, text: text) {
-                if !links.isEmpty || Accessory.self != EmptyView.self {
-                    VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
-                        ForEach(Array(links.enumerated()), id: \.offset) { _, link in LinkButton(link: link) }
-                        accessory
-                    }
-                }
+        VStack(alignment: .leading, spacing: PixelMetrics.steps(5)) {
+            MarkdownView(parts: line.parts, style: .chat)
+                .accessibilityElement(children: .combine)
+            if let quest = line.quest {
+                // The thread Marcel routed this to, live: the same card as where it started.
+                QuestRow(line: quest, actions: actions)
             }
         }
-    }
-}
-
-extension MarcelSays where Accessory == EmptyView {
-    init(body: ChatMarkdown.Rendered, actions: ChatActions) {
-        self.init(text: body.text, links: body.links) { EmptyView() }
-    }
-}
-
-/// A link from Marcel's text, as a tappable line in the accent colour, with the web address it opens under it.
-/// Only http(s) links are ever opened.
-struct LinkButton: View {
-    var link: ChatMarkdown.Link
-
-    /// "example.com", what the button says it opens.
-    static func address(_ url: URL) -> String {
-        let host = url.host() ?? url.absoluteString
-        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-    }
-
-    static func accessibilityText(_ link: ChatMarkdown.Link) -> String {
-        "Open link: \(link.title), on \(address(link.url))"
-    }
-    @Environment(\.colorScheme) private var scheme
-    @Environment(\.openURL) private var openURL
-
-    var body: some View {
-        let theme = PixelTheme(scheme)
-        Button {
-            if let url = ChatMarkdown.webLink(link.url) { openURL(url) }
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: PixelMetrics.steps(3)) {
-                PixelGlyph(.pointer, color: theme.accent)
-                VStack(alignment: .leading, spacing: 0) {
-                    PixelText(link.title, role: .detail)
-                        .underline()
-                        .foregroundStyle(theme.accent.color)
-                        .fixedSize(horizontal: false, vertical: true)
-                    PixelText(Self.address(link.url), role: .detail)
-                        .foregroundStyle(theme.muted.color)
-                }
-            }
-            .frame(minHeight: PixelMetrics.minTapTarget, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Self.accessibilityText(link))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

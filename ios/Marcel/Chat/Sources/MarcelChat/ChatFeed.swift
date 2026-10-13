@@ -9,14 +9,17 @@ import PixelKit
 public enum FeedItem: Identifiable, Equatable, Sendable {
     /// Something you wrote.
     case user(UserLine)
-    /// Marcel speaking: a dialogue box with a Markdown body, and the live card of the thread it is about.
+    /// Marcel speaking: plain formatted text across the full width (ADR-007), and the live card of the thread it is
+    /// about.
     case marcel(MarcelLine)
     /// A thread, shown as a quest card that follows its task.
     case quest(QuestLine)
     /// A question from a thread, with approve / deny / details.
     case approval(ApprovalLine)
-    /// An item a thread made ("You got: …!" and its preview), or the morning board.
+    /// An item a thread made (a "done" card with its preview), or the morning board.
     case item(ItemLine)
+    /// The time, between groups of messages more than 15 minutes apart and above the first one.
+    case time(TimeLine)
 
     public var id: String {
         switch self {
@@ -25,6 +28,7 @@ public enum FeedItem: Identifiable, Equatable, Sendable {
         case .quest(let line): line.id
         case .approval(let line): line.id
         case .item(let line): line.id
+        case .time(let line): line.id
         }
     }
 }
@@ -99,15 +103,38 @@ public struct PendingMessage: Equatable, Sendable {
 
 public struct MarcelLine: Equatable, Sendable {
     public var id: String
-    /// The Markdown body as the pixel font shows it (see `ChatMarkdown`).
-    public var body: ChatMarkdown.Rendered
-    /// The thread this message is about (a follow-up Marcel routed to it), drawn live under the box.
+    /// The reply's Markdown as blocks (PixelKit's `ItemMarkdown`, drawn by `MarkdownView` in its chat style).
+    public var parts: [ItemMarkdown.Part]
+    /// The thread this message is about (a follow-up Marcel routed to it), drawn live under the text.
     public var quest: QuestLine?
 
-    public init(id: String, body: ChatMarkdown.Rendered, quest: QuestLine? = nil) {
+    public init(id: String, markdown: String, quest: QuestLine? = nil) {
         self.id = id
-        self.body = body
+        self.parts = ItemMarkdown.parse(markdown)
         self.quest = quest
+    }
+
+    /// The reply's words, for VoiceOver summaries and the side chat's quote.
+    public var text: String { ItemMarkdown.plainText(parts) }
+}
+
+/// "Today 08:12" between groups of messages.
+public struct TimeLine: Hashable, Sendable {
+    public var id: String
+    public var date: Date
+
+    /// Groups more than this far apart get a time line between them.
+    public static let gap: TimeInterval = 15 * 60
+
+    /// "08:12" today, "Yesterday 21:40", "Mon 12 Oct 08:00" before that; "Today" on the first line of a window.
+    public func text(now: Date, first: Bool, calendar: Calendar = .current, locale: Locale = .current) -> String {
+        let clock = date.formatted(Date.FormatStyle(locale: locale).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+        if calendar.isDate(date, inSameDayAs: now) { return first ? "Today \(clock)" : clock }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return "Yesterday \(clock)"
+        }
+        let day = date.formatted(Date.FormatStyle(locale: locale).weekday(.abbreviated).day().month(.abbreviated))
+        return "\(day) \(clock)"
     }
 }
 
@@ -119,6 +146,20 @@ public struct QuestLine: Hashable, Sendable {
     public var project: String?
     public var tone: ProjectChip.Tone
     public var detail: String?
+    /// Where it runs, for the "started" card's label ("NUC", "Cloud").
+    public var location: Components.Schemas.TaskLocation?
+
+    public init(id: String, taskId: String, title: String, state: StateBadge.Kind, project: String?,
+                tone: ProjectChip.Tone, detail: String?, location: Components.Schemas.TaskLocation? = nil) {
+        self.id = id
+        self.taskId = taskId
+        self.title = title
+        self.state = state
+        self.project = project
+        self.tone = tone
+        self.detail = detail
+        self.location = location
+    }
 }
 
 public struct ApprovalLine: Equatable, Sendable {
@@ -162,7 +203,7 @@ public struct ItemLine: Hashable, Sendable {
     public var savedTo: String?
     public var badge: String
     public var rows: [PreviewRow]
-    /// "You got: …!" — only on the message for an item's first version, and only once per item.
+    /// A new item ("You got an item"): only on the message for an item's first version, and only once per item.
     public var showsBanner: Bool
     /// The morning board (a `board` artifact): a preview card, no banner.
     public var isDigest: Bool
@@ -201,7 +242,9 @@ public enum ChatFeed {
         var items: [FeedItem] = []
         var carded = Set<String>()      // tasks that already have their card in this window
         var shownItems = Set<String>()  // artifacts already announced in this window
+        var lastShown: Date?            // the newest message that drew a row
         for message in input.messages {
+            let before = items.count
             switch message.kind {
             case .text, .quote:
                 let text = message.text ?? ""
@@ -215,7 +258,7 @@ public enum ChatFeed {
                                                 attachment: attached)))
                 } else {
                     let routed = message.taskId.flatMap { Self.quest(id: "\(message.id)#quest", taskId: $0, input: input) }
-                    items.append(.marcel(MarcelLine(id: message.id, body: ChatMarkdown.render(text), quest: routed)))
+                    items.append(.marcel(MarcelLine(id: message.id, markdown: text, quest: routed)))
                 }
             case .milestone:
                 guard let milestone = message.milestone else { continue }
@@ -224,10 +267,13 @@ public enum ChatFeed {
                     items.append(.quest(quest(id: message.id, taskId: milestone.taskId, input: input)
                         ?? QuestLine(id: message.id, taskId: milestone.taskId, title: milestone.taskTitle,
                                      state: kind(for: milestone.event), project: nil, tone: .teal,
-                                     detail: location(milestone.location))))
+                                     detail: milestone.event == .failed
+                                         ? milestone.summary ?? location(milestone.location)
+                                         : location(milestone.location),
+                                     location: milestone.location)))
                 } else {
                     // A later milestone of a thread already on screen: one line, never a second card.
-                    items.append(.marcel(MarcelLine(id: message.id, body: ChatMarkdown.render(says(milestone)))))
+                    items.append(.marcel(MarcelLine(id: message.id, markdown: says(milestone))))
                 }
             case .approval:
                 guard let approvalId = message.approvalId else { continue }
@@ -238,6 +284,11 @@ public enum ChatFeed {
                 guard shownItems.insert(artifactId).inserted else { continue }
                 items.append(.item(item(message: message, artifactId: artifactId, input: input, local: local)))
             }
+            guard items.count > before else { continue }
+            if lastShown.map({ message.createdAt.timeIntervalSince($0) > TimeLine.gap }) ?? true {
+                items.insert(.time(TimeLine(id: "time-\(message.id)", date: message.createdAt)), at: before)
+            }
+            lastShown = message.createdAt
         }
         // Your messages on their way go last, until the hub's copy (same client id) arrives.
         let arrived = Set(input.messages.compactMap(\.clientId))
@@ -261,9 +312,13 @@ public enum ChatFeed {
     static func quest(id: String, taskId: String, input: FeedInput) -> QuestLine? {
         guard let task = input.tasks[taskId] else { return nil }
         let project = input.projects[task.projectId]
+        // A failed quest's card says what went wrong, in the words of its "failed" milestone when there is one.
+        let failure = task.state == .failed
+            ? input.messages.last { $0.milestone?.taskId == taskId && $0.milestone?.event == .failed }?.milestone?.summary
+            : nil
         return QuestLine(
             id: id, taskId: taskId, title: task.title, state: kind(for: task.state), project: project?.name,
-            tone: tone(for: task.projectId), detail: detail(for: task))
+            tone: tone(for: task.projectId), detail: failure ?? detail(for: task), location: task.location)
     }
 
     static func kind(for state: Components.Schemas.TaskState) -> StateBadge.Kind {
@@ -363,7 +418,7 @@ public enum ChatFeed {
         } else {
             status = .loading
         }
-        let summary = approval.map { ChatMarkdown.render($0.summary).text }
+        let summary = approval.map { ItemMarkdown.plainText(ItemMarkdown.parse($0.summary)) }
             ?? input.tasks[taskId]?.waitingFor ?? "Fetching the question…"
         return ApprovalLine(
             id: message.id, approvalId: approvalId, taskId: taskId, question: "\(asker) asks: \(summary)",
@@ -385,6 +440,6 @@ public enum ChatFeed {
         return ItemLine(
             id: message.id, artifactId: artifactId, title: artifact.title, savedTo: project, badge: badge,
             rows: local.previews[ArtifactPreview.key(artifact)] ?? ArtifactPreview.summaryRows(artifact),
-            showsBanner: !isDigest, isDigest: isDigest, url: artifact.url.flatMap(URL.init(string:)).flatMap(ChatMarkdown.webLink))
+            showsBanner: !isDigest, isDigest: isDigest, url: artifact.url.flatMap(URL.init(string:)).flatMap(ItemMarkdown.webLink))
     }
 }

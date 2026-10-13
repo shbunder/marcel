@@ -172,6 +172,9 @@ struct LiveFeed: View {
                                 }
                         }
                         FeedStack(items: items, actions: threaded(input, name: header.name))
+                        if ThinkingRow.shows(header.avatar) {
+                            ThinkingRow(state: header.avatar, name: header.name)
+                        }
                     }
                     .padding(FeedMetrics.inset)
                     .scrollTargetLayout()
@@ -213,6 +216,7 @@ struct LiveFeed: View {
             }
         }
         .environment(\.agentName, header.name)
+        .environment(\.chatBubbleColor, model.bubbleColor)
         .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: collapsed)
         // Approvals are not in the cache: fetch them when one shows up or its task moves on.
         .task(id: Self.approvalKey(input)) { await model.reconcile(input) }

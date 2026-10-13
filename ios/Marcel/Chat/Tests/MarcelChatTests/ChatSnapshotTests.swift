@@ -14,11 +14,11 @@ final class ChatSnapshotTests: XCTestCase {
     func testConversation() {
         Snapshot.assert(
             ChatStill(header: ChatHeaderState(), items: [
-                .marcel(MarcelLine(id: "m1", body: ChatMarkdown.render(
-                    "Good morning. Today: swim class **16:30**, paper bins tonight."))),
+                .marcel(MarcelLine(id: "m1", markdown: 
+                    "Good morning. Today: swim class **16:30**, paper bins tonight.")),
                 .user(UserLine(id: "u1", text: "What's the weather Sunday?")),
-                .marcel(MarcelLine(id: "m2", body: ChatMarkdown.render(
-                    "18° and dry. Good for the garden lunch option. See [the forecast](https://example.com)."))),
+                .marcel(MarcelLine(id: "m2", markdown: 
+                    "18° and dry. Good for the garden lunch option. See [the forecast](https://example.com).")),
             ]),
             named: "Chat-conversation", padding: 0)
     }
@@ -39,7 +39,7 @@ final class ChatSnapshotTests: XCTestCase {
             ChatStill(header: ChatHeaderState(name: "Marcella"), items: [
                 .user(UserLine(id: "u1", text: "Is Engie cheaper with solar?", project: "Home energy", tone: .teal,
                                attachment: "Energy offers compared")),
-                .marcel(MarcelLine(id: "m1", body: ChatMarkdown.render("Yes: **€486** a year less with 4 kWp."))),
+                .marcel(MarcelLine(id: "m1", markdown: "Yes: **€486** a year less with 4 kWp.")),
             ], draft: "And without the heat pump?", attachment: "Bills 2026"),
             named: "Chat-ask", variants: twoModes, padding: 0)
     }
@@ -71,8 +71,8 @@ final class ChatSnapshotTests: XCTestCase {
         Snapshot.assert(
             ChatStill(header: ChatHeaderState(avatar: .working(2), running: 2), items: [
                 .user(UserLine(id: "u1", text: "Compare energy contracts and plan Sunday lunch")),
-                .marcel(MarcelLine(id: "m1", body: ChatMarkdown.render(
-                    "Started two quests. I'll come back when they need you."))),
+                .marcel(MarcelLine(id: "m1", markdown: 
+                    "Started two quests. I'll come back when they need you.")),
                 .quest(energy), .quest(lunch),
             ]),
             named: "Chat-threads", variants: twoModes, padding: 0)
@@ -82,10 +82,10 @@ final class ChatSnapshotTests: XCTestCase {
         Snapshot.assert(
             ChatStill(header: ChatHeaderState(avatar: .working(2), running: 2), items: [
                 .user(UserLine(id: "u1", text: "Also check whether solar panels change the picture")),
-                .marcel(MarcelLine(id: "m1", body: ChatMarkdown.render(
-                    "Added to **Energy contracts**. It will model with and without solar."), quest: energy)),
+                .marcel(MarcelLine(id: "m1", markdown: 
+                    "Added to **Energy contracts**. It will model with and without solar.", quest: energy)),
                 .user(UserLine(id: "u2", text: "What's the weather Sunday?")),
-                .marcel(MarcelLine(id: "m2", body: ChatMarkdown.render("18° and dry. Good for the garden lunch."))),
+                .marcel(MarcelLine(id: "m2", markdown: "18° and dry. Good for the garden lunch.")),
             ]),
             named: "Chat-followup", variants: twoModes, padding: 0)
     }
@@ -120,8 +120,8 @@ final class ChatSnapshotTests: XCTestCase {
                                    PreviewRow("Supplier A + solar", value: "€1,010", emphasised: true),
                                    PreviewRow("Supplier A", value: "€1,284"), PreviewRow("Current", value: "€1,496"),
                                ], showsBanner: true, isDigest: false, url: nil)),
-                .marcel(MarcelLine(id: "m1", body: ChatMarkdown.render(
-                    "Done: Energy contracts. Switched to Supplier A from 1 November."))),
+                .marcel(MarcelLine(id: "m1", markdown: 
+                    "Done: Energy contracts. Switched to Supplier A from 1 November.")),
             ]),
             named: "Chat-item", padding: 0)
     }
@@ -129,8 +129,8 @@ final class ChatSnapshotTests: XCTestCase {
     func testMorningDigest() {
         Snapshot.assert(
             ChatStill(header: ChatHeaderState(avatar: .idle, needsYou: 2), items: [
-                .marcel(MarcelLine(id: "m1", body: ChatMarkdown.render(
-                    "Good morning. Today: swim class 16:30, paper bins tonight. Two things wait for you."))),
+                .marcel(MarcelLine(id: "m1", markdown: 
+                    "Good morning. Today: swim class 16:30, paper bins tonight. Two things wait for you.")),
                 .item(ItemLine(id: "i1", artifactId: "art_b", title: "Morning board", savedTo: nil,
                                badge: "Board · v7", rows: [
                                    PreviewRow("Approve dentist Tue 9:10"), PreviewRow("Sunday lunch: pick 1 of 2"),

@@ -135,10 +135,4 @@ final class AvatarHeaderSnapshotTests: XCTestCase {
         Snapshot.assert(AvatarHeader(state: ChatHeaderState(avatar: .thinking), collapse: 0.5),
                         named: "Header-halfway-thinking", variants: twoModes, padding: 0, scale: 3)
     }
-
-    func testDialogueBoxAvatar() {
-        Snapshot.assert(
-            MarcelSays(text: "Good morning. Two things wait for you.") { EmptyView() },
-            named: "Dialogue-avatar", variants: twoModes, scale: 3)
-    }
 }

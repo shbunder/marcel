@@ -7,6 +7,25 @@ It is a Swift package (`MarcelChat`) so its tests run in the simulator like the 
 and shows `ChatScreen(model:offline:)`; the Xcode project keeps this folder out of the app target's own sources
 (an exception on the `Marcel` folder in `project.pbxproj`).
 
+## The look (S-18.3, ADR-007)
+
+The chat reads like the Claude app; pixel art is the accent. The pieces are PixelKit's (`PixelKit/…/Chat/`, see its
+README § Chat); the colours are the wireframe's (explainer artifact KtdD3PMLeyZP7QrwqYLrdv, Q1 v10).
+
+- **Your messages** are rounded bubbles on the right with the notch (bottom-right corner 4 pt, the others 16 pt), dark
+  text on your helper's colour (`ChatModel.bubbleColor` from the agent's look, `LookColors`; rose for Marcel),
+  lightened when needed so the text reaches 4.5:1.
+- **Marcel's replies** are plain formatted text across the full width (`MarcelReply`: PixelKit's `MarkdownView` in its
+  chat style). No bubble, no avatar per message. Links are tappable in the text, only http(s). `ChatMarkdown` is gone.
+- **The four special messages** are the only boxes (`CardRows.swift`): started (teal, "Watch ›"), needs you (gold,
+  tinted; Approve / Not now / Details), done (rose, with the item's preview; it replaces the "YOU GOT" banner), failed
+  (red, with the failed milestone's text). A quest's card follows its task and changes colour with it.
+- **Time lines** ("Today 08:12") above the first message and between groups more than 15 minutes apart (`TimeLine`).
+- **The thinking row** (`ThinkingRow.swift`): the small avatar and "Marcel is working…" at the end of the chat while
+  the agent thinks or works; still under Reduce Motion.
+- **Long-press** (or the VoiceOver action) on any stored row, cards included, is "Reply in thread". The side chat's
+  quoted message is a `ChatQuote`.
+
 ## How it works
 
 - **Everything on screen comes from the cache** (`MarcelKit`'s SwiftData rows), which the live event stream keeps
@@ -17,8 +36,8 @@ and shows `ChatScreen(model:offline:)`; the Xcode project keeps this folder out 
   Marcel sends about a thread (`task_id` on the message — a follow-up it routed) shows that thread's live card under it.
 - **Approvals** are not cached by the stream, so `ChatModel.reconcile` fetches `GET /approvals` when an approval
   message shows one the app does not hold, or when its task stops listing it (answered here, in a terminal, or
-  expired). Only an open approval can be answered, once; then the choice prompt greys out and says the outcome.
-- **Items**: "You got: …!" on an item's first message only; a new version changes the card's badge
+  expired). Only an open approval can be answered, once; then the buttons grey out and the card says the outcome.
+- **Items**: a "done · you got an item" card on an item's first message only; a new version changes the card's label
   ("Updated · v2"). The morning board (an artifact of kind `board`) shows as a card with its first entries.
   Previews (a document's first lines, a board's entries) are fetched once per version.
 - **A message sent from a project room** (`project_id`, B-32; the Map tab) shows that project's chip under it, and
@@ -33,7 +52,7 @@ and shows `ChatScreen(model:offline:)`; the Xcode project keeps this folder out 
   and a tap sends the message without it; a 404 for the conversation itself (`conversation_not_found`) says that.
 - **"+ New" on the map** never overwrites what you typed: `ChatModel.propose` fills an empty composer, and otherwise
   adds the request on a new line after your words (once).
-- **The agent's name is never hard-coded**: the header, Marcel's dialogue boxes, the composer ("Talk to <name>…", and
+- **The agent's name is never hard-coded**: the header, the thinking row, the composer ("Talk to <name>…", and
   its VoiceOver label) and "<name>'s notebook" read it from `GET /me` (`ChatService.mainAgent`), `AgentName.fallback`
   until the hub has said. `ChatScreen` puts it in the environment (`agentName`, from MarcelItems) for everything it
   opens; the app does the same for the other tabs.
@@ -67,8 +86,6 @@ so it sits in the package's sources). Drawn with AvatarKit's sheet and loops; no
   in-between. With Reduce Motion there is no animation and the giraffe holds its state's first frame (AvatarKit).
 - **VoiceOver** reads the whole header as one line with the agent's name: "Marcel is thinking. Nothing running.
   1 thing needs you" (`AvatarState.accessibilityDescription(name:)`).
-- **Dialogue boxes** have the 32-pt giraffe on the left (`MarcelSays`). On a 3× phone AvatarKit's whole-pixel rule
-  draws it at 1× (16 × 18 pt of the 32-pt box).
 - **The app icon** is not drawn here any more: it is a white pixel M with a teal bow tie, drawn by
   `shared/brand/app-icon/generate.py` (see its README). The PNGs are in `../App/AppIcon/`, named the way iOS looks
   them up (`AppIcon60x60@3x.png`), and listed in `Config/Marcel-Info.plist` (`CFBundleIconFiles`). They are loose
@@ -119,7 +136,7 @@ Code in `Sources/MarcelChat/SideChat/`.
   cache fed with event frames. `CardTests.testTheScenarioFromSendToItemGet` is the story's scenario: send → two
   started cards → a routed follow-up → the approval → approve → item get + artifact card.
 - `CatchUpTests` — app API 0.5 and the review follow-ups: a message with an item attached (sent, shown, retried),
-  "+ New" never overwriting a draft, the header and the dialogue boxes following the agent's name, a message whose
+  "+ New" never overwriting a draft, the header following the agent's name, a message whose
   item is gone sent without it on a tap, a send's 404 told apart by its code, and a scan of Chat's, Items' and Map's
   sources for user-facing words that hard-code "Marcel".
 - `ChatSnapshotTests` — the main states in light and dark (and the largest text size for two), compared pixel for
@@ -136,7 +153,13 @@ Code in `Sources/MarcelChat/SideChat/`.
   header's state and VoiceOver line read back. Also: another agent's events ignored, offline falls back to the cached
   tasks, a re-sync asks `GET /me` again, and the collapse stepping through whole zooms.
   `AvatarHeaderSnapshotTests` draws the header at 3× in light and dark, expanded and collapsed in every state, half-way
-  through the collapse, and the dialogue box's giraffe. `AppIconTests` — see above.
+  through the collapse. `AppIconTests` — see above.
+- `ChatLookSnapshotTests` (S-18.3) — your message (with the notch), a reply with a heading, a list, a table and code,
+  each special message and the thinking row, in light and dark at the default and the largest text size, and the
+  whole chat. `ChatLookTests` — the notch's geometry, every chat colour pair at 4.5:1 (your text on every helper
+  colour too), card colours per task state. `LongPressTests` is the story's UI test one layer down: the chat in a
+  real window, the "Reply in thread" action found on a reply and on a card in the accessibility tree, and run.
+  `ReplyTests`, `TimeLineTests` — replies through the shared Markdown, and the time lines.
 - `ChatMockHubTests` — the same scenario against the mock hub (not part of the gate):
   `MOCK_DELAY=0.05 MOCK_HUB_PORT=7488 make mock-hub`, then
   `MOCK_HUB=http://127.0.0.1:7488/api make -C ios chat-integration`. The mock runs one thread at a time, so the

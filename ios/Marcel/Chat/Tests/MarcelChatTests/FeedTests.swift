@@ -1,4 +1,6 @@
+import Foundation
 import MarcelKit
+import PixelKit
 import XCTest
 
 @testable import MarcelChat
@@ -11,9 +13,11 @@ final class FeedTests: XCTestCase {
         try fed.send("message.created", Fx.message("msg_1", at: 1, role: "user", kind: "text",
                                                    text: "What's the weather Sunday?"))
 
-        XCTAssertEqual(try fed.items(), [
+        let items = try fed.items()
+        XCTAssertEqual(items.first?.id, "time-msg_1", "the window starts with its time")
+        XCTAssertEqual(Array(items.dropFirst()), [
             .user(UserLine(id: "msg_1", text: "What's the weather Sunday?")),
-            .marcel(MarcelLine(id: "msg_2", body: .init(text: "18° and dry. Good for the garden.", links: []))),
+            .marcel(MarcelLine(id: "msg_2", markdown: "18° and **dry**. Good for the garden.")),
         ])
     }
 
@@ -103,9 +107,10 @@ final class FeedTests: XCTestCase {
     }
 }
 
-final class MarkdownTests: XCTestCase {
+/// Marcel's replies are parsed by PixelKit's shared Markdown (S-18.3 retired ChatMarkdown): the same promises hold.
+final class ReplyTests: XCTestCase {
     func testMarkersGoAndBlocksKeepTheirLines() {
-        let rendered = ChatMarkdown.render("""
+        let line = MarcelLine(id: "m1", markdown: """
         Started **two** quests:
 
         - Energy contracts
@@ -116,40 +121,75 @@ final class MarkdownTests: XCTestCase {
 
         Run `pytest` and see [the PR](https://github.com/shbunder/marcel/pull/14).
         """)
-        XCTAssertEqual(rendered.text, """
+        XCTAssertEqual(line.text, """
         Started two quests:
-
-        • Energy contracts
-        • Sunday lunch
-
+        Energy contracts
+        Sunday lunch
         1. First
         2. Second
-
         Run pytest and see the PR.
         """)
-        XCTAssertEqual(rendered.links, [.init(title: "the PR", url: URL(string: "https://github.com/shbunder/marcel/pull/14")!)])
+        XCTAssertEqual(line.parts.flatMap(\.spans).compactMap(\.link),
+                       [URL(string: "https://github.com/shbunder/marcel/pull/14")!])
+        XCTAssertEqual(line.parts.first?.spans.first { $0.bold }?.text, "two")
     }
 
-    func testOnlyWebLinksBecomeButtonsAndSayWhereTheyGo() {
-        let rendered = ChatMarkdown.render("""
+    func testOnlyWebLinksAreLinks() {
+        let line = MarcelLine(id: "m1", markdown: """
         [Pay](javascript:alert(1)), [call](tel:+3212345678), [run](shortcuts://run-shortcut?name=x), \
         [mail](mailto:a@b.be), [the board](https://www.example.com/b) and [again](https://www.example.com/b).
         """)
-        XCTAssertEqual(rendered.text, "Pay, call, run, mail, the board and again.")
-        XCTAssertEqual(rendered.links.map(\.title), ["the board", "again"], "two identical links are both kept")
-        XCTAssertEqual(LinkButton.address(rendered.links[0].url), "example.com")
-        XCTAssertEqual(LinkButton.accessibilityText(rendered.links[0]), "Open link: the board, on example.com")
-        XCTAssertNil(ChatMarkdown.webLink(URL(string: "javascript:alert(1)")!))
-        XCTAssertNil(ChatMarkdown.webLink(URL(string: "marcel://pair?code=x")!))
-        XCTAssertNotNil(ChatMarkdown.webLink(URL(string: "http://example.com")!))
+        XCTAssertEqual(line.text, "Pay, call, run, mail, the board and again.")
+        XCTAssertEqual(line.parts.flatMap(\.links).map(\.title), ["the board", "again"], "two identical links are both kept")
+        XCTAssertNil(ItemMarkdown.webLink(URL(string: "marcel://pair?code=x")!))
     }
 
     func testALinkWithABoldWordIsOneLink() {
-        let rendered = ChatMarkdown.render("See [the **new** board](https://example.com/b).")
-        XCTAssertEqual(rendered.links.map(\.title), ["the new board"])
+        let line = MarcelLine(id: "m1", markdown: "See [the **new** board](https://example.com/b).")
+        XCTAssertEqual(line.parts.flatMap(\.links).map(\.title), ["the new board"])
     }
 
     func testPlainTextStaysAsItIs() {
-        XCTAssertEqual(ChatMarkdown.render("−€486/jaar, l’été").text, "−€486/jaar, l’été")
+        XCTAssertEqual(MarcelLine(id: "m1", markdown: "−€486/jaar, l’été").text, "−€486/jaar, l’été")
+    }
+}
+
+/// "Today 08:12" between groups more than 15 minutes apart, and above the first message of the window.
+final class TimeLineTests: XCTestCase {
+    private let calendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Brussels")!
+        return calendar
+    }()
+
+    private func date(_ day: Int, _ hour: Int, _ minute: Int) -> Date {
+        calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour, minute: minute))!
+    }
+
+    func testTheWordsForTodayYesterdayAndEarlier() {
+        let now = date(13, 18, 0)
+        let locale = Locale(identifier: "en_GB")
+        func text(_ at: Date, first: Bool = false) -> String {
+            var timeZoneCalendar = calendar
+            timeZoneCalendar.locale = locale
+            return TimeLine(id: "t", date: at).text(now: now, first: first, calendar: timeZoneCalendar, locale: locale)
+        }
+        XCTAssertEqual(text(date(13, 8, 12), first: true), "Today 08:12")
+        XCTAssertEqual(text(date(13, 8, 31)), "08:31")
+        XCTAssertEqual(text(date(12, 21, 40)), "Yesterday 21:40")
+        XCTAssertTrue(text(date(5, 9, 0)).hasSuffix("09:00"))
+        XCTAssertTrue(text(date(5, 9, 0)).contains("Oct"), text(date(5, 9, 0)))
+    }
+
+    func testATimeLineStartsTheWindowAndSeparatesGroupsMoreThan15MinutesApart() throws {
+        func message(_ id: String, minutes: Double) -> Message {
+            let json = #"{"id":"\#(id)","conversation_id":"cnv_main_marcel","role":"agent","kind":"text","text":"\#(id)","created_at":"\#(Date(timeIntervalSince1970: 1_791_000_000 + minutes * 60).formatted(.iso8601))"}"#
+            return try! ChatJSON.decoder().decode(Message.self, from: Data(json.utf8))
+        }
+        let items = ChatFeed.items(FeedInput(messages: [
+            message("a", minutes: 0), message("b", minutes: 10), message("c", minutes: 26), message("d", minutes: 41),
+        ]))
+        XCTAssertEqual(items.map(\.id), ["time-a", "a", "b", "time-c", "c", "d"],
+                       "b is 10 min after a, c 16 min after b, d 15 min after c (not more)")
     }
 }

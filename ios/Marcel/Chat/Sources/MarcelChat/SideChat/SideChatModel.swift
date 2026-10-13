@@ -30,10 +30,11 @@ public struct SideChatParent: Identifiable, Hashable, Sendable {
         let text: String
         switch item {
         case .user(let line): (speaker, text) = ("You", line.text)
-        case .marcel(let line): (speaker, text) = (agentName, line.body.text)
+        case .marcel(let line): (speaker, text) = (agentName, line.text)
         case .quest(let line): (speaker, text) = (line.title, line.detail ?? "")
         case .approval(let line): (speaker, text) = ("Question", line.question)
         case .item(let line): (speaker, text) = ("Item", line.title)
+        case .time: return nil
         }
         let aboutTask = message.kind == .milestone || message.kind == .approval
         return SideChatParent(id: message.id, speaker: speaker, text: text,

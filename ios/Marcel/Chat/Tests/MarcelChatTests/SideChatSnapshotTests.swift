@@ -16,8 +16,8 @@ final class SideChatSnapshotTests: XCTestCase {
     private var thread: [FeedItem] {
         [
             .user(UserLine(id: "s1", text: "And if it rains after three?")),
-            .marcel(MarcelLine(id: "s2", body: ChatMarkdown.render(
-                "Then the covered terrace: same plan, ten metres closer to the kitchen."))),
+            .marcel(MarcelLine(id: "s2", markdown: 
+                "Then the covered terrace: same plan, ten metres closer to the kitchen.")),
         ]
     }
 
@@ -59,8 +59,8 @@ final class SideChatSnapshotTests: XCTestCase {
         Snapshot.assert(
             ChatStill(header: ChatHeaderState(), items: [
                 .user(UserLine(id: "u1", text: "What's the weather Sunday?")),
-                .marcel(MarcelLine(id: "m1", body: ChatMarkdown.render(
-                    "18° and dry. Good for the garden lunch option."))),
+                .marcel(MarcelLine(id: "m1", markdown: 
+                    "18° and dry. Good for the garden lunch option.")),
             ], collapsed: true, actions: actions),
             named: "Chat-replies", variants: twoModes, padding: 0)
     }

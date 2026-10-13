@@ -102,7 +102,7 @@ final class ComposerTests: XCTestCase {
         try fed.send("message.created", copy)
         try fed.send("message.created", Fx.message("msg_2", at: 2, text: "Hi!"))
         model.prune(try fed.input())
-        XCTAssertEqual(ChatFeed.items(try fed.input(), local: model.local).map(\.id), ["msg_1", "msg_2"])
+        XCTAssertEqual(ChatFeed.items(try fed.input(), local: model.local).rowIds, ["msg_1", "msg_2"])
     }
 
     func testAnEmptyMessageIsNotSent() async {

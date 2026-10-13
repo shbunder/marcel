@@ -130,7 +130,7 @@ struct NotesView: View {
     var lines: [String] {
         switch state {
         case .text(let markdown):
-            let all = ChatMarkdown.render(markdown).text.split(separator: "\n").map {
+            let all = ItemMarkdown.plainText(ItemMarkdown.parse(markdown)).split(separator: "\n").map {
                 $0.trimmingCharacters(in: .whitespaces)
             }.filter { !$0.isEmpty }
             guard !all.isEmpty else { return ["No notes yet."] }

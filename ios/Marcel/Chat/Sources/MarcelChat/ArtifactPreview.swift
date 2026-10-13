@@ -1,5 +1,6 @@
 import Foundation
 import MarcelKit
+import PixelKit
 
 /// The first lines of an item, for its card in the chat. Documents show their opening lines, boards and
 /// dashboards their first entries, pull requests their state; anything else what the hub says about it.
@@ -48,7 +49,7 @@ public enum ArtifactPreview {
         case .board, .dashboard: return dashboardRows(data)
         case .doc:
             guard let text = String(data: data, encoding: .utf8) else { return nil }
-            let lines = ChatMarkdown.render(text).text
+            let lines = ItemMarkdown.plainText(ItemMarkdown.parse(text))
                 .split(separator: "\n", omittingEmptySubsequences: true)
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }

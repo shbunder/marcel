@@ -33,6 +33,16 @@ HTML is shown as the words it was written with, never run. A table draws at most
 and counts the rest, scrolls sideways when wider than the screen, and becomes one card per row at accessibility sizes.
 Tests: `MarkdownTests`.
 
+## Chat (S-18.3, ADR-007)
+
+`Sources/PixelKit/Chat/`: the chat's look, in the system font with Dynamic Type (the pixel font only on card labels).
+`ChatPalette` (the wireframe's light and dark colours; label text and filled buttons a shade darker in light mode to
+reach 4.5:1, checked by `textPairs`; `bubble(_:)` lightens a helper's colour until dark text on it reaches 4.5:1) ·
+`ChatBubble` + `ChatBubbleShape` (the notch: corners 16, 16, 4, 16) · `ChatCard` (`ChatCardKind`: started, needs you,
+done, failed; a 2-pt frame on all four sides, a pixel label with its `ChatGlyph`) · `ChatCardButton` · `ChatTag` ·
+`ChatTimeLine` · `ChatQuote` · `ChatItemPreview`. Marcel's replies are `MarkdownView(parts:style: .chat)`
+(`ChatMarkdownBody`, `ChatTable`). MarcelChat's tests check them (`ChatLookTests`).
+
 ## Components
 
 `DialogBox` (speaker, text, blinking ▼, optional accessory) · `ChoicePrompt` (▶ follows keyboard and VoiceOver

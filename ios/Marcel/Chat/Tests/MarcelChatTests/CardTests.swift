@@ -105,11 +105,12 @@ final class CardTests: XCTestCase {
         XCTAssertEqual(item.savedTo, "Home energy")
         XCTAssertEqual(item.badge, "New")
         guard case .marcel(let done) = final.last else { return XCTFail("the done line is last") }
-        XCTAssertEqual(done.body.text, "Done: Energy contracts. Supplier A from 1 November.")
+        XCTAssertEqual(done.text, "Done: Energy contracts. Supplier A from 1 November.")
         cards = quests(final)
         XCTAssertEqual(cards.map(\.state), [.done, .working], "the energy card ended in place")
         XCTAssertEqual(cards.first?.detail, "Finished · 1 item")
-        XCTAssertEqual(final.count, 9, "one row per message (nine sent), nothing doubled")
+        XCTAssertEqual(final.filter { if case .time = $0 { false } else { true } }.count, 9,
+                       "one row per message (nine sent), nothing doubled, plus the time line")
     }
 
     func testACardOnScreenUpdatesWhenItsTaskChangesWithoutANewRow() throws {
@@ -138,7 +139,7 @@ final class CardTests: XCTestCase {
         XCTAssertEqual(quests(items).count, 1)
         XCTAssertEqual(quests(items).first?.state, .working, "before the task itself arrives, the milestone says")
         guard case .marcel(let line) = items.last else { return XCTFail("a Marcel line") }
-        XCTAssertEqual(line.body.text, "Backup check failed. The NAS did not answer.")
+        XCTAssertEqual(line.text, "Backup check failed. The NAS did not answer.")
     }
 
     // MARK: The approval gate
@@ -289,7 +290,7 @@ final class CardTests: XCTestCase {
         XCTAssertTrue(ArtifactPreview.fetchesContent(doc))
         XCTAssertEqual(ArtifactPreview.contentRows(doc, data: Data("# Switch to Luminus\n\nCheapest of **4** offers.\n\n- €412 a year less\n- From 1 November\n- No exit fee".utf8)),
                        [PreviewRow("Switch to Luminus", emphasised: true), PreviewRow("Cheapest of 4 offers."),
-                        PreviewRow("• €412 a year less"), PreviewRow("• From 1 November")])
+                        PreviewRow("€412 a year less"), PreviewRow("From 1 November")])
         XCTAssertEqual(ArtifactPreview.summaryRows(doc),
                        [PreviewRow("Made by", value: "Energy contracts"), PreviewRow("Version", value: "1")])
 

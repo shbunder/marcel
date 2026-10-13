@@ -3,6 +3,7 @@ import Foundation
 import MarcelItems
 import MarcelKit
 import Observation
+import PixelKit
 
 /// The chat's state beyond what the cache holds: which conversation, how much of it is on screen, and what the
 /// person is doing right now. The rows themselves come from the cache (`FeedInput`).
@@ -31,6 +32,8 @@ public final class ChatModel {
     /// What the header's giraffe shows, as the hub last said it (`GET /me`, then every `agent.state` event). Nil
     /// until the hub has said; the header then works it out from the cached tasks.
     public private(set) var agentState: AvatarState?
+    /// Your bubbles' colour: the agent's look colour (`GET /me`); nil for Marcel's rose.
+    public private(set) var bubbleColor: PixelColor?
     /// The agent this chat is with; `agent.state` events for another agent are not for this header.
     public private(set) var agentId: String?
     /// A message to bring into view (a `marcel://message/<id>` link). The feed scrolls to it, loading older pages
@@ -65,6 +68,7 @@ public final class ChatModel {
             let agent = try await service.mainAgent()
             agentName = agent.name
             agentId = agent.id ?? agentId
+            bubbleColor = agent.look.map(LookColors.bubble)
             if let state = agent.state { agentState = state }
             let id = agent.conversationId
             if id != conversationId {

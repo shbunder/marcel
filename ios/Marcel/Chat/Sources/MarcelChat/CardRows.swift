@@ -1,91 +1,180 @@
 import PixelKit
 import SwiftUI
 
-/// A thread's quest card. Tapping it opens the quest.
+// The special messages (ADR-007): the only boxes in the chat, each a coloured frame with a short pixel-font label.
+// Started (teal), needs you (gold, tinted), done (rose, with the item), failed (red, with what went wrong).
+
+extension EnvironmentValues {
+    /// Your bubble's colour: your helper's look colour (as drawn in light mode); nil for Marcel's rose.
+    @Entry public var chatBubbleColor: PixelColor?
+    /// "Now", for the time lines ("Today 08:12"); nil means the real clock. Snapshots pin it.
+    @Entry public var chatNow: Date?
+}
+
+/// A thread's quest card, following its task: started while it runs, needs you, done, or failed with the reason.
+/// Tapping it opens the quest.
 struct QuestRow: View {
     var line: QuestLine
     var actions: ChatActions
 
+    @Environment(\.colorScheme) private var scheme
+
+    /// The card's colour for the task's state.
+    static func kind(_ state: StateBadge.Kind) -> ChatCardKind {
+        switch state {
+        case .needsYou, .silent: .needsYou
+        case .ready, .done: .done
+        case .failed, .stopped: .failed
+        case .queued, .starting, .working, .unknown: .started
+        }
+    }
+
+    /// The card's label.
+    static func label(_ state: StateBadge.Kind) -> String {
+        switch state {
+        case .queued: "Queued"
+        case .starting, .working, .unknown: "Started"
+        case .needsYou: "Needs you"
+        case .silent: "Gone quiet"
+        case .ready: "Ready"
+        case .done: "Done"
+        case .failed: "Failed"
+        case .stopped: "Stopped"
+        }
+    }
+
+    /// What the card's link says.
+    static func open(_ state: StateBadge.Kind) -> String {
+        switch state {
+        case .failed: "See why ›"
+        case .needsYou: "Answer ›"
+        case .done, .ready, .stopped: "Open ›"
+        default: "Watch ›"
+        }
+    }
+
+    var meta: String? {
+        line.location.map { $0 == .nuc ? "NUC" : "Cloud" }
+    }
+
     var body: some View {
+        let palette = ChatPalette(scheme)
+        let kind = Self.kind(line.state)
         Button { actions.openQuest(line) } label: {
-            QuestCard(title: line.title, state: line.state, project: line.project, tone: line.tone,
-                      detail: line.detail)
+            ChatCard(kind, label: Self.label(line.state), meta: meta) {
+                Text(line.title)
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(palette.ink.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let detail = line.detail {
+                    Text(detail)
+                        .font(.subheadline)
+                        .foregroundStyle(palette.muted.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(alignment: .center, spacing: 8) {
+                    if let project = line.project {
+                        ChatTag(project)
+                    }
+                    Spacer(minLength: 0)
+                    Text(Self.open(line.state))
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(kind.label(in: palette).color)
+                }
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText)
         .accessibilityHint("Opens the quest")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    /// "Started: Energy contracts. On the NUC. In Home energy."
+    var accessibilityText: String {
+        [Self.label(line.state) + ": " + line.title, line.detail, line.project.map { "In \($0)" }]
+            .compactMap { $0 }
+            .joined(separator: ". ")
     }
 }
 
-/// A thread asking for your OK, Zelda style: the question in Marcel's box and "▶ Approve  Deny  Details" under it.
-/// Once answered (here, in a terminal, or never) the choices grey out and the outcome is said underneath.
+/// A thread asking for your OK: the gold, tinted card with the question and Approve / Not now / Details. Once answered
+/// (here, in a terminal, or never) the buttons grey out and the outcome is said underneath.
 struct ApprovalRow: View {
-    static let approve = ChoicePrompt.Choice(id: "approve", title: "Approve")
-    static let deny = ChoicePrompt.Choice(id: "deny", title: "Deny")
-    static let details = ChoicePrompt.Choice(id: "details", title: "Details")
-
     var line: ApprovalLine
     var actions: ChatActions
 
     @Environment(\.colorScheme) private var scheme
-
-    var choices: [ChoicePrompt.Choice] {
-        line.detail == nil ? [Self.approve, Self.deny] : [Self.approve, Self.deny, Self.details]
-    }
-
-    /// Where the ▶ rests: on the answer given, once there is one.
-    var marked: ChoicePrompt.Choice.ID? {
-        switch line.status {
-        case .denied: Self.deny.id
-        default: Self.approve.id
-        }
-    }
+    @Environment(\.dynamicTypeSize) private var dynamicType
 
     var body: some View {
-        let theme = PixelTheme(scheme)
-        MarcelSays(text: line.question) {
-            ChoicePrompt(choices, marked: marked) { choice in
-                switch choice.id {
-                case Self.approve.id: actions.answer(line.approvalId, true)
-                case Self.deny.id: actions.answer(line.approvalId, false)
-                default: actions.toggleDetails(line.approvalId)
-                }
-            }
-            .disabled(!line.status.isOpen)
+        let palette = ChatPalette(scheme)
+        ChatCard(.needsYou, label: "Needs you") {
+            Text(line.question)
+                .font(.body)
+                .foregroundStyle(palette.ink.color)
+                .fixedSize(horizontal: false, vertical: true)
+            buttons
+                .disabled(!line.status.isOpen)
             if line.showsDetail, let detail = line.detail {
-                PixelText(detail, role: .detail)
-                    .foregroundStyle(theme.muted.color)
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(palette.muted.color)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("Details: \(detail)")
             }
             if let outcome = line.outcome {
-                PixelText(outcome, role: .detail)
-                    .foregroundStyle(theme.muted.color)
+                Text(outcome)
+                    .font(.subheadline)
+                    .foregroundStyle(palette.muted.color)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder private var buttons: some View {
+        let layout = dynamicType.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+        layout {
+            ChatCardButton("Approve", kind: .needsYou, filled: true) { actions.answer(line.approvalId, true) }
+            ChatCardButton("Not now", kind: .needsYou) { actions.answer(line.approvalId, false) }
+            if line.detail != nil {
+                ChatCardButton(line.showsDetail ? "Hide details" : "Details", kind: .needsYou) {
+                    actions.toggleDetails(line.approvalId)
+                }
             }
         }
     }
 }
 
-/// An item a thread made: "You got: …!" the first time, then its preview card. The morning board shows as its card
-/// alone. Tapping the card opens the item.
+/// An item a thread made: the rose "done" card with the item's title and first lines (it replaces the "YOU GOT"
+/// banner). The morning board shows the same way, labelled "Board". Tapping the card opens the item.
 struct ItemRow: View {
     var line: ItemLine
     var actions: ChatActions
 
+    var label: String {
+        if line.isDigest { return "Board" }
+        return line.showsBanner ? "Done · you got an item" : line.badge
+    }
+
+    /// The preview's lines: "Per year: €1,284", or the line alone.
+    var lines: [String] {
+        line.rows.prefix(3).map { row in row.value.map { "\(row.label): \($0)" } ?? row.label }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: PixelMetrics.steps(5)) {
-            if line.showsBanner {
-                ItemGetBanner(item: line.title, savedTo: line.savedTo)
+        Button { actions.openItem(line) } label: {
+            ChatCard(.done, label: label, meta: line.savedTo) {
+                ChatItemPreview(title: line.title, lines: lines)
             }
-            Button { actions.openItem(line) } label: {
-                ArtifactCard(title: line.title, badge: line.badge) {
-                    ForEach(line.rows, id: \.self) { row in
-                        ArtifactRow(row.label, value: row.value, emphasised: row.emphasised)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint(line.isDigest ? "Opens the board" : "Opens the item")
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(([label + ": " + line.title] + lines).joined(separator: ". "))
+        .accessibilityHint(line.isDigest ? "Opens the board" : "Opens the item")
+        .accessibilityAddTraits(.isButton)
     }
 }
