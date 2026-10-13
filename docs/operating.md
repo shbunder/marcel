@@ -61,7 +61,7 @@ make -C deploy tunnel                 # then run the two sudo lines it prints
 On a new install, make the owner's agent once; the hub then starts its brain:
 
 ```bash
-docker exec marcel-hub marcel-hub agent create --name Marcel
+docker exec marcel-hub marcel-hub agent create   # named MARCEL_AGENT_NAME, else Marcel
 make -C deploy health                 # waits up to a minute for "hub /internal/health" to say ok
 ```
 
