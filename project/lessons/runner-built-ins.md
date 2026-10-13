@@ -26,3 +26,6 @@
 - `DISABLE_AUTOUPDATER` in the units' environment covers Marcel's processes, but the `claude` binary is shared: the
   owner's own sessions update it unless the managed settings' `env` sets it. The runner's version check is what makes
   a drift loud.
+- `Workflow` is the exact tool and permission name for dynamic workflows, and `Agent` for subagents (2.1.296, checked
+  on the NUC): a plain `-p` session lists both; with `"deny": ["Workflow"]` the `Workflow` tool is gone from its list.
+  The brain denies `Agent`, `Task` and `Workflow`; a worker allows `Workflow` (`Agent` allows are dropped in auto mode).
