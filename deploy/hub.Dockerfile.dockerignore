@@ -5,4 +5,5 @@
 !hub/README.md
 !hub/src/
 !hub/migrations/
+!contracts/
 **/__pycache__
