@@ -24,6 +24,8 @@ unmodified `claude` CLI on the owner's Max subscription. Marcel's own code does 
   - cloud sessions (`claude --cloud`);
   - fork (`--fork-session`).
 
+  If Claude Code does it, Marcel uses it; where Marcel keeps its own code, ADR-010 says why.
+
 ## Components
 
 ```
