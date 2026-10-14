@@ -18,6 +18,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -90,15 +91,23 @@ class Brains:
     template: Path = TEMPLATE
     run: Run = field(default=_run)
     trust: Trust = field(default=accept_trust)
+    _locks: dict[str, threading.Lock] = field(default_factory=dict, repr=False)
+    _locks_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def prepare(self, raw: bytes) -> dict[str, Any]:
         body = parse(raw)
         folder = self.root / body['slug']
         memory = self.memory_root / 'agents' / body['slug']
-        self._render(folder, memory, body)
-        self._install(folder)
-        self._trust(folder)
+        # One at a time per folder: a hub that timed out may ask again while the first still runs.
+        with self._lock_for(body['slug']):
+            self._render(folder, memory, body)
+            self._install(folder)
+            self._trust(folder)
         return {'agent_slug': body['slug'], 'cwd': str(folder), 'memory_dir': str(memory)}
+
+    def _lock_for(self, slug: str) -> threading.Lock:
+        with self._locks_lock:
+            return self._locks.setdefault(slug, threading.Lock())
 
     def route(self, method: str, raw: bytes) -> tuple[int, dict[str, Any]]:
         if method != 'POST':

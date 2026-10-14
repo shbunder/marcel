@@ -44,6 +44,8 @@ DEFAULT_SOCKET = Path('/run/marcel/runner.sock')
 REQUEST_TIMEOUT = 15.0
 # Spawns wait up to 30 s for the channel to register (runner-api.yaml), plus a clone.
 SPAWN_TIMEOUT = 120.0
+# A first brain folder: render, plugin install (up to 120 s) and the trust dialog (up to 40 s).
+PREPARE_TIMEOUT = 300.0
 BASE_DELAY = 0.5
 MAX_DELAY = 30.0
 
@@ -198,7 +200,7 @@ class RunnerClient:
         if personality:
             persona['personality'] = personality
         body = {'agent_slug': agent_slug, 'name': name, 'persona': persona}
-        res = await self._call('POST', '/brains', json=body, timeout=SPAWN_TIMEOUT)
+        res = await self._call('POST', '/brains', json=body, timeout=PREPARE_TIMEOUT)
         if res.status_code == 200:
             return res.json()['cwd']
         if res.status_code == 503:

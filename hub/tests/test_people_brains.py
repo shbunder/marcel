@@ -204,3 +204,36 @@ def test_two_brains_never_share_a_folder(engine: Engine, brains: Brains) -> None
     run(keeper(engine, brains).check())
     folders = [b['cwd'] for b in brains.spawned]
     assert len(folders) == len(set(folders)) == 3
+
+
+def test_only_the_owners_own_marcel_keeps_the_owners_folder(engine: Engine, brains: Brains) -> None:
+    """A member's agent called `marcel` gets its own folder: the owner's workspace and memory are
+    the owner's. Drop the owner check in `_cwd_for` and this goes red."""
+    other = add(engine, slug='marcel', user='usr_emma', person='Emma', name='Marcel')
+    run(keeper(engine, brains).check())
+    assert spawned_in(brains, other) == ['/home/owner/marcel/brains/marcel']
+
+
+def test_one_brain_failing_never_stops_or_clears_another(engine: Engine, brains: Brains) -> None:
+    """Pip's folder cannot be made: Marcel's brain still starts, Pip's alert names Pip, and Pip
+    starting later clears only Pip's alert."""
+    from test_runner_client_fakes import RecordingAlerts
+
+    from marcel_hub import brain as brain_mod
+
+    marcel = add(engine, slug='marcel', user=OWNER_USER_ID, person='Shaun', name='Marcel')
+    pip = add(engine, slug='pip', user='usr_emma', person='Emma', name='Pip')
+    alerts = RecordingAlerts()
+    clock = {'mono': 1000.0}
+    k = BrainKeeper(engine, brains, cwd=CWD, alerts=alerts, monotonic=lambda: clock['mono'])
+    brains.prepare_fails = StartFailed('render_failed')
+    for _ in range(brain_mod.ALERT_AFTER):
+        run(k.check())
+        clock['mono'] += 3600
+    assert spawned_in(brains, marcel) == [CWD]
+    assert spawned_in(brains, pip) == []
+    assert [(c, t) for c, t, _ in alerts.raised] == [('brain_down:pip', 'Pip cannot start')]
+    brains.prepare_fails = None
+    run(k.check())
+    assert spawned_in(brains, pip) == ['/home/owner/marcel/brains/pip']
+    assert alerts.cleared == ['brain_down:pip']

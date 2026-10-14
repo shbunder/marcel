@@ -145,3 +145,12 @@ def test_refuses_on_broken_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv('MARCEL_CONFIG', str(cfg))
     with pytest.raises(SystemExit, match=r'Nothing was changed.*marcel\.toml'):
         agent_cli.agent(['create'])
+
+
+def test_the_first_agent_is_marcel_and_another_gets_its_own_slug(
+    env: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Without a slug a second agent would share the owner's brain folder and memory (S-17.7)."""
+    run(['create'], capsys)
+    run(['create', '--name', 'Juno', '--another'], capsys)
+    assert sorted((a.name, a.slug) for a in agents(env)) == [('Juno', 'juno'), ('Marcel', 'marcel')]

@@ -656,16 +656,27 @@ class BrainKeeper:
         st.failures, st.next_try = 0, 0.0
         if st.alerted:
             st.alerted = False
-            self.alerts.resolved(ALERT)
+            self.alerts.resolved(self._alert_for(agent_id)[0])
         return sid, kept, seeded_at
+
+    def _alert_for(self, agent_id: str) -> tuple[str, str]:
+        """(alert key, agent name). The owner's first agent keeps `brain_down`; every other agent
+        has its own key, so one brain starting never clears another's alert (S-17.7)."""
+        with Session(self.engine) as s:
+            agent = s.get(Agent, agent_id)
+        if agent is None or agent.slug in (None, OWNER_AGENT_SLUG):
+            return ALERT, agent.name if agent is not None else 'Marcel'
+        return f'{ALERT}:{agent.slug}', agent.name
 
     def _failed(self, agent_id: str, why: str) -> None:
         st = self._state(agent_id)
         st.failures += 1
         wait = BACKOFF_S[min(st.failures, len(BACKOFF_S)) - 1]
         st.next_try = self.monotonic() + wait
+        key, name = self._alert_for(agent_id)
         log.warning(
-            "Marcel's main session did not start (%d in a row): %s Trying again in %.0f s.",
+            "%s's main session did not start (%d in a row): %s Trying again in %.0f s.",
+            name,
             st.failures,
             why,
             wait,
@@ -673,9 +684,9 @@ class BrainKeeper:
         if st.failures >= ALERT_AFTER and not st.alerted:
             st.alerted = True
             self.alerts.broke(
-                ALERT,
-                'Marcel cannot start',
-                f"Marcel's main session failed to start {st.failures} times in a row. The last "
+                key,
+                f'{name} cannot start',
+                f"{name}'s main session failed to start {st.failures} times in a row. The last "
                 f'reason: {why} Your messages are kept and answered once it runs again; the hub '
                 'keeps trying.',
             )

@@ -244,3 +244,38 @@ def test_defaults_from_the_environment(tmp_path: Path) -> None:
     )
     moved = brains_mod.brains_from_env(Path('/c'), tmp_path, env={'MARCEL_BRAINS': '/b'})
     assert moved.root == Path('/b')
+
+
+def test_any_trust_failure_is_not_trusted(sock: Path, brains: Brains) -> None:
+    """Whatever the trust step raises (a slow claude here), the answer is 422 `not_trusted`."""
+
+    def slow_trust(claude: Path, cwd: Path, env: dict[str, str]) -> None:
+        raise SessionError(503, 'claude_timeout', 'claude did not answer in time')
+
+    brains.trust = slow_trust
+    status, out = call(sock, 'POST', PIP)
+    assert (status, out['code']) == (422, 'not_trusted'), out
+
+
+def test_two_asks_for_the_same_folder_run_one_after_the_other(brains: Brains, host: Host) -> None:
+    """A hub that timed out may ask again while the first still runs: the second waits, then
+    finds everything done (one install, one trust)."""
+    import time
+
+    real = host.run
+    inside = threading.Event()
+
+    def slow(argv: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        if argv[1:3] == ['plugin', 'install']:
+            inside.set()
+            time.sleep(0.5)
+        return real(argv, cwd)
+
+    brains.run = slow
+    body = json.dumps(PIP).encode()
+    first = threading.Thread(target=brains.prepare, args=(body,))
+    first.start()
+    inside.wait(10)
+    brains.prepare(body)  # waits for the first
+    first.join()
+    assert host.installs == [brains.root / 'pip'] and host.trusted == [brains.root / 'pip']

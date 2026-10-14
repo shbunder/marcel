@@ -23,13 +23,13 @@ Defined once, in `VARIABLES` in `render.py`; this table says the same.
 | `ANIMAL` | `pink giraffe` | The agent's animal, as it speaks of itself. |
 | `PERSONALITY` | `professional` | The look's personality (app-api `LookPersonality`), for the tone of its answers. |
 | `MARKETPLACE_DIR` | — | Absolute path of the deployed `marcel-local` marketplace: a folder with `.claude-plugin/marketplace.json` listing a released copy of `plugins/marcel/` (never a working tree: a directory plugin runs in place, SP1). |
-| `MEMORY_DIR` | — | Absolute path, on the host, of the hub's memory folder (`<data_dir>/memory`). The hub's `/data` must be a bind mount of a host folder, not a named volume, for the brain to reach it. |
+| `MEMORY_DIR` | — | Absolute path, on the host, of this agent's notes in the hub's memory repo: `<data_dir>/memory/agents/<slug>` (S-17.4; the owner's is `agents/marcel`). The hub's `/data` must be a bind mount of a host folder, not a named volume, for the brain to reach it. |
 
 ```bash
 python3 brain/render.py --out ~/marcel/brain \
   --var OWNER_NAME=Shaun \
   --var MARKETPLACE_DIR=$HOME/marcel/plugins \
-  --var MEMORY_DIR=$HOME/marcel/data/memory
+  --var MEMORY_DIR=$HOME/marcel/data/memory/agents/marcel
 ```
 
 It refuses, in one sentence, an unknown or missing variable, a relative path, a placeholder left in the

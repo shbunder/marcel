@@ -31,5 +31,9 @@ Safe to repeat. `agent_slug` is lowercase letters, digits and dashes, so it neve
 | `not_trusted` | 422 | The trust dialog could not be accepted. |
 | `claude_unavailable`, `claude_timeout` | 503 | `claude` is missing, or a step took too long. |
 
+`ANIMAL` is not passed yet: `PrepareBrain` has no animal (contract request
+`project/contract-requests/S-17.7.md`), so a family member's brain calls itself a pink giraffe while the app
+draws its real look.
+
 The owner's first agent keeps `~/marcel/brain` (`MARCEL_BRAIN_CWD`), rendered by `make -C deploy install`
 with its memory linked to `agents/marcel/`.

@@ -3,7 +3,7 @@
     python3 brain/render.py --out ~/marcel/brain \
         --var OWNER_NAME=Shaun \
         --var MARKETPLACE_DIR=/home/shbunder/marcel/plugins \
-        --var MEMORY_DIR=/home/shbunder/marcel/data/memory
+        --var MEMORY_DIR=/home/shbunder/marcel/data/memory/agents/marcel
 
 What it does:
 - copies the template files (`CLAUDE.md`, `.claude/settings.json`), filling every `{{NAME}}` with
@@ -50,8 +50,8 @@ VARIABLES: dict[str, Variable] = {
         path=True,
     ),
     'MEMORY_DIR': Variable(
-        "The hub's memory folder on the host (`<data_dir>/memory`, bind-mounted into the hub as "
-        '`/data/memory`).',
+        "This agent's notes in the hub's memory repo on the host (`<data_dir>/memory/agents/<slug>`, "
+        'with `<data_dir>` bind-mounted into the hub as `/data`).',
         path=True,
     ),
 }

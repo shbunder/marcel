@@ -1218,7 +1218,7 @@ is set and the hub has a runner.
   know, or a session the runner started less than a minute ago but does not list yet all count as
   "still running".
 - **Backoff and one alert.** A spawn that fails is tried again after 5 s, 15 s, 30 s, 1 min, 2 min,
-  then every 5 min. After 3 failures in a row you get one "Marcel cannot start" push with the
+  then every 5 min. After 3 failures in a row you get one "<agent> cannot start" push (its own per agent) with the
   runner's reason; it clears when a brain starts.
 - **Rollover.** Every night at 04:00 in the owner's time zone (the `tz` setting, `MARCEL_TZ`,
   default `Europe/Brussels`; the time is worked out from the calendar day, so clock changes do not
