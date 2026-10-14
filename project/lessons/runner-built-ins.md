@@ -29,3 +29,8 @@
 - `Workflow` is the exact tool and permission name for dynamic workflows, and `Agent` for subagents (2.1.296, checked
   on the NUC): a plain `-p` session lists both; with `"deny": ["Workflow"]` the `Workflow` tool is gone from its list.
   The brain denies `Agent`, `Task` and `Workflow`; a worker allows `Workflow` (`Agent` allows are dropped in auto mode).
+- **Telling the owner that Claude Code updated itself** (for the hub, 2026-10-14). Claude's supervisor logs it in
+  `~/.claude/daemon.log`: `[supervisor] binary at …/claude changed (…/versions/2.1.296 → …/versions/2.1.299) —
+  self-restarting`, then `shutting down (cause=upgrade, uptime=…, leases=0, live_workers=5)` and a new
+  `─── daemon start ─── version=2.1.299`. `live_workers` is how many sessions it ended; the runner sees the version
+  change in `claude --version` (and `/health` turns `ok:false` against `runner/claude-version`).
