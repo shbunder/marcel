@@ -92,11 +92,24 @@ redeploy "$broken"
 revert="$(field revert)"
 if [ "$(field outcome)" = rolled_back ] && [ -n "$revert" ] && [ "$(head_of "$work/origin.git" main)" = "$revert" ] \
     && [ "$(head_of "$work/src")" = "$revert" ] && [ ! -e "$work/src/BROKEN" ] && [ "$(makes)" = 2 ] \
-    && [ "$(git -C "$work/origin.git" rev-parse "$revert~1")" = "$broken" ]; then
+    && [ "$(git -C "$work/origin.git" rev-parse "$revert~1")" = "$broken" ] \
+    && [ "$(field reason)" = 'Marcel is up again. The revert is on GitHub.' ]; then
     ok 'a broken change is reverted, pushed and deployed again'
 else
     fail "rollback: $(field outcome) $(field reason)"
 fi
+"${seed[@]}" pull -q origin main 2>/dev/null
+
+# GitHub refuses the revert: the revert stays on the NUC, and the message says so.
+echo yes >"$work/seed/BROKEN"; "${seed[@]}" add BROKEN; "${seed[@]}" commit -q -m 'Break it again'; "${seed[@]}" push -q origin main
+again="$("${seed[@]}" rev-parse HEAD)"
+printf '#!/bin/sh\nexit 1\n' >"$work/origin.git/hooks/pre-receive"; chmod +x "$work/origin.git/hooks/pre-receive"
+redeploy "$again" 2>/dev/null
+rm "$work/origin.git/hooks/pre-receive"
+[ "$(field outcome)" = rolled_back ] && [ "$(head_of "$work/origin.git" main)" = "$again" ] && [ ! -e "$work/src/BROKEN" ] \
+    && [[ "$(field reason)" == *'only on the NUC'* ]] && ok 'a revert GitHub refuses stays on the NUC, said plainly' \
+    || fail "unpushed revert: $(field outcome) $(field reason)"
+git -C "$work/src" push -q origin HEAD:main  # the owner pushes it by hand, as the message says
 "${seed[@]}" pull -q origin main 2>/dev/null
 
 # A Claude Code version drift is not this change: no rollback.

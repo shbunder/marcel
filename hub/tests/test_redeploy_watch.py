@@ -58,7 +58,7 @@ def main_of(engine: Engine, agent_id: str) -> str | None:
     [
         ('deployed', False, 'Marcel is updated with *Hub: answer faster* (ccccccc)'),
         ('version_drift', True, 'Claude Code'),
-        ('rolled_back', True, 'went back to the version before it (revert ddddddd)'),
+        ('rolled_back', True, 'did not come up healthy, so Marcel reverted it (ddddddd)'),
         ('rollback_failed', True, 'Check the NUC'),
         ('refused', True, 'is not on main'),
     ],
@@ -217,5 +217,5 @@ def test_the_app_tells_a_result_that_waited_for_its_start(tmp_path: Path) -> Non
             asyncio.run(asyncio.sleep(0.05))
         assert app.state.result_watch._task is not None
     ((_, text),) = said(app.state.engine)
-    assert 'went back to the version before it' in text
+    assert 'so Marcel reverted it' in text
     assert len(pushes.sent) == 1 and (state / TOLD).exists()

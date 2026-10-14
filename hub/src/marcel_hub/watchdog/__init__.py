@@ -61,8 +61,8 @@ def describe(result: dict[str, Any] | None) -> tuple[str, str, bool]:
         revert = str(result.get('revert') or '')[:7]
         return (
             'An update was rolled back',
-            f'{change} did not come up healthy, so Marcel went back to the version before it'
-            f'{f" (revert {revert})" if revert else ""}. {reason}',
+            f'{change} did not come up healthy, so Marcel reverted it'
+            f'{f" ({revert})" if revert else ""}. {reason}',
             True,
         )
     if outcome == 'rollback_failed':

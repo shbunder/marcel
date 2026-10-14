@@ -87,7 +87,8 @@ if ! "${GIT[@]}" merge -q --ff-only "$sha"; then
     exit 0
 fi
 
-deploy() { make -C "$SRC/deploy" install || true; }
+# install ends with its own health check; watch() below does the waiting, so that one is kept short.
+deploy() { HEALTH_WAIT=1 make -C "$SRC/deploy" install || true; }
 watch() {  # 0 healthy, 2 version drift, 1 not healthy within WAIT seconds (checked at least once)
     local end=$((SECONDS + WAIT)) rc
     while true; do
@@ -128,13 +129,14 @@ if ! "${reverted[@]}"; then
     exit 1
 fi
 revert="$("${GIT[@]}" rev-parse HEAD)"
-pushed="and pushed the revert to GitHub"
-"${GIT[@]}" push -q origin "HEAD:$BRANCH" || pushed="but could not push the revert to GitHub (it is only on the NUC)"
+pushed="The revert is on GitHub."
+"${GIT[@]}" push -q origin "HEAD:$BRANCH" \
+    || pushed="The revert could not be pushed to GitHub, so it is only on the NUC: git -C ~/marcel/src push."
 deploy
 if watch; then
-    result rolled_back "The new version was not healthy within ${WAIT} s, so Marcel reverted it ($pushed) and is up again." "$sha" "$previous" "$revert"
+    result rolled_back "Marcel is up again. $pushed" "$sha" "$previous" "$revert"
     exit 0
 fi
-result rollback_failed "The new version was not healthy, and Marcel is still not healthy after reverting it ($pushed). Check the NUC: make -C deploy health." "$sha" "$previous" "$revert"
+result rollback_failed "It was not healthy, and Marcel is still not healthy after reverting it. $pushed Check the NUC: make -C deploy health." "$sha" "$previous" "$revert"
 exit 1
 }
