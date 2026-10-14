@@ -92,6 +92,13 @@ final class MapSnapshotTests: XCTestCase {
         - 2026-10-13 **Contracts** change only through the lead (from Add mentions).
         """)
 
+    /// S-12.14: a quest in each of Claude Code Projects' groups, in their order.
+    func testARoomWithAQuestInEachGroup() throws {
+        Snapshot.assert(RoomStill(room: try RoomGroupTests.everyGroupRoom(), board: .rows([PreviewRow("PR #14 waits")]),
+                                  notes: NotesState.empty),
+                        named: "Room-groups", variants: [.light, .dark], padding: 0)
+    }
+
     func testAnEmptyRoom() throws {
         let fed = try FedCache()
         try fed.apply("project.created", Fx.projectJSON("prj_garden", "Garden", goal: "A vegetable patch by May"))
@@ -193,6 +200,15 @@ final class MapAccessibilityTests: XCTestCase {
         XCTAssertTrue(found.contains { $0.label == "Open tracker" && $0.traits.contains(.button) })
     }
 
+    /// S-12.14: the five group headings, in order, as VoiceOver headings.
+    func testTheRoomsGroupHeadingsAreHeadingsInOrder() throws {
+        let found = elements(of: RoomStill(room: try RoomGroupTests.everyGroupRoom(), board: .loading,
+                                           notes: NotesState.empty))
+        let headers = found.filter { $0.traits.contains(.header) }.map(\.label)
+        let groups = headers.filter { RoomGroup.allCases.map(\.title).contains($0) }
+        XCTAssertEqual(groups, ["Needs you", "Working", "Ready for review", "Done", "Ended"], "\(headers)")
+    }
+
     func testTheRoomReadsInPlainWords() throws {
         let room = try MapSnapshotTests.wireframeRoom
         for size in [DynamicTypeSize.large, .accessibility5] {
@@ -203,7 +219,6 @@ final class MapAccessibilityTests: XCTestCase {
             XCTAssertTrue(labels.contains("Home energy. Lower the bill by 20% this year"))
             XCTAssertTrue(labels.contains("Project board. Pinned, version 7. Contract switched (−€486/yr). "
                 + "Solar quote Friday. Heat pump: wait for subsidy news"), "\(size): \(labels)")
-            XCTAssertTrue(labels.contains("Done, this week"), "group titles are said without the dot")
             XCTAssertTrue(labels.contains("Document: Comparison"))
             XCTAssertTrue(labels.contains { $0.hasPrefix("Notes: Home energy") })
             for row in room.quests.sections.flatMap(\.rows) {
@@ -211,7 +226,7 @@ final class MapAccessibilityTests: XCTestCase {
             }
             assertPlainWords(labels, size)
             let headers = found.filter { $0.traits.contains(.header) }.map(\.label)
-            XCTAssertTrue(headers.contains("Waiting on you") && headers.contains("Items") && headers.contains("Notes"),
+            XCTAssertTrue(headers.contains("Needs you") && headers.contains("Done") && headers.contains("Items") && headers.contains("Notes"),
                           "\(size): section titles are headers: \(headers)")
         }
     }

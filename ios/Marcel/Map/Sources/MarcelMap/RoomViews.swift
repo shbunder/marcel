@@ -289,8 +289,9 @@ struct RoomContent<Board: View, Quest: View, Item: View>: View {
                     .font(.subheadline)
                     .foregroundStyle(palette.muted.color)
             }
-            ForEach(room.quests.sections) { section in
-                RoomSectionTitle(section.group.title, spoken: section.group.spokenTitle)
+            // Claude Code Projects' groups (ADR-011, S-12.14): needs you, working, ready for review, done, ended.
+            ForEach(room.sections) { section in
+                RoomSectionTitle(section.group.title)
                 ForEach(section.rows) { quest($0) }
             }
             RoomSectionTitle("Items")

@@ -35,7 +35,9 @@ map opens that room and sets it back to nil.
 - **"+ New"** opens the chat with "Start a new project: " in the composer: Marcel makes projects. It never overwrites
   what you were typing there (the app calls `ChatModel.propose`, which adds it after your words).
 - **A room** has the pinned board (a white card with up to eight entries from `GET /artifacts/{id}/content`,
-  fetched once per version), the project's quests grouped like the quest log (waiting on you first), its items as
+  fetched once per version), the project's quests in Claude Code Projects' groups (`RoomGroup`, ADR-011: needs you, working, ready
+  for review, done, ended; an empty group is left out; a done quest goes by its PRs: open or draft → ready for
+  review, merged or none → done, only closed → ended), its items as
   chips, and its notes (`memory/projects/<slug>.md`, read-only here). Tapping the board or an item opens
   the artifact viewer (`ArtifactViewer` from MarcelItems, S-12.8); tapping a quest card opens the quest view
   (`QuestView` from MarcelQuest) on top of the room (`MapNavigation`, `MapRoute`).
@@ -52,8 +54,10 @@ map opens that room and sets it back to nil.
 
 - `MapNavigationTests` — a tile opens its room, a room's quest card opens the quest view, back returns to the room,
   a project link opens its room from anywhere.
-- `ProjectMapTests` — the tiles' order, counts, words and times; a room's board, quests by state, items and move
+- `ProjectMapTests` — the tiles' order, counts, words and times; a room's board, quest groups, items and move
   targets.
+- `RoomGroupTests` — the grouping function for every state and every mix of PR states, and a room with a quest in
+  each group showing the five headings in order (also as a snapshot, `Room-groups`, and as VoiceOver headings).
 - `MapLiveTests` — the story's UI tests one layer down: an in-memory cache fed with event frames, the screen's model
   with a fake hub. Open a room, see its board and quests, post a message that the main chat shows tagged; moving a
   thread updates both rooms; `project.updated`, `task.moved` and a new board version reach the screens; failures
