@@ -25,6 +25,8 @@ home() {  # a fresh MARCEL_HOME with a database, a memory repo (one commit and o
     for f in hub-secret adopt-token.sha256 usage-guard.json digests.json triage.log triage.log.1 x.json.tmp; do echo "$f" >"$d/$f"; done
 }
 run() { env MARCEL_HOME="$work/h" bash "$here/backup.sh" >"$work/out" 2>&1; }
+# The result file a failed run leaves for the hub: result <field> prints that field.
+result() { python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$work/h/state/backup.result" "$1"; }
 
 # A full backup.
 home
@@ -45,6 +47,7 @@ done
 bad="$(find "$B" -type f ! -perm 600)"
 [ -z "$bad" ] && ok 'files 0600' || fail "files not 0600: $bad"
 ls "$B"/*.tmp >/dev/null 2>&1 && fail 'left a .tmp' || ok 'no .tmp left'
+[ ! -e "$work/h/state/backup.result" ] && ok 'a good run tells nobody' || fail 'a good run wrote a result'
 
 # A corrupt database (it copies, but fails its integrity check) fails and keeps the day's earlier copy.
 python3 - "$work/h/data/marcel.db" <<'PY2'
@@ -65,6 +68,10 @@ for page in range(root + 1, root + 4):
 open(path, 'wb').write(data)
 PY2
 if run; then fail 'corrupt database passed'; else ok 'corrupt database fails'; fi
+[ "$(result outcome)" = failed ] && case "$(result reason)" in *'stopped while copying the database (exit '*) true ;; *) false ;; esac \
+    && ok 'result: failed, at which step' || fail "result after a corrupt database: $(cat "$work/h/state/backup.result")"
+[ "$(stat -c %a "$work/h/state/backup.result")" = 600 ] && ok 'result 0600' || fail 'result mode'
+ls "$work/h/state"/*.tmp >/dev/null 2>&1 && fail 'result left a .tmp' || ok 'result written whole'
 [ "$(python3 -c 'import sqlite3, sys; print(sqlite3.connect(sys.argv[1]).execute("select x from t").fetchone()[0])' "$B/marcel.db")" = 42 ] \
     && ok 'earlier copy kept' || fail 'earlier copy lost'
 ls "$B"/*.tmp >/dev/null 2>&1 && fail 'corrupt run left a .tmp' || ok 'corrupt run left no .tmp'
@@ -90,6 +97,7 @@ fi
 # No database, no memory repo: fail.
 home; rm "$work/h/data/marcel.db"
 if run; then fail 'missing database passed'; else ok 'missing database fails'; fi
+case "$(result reason)" in 'no database at '*) ok 'result: the reason in plain words' ;; *) fail "result: $(result reason)" ;; esac
 home; rm -rf "$work/h/data/memory.git"
 if run; then fail 'missing memory repo passed'; else ok 'missing memory repo fails'; fi
 
