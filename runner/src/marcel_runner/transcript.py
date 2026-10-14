@@ -2,9 +2,18 @@
 
 A session's transcript is the JSONL file Claude Code writes under
 `~/.claude/projects/<cwd, every non-alphanumeric character → ->/<session-id>.jsonl`; a subagent's is
-`<session-id>/subagents/agent-<agent_id>.jsonl` next to it (SP2). The runner reads that file and
+`<session-id>/subagents/agent-<agent_id>.jsonl` next to it (SP2). A workflow's run (runner-api
+0.1.12, SP10) has its own folder, `<session-id>/subagents/workflows/<run id>/`, with the run's
+`journal.jsonl` and one `agent-<agent_id>.jsonl` per agent. The runner reads one of those files and
 streams each complete line as zero or more `contracts/transcript.schema.json` events over
 Server-Sent Events.
+
+- Workflows in the main transcript: the `Workflow` tool's launch result (`toolUseResult.status`
+  `async_launched`, `taskType` `local_workflow`) gives `workflow_start`; the later
+  `<task-notification>` naming that call gives `workflow_stop` instead of a `text`. The journal
+  (`tail?workflow=`) gives `workflow_agent_start` / `workflow_agent_stop`; an agent's file
+  (`tail?workflow=&subagent=`) is read like any transcript. Every event of a workflow stream carries
+  `workflow_id`. The file must resolve inside the session's own folder (no `..`, no symlink out).
 
 - `Normaliser` turns one line into events. It is a port of `contracts/tests/reference_normalizer.py`
   (SP2's mapping table) that never raises: a line it cannot read or a type it does not know becomes
@@ -45,6 +54,16 @@ POLL = 0.25  # seconds between two looks at a quiet file
 SEARCH_EVERY = 5.0  # seconds between two searches of every project folder for a missing file
 KEEPALIVE = 15.0  # seconds between SSE comments on a quiet stream, to notice a client that left
 SUBAGENT_ID = re.compile(r'^[0-9a-f]+$')
+WORKFLOW_ID = re.compile(r'^wf_[A-Za-z0-9_-]{1,64}$')
+TOOL_USE_ID = re.compile(r'<tool-use-id>([^<]+)</tool-use-id>')
+NOTE_STATUS = re.compile(r'<status>([^<]*)</status>')
+NOTE_SUMMARY = re.compile(r'<summary>(.*?)</summary>', re.DOTALL)
+WORKFLOW_STATUS = {
+    'completed': 'completed',
+    'failed': 'failed',
+    'stopped': 'stopped',
+    'killed': 'stopped',
+}
 OFFSET = re.compile(r'^[0-9]+$')  # not str.isdigit(): that also takes '²', which int() refuses
 GLOB_SAFE = re.compile(r'^[A-Za-z0-9-]+$')
 
@@ -150,16 +169,26 @@ class Normaliser:
     last line's time, for a line that has none, and the token counts of the last main-thread
     assistant line, for the next `turn_end`."""
 
-    def __init__(self, session_id: str, subagent_id: str | None = None) -> None:
+    def __init__(
+        self,
+        session_id: str,
+        subagent_id: str | None = None,
+        workflow_id: str | None = None,
+        journal: bool = False,
+    ) -> None:
         self.session_id = session_id
         self.subagent_id = subagent_id
+        self.workflow_id = workflow_id
+        self.journal = journal  # a run's journal.jsonl, not a transcript
         self.agents: dict[str, dict[str, str]] = {}
+        self.workflows: dict[str, str] = {}  # a `Workflow` call's tool_use_id → its run id
         self.usage: dict[str, int] = {}
         self._at: str | None = None
 
     def reset(self) -> None:
         """Forget everything: the file is read again from its start."""
         self.agents.clear()
+        self.workflows.clear()
         self.usage.clear()
         self._at = None
 
@@ -172,7 +201,7 @@ class Normaliser:
         if not isinstance(entry, dict):
             return self._events(offset, None, [('raw', {'entry_type': 'unreadable'})])
         try:
-            pairs = self._pairs(entry)
+            pairs = self._journal(entry) if self.journal else self._pairs(entry)
         except (AttributeError, KeyError, TypeError, ValueError):
             pairs = [self._raw(entry)]  # a known type in a shape nobody has seen
         return self._events(offset, entry.get('timestamp'), pairs)
@@ -193,9 +222,38 @@ class Normaliser:
             event: Event = {'session_id': self.session_id, 'offset': offset, 'index': i}
             if self.subagent_id is not None:
                 event['subagent_id'] = self.subagent_id
+            if self.workflow_id is not None:
+                event['workflow_id'] = self.workflow_id
             event.update(at=when, type=kind, data=data)
             out.append(event)
         return out
+
+    def _journal(self, entry: dict[str, Any]) -> list[Pair]:
+        """One line of a run's `journal.jsonl` (SP10): `launched`, `started`, `result`."""
+        kind, run = entry.get('type'), str(self.workflow_id)
+        agent = entry.get('agentId')
+        if kind == 'launched':
+            return []
+        if kind in ('started', 'result') and isinstance(agent, str) and SUBAGENT_ID.match(agent):
+            if kind == 'started':
+                label = entry.get('label')
+                start: dict[str, Any] = {
+                    'run_id': run,
+                    'agent_id': agent,
+                    'label': label if isinstance(label, str) and label else 'agent',
+                }
+                if isinstance(entry.get('phase'), str) and entry['phase']:
+                    start['phase'] = entry['phase']
+                return [('workflow_agent_start', start)]
+            stop: dict[str, Any] = {'run_id': run, 'agent_id': agent}
+            if 'result' in entry:
+                result = entry['result']
+                text = (
+                    result if isinstance(result, str) else json.dumps(result, separators=(',', ':'))
+                )
+                stop['summary'] = _clip(text, MAX_SUMMARY)[0]
+            return [('workflow_agent_stop', stop)]
+        return [self._raw(entry)]
 
     def _pairs(self, entry: dict[str, Any]) -> list[Pair]:
         kind = entry.get('type')
@@ -294,6 +352,9 @@ class Normaliser:
                 ]
         if entry.get('isMeta'):
             return []
+        stopped = self._workflow_stop(content)
+        if stopped is not None:
+            return [stopped]
         if isinstance(content, str):
             data: dict[str, Any] = {'role': 'user', 'text': content}
             source = entry.get('promptSource') or entry.get('origin')
@@ -308,6 +369,50 @@ class Normaliser:
             elif kind == 'text' and isinstance(block.get('text'), str) and block['text']:
                 out.append(('text', {'role': 'user', 'text': block['text']}))
         return out
+
+    def _workflow_stop(self, content: Any) -> Pair | None:
+        """A `<task-notification>` naming a `Workflow` call this stream saw launch, or None."""
+        text = _text_of(content)
+        if '<task-notification>' not in text:
+            return None
+        use = TOOL_USE_ID.search(text)
+        if use is None or use.group(1) not in self.workflows:
+            return None
+        status = NOTE_STATUS.search(text)
+        stop: dict[str, Any] = {
+            'tool_use_id': use.group(1),
+            'run_id': self.workflows.pop(use.group(1)),
+            'status': WORKFLOW_STATUS.get(status.group(1).strip() if status else '', 'unknown'),
+        }
+        summary = NOTE_SUMMARY.search(text)
+        if summary:
+            stop['summary'] = _clip(summary.group(1).strip(), MAX_SUMMARY)[0]
+        return 'workflow_stop', stop
+
+    def _workflow_start(self, use_id: str, structured: Any) -> Pair | None:
+        """The `Workflow` tool's launch result (SP10), or None."""
+        if not isinstance(structured, dict):
+            return None
+        run = structured.get('runId')
+        launched = structured.get('status') == 'async_launched'
+        if not (launched and structured.get('taskType') == 'local_workflow'):
+            return None
+        if not (isinstance(run, str) and WORKFLOW_ID.match(run)):
+            return None
+        self.workflows[use_id] = run
+        while len(self.workflows) > MAX_AGENTS:  # a run never told ended is forgotten, oldest first
+            del self.workflows[next(iter(self.workflows))]
+        name = structured.get('workflowName')
+        start: dict[str, Any] = {
+            'tool_use_id': use_id,
+            'run_id': run,
+            'name': name if isinstance(name, str) and name else 'workflow',
+        }
+        if isinstance(structured.get('taskId'), str) and structured['taskId']:
+            start['task_id'] = structured['taskId']
+        if isinstance(structured.get('summary'), str) and structured['summary']:
+            start['description'] = structured['summary']
+        return 'workflow_start', start
 
     def _tool_result(self, entry: dict[str, Any], block: dict[str, Any]) -> list[Pair]:
         use_id = str(block['tool_use_id'])
@@ -356,6 +461,9 @@ class Normaliser:
             if 'subagent_type' in asked:
                 start['subagent_type'] = asked['subagent_type']
             out.append(('subagent_start', start))
+        workflow = self._workflow_start(use_id, structured)
+        if workflow is not None:
+            out.append(workflow)
         return out
 
 
@@ -504,6 +612,7 @@ def _agents_before(normaliser: Normaliser, path: Path, pos: int, max_line: int) 
             if line is not None and (
                 b'"Agent"' in line
                 or b'Async agent launched' in line
+                or b'local_workflow' in line
                 or b'"usage"' in line
                 or b'turn_duration' in line
             ):
@@ -515,38 +624,69 @@ def _agents_before(normaliser: Normaliser, path: Path, pos: int, max_line: int) 
 # Finding the file ------------------------------------------------------------------------------
 
 
-def _name(session_id: str, subagent: str | None) -> str:
+def _name(session_id: str, subagent: str | None, workflow: str | None = None) -> str:
+    if workflow is not None:
+        run = f'{session_id}/subagents/workflows/{workflow}'
+        return f'{run}/agent-{subagent}.jsonl' if subagent is not None else f'{run}/journal.jsonl'
     if subagent is None:
         return f'{session_id}.jsonl'
     return f'{session_id}/subagents/agent-{subagent}.jsonl'
 
 
-def _expected(home: Path, session_id: str, cwd: str, subagent: str | None) -> Path | None:
+def inside_session(path: Path, name: str, session_id: str) -> bool:
+    """`path`, found as `<project folder>/<name>`, resolves where it should: the main transcript in
+    its project folder, anything else inside `<project folder>/<session-id>/` (no `..`, no symlink
+    that leads out of the session's own folder)."""
+    depth = len(Path(name).parts)
+    project = path.parents[depth - 1].resolve()
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return False
+    if depth == 1:
+        return resolved.parent == project
+    return resolved.is_relative_to(project / session_id)
+
+
+def _expected(
+    home: Path, session_id: str, cwd: str, subagent: str | None, workflow: str | None = None
+) -> Path | None:
     """The file in the folder named after the cwd, when it exists."""
     if not cwd:
         return None
-    exact = home / '.claude' / 'projects' / project_dir(cwd) / _name(session_id, subagent)
+    name = _name(session_id, subagent, workflow)
+    exact = home / '.claude' / 'projects' / project_dir(cwd) / name
     return exact if exact.is_file() else None
 
 
-def _search(home: Path, session_id: str, subagent: str | None) -> Path | None:
+def _search(
+    home: Path, session_id: str, subagent: str | None, workflow: str | None = None
+) -> Path | None:
     """The file in any project folder (sorted by name, the first wins)."""
     if not GLOB_SAFE.match(session_id):
         return None
     projects = home / '.claude' / 'projects'
-    return next(iter(sorted(projects.glob(f'*/{_name(session_id, subagent)}'))), None)
+    name = _name(session_id, subagent, workflow)
+    return next(iter(sorted(projects.glob(f'*/{name}'))), None)
 
 
 def transcript_path(
-    home: Path, session_id: str, cwd: str, subagent: str | None = None
+    home: Path,
+    session_id: str,
+    cwd: str,
+    subagent: str | None = None,
+    workflow: str | None = None,
 ) -> Path | None:
-    """Where the transcript is, or None while it does not exist.
+    """Where the transcript (or a run's journal, or one of its agents) is, or None while it does
+    not exist.
 
     The folder name comes from the session's cwd. Only `/` → `-` is recorded (SP2); other
     characters (`_`, `.`) and very long paths are a guess, so when that folder has no such file the
     runner looks for the session id in every project folder.
     """
-    return _expected(home, session_id, cwd, subagent) or _search(home, session_id, subagent)
+    return _expected(home, session_id, cwd, subagent, workflow) or _search(
+        home, session_id, subagent, workflow
+    )
 
 
 class Locator:
@@ -561,18 +701,27 @@ class Locator:
         session_id: str,
         cwd: str,
         subagent: str | None = None,
+        workflow: str | None = None,
         *,
         search_every: float = SEARCH_EVERY,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.home, self.session_id, self.cwd, self.subagent = home, session_id, cwd, subagent
+        self.workflow = workflow
+        self._name = _name(session_id, subagent, workflow)
         self.search_every = search_every
         self.clock = clock
         self.searches = 0
         self._searched: float | None = None
 
     def __call__(self) -> Path | None:
-        found = _expected(self.home, self.session_id, self.cwd, self.subagent)
+        found = self._find()
+        if found is not None and not inside_session(found, self._name, self.session_id):
+            return None  # a link out of the session's folder is never read (checked again per open)
+        return found
+
+    def _find(self) -> Path | None:
+        found = _expected(self.home, self.session_id, self.cwd, self.subagent, self.workflow)
         if found is not None:
             return found
         now = self.clock()
@@ -580,7 +729,12 @@ class Locator:
             return None
         self._searched = now
         self.searches += 1
-        return _search(self.home, self.session_id, self.subagent)
+        return _search(self.home, self.session_id, self.subagent, self.workflow)
+
+    def unsafe(self) -> bool:
+        """The file exists but resolves outside the session's folder."""
+        found = transcript_path(self.home, self.session_id, self.cwd, self.subagent, self.workflow)
+        return found is not None and not inside_session(found, self._name, self.session_id)
 
 
 # HTTP ------------------------------------------------------------------------------------------
@@ -603,11 +757,11 @@ class Tails:
         self.poll = poll
         self.keepalive = keepalive
         self.max_line = max_line
-        self._open: dict[tuple[str, str], threading.Event] = {}
+        self._open: dict[tuple[str, str, str], threading.Event] = {}
         self._lock = threading.Lock()
         self._closed = False
 
-    def _claim(self, key: tuple[str, str]) -> threading.Event:
+    def _claim(self, key: tuple[str, str, str]) -> threading.Event:
         """Register a tail for one file, ending the one that read it before (one tail per file)."""
         stop = threading.Event()
         with self._lock:
@@ -619,7 +773,7 @@ class Tails:
             self._open[key] = stop
         return stop
 
-    def _release(self, key: tuple[str, str], stop: threading.Event) -> None:
+    def _release(self, key: tuple[str, str, str], stop: threading.Event) -> None:
         with self._lock:
             if self._open.get(key) is stop:
                 del self._open[key]
@@ -641,8 +795,17 @@ class Tails:
         """Answer one tail request on a `BaseHTTPRequestHandler`, until the client leaves, the file
         is read (`follow=false`), another tail takes this file over, or the runner stops."""
         try:
-            subagent, offset, follow = _params(query, handler.headers.get('Last-Event-ID'))
+            subagent, workflow, offset, follow = _params(
+                query, handler.headers.get('Last-Event-ID')
+            )
             session_id, cwd = self._session(ref)
+            locate = Locator(self.home, session_id, cwd, subagent, workflow)
+            if locate.unsafe():
+                raise SessionError(
+                    400,
+                    'bad_request',
+                    "That file leads out of the session's own folder, so it is not read.",
+                )
         except SessionError as e:
             body = json.dumps(e.body()).encode()
             handler.send_response(e.status)
@@ -651,11 +814,12 @@ class Tails:
             handler.end_headers()
             handler.wfile.write(body)
             return
-        key = (session_id, subagent or '')
+        key = (session_id, workflow or '', subagent or '')
         stop = self._claim(key)
-        normaliser = Normaliser(session_id, subagent)
+        journal = workflow is not None and subagent is None
+        normaliser = Normaliser(session_id, subagent, workflow, journal=journal)
         reader = LineReader(
-            Locator(self.home, session_id, cwd, subagent),
+            locate,
             offset,
             self.max_line,
             on_open=lambda path, pos: _agents_before(normaliser, path, pos, self.max_line),
@@ -712,12 +876,18 @@ def _message(event: Event) -> bytes:
 
 def _params(
     query: Mapping[str, list[str]], last_event_id: str | None
-) -> tuple[str | None, int, bool]:
-    """`subagent`, the offset to start from and `follow`. `Last-Event-ID` wins over `offset`."""
+) -> tuple[str | None, str | None, int, bool]:
+    """`subagent`, `workflow`, the offset to start from and `follow`. `Last-Event-ID` wins over
+    `offset`."""
     subagent = (query.get('subagent') or [None])[-1]
     if subagent is not None and not SUBAGENT_ID.match(subagent):
         raise SessionError(
             400, 'bad_request', f'"{subagent}" is not a subagent id (hex digits only).'
+        )
+    workflow = (query.get('workflow') or [None])[-1]
+    if workflow is not None and not WORKFLOW_ID.match(workflow):
+        raise SessionError(
+            400, 'bad_request', f'"{workflow}" is not a workflow run id (wf_ and letters, digits).'
         )
     raw = last_event_id.strip() if last_event_id and last_event_id.strip() else None
     raw = raw or (query.get('offset') or ['0'])[-1]
@@ -726,4 +896,4 @@ def _params(
             400, 'bad_request', f'The offset must be a whole number of bytes, not "{raw}".'
         )
     follow = (query.get('follow') or ['true'])[-1].lower() not in ('false', '0', 'no')
-    return subagent, int(raw), follow
+    return subagent, workflow, int(raw), follow

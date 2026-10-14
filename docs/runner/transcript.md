@@ -13,6 +13,13 @@ and `contracts/transcript.schema.json`.
 |---|---|
 | A session | `~/.claude/projects/<cwd, every non-alphanumeric character → ->/<session-id>.jsonl` |
 | One of its subagents | `<same folder>/<session-id>/subagents/agent-<agent_id>.jsonl` |
+| A workflow run's journal (0.1.12, SP10) | `<same folder>/<session-id>/subagents/workflows/<run id>/journal.jsonl` |
+| One of the run's agents | `<same folder>/<session-id>/subagents/workflows/<run id>/agent-<agent_id>.jsonl` |
+
+Every file but the main transcript must resolve inside `<same folder>/<session-id>/`, and the main
+transcript inside its project folder: no `..`, no symlink that leads out (`inside_session`). A file
+that exists and leads out answers 400 before the stream starts; one that appears later and leads out
+is never opened.
 
 The runner looks the session up in `claude agents --json --all` (full or short id) to get its cwd.
 Only the `/` → `-` part of the folder name is recorded (SP2). If that folder has no such file, the
@@ -27,13 +34,14 @@ both be written; see `project/lessons/runner-transcripts.md` for why the runner 
 
 ## The request
 
-`GET /sessions/{id}/tail?offset=&follow=&subagent=`
+`GET /sessions/{id}/tail?offset=&follow=&subagent=&workflow=`
 
 | Parameter | Meaning |
 |---|---|
 | `offset` | Byte offset to start from (default 0). `Last-Event-ID` wins when both are sent. |
 | `follow` | `true` (default): keep the stream open and send new lines as they are written. `false`: send what is there and close. |
 | `subagent` | A subagent's `agent_id` (hex) from a `subagent_start` event: stream its own file. Every event then carries `subagent_id`, and offsets are into that file. |
+| `workflow` | A run's `run_id` (`wf_…`) from a `workflow_start` event: stream the run's `journal.jsonl`. With `subagent` (an `agent_id` from a `workflow_agent_start`), stream that agent's own file instead. Every event then carries `workflow_id`. |
 
 Each SSE message is:
 
@@ -58,7 +66,7 @@ A quiet stream gets a `: still here` comment every 15 seconds, so a client that 
 
 ## One tail per file
 
-A second tail for the same file (same session, same subagent or none) **replaces** the first: the
+A second tail for the same file (same session, same workflow or none, same subagent or none) **replaces** the first: the
 older stream ends. The hub reconnects as soon as its old connection drops, often before the runner
 has noticed; refusing the new tail would leave the hub without a transcript.
 
@@ -80,6 +88,25 @@ checks it gives the same events for every recorded transcript. What the runner a
 | Subagent lines and `usage` | Never counted: not a line marked `isSidechain`, and nothing in a subagent's own stream (`?subagent=`), marked or not. |
 | A resume in the middle of a turn | The earlier lines with `usage` or a turn end are read first too, so that turn's `turn_end` still carries its counts. |
 
+## Workflows (S-03.11, SP10)
+
+A workflow's agents never give a `subagent_start`: they are named only in the run's journal. The
+recording is `runner/tests/fake_claude/fixtures/transcripts/workflow-layout/`.
+
+| Line | Event |
+|---|---|
+| Main transcript: the `Workflow` tool's `tool_result` whose line's `toolUseResult` has `status: async_launched` and `taskType: local_workflow` | `workflow_start` after the `tool_result`: `run_id` = `runId`, `task_id` = `taskId`, `name` = `workflowName` (else `workflow`), `description` = `summary` |
+| Main transcript: a user line holding a `<task-notification>` whose `<tool-use-id>` is a call this stream saw launch a workflow | `workflow_stop` instead of a `text`: `status` from `<status>` (`completed`, `failed`, `stopped`; `killed` → `stopped`; anything else `unknown`), `summary` from `<summary>` (2 KB), `run_id` |
+| Journal: `launched` | nothing |
+| Journal: `started` | `workflow_agent_start`: `agent_id`, `label` (else `agent`), `phase` when set |
+| Journal: `result` | `workflow_agent_stop`: `agent_id`, `summary` = the `result` as text, or compact JSON when it is not a string (2 KB) |
+| Journal: anything else, or an `agentId` that is not hex | `raw` |
+
+A resume after a launch first reads the earlier lines that mention `local_workflow`, so the later
+notification still names its run. At most 256 open runs are remembered.
+`contracts/tests/reference_normalizer.py` does not map workflow lines: the recording and the
+runner's tests are the reference.
+
 ## The file changes under the stream
 
 | What happens to the file | What the stream does |
@@ -95,5 +122,6 @@ what to keep.
 ## Errors
 
 JSON `Error` bodies, in plain words: 404 `not_found` (no such session), 400 `bad_request` (an
-offset that is not a whole number, a subagent id that is not hex), 405 for anything but GET, and the
+offset that is not a whole number, a subagent id that is not hex, a workflow id that is not `wf_…`, a
+file that leads out of the session's folder), 405 for anything but GET, and the
 roster's own 503 when `claude agents` cannot be read.
