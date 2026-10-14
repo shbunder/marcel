@@ -11,7 +11,8 @@ The plan's pages in `../plan/` explain the why.
 |---|---|
 | `/board` | How the build is going: done, in flight, blocked, ready per machine |
 | `/story [S-…]` | Claim the next ready story for this machine (or the one named) and branch it |
-| `/finish-story`, `/merge-story` | PR and Review; merge and Done (lead) |
+| `/finish-story` | Land a finished story on `main` (Done), or open a PR when the owner must review (Review) |
+| `/merge-story` | Merge a PR the owner approved (Done); typed by a person |
 | `make board`, `make lanes` | The same view in the terminal, from the latest board export in `.board/export/` |
 | `make start S=S-03.2` | Check a story may start: dependencies Done, no overlapping `touches:`, under 6 in flight |
 | `/board sync` | After editing `stories/`: bring the board's copies of the definitions up to date |

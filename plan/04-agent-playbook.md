@@ -9,7 +9,7 @@ both roles.
 | Role | Model | Owns | Never does |
 |---|---|---|---|
 | **Lead** | Opus | F01, F02 (contracts), spike folding, story refinement, the merge queue, cross-lane integration, the end-to-end acceptance run | Writes large feature code itself |
-| **Implementer** | Sonnet | Exactly one story at a time, on its own branch or worktree | Changes `contracts/` (it proposes a change to the lead instead), touches files outside the story's `touches:`, or merges |
+| **Implementer** | Sonnet | Exactly one story at a time, on its own branch or worktree | Changes `contracts/` (it proposes a change to the lead instead), touches files outside the story's `touches:`, or lands without the verifier's "merge" verdict |
 | **Verifier** | Sonnet (fresh context) | Runs the pre-merge checklist on a finished story | Fixes things; it reports them |
 
 ## Where each lane runs
@@ -90,8 +90,10 @@ Size guide:
    5 minutes). A red `check` on `main` is fixed before anything else lands.
 5. Update the docs the story names, in the same commit.
 6. `/finish-story` — gate, `story-verifier`, commit `[S-NN.M] impl: <what>` staged by name (never
-   `git add .` or `-A`), PR, card → Review. Fix what the verifier finds.
-7. The lead runs `/merge-story` in wave order: a merge commit, card → Done. No board commit.
+   `git add .` or `-A`). Fix what the verifier finds. Then it **lands** the story on `main` (a merge commit,
+   CI watched until green, card → Done), or opens a **PR** when the owner must review: the self-change path,
+   an undecided trade-off, or a look the story asks the owner to sign off (ADR-012).
+7. A PR is merged with `/merge-story` once the owner approves it: a merge commit, card → Done. No board commit.
 8. If you learned something the next agent needs, add `project/lessons/<topic>.md`.
 
 ### Hard rules (all lanes)
@@ -110,7 +112,7 @@ Size guide:
 - **No secrets in git.** Tokens go in `deploy/.env.local` (gitignored) and in the hub's data volume.
 - **Restart only via the flag file** (F11). Never `docker restart` or `systemctl restart` from code.
 
-## The verifier checklist (runs before every merge)
+## The verifier checklist (runs before every story lands)
 
 - [ ] Every "done when" item is covered by a test or command output that was actually run.
 - [ ] Nothing changed outside `touches:`, and `contracts/` is unchanged unless the story is a contract story.

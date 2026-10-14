@@ -4,7 +4,7 @@
 - `git add .`, `git add -A`, `git add --all`, `git add -u`, `git commit -a`
 - One commit that mixes `project/**` or `plan/**` with source code
 - A commit that only moves a status: status lives on the build board (see [board](board.md))
-- A fast-forward merge of a story branch: the lead merges with `--no-ff`
+- A story landed on `main` as a fast-forward or a squash: it lands as one `--no-ff` merge commit
 
 ## Always
 - `git status`, then `git add <path> <path> …`, then `git diff --cached --stat` before committing

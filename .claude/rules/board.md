@@ -12,7 +12,8 @@ ToolSearch `select:ArtifactData`).
 | What happened: claims, hand-overs, merges | board, collection `log` (`{at, story, kind, text, by}`) |
 
 Statuses: `Backlog → In Progress → Review → Done`, or `Blocked` (with `blocked_reason`).
-`Done` means merged to `main`; only `/merge-story` sets it.
+`Done` means on `main`: `/finish-story` sets it when it lands a story, `/merge-story` when it merges a PR.
+`Review` is only for a PR that waits for the owner (ADR-012).
 
 ## Never
 - A `status:` line in a story file (`scripts/board.py` refuses to load one).
@@ -28,7 +29,8 @@ Statuses: `Backlog → In Progress → Review → Done`, or `Blocked` (with `blo
 
 ## If the board is out of reach
 A session without `ArtifactData` (not yet confirmed in claude.ai cloud sessions) does the work and ends its
-PR description with the move it could not make, e.g. `Board: S-04.9 → Review`. The lead applies it.
+PR description, or the merge commit message when it lands without a PR, with the move it could not make,
+e.g. `Board: S-04.9 → Done`. The lead applies it.
 
 ## Why
 Status in git meant a commit per move, conflicts between parallel agents on the same files, and a board you

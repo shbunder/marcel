@@ -1,6 +1,6 @@
 ---
 name: merge-story
-description: Lead only — merge a reviewed story PR into main and mark it Done on the build board, then report what became ready. Use when a story is in Review with green checks and a "merge" verdict.
+description: Merge a story PR the owner had to review (ADR-012) into main and mark it Done on the build board, then report what became ready. Use when the owner approved a story PR in Review with green checks and a "merge" verdict. Stories that need no owner review land through /finish-story instead.
 disable-model-invocation: true
 argument-hint: <story id or PR number>
 ---
