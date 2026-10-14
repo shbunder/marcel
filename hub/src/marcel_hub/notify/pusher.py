@@ -55,6 +55,11 @@ FIXED = {
     ),
 }
 
+# Causes whose resolve starts their hour over, so the next outage is pushed even within the hour:
+# those with an all-clear, and Claude Code back on its pin (S-04.17). Not `brain_down`: it clears on
+# an accepted start, before the brain says hello, so a flaky brain would push every minute or two.
+RESET_ON_RESOLVE = frozenset(FIXED) | {'claude_updated'}
+
 
 class Pusher:
     def __init__(
@@ -152,15 +157,19 @@ class Pusher:
             log.exception('Could not push "%s". Nothing was sent.', title)
 
     def resolved(self, cause: str) -> None:
-        """A cause is over (`Alerts.resolved`). Says so if its "broke" push went out."""
+        """A cause is over (`Alerts.resolved`). Says so if its "broke" push went out and the cause
+        has an all-clear; a cause in `RESET_ON_RESOLVE` is pushed again on its next outage, even
+        within the hour."""
         try:
             link = self._open.pop(cause, None)
-            if link is None or cause not in FIXED:
+            if link is None:
+                return
+            if cause in RESET_ON_RESOLVE:  # over: a new outage is news, not a repeat
+                self._broke_sent.pop(cause, None)
+            if cause not in FIXED:
                 return
             title, body = FIXED[cause]
             self.push(routing.for_fixed(cause, title, body, link), None)
-            # The phone now says it is fixed: the next outage is pushed, even within the hour.
-            self._broke_sent.pop(cause, None)
         except Exception:
             log.exception('Could not push the all-clear for %s.', cause)
 

@@ -265,6 +265,36 @@ def test_a_cause_without_an_all_clear_is_quiet(engine: Engine, task: str) -> Non
     assert len(notifier.sent) == 1
 
 
+def test_a_cause_without_an_all_clear_is_pushed_again_once_resolved(
+    engine: Engine, task: str
+) -> None:
+    """Claude Code drifts from the pin, comes back, drifts again within the hour (S-04.17)."""
+    notifier = RecordingNotifier()
+    clock = Clock()
+    pusher = pusher_for(engine, notifier, clock=clock)
+    away = ('claude_updated', 'Claude Code was updated', 'New work waits.')
+    drive(pusher, lambda: pusher.broke(*away))
+    clock.now += 60
+    drive(pusher, lambda: pusher.resolved('claude_updated'))  # back on the pin: quiet
+    clock.now += 300
+    drive(pusher, lambda: pusher.broke(*away))
+    got = [(n.level, n.collapse_key) for _, n in notifier.sent]
+    assert got == [('urgent', 'claude_updated'), ('urgent', 'claude_updated')]
+
+
+def test_a_flaky_brain_still_pushes_once_per_hour(engine: Engine, task: str) -> None:
+    """`brain_down` clears on an accepted start, before hello: resolving it keeps its hour."""
+    notifier = RecordingNotifier()
+    clock = Clock()
+    pusher = pusher_for(engine, notifier, clock=clock)
+    down = ('brain_down', 'Marcel cannot start', 'It keeps trying.')
+    for _ in range(3):
+        drive(pusher, lambda: pusher.broke(*down))
+        clock.now += 60
+        drive(pusher, lambda: pusher.resolved('brain_down'))
+    assert len(notifier.sent) == 1
+
+
 def test_the_runner_recovering_from_a_warning_replaces_the_alert(engine: Engine, task: str) -> None:
     notifier = RecordingNotifier()
     clock = Clock()

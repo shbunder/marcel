@@ -118,8 +118,8 @@ restarts onto it, the sessions it ran end, and the runner's pin refuses new work
   (category `broke`, cause `claude_updated`) because Marcel cannot start anything until it is fixed:
   "Claude Code was updated to X. New work waits until Marcel is back on the pinned version Y — run
   deploy/install-claude.sh."
-- **`runner.claude_changed`, back on the pin:** one short notice, not pushed. A new drift within the
-  hour of the last urgent push is told in the chat but not pushed again (the pusher's one-per-hour limit).
+- **`runner.claude_changed`, back on the pin:** one short notice, not pushed. It also resolves the
+  `claude_updated` alert, so a new drift is pushed as urgent again, even within the hour.
 - At start-up the hub reads `GET /health` once, for a change made while it was down.
 - `GET /internal/health` shows the open change as `claude_update {installed, expected, at,
   sessions_ended}` (`sessions_ended` counts the quests restarts stopped while it is open). What the hub
@@ -892,9 +892,10 @@ Nothing else pushes: no progress, no `working`, `queued`, `unknown` or `stopped`
   `priority` (4 for urgent, 3 for normal) and `click` (the `marcel://` deep link). No token ever goes
   to the ntfy server; the push only opens the app.
 - **Quiet repeats.** The same push for the same task is not sent twice within 10 minutes. An urgent
-  "broke" push goes out once per cause per hour; when its all-clear goes out, that hour starts over,
-  so a second outage is pushed again. Marcel's own notices are capped at 6 per hour per agent; the
-  rest are posted in the chat but not pushed, and the log says so. Every push carries a collapse key (the task id, or the cause),
+  "broke" push goes out once per cause per hour. When a cause with an all-clear, or
+  `claude_updated`, is resolved, that hour starts over, so a second outage is pushed again
+  (`RESET_ON_RESOLVE`; not `brain_down`, which clears before the brain is really up). Marcel's own
+  notices are capped at 6 per hour per agent; the rest are posted in the chat but not pushed, and the log says so. Every push carries a collapse key (the task id, or the cause),
   but only APNs uses it to replace the older push on the phone: on ntfy each push shows separately.
 - **A failed push never breaks the hub.** Pushes are sent in the background, tried three times
   (after 2 s and 10 s), then given up and logged. A refused push (4xx other than 429) is not

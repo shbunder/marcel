@@ -173,8 +173,7 @@ class ClaudeUpdates:
         self._save()
         log.info('Claude Code is back on the pinned %s.', expected)
         self._tell(BACK.format(expected=expected))
-        if self.pusher is not None:  # quiet: no all-clear for this cause (a drift within the
-            # hour of the last push is still told in the chat, but not pushed again)
+        if self.pusher is not None:  # quiet (no all-clear); the next drift pushes again
             self.pusher.resolved(CAUSE)
 
     async def _restarted(self, restart: dict[str, Any]) -> None:
