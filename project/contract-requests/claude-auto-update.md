@@ -15,7 +15,8 @@ Two new `RunnerEvent.type`s, each with `message` in plain words:
 - `runner.claude_changed` `{from, to, expected}`: the installed `claude --version` changed (the runner checks it
   on each poll or each health call). `expected` is the pin, so the hub can tell "updated away" from "back".
 - `runner.supervisor_restarted` `{cause, live_workers, session_ids}`: Claude's supervisor started again (its pid
-  changed between two polls); `cause` and `live_workers` from the supervisor's own log line when readable,
+  changed between two polls); `cause` and `live_workers` from the supervisor's own log line when readable
+  (`~/.claude/daemon.log`: `shutting down (cause=upgrade, …, live_workers=5)`; project/lessons/runner-built-ins.md),
   `session_ids` the sessions that were live before and are gone after.
 
 The hub then marks exactly those sessions' tasks and words the notice from `cause`, and drops the guess.
