@@ -9,6 +9,8 @@ Finish: $ARGUMENTS   (empty = the id in the branch name `story/<id>`)
    `make scripts`). Red → fix first.
 2. **Verify:** delegate to the `story-verifier` agent with the id and branch. Fix everything under
    "fix first", as more commits.
+   If the diff touches auth, pairing, the runner, the plugin's tools, `deploy/` or secrets, also run
+   the `security-auditor` agent on the branch and fix what it marks Critical or High.
 3. **Commit and push:** `git status`, `git add <each file by name>`,
    `git commit -m "[<id>] impl: <what changed>"`, `git show --stat HEAD`, `git push -u origin story/<id>`.
 4. **PR:** `gh pr create --base main --title "[<id>] <title>"`. Body: what it does for the user (two or three
