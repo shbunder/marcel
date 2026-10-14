@@ -1,0 +1,9 @@
+# marcel-v3-unit: installed by deploy/install.sh from deploy/systemd/
+# Back up the hub's database and the memory repo (deploy/backup.sh). Run by marcel-backup.timer.
+[Unit]
+Description=Back up Marcel's database and memory
+
+[Service]
+Type=oneshot
+ExecStart=%h/marcel/src/deploy/backup.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin

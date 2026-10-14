@@ -9,7 +9,8 @@ How to install and run it: [docs/operating.md](../docs/operating.md).
 | `docker-compose.yml`, `hub.Dockerfile` | The hub container on `127.0.0.1:7420`. Run it through `compose.sh` |
 | `compose.sh` | `docker compose` with `MARCEL_HOME`, `MARCEL_UID` and `MARCEL_GID` set |
 | `health.sh` | Checks the units, the runner, the hub, and the hub's whole-path check (`GET /internal/health`: hub → runner → a connected, pinging brain); waits up to `HEALTH_WAIT` s for it |
-| `systemd/` | User units: Claude's supervisor, the runner, and the redeploy path and service |
+| `backup.sh` | The nightly backup of the database, the memory, the artifacts and the hub's files (`marcel-backup.timer`); restore in docs/operating.md |
+| `systemd/` | User units: Claude's supervisor, the runner, the redeploy path and service, and the nightly backup service and timer |
 | `cloudflared/` | The tunnel's ingress (`/api/*` only) and its system unit |
 | `marketplace.json` | The `marcel-local` marketplace listing the deployed plugin |
 
