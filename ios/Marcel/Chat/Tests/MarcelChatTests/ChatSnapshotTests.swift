@@ -44,6 +44,18 @@ final class ChatSnapshotTests: XCTestCase {
             named: "Chat-ask", variants: twoModes, padding: 0)
     }
 
+    // The mention chips and the attached item going with the next message sit on the composer's white strip, at its
+    // inset, under one line.
+    func testChipsAndAnItemAboveTheComposer() {
+        Snapshot.assert(
+            ChatStill(header: ChatHeaderState(), items: [
+                .marcel(MarcelLine(id: "m1", markdown: "The installer can come Friday or Monday.")),
+            ], collapsed: true, draft: "Ask them which one is cheaper", attachment: "Solar quotes",
+            mentions: [Mention(kind: .task, id: "t1", title: "Solar quotes"),
+                       Mention(kind: .project, id: "p1", title: "Home energy")]),
+            named: "Chat-composer-extras", variants: twoModes, padding: 0)
+    }
+
     func testCollapsedHeaderOffline() {
         Snapshot.assert(
             ChatStill(header: ChatHeaderState(offline: "Offline · showing what's saved"), items: [

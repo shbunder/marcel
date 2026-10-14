@@ -183,20 +183,12 @@ struct LiveFeed: View {
                     .padding(.horizontal, FeedMetrics.inset)
                     .padding(.top, PixelMetrics.steps(2))
             }
-            if !model.mentions.isEmpty {
-                ComposerMentions(mentions: model.mentions) { model.unpick($0) }
-                    .padding(.horizontal, FeedMetrics.inset)
-            }
-            if let attachment = model.attachment {
-                AttachedItem(title: attachment.title, remove: { model.attachment = nil })
-                    .padding(.horizontal, FeedMetrics.inset)
-                    .padding(.top, PixelMetrics.steps(2))
-            }
             Composer(text: $model.draft,
                      placeholder: Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(items),
                                                       name: header.name),
-                     focused: $typing) {
-                Task { await model.send() }
+                     focused: $typing, send: { Task { await model.send() } }) {
+                ComposerExtras(mentions: model.mentions, attachment: model.attachment?.title,
+                               unpick: { model.unpick($0) }, detach: { model.attachment = nil })
             }
         }) {
             ScrollViewReader { proxy in

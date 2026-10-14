@@ -47,7 +47,7 @@ The other tabs in the same language (S-18.6, `Chat/ChatScreens.swift`): `ChatHea
 title and a line under it, a trailing slot) · `chatSurface(_:)` (a white rounded card with a thin edge on the soft
 ground, `.framed(kind)` in a state's colour, `.well`, `.dashed`) · `ChatSectionTitle` · `ChatBadge` ·
 `ChatPillButton` · `TrackerButton` ("Open tracker", B-46; `TrackerButton.url(_:)` shows it only for an http(s)
-address) · `ChatComposerField` (rounded, with a round send button). Their text pairs are `screenTextPairs`
+address) · `ChatComposerField` (rounded, with a round send button; an optional `accessory` sits above the field on the same strip). Their text pairs are `screenTextPairs`
 (`ChatScreensTests`).
 
 ## Components

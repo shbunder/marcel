@@ -140,3 +140,25 @@ struct ComposerMentions: View {
         }
     }
 }
+
+/// What goes with the next message, on the composer's strip above the field: the mention chips, then the attached
+/// item. Nothing when there is neither.
+struct ComposerExtras: View {
+    var mentions: [Mention]
+    var attachment: String?
+    var unpick: (Mention) -> Void
+    var detach: () -> Void
+
+    var body: some View {
+        if !mentions.isEmpty || attachment != nil {
+            VStack(alignment: .leading, spacing: 4) {
+                if !mentions.isEmpty {
+                    ComposerMentions(mentions: mentions, remove: unpick)
+                }
+                if let attachment {
+                    AttachedItem(title: attachment, remove: detach)
+                }
+            }
+        }
+    }
+}

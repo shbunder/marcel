@@ -220,8 +220,8 @@ struct MarcelReply: View {
     }
 }
 
-/// The item that went with a message ("Ask about this"), under your bubble and above the composer: a gold outline
-/// with the item's title.
+/// The item that went with a message ("Ask about this"), under your bubble and above the composer: a rounded line with
+/// a gold edge, "Item" and the item's title, in the chat's language.
 struct AttachedItem: View {
     var title: String
     /// Above the composer: an X takes the item off the message.
@@ -230,18 +230,22 @@ struct AttachedItem: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
-        let ink = ProjectChip.Tone.gold.color(in: theme).color
-        HStack(spacing: PixelMetrics.steps(3)) {
-            PixelText("Item", role: .smallLabel).foregroundStyle(ink)
-            PixelText(title, role: .detail)
-                .foregroundStyle(theme.text.color)
+        let palette = ChatPalette(scheme)
+        let gold = ChatCardKind.needsYou
+        HStack(spacing: 8) {
+            Text("Item")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(gold.label(in: palette).color)
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(palette.ink.color)
                 .lineLimit(1)
             if let remove {
                 Spacer(minLength: 0)
                 Button(action: remove) {
-                    PixelText("X", role: .label)
-                        .foregroundStyle(theme.muted.color)
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(palette.muted.color)
                         .frame(width: PixelMetrics.minTapTarget, height: PixelMetrics.minTapTarget)
                         .contentShape(Rectangle())
                 }
@@ -249,10 +253,13 @@ struct AttachedItem: View {
                 .accessibilityLabel("Remove the item from the message")
             }
         }
-        .padding(.horizontal, PixelMetrics.steps(4))
+        .padding(.leading, 12)
+        .padding(.trailing, remove == nil ? 12 : 0)
         .frame(minHeight: remove == nil ? nil : PixelMetrics.minTapTarget)
-        .padding(.vertical, remove == nil ? PixelMetrics.steps(2) : 0)
-        .overlay(Rectangle().strokeBorder(ink, lineWidth: PixelMetrics.thinBorder))
+        .padding(.vertical, remove == nil ? 6 : 0)
+        .background(palette.card.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(gold.frame(in: palette).color, lineWidth: 1))
         .accessibilityElement(children: remove == nil ? .ignore : .contain)
         .accessibilityLabel("Item: \(title)")
     }

@@ -249,8 +249,9 @@ public struct TrackerButton: View {
 }
 
 /// A rounded composer: the text field (or, for snapshots, its words) on the well colour with a thin edge, and a round
-/// send button in Marcel's rose, on a white strip with a thin line above it.
-public struct ChatComposerField: View {
+/// send button in Marcel's rose, on a white strip with a thin line above it. What goes with the next message (mention
+/// chips, an attached item) sits above the field on the same strip, at the same inset.
+public struct ChatComposerField<Accessory: View>: View {
     @Binding public var text: String
     public var placeholder: String
     public var fieldLabel: String
@@ -258,23 +259,38 @@ public struct ChatComposerField: View {
     public var still: Bool
     public var focused: FocusState<Bool>.Binding?
     public var send: () -> Void
+    /// Above the field, on the strip: what goes with the next message.
+    public var accessory: Accessory
 
     @Environment(\.colorScheme) private var scheme
 
     public init(text: Binding<String>, placeholder: String, fieldLabel: String, still: Bool = false,
-                focused: FocusState<Bool>.Binding? = nil, send: @escaping () -> Void) {
+                focused: FocusState<Bool>.Binding? = nil, send: @escaping () -> Void,
+                @ViewBuilder accessory: () -> Accessory) {
         _text = text
         self.placeholder = placeholder
         self.fieldLabel = fieldLabel
         self.still = still
         self.focused = focused
         self.send = send
+        self.accessory = accessory()
     }
 
     var canSend: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     public var body: some View {
         let palette = ChatPalette(scheme)
+        VStack(alignment: .leading, spacing: 8) {
+            accessory
+            bar(palette)
+        }
+        .padding(.horizontal, ChatScreenMetrics.inset)
+        .padding(.vertical, 8)
+        .background(palette.card.color)
+        .overlay(alignment: .top) { Rectangle().fill(palette.line.color).frame(height: 1) }
+    }
+
+    private func bar(_ palette: ChatPalette) -> some View {
         HStack(alignment: .bottom, spacing: 8) {
             field(palette)
                 .padding(.horizontal, 14)
@@ -295,10 +311,6 @@ public struct ChatComposerField: View {
             .disabled(!canSend)
             .accessibilityLabel("Send")
         }
-        .padding(.horizontal, ChatScreenMetrics.inset)
-        .padding(.vertical, 8)
-        .background(palette.card.color)
-        .overlay(alignment: .top) { Rectangle().fill(palette.line.color).frame(height: 1) }
     }
 
     @ViewBuilder private func field(_ palette: ChatPalette) -> some View {
@@ -353,5 +365,14 @@ extension ChatPalette {
             pairs.append(("\(kind) label on ground", kind.label(in: self), well))
         }
         return pairs
+    }
+}
+
+extension ChatComposerField where Accessory == EmptyView {
+    /// A composer with nothing above the field.
+    public init(text: Binding<String>, placeholder: String, fieldLabel: String, still: Bool = false,
+                focused: FocusState<Bool>.Binding? = nil, send: @escaping () -> Void) {
+        self.init(text: text, placeholder: placeholder, fieldLabel: fieldLabel, still: still, focused: focused,
+                  send: send, accessory: { EmptyView() })
     }
 }

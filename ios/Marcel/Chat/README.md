@@ -44,6 +44,8 @@ README § Chat); the colours are the wireframe's (explainer artifact KtdD3PMLeyZ
 - **A message sent from a project room** (`project_id`, B-32; the Map tab) shows that project's chip under it, and
   VoiceOver says "You said, about Home energy: …". The Map package reuses `ArtifactPreview.dashboardRows`, so it is
   public; both the chat's `Composer` and the project room's draw PixelKit's rounded `ChatComposerField`.
+  The mention chips and the attached item going with the next message (`ComposerExtras`) sit on the composer's
+  white strip above the field, at its inset.
 - **"Ask about this" on an item** (S-12.11, app API 0.5) comes back to the chat with the item attached
   (`ChatModel.attach`; the viewer calls the `askInChat` environment value, which `ChatScreen` sets for viewers it
   opens and the app sets for the others). The item shows above the composer (X removes it) and goes with the next

@@ -1,3 +1,4 @@
+import MarcelKit
 import MarcelItems
 import PixelKit
 import SwiftUI
@@ -12,6 +13,8 @@ struct ChatStill: View {
     var draft = ""
     /// An item going with the next message, above the composer.
     var attachment: String?
+    /// Mention chips going with the next message, above the composer.
+    var mentions: [Mention] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,15 +27,12 @@ struct ChatStill: View {
             }
             .padding(FeedMetrics.inset)
             .frame(maxWidth: .infinity, alignment: .leading)
-            if let attachment {
-                AttachedItem(title: attachment, remove: {})
-                    .padding(.horizontal, FeedMetrics.inset)
-                    .padding(.top, PixelMetrics.steps(2))
-            }
             Composer(text: .constant(draft),
                      placeholder: Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(items),
                                                       name: header.name),
-                     focused: nil, send: {})
+                     focused: nil, send: {}) {
+                ComposerExtras(mentions: mentions, attachment: attachment, unpick: { _ in }, detach: {})
+            }
             PixelTabBar(selection: .constant("chat"))
         }
         .environment(\.agentName, header.name)

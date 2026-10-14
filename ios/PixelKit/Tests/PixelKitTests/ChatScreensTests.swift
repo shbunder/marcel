@@ -25,7 +25,7 @@ final class ChatScreensTests: XCTestCase {
     }
 
     func testTheComposerSendsOnlyRealText() {
-        func field(_ text: String) -> ChatComposerField {
+        func field(_ text: String) -> ChatComposerField<EmptyView> {
             ChatComposerField(text: .constant(text), placeholder: "Tell Marcel…", fieldLabel: "Message", send: {})
         }
         XCTAssertFalse(field("").canSend)
