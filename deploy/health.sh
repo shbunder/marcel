@@ -7,6 +7,7 @@
 #   2  only the claude version drifted: everything runs, but the installed claude is not the pinned one,
 #      so the runner refuses new sessions. Not a broken deploy: run deploy/install-claude.sh. A redeploy
 #      watchdog must not roll back on 2.
+# A missing or stale backup prints a WARNING line and changes no exit code.
 # Waits up to HEALTH_WAIT seconds (default 60) for the hub and the brain.
 set -uo pipefail
 MARCEL_HOME="${MARCEL_HOME:-$HOME/marcel}"
@@ -85,6 +86,22 @@ case "$path" in
     *'"state":"version_drift"'* | *'"state": "version_drift"'*) drift=1 ;;  # the brain may be down for the same reason
     *) fail=1 ;;
 esac
+
+# The newest nightly backup (deploy/backup.sh). A warning only: it never changes the exit code, so a redeploy is
+# never rolled back over it.
+backups="${MARCEL_BACKUPS:-$MARCEL_HOME/backups}"
+newest="$(ls -1d "$backups"/20??-??-??/marcel.db 2>/dev/null | sort | tail -n 1)"
+if [ -z "$newest" ]; then
+    backup="WARNING: no backup in $backups. Look at: journalctl --user -u marcel-backup"
+else
+    age_h=$(( ($(date +%s) - $(stat -c %Y "$newest")) / 3600 ))
+    if [ "$age_h" -gt 36 ]; then
+        backup="WARNING: the newest is ${age_h} h old ($newest). Look at: journalctl --user -u marcel-backup"
+    else
+        backup="ok, ${age_h} h old"
+    fi
+fi
+printf '%-30s %s\n' "backup" "$backup"
 
 if [ "$fail" -ne 0 ]; then
     exit 1

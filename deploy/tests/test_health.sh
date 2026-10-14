@@ -64,6 +64,19 @@ expect 1 'drift without a supervisor is down' FAKE_RUNNER="$RUNNER_NO_SUPERVISOR
 expect 1 'runner not answering' FAKE_RUNNER='' FAKE_HUB="$HUB_OK" FAKE_PATH="$PATH_DOWN"
 expect 1 'whole path down' FAKE_RUNNER="$RUNNER_OK" FAKE_HUB="$HUB_OK" FAKE_PATH="$PATH_DOWN"
 
+# The backup line: a warning without a fresh backup, never a different exit code.
+expect 0 'no backup: warns, still 0' FAKE_RUNNER="$RUNNER_OK" FAKE_HUB="$HUB_OK" FAKE_PATH="$PATH_OK"
+case "$LAST" in *'WARNING: no backup'*) ;; *) echo "FAIL no backup: no warning"; failures=$((failures + 1)) ;; esac
+mkdir -p "$work/home/backups/2026-01-01"
+touch -d '-40 hours' "$work/home/backups/2026-01-01/marcel.db"
+expect 0 'stale backup: warns, still 0' FAKE_RUNNER="$RUNNER_OK" FAKE_HUB="$HUB_OK" FAKE_PATH="$PATH_OK"
+case "$LAST" in *'WARNING: the newest is 40 h old'*) ;; *) echo "FAIL stale backup: no warning"; failures=$((failures + 1)) ;; esac
+mkdir -p "$work/home/backups/2026-01-02"
+touch "$work/home/backups/2026-01-02/marcel.db"
+expect 0 'fresh backup' FAKE_RUNNER="$RUNNER_OK" FAKE_HUB="$HUB_OK" FAKE_PATH="$PATH_OK"
+case "$LAST" in *'WARNING'*) echo "FAIL fresh backup: warned"; failures=$((failures + 1)) ;; *'backup '*'ok, 0 h old'*) ;; *) echo "FAIL fresh backup: no ok line"; failures=$((failures + 1)) ;; esac
+expect 1 'stale backup does not hide a down hub' FAKE_RUNNER="$RUNNER_OK" FAKE_HUB='' FAKE_PATH=''
+
 if [ "$failures" -ne 0 ]; then
     echo "$failures health.sh case(s) failed."
     exit 1

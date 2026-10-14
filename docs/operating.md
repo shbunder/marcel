@@ -170,35 +170,49 @@ To move to a new version:
 
 ## Backups
 
-Every night at 03:30 `marcel-backup.timer` runs `deploy/backup.sh` (by hand: `make -C deploy backup`). It writes
-`~/marcel/backups/<date>/`, owner-only, and keeps 14 days:
+Every night at 03:30 UTC `marcel-backup.timer` runs `deploy/backup.sh` (by hand: `make -C deploy backup`). It writes
+`~/marcel/backups/<date>/`, owner-only, and keeps the newest 14 dates:
 
 | File | What |
 |---|---|
 | `marcel.db` | The hub's database, through SQLite's online backup (consistent while the hub runs), integrity-checked |
-| `memory.bundle` | The memory repo (every note and its history) as one git bundle |
-| `hub-secret`, `adopt-token.sha256`, `digests.json`, `runner-offsets.json`, `cloud-tokens.json` | The small files the hub keeps beside them, when present |
+| `memory.bundle` | The memory repo's history (every branch), as one git bundle |
+| `memory.tar.gz` | The memory files as they are, including what the brain wrote and nothing has committed yet |
+| `artifacts.tar.gz` | The artifact versions the database points to (the Items tab) |
+| `hub-secret`, `adopt-token.sha256`, `usage-guard.json`, `digests.json`, … | Every other file in `~/marcel/data`, except `triage.log` |
 
 Not in it: `deploy/.env.local` (keep your own copy of the secrets), the brain folders (re-rendered by
 `make -C deploy install` and the runner) and worker clones. `MARCEL_BACKUPS` and `MARCEL_BACKUP_DAYS` change where
 and how long.
 
+**When a backup fails** the unit fails and nothing else changes; the day's earlier copy stays. `make -C deploy
+health` prints a `backup` line: `WARNING` when there is no backup or the newest is over 36 hours old (it never changes
+the exit code). Look at `journalctl --user -u marcel-backup -n 50` and `systemctl --user list-timers marcel-backup`.
+
 ### Restore
+
+Every session stops for the restore, so nothing writes to the data folder while it is replaced. Tasks started after
+the backup are not in the restored database; their worker folders stay where they were. The brain starts a fresh
+session afterwards.
 
 ```bash
 B=~/marcel/backups/<date>
-~/marcel/src/deploy/compose.sh stop                    # the hub only; sessions keep running
-mv ~/marcel/data ~/marcel/data.before-restore          # keep what was there
-mkdir -p ~/marcel/data/memory
-cp -p $B/marcel.db $B/hub-secret $B/*.json ~/marcel/data/
-git --git-dir=$HOME/marcel/data/memory.git init -q
-git --git-dir=$HOME/marcel/data/memory.git fetch -q $B/memory.bundle 'refs/heads/*:refs/heads/*'
-git --git-dir=$HOME/marcel/data/memory.git --work-tree=$HOME/marcel/data/memory checkout -q -f main
-make -C ~/marcel/src/deploy install                    # re-links the brain to its memory, starts the hub
+~/marcel/src/deploy/compose.sh stop                          # the hub
+systemctl --user stop marcel-runner marcel-claude-daemon     # the runner and every session
+mv ~/marcel/data ~/marcel/data.before-restore                # keep what was there
+mkdir ~/marcel/data && cd ~/marcel/data
+find $B -maxdepth 1 -type f ! -name '*.tar.gz' ! -name memory.bundle -exec cp -p {} . \;
+tar -xzf $B/memory.tar.gz && tar -xzf $B/artifacts.tar.gz
+git --git-dir=$HOME/marcel/data/memory.git init -q -b main
+git --git-dir=$HOME/marcel/data/memory.git fetch -q --update-head-ok $B/memory.bundle 'refs/heads/*:refs/heads/*'
+git --git-dir=$HOME/marcel/data/memory.git --work-tree=$HOME/marcel/data/memory reset -q   # history back; files as backed up
+make -C ~/marcel/src/deploy install                          # starts the supervisor, the runner and the hub again
 ```
 
-Drilled on 2026-10-14 into a scratch folder with a throwaway hub on another port: `/api/health` ok, `/api/me`
-listed the agent and its conversation with the latest messages, and `/api/memory` read the notes.
+Drilled on 2026-10-14 with these steps into a scratch folder: the files, the memory (with the brain's uncommitted
+notes), its history and all 55 artifact versions matched the live ones, and a throwaway hub on another port answered
+`/api/health`, showed the owner's agent and its conversation, and served the board's current and older versions. The
+live path (stopping the units, `make install`) was not drilled.
 
 ## Triage
 
