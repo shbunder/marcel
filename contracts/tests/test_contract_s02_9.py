@@ -34,7 +34,7 @@ def refused(validator: Draft202012Validator, instance: Any) -> None:
 def test_the_versions_were_bumped() -> None:
     assert load_yaml('session-api.yaml')['info']['version'] == '0.1.7'  # 0.1.7 in S-02.10
     assert load_yaml('brain-api.yaml')['info']['version'] == '0.1.4'  # 0.1.4 in S-02.10
-    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.11'  # 0.1.11 in S-02.10
+    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.12'  # 0.1.12 in S-02.11
 
 
 # 1. Session end ----------------------------------------------------------------------------------

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://marcel.invalid/contracts/transcript.schema.json",
   "title": "Normalised transcript event",
-  "description": "What the runner makes of one line of a Claude Code session transcript (`~/.claude/projects/<cwd>/<session-id>.jsonl`), streamed to the hub on `GET /sessions/{id}/tail`. The mapping from the raw JSONL is SP2's table (scratch/spikes/SP2-worker-control/RESULT.md); `contracts/tests/reference_normalizer.py` is a reference implementation the runner may port. One JSONL line can give zero, one or several events (an assistant line with text and two tool calls gives three). The hub stores the ones the app shows as task events with the same `type` and `data` (app-api.yaml `TaskEvent`); it drops `thinking` and `turn_end`. A pending permission is NOT here: it is not in the JSONL while the prompt is open; it comes from the runner's state stream (runner-api.yaml) and the channel.",
+  "description": "What the runner makes of one line of a Claude Code session transcript (`~/.claude/projects/<cwd>/<session-id>.jsonl`), streamed to the hub on `GET /sessions/{id}/tail`. The mapping from the raw JSONL is SP2's table (scratch/spikes/SP2-worker-control/RESULT.md); `contracts/tests/reference_normalizer.py` is a reference implementation the runner may port. One JSONL line can give zero, one or several events (an assistant line with text and two tool calls gives three). The hub stores the ones the app shows as task events with the same `type` and `data` (app-api.yaml `TaskEvent`); it drops `thinking` and `turn_end`. A workflow's agents (SP10) are not in the main transcript: `workflow_start` there names the run, its `journal.jsonl` (`tail?workflow=`) gives `workflow_agent_start` and `workflow_agent_stop`, and each agent's own file is tailed with `workflow=` and `subagent=`. A pending permission is NOT here: it is not in the JSONL while the prompt is open; it comes from the runner's state stream (runner-api.yaml) and the channel.",
   "$ref": "#/$defs/TranscriptEvent",
   "$defs": {
     "TranscriptEvent": {
@@ -22,9 +22,14 @@
           "description": "Position of this event among those from the same line, starting at 0."
         },
         "subagent_id": { "type": "string", "description": "Set on every event of a subagent's own transcript (runner-api.yaml `tail?subagent=`); `offset` is then into that file." },
+        "workflow_id": {
+          "type": "string",
+          "pattern": "^wf_[A-Za-z0-9_-]{1,64}$",
+          "description": "Set on every event of a workflow's own stream (runner-api.yaml `tail?workflow=`, runner-api 0.1.12): the run's `journal.jsonl`, or with `subagent_id` too, one of its agents' transcripts. `offset` is then into that file."
+        },
         "at": { "type": "string", "format": "date-time" },
         "type": {
-          "enum": ["text", "thinking", "tool_call", "tool_result", "diff", "subagent_start", "subagent_stop", "turn_end", "error", "raw"]
+          "enum": ["text", "thinking", "tool_call", "tool_result", "diff", "subagent_start", "subagent_stop", "workflow_start", "workflow_stop", "workflow_agent_start", "workflow_agent_stop", "turn_end", "error", "raw"]
         },
         "data": { "type": "object" }
       },
@@ -36,6 +41,10 @@
         { "if": { "properties": { "type": { "const": "diff" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/Diff" } } } },
         { "if": { "properties": { "type": { "const": "subagent_start" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/SubagentStart" } } } },
         { "if": { "properties": { "type": { "const": "subagent_stop" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/SubagentStop" } } } },
+        { "if": { "properties": { "type": { "const": "workflow_start" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/WorkflowStart" } } } },
+        { "if": { "properties": { "type": { "const": "workflow_stop" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/WorkflowStop" } } } },
+        { "if": { "properties": { "type": { "const": "workflow_agent_start" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/WorkflowAgentStart" } } } },
+        { "if": { "properties": { "type": { "const": "workflow_agent_stop" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/WorkflowAgentStop" } } } },
         { "if": { "properties": { "type": { "const": "turn_end" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/TurnEnd" } } } },
         { "if": { "properties": { "type": { "const": "error" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/Error" } } } },
         { "if": { "properties": { "type": { "const": "raw" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/Raw" } } } }
@@ -142,6 +151,58 @@
         "summary": { "type": "string", "description": "The start of its hand-back report, truncated to 2 KB." }
       },
       "examples": [{ "agent_id": "a918dd7c41e7ee8b8", "status": "completed", "summary": "The buggy function is sub(): it returns a + b." }]
+    },
+    "WorkflowStart": {
+      "type": "object",
+      "description": "From the main transcript (runner-api 0.1.12): the `Workflow` tool's `tool_result` whose line's `toolUseResult` has `status: async_launched` and `taskType: local_workflow`. Emitted after that `tool_result`. `run_id` is what to tail with `workflow=` (SP10).",
+      "required": ["tool_use_id", "run_id", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "tool_use_id": { "type": "string" },
+        "run_id": { "type": "string", "pattern": "^wf_[A-Za-z0-9_-]{1,64}$", "description": "`toolUseResult.runId`." },
+        "task_id": { "type": "string", "description": "`toolUseResult.taskId`, Claude Code's background task id; absent when the line did not name it." },
+        "name": { "type": "string", "description": "`toolUseResult.workflowName`, or `workflow` when it had none." },
+        "description": { "type": "string", "description": "`toolUseResult.summary`: one line on what the workflow does." }
+      },
+      "examples": [{ "tool_use_id": "toolu_019vWxSTvPp8kbRjoswVjudg", "run_id": "wf_f6861b61-537", "task_id": "wlqyqf6bp", "name": "summarize-sp10-notes", "description": "Read each of the 10 note files in sp10-files and return a one-line summary" }]
+    },
+    "WorkflowStop": {
+      "type": "object",
+      "description": "From the main transcript: the later user line holding a `<task-notification>` whose `<tool-use-id>` is the `Workflow` call's. `status` is the notification's `<status>`; one the runner does not know is `unknown`.",
+      "required": ["tool_use_id", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "tool_use_id": { "type": "string" },
+        "run_id": { "type": "string", "pattern": "^wf_[A-Za-z0-9_-]{1,64}$", "description": "The run, when the notification names it." },
+        "status": { "enum": ["completed", "failed", "stopped", "unknown"] },
+        "summary": { "type": "string", "description": "The notification's `<summary>`, truncated to 2 KB." }
+      },
+      "examples": [{ "tool_use_id": "toolu_019vWxSTvPp8kbRjoswVjudg", "run_id": "wf_f6861b61-537", "status": "completed", "summary": "Dynamic workflow \"Read each of the 10 note files in sp10-files and return a one-line summary\" completed" }]
+    },
+    "WorkflowAgentStart": {
+      "type": "object",
+      "description": "From the run's `journal.jsonl` (`tail?workflow=<run id>`): a `started` line. `agent_id` is what to tail with `workflow=<run id>&subagent=<agent_id>`.",
+      "required": ["run_id", "agent_id", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "run_id": { "type": "string", "pattern": "^wf_[A-Za-z0-9_-]{1,64}$" },
+        "agent_id": { "type": "string", "pattern": "^[0-9a-f]+$" },
+        "label": { "type": "string", "description": "The line's `label`, or `agent` when it had none." },
+        "phase": { "type": "string", "description": "The line's `phase`; absent when it had none." }
+      },
+      "examples": [{ "run_id": "wf_f6861b61-537", "agent_id": "a05c6304d69317a22", "label": "summarize:note8.txt", "phase": "Summarize" }]
+    },
+    "WorkflowAgentStop": {
+      "type": "object",
+      "description": "From the run's `journal.jsonl`: a `result` line for that agent.",
+      "required": ["run_id", "agent_id"],
+      "additionalProperties": false,
+      "properties": {
+        "run_id": { "type": "string", "pattern": "^wf_[A-Za-z0-9_-]{1,64}$" },
+        "agent_id": { "type": "string", "pattern": "^[0-9a-f]+$" },
+        "summary": { "type": "string", "description": "The line's `result`: as is when it is text, else as compact JSON; truncated to 2 KB." }
+      },
+      "examples": [{ "run_id": "wf_f6861b61-537", "agent_id": "a05c6304d69317a22", "summary": "{\"file\":\"note8.txt\",\"summary\":\"Note 8 states that giraffes eat about 38 kg of leaves a day and says the note is about topic 8.\"}" }]
     },
     "TurnEnd": {
       "type": "object",

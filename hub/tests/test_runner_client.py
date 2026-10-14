@@ -484,10 +484,22 @@ def _contract_kind(prop: dict[str, Any]) -> Any:
     return prop['type']
 
 
+# Added by S-02.11 (runner-api 0.1.12, SP10) before the hub reads them: a workflow's events and the
+# `workflow_id` of its streams. The hub story that opens workflow tails removes these entries; the
+# test after this one fails as soon as one is read, so these sets can only shrink.
+PENDING_TRANSCRIPT_TYPES = {
+    'workflow_start', 'workflow_stop', 'workflow_agent_start', 'workflow_agent_stop',
+}  # fmt: skip
+PENDING_TRANSCRIPT_FIELDS = {'workflow_id'}
+
+
 def test_the_hubs_transcript_table_matches_the_contract() -> None:
     defs = SCHEMA['$defs']
-    assert set(TRANSCRIPT_DATA) == set(defs['TranscriptEvent']['properties']['type']['enum'])
-    assert set(defs['TranscriptEvent']['properties']) == TRANSCRIPT_FIELDS
+    contract_types = set(defs['TranscriptEvent']['properties']['type']['enum'])
+    assert set(TRANSCRIPT_DATA) == contract_types - PENDING_TRANSCRIPT_TYPES
+    assert (
+        set(defs['TranscriptEvent']['properties']) - PENDING_TRANSCRIPT_FIELDS == TRANSCRIPT_FIELDS
+    )
     for kind, name in DEF_NAMES.items():
         shape = defs[name]
         assert shape['additionalProperties'] is False
@@ -496,6 +508,16 @@ def test_the_hubs_transcript_table_matches_the_contract() -> None:
             for key, prop in shape['properties'].items()
         }
         assert TRANSCRIPT_DATA[kind] == expected, kind
+
+
+def test_pending_transcript_entries_are_still_pending() -> None:
+    defs = SCHEMA['$defs']
+    assert set(defs['TranscriptEvent']['properties']['type']['enum']) >= PENDING_TRANSCRIPT_TYPES
+    assert set(defs['TranscriptEvent']['properties']) >= PENDING_TRANSCRIPT_FIELDS
+    read = PENDING_TRANSCRIPT_TYPES & set(TRANSCRIPT_DATA)
+    assert not read, f'the hub reads {read} now: remove it from PENDING_TRANSCRIPT_TYPES'
+    read = PENDING_TRANSCRIPT_FIELDS & TRANSCRIPT_FIELDS
+    assert not read, f'the hub reads {read} now: remove it from PENDING_TRANSCRIPT_FIELDS'
 
 
 GOOD_DATA = {

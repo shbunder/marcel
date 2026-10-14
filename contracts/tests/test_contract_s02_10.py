@@ -34,8 +34,8 @@ def read_before_hello() -> list[str]:
 def test_the_versions_were_bumped() -> None:
     assert load_yaml('brain-api.yaml')['info']['version'] == '0.1.4'
     assert load_yaml('session-api.yaml')['info']['version'] == '0.1.7'
-    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.11'
-    assert load_yaml('app-api.yaml')['info']['version'] == '0.7.2'
+    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.12'  # 0.1.12 in S-02.11
+    assert load_yaml('app-api.yaml')['info']['version'] == '0.7.3'  # 0.7.3 in S-02.11
 
 
 # 1. Rollover reads -------------------------------------------------------------------------------

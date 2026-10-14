@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — app API
-  version: 0.7.2
+  version: 0.7.3
   description: |
     The API the iPhone app uses to talk to the hub on the NUC. **Every path, including `/health`,
     `/pair` and `/ws`, sits under the server URL** (`https://marcel-bot.com/api/...`); the tunnel
@@ -2202,7 +2202,9 @@ components:
       type: string
       description: |
         `text`, `tool_call`, `tool_result`, `diff`, `subagent_start`, `subagent_stop`, `error`
-        and `raw` are normalised from the session's transcript; their `data` is the matching
+        and `raw` are normalised from the session's transcript, and so are (0.7.3, SP10) a workflow's
+        `workflow_start` and `workflow_stop` (from the main transcript) and each of its agents'
+        `workflow_agent_start` and `workflow_agent_stop` (from the run's journal); their `data` is the matching
         `$defs` shape of `transcript.schema.json`, unchanged. The hub writes the rest itself, with the `data`
         shapes below: `state` (every transition), `progress` (a worker's report), `artifact`,
         `note` (a steer message or a hand-back note) and `permission` (from the channel's
@@ -2215,6 +2217,10 @@ components:
         - permission
         - subagent_start
         - subagent_stop
+        - workflow_start
+        - workflow_stop
+        - workflow_agent_start
+        - workflow_agent_stop
         - error
         - raw
         - state
@@ -2261,6 +2267,14 @@ components:
           then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/SubagentStart' } } }
         - if: { properties: { type: { const: subagent_stop } } }
           then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/SubagentStop' } } }
+        - if: { properties: { type: { const: workflow_start } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/WorkflowStart' } } }
+        - if: { properties: { type: { const: workflow_stop } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/WorkflowStop' } } }
+        - if: { properties: { type: { const: workflow_agent_start } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/WorkflowAgentStart' } } }
+        - if: { properties: { type: { const: workflow_agent_stop } } }
+          then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/WorkflowAgentStop' } } }
         - if: { properties: { type: { const: error } } }
           then: { properties: { data: { $ref: 'transcript.schema.json#/$defs/Error' } } }
         - if: { properties: { type: { const: raw } } }

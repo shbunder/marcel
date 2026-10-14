@@ -6,9 +6,9 @@
 | [events.schema.json](events.schema.json) | hub → app (WebSocket `/ws`, JSON Schema 2020-12) | S-02.1, S-02.5 |
 | [task-states.md](task-states.md) | the task state machine every lane follows | S-02.1 |
 | [dashboard.schema.json](dashboard.schema.json) | worker or hub → app (the content of a `dashboard` or project `board` artifact) | S-02.1, S-02.5 |
-| [avatar-sheet.schema.json](avatar-sheet.schema.json) | `shared/avatar/zoo` (each agent's look, served by the hub) or `shared/avatar/pixel/build.py` (the bundled giraffe) → AvatarKit (the sprite sheet's loops) | S-02.5; zoo S-19.1 |
-| [runner-api.yaml](runner-api.yaml) | hub → runner (HTTP over a unix socket) | S-02.2; a brain folder per agent (`POST /brains`) S-02.7; the pinned claude version (`claude_version`) S-02.9 |
-| [transcript.schema.json](transcript.schema.json) | runner → hub (one normalised event per transcript line) | S-02.2 |
+| [avatar-sheet.schema.json](avatar-sheet.schema.json) | `shared/avatar/zoo` (each agent's look, served by the hub, and the bundled default giraffe, `make -C ios/AvatarKit sheet`) → AvatarKit (the sprite sheet's loops) | S-02.5; zoo S-19.1 |
+| [runner-api.yaml](runner-api.yaml) | hub → runner (HTTP over a unix socket) | S-02.2; a brain folder per agent (`POST /brains`) S-02.7; the pinned claude version (`claude_version`) S-02.9; workflow tails, the brain's animal, Claude update events S-02.11 |
+| [transcript.schema.json](transcript.schema.json) | runner → hub (one normalised event per transcript line) | S-02.2; workflow events S-02.11 |
 | [channel-protocol.md](channel-protocol.md) + [channel.schema.json](channel.schema.json) | session's channel server ↔ hub (WebSocket, outside `/api`) | S-02.2 |
 | [session-api.yaml](session-api.yaml) | sessions → hub over the tunnel (`/api/session/adopt`, `/api/session/report`); the plugin's session-end hooks on the NUC (`/channel/session-end`, outside `/api`) | S-02.2; session-end S-02.9 |
 | [brain-api.yaml](brain-api.yaml) | the brain's tools server (`plugins/marcel/tools`) and the plugin's hooks → hub (`/brain/*`, NUC only) | S-05.3; `/brain/summary` S-02.9 |

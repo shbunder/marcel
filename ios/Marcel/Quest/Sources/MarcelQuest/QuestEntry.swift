@@ -102,6 +102,16 @@ extension QuestEntry {
                                    subagentType: read.string("subagent_type"))
         case .subagentStop:
             entry = .subagentStop(status: read.string("status") ?? "unknown", summary: read.string("summary"))
+        // A workflow and its agents (app API 0.7.3) read as helper lines until the quest view draws them as steps.
+        case .workflowStart:
+            entry = .subagentStart(description: read.string("description") ?? read.string("name") ?? "workflow",
+                                   subagentType: "workflow")
+        case .workflowStop:
+            entry = .subagentStop(status: read.string("status") ?? "unknown", summary: read.string("summary"))
+        case .workflowAgentStart:
+            entry = .subagentStart(description: read.string("label") ?? "agent", subagentType: read.string("phase"))
+        case .workflowAgentStop:
+            entry = .subagentStop(status: "completed", summary: read.string("summary"))
         case .error:
             entry = read.string("message").map { .error(message: $0, usageLimit: read.bool("usage_limit")) }
         case .raw:

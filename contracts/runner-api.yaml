@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel runner API
-  version: 0.1.11
+  version: 0.1.12
   description: |
     The runner is the only process that runs `claude` (native on the NUC, a systemd user unit). The
     hub (in Docker) talks to it over HTTP on a unix socket: `/run/user/<uid>/marcel/runner.sock` on
@@ -323,8 +323,17 @@ paths:
         session's main transcript; a `subagent_start` event there gives the `agent_id` to tail with
         `subagent=<agent_id>`, whose events carry `subagent_id` and offsets into that file.
 
-        One tail per file: a new tail of the same file (same session, same `subagent` or none) ends
-        the older stream. The newest tail wins, so a hub that reconnects before the runner noticed the
+        A workflow's agents (0.1.12, SP10) live in their own folder and never give a `subagent_start`.
+        A `workflow_start` event in the main transcript gives the `run_id`: `workflow=<run_id>` streams
+        the run's `journal.jsonl` (`<session-id>/subagents/workflows/<run_id>/journal.jsonl`) as
+        `workflow_agent_start` and `workflow_agent_stop` events, and `workflow=<run_id>&subagent=<agent_id>`
+        streams that agent's own `agent-<agent_id>.jsonl` in the same folder. Every event of either
+        stream carries `workflow_id` (and, for an agent's file, `subagent_id`). The file the runner
+        opens must stay inside the session's own folder (no `..`, no symlink that leads out of it),
+        else 400 `bad_request`.
+
+        One tail per file: a new tail of the same file (same session, same `workflow` or none, same
+        `subagent` or none) ends the older stream. The newest tail wins, so a hub that reconnects before the runner noticed the
         old connection drop is never refused.
 
         An `offset` past the end of the file, or a file truncated or replaced while tailed, is streamed
@@ -337,8 +346,12 @@ paths:
       parameters:
         - name: subagent
           in: query
-          description: A subagent's `agent_id`, to tail its own transcript instead of the main one.
+          description: A subagent's `agent_id`, to tail its own transcript instead of the main one. With `workflow`, an agent of that run.
           schema: { type: string, pattern: '^[0-9a-f]+$' }
+        - name: workflow
+          in: query
+          description: A workflow's `run_id` (0.1.12), to tail its `journal.jsonl`, or with `subagent` one of its agents.
+          schema: { type: string, pattern: '^wf_[A-Za-z0-9_-]{1,64}$' }
         - name: offset
           in: query
           schema: { type: integer, minimum: 0, default: 0 }
@@ -355,7 +368,7 @@ paths:
             text/event-stream:
               schema: { type: string }
         '400':
-          description: '`bad_request`: `offset` is not a whole number of bytes, or `subagent` is not an agent id.'
+          description: '`bad_request`: `offset` is not a whole number of bytes, `subagent` is not an agent id, `workflow` is not a run id, or the file it names would be outside the session''s folder.'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -797,22 +810,60 @@ components:
         seq: { type: integer, minimum: 1 }
         type:
           type: string
-          enum: [session.state, session.gone, runner.warning, runner.recovered]
+          enum: [session.state, session.gone, runner.warning, runner.recovered, runner.claude_changed, runner.supervisor_restarted]
           description: |
             `session.state`: a session appeared or changed (any field of `Session`).
             `session.gone`: it left `agents --json --all`. `runner.warning`: something a person
             should hear about (the supervisor went away, a poll failed three times).
             `runner.recovered`: the cause of the last warning is gone (sent once, on the first good
             poll after a warning); the hub clears its warning alert.
+            `runner.claude_changed` (0.1.12): the installed `claude --version` is not the one the
+            runner saw last (it checks on each poll), with `claude_change`; sent once per change.
+            `runner.supervisor_restarted` (0.1.12): Claude's supervisor started again (its pid changed
+            between two polls), with `supervisor_restart`; sent once per restart. Both carry
+            `message`. Neither replaces the `session.gone` of each session the restart ended.
         at: { type: string, format: date-time }
         session: { $ref: '#/components/schemas/Session' }
         previous_state: { $ref: '#/components/schemas/SessionState' }
-        message: { type: string, description: For `runner.warning` and `runner.recovered`, in plain words. }
+        message: { type: string, description: 'For `runner.warning`, `runner.recovered`, `runner.claude_changed` and `runner.supervisor_restarted`, in plain words.' }
+        claude_change:
+          type: object
+          description: For `runner.claude_changed`. The hub tells "updated away from the pin" (`to` is not `expected`) from "back on the pin" (`to` is `expected`).
+          required: [from, to, expected]
+          additionalProperties: false
+          properties:
+            from: { type: string, description: "The version the runner saw before, as `Health.claude_version` words it." }
+            to: { type: string, description: The version installed now. }
+            expected: { type: string, description: The pinned version (`runner/claude-version`, as `Health.claude_version_expected`). }
+        supervisor_restart:
+          type: object
+          description: For `runner.supervisor_restarted`.
+          required: [session_ids]
+          additionalProperties: false
+          properties:
+            cause:
+              type: string
+              description: |
+                The supervisor's own reason, from its `shutting down (cause=…, …)` line in
+                `~/.claude/daemon.log` (e.g. `upgrade`; project/lessons/runner-built-ins.md). Absent
+                when that line could not be read.
+            live_workers:
+              type: integer
+              minimum: 0
+              description: '`live_workers=` from the same line; absent when it could not be read.'
+            session_ids:
+              type: array
+              items: { type: string }
+              description: Full ids of the sessions that were live before the restart and are not after it (empty when none).
       allOf:
         - if: { properties: { type: { enum: [session.state, session.gone] } } }
           then: { required: [session] }
-        - if: { properties: { type: { enum: [runner.warning, runner.recovered] } } }
+        - if: { properties: { type: { enum: [runner.warning, runner.recovered, runner.claude_changed, runner.supervisor_restarted] } } }
           then: { required: [message] }
+        - if: { properties: { type: { const: runner.claude_changed } } }
+          then: { required: [claude_change] }
+        - if: { properties: { type: { const: runner.supervisor_restarted } } }
+          then: { required: [supervisor_restart] }
       example:
         seq: 412
         type: session.state
@@ -859,10 +910,16 @@ components:
               type: string
               enum: [professional, cheerful, curious, cozy, bold, cool, sporty, shy, grumpy]
               description: The look's personality (app-api.yaml `LookPersonality`), for the tone of its answers.
+            animal:
+              type: string
+              enum: [giraffe, crocodile, frog, cat, fox, bear, panda, rabbit, dog, pig, mouse]
+              description: |
+                The look's animal (app-api.yaml `LookAnimal`, 0.1.12), so the brain speaks as what the app
+                draws (`ANIMAL` in `brain/render.py`). Absent: the owner's default, a pink giraffe.
       example:
         agent_slug: pip
         name: Pip
-        persona: { person_name: Emma, personality: cheerful }
+        persona: { person_name: Emma, personality: cheerful, animal: rabbit }
 
     PreparedBrain:
       type: object

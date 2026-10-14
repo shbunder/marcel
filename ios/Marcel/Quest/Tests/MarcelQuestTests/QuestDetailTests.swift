@@ -21,6 +21,8 @@ final class QuestDetailTests: XCTestCase {
         let transcript: [(String, String)] = [
             ("text", "Text"), ("tool_call", "ToolCall"), ("tool_result", "ToolResult"), ("diff", "Diff"),
             ("subagent_start", "SubagentStart"), ("subagent_stop", "SubagentStop"), ("error", "Error"), ("raw", "Raw"),
+            ("workflow_start", "WorkflowStart"), ("workflow_stop", "WorkflowStop"),
+            ("workflow_agent_start", "WorkflowAgentStart"), ("workflow_agent_stop", "WorkflowAgentStop"),
         ]
         var seq = 0
         for (type, def) in transcript {
@@ -142,6 +144,23 @@ final class QuestDetailTests: XCTestCase {
             .line(.other, text: "A step the app can't show (unknown-future-type)"),
             .line(.state, text: "Now: Needs you · Permission request: Bash"),
             .line(.artifact, text: "Made a document: Energy offers compared"),
+        ])
+    }
+
+    func testAWorkflowAndItsAgentsAreHelperLines() {
+        let events = [
+            Fx.event(1, "workflow_start", ["tool_use_id": "t", "run_id": "wf_1", "name": "summarize-notes",
+                                           "description": "Summarise each note"]),
+            Fx.event(2, "workflow_agent_start", ["run_id": "wf_1", "agent_id": "a1", "label": "summarize:note8.txt",
+                                                 "phase": "Summarize"]),
+            Fx.event(3, "workflow_agent_stop", ["run_id": "wf_1", "agent_id": "a1", "summary": "Note 8 is about leaves."]),
+            Fx.event(4, "workflow_stop", ["tool_use_id": "t", "status": "failed"]),
+        ].map(QuestEvent.init)
+        XCTAssertEqual(QuestDetail.rows(events).map(\.kind), [
+            .line(.helper, text: "Helper started: Summarise each note"),
+            .line(.helper, text: "Helper started: summarize:note8.txt"),
+            .line(.helper, text: "Helper finished: Note 8 is about leaves."),
+            .line(.helper, text: "Helper failed"),
         ])
     }
 

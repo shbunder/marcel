@@ -72,7 +72,16 @@ DERIVED = {
 # Contract 0.7.2 (S-02.10, asked for by S-19.3) added `Message.agent_id`: the hub does not yet
 # store which agent wrote a message or send it; the hub story that does removes this entry.
 PENDING: dict[str, set[str]] = {'Message': {'agent_id'}}
-PENDING_ENUM_VALUES: dict[str, set[str]] = {}
+# Contract 0.7.3 (S-02.11, SP10) added a workflow's four task event types; the hub story that
+# relays workflow tails adds them to `models.TaskEventType` and removes this entry.
+PENDING_ENUM_VALUES: dict[str, set[str]] = {
+    'TaskEventType': {
+        'workflow_start',
+        'workflow_stop',
+        'workflow_agent_start',
+        'workflow_agent_stop',
+    },
+}
 MODELS = {
     'Agent': models.Agent,
     'Project': models.Project,
@@ -81,6 +90,7 @@ MODELS = {
     'Artifact': models.Artifact,
     'MessageKind': models.MessageKind,
     'ArtifactKind': models.ArtifactKind,
+    'TaskEventType': models.TaskEventType,
 }
 
 

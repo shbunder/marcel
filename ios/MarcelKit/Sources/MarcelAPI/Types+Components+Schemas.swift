@@ -2453,7 +2453,9 @@ extension Components {
             }
         }
         /// `text`, `tool_call`, `tool_result`, `diff`, `subagent_start`, `subagent_stop`, `error`
-        /// and `raw` are normalised from the session's transcript; their `data` is the matching
+        /// and `raw` are normalised from the session's transcript, and so are (0.7.3, SP10) a workflow's
+        /// `workflow_start` and `workflow_stop` (from the main transcript) and each of its agents'
+        /// `workflow_agent_start` and `workflow_agent_stop` (from the run's journal); their `data` is the matching
         /// `$defs` shape of `transcript.schema.json`, unchanged. The hub writes the rest itself, with the `data`
         /// shapes below: `state` (every transition), `progress` (a worker's report), `artifact`,
         /// `note` (a steer message or a hand-back note) and `permission` (from the channel's
@@ -2469,6 +2471,10 @@ extension Components {
             case permission = "permission"
             case subagentStart = "subagent_start"
             case subagentStop = "subagent_stop"
+            case workflowStart = "workflow_start"
+            case workflowStop = "workflow_stop"
+            case workflowAgentStart = "workflow_agent_start"
+            case workflowAgentStop = "workflow_agent_stop"
             case error = "error"
             case raw = "raw"
             case state = "state"
