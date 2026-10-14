@@ -26,16 +26,33 @@ A percentage above 100 is reported as 100.
 | Situation | Answer |
 |---|---|
 | A reading from the last 15 minutes, and the latest attempt worked | 200, `stale: false` |
-| The latest attempt failed (claude missing, an error, a timeout, or wording it cannot read) | 200 with the last values, `stale: true` |
+| The latest attempt failed (claude missing, an error, a timeout, Claude Code logged out, or wording it cannot read) | 200 with the last values, `stale: true` |
 | The last good reading is older than 15 minutes | 200 with the last values, `stale: true` |
 | No reading has worked since the runner started | 503, `code: no_reading`; `detail` says why the last attempt failed |
 
 The fields are in `contracts/runner-api.yaml` (`UsageReading`). `source` is always `cli_usage`
 today. The status-line source (`statusline`) is not built yet.
 
+Claude Code 2.1.296 and 2.1.299 print the same two lines, plus a per-model weekly line and a "what's contributing"
+section, which the runner ignores.
+
+## When Claude Code is logged out
+
+Logged out, or when its login has expired, Claude Code is not on the subscription, and `/usage` prints the
+pay-as-you-go cost view (`Total cost: $0.0000 …`) instead. The runner logs:
+
+```
+marcel-runner: could not read usage. Claude Code is not using the Claude subscription: /usage shows the
+pay-as-you-go cost view, as it does when Claude Code is logged out or its login has expired. Log in again on
+the NUC: run claude, then /login.
+```
+
+Check with `claude auth status`. Every new session needs the login too, so log in again before anything else.
+
 ## When Claude Code changes the wording
 
-The runner does not crash. It keeps the last values, marks them stale, and logs one line, for example:
+Output that is neither format: the runner does not crash. It keeps the last values, marks them stale, and logs
+one line, for example:
 
 ```
 marcel-runner: could not read usage. Claude Code's /usage output changed: no "Current session"
