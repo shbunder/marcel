@@ -5,6 +5,8 @@ every start (spawn, resume, fork, cloud) answers 422 `claude_version` and starts
 Through the socket, against the fake claude (`MARCEL_FAKE_CLAUDE_VERSION` makes it report another
 version)."""
 
+import shutil
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -92,8 +94,17 @@ def test_a_cloud_start_is_refused_and_starts_nothing(
     assert up.calls_with('--cloud') == []
 
 
+@pytest.fixture
+def sock() -> Iterator[Path]:
+    """A socket path short enough for macOS (an AF_UNIX path is at most 104 bytes there, and
+    pytest's tmp_path alone can be longer)."""
+    folder = Path(tempfile.mkdtemp(dir='/tmp', prefix='mcv-'))
+    yield folder / 'r.sock'
+    shutil.rmtree(folder, ignore_errors=True)
+
+
 def test_the_runner_starts_on_another_version_alone(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, sock: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     claude = write_script(
         tmp_path / 'claude',
@@ -101,7 +112,7 @@ def test_the_runner_starts_on_another_version_alone(
         'if [ "$1" = "daemon" ]; then echo "pid:     1"; exit 0; fi\nexit 2\n',
     )
     srv = serve(
-        tmp_path / 'r.sock',
+        sock,
         Settings(claude=claude, cap=1),
         cgroup_of=lambda pid: 'a' if pid == 1 else 'b',
     )
@@ -110,7 +121,7 @@ def test_the_runner_starts_on_another_version_alone(
 
 
 def test_with_the_version_and_the_supervisor_both_wrong_start_up_names_both(
-    tmp_path: Path,
+    tmp_path: Path, sock: Path
 ) -> None:
     claude = write_script(
         tmp_path / 'claude',
@@ -118,7 +129,7 @@ def test_with_the_version_and_the_supervisor_both_wrong_start_up_names_both(
         'if [ "$1" = "daemon" ]; then echo "not running"; exit 1; fi\nexit 2\n',
     )
     with pytest.raises(StartupError) as e:
-        serve(tmp_path / 'r.sock', Settings(claude=claude, cap=1), cgroup_of=lambda pid: 'x')
+        serve(sock, Settings(claude=claude, cap=1), cgroup_of=lambda pid: 'x')
     assert f'Claude Code {OTHER} is installed' in str(e.value)
     assert 'supervisor' in str(e.value).lower() or 'marcel-claude-daemon' in str(e.value)
 

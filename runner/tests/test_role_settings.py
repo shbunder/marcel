@@ -18,6 +18,8 @@ RESTARTS = [
     'Bash(systemctl restart:*)',
     'Bash(systemctl --user restart:*)',
 ]
+# The brain alone may not delegate (ADR-009, S-21.1): it routes, quests do the work. Workers may.
+BRAIN_ONLY_DENIES = {'Agent', 'Task', 'Workflow'}
 BRAIN_SETTINGS = Path(__file__).resolve().parents[2] / 'brain' / '.claude' / 'settings.json'
 
 
@@ -38,9 +40,18 @@ def test_worker_settings_hold_only_the_allowed_keys_and_values() -> None:
 
 
 def test_a_worker_cannot_restart_marcel_the_same_way_the_brain_cannot() -> None:
-    """Delete the deny list and this goes red. Kept equal to the brain's own list."""
+    """Delete the deny list and this goes red. The restart denies are the brain's own, in the
+    same order; the brain's delegation denies are its own alone."""
     assert worker()['permissions']['deny'] == RESTARTS
-    assert json.loads(BRAIN_SETTINGS.read_text())['permissions']['deny'] == RESTARTS
+    brain = json.loads(BRAIN_SETTINGS.read_text())['permissions']['deny']
+    assert [rule for rule in brain if rule not in BRAIN_ONLY_DENIES] == RESTARTS
+    assert set(brain) - set(RESTARTS) == BRAIN_ONLY_DENIES
+
+
+def test_a_worker_may_delegate() -> None:
+    # ADR-009: quests use subagents and workflows; only the brain is denied them.
+    assert not set(worker()['permissions']['deny']) & BRAIN_ONLY_DENIES
+    assert 'Workflow' in worker()['permissions']['allow']
 
 
 def test_a_worker_refuses_cross_session_messages() -> None:
