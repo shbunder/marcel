@@ -6,6 +6,8 @@ import UIKit
 struct QRScannerView: UIViewControllerRepresentable {
     let onCode: (String) -> Void
 
+    init(onCode: @escaping (String) -> Void) { self.onCode = onCode }
+
     func makeUIViewController(context: Context) -> ScannerController {
         let controller = ScannerController()
         controller.onCode = onCode
@@ -26,7 +28,7 @@ struct QRScannerView: UIViewControllerRepresentable {
             guard let camera = AVCaptureDevice.default(for: .video),
                 let input = try? AVCaptureDeviceInput(device: camera), session.canAddInput(input)
             else {
-                showNote("No camera here. Paste the pairing link below.")
+                showNote("No camera here. Paste the link instead.")
                 return
             }
             session.addInput(input)

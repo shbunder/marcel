@@ -50,9 +50,12 @@ class People:
         self.codes: dict[str, str | None] = {}  # pairing code -> user id; None once used
         emma = contract.example('User')
         self.users[emma['id']] = emma
-        # Emma's helper as the `agent.updated` example shows it, after "Meet your helper".
+        # Emma's helper as the `agent.updated` example shows it, but before "Meet your helper":
+        # Emma was just added and has not opened the app, so her first sign-in shows onboarding.
         example = contract.load_events()['$defs']['AgentUpdated']['examples'][0]
-        self._add_agent(copy.deepcopy(example['data']['agent']), emma['created_at'])
+        pip = copy.deepcopy(example['data']['agent'])
+        pip.pop('onboarded_at', None)
+        self._add_agent(pip, emma['created_at'])
 
     def _add_agent(self, agent: dict[str, Any], since: str) -> None:
         self.agents[agent['id']] = agent
@@ -172,6 +175,22 @@ class People:
         }
         self.users[user['id']] = user
         return copy.deepcopy(user)
+
+    def revoke_device(self, caller_token: str | None, device_id: str) -> bool:
+        """`DELETE /devices/{id}` of one of the caller's own phones ("Sign out of this phone"): its
+        token stops working at once. False when the caller has no phone with that id."""
+        person = self.caller(caller_token) if caller_token else None
+        if person is None:
+            return False
+        mine = [
+            t
+            for t, (owner, device) in self.tokens.items()
+            if owner == person['id'] and device == device_id
+        ]
+        for token in mine:
+            del self.tokens[token]
+            self.revoked.add(token)
+        return bool(mine)
 
     def remove_user(self, user_id: str) -> None:
         """Their phones are signed out at once and their helper goes."""

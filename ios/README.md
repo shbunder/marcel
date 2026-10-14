@@ -5,7 +5,7 @@ Swift 6, SwiftUI, iOS 18+. Built on the Mac only (it needs Xcode), never in a cl
 ```
 ios/
   Marcel.xcodeproj      the app project (scheme `Marcel`); its sources are the Marcel/ folder
-  Marcel/               the app: App/ (entry, root view with the tabs), Pairing/ (QR scan + paste), Chat/ (the
+  Marcel/               the app: App/ (entry, root view: welcome, onboarding or the tabs, and the lock), Chat/ (the
                         Chat tab, its own package: see Marcel/Chat/README.md), Quests/ (the Quests tab, its own
                         package: see Marcel/Quests/README.md), Map/ (the Map tab and project rooms, its own
                         package: see Marcel/Map/README.md), Items/ (the Items tab and the artifact viewer, its own
@@ -14,7 +14,9 @@ ios/
                         status screen, and where marcel:// links and pushes lead, its own package: see
                         Marcel/Settings/README.md), Notebook/ (Marcel's notebook: memory notes and rollovers,
                         its own package: see Marcel/Notebook/README.md), Look/ (the look picker, used by
-                        onboarding and Settings, its own package: see Marcel/Look/README.md)
+                        onboarding and Settings, its own package: see Marcel/Look/README.md), Welcome/ (getting
+                        in: welcome and pairing, "Meet your helper", the Face ID lock, sign out; its own package:
+                        see Marcel/Welcome/README.md)
   Config/               the app's Info.plist additions (local-network HTTP for the mock hub)
   MarcelKit/            Swift package: API client, pairing, Keychain, WebSocket stream, SwiftData cache
   PixelKit/             Swift package: the pixel-classic design system (tokens, fonts, components; see its README)
@@ -51,6 +53,8 @@ make -C ios notebook-test   # Marcel's notebook: sections, edit/save/conflict, d
 make -C ios notebook-record # re-record the notebook's snapshots after a deliberate change
 make -C ios look-test       # the look picker: pick from my name, choose and save, previews, snapshots
 make -C ios look-record     # re-record the look picker's snapshots after a deliberate change
+make -C ios welcome-test    # getting in: which screen, onboarding, the lock (fake Face ID and clock), sign out, snapshots
+make -C ios welcome-record  # re-record the welcome screens' snapshots after a deliberate change
 make -C ios integration     # one test against the mock hub; start it first with `make mock-hub`
 make -C ios generate        # regenerate the API client after contracts/app-api.yaml changes
 SIM=<udid> make -C ios test # pick the simulator yourself (default: an iPhone on the newest iOS runtime)
@@ -83,7 +87,7 @@ though the iOS 18 and 26.x simulators work. `xcodebuild test` and `-destination`
 
 1. **App:** `xcodebuild -target Marcel -sdk iphonesimulator` with `SWIFT_ENABLE_EXPLICIT_MODULES=NO`
    (target builds otherwise fail to order the package modules: "unable to resolve module dependency").
-2. **Tests:** SwiftPM builds `MarcelKitTests`, `AvatarKitTests`, `PixelKitTests`, `MarcelChatTests`, `MarcelQuestsTests`, `MarcelMapTests`, `MarcelItemsTests`, `MarcelQuestTests`, `MarcelSettingsTests`, `MarcelNotebookTests` and `MarcelLookTests` for the simulator (`--triple arm64-apple-ios18.0-simulator`).
+2. **Tests:** SwiftPM builds `MarcelKitTests`, `AvatarKitTests`, `PixelKitTests`, `MarcelChatTests`, `MarcelQuestsTests`, `MarcelMapTests`, `MarcelItemsTests`, `MarcelQuestTests`, `MarcelSettingsTests`, `MarcelNotebookTests`, `MarcelLookTests` and `MarcelWelcomeTests` for the simulator (`--triple arm64-apple-ios18.0-simulator`).
 3. **Run:** `simctl spawn` runs the bundle in a booted simulator through `Tools/SimTestRunner`. Apple's own
    `xctest` agent has no Keychain entitlement (every Keychain call fails with -34018), and the simulator
    refuses one added to a code signature, so the runner carries it the way simulator apps do: in a

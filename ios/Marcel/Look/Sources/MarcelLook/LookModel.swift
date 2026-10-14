@@ -6,9 +6,9 @@ import Observation
 @MainActor
 @Observable
 public final class LookModel {
-    /// The helper whose look this is, and its name (for "Pick from my name").
+    /// The helper whose look this is, and its name (for "Pick from my name"; onboarding renames it as you type).
     public let agentId: String
-    public let name: String
+    public var name: String
     /// What the hub has now; nil when the helper has no look yet (a new helper, onboarding).
     public private(set) var saved: KnownLook?
     /// The look being chosen.

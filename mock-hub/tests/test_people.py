@@ -162,6 +162,8 @@ def test_the_owner_changes_marcels_look(client: TestClient):
 
 def test_onboarding_is_set_once(client: TestClient):
     emma = as_member(pair_emma(client))
+    before = client.get('/api/me', headers=emma).json()['agents'][0]
+    assert 'onboarded_at' not in before, 'Emma has not met her helper yet'
     first = client.patch(f'/api/agents/{PIP}', json={'onboarded': True}, headers=emma).json()
     second = client.patch(f'/api/agents/{PIP}', json={'onboarded': True}, headers=emma).json()
     assert first['onboarded_at'] == second['onboarded_at']
@@ -364,3 +366,19 @@ def test_a_self_change_card_is_answered_by_the_owner_only(client: TestClient):
     assert hub.approvals['apr_self']['state'] == 'open'
     resp = client.post('/api/approvals/apr_self', json={'decision': 'approve'})
     assert valid(resp, '/approvals/{approval_id}', 'post')['state'] == 'approved'
+
+
+def test_signing_a_phone_out_forgets_its_token(client: TestClient):
+    """S-17.5's "Sign out of this phone": `DELETE /devices/{own id}` and the token is refused."""
+    token = pair_emma(client)
+    emma = as_member(token)
+    device = client.get('/api/me', headers=emma).json()['device_id']
+    other = as_member(pair_emma(client))
+    other_device = client.get('/api/me', headers=other).json()['device_id']
+    assert client.delete(f'/api/devices/{device}', headers=emma).status_code == 204
+    assert client.get('/api/me', headers=emma).status_code == 401
+    assert client.get('/api/me', headers=other).status_code == 200, "Emma's other phone stays"
+    client.delete(f'/api/devices/{other_device}', headers=AUTH)
+    assert client.get('/api/me', headers=other).status_code == 200, (
+        "the owner's phone signs out only itself"
+    )

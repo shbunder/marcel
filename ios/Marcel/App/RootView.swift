@@ -1,35 +1,78 @@
 import MarcelChat
 import MarcelItems
 import MarcelKit
+import MarcelLook
 import MarcelMap
 import MarcelNotebook
 import MarcelQuest
 import MarcelQuests
 import MarcelSettings
+import MarcelWelcome
 import PixelKit
 import SwiftUI
 import UIKit
 import UserNotifications
 
-/// Pairing until the phone has a token; then the four tabs.
+/// The welcome screen until the phone is paired, "Meet your helper" until the helper is onboarded, then the four
+/// tabs (`AppFlow`, S-17.5). While paired, the Face ID lock covers everything (`AppLock`).
 struct RootView: View {
     let connection: HubConnection
     let router: LinkRouter
+    @State private var flow: AppFlow
+    @State private var lock = AppLock()
+
+    init(connection: HubConnection, router: LinkRouter) {
+        self.connection = connection
+        self.router = router
+        _flow = State(initialValue: AppFlow(
+            connection: connection,
+            makeService: { hub in
+                LiveWelcomeService(client: HubClient.make(serverURL: hub.serverURL,
+                                                          tokenStore: connection.tokenStore))
+            },
+            makeLookService: { hub in
+                LiveLookService(client: HubClient.make(serverURL: hub.serverURL, tokenStore: connection.tokenStore))
+            }))
+    }
 
     var body: some View {
-        switch connection.phase {
-        case .unpaired:
-            PairingView(connection: connection)
-                // A link that could not be opened (a pairing link) or a note from unpairing, said here too.
-                .overlay(alignment: .top) {
-                    if let notice = router.notice {
-                        LinkNoticeView(text: notice) { router.notice = nil }
-                    }
+        screen
+            // Face ID in a window above everything, Settings and other sheets included.
+            .appLock(lock, paired: connection.phase != .unpaired)
+            .task(id: connection.phase) { await flow.update() }
+            .onChange(of: connection.phase) { old, new in
+                if old == .unpaired, new != .unpaired { lock.signedIn() }
+                // However the phone was signed out (Settings, the hub refusing it): the chat forgets its ids too.
+                if new == .unpaired {
+                    UserDefaults.standard.removeObject(forKey: MainTabs.conversationKey)
+                    UserDefaults.standard.removeObject(forKey: MainTabs.agentKey)
                 }
-                // Links wait again until the phone is paired.
-                .onAppear { router.detach() }
-        case .paired(let hub):
+            }
+    }
+
+    @ViewBuilder private var screen: some View {
+        switch (flow.screen, connection.phase) {
+        case (.main, .paired(let hub)):
             MainTabs(connection: connection, hub: hub, router: router)
+        case (.onboarding, .paired):
+            if let onboarding = flow.onboarding {
+                OnboardingView(model: onboarding) { flow.finishedOnboarding() }
+            }
+        case (.checking, .paired):
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        default:
+            WelcomeView { text in
+                try await connection.pair(scanned: text, deviceName: UIDevice.current.name)
+            }
+            // A link that could not be opened (a pairing link) or a note from signing out, said here too.
+            .overlay(alignment: .top) {
+                if let notice = router.notice {
+                    LinkNoticeView(text: notice) { router.notice = nil }
+                }
+            }
+            // Links wait again until the phone is paired.
+            .onAppear { router.detach() }
         }
     }
 }
@@ -60,8 +103,8 @@ struct MainTabs: View {
     @State private var mapOpening: String?
     @Environment(\.colorScheme) private var scheme
 
-    private static let conversationKey = "chat.mainConversationId"
-    private static let agentKey = "chat.agentId"
+    static let conversationKey = "chat.mainConversationId"
+    static let agentKey = "chat.agentId"
 
     init(connection: HubConnection, hub: PairedHub, router: LinkRouter) {
         self.connection = connection
@@ -188,6 +231,7 @@ struct MainTabs: View {
         over = nil
         router.notice = note
         UserDefaults.standard.removeObject(forKey: Self.conversationKey)
+        UserDefaults.standard.removeObject(forKey: Self.agentKey)
         connection.unpair()
     }
 

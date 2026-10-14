@@ -26,6 +26,7 @@ QUEST_TESTS := $(BUILD)/quest-sim/$(ARCH)-apple-ios-simulator/debug/MarcelQuestP
 SETTINGS_TESTS := $(BUILD)/settings-sim/$(ARCH)-apple-ios-simulator/debug/MarcelSettingsPackageTests.xctest
 NOTEBOOK_TESTS := $(BUILD)/notebook-sim/$(ARCH)-apple-ios-simulator/debug/MarcelNotebookPackageTests.xctest
 LOOK_TESTS := $(BUILD)/look-sim/$(ARCH)-apple-ios-simulator/debug/MarcelLookPackageTests.xctest
+WELCOME_TESTS := $(BUILD)/welcome-sim/$(ARCH)-apple-ios-simulator/debug/MarcelWelcomePackageTests.xctest
 RUNNER  := $(BUILD)/runner/SimTestRunner
 SIM     ?= $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun simctl list devices available -j | python3 scripts/pick-simulator.py $(SDK_VER))
 MOCK_HUB ?= http://127.0.0.1:7499/api
@@ -39,9 +40,10 @@ PAIR_LINK := marcel://pair?hub=http%3A%2F%2F127.0.0.1%3A7499%2Fapi&code=K7Q2M9
   chat-test chat-bundle chat-record chat-integration quests-test quests-bundle quests-record quests-integration \
   map-test map-bundle map-record map-integration items-test items-bundle items-record items-integration quest-test \
   quest-bundle quest-record settings-test settings-bundle settings-record notebook-test notebook-bundle notebook-record \
-  look-test look-bundle look-record generate boot run run-mock stop clean
+  look-test look-bundle look-record welcome-test welcome-bundle welcome-record welcome-integration generate boot run run-mock stop clean
 
-check: app test pixelkit-test chat-test quests-test map-test items-test quest-test settings-test notebook-test look-test
+check: app test pixelkit-test chat-test quests-test map-test items-test quest-test settings-test notebook-test look-test \
+  welcome-test
 
 # The app and its packages, for the simulator.
 app:
@@ -268,6 +270,27 @@ look-test: look-bundle $(RUNNER) boot
 look-record: look-bundle $(RUNNER) boot
 	-SIMCTL_CHILD_MARCELLOOK_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(LOOK_TESTS) LookTests
 	xcrun simctl spawn $(SIM) $(RUNNER) $(LOOK_TESTS)
+
+# Getting in (Marcel/Welcome, the MarcelWelcome package): the welcome screen, onboarding, the Face ID lock with a
+# fake authenticator and clock, signing out, and snapshots compared with
+# Marcel/Welcome/Tests/MarcelWelcomeTests/__Snapshots__.
+welcome-bundle:
+	swift build --quiet --package-path Marcel/Welcome --scratch-path $(BUILD)/welcome-sim --build-tests \
+	  --triple $(TRIPLE) --sdk $(SDK) -Xswiftc -F -Xswiftc $(PLAT)/Library/Frameworks \
+	  -Xlinker -F -Xlinker $(PLAT)/Library/Frameworks
+
+welcome-test: welcome-bundle $(RUNNER) boot
+	xcrun simctl spawn $(SIM) $(RUNNER) $(WELCOME_TESTS)
+
+# Re-record the welcome screens' snapshots after a deliberate change (the recording run fails by design), then check.
+welcome-record: welcome-bundle $(RUNNER) boot
+	-SIMCTL_CHILD_MARCELWELCOME_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(WELCOME_TESTS) WelcomeSnapshotTests
+	xcrun simctl spawn $(SIM) $(RUNNER) $(WELCOME_TESTS)
+
+# Pair as Emma on the mock hub → onboarding → chat; sign out → welcome. Start a fresh hub first:
+# `MOCK_DELAY=0 MOCK_HUB_PORT=7488 make mock-hub`, then `MOCK_HUB=http://127.0.0.1:7488/api make -C ios welcome-integration`.
+welcome-integration: welcome-bundle $(RUNNER) boot
+	SIMCTL_CHILD_MARCEL_MOCK_HUB=$(MOCK_HUB) xcrun simctl spawn $(SIM) $(RUNNER) $(WELCOME_TESTS) WelcomeMockHubTests
 
 # Regenerate MarcelKit/Sources/MarcelAPI from contracts/app-api.yaml after the contract changes.
 generate:

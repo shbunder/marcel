@@ -129,6 +129,13 @@ async def get_agent_avatar(hub: Hub, request: Request) -> Response:
     return JSONResponse(meta, headers=headers)
 
 
+async def revoke_device(hub: Hub, request: Request) -> Response:
+    """A paired phone's own device is forgotten for real ("Sign out of this phone"); any other id
+    answers 204 as before."""
+    hub.people.revoke_device(request.state.token, request.path_params['device_id'])
+    return Response(status_code=204)
+
+
 async def get_avatar_preview(hub: Hub, request: Request) -> Response:
     """One 32 x 32 PNG of any look, for the look picker. The contract's lists only: anything else
     is a 400."""
@@ -393,6 +400,7 @@ HANDLERS: dict[str, Handler] = {
     'updateAgent': update_agent,
     'getAgentAvatar': get_agent_avatar,
     'getAvatarPreview': get_avatar_preview,
+    'revokeDevice': revoke_device,
     'listUsers': list_users,
     'addUser': add_user,
     'removeUser': remove_user,

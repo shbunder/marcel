@@ -92,7 +92,7 @@ examples.
   their helper; the owner cannot be removed (409 `cannot_remove_owner`).
 - **A look change** (`PATCH /api/agents/{id}` with `look`, `name` or `onboarded`) is remembered and sends
   `agent.updated`, with `avatar_etag` `"lk-<animal>-<color>-<personality>"`. `onboarded_at` is set
-  once.
+  once. Emma's helper Pip starts without it: her first sign-in shows "Meet your helper" (S-17.5).
 - **Avatars are drawn by the Pixel Zoo** (`shared/avatar/zoo`), as the real hub draws them. `GET
   /api/agents/{id}/avatar` answers the look's sheet: its JSON, or its PNG for `Accept: image/png`, both
   with the ETag; `If-None-Match` with it answers 304. An agent without a look gets the rose giraffe's

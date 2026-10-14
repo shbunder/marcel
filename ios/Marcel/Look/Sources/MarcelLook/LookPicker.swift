@@ -8,13 +8,16 @@ import SwiftUI
 /// and Save. Onboarding and Settings show it; `saved` is called with the hub's answer.
 public struct LookPicker: View {
     @Bindable var model: LookModel
+    var showsSave: Bool
     var saved: (Agent) -> Void
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dynamicTypeSize) private var dynamicType
 
-    public init(model: LookModel, saved: @escaping (Agent) -> Void = { _ in }) {
+    /// - Parameter showsSave: false where the screen around it saves the look itself (onboarding's "Start chatting").
+    public init(model: LookModel, showsSave: Bool = true, saved: @escaping (Agent) -> Void = { _ in }) {
         self.model = model
+        self.showsSave = showsSave
         self.saved = saved
     }
 
@@ -53,8 +56,10 @@ public struct LookPicker: View {
                     .font(.subheadline)
                     .foregroundStyle(theme.accent.color)
             }
-            LookButton(title: model.saving ? "Saving…" : "Save", primary: true, enabled: model.canSave) {
-                Task { if let agent = await model.save() { saved(agent) } }
+            if showsSave {
+                LookButton(title: model.saving ? "Saving…" : "Save", primary: true, enabled: model.canSave) {
+                    Task { if let agent = await model.save() { saved(agent) } }
+                }
             }
         }
     }
