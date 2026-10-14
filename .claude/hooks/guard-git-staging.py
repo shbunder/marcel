@@ -21,10 +21,31 @@ BROAD_ADD = {'.', './', ':/', '-A', '--all', '-u', '--update', '--no-ignore-remo
 GIT_VALUE_OPTIONS = {'-C', '-c', '--git-dir', '--work-tree', '--namespace'}
 
 
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$", re.DOTALL | re.MULTILINE)
+
+
+def split_unquoted(command: str) -> list[str]:
+    """Cut at ;, &, | and newlines that are outside quotes, so a commit message is never cut."""
+    parts, current, quote = [], [], ''
+    for i, ch in enumerate(command):
+        if quote:
+            if ch == quote and (quote == "'" or command[i - 1] != '\\'):
+                quote = ''
+        elif ch in '\'"':
+            quote = ch
+        elif ch in ';&|\n':
+            parts.append(''.join(current))
+            current = []
+            continue
+        current.append(ch)
+    parts.append(''.join(current))
+    return parts
+
+
 def segments(command: str) -> list[list[str]]:
-    """The command split into simple commands at ;, &&, ||, | and newlines, each as words."""
+    """The simple commands in a shell line, each as words. Heredoc bodies are text, not commands."""
     words: list[list[str]] = []
-    for part in re.split(r'&&|\|\||[;|\n]', command):
+    for part in split_unquoted(HEREDOC.sub(' ', command)):
         try:
             tokens = shlex.split(part)
         except ValueError:
@@ -49,7 +70,12 @@ def git_subcommand(tokens: list[str]) -> tuple[str, list[str]] | None:
 def broad(sub: str, args: list[str]) -> str | None:
     """The offending argument, or None when the call names its files."""
     if sub == 'add':
-        return next((a for a in args if a in BROAD_ADD), None)
+        for a in args:
+            if a == '--':
+                break  # paths follow; `git add -- .` still names a folder, see below
+            if a in BROAD_ADD or (re.fullmatch(r'-[a-zA-Z]+', a) and set(a[1:]) & {'A', 'u'}):
+                return a
+        return next((a for a in args if a in {'.', './', ':/'}), None)
     if sub == 'commit':
         rest = iter(args)
         for a in rest:
@@ -68,7 +94,7 @@ def main() -> int:
         data = json.load(sys.stdin)
     except (json.JSONDecodeError, OSError, ValueError):
         return 0
-    if data.get('tool_name') != 'Bash':
+    if not isinstance(data, dict) or data.get('tool_name') != 'Bash':
         return 0
     command = (data.get('tool_input') or {}).get('command') or ''
 

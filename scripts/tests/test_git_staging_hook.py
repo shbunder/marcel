@@ -50,6 +50,10 @@ def run(hook: ModuleType, monkeypatch: pytest.MonkeyPatch, command: str, tool: s
         'git commit --all -m "x"',
         'git commit -m "x" -a',
         '/usr/bin/git add .',
+        'git add -Av',
+        'git add -uv',
+        'git add -- .',
+        'git status\ngit add -A',
     ],
 )
 def test_blocks_broad_staging(hook: ModuleType, monkeypatch: pytest.MonkeyPatch, command: str):
@@ -68,6 +72,11 @@ def test_blocks_broad_staging(hook: ModuleType, monkeypatch: pytest.MonkeyPatch,
         'git commit --amend --no-edit',
         'git status --short',
         'echo git add .',
+        'git commit -m "fix -a flag; git add ."',
+        "git commit -F - <<'EOF'\nhooks: block git add . / -A\n\ngit add . is bad\nEOF",
+        'git commit -m "$(cat <<EOF\nmsg | git add -A\nEOF\n)"',
+        'git add -- hub/app.py',
+        'git stash -u',
         'git',
     ],
 )
@@ -81,6 +90,13 @@ def test_ignores_other_tools(hook: ModuleType, monkeypatch: pytest.MonkeyPatch):
 
 def test_unbalanced_quotes_still_checked(hook: ModuleType, monkeypatch: pytest.MonkeyPatch):
     assert run(hook, monkeypatch, 'git add -A; echo "oops') == 2
+
+
+def test_fails_open_on_json_that_is_not_an_object(
+    hook: ModuleType, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr('sys.stdin', io.StringIO('[]'))
+    assert hook.main() == 0
 
 
 def test_fails_open_on_malformed_input(hook: ModuleType, monkeypatch: pytest.MonkeyPatch):
