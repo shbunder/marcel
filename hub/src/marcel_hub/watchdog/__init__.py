@@ -18,7 +18,7 @@ import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, col, select
@@ -35,18 +35,21 @@ TICK_S = 15.0
 RESULT = 'redeploy.result'
 OUTCOMES = ('deployed', 'version_drift', 'rolled_back', 'rollback_failed', 'refused')
 
-# (title, text, push?) for a result file's object, written for a phone; None when the file is not
+# How a result is pushed: not at all (the message in the app is enough), as a note, or as urgent
+# (Marcel may be down: the same class as a runner that is down).
+Push = Literal['silent', 'note', 'urgent']
+# (title, text, push) for a result file's object, written for a phone; None when the file is not
 # valid JSON.
-Describe = Callable[[dict[str, Any] | None], tuple[str, str, bool]]
+Describe = Callable[[dict[str, Any] | None], tuple[str, str, Push]]
 
 
-def describe(result: dict[str, Any] | None) -> tuple[str, str, bool]:
+def describe(result: dict[str, Any] | None) -> tuple[str, str, Push]:
     """How a redeploy went (`deploy/redeploy.sh`)."""
     if not isinstance(result, dict) or result.get('outcome') not in OUTCOMES:
         return (
             'An update may not have gone in',
             'A redeploy ended, but its result could not be read.',
-            True,
+            'note',
         )
     outcome = result.get('outcome')
     sha = str(result.get('sha') or '')[:7]
@@ -54,20 +57,20 @@ def describe(result: dict[str, Any] | None) -> tuple[str, str, bool]:
     change = f'*{subject}* ({sha})' if subject and sha else (sha or 'the change')
     reason = str(result.get('reason') or '').strip()
     if outcome == 'deployed':
-        return 'Marcel updated', f'Marcel is updated with {change} and everything is up.', False
+        return 'Marcel updated', f'Marcel is updated with {change} and everything is up.', 'silent'
     if outcome == 'version_drift':
-        return 'Marcel updated, one step left', f'Marcel is updated with {change}. {reason}', True
+        return 'Marcel updated, one step left', f'Marcel is updated with {change}. {reason}', 'note'
     if outcome == 'rolled_back':
         revert = str(result.get('revert') or '')[:7]
         return (
             'An update was rolled back',
             f'{change} did not come up healthy, so Marcel reverted it'
             f'{f" ({revert})" if revert else ""}. {reason}',
-            True,
+            'note',
         )
     if outcome == 'rollback_failed':
-        return 'Marcel may be down', f'{change}: {reason}', True
-    return 'An update was not deployed', reason or f'{change} was not deployed.', True
+        return 'Marcel may be down', f'{change}: {reason}', 'urgent'
+    return 'An update was not deployed', reason or f'{change} was not deployed.', 'note'
 
 
 # Every file the watch tells, by its name in the state folder.
@@ -124,7 +127,7 @@ class ResultWatch:
         log.info('Told %s: %s', name, title)
         return True
 
-    def _say(self, title: str, text: str, push: bool, key: str) -> None:
+    def _say(self, title: str, text: str, push: Push, key: str) -> None:
         """One system message in the owner's first agent's main conversation, and maybe one push."""
         with Session(self.engine) as s:
             agent = s.exec(
@@ -140,11 +143,13 @@ class ResultWatch:
                 kind=MessageKind.text, body={'text': text},
             )  # fmt: skip
             message_id = message.id
-        if push and self.pusher is not None:
+        if push != 'silent' and self.pusher is not None:
             try:
                 self.pusher.push(
                     PushNotification(
-                        title=title, body=clip(text, BODY_MAX), category='note', level='normal',
+                        title=title, body=clip(text, BODY_MAX),
+                        category='broke' if push == 'urgent' else 'note',
+                        level='urgent' if push == 'urgent' else 'normal',
                         deep_link=message_link(message_id), collapse_key=key,
                     ),
                     OWNER_USER_ID,

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # redeploy.sh against a scratch "GitHub" (a bare repo), a scratch ~/marcel/src cloned from it, a fake `make` and a
-# health check that fails while the deployed copy has a file called BROKEN. Nothing reaches GitHub, a unit or the hub.
+# health check that fails while the deployed copy has a file called BROKEN (or answers FAKE_HEALTH, when the deployed
+# copy's health.sh is the one that runs). Nothing reaches GitHub, a unit or the hub.
 # Run from deploy/: bash tests/test_redeploy.sh (part of `make -C deploy check`).
 set -uo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,9 +17,16 @@ mkdir -p "$work/bin" "$work/home/state"
 cat >"$work/bin/make" <<'STUB'
 #!/usr/bin/env bash
 echo "$*" >>"$FAKE_MAKES"
+[ "${MARCEL_SKIP_HEALTH:-}" = 1 ] || { echo "install would run its own health check" >&2; exit 9; }
+if [ -n "${FAKE_NEXT_FLAG:-}" ] && [ ! -e "$FAKE_MAKES.next" ]; then  # a second merge lands mid-run
+    touch "$FAKE_MAKES.next"; printf '%s\n' "$FAKE_NEXT_FLAG" >"$MARCEL_HOME/state/redeploy.flag"
+fi
+if [ -n "${FAKE_INSTALL_FAILS:-}" ] && [ ! -e "$FAKE_MAKES.failed" ]; then touch "$FAKE_MAKES.failed"; exit 2; fi
+[ -n "${FAKE_SLOW:-}" ] && sleep 30
+exit 0
 STUB
 chmod +x "$work/bin/make"
-export PATH="$work/bin:$PATH" FAKE_MAKES="$work/makes" MARCEL_HOME="$work/home" MARCEL_REDEPLOY_WAIT=0
+export PATH="$work/bin:$PATH" FAKE_MAKES="$work/makes" MARCEL_HOME="$work/home" MARCEL_REDEPLOY_WAIT=0 FAKE_SRC="$work/src"
 STATE="$work/home/state"
 
 git init -q --bare -b main "$work/origin.git"
@@ -28,7 +36,7 @@ mkdir -p "$work/seed/deploy"
 cp "$here/redeploy.sh" "$work/seed/deploy/redeploy.sh"
 cat >"$work/seed/deploy/health.sh" <<'STUB'
 #!/usr/bin/env bash
-src="$(cd "$(dirname "$0")/.." && pwd)"
+src="$FAKE_SRC"
 [ -n "${FAKE_DIRTY:-}" ] && echo dirty >"$src/app.txt"  # a local edit that stops a revert
 [ -n "${FAKE_HEALTH:-}" ] && exit "$FAKE_HEALTH"
 [ -e "$src/BROKEN" ] && exit 1
@@ -48,7 +56,7 @@ commit() {  # commit <message> <file> <content>: a commit on GitHub's main; prin
 redeploy() {  # redeploy <flag content> [env…]: write the flag the way the hub does, run the script
     local flag="$1"; shift
     printf '%s' "$flag" >"$STATE/redeploy.flag"
-    rm -f "$STATE/redeploy.result" "$work/makes"
+    rm -f "$STATE/redeploy.result" "$work/makes" "$work/makes.next" "$work/makes.failed"
     env "$@" bash "$work/src/deploy/redeploy.sh"
 }
 field() { python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get(sys.argv[2], ""))' "$STATE/redeploy.result" "$1" 2>/dev/null; }
@@ -149,8 +157,71 @@ redeploy "$onbranch" MARCEL_REDEPLOY_BRANCH=drill/x
 # One redeploy at a time.
 exec 8>"$STATE/redeploy.lock"; flock 8
 redeploy "$(commit 'Later' app.txt v6)"
-[ ! -e "$STATE/redeploy.result" ] && [ "$(makes)" = 0 ] && ok 'a second redeploy waits its turn' || fail 'ran beside another'
+[ ! -e "$STATE/redeploy.result" ] && [ "$(makes)" = 0 ] && ok 'a second start leaves the flag to the running one' \
+    || fail 'ran beside another'
 exec 8>&-
+
+# A second merge while one deploys: the running one deploys it too before it ends.
+first="$(commit 'First of two' app.txt v7)"
+second="$(commit 'Second of two' app.txt v8)"
+"${seed[@]}" reset -q --hard "$first"  # the flag names the first; the second is already on GitHub
+redeploy "$first" FAKE_NEXT_FLAG="$second"
+"${seed[@]}" reset -q --hard "$second"
+[ "$(head_of "$work/src")" = "$second" ] && [ "$(field sha)" = "$second" ] && [ "$(makes)" = 2 ] \
+    && ok 'a flag written mid-run is deployed before the run ends' || fail "second merge: $(field sha) $(makes)"
+
+# A failed install is not a success: rolled back, and said why.
+fails="$(commit 'Hub: does not build' app.txt v9)"
+redeploy "$fails" FAKE_INSTALL_FAILS=1
+[ "$(field outcome)" = rolled_back ] && [[ "$(field reason)" == 'Its install failed. '* ]] \
+    && [ "$(head_of "$work/origin.git" main~1)" = "$fails" ] && ok 'a failed install is rolled back' \
+    || fail "install fails: $(field outcome) $(field reason)"
+"${seed[@]}" pull -q origin main 2>/dev/null
+
+# A change cannot judge itself: its own health.sh says all is well, the one from before it does not.
+printf '#!/usr/bin/env bash\nexit 0\n' >"$work/seed/deploy/health.sh"
+echo yes >"$work/seed/BROKEN"
+"${seed[@]}" add -A && "${seed[@]}" commit -q -m 'Break it and hide it' && "${seed[@]}" push -q origin main
+redeploy "$("${seed[@]}" rev-parse HEAD)"
+[ "$(field outcome)" = rolled_back ] && ok 'the health check from before the change decides' || fail "self-judged: $(field outcome)"
+"${seed[@]}" pull -q origin main 2>/dev/null
+
+# A deployed commit that rewrites redeploy.sh mid-run: the run finishes on the script it started with.
+# 600 lines that leave a mark if bash ever reads on in the new file (each well past the old script's length).
+{ for n in $(seq 1 600); do echo "echo reread >>\"\$MARCEL_HOME/state/reread\"  # line $n"; done
+  cat "$work/seed/deploy/redeploy.sh"; } >"$work/seed/x"
+mv "$work/seed/x" "$work/seed/deploy/redeploy.sh"; chmod +x "$work/seed/deploy/redeploy.sh"
+rewrite="$(commit 'Rewrite redeploy.sh' app.txt v10)"
+redeploy "$rewrite"
+[ "$(field outcome)" = deployed ] && [ "$(field sha)" = "$rewrite" ] && [ ! -e "$STATE/reread" ] \
+    && ok 'a run that rewrites its own script finishes on the one it started with' \
+    || fail "rewrite: $(field outcome) $(tail -3 "$STATE/redeploy.log")"
+
+# GitHub cannot be reached: refused, nothing changed.
+before="$(head_of "$work/src")"
+git -C "$work/src" remote set-url origin "$work/gone.git"
+redeploy "$(commit 'Unreachable' app.txt v11)"
+git -C "$work/src" remote set-url origin "$work/origin.git"
+[ "$(field outcome)" = refused ] && [[ "$(field reason)" == *'could not fetch'* ]] && [ "$(head_of "$work/src")" = "$before" ] \
+    && ok 'GitHub out of reach: refused' || fail "no fetch: $(field outcome) $(field reason)"
+
+# A deployed copy with a commit GitHub does not have: refused, nothing changed.
+echo local >"$work/src/local.txt"; git -C "$work/src" add local.txt; git -C "$work/src" commit -q -m 'Only on the NUC'
+before="$(head_of "$work/src")"
+redeploy "$(commit 'After a local commit' app.txt v12)"
+[ "$(field outcome)" = refused ] && [[ "$(field reason)" == *'could not fast-forward'* ]] && [ "$(head_of "$work/src")" = "$before" ] \
+    && ok 'a copy that drifted from GitHub: refused' || fail "drifted: $(field outcome) $(field reason)"
+git -C "$work/src" reset -q --hard origin/main
+
+# Stopped by systemd's time limit: said so.
+slow="$(commit 'Slow' app.txt v13)"
+printf '%s\n' "$slow" >"$STATE/redeploy.flag"; rm -f "$STATE/redeploy.result"
+FAKE_SLOW=1 setsid bash "$work/src/deploy/redeploy.sh" &
+pid=$!
+for _ in $(seq 50); do grep -q install "$work/makes" 2>/dev/null && break; sleep 0.1; done
+kill -TERM -- "-$pid"; wait "$pid"
+[ "$(field outcome)" = rollback_failed ] && [[ "$(field reason)" == *'ran out of time'* ]] \
+    && ok 'a run stopped by systemd says so' || fail "timeout: $(field outcome) $(field reason)"
 
 if [ "$failures" -ne 0 ]; then
     echo "$failures redeploy.sh case(s) failed."

@@ -56,15 +56,19 @@ def main_of(engine: Engine, agent_id: str) -> str | None:
 @pytest.mark.parametrize(
     ('outcome', 'pushed', 'words'),
     [
-        ('deployed', False, 'Marcel is updated with *Hub: answer faster* (ccccccc)'),
-        ('version_drift', True, 'Claude Code'),
-        ('rolled_back', True, 'did not come up healthy, so Marcel reverted it (ddddddd)'),
-        ('rollback_failed', True, 'Check the NUC'),
-        ('refused', True, 'is not on main'),
+        ('deployed', None, 'Marcel is updated with *Hub: answer faster* (ccccccc)'),
+        ('version_drift', ('note', 'normal'), 'Claude Code'),
+        (
+            'rolled_back',
+            ('note', 'normal'),
+            'did not come up healthy, so Marcel reverted it (ddddddd)',
+        ),
+        ('rollback_failed', ('broke', 'urgent'), 'Check the NUC'),
+        ('refused', ('note', 'normal'), 'is not on main'),
     ],
 )
 def test_each_outcome_is_said_once_and_pushed_unless_it_simply_went_in(
-    owner: Engine, tmp_path: Path, outcome: str, pushed: bool, words: str
+    owner: Engine, tmp_path: Path, outcome: str, pushed: tuple[str, str] | None, words: str
 ) -> None:
     reasons = {
         'version_drift': 'Claude Code is not the version Marcel is tested with.',
@@ -79,8 +83,8 @@ def test_each_outcome_is_said_once_and_pushed_unless_it_simply_went_in(
     ((conversation, text),) = said(owner)
     assert conversation == main_of(owner, 'agt_b')
     assert words in text
-    assert [(n.collapse_key, user) for n, user in pushes.sent] == (
-        [('redeploy', OWNER_USER_ID)] if pushed else []
+    assert [(n.collapse_key, (n.category, n.level), user) for n, user in pushes.sent] == (
+        [('redeploy', pushed, OWNER_USER_ID)] if pushed else []
     )
     assert not (tmp_path / RESULT).exists() and (tmp_path / TOLD).exists()
 
@@ -192,7 +196,7 @@ def test_describe_leads_with_the_outcome() -> None:
     assert title == 'An update was rolled back' and text.startswith(
         '*Hub: x* (ccccccc) did not come up healthy'
     )
-    assert push
+    assert push == 'note'
 
 
 def test_the_app_tells_a_result_that_waited_for_its_start(tmp_path: Path) -> None:

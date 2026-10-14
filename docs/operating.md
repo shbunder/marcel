@@ -150,32 +150,39 @@ A self-change the owner approves in the app and merges on GitHub deploys itself 
 2. `marcel-redeploy.path` sees it and starts `marcel-redeploy.service`, which runs `deploy/redeploy.sh`.
 3. The script refuses a flag that is not one full commit id, or a commit that is not on `main` on GitHub. It
    fast-forwards `~/marcel/src` to it and runs `make -C deploy install`.
-4. It runs `deploy/health.sh` every 5 s for up to 120 s. Healthy: done. Exit 2 (only Claude Code's version drifted):
-   done, nothing reverted. Still not healthy: it reverts the commit (`git revert`, `-m 1` for a merge), pushes the
-   revert to `main`, deploys again and checks again.
+4. It runs the health check from **before** the change (a change cannot judge itself) every 5 s for up to 120 s.
+   Healthy: done. Exit 2 (only Claude Code's version drifted): done, nothing reverted. A failed install, or still not
+   healthy: it reverts the commit (`git revert`, `-m 1` for a merge), pushes the revert to `main`, deploys again and
+   checks again.
 5. It writes the outcome to `~/marcel/state/redeploy.result`. The hub posts it in the owner's main conversation
-   and pushes it unless the change simply went in.
+   and pushes it unless the change simply went in; "Marcel may be down" is pushed as urgent.
 
 | The owner reads | Means | Do |
 |---|---|---|
 | "Marcel is updated with …" | Deployed and healthy | Nothing |
 | "Marcel is updated … Claude Code is not the version …" | Deployed; only the Claude version drifted | `make -C deploy install` |
-| "An update was rolled back" | Not healthy in 120 s; reverted on GitHub and on the NUC | Read `~/marcel/state/redeploy.log`; fix it in a new PR |
-| "Marcel may be down" | The revert failed, or Marcel is still unhealthy after it | `make -C deploy health`, `~/marcel/state/redeploy.log` |
-| "An update was not deployed" | The flag or the commit was refused; nothing changed | The reason says why |
+| "An update was rolled back" | A failed install, or not healthy in 120 s; reverted on GitHub and on the NUC | Read `~/marcel/state/redeploy.log`; fix it in a new PR |
+| "… The revert could not be pushed to GitHub, so it is only on the NUC" | As above, but GitHub refused the push | `git -C ~/marcel/src push origin main`. Until then the next self-change is refused ("could not fast-forward") |
+| "Marcel may be down" | The revert failed, Marcel is still unhealthy after it, or the run hit its 30 minutes | `make -C deploy health`, `~/marcel/state/redeploy.log`, `git -C ~/marcel/src status` |
+| "An update was not deployed" | The flag or the commit was refused; nothing changed | The reason says why. "Could not fetch": upgrade by hand (below) once GitHub answers. "Could not fast-forward": `~/marcel/src` has local changes or commits; look at `git -C ~/marcel/src status` |
 
-The service gets 30 minutes in all (`TimeoutStartSec`). One redeploy runs at a time; a commit the deployed copy
-already has does nothing. The push uses `~/marcel/src`'s own git login (SSH to GitHub). If it fails, the revert is
-on the NUC only, and the message says so.
+The service gets 30 minutes in all (`TimeoutStartSec`); when systemd stops it, the script still writes "ran out of
+time". One redeploy runs at a time: a flag written while one runs (a second merge) is deployed by that run before it
+ends. A commit the deployed copy already has does nothing. The push uses `~/marcel/src`'s own git login (SSH to
+GitHub). While Marcel is down nobody is told: the hub tells the outcome once it is back, so a hub that never comes
+back says nothing. `make -C deploy health` is the check then.
 
 `MARCEL_REDEPLOY_WAIT` (seconds, default 120) changes how long health is given. `MARCEL_REDEPLOY_BRANCH`
 (default `main`) is **for drills only**: it points the script at a throwaway branch, so a deliberately broken commit
 never lands on `main`. Set either with `systemctl --user edit marcel-redeploy.service` (`[Service]
-Environment=…`), and remove it after the drill.
+Environment=…`). After a drill, remove it and put the deployed copy back on `main`:
+
+```bash
+rm ~/.config/systemd/user/marcel-redeploy.service.d/drill.conf && systemctl --user daemon-reload
+git -C ~/marcel/src checkout main && git -C ~/marcel/src pull --ff-only && make -C ~/marcel/src/deploy install
+```
 
 ### By hand
-
-
 
 ```bash
 cd ~/marcel/src && git pull --ff-only

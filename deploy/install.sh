@@ -228,7 +228,8 @@ install_units() {
 start_hub() {
     say "Hub container"
     "$DEPLOY/compose.sh" up -d --build
-    "$DEPLOY/health.sh"
+    # redeploy.sh checks health itself, with the check from before the change.
+    [ -n "${MARCEL_SKIP_HEALTH:-}" ] || "$DEPLOY/health.sh"
 }
 
 check_host

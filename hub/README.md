@@ -617,10 +617,12 @@ read-only, ADR-002).
   `rolled_back`, `rollback_failed`, `refused`; `reason`, `sha`, `subject`, `previous`, `revert`, `at`).
   `watchdog.ResultWatch` looks at start (a redeploy restarts the hub) and every 15 s. It posts one
   system message in the main conversation of the owner's first live agent, and pushes (collapse key
-  `redeploy`) unless the outcome is `deployed`. Then it renames the file to `redeploy.result.told`.
+  `redeploy`) unless the outcome is `deployed`: `rollback_failed` as `broke`/`urgent`, the rest as a
+  `note`. Then it renames the file to `redeploy.result.told`.
   A file that is not valid JSON is still told ("its result could not be read"). If the message cannot
   be posted, the file stays and the next look tries again; a failed push still leaves the message.
-  `watchdog.RESULTS` lists the files it watches, each with the function that words it.
+  `watchdog.RESULTS` lists the files it watches, each with the function that words it and says how
+  to push it (`silent`, `note` or `urgent`).
 
 ## Project boards
 
