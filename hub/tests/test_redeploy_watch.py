@@ -119,6 +119,20 @@ def test_a_second_result_of_the_same_run_is_told_after_the_first(
     ]
 
 
+def test_later_results_are_told_in_time_order_and_temp_files_are_left(
+    owner: Engine, tmp_path: Path
+) -> None:
+    for at, outcome in [('1760425000000000002', 'deployed'), ('1760425000000000001', 'refused')]:
+        (tmp_path / f'redeploy.{at}.result').write_text(
+            json.dumps({'outcome': outcome, 'reason': f'number {at[-1]}', 'sha': SHA})
+        )
+    (tmp_path / 'redeploy.1760425000000000003.result.tmp').write_text('{"outcome": "dep')
+    ResultWatch(owner, EventLog(owner), tmp_path).check()
+    texts = [text for _, text in said(owner)]
+    assert texts == ['number 1', 'Marcel is updated with ccccccc and everything is up.']
+    assert (tmp_path / 'redeploy.1760425000000000003.result.tmp').exists()
+
+
 def test_an_unreadable_result_is_still_said(owner: Engine, tmp_path: Path) -> None:
     (tmp_path / RESULT).write_text('{"outcome": "deployed", "sha": ')  # cut short
     pushes = Pushes()

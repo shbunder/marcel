@@ -172,6 +172,7 @@ ends, and both outcomes are told, in order. A commit the deployed copy already h
 GitHub). While Marcel is down nobody is told: the hub tells the outcome once it is back, so a hub that never comes
 back says nothing. `make -C deploy health` is the check then.
 
+`make -C deploy install` skips its own health check when `MARCEL_SKIP_HEALTH=1` is set; only `redeploy.sh` sets it.
 `MARCEL_REDEPLOY_WAIT` (seconds, default 120) changes how long health is given. `MARCEL_REDEPLOY_BRANCH`
 (default `main`) is **for drills only**: it points the script at a throwaway branch, so a deliberately broken commit
 never lands on `main`. Set either with `systemctl --user edit marcel-redeploy.service` (`[Service]
