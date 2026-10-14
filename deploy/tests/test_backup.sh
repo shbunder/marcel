@@ -15,15 +15,14 @@ home() {  # a fresh MARCEL_HOME with a database, a memory repo (one commit and o
     local d="$work/h/data"
     mkdir -p "$d/memory/agents/marcel" "$d/artifacts"
     python3 -c 'import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); c.execute("create table t(x)"); c.execute("insert into t values (42)"); c.commit()' "$d/marcel.db"
-    git init -q -b main --git-dir="$d/memory.git" --work-tree="$d/memory" 2>/dev/null \
-        || git --git-dir="$d/memory.git" init -q -b main
+    git --git-dir="$d/memory.git" init -q -b main
     echo committed >"$d/memory/agents/marcel/MEMORY.md"
     git --git-dir="$d/memory.git" --work-tree="$d/memory" add -A
     git --git-dir="$d/memory.git" --work-tree="$d/memory" -c user.name=t -c user.email=t@t commit -q -m one
     echo 'not committed' >"$d/memory/agents/marcel/brain-note.md"
     ln -s agents/marcel/MEMORY.md "$d/memory/MEMORY.md"
     echo v1 >"$d/artifacts/art_1.v1"
-    for f in hub-secret adopt-token.sha256 usage-guard.json digests.json triage.log triage.log.1; do echo "$f" >"$d/$f"; done
+    for f in hub-secret adopt-token.sha256 usage-guard.json digests.json triage.log triage.log.1 x.json.tmp; do echo "$f" >"$d/$f"; done
 }
 run() { env MARCEL_HOME="$work/h" bash "$here/backup.sh" >"$work/out" 2>&1; }
 
@@ -33,7 +32,7 @@ if run; then ok 'backs up'; else fail "backup failed: $(cat "$work/out")"; fi
 B="$work/h/backups/$today"
 [ "$(python3 -c 'import sqlite3, sys; print(sqlite3.connect(sys.argv[1]).execute("select x from t").fetchone()[0])' "$B/marcel.db")" = 42 ] \
     && ok 'database copied' || fail 'database not copied'
-git bundle verify --quiet "$B/memory.bundle" 2>/dev/null && ok 'bundle verifies' || fail 'no verified bundle'
+git --git-dir="$work/h/data/memory.git" bundle verify --quiet "$B/memory.bundle" 2>/dev/null && ok 'bundle verifies' || fail 'no verified bundle'
 tar -tzf "$B/memory.tar.gz" | grep -q 'memory/agents/marcel/brain-note.md' && ok 'uncommitted memory kept' || fail 'uncommitted memory missing'
 tar -tvzf "$B/memory.tar.gz" | grep -q '^l.*memory/MEMORY.md -> ' && ok 'memory links kept' || fail 'memory link lost'
 tar -tzf "$B/artifacts.tar.gz" | grep -q 'artifacts/art_1.v1' && ok 'artifacts kept' || fail 'artifacts missing'
@@ -41,6 +40,7 @@ for f in hub-secret adopt-token.sha256 usage-guard.json digests.json; do
     [ -f "$B/$f" ] || fail "$f not backed up"
 done
 [ ! -e "$B/triage.log" ] && [ ! -e "$B/triage.log.1" ] && ok 'triage log left out' || fail 'triage log backed up'
+[ ! -e "$B/x.json.tmp" ] && ok 'half-written files left out' || fail 'a .tmp file was backed up'
 [ "$(stat -c %a "$work/h/backups")$(stat -c %a "$B")" = 700700 ] && ok 'folders 0700' || fail 'folder modes'
 bad="$(find "$B" -type f ! -perm 600)"
 [ -z "$bad" ] && ok 'files 0600' || fail "files not 0600: $bad"
@@ -68,6 +68,24 @@ if run; then fail 'corrupt database passed'; else ok 'corrupt database fails'; f
 [ "$(python3 -c 'import sqlite3, sys; print(sqlite3.connect(sys.argv[1]).execute("select x from t").fetchone()[0])' "$B/marcel.db")" = 42 ] \
     && ok 'earlier copy kept' || fail 'earlier copy lost'
 ls "$B"/*.tmp >/dev/null 2>&1 && fail 'corrupt run left a .tmp' || ok 'corrupt run left no .tmp'
+
+# A bundle that does not verify fails and keeps the day's earlier one (git answers `bundle verify` with an error).
+home; run
+cp "$B/memory.bundle" "$work/good.bundle"
+mkdir -p "$work/badgit"
+cat >"$work/badgit/git" <<STUB
+#!/usr/bin/env bash
+case "\$*" in *'bundle verify'*) exit 1 ;; esac
+exec $(command -v git) "\$@"
+STUB
+chmod +x "$work/badgit/git"
+echo more >"$work/h/data/memory/agents/marcel/MEMORY.md"
+git --git-dir="$work/h/data/memory.git" --work-tree="$work/h/data/memory" -c user.name=t -c user.email=t@t commit -q -am two
+if env PATH="$work/badgit:$PATH" MARCEL_HOME="$work/h" bash "$here/backup.sh" >"$work/out" 2>&1; then
+    fail 'a bundle that does not verify passed'
+else
+    cmp -s "$B/memory.bundle" "$work/good.bundle" && ok 'bad bundle fails, earlier one kept' || fail 'earlier bundle lost'
+fi
 
 # No database, no memory repo: fail.
 home; rm "$work/h/data/marcel.db"

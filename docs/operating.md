@@ -199,14 +199,15 @@ session afterwards.
 B=~/marcel/backups/<date>
 ~/marcel/src/deploy/compose.sh stop                          # the hub
 systemctl --user stop marcel-runner marcel-claude-daemon     # the runner and every session
+systemctl --user stop marcel-redeploy.path marcel-backup.timer   # no redeploy or backup halfway
 mv ~/marcel/data ~/marcel/data.before-restore                # keep what was there
 mkdir ~/marcel/data && cd ~/marcel/data
 find $B -maxdepth 1 -type f ! -name '*.tar.gz' ! -name memory.bundle -exec cp -p {} . \;
 tar -xzf $B/memory.tar.gz && tar -xzf $B/artifacts.tar.gz
-git --git-dir=$HOME/marcel/data/memory.git init -q -b main
+git --git-dir=$HOME/marcel/data/memory.git init -q -b main  # this and the next two: only if $B has memory.bundle
 git --git-dir=$HOME/marcel/data/memory.git fetch -q --update-head-ok $B/memory.bundle 'refs/heads/*:refs/heads/*'
 git --git-dir=$HOME/marcel/data/memory.git --work-tree=$HOME/marcel/data/memory reset -q   # history back; files as backed up
-make -C ~/marcel/src/deploy install                          # starts the supervisor, the runner and the hub again
+make -C ~/marcel/src/deploy install                          # starts everything stopped above again
 ```
 
 Drilled on 2026-10-14 with these steps into a scratch folder: the files, the memory (with the brain's uncommitted

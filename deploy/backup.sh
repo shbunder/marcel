@@ -57,9 +57,9 @@ if [ -d "$DATA/artifacts" ]; then
     mv "$DEST/artifacts.tar.gz.tmp" "$DEST/artifacts.tar.gz"
 fi
 
-# 4. Every other file the hub keeps there (secrets, tokens, its small state files).
+# 4. Every other file the hub keeps there (secrets, tokens, its small state files; a half-written .tmp goes at exit).
 find "$DATA" -mindepth 1 -maxdepth 1 -type f \
-    ! -name 'marcel.db*' ! -name 'triage.log*' ! -name '*.tmp' -exec cp -p {} "$DEST/" \;
+    ! -name 'marcel.db*' ! -name 'triage.log*' -exec cp -p {} "$DEST/" \;
 chmod 600 "$DEST"/*
 
 # 5. Keep the newest KEEP_DAYS dates (today and the days before it), by the folder's name.
