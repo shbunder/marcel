@@ -73,8 +73,21 @@ def describe(result: dict[str, Any] | None) -> tuple[str, str, Push]:
     return 'An update was not deployed', reason or f'{change} was not deployed.', 'note'
 
 
+BACKUP_RESULT = 'backup.result'
+BACKUP_LOOK = 'Look at: journalctl --user -u marcel-backup on the NUC.'
+
+
+def describe_backup(result: dict[str, Any] | None) -> tuple[str, str, Push]:
+    """A nightly backup that failed (`deploy/backup.sh` writes the file only then, S-14.2): a note
+    push, so the owner hears it on the phone. At most once a day, with the nightly timer."""
+    reason = str(result.get('reason') or '').strip() if isinstance(result, dict) else ''
+    if not reason:
+        reason = 'a backup ended, but its result could not be read.'
+    return 'The backup failed', f'The nightly backup failed: {reason} {BACKUP_LOOK}', 'note'
+
+
 # Every file the watch tells, by its name in the state folder.
-RESULTS: dict[str, Describe] = {RESULT: describe}
+RESULTS: dict[str, Describe] = {RESULT: describe, BACKUP_RESULT: describe_backup}
 
 
 class ResultWatch:
