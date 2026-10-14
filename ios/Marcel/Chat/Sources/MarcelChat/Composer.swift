@@ -2,8 +2,8 @@ import MarcelItems
 import PixelKit
 import SwiftUI
 
-/// Where you talk to Marcel: a pixel box with the text field and a ▶ send button. It is never disabled; only an
-/// empty message cannot be sent. While a question waits for you it says "Or say something…" (wireframe 3B).
+/// Where you talk to Marcel: the rounded field with a round send button. It is never disabled; only an empty
+/// message cannot be sent. While a question waits for you it says "Or say something…" (wireframe 3B).
 public struct Composer: View {
     @Binding var text: String
     var placeholder: String
@@ -22,7 +22,6 @@ public struct Composer: View {
         self.send = send
     }
 
-    @Environment(\.colorScheme) private var scheme
     @Environment(\.chatStillAvatars) private var still
     @Environment(\.agentName) private var agentName
 
@@ -30,54 +29,10 @@ public struct Composer: View {
         questionWaiting ? "Or say something…" : "Talk to \(name)…"
     }
 
-    private var canSend: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
+    /// The rounded composer of the chat's language (PixelKit's `ChatComposerField`, the S-18.6 follow-up): the field
+    /// on the well colour, a round send button in Marcel's rose, on a white strip with a thin line above it.
     public var body: some View {
-        let theme = PixelTheme(scheme)
-        HStack(alignment: .center, spacing: PixelMetrics.steps(3)) {
-            field(theme)
-            Button(action: send) {
-                PixelGlyph(.pointer, color: canSend ? theme.accent : theme.muted,
-                           pixel: 3)
-                    .frame(width: PixelMetrics.minTapTarget, height: PixelMetrics.minTapTarget)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-            .accessibilityLabel("Send")
-        }
-        .padding(.leading, PixelMetrics.padding)
-        .padding(.vertical, PixelMetrics.steps(1))
-        .pixelBox(fill: theme.dialog, line: theme.line, shadow: nil)
-        .padding(.horizontal, FeedMetrics.inset)
-        .padding(.top, PixelMetrics.steps(2))
-        .padding(.bottom, PixelMetrics.steps(4))
-    }
-
-    @ViewBuilder private func field(_ theme: PixelTheme) -> some View {
-        if still {
-            // Snapshots: `ImageRenderer` cannot draw a text field, so draw what it shows.
-            PixelText(text.isEmpty ? placeholder : text, role: .body)
-                .foregroundStyle((text.isEmpty ? theme.muted : theme.text).color)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            editable(theme)
-        }
-    }
-
-    @ViewBuilder private func editable(_ theme: PixelTheme) -> some View {
-        let base = TextField(text: $text, axis: .vertical) {
-            Text(placeholder).foregroundStyle(theme.muted.color)
-        }
-        .lineLimit(1...5)
-        .pixelText(.body)
-        .foregroundStyle(theme.text.color)
-        .tint(theme.accent.color)
-        .accessibilityLabel(fieldLabel ?? "Message to \(agentName)")
-        if let focused {
-            base.focused(focused)
-        } else {
-            base
-        }
+        ChatComposerField(text: $text, placeholder: placeholder, fieldLabel: fieldLabel ?? "Message to \(agentName)",
+                          still: still, focused: focused, send: send)
     }
 }

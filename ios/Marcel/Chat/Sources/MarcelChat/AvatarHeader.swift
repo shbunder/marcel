@@ -63,7 +63,9 @@ public struct ChatHeaderState: Equatable, Sendable {
 }
 
 /// The avatar header (S-13.3): the giraffe in a 120-pt box while you are at the latest messages, shrinking to 44 pt
-/// once you scroll back or type. Hearts and the "needs you" count on the right (PixelKit's `HeartsHeader`).
+/// once you scroll back or type. In the chat's language (wireframe Q1 v10, the S-18.6 follow-up): a white strip with
+/// a thin line under it, the name in bold, what is running in the muted colour, and a gold badge when something needs
+/// you.
 ///
 /// `collapse` runs from 0 (120 pt) to 1 (44 pt) and is animatable, so the strip's height shrinks smoothly while the
 /// sprite inside steps down whole zooms (6×, 5×, 4×, 3×, 2× on a 3× screen): every sprite pixel stays a sharp square
@@ -79,6 +81,7 @@ struct AvatarHeader: View, Animatable {
 
     @Environment(\.chatStillAvatars) private var still
     @Environment(\.dynamicTypeSize) private var dynamicType
+    @Environment(\.colorScheme) private var scheme
 
     init(state: ChatHeaderState, collapse: CGFloat) {
         self.state = state
@@ -103,10 +106,46 @@ struct AvatarHeader: View, Animatable {
     var body: some View {
         // At accessibility text sizes the big giraffe would squeeze the title; it stays at 44 pt there.
         let box = dynamicType.isAccessibilitySize ? Self.collapsed : Self.box(collapse: collapse)
-        HeartsHeader(title: state.name, subtitle: state.subtitle, needsYou: state.needsYou) {
+        let palette = ChatPalette(scheme)
+        HStack(alignment: .center, spacing: 10) {
             ChatAvatar(state: state.avatar, box: box, still: still, name: state.name, agentId: state.agentId)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(state.name)
+                    .font(.headline)
+                    .foregroundStyle(palette.ink.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(state.subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(palette.muted.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                // At accessibility text sizes the badge goes under the name, which keeps the whole width.
+                if dynamicType.isAccessibilitySize, let badge = Self.badge(needsYou: state.needsYou) {
+                    ChatBadge(badge)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if !dynamicType.isAccessibilitySize, let badge = Self.badge(needsYou: state.needsYou) {
+                ChatBadge(badge)
+            }
         }
+        .padding(.horizontal, ChatScreenMetrics.inset)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+        .background(palette.card.color)
+        .overlay(alignment: .bottom) { Rectangle().fill(palette.line.color).frame(height: 1) }
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(state.accessibilityText)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    /// "1 needs you", "2 need you", or nil when nothing waits.
+    static func badge(needsYou: Int) -> String? {
+        switch needsYou {
+        case ...0: nil
+        case 1: "1 needs you"
+        default: "\(needsYou) need you"
+        }
     }
 }
 

@@ -41,6 +41,9 @@ struct NotebookCard<Content: View>: View {
         .foregroundStyle(theme.ink.color)
         .padding(PixelMetrics.padding + PixelMetrics.thinBorder)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Never squeezed: at the largest text size the notebook is taller than the screen, and a squeezed card
+        // drew its last lines over each other ("Open and edit" over the last fact).
+        .fixedSize(horizontal: false, vertical: true)
         .chatSurface()
         .accessibilityElement(children: .contain)
     }

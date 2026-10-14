@@ -41,8 +41,8 @@ README § Chat); the colours are the wireframe's (explainer artifact KtdD3PMLeyZ
   ("Updated · v2"). The morning board (an artifact of kind `board`) shows as a card with its first entries.
   Previews (a document's first lines, a board's entries) are fetched once per version.
 - **A message sent from a project room** (`project_id`, B-32; the Map tab) shows that project's chip under it, and
-  VoiceOver says "You said, about Home energy: …". The Map package reuses the chat's `Composer` and
-  `ArtifactPreview.dashboardRows`, so both are public.
+  VoiceOver says "You said, about Home energy: …". The Map package reuses `ArtifactPreview.dashboardRows`, so it is
+  public; both the chat's `Composer` and the project room's draw PixelKit's rounded `ChatComposerField`.
 - **"Ask about this" on an item** (S-12.11, app API 0.5) comes back to the chat with the item attached
   (`ChatModel.attach`; the viewer calls the `askInChat` environment value, which `ChatScreen` sets for viewers it
   opens and the app sets for the others). The item shows above the composer (X removes it) and goes with the next
@@ -74,7 +74,9 @@ README § Chat); the colours are the wireframe's (explainer artifact KtdD3PMLeyZ
 ## The avatar header (S-13.3, B-28)
 
 Code in `Sources/MarcelChat/AvatarHeader.swift` (the story names `Marcel/Chat/AvatarHeader.swift`; Chat is a package,
-so it sits in the package's sources). Drawn with AvatarKit's sheet and loops; nothing is redrawn here.
+so it sits in the package's sources). Drawn with AvatarKit's sheet and loops; nothing is redrawn here. Since the S-18.6
+follow-up it is the chat's white strip (thin line under it, the name in bold, what is running muted, a gold "needs
+you" badge) instead of the pixel `HeartsHeader`, so it matches the other tabs.
 
 - **What the giraffe shows** is the hub's word: `GET /me` gives the agent's state, then every `agent.state` event
   moves it (`ChatModel.agentState`; `LiveFeed` passes the app's `liveEvents` frames to `ChatModel.receive`). An event
