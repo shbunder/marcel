@@ -151,8 +151,9 @@ Loaded by the brain, its side threads and every NUC worker.
 - **Networking:** `URLSession` + `URLSessionWebSocketTask`; a local cache in SwiftData.
 - **Avatar:** a sprite sheet (32 × 32 frames, PNG + JSON per `contracts/avatar-sheet.schema.json`) built by the
   Pixel Zoo in `shared/avatar/zoo/` from each agent's look (animal × colour × personality), served by the hub
-  (S-19.2) and played by `AvatarKit` with nearest-neighbour scaling at whole-number zoom. The bundled giraffe from
-  `shared/avatar/pixel/build.py` stays as the offline fallback until S-19.3 replaces it. No 3D, no RealityKit.
+  (S-19.2) and played by `AvatarKit` with nearest-neighbour scaling at whole-number zoom. The app bundles Marcel's
+  own zoo sheet (giraffe, rose, professional) as the default and offline fallback (`make -C ios/AvatarKit sheet`).
+  No 3D, no RealityKit.
 
 ## Key flows
 
@@ -269,7 +270,6 @@ brain/        brain workspace template (CLAUDE.md persona, settings)
 ios/          Xcode project `Marcel` (app + MarcelKit + PixelKit + AvatarKit packages)
 shared/avatar/zoo/     Pixel Zoo: stdlib Python package `zoo` (frame, from_name, sheet; `python -m zoo`) —
                        the sheet source for every agent's avatar; pixel-identical to the zoo.js spike
-shared/avatar/pixel/   build.py + out/ the bundled giraffe sheet (offline fallback until S-19.3)
 contracts/    app-api.yaml, events.schema.json, task-states.md, dashboard.schema.json (S-02.1; projects and
               artifact versions S-02.5); runner-api.yaml, transcript.schema.json, channel-protocol.md,
               session-api.yaml (S-02.2); avatar-sheet.schema.json (S-02.5)

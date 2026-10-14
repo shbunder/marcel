@@ -32,7 +32,7 @@ hub's `OWNER_LOOK`) as the Pixel Zoo (`shared/avatar/zoo`) draws it, at the zoo'
 as the maker page and every agent's own sheet. It is what `SpriteSheet.giraffe` plays until an agent's own sheet
 arrives, and offline. Regenerate it with `make -C ios/AvatarKit sheet` after the zoo changes;
 `shared/avatar/zoo/tests/test_app_sheet.py` fails while the bundled copy differs from what the zoo draws. (It replaced
-the first, 48 × 54 giraffe from `shared/avatar/pixel`, which the app no longer uses.)
+the first, 48 × 54 giraffe from `shared/avatar/pixel`, retired on 2026-10-14.)
 
 ## Tests
 
