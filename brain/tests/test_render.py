@@ -140,3 +140,21 @@ def test_every_variable_is_used_and_documented() -> None:
     for name in VARIABLES:
         assert name in used or name == 'MEMORY_DIR', f'{name} is defined but the template never uses it'
         assert f'`{name}`' in readme, f'brain/README.md does not document {name}'
+
+
+def test_a_family_members_brain_speaks_as_its_own_animal(tmp_path: Path, values: dict[str, str]) -> None:
+    """A brain per person (S-17.7): the persona names the agent, the person, its animal and tone."""
+    out = tmp_path / 'brains' / 'pip'
+    custom = {**values, 'AGENT_NAME': 'Pip', 'OWNER_NAME': 'Emma', 'ANIMAL': 'fox',
+              'PERSONALITY': 'cheerful'}  # fmt: skip
+    render.render(out, render.resolve(custom))
+    persona = (out / 'CLAUDE.md').read_text()
+    assert 'You are Pip, a friendly fox who helps Emma' in persona
+    assert 'One fox joke is plenty. Your personality: cheerful.' in persona
+    assert 'giraffe' not in persona
+
+
+def test_the_owners_brain_stays_a_giraffe_by_default(tmp_path: Path, values: dict[str, str]) -> None:
+    render.render(tmp_path / 'brain', render.resolve(values))
+    persona = (tmp_path / 'brain' / 'CLAUDE.md').read_text()
+    assert 'a friendly pink giraffe' in persona and 'Your personality: professional.' in persona

@@ -61,6 +61,7 @@ from sqlmodel import Session, col, select
 
 from marcel_hub.auth import ApiError, current_device, require_device
 from marcel_hub.auth.deps import DbSession
+from marcel_hub.auth.tokens import OWNER_USER_ID
 from marcel_hub.conversations import ensure_main_conversation
 from marcel_hub.day_summary import message_line
 from marcel_hub.memory import MemoryRepo
@@ -73,6 +74,7 @@ from marcel_hub.models import (
     Project,
     Task,
     TaskState,
+    User,
 )
 from marcel_hub.runner_client import (
     Alerts,
@@ -83,6 +85,7 @@ from marcel_hub.runner_client import (
     sse,
 )
 from marcel_hub.tasks.ports import RunnerUnavailable, StartFailed
+from marcel_hub.users.store import OWNER_AGENT_SLUG
 from marcel_hub.ws import EventLog
 
 log = logging.getLogger(__name__)
@@ -129,6 +132,10 @@ class BrainRunner(Protocol):
     """What the keeper needs from the runner (`runner_client.RunnerClient`)."""
 
     async def spawn_brain(self, *, name: str, model: str, cwd: str, prompt: str) -> str: ...
+
+    async def prepare_brain(
+        self, *, agent_slug: str, name: str, person_name: str, personality: str | None
+    ) -> str: ...
 
     async def sessions(self) -> list[dict[str, Any]]: ...
 
@@ -445,10 +452,50 @@ class BrainKeeper:
                 self._seen = {s['id']: s for s in sessions if isinstance(s.get('id'), str)}
             for agent_id in self._agent_ids():
                 await self._check_agent(agent_id)
+            for agent_id in self._agent_ids(archived=True):
+                await self._retire_agent(agent_id)
 
-    def _agent_ids(self) -> list[str]:
+    def _agent_ids(self, *, archived: bool = False) -> list[str]:
+        """The agents that get a brain (or, with `archived`, the ones that no longer do)."""
         with Session(self.engine) as s:
-            return list(s.exec(select(Agent.id).order_by(col(Agent.id))))
+            query = select(Agent.id).order_by(col(Agent.id))
+            if archived:
+                query = query.where(col(Agent.archived_at).is_not(None))
+            else:
+                query = query.where(col(Agent.archived_at).is_(None))
+            return list(s.exec(query))
+
+    async def _retire_agent(self, agent_id: str) -> None:
+        """An archived agent has no brain: stop any that still runs (S-17.7)."""
+        for session in list(self._seen.values()):
+            if (
+                session.get('role') == 'brain'
+                and session.get('name') == brain_name(agent_id)
+                and _alive(session)
+            ):
+                log.info('Stopping the brain %s of an archived agent.', session['id'][:8])
+                await self._stop(session['id'], 'its agent was archived')
+
+    async def _cwd_for(self, agent_id: str) -> str:
+        """The folder the agent's brain runs in. The owner's first agent (`marcel`, and any agent
+        made before slugs) keeps the brain workspace from the settings (`brain_cwd`); every other
+        agent gets its own `~/marcel/brains/<slug>`, which the runner makes ready first (render,
+        plugin, trust; `POST /brains`, safe to repeat)."""
+        assert self.runner is not None
+        with Session(self.engine) as s:
+            agent = s.get(Agent, agent_id)
+            assert agent is not None
+            if agent.slug is None or (
+                agent.slug == OWNER_AGENT_SLUG and agent.owner_user_id == OWNER_USER_ID
+            ):
+                return self.cwd
+            person = s.get(User, agent.owner_user_id)
+            slug, name = agent.slug, agent.name
+            person_name = person.name if person is not None else agent.name
+            personality = agent.look_personality
+        return await self.runner.prepare_brain(
+            agent_slug=slug, name=name, person_name=person_name, personality=personality
+        )
 
     def _current(self, agent_id: str) -> str | None:
         with Session(self.engine) as s:
@@ -598,8 +645,9 @@ class BrainKeeper:
             assert agent is not None
             model = agent.model_brain
         try:
+            cwd = await self._cwd_for(agent_id)
             sid = await self.runner.spawn_brain(
-                name=brain_name(agent_id), model=model, cwd=self.cwd, prompt=prompt
+                name=brain_name(agent_id), model=model, cwd=cwd, prompt=prompt
             )
         except (StartFailed, RunnerUnavailable) as exc:
             self._failed(agent_id, str(exc))

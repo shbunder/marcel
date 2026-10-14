@@ -187,6 +187,24 @@ class RunnerClient:
             return res.json()['session_id']
         raise StartFailed(_message(res))
 
+    async def prepare_brain(
+        self, *, agent_slug: str, name: str, person_name: str, personality: str | None
+    ) -> str:
+        """Have the runner make (or refresh) the agent's brain folder on the host (render, memory
+        links to `agents/<slug>/`, plugin, trust; runner-api `prepareBrain`, S-17.7); returns the
+        folder to start the brain in. A runner that cannot use `claude` (503) is unavailable; any
+        other refusal is `StartFailed` with the runner's reason."""
+        persona: dict[str, str] = {'person_name': person_name}
+        if personality:
+            persona['personality'] = personality
+        body = {'agent_slug': agent_slug, 'name': name, 'persona': persona}
+        res = await self._call('POST', '/brains', json=body, timeout=SPAWN_TIMEOUT)
+        if res.status_code == 200:
+            return res.json()['cwd']
+        if res.status_code == 503:
+            raise RunnerUnavailable(_message(res))
+        raise StartFailed(_message(res))
+
     # Side threads (S-06.3: `side.SideThreads`) ---------------------------------------------
 
     async def fork(self, session_id: str, *, name: str, prompt: str) -> str:

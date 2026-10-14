@@ -38,7 +38,12 @@ class Variable:
 # Every deploy variable the template uses. brain/README.md documents the same list.
 VARIABLES: dict[str, Variable] = {
     'AGENT_NAME': Variable("The agent's name, as the family calls it.", default='Marcel'),
-    'OWNER_NAME': Variable("The owner's first name; Marcel addresses them by it."),
+    'OWNER_NAME': Variable('The first name of the person this brain works for; it addresses them by it.'),
+    'ANIMAL': Variable("The agent's animal, as it speaks of itself.", default='pink giraffe'),
+    'PERSONALITY': Variable(
+        "The look's personality (app-api `LookPersonality`), for the tone of its answers.",
+        default='professional',
+    ),
     'MARKETPLACE_DIR': Variable(
         'The deployed `marcel-local` marketplace: a folder with `.claude-plugin/marketplace.json` '
         'that lists a released copy of `plugins/marcel/` (never a working tree).',

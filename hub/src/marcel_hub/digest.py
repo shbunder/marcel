@@ -557,7 +557,8 @@ class Digests:
         now = self.clock()
         made, moved = 0, 0
         with Session(self.engine) as s:
-            agent_ids = list(s.exec(select(Agent.id)))
+            # An archived agent gets no digests (S-17.7).
+            agent_ids = list(s.exec(select(Agent.id).where(col(Agent.archived_at).is_(None))))
             have = {
                 r.id: r for r in s.exec(select(Schedule).where(col(Schedule.builtin).is_(True)))
             }

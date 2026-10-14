@@ -19,7 +19,9 @@ Defined once, in `VARIABLES` in `render.py`; this table says the same.
 | Variable | Default | What it is |
 |---|---|---|
 | `AGENT_NAME` | `Marcel` | The agent's name, as the family calls it. |
-| `OWNER_NAME` | — | The owner's first name; Marcel addresses them by it. |
+| `OWNER_NAME` | — | The first name of the person this brain works for; it addresses them by it. |
+| `ANIMAL` | `pink giraffe` | The agent's animal, as it speaks of itself. |
+| `PERSONALITY` | `professional` | The look's personality (app-api `LookPersonality`), for the tone of its answers. |
 | `MARKETPLACE_DIR` | — | Absolute path of the deployed `marcel-local` marketplace: a folder with `.claude-plugin/marketplace.json` listing a released copy of `plugins/marcel/` (never a working tree: a directory plugin runs in place, SP1). |
 | `MEMORY_DIR` | — | Absolute path, on the host, of the hub's memory folder (`<data_dir>/memory`). The hub's `/data` must be a bind mount of a host folder, not a named volume, for the brain to reach it. |
 
