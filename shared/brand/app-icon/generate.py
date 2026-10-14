@@ -169,14 +169,35 @@ def files():
     return out
 
 
+def pixels(data):
+    img = Image.open(io.BytesIO(data))
+    return img.mode, img.size, img.tobytes()
+
+
+def is_stale(path, data):
+    """A PNG is stale when its pixels differ: zlib builds compress the same pixels to different
+    bytes on macOS and Linux. checksums.txt is stale when it does not match the committed PNGs."""
+    if not path.exists():
+        return True
+    if path.suffix == '.png':
+        return pixels(path.read_bytes()) != pixels(data)
+    committed = ''.join(
+        f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(REPO)}\n'
+        for p in sorted(q for q in files_on_disk() if q.exists())
+    )
+    return path.read_text() != committed
+
+
+def files_on_disk():
+    return [OUT / 'app-icon-1024.png', OUT / 'app-icon-dark-1024.png'] + [
+        IOS_ICONS / name for name in IOS_FILES
+    ]
+
+
 def main(argv):
     wanted = files()
     if '--check' in argv:
-        stale = [
-            str(p.relative_to(REPO))
-            for p, data in wanted.items()
-            if not p.exists() or p.read_bytes() != data
-        ]
+        stale = [str(p.relative_to(REPO)) for p, data in wanted.items() if is_stale(p, data)]
         if stale:
             print(
                 'The app icon is out of date. Run `uv run shared/brand/app-icon/generate.py`'
