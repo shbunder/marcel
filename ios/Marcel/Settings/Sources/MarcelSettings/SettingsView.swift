@@ -1,27 +1,63 @@
 import MarcelKit
+import MarcelLook
 import PixelKit
 import SwiftUI
 import UIKit
 
-/// Settings (B-22, B-18, B-19): the agent's name, where notifications go, plan usage, schedules (pause, delete),
-/// devices (revoke, unpair this phone) and the system status screen. Opened from the avatar header in the chat.
+/// What Settings needs from the rest of the app: the helper's avatar, the look picker's hub, the Face ID switch, the
+/// notebook, and signing out. Each is optional, so a screen or a test passes only what it has.
+public struct SettingsAppLinks {
+    /// The helper as the chat header draws it (its own sheet, S-19.3).
+    public var avatar: AnyView?
+    /// The look picker's hub (`GET /avatar-previews`, `PATCH /agents/{id}`); "Edit look and name" needs it.
+    public var looks: (any LookService)?
+    /// Face ID or the passcode to open the app (`AppLock.enabled`, S-17.5).
+    public var faceID: Binding<Bool>?
+    /// Opens Marcel's notebook.
+    public var openNotebook: (() -> Void)?
+    /// "Sign out of this phone" (`AppFlow.signOut`): returns what to tell the person when the hub wasn't told.
+    public var signOut: () async -> String?
+
+    public init(avatar: AnyView? = nil, looks: (any LookService)? = nil, faceID: Binding<Bool>? = nil,
+                openNotebook: (() -> Void)? = nil, signOut: @escaping () async -> String? = { nil }) {
+        self.avatar = avatar
+        self.looks = looks
+        self.faceID = faceID
+        self.openNotebook = openNotebook
+        self.signOut = signOut
+    }
+}
+
+/// Settings (B-40, explainer Q6), opened from the avatar in the chat, in four groups: **Helper** (avatar, name, look),
+/// **You** (notifications, Face ID), **Marcel** (notebook, schedules, usage, system status) and **Account** (People for
+/// the owner, phones, sign out).
 public struct SettingsView: View {
     @State private var model: SettingsModel
     private let statusModel: () -> StatusModel
-    private let unpair: (String?) -> Void
+    private let peopleModel: () -> PeopleModel
+    private let links: SettingsAppLinks
+    private let signedOut: (String?) -> Void
 
-    @State private var showingStatus = false
+    @State private var showing: Screen?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
 
+    enum Screen: Hashable {
+        case status, people, look
+    }
+
     /// - Parameters:
     ///   - status: makes the status screen's model when "System status" is tapped.
-    ///   - unpair: forgets the hub on this phone, after the hub was told (`SettingsModel.forgetThisPhone`). Gets
-    ///     what to tell the person when the hub could not be told.
-    public init(model: SettingsModel, status: @escaping () -> StatusModel, unpair: @escaping (String?) -> Void) {
+    ///   - people: makes People's model (owner only).
+    ///   - links: what Settings needs from the app.
+    ///   - signedOut: after "Sign out of this phone", with the note when the hub couldn't be told.
+    public init(model: SettingsModel, status: @escaping () -> StatusModel, people: @escaping () -> PeopleModel,
+                links: SettingsAppLinks, signedOut: @escaping (String?) -> Void = { _ in }) {
         _model = State(initialValue: model)
         self.statusModel = status
-        self.unpair = unpair
+        self.peopleModel = people
+        self.links = links
+        self.signedOut = signedOut
     }
 
     public var body: some View {
@@ -29,15 +65,23 @@ public struct SettingsView: View {
             VStack(spacing: 0) {
                 SettingsHeader(title: "Settings", back: { dismiss() })
                 ScrollView {
-                    SettingsContent(model: model, text: SettingsText(), actions: actions)
+                    SettingsContent(model: model, text: SettingsText(), links: links, actions: actions)
                         .padding(PixelMetrics.padding)
                 }
                 .refreshable { await model.load() }
             }
-            .background(PixelTheme(scheme).background.color)
+            .background(ChatPalette(scheme).well.color)
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(isPresented: $showingStatus) {
-                StatusView(model: statusModel())
+            .navigationDestination(item: $showing) { screen in
+                switch screen {
+                case .status: StatusView(model: statusModel())
+                case .people: PeopleView(model: peopleModel())
+                case .look:
+                    if let looks = links.looks, let agent = model.agent {
+                        LookEditor(model: LookModel(service: looks, agentId: agent.id, name: agent.name,
+                                                    current: agent.drawnLook)) { Task { await model.load() } }
+                    }
+                }
             }
         }
         .task { await model.load() }
@@ -52,14 +96,40 @@ public struct SettingsView: View {
         actions.delete = { schedule in Task { await model.delete(schedule) } }
         actions.pauseInstead = { Task { await model.pauseInsteadOfDeleting() } }
         actions.revoke = { device in Task { await model.revoke(device) } }
-        actions.unpair = { [model, unpair] in
+        actions.signOut = { [model, links, signedOut] in
             Task {
-                let note = await model.forgetThisPhone()
-                unpair(note)
+                let note = await model.signOut(links.signOut)
+                signedOut(note)
             }
         }
-        actions.openStatus = { showingStatus = true }
+        actions.openStatus = { showing = .status }
+        actions.openPeople = { showing = .people }
+        actions.editLook = { showing = .look }
+        actions.openNotebook = links.openNotebook ?? {}
         return actions
+    }
+}
+
+/// "Edit look": the look picker with its own Save, back to Settings once saved.
+struct LookEditor: View {
+    var model: LookModel
+    var saved: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SettingsHeader(title: "Look", back: { dismiss() })
+            ScrollView {
+                LookPicker(model: model) { _ in
+                    saved()
+                    dismiss()
+                }
+                .padding(PixelMetrics.padding)
+            }
+        }
+        .background(ChatPalette(scheme).well.color)
+        .toolbar(.hidden, for: .navigationBar)
     }
 }
 
@@ -72,30 +142,35 @@ struct SettingsActions {
     var delete: (Schedule) -> Void = { _ in }
     var pauseInstead: () -> Void = {}
     var revoke: (Device) -> Void = { _ in }
-    var unpair: () -> Void = {}
+    var signOut: () -> Void = {}
     var openStatus: () -> Void = {}
+    var openPeople: () -> Void = {}
+    var editLook: () -> Void = {}
+    var openNotebook: () -> Void = {}
 }
 
 /// Every section, top to bottom. The live screen puts it in a scroll view; snapshots draw it as it is.
 struct SettingsContent: View {
     @Bindable var model: SettingsModel
     var text: SettingsText
+    var links = SettingsAppLinks()
     var actions: SettingsActions
 
     @State private var confirming: Confirm?
     @Environment(\.settingsStill) private var still
+    @Environment(\.colorScheme) private var scheme
 
     /// What a destructive button asks first.
     enum Confirm: Identifiable {
         case delete(Schedule)
         case revoke(Device)
-        case unpair
+        case signOut
 
         var id: String {
             switch self {
             case .delete(let schedule): "schedule-\(schedule.id)"
             case .revoke(let device): "device-\(device.id)"
-            case .unpair: "unpair"
+            case .signOut: "sign-out"
             }
         }
 
@@ -103,7 +178,7 @@ struct SettingsContent: View {
             switch self {
             case .delete(let schedule): "Delete “\(schedule.name)”? It won't run again."
             case .revoke(let device): "Remove “\(device.name)”? It stops reaching Marcel at once."
-            case .unpair: "Unpair this phone? It forgets the hub and everything saved from it."
+            case .signOut: "Sign out of this phone? It forgets the hub and everything saved from it."
             }
         }
 
@@ -111,26 +186,20 @@ struct SettingsContent: View {
             switch self {
             case .delete: "Delete"
             case .revoke: "Remove"
-            case .unpair: "Unpair"
+            case .signOut: "Sign out"
             }
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: PixelMetrics.steps(7)) {
+        VStack(alignment: .leading, spacing: PixelMetrics.steps(5)) {
             if let problem = model.problem {
                 ProblemBanner(text: problem) { model.problem = nil }
             }
-            agentSection
-            notificationsSection
-            usageSection
-            schedulesSection
-            devicesSection
-            SettingsCard("System") {
-                SettingsRow("System status", detail: "The hub, the NUC and the last alert") {
-                    SettingsButton(title: "Open", action: actions.openStatus)
-                }
-            }
+            helperGroup
+            youGroup
+            marcelGroup
+            accountGroup
         }
         .confirmationDialog(confirming?.title ?? "", isPresented: Binding(
             get: { confirming != nil }, set: { if !$0 { confirming = nil } }
@@ -139,7 +208,7 @@ struct SettingsContent: View {
                 switch confirm {
                 case .delete(let schedule): actions.delete(schedule)
                 case .revoke(let device): actions.revoke(device)
-                case .unpair: actions.unpair()
+                case .signOut: actions.signOut()
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -148,44 +217,110 @@ struct SettingsContent: View {
 
     // MARK: Sections
 
-    private var agentSection: some View {
-        SettingsCard("Name") {
-            if still {
-                PixelText(model.name, role: .body, capitals: false)
-                    .padding(PixelMetrics.steps(4))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .modifier(FieldBox())
-            } else {
-                TextField("Marcel", text: $model.name)
-                    .pixelText(.body)
-                    .textInputAutocapitalization(.words)
-                    .submitLabel(.done)
-                    .onSubmit(actions.saveName)
-                    .padding(PixelMetrics.steps(4))
-                    .modifier(FieldBox())
-                    .accessibilityLabel("Agent name")
-            }
+    // MARK: Groups
+
+    private var helperGroup: some View {
+        SettingsCard("Helper") {
             if let agent = model.agent {
-                SettingsRow("Thinks with \(agent.modelBrain), works with \(agent.modelWorker)") {
-                    SettingsButton(title: "Save", enabled: model.nameToSave != nil, action: actions.saveName)
+                HStack(spacing: PixelMetrics.steps(4)) {
+                    if let avatar = links.avatar {
+                        avatar
+                            .frame(width: 56, height: 56)
+                            .accessibilityHidden(true)
+                    }
+                    SettingsRow(agent.name, detail: agent.drawnLook.map(LookWords.describe) ?? "The giraffe") {
+                        if links.looks != nil {
+                            SettingsButton(title: "Edit look", action: actions.editLook)
+                        }
+                    }
                 }
-            } else {
-                SettingsNote(text: "Loading…")
+            }
+            nameField
+        }
+    }
+
+    @ViewBuilder private var youGroup: some View {
+        SettingsCard("You") {
+            notificationsRows
+            if let faceID = links.faceID {
+                Toggle(isOn: faceID) {
+                    SettingsRow("Face ID", detail: "Asks for Face ID or the passcode before Marcel opens, and again "
+                                + "after 5 minutes away.")
+                }
+                .toggleStyle(SettingsSwitch())
+                .accessibilityHint("Locks Marcel behind Face ID")
             }
         }
     }
 
-    @ViewBuilder private var notificationsSection: some View {
-        SettingsCard("Notifications") {
+    @ViewBuilder private var marcelGroup: some View {
+        SettingsCard("Marcel") {
+            if links.openNotebook != nil {
+                SettingsRow("Notebook", detail: "What Marcel remembers about you and your projects") {
+                    SettingsButton(title: "Open", action: actions.openNotebook)
+                }
+            }
+            SettingsLabel("Schedules")
+            schedulesRows
+            SettingsLabel("Plan usage")
+            usageRows
+            SettingsRow("System status", detail: "The hub, the NUC and the last alert") {
+                SettingsButton(title: "Open", action: actions.openStatus)
+            }
+        }
+    }
+
+    @ViewBuilder private var accountGroup: some View {
+        SettingsCard("Account") {
+            if model.showsPeople {
+                SettingsRow("People", detail: "Add someone to Marcel, or remove them") {
+                    SettingsButton(title: "Open", action: actions.openPeople)
+                }
+            }
+            SettingsLabel("Phones")
+            phonesRows
+            SettingsButton(title: "Sign out of this phone", destructive: true) { confirming = .signOut }
+        }
+    }
+
+    // MARK: Rows
+
+    @ViewBuilder private var nameField: some View {
+        SettingsLabel("Name")
+        Group {
+            if still {
+                Text(model.name)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .modifier(FieldBox())
+            } else {
+                TextField("Marcel", text: $model.name)
+                    .textInputAutocapitalization(.words)
+                    .submitLabel(.done)
+                    .onSubmit(actions.saveName)
+                    .modifier(FieldBox())
+                    .accessibilityLabel("Your helper's name")
+            }
+        }
+        if let agent = model.agent {
+            SettingsRow("Thinks with \(agent.modelBrain), works with \(agent.modelWorker)") {
+                SettingsButton(title: "Save", enabled: model.nameToSave != nil, action: actions.saveName)
+            }
+        } else {
+            SettingsNote(text: "Loading…")
+        }
+    }
+
+    @ViewBuilder private var notificationsRows: some View {
+        Group {
             switch model.push {
             case .off:
-                SettingsRow("Off on this phone", detail: "Marcel can't reach you when something needs you.") {
+                SettingsRow("Notifications are off", detail: "Marcel can't reach you when something needs you.") {
                     SettingsButton(title: "Turn on", enabled: model.me != nil, action: actions.turnOnNotifications)
                 }
             case .apns:
-                SettingsRow("On", detail: "Through Apple's push service.")
+                SettingsRow("Notifications are on", detail: "Through Apple's push service.")
             case .ntfy(let topic, let server):
-                SettingsRow("On, through ntfy", detail: "Notifications arrive in the ntfy app.")
+                SettingsRow("Notifications are on, through ntfy", detail: "They arrive in the ntfy app.")
                 ForEach(Array(SettingsModel.ntfySteps(topic: topic, server: server).enumerated()), id: \.offset) {
                     SettingsNote(text: "\($0.offset + 1). \($0.element)")
                 }
@@ -202,8 +337,8 @@ struct SettingsContent: View {
         }
     }
 
-    @ViewBuilder private var usageSection: some View {
-        SettingsCard("Plan usage") {
+    @ViewBuilder private var usageRows: some View {
+        Group {
             switch model.usage {
             case .loading: SettingsNote(text: "Loading…")
             case .notAvailableYet: SettingsNote(text: "Not available yet: the hub doesn't read plan usage yet.")
@@ -216,8 +351,8 @@ struct SettingsContent: View {
         }
     }
 
-    @ViewBuilder private var schedulesSection: some View {
-        SettingsCard("Schedules") {
+    @ViewBuilder private var schedulesRows: some View {
+        Group {
             switch model.schedules {
             case .loading: SettingsNote(text: "Loading…")
             case .notAvailableYet: SettingsNote(text: "Not available yet: the hub can't list schedules yet.")
@@ -247,8 +382,8 @@ struct SettingsContent: View {
         }
     }
 
-    @ViewBuilder private var devicesSection: some View {
-        SettingsCard("Devices") {
+    @ViewBuilder private var phonesRows: some View {
+        Group {
             switch model.devices {
             case .loading: SettingsNote(text: "Loading…")
             case .notAvailableYet: SettingsNote(text: "Not available yet: the hub can't list devices yet.")
@@ -262,19 +397,73 @@ struct SettingsContent: View {
                     }
                 }
             }
-            SettingsButton(title: "Unpair this phone", destructive: true) { confirming = .unpair }
         }
     }
 }
 
-/// The name field's box.
+/// The name field's box, rounded like the chat's.
 struct FieldBox: ViewModifier {
     @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         content
-            .foregroundStyle(theme.text.color)
-            .pixelBox(fill: theme.card, line: theme.line, shadow: nil, border: PixelMetrics.thinBorder, offset: 0)
+            .foregroundStyle(theme.ink.color)
+            .padding(.horizontal, 12)
+            .frame(minHeight: PixelMetrics.minTapTarget)
+            .background(theme.card.color, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.line.color, lineWidth: 1))
+    }
+}
+
+/// An on/off switch in the chat look, drawn with shapes (the system switch does not show in snapshots).
+struct SettingsSwitch: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        SwitchBody(configuration: configuration)
+    }
+
+    struct SwitchBody: View {
+        let configuration: Configuration
+        @Environment(\.colorScheme) private var scheme
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+        var body: some View {
+            let theme = ChatPalette(scheme)
+            let on = configuration.isOn
+            HStack(spacing: PixelMetrics.steps(4)) {
+                configuration.label
+                Button { configuration.isOn.toggle() } label: {
+                    Capsule()
+                        .fill((on ? ChatCardKind.done.label(in: theme) : theme.line).color)
+                        .frame(width: 51, height: 31)
+                        .overlay(alignment: on ? .trailing : .leading) {
+                            Circle().fill(Color.white).padding(2).shadow(radius: 1, y: 1)
+                        }
+                        .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: on)
+                        .frame(minWidth: PixelMetrics.minTapTarget, minHeight: PixelMetrics.minTapTarget)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isToggle)
+            .accessibilityValue(on ? "On" : "Off")
+            .accessibilityAction { configuration.isOn.toggle() }
+        }
+    }
+}
+
+/// A small label inside a group ("PHONES", "SCHEDULES").
+struct SettingsLabel: View {
+    var text: String
+    @Environment(\.colorScheme) private var scheme
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        PixelText(text, role: .smallLabel)
+            .foregroundStyle(ChatPalette(scheme).muted.color)
+            .padding(.top, PixelMetrics.steps(2))
+            .accessibilityAddTraits(.isHeader)
     }
 }

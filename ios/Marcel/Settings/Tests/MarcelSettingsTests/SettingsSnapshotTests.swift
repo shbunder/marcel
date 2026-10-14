@@ -1,3 +1,4 @@
+import AvatarKit
 import Foundation
 import PixelKit
 import SwiftUI
@@ -11,13 +12,19 @@ import XCTest
 final class SettingsSnapshotTests: XCTestCase {
     static let both: [Snapshot.Variant] = [.light, .dark]
 
+    /// What the app hands Settings: the helper's avatar, the look picker's hub, Face ID on, and the notebook.
+    static let links = SettingsAppLinks(
+        avatar: AnyView(AvatarFrameView(frame: SpriteSheet.giraffe.loop(for: .idle).firstFrame, box: 56)),
+        looks: NoLooks(), faceID: .constant(true), openNotebook: {})
+
     struct SettingsStill: View {
         var model: SettingsModel
+        var links = SettingsSnapshotTests.links
 
         var body: some View {
             VStack(spacing: 0) {
                 SettingsHeader(title: "Settings", back: {})
-                SettingsContent(model: model, text: Fx.text, actions: SettingsActions())
+                SettingsContent(model: model, text: Fx.text, links: links, actions: SettingsActions())
                     .padding(PixelMetrics.padding)
             }
             .environment(\.settingsStill, true)
@@ -47,6 +54,14 @@ final class SettingsSnapshotTests: XCTestCase {
     /// schedule, this phone and the kitchen iPad.
     func testSettings() async {
         Snapshot.assert(SettingsStill(model: await model(FakeHub())), named: "Settings", variants: Self.both,
+                        padding: 0)
+    }
+
+    /// A family member's Settings: no People.
+    func testSettingsForAMember() async {
+        let hub = FakeHub()
+        hub["GET /me"] = (200, Fx.json(Fx.me().merging(["role": "member", "name": "Emma"]) { $1 }))
+        Snapshot.assert(SettingsStill(model: await model(hub)), named: "Settings-member", variants: [.light],
                         padding: 0)
     }
 

@@ -39,7 +39,7 @@ PAIR_LINK := marcel://pair?hub=http%3A%2F%2F127.0.0.1%3A7499%2Fapi&code=K7Q2M9
 .PHONY: check app test tests-bundle avatar-tests-bundle pixelkit-test pixelkit-bundle pixelkit-record integration \
   chat-test chat-bundle chat-record chat-integration quests-test quests-bundle quests-record quests-integration \
   map-test map-bundle map-record map-integration items-test items-bundle items-record items-integration quest-test \
-  quest-bundle quest-record settings-test settings-bundle settings-record notebook-test notebook-bundle notebook-record \
+  quest-bundle quest-record settings-test settings-bundle settings-record settings-integration notebook-test notebook-bundle notebook-record \
   look-test look-bundle look-record welcome-test welcome-bundle welcome-record welcome-integration generate boot run run-mock stop clean
 
 check: app test pixelkit-test chat-test quests-test map-test items-test quest-test settings-test notebook-test look-test \
@@ -234,9 +234,14 @@ settings-bundle:
 settings-test: settings-bundle $(RUNNER) boot
 	xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS)
 
+# People against the mock hub: add a person (a QR), their phone sees no People, remove them. Start a mock hub first:
+# `MOCK_DELAY=0 MOCK_HUB_PORT=7488 make mock-hub`, then `MOCK_HUB=http://127.0.0.1:7488/api make -C ios settings-integration`.
+settings-integration: settings-bundle $(RUNNER) boot
+	SIMCTL_CHILD_MARCEL_MOCK_HUB=$(MOCK_HUB) xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS) PeopleMockHubTests
+
 # Re-record the Settings snapshots after a deliberate change (the recording run fails by design), then check them.
 settings-record: settings-bundle $(RUNNER) boot
-	-SIMCTL_CHILD_MARCELSETTINGS_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS) SettingsSnapshotTests
+	-SIMCTL_CHILD_MARCELSETTINGS_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS) SettingsSnapshotTests PeopleTests
 	xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS)
 
 # Marcel's notebook (Marcel/Notebook, the MarcelNotebook package): the memory files by section, the editor's save,

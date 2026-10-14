@@ -1,3 +1,4 @@
+import AvatarKit
 import MarcelChat
 import MarcelItems
 import MarcelKit
@@ -53,7 +54,9 @@ struct RootView: View {
     @ViewBuilder private var screen: some View {
         switch (flow.screen, connection.phase) {
         case (.main, .paired(let hub)):
-            MainTabs(connection: connection, hub: hub, router: router)
+            MainTabs(connection: connection, hub: hub, router: router,
+                     faceID: Binding(get: { lock.enabled }, set: { lock.enabled = $0 }),
+                     signOut: { await flow.signOut() })
         case (.onboarding, .paired):
             if let onboarding = flow.onboarding {
                 OnboardingView(model: onboarding) { flow.finishedOnboarding() }
@@ -93,8 +96,13 @@ struct MainTabs: View {
     let connection: HubConnection
     let hub: PairedHub
     let router: LinkRouter
+    /// Face ID on or off (`AppLock.enabled`), for Settings.
+    let faceID: Binding<Bool>
+    /// "Sign out of this phone" (`AppFlow.signOut`).
+    let signOut: () async -> String?
     private let settings: LiveSettingsService
     private let notebook: LiveNotebookService
+    private let looks: LiveLookService
     /// "What Marcel carries": the brain's rollovers, followed from the moment the tabs are up.
     @State private var rollovers = RolloverLog()
     @State private var chat: ChatModel
@@ -106,13 +114,17 @@ struct MainTabs: View {
     static let conversationKey = "chat.mainConversationId"
     static let agentKey = "chat.agentId"
 
-    init(connection: HubConnection, hub: PairedHub, router: LinkRouter) {
+    init(connection: HubConnection, hub: PairedHub, router: LinkRouter, faceID: Binding<Bool>,
+         signOut: @escaping () async -> String?) {
         self.connection = connection
         self.hub = hub
         self.router = router
+        self.faceID = faceID
+        self.signOut = signOut
         let client = HubClient.make(serverURL: hub.serverURL, tokenStore: connection.tokenStore)
         settings = LiveSettingsService(client: client)
         notebook = LiveNotebookService(client: client)
+        looks = LiveLookService(client: client)
         _chat = State(initialValue: ChatModel(
             service: LiveChatService(client: client),
             conversationId: UserDefaults.standard.string(forKey: Self.conversationKey),
@@ -206,7 +218,8 @@ struct MainTabs: View {
     @ViewBuilder private func screen(_ over: OverTabs) -> some View {
         switch over {
         case .settings:
-            SettingsView(model: settingsModel(), status: { StatusModel(service: settings) }, unpair: unpair)
+            SettingsView(model: settingsModel(), status: { StatusModel(service: settings) },
+                         people: { PeopleModel(service: settings) }, links: settingsLinks, signedOut: signedOut)
         case .notebook:
             NotebookView(model: NotebookModel(service: notebook, rollovers: rollovers, projectNames: { [connection] in
                 Dictionary((try? connection.cache.projects())?.map { ($0.slug, $0.name) } ?? [],
@@ -225,14 +238,20 @@ struct MainTabs: View {
         return model
     }
 
-    /// Forgets the hub on this phone. Settings has told the hub first; `note` says so when it couldn't, and shows on
-    /// the pairing screen.
-    private func unpair(_ note: String? = nil) {
+    /// What Settings needs from the app: the helper as the header draws it, the look picker's hub, Face ID, the
+    /// notebook, and signing out.
+    private var settingsLinks: SettingsAppLinks {
+        SettingsAppLinks(
+            avatar: AnyView(AvatarView(state: .idle, box: 56, sheet: chat.avatars.sheet(for: chat.agentId),
+                                       name: chat.agentName ?? AgentName.fallback)),
+            looks: looks, faceID: faceID, openNotebook: { over = .notebook }, signOut: signOut)
+    }
+
+    /// After "Sign out of this phone" (the app is on the welcome screen by now): what to say there when the hub
+    /// wasn't told.
+    private func signedOut(_ note: String?) {
         over = nil
         router.notice = note
-        UserDefaults.standard.removeObject(forKey: Self.conversationKey)
-        UserDefaults.standard.removeObject(forKey: Self.agentKey)
-        connection.unpair()
     }
 
     /// The stream's own words when it is not live.

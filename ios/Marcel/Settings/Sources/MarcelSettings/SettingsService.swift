@@ -8,6 +8,7 @@ public typealias Device = Components.Schemas.Device
 public typealias Schedule = Components.Schemas.Schedule
 public typealias Health = Components.Schemas.Health
 public typealias Agent = Components.Schemas.Agent
+public typealias IssuedPairingCode = Components.Schemas.IssuedPairingCode
 
 /// What Settings, the status screen and the link router ask of the hub. The live one talks to
 /// `contracts/app-api.yaml`; the tests use a fake hub.
@@ -44,6 +45,14 @@ public protocol SettingsService {
     func projects(agentId: String) async throws -> [Project]
     /// `POST /approvals/{id}`.
     func answer(approvalId: String, approve: Bool) async throws
+    /// `GET /users`: everyone, owner first. Owner only.
+    func users() async throws -> [User]
+    /// `POST /users`: a family member and their helper (its look picked from the helper's name). Owner only.
+    func addUser(name: String, helperName: String) async throws -> User
+    /// `POST /users/{id}/pairing-codes`: a one-time code for their phone, ten minutes. Owner only.
+    func pairingCode(userId: String) async throws -> IssuedPairingCode
+    /// `DELETE /users/{id}`: their phones are signed out and their helper stops. Owner only.
+    func removeUser(userId: String) async throws
 }
 
 /// Why something in Settings did not work, in words a family member reads on a phone.
@@ -296,6 +305,51 @@ public struct LiveSettingsService: SettingsService {
         case .unauthorized: throw SettingsError.unauthorized
         case .notFound: throw SettingsError.alreadyAnswered
         case .undocumented(let status, _): throw SettingsError.undocumented(status, "answer")
+        }
+    }
+
+    // MARK: People (B-37)
+
+    public func users() async throws -> [User] {
+        switch try await call({ try await client.listUsers() }) {
+        case .ok(let ok): return try ok.body.json
+        case .unauthorized: throw SettingsError.unauthorized
+        case .forbidden(let no): throw SettingsError.ownerOnly(try? no.body.json.message)
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "people")
+        }
+    }
+
+    public func addUser(name: String, helperName: String) async throws -> User {
+        let answer = try await call {
+            try await client.addUser(body: .json(.init(name: name, agent: .init(name: helperName))))
+        }
+        switch answer {
+        case .created(let created): return try created.body.json
+        case .badRequest(let bad):
+            throw SettingsError.refused((try? bad.body.json.message) ?? "The hub didn't accept those names.")
+        case .unauthorized: throw SettingsError.unauthorized
+        case .forbidden(let no): throw SettingsError.ownerOnly(try? no.body.json.message)
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "add person")
+        }
+    }
+
+    public func pairingCode(userId: String) async throws -> IssuedPairingCode {
+        switch try await call({ try await client.createPairingCode(path: .init(userId: userId)) }) {
+        case .created(let created): return try created.body.json
+        case .unauthorized: throw SettingsError.unauthorized
+        case .forbidden(let no): throw SettingsError.ownerOnly(try? no.body.json.message)
+        case .notFound: throw SettingsError.notFound
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "pairing code")
+        }
+    }
+
+    public func removeUser(userId: String) async throws {
+        switch try await call({ try await client.removeUser(path: .init(userId: userId)) }) {
+        case .noContent, .notFound: return  // gone, or already gone
+        case .unauthorized: throw SettingsError.unauthorized
+        case .forbidden(let no): throw SettingsError.ownerOnly(try? no.body.json.message)
+        case .conflict(let no): throw SettingsError.refused((try? no.body.json.message) ?? "The owner can't be removed.")
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "remove person")
         }
     }
 

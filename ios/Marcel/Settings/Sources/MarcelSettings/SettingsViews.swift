@@ -6,41 +6,17 @@ extension EnvironmentValues {
     @Entry public var settingsStill = false
 }
 
-/// "◀ Settings": the header of Settings and the status screen.
+/// "‹ Settings": a screen's top strip on white (the chat look, ADR-007).
 struct SettingsHeader: View {
     var title: String
     var back: () -> Void
 
-    @Environment(\.colorScheme) private var scheme
-
     var body: some View {
-        let theme = PixelTheme(scheme)
-        HStack(spacing: PixelMetrics.steps(3)) {
-            Button(action: back) {
-                PixelGlyph(.pointer, color: theme.text, pixel: 3)
-                    .scaleEffect(x: -1)
-                    .frame(width: PixelMetrics.minTapTarget, height: PixelMetrics.minTapTarget)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-            PixelText(title, role: .title)
-                .foregroundStyle(theme.text.color)
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, PixelMetrics.steps(1))
-        .padding(.trailing, PixelMetrics.padding)
-        .padding(.vertical, PixelMetrics.steps(3))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.bar.color)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.line.color).frame(height: PixelMetrics.thinBorder)
-        }
+        ChatHeader(title, back: back)
     }
 }
 
-/// A titled box: the section's name in the accent colour, its rows underneath.
+/// A titled card: the group's name in the link colour ("HELPER"), its rows underneath, on a white surface.
 struct SettingsCard<Content: View>: View {
     var title: String
     var content: Content
@@ -53,23 +29,24 @@ struct SettingsCard<Content: View>: View {
     }
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(4)) {
             PixelText(title, role: .smallLabel)
-                .foregroundStyle(theme.accent.color)
+                .foregroundStyle(theme.link.color)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
             content
         }
-        .foregroundStyle(theme.text.color)
+        .foregroundStyle(theme.ink.color)
         .padding(PixelMetrics.padding + PixelMetrics.thinBorder)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .pixelBox(fill: theme.dialog, line: theme.line, shadow: theme.shadow, border: PixelMetrics.thinBorder,
-                  offset: PixelMetrics.smallShadow)
+        .fixedSize(horizontal: false, vertical: true)
+        .chatSurface()
         .accessibilityElement(children: .contain)
     }
 }
 
-/// A pixel button: a small boxed label, at least 44 pt tall.
+/// A small rounded button with a pixel label, at least 44 pt tall; a destructive one in the "failed" colour.
 struct SettingsButton: View {
     var title: String
     var destructive = false
@@ -79,14 +56,15 @@ struct SettingsButton: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
+        let tint = destructive ? ChatCardKind.failed.label(in: theme) : theme.ink
         Button(action: action) {
             PixelText(title, role: .smallLabel)
-                .foregroundStyle((destructive ? theme.accent : theme.text).color)
-                .padding(.horizontal, PixelMetrics.steps(5))
+                .foregroundStyle(tint.color)
+                .padding(.horizontal, 14)
                 .frame(minHeight: PixelMetrics.minTapTarget)
-                .pixelBox(fill: theme.card, line: destructive ? theme.accent : theme.line, shadow: theme.shadow,
-                          border: PixelMetrics.thinBorder, offset: PixelMetrics.smallShadow)
+                .background(theme.card.color, in: Capsule())
+                .overlay(Capsule().strokeBorder(destructive ? tint.color : theme.line.color, lineWidth: 1))
                 .opacity(enabled ? 1 : 0.5)
         }
         .buttonStyle(.plain)
@@ -94,7 +72,7 @@ struct SettingsButton: View {
     }
 }
 
-/// One line of a section: a label, and a detail line under it in the muted colour.
+/// One line of a card: a label, and a detail line under it in the muted colour.
 struct SettingsRow<Trailing: View>: View {
     var label: String
     var detail: String?
@@ -109,7 +87,7 @@ struct SettingsRow<Trailing: View>: View {
     }
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .center, spacing: PixelMetrics.steps(4)) {
                 text(theme)
@@ -123,12 +101,13 @@ struct SettingsRow<Trailing: View>: View {
         }
     }
 
-    private func text(_ theme: PixelTheme) -> some View {
+    private func text(_ theme: ChatPalette) -> some View {
         VStack(alignment: .leading, spacing: PixelMetrics.steps(1)) {
-            PixelText(label, role: .label, capitals: false)
+            Text(label).font(.body)
+                .foregroundStyle(theme.ink.color)
                 .fixedSize(horizontal: false, vertical: true)
             if let detail {
-                PixelText(detail, role: .detail)
+                Text(detail).font(.footnote)
                     .foregroundStyle(theme.muted.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -137,7 +116,7 @@ struct SettingsRow<Trailing: View>: View {
     }
 }
 
-/// A plain sentence in the muted colour: "Not available yet…", "Loading…".
+/// A plain sentence in the muted colour: "Not available yet…", "Loading…"; a problem in the link colour.
 struct SettingsNote: View {
     var text: String
     var accent = false
@@ -145,39 +124,39 @@ struct SettingsNote: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
-        PixelText(text, role: .detail)
-            .foregroundStyle((accent ? theme.accent : theme.muted).color)
+        let theme = ChatPalette(scheme)
+        Text(text).font(.footnote)
+            .foregroundStyle((accent ? theme.link : theme.muted).color)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// A usage bar: label and percentage, then the bar on the theme's track and fill.
+/// A usage bar: label and percentage, then a rounded bar on the well colour, filled in the link colour.
 struct UsageMeterView: View {
     var meter: SettingsText.Meter
 
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
             HStack {
-                PixelText(meter.label, role: .label, capitals: false)
+                Text(meter.label).font(.body)
                 Spacer(minLength: 0)
-                PixelText(meter.value, role: .label)
+                Text(meter.value).font(.body.monospacedDigit().weight(.semibold))
             }
+            .foregroundStyle(theme.ink.color)
             GeometryReader { geometry in
-                let width = (geometry.size.width * meter.fraction / PixelMetrics.grid).rounded() * PixelMetrics.grid
                 ZStack(alignment: .leading) {
-                    Rectangle().fill(theme.track.color)
-                    Rectangle().fill(theme.fill.color).frame(width: width)
+                    Capsule().fill(theme.well.color)
+                    Capsule().fill(theme.link.color).frame(width: geometry.size.width * meter.fraction)
                 }
             }
-            .frame(height: PixelMetrics.steps(5))
-            .overlay(Rectangle().strokeBorder(theme.line.color, lineWidth: PixelMetrics.thinBorder))
+            .frame(height: 8)
+            .overlay(Capsule().strokeBorder(theme.line.color, lineWidth: 1))
             if let detail = meter.detail {
-                PixelText(detail, role: .detail).foregroundStyle(theme.muted.color)
+                Text(detail).font(.footnote).foregroundStyle(theme.muted.color)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -193,15 +172,14 @@ struct ProblemBanner: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         Button(action: dismiss) {
-            PixelText(text, role: .detail)
-                .foregroundStyle(theme.accent.color)
+            Text(text).font(.subheadline)
+                .foregroundStyle(theme.link.color)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(PixelMetrics.padding)
-                .pixelBox(fill: theme.card, line: theme.accent, shadow: nil, border: PixelMetrics.thinBorder,
-                          offset: 0)
+                .chatSurface(.well)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Problem: \(text)")

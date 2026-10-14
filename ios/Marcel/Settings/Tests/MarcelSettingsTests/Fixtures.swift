@@ -1,6 +1,7 @@
 import Foundation
 import HTTPTypes
 import MarcelKit
+import MarcelLook
 import OpenAPIRuntime
 import XCTest
 
@@ -25,7 +26,22 @@ enum Fx {
     static func me(apns: Bool = false, ntfy: Bool = true) -> [String: Any] {
         var push: [String: Any] = ["apns": apns, "ntfy": ntfy]
         if ntfy { push["ntfy_server"] = "https://ntfy.sh" }
-        return ["user_id": "usr_owner", "name": "Shaun", "device_id": "dev_phone", "agents": [agent], "push": push]
+        return ["user_id": "usr_owner", "name": "Shaun", "role": "owner", "device_id": "dev_phone", "agents": [agent],
+                "push": push]
+    }
+
+    /// Everyone, as the owner's People screen lists them (`GET /users`).
+    nonisolated(unsafe) static let users: [[String: Any]] = [
+        ["id": "usr_owner", "name": "Shaun", "role": "owner", "created_at": at(-86_400 * 60),
+         "agent": ["id": "agt_marcel", "name": "Marcel"], "device_count": 2, "quests_this_week": 12],
+        ["id": "usr_emma", "name": "Emma", "role": "member", "created_at": at(-86_400 * 3),
+         "agent": ["id": "agt_pip", "name": "Pip", "look": ["animal": "fox", "color": "sky", "personality": "cozy"]],
+         "device_count": 1, "quests_this_week": 3],
+    ]
+
+    static func issued(_ code: String = "R4T8WZ", minutesLeft: Double = 10) -> [String: Any] {
+        ["code": code, "link": "marcel://pair?hub=http%3A%2F%2Fhub.test%2Fapi&code=\(code)",
+         "expires_at": at(minutesLeft * 60)]
     }
 
     static func devices(phonePush: String = "ntfy") -> [[String: Any]] {
@@ -110,6 +126,7 @@ final class FakeHub: ClientTransport, @unchecked Sendable {
         self["GET /usage"] = (200, Fx.json(Fx.usage))
         self["GET /health"] = (200, Fx.json(Fx.health))
         self["GET /approvals"] = (200, Fx.json(Fx.approvals))
+        self["GET /users"] = (200, Fx.json(Fx.users))
         self["GET /projects"] = (200, Fx.json([Fx.project("prj_energy", slug: "energy", name: "Energy contracts")]))
         // By id (app API 0.5): one open approval, one answered (no longer in `GET /approvals`), and messages the
         // phone has cached and one it has not.
@@ -158,6 +175,12 @@ final class FakeHub: ClientTransport, @unchecked Sendable {
         fields[.contentType] = "application/json"
         return (HTTPResponse(status: .init(code: status), headerFields: fields), json.isEmpty ? nil : HTTPBody(json))
     }
+}
+
+/// The look picker's hub, unused in these tests.
+struct NoLooks: LookService {
+    func preview(_ look: KnownLook) async throws -> Data { throw LookError.unreachable }
+    func save(_ look: KnownLook, agentId: String) async throws -> Agent { throw LookError.unreachable }
 }
 
 /// An APNs token source that answers as told.

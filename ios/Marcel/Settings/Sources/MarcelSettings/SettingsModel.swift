@@ -42,6 +42,8 @@ public enum PushRoute: Equatable, Sendable {
 @Observable
 public final class SettingsModel {
     public private(set) var me: Me?
+    /// People is the owner's only (B-37): a family member never sees it.
+    public var showsPeople: Bool { me?.role == .owner }
     /// The agent Settings is about (the first one; a household has one agent per person).
     public var agent: Agent? { me?.agents.first }
     /// What is typed in the name field.
@@ -287,36 +289,18 @@ public final class SettingsModel {
 
     // MARK: Devices
 
-    /// Unpairing this phone: tells the hub first (`DELETE /devices/{this phone}`), so its token stops working and
-    /// pushes stop coming, then forgets the ntfy topic. Call before forgetting the token on the phone. Returns what to
-    /// tell the person when the hub could not be told; the phone unpairs either way.
-    public func forgetThisPhone() async -> String? {
-        defer { topics.clear() }
-        guard let deviceId = me?.deviceId ?? thisDevice else {
-            return "Couldn't tell the hub which phone this is, so it may still send to it. "
-                + "Remove this phone under Devices on another phone."
-        }
-        do {
-            try await service.revoke(deviceId: deviceId)
-            return nil
-        } catch SettingsError.notFound, SettingsError.unauthorized {
-            // The hub had already forgotten this phone.
-            return nil
-        } catch {
-            let why = switch error as? SettingsError {
-            case .offline: "it couldn't be reached"
-            case .hubProblem: "it had a problem"
-            default: "it didn't answer as expected"
-            }
-            return "Unpaired, but the hub wasn't told (\(why)), so it may still send to this phone. "
-                + "Remove this phone under Devices on another phone."
-        }
+    /// "Sign out of this phone": forgets this phone's ntfy topic, then runs the app's sign-out (`AppFlow.signOut`:
+    /// the hub forgets this phone, then the phone forgets the hub, the sign-in and the cache). Returns what to tell
+    /// the person when the hub could not be told; the phone signs out either way.
+    public func signOut(_ appSignOut: () async -> String?) async -> String? {
+        topics.clear()
+        return await appSignOut()
     }
 
     /// Revokes another device. This phone is unpaired instead (it forgets the hub too).
     public func revoke(_ device: Device) async {
         guard device.current != true else {
-            problem = "To remove this phone, use Unpair this phone."
+            problem = "To remove this phone, use Sign out of this phone."
             return
         }
         guard !busy else { return }

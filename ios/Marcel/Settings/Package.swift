@@ -12,6 +12,10 @@ let package = Package(
     dependencies: [
         .package(path: "../../MarcelKit"),
         .package(path: "../../PixelKit"),
+        // "Edit look" in the Helper group (S-17.6).
+        .package(path: "../Look"),
+        // Only the tests draw an avatar; the app passes its own (SettingsAppLinks.avatar).
+        .package(path: "../../AvatarKit"),
     ],
     targets: [
         .target(
@@ -19,8 +23,11 @@ let package = Package(
             dependencies: [
                 .product(name: "MarcelKit", package: "MarcelKit"),
                 .product(name: "PixelKit", package: "PixelKit"),
+                .product(name: "MarcelLook", package: "Look"),
             ]
         ),
-        .testTarget(name: "MarcelSettingsTests", dependencies: ["MarcelSettings"], exclude: ["__Snapshots__"]),
+        .testTarget(name: "MarcelSettingsTests",
+                    dependencies: ["MarcelSettings", .product(name: "AvatarKit", package: "AvatarKit")],
+                    exclude: ["__Snapshots__"]),
     ]
 )

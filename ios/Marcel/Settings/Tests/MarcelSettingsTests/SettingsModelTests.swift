@@ -300,7 +300,7 @@ final class SettingsModelTests: XCTestCase {
         hub["DELETE /devices/dev_ipad"] = (204, "")
         let model = await loaded(hub)
         await model.revoke(model.devices.value![0])
-        XCTAssertEqual(model.problem, "To remove this phone, use Unpair this phone.")
+        XCTAssertEqual(model.problem, "To remove this phone, use Sign out of this phone.")
         await model.revoke(model.devices.value![1])
         XCTAssertEqual(model.devices.value?.map(\.id), ["dev_phone"])
         XCTAssertEqual(hub.requests.filter { $0.hasPrefix("DELETE") }, ["DELETE /devices/dev_ipad"])
@@ -336,7 +336,7 @@ final class SettingsModelTests: XCTestCase {
     }
 }
 
-/// The review's fixes to Settings: unpairing tells the hub, a hub's own failure says so, the topic stays on this
+/// The review's fixes to Settings: signing out forgets the topic, a hub's own failure says so, the topic stays on this
 /// phone, and an APNs timeout fails only its own attempt.
 @MainActor
 final class SettingsReviewFixTests: XCTestCase {
@@ -346,38 +346,21 @@ final class SettingsReviewFixTests: XCTestCase {
         return model
     }
 
-    /// Fix 2: unpairing revokes this phone on the hub (its token stops, pushes stop) and forgets the ntfy topic.
-    func testUnpairingTellsTheHubAndForgetsTheTopic() async {
-        let hub = FakeHub()
-        hub["DELETE /devices/dev_phone"] = (204, "")
-        let topics = NtfyTopicStore(defaults: .scratch())
-        _ = topics.topic()
-        let model = await loaded(hub, topics: topics)
-        let note = await model.forgetThisPhone()
-        XCTAssertNil(note)
-        XCTAssertTrue(hub.requests.contains("DELETE /devices/dev_phone"), "\(hub.requests)")
-        XCTAssertNil(topics.saved)
-    }
-
-    func testUnpairingWhenTheHubAlreadyForgotThisPhone() async {
-        let hub = FakeHub()
-        hub["DELETE /devices/dev_phone"] = (404, Fx.error("device_not_found", "No such device."))
-        let model = await loaded(hub, topics: NtfyTopicStore(defaults: .scratch()))
-        let note = await model.forgetThisPhone()
-        XCTAssertNil(note)
-    }
-
-    func testUnpairingOfflineStillUnpairsAndSaysSo() async {
+    /// Fix 2, since S-17.5: "Sign out of this phone" forgets the ntfy topic and runs the app's sign-out, which tells
+    /// the hub (AppFlow.signOut, tested in MarcelWelcome) and passes on its note.
+    func testSignOutForgetsTheTopicAndRunsTheAppsSignOut() async {
         let hub = FakeHub()
         let topics = NtfyTopicStore(defaults: .scratch())
         _ = topics.topic()
         let model = await loaded(hub, topics: topics)
-        hub.offline = true
-        let note = await model.forgetThisPhone()
-        XCTAssertEqual(note, "Unpaired, but the hub wasn't told (it couldn't be reached), so it may still send to "
-            + "this phone. Remove this phone under Devices on another phone.")
-        XCTAssertTrue(hub.requests.contains("DELETE /devices/dev_phone"), "tried with the saved device id")
-        XCTAssertNil(topics.saved, "the topic is forgotten either way")
+        var ran = 0
+        let note = await model.signOut {
+            ran += 1
+            return "Signed out, but the hub wasn't told."
+        }
+        XCTAssertEqual(ran, 1)
+        XCTAssertEqual(note, "Signed out, but the hub wasn't told.")
+        XCTAssertNil(topics.saved, "the topic is forgotten")
     }
 
     /// Fix 4: a 5xx is the hub's own problem, not "something the app doesn't understand".

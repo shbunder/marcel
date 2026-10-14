@@ -48,7 +48,7 @@ public struct StatusView: View {
             }
             .refreshable { await model.load() }
         }
-        .background(PixelTheme(scheme).background.color)
+        .background(ChatPalette(scheme).well.color)
         .toolbar(.hidden, for: .navigationBar)
         .task { await model.load() }
     }
@@ -61,8 +61,8 @@ struct StatusContent: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
-        VStack(alignment: .leading, spacing: PixelMetrics.steps(7)) {
+        let theme = ChatPalette(scheme)
+        VStack(alignment: .leading, spacing: PixelMetrics.steps(5)) {
             SettingsCard("Now") {
                 switch model.health {
                 case .loading: SettingsNote(text: "Asking the hub…")
@@ -81,7 +81,7 @@ struct StatusContent: View {
             SettingsCard("Last alert") {
                 if let alert = model.alert {
                     SettingsRow(alert.title, detail: alert.body)
-                    PixelText(text.when(alert.at), role: .detail).foregroundStyle(theme.muted.color)
+                    Text(text.when(alert.at)).font(.footnote).foregroundStyle(theme.muted.color)
                 } else {
                     SettingsNote(text: "No alerts on this phone.")
                 }

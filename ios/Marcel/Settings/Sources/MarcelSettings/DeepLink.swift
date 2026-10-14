@@ -32,7 +32,7 @@ public enum DeepLink: Equatable, Hashable, Sendable {
         public var errorDescription: String? {
             switch self {
             case .notMarcel: "That isn't a Marcel link, so the app ignored it."
-            case .pairing: "This phone is paired already. To pair again, unpair in Settings and scan the new code."
+            case .pairing: "This phone is signed in already. To sign in again, use Sign out of this phone in Settings, then scan the new code."
             case .unknownKind: "That Marcel link points somewhere this app doesn't know. The app may need an update."
             case .damaged: "That Marcel link is damaged, so the app couldn't open it."
             }

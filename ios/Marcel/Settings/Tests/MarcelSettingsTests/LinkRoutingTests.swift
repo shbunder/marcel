@@ -125,7 +125,7 @@ final class LinkRoutingTests: XCTestCase {
             ("marcel://task/../../etc", "That Marcel link is damaged, so the app couldn't open it."),
             ("marcel://task/tsk_1?then=https://evil.example", "That Marcel link is damaged, so the app couldn't open it."),
             ("marcel://pair?hub=https%3A%2F%2Fevil.example&code=K7Q2M9",
-             "This phone is paired already. To pair again, unpair in Settings and scan the new code."),
+             "This phone is signed in already. To sign in again, use Sign out of this phone in Settings, then scan the new code."),
         ]
         for attached in [false, true] {
             let hub = FakeHub()

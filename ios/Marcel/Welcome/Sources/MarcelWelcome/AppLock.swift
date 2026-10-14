@@ -13,12 +13,11 @@ public final class AppLock {
     public private(set) var locked: Bool
     /// Why the last unlock did not work, in plain words.
     public private(set) var problem: String?
-    /// On by default; Settings turns it off (S-17.6).
+    /// On by default; Settings turns it off (S-17.6). Kept between launches.
     public var enabled: Bool {
-        get { defaults.object(forKey: Self.enabledKey) as? Bool ?? true }
-        set {
-            defaults.set(newValue, forKey: Self.enabledKey)
-            if !newValue { locked = false }
+        didSet {
+            defaults.set(enabled, forKey: Self.enabledKey)
+            if !enabled { locked = false }
         }
     }
 
@@ -37,6 +36,7 @@ public final class AppLock {
         self.now = now
         self.defaults = defaults
         let on = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
+        enabled = on
         locked = on && authenticator.canAuthenticate()
     }
 

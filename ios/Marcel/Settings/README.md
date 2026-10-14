@@ -1,22 +1,35 @@
-# Settings — settings, notifications and links (S-12.10)
+# Settings — settings, people, notifications and links (S-12.10, S-17.6)
 
-Settings (B-18, B-19, B-22), the system status screen, and where every `marcel://` link and every push leads. Drawn
-with PixelKit components. Settings opens from the avatar header in the chat (tap the giraffe,
-then "Settings"; the same menu opens Marcel's notebook, `Marcel/Notebook`).
+Settings (B-18, B-19, B-22, B-40), People (B-37), the system status screen, and where every `marcel://` link and every
+push leads. Drawn in the chat look (ADR-007: white header, rounded white cards on the soft ground, capsule buttons),
+like Map, Items and the notebook. Settings opens from the avatar header in the chat.
 
-It is a Swift package (`MarcelSettings`) so its tests run in the simulator like the other packages'. It depends only on
-MarcelKit and PixelKit. It does not show the screens a link leads to: it says where to go (`LinkDestination`), and the
+It is a Swift package (`MarcelSettings`) so its tests run in the simulator like the other packages'. It depends on
+MarcelKit, PixelKit and MarcelLook (the look picker); what it needs from the rest of the app comes in
+`SettingsAppLinks`: the helper's avatar as the header draws it, the look picker's hub, the Face ID switch
+(`AppLock.enabled`), opening the notebook, and signing out (`AppFlow.signOut`). It does not show the screens a link leads to: it says where to go (`LinkDestination`), and the
 app (`ios/Marcel/App/RootView.swift`) shows the quest view, the artifact viewer, a Map room or a chat message.
 
 ## Settings
 
-| Section | Hub routes | What it does |
+Four groups (explainer Q6):
+
+- **Helper** — the avatar, the name and look in words, **Edit look** (the S-19.4 picker, with its own Save), and the
+  name field (rename).
+- **You** — notifications, and **Face ID** (on by default; asked before the app opens and after 5 minutes away).
+- **Marcel** — the notebook, schedules, plan usage, and the system status screen.
+- **Account** — **People** (the owner only: `GET /me`'s `role`), **Phones**, and **Sign out of this phone**: forgets the
+  ntfy topic, then runs `AppFlow.signOut` (the hub forgets this phone, then the phone forgets the hub, the sign-in and
+  the cache, and shows the welcome screen; offline it still signs out and says the hub wasn't told).
+
+| Part | Hub routes | What it does |
 |---|---|---|
 | Name | `GET /me`, `PATCH /agents/{id}` | Rename the agent (1–40 characters). Shows its brain and worker models. The name is passed on (`SettingsModel.nameChanged`) so the chat header follows a rename. |
 | Notifications | `PUT /devices/{id}/push` | APNs when `/me` says the hub has it **and** this build can get a token; else an ntfy topic, with the steps to subscribe in the ntfy app (B-18). |
 | Plan usage | `GET /usage` | The 5-hour and weekly meters, reset times, and the usage guard's own words while it holds work back. A 503 `no_reading` (the runner has not read usage since it started) says "Usage unavailable" as a plain note, not a problem. |
 | Schedules | `GET /schedules`, `PATCH`, `DELETE /schedules/{id}` | Pause / resume any schedule; delete one after a confirmation. Built-in digests can only be paused: they have no Delete button, and if the hub still answers 409 `schedule_builtin` the app says why in plain words, hides Delete and offers "Pause it instead?". 404 `schedule_not_found` means it was already deleted (the row goes); the generic `not_found` means an older hub ("not available yet"). |
-| Devices | `GET /devices`, `DELETE /devices/{id}` | Every paired device; remove another one (after a confirmation). **Unpair this phone** first revokes this phone on the hub (`DELETE /devices/{own id}`, so its token stops and pushes stop), forgets the ntfy topic, then forgets the hub. If the hub can't be told, the phone still unpairs and the pairing screen says so. |
+| Phones | `GET /devices`, `DELETE /devices/{id}` | Every paired device; remove another one (after a confirmation). This phone signs out with **Sign out of this phone** instead. |
+| People | `GET /users`, `POST /users`, `POST /users/{id}/pairing-codes`, `DELETE /users/{id}` | The owner only (`PeopleModel`, `PeopleView`). Everyone with their helper, phones and quests this week. **Add person**: their name and their helper's (the hub picks the helper's look from its name), then the code for their first phone as a QR, the code, **Send link**, and the time left ("Expires in 9 min."). **New code** for anyone. **Remove** after a confirmation that says what happens: "Emma's phones are signed out and Emma's helper, Pip, stops. Their chats and notes stay on the hub." — said again once done, and the person is gone from the list. A member asking gets the hub's own words (403 `owner_only`). |
 | System | `GET /health` | Opens the status screen. |
 
 Each section loads and fails on its own. A hub that answers **404, 405 or 501** for a route the contract has (schedules
@@ -29,7 +42,7 @@ the thing is gone (`SettingsError.missing`). A bare 404 that does not decode is 
 
 **ntfy topic.** Made once per phone (`NtfyTopicStore`): `marcel-` and 24 random lower-case letters and digits. Anyone
 who knows a topic can read what is sent to it, so it is random, the screen says to keep it private, **Copy** puts it on
-this phone's clipboard only (never Universal Clipboard) for two minutes (`TopicClipboard`), and unpairing forgets it.
+this phone's clipboard only (never Universal Clipboard) for two minutes (`TopicClipboard`), and signing out forgets it.
 
 **APNs.** `APNsRegistrar` asks for permission, calls `registerForRemoteNotifications`, and waits for the app delegate to
 pass on the token (20 s at most, per attempt: an earlier attempt's timer never fails a later one). The app has no `aps-environment` entitlement until there is an Apple developer
@@ -94,13 +107,18 @@ the terminal first, not paired, no id) the phone shows a local notification that
   real in-memory cache. Also: messages and approvals read by id (and the fallback on an older hub), bad links open
   nothing and never reach the hub, links to things that are gone, Approve and Deny, every contract category registered.
 - `SettingsReviewFixTests` and the review tests in `LinkRoutingTests` — Approve from the lock screen with the app not
-  running; unpairing tells the hub (and still unpairs offline); 5xx, 401 and offline said apart; the topic copied to
+  running; signing out forgets the topic and runs the app's sign-out; 5xx, 401 and offline said apart; the topic copied to
   this phone only; an APNs timeout failing only its own attempt; a pairing link on the pairing screen.
 - `DeepLinkTests` — every kind, and malformed, foreign and oversized links refused.
 - `SettingsModelTests` — each section against the fake hub; "not available yet" on 404 / 405 / 501; rename; APNs, the
   ntfy fallback, refused permission; pause, delete, built-in digests (409 `schedule_builtin` → "Pause it instead?"), a schedule
   already gone (`schedule_not_found`); the APNs token's hex check; revoking a device; the words each section shows;
   "usage unavailable" on 503 `no_reading`; the name passed on for the chat header.
-- `SettingsSnapshotTests` — Settings (everything there; a hub with no schedules or usage yet; no usage reading yet; deleting a built-in digest offering pause) and
+- `PeopleTests` (S-17.6) — the owner sees People and a member does not (nor a hub that does not say); everyone listed
+  with helper, phones and quests; adding Emma shows a QR, the code and the time left; removing her says what happens
+  and she is gone; a member's 403 in the hub's words; snapshots "People" (with a code) and "People-removed".
+  `PeopleMockHubTests` does it against the mock hub (`make -C ios settings-integration`): the owner adds someone and
+  gets a QR, their phone pairs and has no People, removing them signs that phone out.
+- `SettingsSnapshotTests` — Settings (the owner's, everything there; a member's, no People; a hub with no schedules or usage yet; no usage reading yet; deleting a built-in digest offering pause) and
   the status screen, in
   light and dark, pixel for pixel. `make -C ios settings-record` re-records them after a deliberate change.
