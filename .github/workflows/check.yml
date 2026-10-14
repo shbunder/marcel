@@ -11,7 +11,8 @@ on:
 
 concurrency:
   group: check-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push cancels an older PR run; on main every commit gets a full run, so none looks red by mistake.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
