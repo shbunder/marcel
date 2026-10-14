@@ -1,3 +1,9 @@
+---
+paths:
+  - "contracts/**"
+  - "project/contract-requests/**"
+---
+
 # Rule — contracts are law
 
 `contracts/` (OpenAPI, JSON Schemas, the channel protocol and the task state machine) is what lets

@@ -1,3 +1,12 @@
+---
+paths:
+  - "deploy/**"
+  - "brain/**"
+  - "runner/**"
+  - "hub/src/marcel_hub/selfmod.py"
+  - "hub/src/marcel_hub/watchdog/**"
+---
+
 # Rule — the one legal restart path
 
 Marcel redeploys itself only through the flag file:
