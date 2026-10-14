@@ -1,6 +1,6 @@
 ---
 name: story-verifier
-description: Verifies one finished story before the lead merges it. Builds a done-when → evidence table, checks scope against `touches:`, runs the lane gate, hunts for controls whose tests cannot fail and for untested degraded paths. Reports; never fixes.
+description: Verifies one finished story before it lands on main or goes to a PR. Builds a done-when → evidence table, checks scope against `touches:`, runs the lane gate, hunts for controls whose tests cannot fail and for untested degraded paths. Reports; never fixes.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

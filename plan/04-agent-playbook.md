@@ -8,7 +8,7 @@ both roles.
 
 | Role | Model | Owns | Never does |
 |---|---|---|---|
-| **Lead** | Opus | F01, F02 (contracts), spike folding, story refinement, the merge queue, cross-lane integration, the end-to-end acceptance run | Writes large feature code itself |
+| **Lead** | Opus | F01, F02 (contracts), spike folding, story refinement, merging owner-approved PRs, cross-lane integration, the end-to-end acceptance run | Writes large feature code itself |
 | **Implementer** | Sonnet | Exactly one story at a time, on its own branch or worktree | Changes `contracts/` (it proposes a change to the lead instead), touches files outside the story's `touches:`, or lands without the verifier's "merge" verdict |
 | **Verifier** | Sonnet (fresh context) | Runs the pre-merge checklist on a finished story | Fixes things; it reports them |
 

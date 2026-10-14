@@ -18,4 +18,4 @@ and add `updated_at`. Rows reported as "on the board but not in project/stories"
 deleting. Add one `log` row: `synced from <short sha>: N new, M updated`.
 
 **set <id> <status> [reason]** — `get`, then `update` with `if_version`: `status`, `updated_at`, and
-`blocked_reason` (set for Blocked, `""` otherwise). One `log` row. Only `/merge-story` sets Done.
+`blocked_reason` (set for Blocked, `""` otherwise). One `log` row. Done is set by `/finish-story` (landed) or `/merge-story` (PR).

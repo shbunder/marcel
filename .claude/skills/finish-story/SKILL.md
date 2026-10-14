@@ -19,10 +19,12 @@ Finish: $ARGUMENTS   (empty = the id in the branch name `story/<id>`)
    - **Land** (the default), with a verdict of "merge":
      ```bash
      git fetch origin && git switch --detach origin/main
-     git merge --no-ff story/<id> -m "Merge story/<id>: <title>"
+     git merge --no-ff story/<id> -m "Merge story/<id>: <title>" -m "Board: <id> → Done"
      make -C <each lane the story touches> check     # main may have moved since you branched
      git push origin HEAD:main                       # rejected → start this step again
-     gh run watch "$(gh run list --branch main --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status
+     sha=$(git rev-parse HEAD)                       # the run can take a few seconds to appear
+     until run=$(gh run list --commit "$sha" --limit 1 --json databaseId -q '.[0].databaseId') && [ -n "$run" ]; do sleep 5; done
+     gh run watch "$run" --exit-status
      ```
      A red `check` on `main` is yours: fix it before anything else.
    - **PR:** `git push -u origin story/<id>`, `gh pr create --base main --title "[<id>] <title>"`. Body: what
@@ -32,7 +34,9 @@ Finish: $ARGUMENTS   (empty = the id in the branch name `story/<id>`)
    `{status: "Done", updated_at: "<now>"}` and a `log` row `{kind: "merge", text: "landed <sha> on main"}`;
    PR → `{status: "Review", pr: "<url>", updated_at: "<now>"}` and a `log` row (`kind: "status"`).
 6. **Clean up** a landed story: leave the worktree (`cd` to the main checkout) and
-   `git worktree remove ../marcel-<id> && git branch -d story/<id>`.
+   `git worktree remove ../marcel-<id>`, then
+   `git merge-base --is-ancestor story/<id> origin/main && git branch -D story/<id>` (`-d` compares with the
+   local `main`, which is usually behind).
 
 Tell the owner in plain words: landed (with the CI result) or the PR link and why it needs them, and what
 the verifier flagged.
