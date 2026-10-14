@@ -47,10 +47,12 @@ class Brains(FakeBrains):
         self.prepare_fails: Exception | None = None
 
     async def prepare_brain(
-        self, *, agent_slug: str, name: str, person_name: str, personality: str | None
-    ) -> str:
+        self, *, agent_slug: str, name: str, person_name: str, personality: str | None,
+        animal: str | None = None,
+    ) -> str:  # fmt: skip
         self.prepared.append(
             {'slug': agent_slug, 'name': name, 'person': person_name, 'personality': personality}
+            | ({'animal': animal} if animal else {})
         )
         if self.prepare_fails is not None:
             raise self.prepare_fails
@@ -58,13 +60,14 @@ class Brains(FakeBrains):
 
 
 def add(engine: Engine, *, slug: str | None, user: str, person: str, name: str,
-        personality: str | None = None, archived: bool = False) -> str:  # fmt: skip
+        personality: str | None = None, animal: str | None = None,
+        archived: bool = False) -> str:  # fmt: skip
     with Session(engine) as s:
         if s.get(User, user) is None:
             role = UserRole.owner if user == OWNER_USER_ID else UserRole.member
             s.add(User(id=user, name=person, role=role))
         agent = Agent(owner_user_id=user, name=name, animal='fox', palette='tangerine', seed=name,
-                      slug=slug, look_personality=personality,
+                      slug=slug, look_personality=personality, look_animal=animal,
                       archived_at=datetime.now(UTC) if archived else None)  # fmt: skip
         s.add(agent)
         s.commit()
@@ -174,6 +177,35 @@ def client(status: int, body: dict[str, Any], seen: list[dict[str, Any]]) -> Run
     return RunnerClient('/x.sock', transport=httpx.MockTransport(handler))
 
 
+def test_preparing_pips_brain_sends_its_animal(engine: Engine, brains: Brains) -> None:
+    """S-17.8: Pip's look is a rabbit, so its brain is told it is a rabbit, not a giraffe."""
+    add(engine, slug='marcel', user=OWNER_USER_ID, person='Shaun', name='Marcel')
+    add(engine, slug='pip', user='usr_emma', person='Emma', name='Pip', personality='cheerful',
+        animal='rabbit')  # fmt: skip
+    run(keeper(engine, brains).check())
+    assert brains.prepared == [
+        {
+            'slug': 'pip',
+            'name': 'Pip',
+            'person': 'Emma',
+            'personality': 'cheerful',
+            'animal': 'rabbit',
+        }
+    ]
+
+
+def test_the_runner_client_sends_the_animal_in_the_persona() -> None:
+    seen: list[dict[str, Any]] = []
+    run(client(200, {'cwd': '/b/pip'}, seen).prepare_brain(
+        agent_slug='pip', name='Pip', person_name='Emma', personality='cheerful',
+        animal='rabbit'))  # fmt: skip
+    assert seen[0]['body']['persona'] == {
+        'person_name': 'Emma',
+        'personality': 'cheerful',
+        'animal': 'rabbit',
+    }
+
+
 def test_the_runner_client_asks_for_the_folder_and_returns_it() -> None:
     seen: list[dict[str, Any]] = []
     rc = client(200, {'agent_slug': 'pip', 'cwd': '/b/pip', 'memory_dir': '/m/agents/pip'}, seen)
@@ -187,7 +219,7 @@ def test_the_runner_client_asks_for_the_folder_and_returns_it() -> None:
     seen.clear()
     run(client(200, {'cwd': '/b/x'}, seen).prepare_brain(
         agent_slug='x', name='X', person_name='Y', personality=None))  # fmt: skip
-    assert seen[0]['body']['persona'] == {'person_name': 'Y'}  # no personality: left out
+    assert seen[0]['body']['persona'] == {'person_name': 'Y'}  # no personality or animal: left out
 
 
 @pytest.mark.parametrize(('status', 'error'), [(503, RunnerUnavailable), (422, StartFailed)])

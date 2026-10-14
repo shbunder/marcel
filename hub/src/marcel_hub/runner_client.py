@@ -190,15 +190,19 @@ class RunnerClient:
         raise StartFailed(_message(res))
 
     async def prepare_brain(
-        self, *, agent_slug: str, name: str, person_name: str, personality: str | None
-    ) -> str:
+        self, *, agent_slug: str, name: str, person_name: str, personality: str | None,
+        animal: str | None = None,
+    ) -> str:  # fmt: skip
         """Have the runner make (or refresh) the agent's brain folder on the host (render, memory
-        links to `agents/<slug>/`, plugin, trust; runner-api `prepareBrain`, S-17.7); returns the
-        folder to start the brain in. A runner that cannot use `claude` (503) is unavailable; any
-        other refusal is `StartFailed` with the runner's reason."""
+        links to `agents/<slug>/`, plugin, trust; runner-api `prepareBrain`, S-17.7; the look's
+        `animal`, 0.1.12, S-17.8); returns the folder to start the brain in. A runner that cannot
+        use `claude` (503) is unavailable; any other refusal is `StartFailed` with the runner's
+        reason."""
         persona: dict[str, str] = {'person_name': person_name}
         if personality:
             persona['personality'] = personality
+        if animal:
+            persona['animal'] = animal
         body = {'agent_slug': agent_slug, 'name': name, 'persona': persona}
         res = await self._call('POST', '/brains', json=body, timeout=PREPARE_TIMEOUT)
         if res.status_code == 200:

@@ -4,11 +4,13 @@ The hub runs in Docker and cannot render `brain/` or trust a folder, so before i
 member's brain it asks the runner, on the host (S-17.7, `contracts/runner-api.yaml` `prepareBrain`).
 Code: `runner/src/marcel_runner/brains.py`.
 
-`POST /brains` `{agent_slug, name, persona: {person_name, personality?}}` makes `~/marcel/brains/<slug>`
+`POST /brains` `{agent_slug, name, persona: {person_name, personality?, animal?}}` makes `~/marcel/brains/<slug>`
 ready and answers `{agent_slug, cwd, memory_dir}`:
 
 1. `brain/render.py` renders the template there: `AGENT_NAME` = `name`, `OWNER_NAME` = the person,
-   `PERSONALITY` = the look's personality (default `professional`), `MARKETPLACE_DIR` = the deployed
+   `PERSONALITY` = the look's personality (default `professional`), `ANIMAL` = the look's animal (S-17.8;
+   left out for a giraffe or none, so the template's "pink giraffe", the owner's look, stays; any animal
+   outside the contract's list is a 400), `MARKETPLACE_DIR` = the deployed
    marketplace, `MEMORY_DIR` = `agents/<slug>/` in the memory repo. `MEMORY.md` and `memory/` link there;
    the render makes them empty when missing and never overwrites them.
 2. `claude plugin install marcel@marcel-local --scope project` in the folder, unless Claude Code already

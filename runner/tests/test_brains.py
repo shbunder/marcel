@@ -16,7 +16,7 @@ import pytest
 from conftest import apart
 
 from marcel_runner import brains as brains_mod
-from marcel_runner.brains import PERSONALITIES, Brains
+from marcel_runner.brains import ANIMALS, PERSONALITIES, Brains
 from marcel_runner.health import Settings
 from marcel_runner.server import serve
 from marcel_runner.sessions import SessionError
@@ -167,6 +167,8 @@ def test_repeating_it_is_safe_and_never_touches_the_memory(
         {**PIP, 'persona': {}},
         {**PIP, 'persona': {'person_name': 'Emma', 'personality': 'angry'}},
         {**PIP, 'persona': {'person_name': 'Emma', 'mood': 'x'}},
+        {**PIP, 'persona': {'person_name': 'Emma', 'animal': 'unicorn'}},
+        {**PIP, 'persona': {'person_name': 'Emma', 'animal': 7}},
         {**PIP, 'extra': 1},
         b'not json',
         [],
@@ -178,6 +180,27 @@ def test_a_body_off_the_contract_is_a_400_and_makes_nothing(
     status, out = call(sock, 'POST', body)
     assert (status, out['code']) == (400, 'bad_request'), out
     assert not brains.root.exists()
+
+
+def test_the_brain_speaks_as_its_own_animal(sock: Path, brains: Brains) -> None:
+    """S-17.8: Pip is a rabbit, so its CLAUDE.md says rabbit and nothing of a pink giraffe."""
+    rabbit = {**PIP, 'persona': {**PIP['persona'], 'animal': 'rabbit'}}
+    status, out = call(sock, 'POST', rabbit)
+    assert status == 200, out
+    persona = (brains.root / 'pip' / 'CLAUDE.md').read_text()
+    assert 'a friendly rabbit' in persona
+    assert 'giraffe' not in persona
+
+
+@pytest.mark.parametrize(
+    'persona', [{'person_name': 'Shaun', 'animal': 'giraffe'}, {'person_name': 'Shaun'}]
+)
+def test_a_giraffe_or_no_animal_keeps_the_owners_pink_giraffe(
+    sock: Path, brains: Brains, persona: dict[str, str]
+) -> None:
+    status, out = call(sock, 'POST', {'agent_slug': 'marcel', 'name': 'Marcel', 'persona': persona})
+    assert status == 200, out
+    assert 'a friendly pink giraffe' in (brains.root / 'marcel' / 'CLAUDE.md').read_text()
 
 
 def test_a_real_file_where_a_memory_link_goes_is_render_failed(sock: Path, brains: Brains) -> None:
@@ -233,6 +256,15 @@ def test_personalities_are_the_contracts() -> None:
     line = next(x for x in block.splitlines() if 'enum:' in x and 'professional' in x)
     listed = tuple(w.strip() for w in line.split('[', 1)[1].split(']', 1)[0].split(','))
     assert listed == PERSONALITIES
+
+
+def test_animals_are_the_contracts() -> None:
+    """PrepareBrain.persona.animal in contracts/runner-api.yaml (one `enum: [...]` line)."""
+    spec = (Path(__file__).resolve().parents[2] / 'contracts' / 'runner-api.yaml').read_text()
+    block = spec[spec.index('    PrepareBrain:') : spec.index('    PreparedBrain:')]
+    line = next(x for x in block.splitlines() if 'enum:' in x and 'giraffe' in x)
+    listed = tuple(w.strip() for w in line.split('[', 1)[1].split(']', 1)[0].split(','))
+    assert listed == ANIMALS
 
 
 def test_defaults_from_the_environment(tmp_path: Path) -> None:

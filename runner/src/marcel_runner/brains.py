@@ -3,9 +3,10 @@
 The hub runs in Docker and cannot render `brain/` or trust a folder, so it asks the runner, on the
 host (`contracts/runner-api.yaml` `prepareBrain`). For agent `<slug>` the runner:
 
-1. renders `brain/` into `~/marcel/brains/<slug>` with the agent's name and the person's name and
-   personality (`brain/render.py`), and links its `MEMORY.md` and `memory/` to `agents/<slug>/`
-   in the memory repo (the render makes them empty when missing and never overwrites them);
+1. renders `brain/` into `~/marcel/brains/<slug>` with the agent's name, the person's name, and its
+   look's personality and animal (`brain/render.py`; S-17.8), and links its `MEMORY.md` and
+   `memory/` to `agents/<slug>/` in the memory repo (the render makes them empty when missing and
+   never overwrites them);
 2. installs the marcel plugin there, at project scope, when it is not installed yet;
 3. trusts the folder, as it does a workspace clone (`workspaces.accept_trust`).
 
@@ -31,6 +32,11 @@ from marcel_runner.workspaces import PLUGIN, accept_trust, trust_problem
 SLUG = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 PERSONALITIES = (
     'professional', 'cheerful', 'curious', 'cozy', 'bold', 'cool', 'sporty', 'shy', 'grumpy',
+)  # fmt: skip
+# The look's animals (runner-api 0.1.12). A giraffe is not sent to the render: the template's own
+# default, "pink giraffe", is the owner's look, so the owner's brain still calls itself pink.
+ANIMALS = (
+    'giraffe', 'crocodile', 'frog', 'cat', 'fox', 'bear', 'panda', 'rabbit', 'dog', 'pig', 'mouse',
 )  # fmt: skip
 TEMPLATE = (
     Path(__file__).resolve().parents[3] / 'brain'
@@ -58,19 +64,25 @@ def parse(raw: bytes) -> dict[str, Any]:
         raise _bad('agent_slug must be lowercase letters, digits and dashes, 40 at most.')
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 40:
         raise _bad('name must be 1 to 40 characters.')
-    if not isinstance(persona, dict) or set(persona) - {'person_name', 'personality'}:
-        raise _bad('persona must be an object with person_name and, optionally, personality.')
+    if not isinstance(persona, dict) or set(persona) - {'person_name', 'personality', 'animal'}:
+        raise _bad(
+            'persona must be an object with person_name and, optionally, personality and animal.'
+        )
     person = persona.get('person_name')
     if not isinstance(person, str) or not 1 <= len(person.strip()) <= 40:
         raise _bad('persona.person_name must be 1 to 40 characters.')
     personality = persona.get('personality')
     if personality is not None and personality not in PERSONALITIES:
         raise _bad(f'persona.personality must be one of {", ".join(PERSONALITIES)}.')
+    animal = persona.get('animal')
+    if animal is not None and animal not in ANIMALS:
+        raise _bad(f'persona.animal must be one of {", ".join(ANIMALS)}.')
     return {
         'slug': slug,
         'name': name.strip(),
         'person': person.strip(),
         'personality': personality,
+        'animal': animal,
     }
 
 
@@ -126,6 +138,8 @@ class Brains:
         }
         if body['personality']:
             values['PERSONALITY'] = body['personality']
+        if body['animal'] and body['animal'] != 'giraffe':
+            values['ANIMAL'] = body['animal']
         argv = [sys.executable, str(self.template / 'render.py'), '--out', str(folder)]
         for key, value in values.items():
             argv += ['--var', f'{key}={value}']

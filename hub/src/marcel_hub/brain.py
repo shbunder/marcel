@@ -134,8 +134,9 @@ class BrainRunner(Protocol):
     async def spawn_brain(self, *, name: str, model: str, cwd: str, prompt: str) -> str: ...
 
     async def prepare_brain(
-        self, *, agent_slug: str, name: str, person_name: str, personality: str | None
-    ) -> str: ...
+        self, *, agent_slug: str, name: str, person_name: str, personality: str | None,
+        animal: str | None = None,
+    ) -> str: ...  # fmt: skip
 
     async def sessions(self) -> list[dict[str, Any]]: ...
 
@@ -480,7 +481,8 @@ class BrainKeeper:
         """The folder the agent's brain runs in. The owner's first agent (`marcel`, and any agent
         made before slugs) keeps the brain workspace from the settings (`brain_cwd`); every other
         agent gets its own `~/marcel/brains/<slug>`, which the runner makes ready first (render,
-        plugin, trust; `POST /brains`, safe to repeat)."""
+        plugin, trust; `POST /brains`, safe to repeat), with its look's personality and animal so it
+        speaks as what the app draws (S-17.8)."""
         assert self.runner is not None
         with Session(self.engine) as s:
             agent = s.get(Agent, agent_id)
@@ -492,10 +494,11 @@ class BrainKeeper:
             person = s.get(User, agent.owner_user_id)
             slug, name = agent.slug, agent.name
             person_name = person.name if person is not None else agent.name
-            personality = agent.look_personality
+            personality, animal = agent.look_personality, agent.look_animal
         return await self.runner.prepare_brain(
-            agent_slug=slug, name=name, person_name=person_name, personality=personality
-        )
+            agent_slug=slug, name=name, person_name=person_name, personality=personality,
+            animal=animal,
+        )  # fmt: skip
 
     def _current(self, agent_id: str) -> str | None:
         with Session(self.engine) as s:

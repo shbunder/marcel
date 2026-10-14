@@ -1231,7 +1231,8 @@ is set and the hub has a runner.
 - **A brain per person (S-17.7).** Each live agent's brain runs in its own folder. The owner's first
   agent (`marcel`, and any agent made before slugs) keeps `brain_cwd`. Every other agent's brain runs in
   `~/marcel/brains/<slug>`: before starting it, the keeper asks the runner to make that folder ready
-  (`POST /brains`: render `brain/` with the agent's name and the person's name and personality, link
+  (`POST /brains`: render `brain/` with the agent's name, the person's name, and the look's personality
+  and animal (S-17.8: Pip, a rabbit, calls itself a rabbit), link
   its memory to `agents/<slug>/`, install the plugin, trust it; safe to repeat). If the runner refuses
   or is down, nothing starts and the usual backoff and alert below take over. Every brain still runs
   on the owner's Claude login and shares the usage guard.

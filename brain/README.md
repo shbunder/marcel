@@ -20,7 +20,7 @@ Defined once, in `VARIABLES` in `render.py`; this table says the same.
 |---|---|---|
 | `AGENT_NAME` | `Marcel` | The agent's name, as the family calls it. |
 | `OWNER_NAME` | — | The first name of the person this brain works for; it addresses them by it. |
-| `ANIMAL` | `pink giraffe` | The agent's animal, as it speaks of itself. |
+| `ANIMAL` | `pink giraffe` | The agent's animal, as it speaks of itself: the look's animal (the runner leaves it out for a giraffe, so the owner's stays pink). |
 | `PERSONALITY` | `professional` | The look's personality (app-api `LookPersonality`), for the tone of its answers. |
 | `MARKETPLACE_DIR` | — | Absolute path of the deployed `marcel-local` marketplace: a folder with `.claude-plugin/marketplace.json` listing a released copy of `plugins/marcel/` (never a working tree: a directory plugin runs in place, SP1). |
 | `MEMORY_DIR` | — | Absolute path, on the host, of this agent's notes in the hub's memory repo: `<data_dir>/memory/agents/<slug>` (S-17.4; the owner's is `agents/marcel`). The hub's `/data` must be a bind mount of a host folder, not a named volume, for the brain to reach it. |
