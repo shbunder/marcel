@@ -8,3 +8,5 @@ Type=oneshot
 WorkingDirectory=%h/marcel/src
 ExecStart=%h/marcel/src/deploy/redeploy.sh
 Environment=PATH=%h/marcel/node/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# An install, up to 120 s of health checks, and possibly a revert and a second install.
+TimeoutStartSec=30min
