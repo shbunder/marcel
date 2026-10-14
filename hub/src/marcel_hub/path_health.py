@@ -11,6 +11,9 @@ stuck. This route checks each link:
   only thing wrong is that the installed claude differs from the pin (the runner refuses new
   sessions until `deploy/install-claude.sh` runs): a separate state, so a redeploy watchdog does
   not take it for a broken merge. Anything else is `down`.
+  `login` is the runner's `Health.login` when its state is not `ok` (runner-api 0.1.13, S-04.18):
+  shown, never a cause. A lost login leaves `state` as it is, so a redeploy is never rolled back
+  over it (rolling back a good merge cannot log anyone in); `claude_updates.py` tells the owner.
 - **brain**, per agent: the main conversation has a brain session, its channel socket is connected,
   and that session sent a frame within `BRAIN_SILENT_S`. The channel server inside the brain's
   `claude` process pings the hub every 20 s (channel-protocol.md), so a recent frame proves that
@@ -78,6 +81,9 @@ async def _runner(request: Request) -> dict[str, Any]:
     if not isinstance(answer, dict):
         return {'state': 'down', 'reason': 'The runner says it is not ok.', 'latency_ms': latency}
     versions = {k: answer[k] for k in VERSION_FIELDS if isinstance(answer.get(k), str)}
+    login = answer.get('login')
+    if isinstance(login, dict) and login.get('state') != 'ok':  # shown, never a cause
+        versions['login'] = login
     if answer.get('ok'):
         return {'state': 'ok', 'latency_ms': latency, **versions}
     state = 'version_drift' if _drift(answer) else 'down'

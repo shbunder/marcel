@@ -17,8 +17,20 @@ here (S-04.17):
   `failed`, with why, and one notice worded from `cause` (`upgrade`: "Claude Code updated itself
   and restarted; 2 quests stopped."), pushed as a note. No notice when `session_ids` is empty.
 
-The hub reads `GET /health` once at start-up, for a change made while it was down. What it saw is
-kept in `<data_dir>/claude-version.json`, so a hub restart never notices the same change twice.
+The hub reads `GET /health` at start-up, for a version change made while it was down, and then
+every `LOOK_S` seconds for the login only (runner-api 0.1.13 `Health.login`, S-04.18):
+
+- **`lost`:** the runner's `message`, as it is, in the owner's main conversation, pushed as an
+  urgent note, once per `login.since`.
+- **`ok` after a told loss:** "Claude Code on the NUC is logged in again; new work can start.", not
+  pushed. A missing `login` (an older runner) or `unknown` says nothing.
+
+On the same look it reads `GET /usage`: a stale reading with a `reason` not told yet gives one
+notice, not pushed ("Marcel cannot read plan usage right now: …"), unless that reason is the told
+login loss's message. A good reading in between lets the same reason be told again.
+
+What it saw is kept in `<data_dir>/claude-version.json`, so a hub restart never tells the same
+change or the same login loss twice.
 `GET /internal/health` shows the open change (`path_health.py`, `claude_update`).
 """
 
@@ -48,6 +60,7 @@ from marcel_hub.tasks.states import IllegalTransition
 log = logging.getLogger(__name__)
 
 STATE_FILE = 'claude-version.json'
+LOOK_S = 60.0  # how often the login and the usage reading are looked at
 OWNER = 'usr_owner'
 CAUSE = 'claude_updated'  # the urgent push's cause: one per hour, replaced by the next
 RUNNING = (TaskState.starting, TaskState.working, TaskState.needs_you, TaskState.silent)
@@ -59,6 +72,8 @@ NOTICE = (
 BACK = (
     'Claude Code is back on {expected}, the version Marcel is tested with. New work starts again.'
 )
+LOGGED_IN = 'Claude Code on the NUC is logged in again; new work can start.'
+USAGE_STALE = 'Marcel cannot read plan usage right now: {reason}'
 RESTARTED = {
     'upgrade': 'Claude Code updated itself and restarted; {stopped}.',
 }
@@ -131,16 +146,73 @@ class ClaudeUpdates:
         elif event['type'] == 'runner.supervisor_restarted':
             await self._restarted(event['supervisor_restart'])
 
-    async def check(self) -> None:
-        """Once at start-up: a change made while the hub was down."""
+    async def check(self) -> dict[str, Any] | None:
+        """At start-up: a version change made while the hub was down, and the first look. The
+        runner's `/health`, or None when it could not be read."""
+        health = await self.look()
+        if health is not None:
+            self._saw(
+                version_of(health.get('claude_version', '')),
+                version_of(health.get('claude_version_expected', '')),
+            )
+        return health
+
+    async def look(self) -> dict[str, Any] | None:
+        """Every `LOOK_S`: the login, then why usage is stale. The runner's `/health`, or None
+        when it could not be read (skipped quietly; the next look tries again)."""
         try:
             health = await self.runner.health()
         except RunnerUnavailable:
-            return  # the runner watch already says when the runner is away; its events follow
-        self._saw(
-            version_of(health.get('claude_version', '')),
-            version_of(health.get('claude_version_expected', '')),
-        )
+            health = None
+        if isinstance(health, dict):
+            self._login(health.get('login'))  # before anything that needs a version
+        else:
+            health = None
+        await self._usage()
+        return health
+
+    # The login and usage -------------------------------------------------------------------------
+
+    def _login(self, login: Any) -> None:
+        state = login.get('state') if isinstance(login, dict) else None
+        told = self.state.get('login_lost')
+        if state == 'lost':
+            since, message = login.get('since'), login.get('message')
+            if not isinstance(since, str) or not isinstance(message, str) or since == told:
+                return  # told once per `since`, also across a hub restart
+            log.warning('%s', message)
+            self.state['login_lost'], self.state['login_message'] = since, message
+            self._save()
+            self._tell(message, push=True, level='urgent')
+        elif state == 'ok' and told is not None:
+            self.state.pop('login_lost', None)
+            self.state.pop('login_message', None)
+            self._save()
+            log.info('%s', LOGGED_IN)
+            self._tell(LOGGED_IN)
+        # no `login` (a runner older than 0.1.13) or `unknown`: nothing to say
+
+    async def _usage(self) -> None:
+        try:
+            reading = await self.runner.usage()
+        except Exception:  # skipped; the next look tries again
+            log.debug('Could not read the runner usage for its reason.', exc_info=True)
+            return
+        if not isinstance(reading, dict):
+            return
+        if not reading.get('stale'):
+            if self.state.pop('usage_told', None) is not None:  # a good reading: told again later
+                self._save()
+            return
+        reason = reading.get('reason')
+        if not isinstance(reason, str) or not reason or reason == self.state.get('usage_told'):
+            return
+        self.state['usage_told'] = reason
+        self._save()
+        if reason == self.state.get('login_message'):
+            return  # the login loss already said it, in the same words
+        log.warning('Marcel cannot read plan usage: %s', reason)
+        self._tell(USAGE_STALE.format(reason=reason))
 
     def _saw(self, installed: str, expected: str) -> None:
         if not installed or not expected:
@@ -216,9 +288,9 @@ class ClaudeUpdates:
                 marked.add(task_id)
         return marked
 
-    def _tell(self, text: str, push: bool = False) -> None:
+    def _tell(self, text: str, push: bool = False, level: str = 'normal') -> None:
         """One notice in the owner's main conversation (their oldest live agent), maybe pushed
-        as a note."""
+        as a note at `level`."""
         with Session(self.engine) as s:
             agent = s.exec(
                 select(Agent)
@@ -234,17 +306,15 @@ class ClaudeUpdates:
             message_id, agent_id, name = message.id, agent.id, agent.name
         if push and self.pusher is not None:
             try:
-                self.pusher.note(agent_id, message_id, name, text, 'normal', OWNER)
+                self.pusher.note(agent_id, message_id, name, text, level, OWNER)
             except Exception:  # the notice is in the chat; the push is extra
                 log.exception('Could not push the Claude Code notice.')
 
-    # Start-up ------------------------------------------------------------------------------------
+    # The loop ------------------------------------------------------------------------------------
 
     def start(self) -> None:
         if self._task is None:
-            self._task = asyncio.get_running_loop().create_task(
-                self._first_look(), name='claude-updates'
-            )
+            self._task = asyncio.get_running_loop().create_task(self._run(), name='claude-updates')
 
     async def stop(self) -> None:
         if self._task is not None:
@@ -253,8 +323,14 @@ class ClaudeUpdates:
                 await self._task
             self._task = None
 
-    async def _first_look(self) -> None:
-        try:
-            await self.check()
-        except Exception:  # the runner's events still tell the next change
-            log.exception('The Claude Code version check at start-up failed.')
+    async def _run(self) -> None:
+        version_read = False  # until one look reads it; the runner's events tell it after that
+        while True:
+            try:
+                if version_read:
+                    await self.look()
+                else:
+                    version_read = await self.check() is not None
+            except Exception:  # the next look tries again
+                log.exception('The Claude Code look failed.')
+            await asyncio.sleep(LOOK_S)

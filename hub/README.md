@@ -82,7 +82,10 @@ whole path and is what `deploy/health.sh` (and so every deploy) waits for.
   runner's `claude_version` / `claude_version_expected`. Otherwise `down` with the runner's own
   `reason`, or `version_drift` when the only thing wrong is that the installed claude differs from
   the pin (its supervisor runs): the fix is `deploy/install-claude.sh`, not a rollback, and
-  `deploy/health.sh` exits 2 for it instead of 1.
+  `deploy/health.sh` exits 2 for it instead of 1. When the runner's `login` (runner-api 0.1.13) is
+  not `ok`, the block carries it as is, e.g. `login {state: lost, since, message}`. It is shown, never a
+  cause: `state` stays `ok`, so a redeploy is never rolled back over a lost login (rolling back cannot
+  log anyone in); the owner hears about it from `claude_updates.py`.
 - `brains`, one per agent: `ok` when the main conversation has a brain session, its channel socket is
   connected, and it sent a frame in the last 45 s (`last_seen_s`). The channel server inside the
   brain's `claude` process pings every 20 s, so this proves the process and its link to the hub are
@@ -120,10 +123,21 @@ restarts onto it, the sessions it ran end, and the runner's pin refuses new work
   deploy/install-claude.sh."
 - **`runner.claude_changed`, back on the pin:** one short notice, not pushed. It also resolves the
   `claude_updated` alert, so a new drift is pushed as urgent again, even within the hour.
-- At start-up the hub reads `GET /health` once, for a change made while it was down.
+- At start-up the hub reads `GET /health` for a version change made while it was down. After that it
+  reads `GET /health` and `GET /usage` every 60 s, for the login and why usage is stale only (S-04.18);
+  a look that fails is skipped quietly and the next one tries again.
+- **Logged out (`login.state` `lost`):** the runner's own `message`, as it is, in the owner's main
+  conversation, pushed as an urgent note, once per `login.since`, also across a hub restart. E.g.
+  "Claude Code on the NUC is logged out. Log in again: on the NUC run `claude auth login`."
+- **Logged in again (`ok` after a told loss):** "Claude Code on the NUC is logged in again; new work
+  can start.", not pushed. A missing `login` (a runner older than 0.1.13) or `unknown` says nothing.
+- **Usage stale with a new `reason`:** "Marcel cannot read plan usage right now: <reason>", not
+  pushed, once per reason. Not said when the reason is the told login loss's message (the same
+  words); said again only after a good reading came in between.
 - `GET /internal/health` shows the open change as `claude_update {installed, expected, at,
   sessions_ended}` (`sessions_ended` counts the quests restarts stopped while it is open). What the hub
-  saw is kept in `<data_dir>/claude-version.json`, so a restart never repeats a notice.
+  saw (the open change, the told login loss, the told usage reason) is kept in
+  `<data_dir>/claude-version.json`, so a restart never repeats a notice.
 
 ## The owner and their agent: `marcel-hub setup`
 

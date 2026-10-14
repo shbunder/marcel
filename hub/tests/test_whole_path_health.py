@@ -227,6 +227,28 @@ def test_an_ok_runner_shows_its_versions(hub: ChannelHub, runner: FakeRunnerHeal
     assert body['runner']['claude_version_expected'] == '2.1.296'
 
 
+LOST = {'state': 'lost', 'since': '2026-10-13T06:12:00Z',
+        'message': 'Claude Code on the NUC is logged out. Log in again: on the NUC run '
+                   '`claude auth login`.'}  # fmt: skip
+
+
+def test_a_lost_login_is_shown_but_never_a_cause(hub: ChannelHub, runner: FakeRunnerHealth) -> None:
+    runner.answer = {'ok': True, 'login': LOST}
+    status, body = connected_check(hub)
+    assert status == 200 and body['ok'] is True, 'a redeploy is never rolled back over a login'
+    assert body['runner']['state'] == 'ok'
+    assert body['runner']['login'] == LOST
+
+
+@pytest.mark.parametrize('answer', [{'ok': True}, {'ok': True, 'login': {'state': 'ok'}}])
+def test_a_good_or_missing_login_is_left_out(
+    hub: ChannelHub, runner: FakeRunnerHealth, answer: dict[str, Any]
+) -> None:
+    runner.answer = answer
+    _, body = connected_check(hub)
+    assert 'login' not in body['runner']
+
+
 def test_an_archived_agent_is_not_counted(hub: ChannelHub) -> None:
     """A removed person's agent is archived and has no brain (S-17.7): health must not call it
     down. Drop the archived filter in `_brains` and this goes red."""

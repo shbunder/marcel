@@ -676,13 +676,13 @@ RUNNER_FIELDS_KNOWN: dict[str, set[str]] = {
         'cap',
         'active_workers',
         'reason',
+        'login',
     },
-    'UsageReading': {'five_hour', 'weekly', 'source', 'taken_at', 'stale'},
+    'UsageReading': {'five_hour', 'weekly', 'source', 'taken_at', 'stale', 'reason'},
 }
-# Added by S-02.12 (runner-api 0.1.13) before the hub reads them. S-04.18 moves each to
-# RUNNER_FIELDS_KNOWN when the hub tells the owner; the second test fails as soon as a reader
-# below names one, so this can only shrink.
-PENDING_RUNNER_FIELDS: dict[str, set[str]] = {'Health': {'login'}, 'UsageReading': {'reason'}}
+# A field the contract adds before the hub reads it waits here; the second test fails as soon as a
+# reader below names one, so this can only shrink. Empty since S-04.18.
+PENDING_RUNNER_FIELDS: dict[str, set[str]] = {}
 # Where the hub would read each pending field, and how that read would look there.
 QUOTED = ("'{}'", '"{}"')
 # `reason` is a common word, so only a read off a usage reading counts.

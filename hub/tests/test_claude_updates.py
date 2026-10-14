@@ -27,12 +27,24 @@ class FakeRunner:
         self.version = PINNED
         self.sessions_list: list[dict[str, Any]] = []
         self.down = False
+        self.login: dict[str, Any] | None = None  # runner-api 0.1.13; None: an older runner
+        self.reading: dict[str, Any] | None = None  # `GET /usage`
+        self.usage_fails = False
 
     async def health(self) -> dict[str, Any]:
         if self.down:
             raise RunnerUnavailable('The runner is not answering.')
-        return {'ok': self.version == PINNED, 'claude_version': f'{self.version} (Claude Code)',
-                'claude_version_expected': PINNED}  # fmt: skip
+        installed = f'{self.version} (Claude Code)' if self.version else ''
+        answer = {'ok': self.version == PINNED, 'claude_version': installed,
+                  'claude_version_expected': PINNED}  # fmt: skip
+        if self.login is not None:
+            answer['login'] = self.login
+        return answer
+
+    async def usage(self) -> dict[str, Any] | None:
+        if self.usage_fails:
+            raise RuntimeError('boom')
+        return self.reading
 
     async def sessions(self) -> list[dict[str, Any]]:
         return self.sessions_list
@@ -41,12 +53,14 @@ class FakeRunner:
 class Pushes:
     def __init__(self) -> None:
         self.sent: list[tuple[str, ...]] = []  # notes
+        self.levels: list[str] = []
         self.urgent: list[tuple[str, ...]] = []  # broke
         self.cleared: list[str] = []
 
     def note(self, agent_id: str, message_id: str, title: str, body: str, level: str,
              user_id: str | None) -> bool:  # fmt: skip
         self.sent.append((agent_id, body))
+        self.levels.append(level)
         return True
 
     def broke(self, cause: str, title: str, body: str, task_id: str | None = None) -> None:
@@ -260,6 +274,173 @@ def test_the_app_hands_the_runners_events_to_it(tmp_path: Path) -> None:
     assert updates.on_runner_event in app.state.runner_watch.runner_listeners
 
 
+# The login and why usage is stale (runner-api 0.1.13, S-04.18) ---------------------------------
+
+LOGGED_OUT = ('Claude Code on the NUC is logged out. Log in again: on the NUC run '
+              '`claude auth login`.')  # fmt: skip
+
+
+def lost(since: str = '2026-10-13T06:12:00Z') -> dict[str, Any]:
+    return {'state': 'lost', 'since': since, 'message': LOGGED_OUT}
+
+
+def look(w: ClaudeUpdates) -> None:
+    asyncio.run(w.look())
+
+
+def test_a_lost_login_is_told_once_and_urgently(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
+) -> None:
+    runner.login = lost()
+    w = watcher(hub, runner, pushes)
+    for _ in range(3):
+        look(w)
+    assert notices(hub) == [LOGGED_OUT]
+    assert pushes.sent == [(hub.agent_id, LOGGED_OUT)] and pushes.levels == ['urgent']
+
+
+def test_a_lost_login_is_read_even_when_claude_cannot_say_its_version(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
+) -> None:
+    runner.version, runner.login = '', lost()
+    check(watcher(hub, runner, pushes))
+    assert notices(hub) == [LOGGED_OUT]
+
+
+def test_a_hub_restart_in_the_same_loss_says_nothing_and_a_new_loss_is_told(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
+) -> None:
+    runner.login = lost()
+    look(watcher(hub, runner, pushes))
+    look(watcher(hub, runner, pushes))  # the hub restarted: it remembers this `since`
+    assert len(notices(hub)) == 1 and len(pushes.sent) == 1
+    runner.login = lost('2026-10-14T09:00:00Z')
+    look(watcher(hub, runner, pushes))
+    assert len(notices(hub)) == 2 and len(pushes.sent) == 2
+
+
+def test_logged_in_again_after_a_told_loss_is_said_once_without_a_push(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
+) -> None:
+    w = watcher(hub, runner, pushes)
+    runner.login = {'state': 'ok', 'since': '2026-10-13T05:00:00Z'}
+    look(w)
+    assert notices(hub) == [], 'no loss told: nothing to say'
+    runner.login = lost()
+    look(w)
+    runner.login = {'state': 'ok', 'since': '2026-10-13T08:15:00Z'}
+    look(w)
+    look(w)
+    assert notices(hub) == [LOGGED_OUT, claude_updates.LOGGED_IN]
+    assert len(pushes.sent) == 1, 'logged in again is not pushed'
+
+
+@pytest.mark.parametrize(
+    'login', [None, {'state': 'unknown', 'message': 'Could not run claude auth status.'}]
+)
+def test_no_login_or_unknown_says_nothing(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes, login: dict[str, Any] | None
+) -> None:
+    runner.login = login
+    look(watcher(hub, runner, pushes))
+    assert notices(hub) == [] and pushes.sent == []
+
+
+def test_a_runner_away_skips_the_look_quietly(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
+) -> None:
+    runner.down, runner.usage_fails = True, True
+    w = watcher(hub, runner, pushes)
+    assert asyncio.run(w.look()) is None
+    assert notices(hub) == []
+
+
+STALE = {'five_hour': None, 'weekly': None, 'stale': True,
+         'reason': 'The /usage screen could not be read.'}  # fmt: skip
+GOOD = {'five_hour': None, 'weekly': None, 'stale': False}
+
+
+def test_why_usage_is_stale_is_told_once_per_reason(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
+) -> None:
+    w = watcher(hub, runner, pushes)
+    said = f'Marcel cannot read plan usage right now: {STALE["reason"]}'
+    runner.reading = STALE
+    look(w)
+    look(w)  # the same reason again
+    assert notices(hub) == [said] and pushes.sent == []
+    runner.reading = {**STALE, 'reason': None}
+    del runner.reading['reason']  # stale with no reason: not a good reading
+    look(w)
+    runner.reading = STALE
+    look(w)
+    assert notices(hub) == [said]
+    runner.reading = GOOD  # a good reading in between
+    look(w)
+    runner.reading = STALE
+    look(w)
+    assert notices(hub) == [said, said]
+
+
+def test_a_reason_that_is_the_told_login_loss_is_not_said_twice(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
+) -> None:
+    runner.login, runner.reading = lost(), {**STALE, 'reason': LOGGED_OUT}
+    look(watcher(hub, runner, pushes))
+    assert notices(hub) == [LOGGED_OUT]
+
+
+def test_no_reading_or_a_failed_one_is_skipped(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
+) -> None:
+    w = watcher(hub, runner, pushes)
+    look(w)  # no reading
+    runner.usage_fails = True
+    look(w)
+    assert notices(hub) == []
+
+
 def test_version_of() -> None:
     assert claude_updates.version_of('2.1.301 (Claude Code)') == '2.1.301'
     assert claude_updates.version_of('') == ''
+
+
+def test_the_loop_keeps_looking_at_the_login(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(claude_updates, 'LOOK_S', 0.01)
+    w = watcher(hub, runner, pushes)
+
+    async def run() -> None:
+        w.start()
+        await asyncio.sleep(0.05)  # a few looks with nothing to say
+        runner.login = lost()
+        for _ in range(100):
+            if notices(hub):
+                break
+            await asyncio.sleep(0.01)
+        await w.stop()
+
+    asyncio.run(run())
+    assert notices(hub) == [LOGGED_OUT]
+
+
+def test_a_runner_away_at_start_up_has_its_version_read_on_a_later_look(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(claude_updates, 'LOOK_S', 0.01)
+    runner.down, runner.version = True, NEWER  # changed while the hub was down
+    w = watcher(hub, runner, pushes)
+
+    async def run() -> None:
+        w.start()
+        await asyncio.sleep(0.05)  # the first looks find no runner
+        runner.down = False
+        for _ in range(100):
+            if notices(hub):
+                break
+            await asyncio.sleep(0.01)
+        await w.stop()
+
+    asyncio.run(run())
+    assert notices(hub) == [AWAY]
