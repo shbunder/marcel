@@ -40,3 +40,14 @@
   `make -C deploy install` put 2.1.296 back) the runner refused every start (`422 claude_version`), so the keeper could
   not start a new brain, and at 05:30 the hub posted "The morning digest was not written: Marcel did not publish it within
   30 minutes. In short: 3 threads failed; 4 finished." No push reached the owner: none was configured.
+- **A lost Claude Code login, and where it shows** (S-03.13, recorded 2026-10-14 on the NUC). The source that
+  showed it is the supervisor's own `~/.claude/daemon.log`, in three lines at once:
+  `[supervisor] auth: proactive refresh failed, signalling re-auth required`,
+  `` [supervisor] auth: headless daemon cannot complete OAuth — run `claude auth login` to refresh `` and
+  `[supervisor] auth: no token found, will re-check keychain every 30s`. It happened at 02:52 (after the 2.1.299
+  self-update) and again at 13:02 (on 2.1.296, no update). **Then the log is silent** until
+  `[supervisor] auth: token found via keychain re-check` (05:02 and 13:15), so a loss read from the log holds until
+  that line, never until "no new failure line". `proactive refresh failed, retrying in ~60s (token still valid)` is not
+  a loss. `claude auth status --json` (2.1.296, same as 2.1.290) prints `loggedIn`, `authMethod`, the email and the
+  org; logged out it **exits 1 and still prints the JSON**, so read stdout whatever the exit code. Log in again with
+  `claude auth login`, the command the supervisor names. Fixtures: `runner/tests/fixtures/login/`.

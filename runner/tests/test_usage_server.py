@@ -3,16 +3,21 @@
 import os
 import shutil
 import threading
+import time
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import apart, request
+from conftest import apart, request, write_script
 from fake_claude import FakeClaude
 
 from marcel_runner.health import Settings
+from marcel_runner.login import LOOK_EVERY, LOST_MESSAGE, LoginCheck
 from marcel_runner.server import UnixHTTPServer, serve
 from marcel_runner.usage import UsageProbe
+
+FIXTURES = Path(__file__).parent / 'test_usage_fixtures'
 
 
 @pytest.fixture
@@ -104,3 +109,94 @@ def test_serve_builds_its_own_probe_on_the_configured_claude(
         assert srv.usage.claude == fake_claude
     finally:
         srv.server_close()
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = datetime.now(UTC)
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+def test_logged_in_again_the_old_logged_out_reason_is_gone_before_login_says_ok(
+    sock_path: Path, fake_claude: Path, tmp_path: Path
+) -> None:
+    """The hub says "logged in again" on `login` ok, then reads `/usage`: an old "logged out"
+    reason there would tell the owner the opposite a minute later."""
+    out = tmp_path / 'usage.txt'
+    out.write_text((FIXTURES / 'usage-2.1.299-logged-out.txt').read_text('utf-8'))
+    probe = UsageProbe(write_script(tmp_path / 'usage-claude', f'cat "{out}"\n'))
+    clock = Clock()
+    login = LoginCheck(fake_claude, tmp_path / 'state', tmp_path / 'daemon.log', clock=clock)
+    srv = serve(
+        sock_path, Settings(claude=fake_claude, cap=4), cgroup_of=apart, usage=probe, login=login
+    )
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    def look() -> tuple[str, dict]:
+        clock.now += timedelta(seconds=LOOK_EVERY)
+        return request(sock_path, 'GET', '/health')[1]['login']['state'], request(
+            sock_path, 'GET', '/usage'
+        )[1]
+
+    try:
+        probe.refresh()  # the cost view: logged out
+        assert look()[0] == 'lost'
+        out.write_text((FIXTURES / 'usage-2.1.299-text.txt').read_text('utf-8'))  # logged in
+        states = []
+        for _ in range(4):
+            state, reading = look()
+            states.append(state)
+            if state == 'ok':
+                assert reading.get('stale') is False and 'reason' not in reading, reading
+            deadline = time.monotonic() + 10  # the read the look asked for, on its own thread
+            while request(sock_path, 'GET', '/usage')[0] != 200 and time.monotonic() < deadline:
+                time.sleep(0.05)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert states[-1] == 'ok', states
+
+
+def test_logged_out_after_a_good_reading_the_reason_is_gone_before_login_says_ok(
+    sock_path: Path, fake_claude: Path, tmp_path: Path
+) -> None:
+    """The case the hub meets: a good reading, then the cost view (a stale reading with the
+    logged-out `reason`), then logged in again."""
+    good = (FIXTURES / 'usage-2.1.299-text.txt').read_text('utf-8')
+    out = tmp_path / 'usage.txt'
+    out.write_text(good)
+    probe = UsageProbe(write_script(tmp_path / 'usage-claude', f'cat "{out}"\n'))
+    clock = Clock()
+    login = LoginCheck(fake_claude, tmp_path / 'state', tmp_path / 'daemon.log', clock=clock)
+    srv = serve(
+        sock_path, Settings(claude=fake_claude, cap=4), cgroup_of=apart, usage=probe, login=login
+    )
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    def login_state() -> str:
+        clock.now += timedelta(seconds=LOOK_EVERY)
+        return request(sock_path, 'GET', '/health')[1]['login']['state']
+
+    try:
+        probe.refresh()
+        out.write_text((FIXTURES / 'usage-2.1.299-logged-out.txt').read_text('utf-8'))
+        probe.refresh()
+        stale = request(sock_path, 'GET', '/usage')[1]
+        assert stale['stale'] is True and stale['reason'] == LOST_MESSAGE
+        out.write_text(good)  # logged in again
+        states = []
+        for _ in range(4):
+            states.append(login_state())
+            reading = request(sock_path, 'GET', '/usage')[1]
+            if states[-1] == 'ok':
+                assert 'reason' not in reading and reading['stale'] is False, reading
+            deadline = time.monotonic() + 10  # the read the look asked for, on its own thread
+            while 'reason' in reading and time.monotonic() < deadline:
+                time.sleep(0.05)
+                reading = request(sock_path, 'GET', '/usage')[1]
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert states[0] == 'lost' and states[-1] == 'ok', states

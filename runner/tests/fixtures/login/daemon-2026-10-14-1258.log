@@ -1,0 +1,18 @@
+[2026-10-14T12:58:02.594Z] [supervisor] auth: proactive refresh starting
+[2026-10-14T12:58:10.481Z] [supervisor] auth: proactive refresh failed, retrying in ~60s (token still valid)
+[2026-10-14T12:58:10.481Z] [supervisor] auth: scheduling proactive refresh in 60s
+[2026-10-14T12:59:10.482Z] [supervisor] auth: proactive refresh starting
+[2026-10-14T12:59:18.900Z] [supervisor] auth: proactive refresh failed, retrying in ~60s (token still valid)
+[2026-10-14T12:59:18.900Z] [supervisor] auth: scheduling proactive refresh in 60s
+[2026-10-14T13:00:18.900Z] [supervisor] auth: proactive refresh starting
+[2026-10-14T13:00:27.085Z] [supervisor] auth: proactive refresh failed, retrying in ~60s (token still valid)
+[2026-10-14T13:00:27.085Z] [supervisor] auth: scheduling proactive refresh in 60s
+[2026-10-14T13:01:27.085Z] [supervisor] auth: proactive refresh starting
+[2026-10-14T13:01:36.238Z] [supervisor] auth: proactive refresh failed, retrying in ~60s (token still valid)
+[2026-10-14T13:01:36.238Z] [supervisor] auth: scheduling proactive refresh in 60s
+[2026-10-14T13:02:36.238Z] [supervisor] auth: proactive refresh starting
+[2026-10-14T13:02:44.723Z] [supervisor] auth: proactive refresh failed, signalling re-auth required
+[2026-10-14T13:02:44.738Z] [supervisor] auth: headless daemon cannot complete OAuth — run `claude auth login` to refresh
+[2026-10-14T13:02:44.738Z] [supervisor] auth: no token found, will re-check keychain every 30s
+[2026-10-14T13:15:44.757Z] [supervisor] auth: scheduling proactive refresh in 28543s
+[2026-10-14T13:15:44.757Z] [supervisor] auth: token found via keychain re-check

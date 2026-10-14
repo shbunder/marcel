@@ -7,6 +7,7 @@ import stat
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from marcel_runner.health import pinned_version
 
@@ -69,27 +70,62 @@ def request(sock: Path, method: str, path: str) -> tuple[int, dict]:
         conn.close()
 
 
+RUNNER_API = Path(__file__).resolve().parents[2] / 'contracts' / 'runner-api.yaml'
+
+
+def runner_api(schema: str) -> Draft202012Validator:
+    """A validator for one schema in contracts/runner-api.yaml (OpenAPI 3.1: JSON Schema 2020-12),
+    its `$ref`s resolved within the file."""
+    import yaml
+
+    spec = yaml.safe_load(RUNNER_API.read_text('utf-8'))
+    return Draft202012Validator(
+        {'$ref': f'#/components/schemas/{schema}', 'components': spec['components']}
+    )
+
+
 def write_script(path: Path, body: str) -> Path:
     path.write_text('#!/bin/sh\n' + body)
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
     return path
 
 
+# `claude auth status --json`, recorded on the NUC with Claude Code 2.1.296 (S-03.13). Logged out it
+# exits 1 and still prints the JSON. The email, org id and org name are placeholders.
+LOGIN_FIXTURES = Path(__file__).parent / 'fixtures' / 'login'
+AUTH_LOGGED_IN = (LOGIN_FIXTURES / 'auth-status-logged-in.json').read_text('utf-8')
+AUTH_LOGGED_OUT = (LOGIN_FIXTURES / 'auth-status-logged-out.json').read_text('utf-8')
+
+
+def auth_answer(claude: Path, text: str, code: int = 0) -> None:
+    """What the fake claude next to `claude` prints for `auth status --json`, and its exit code."""
+    (claude.parent / 'auth-status.txt').write_text(text)
+    (claude.parent / 'auth-status.code').write_text(f'{code}\n')
+
+
 @pytest.fixture
 def fake_claude(tmp_path: Path) -> Path:
-    """A claude whose supervisor runs: `daemon status` exits 0 and names pid 1 (not our cgroup).
+    """A claude whose supervisor runs: `daemon status` exits 0 and names pid 1 (not our cgroup),
+    and which is logged in: `auth status --json` prints AUTH_LOGGED_IN (change it with
+    `auth_answer`).
 
     Both status texts are recorded on the NUC: DAEMON_STATUS_RUNNING and
     DAEMON_STATUS_NOT_RUNNING.
     """
     status = tmp_path / 'daemon-status.txt'
     status.write_text(DAEMON_STATUS_RUNNING)
-    return write_script(
+    claude = write_script(
         tmp_path / 'claude',
         f'if [ "$1" = "--version" ]; then echo "{CLAUDE_VERSION_LINE}"; exit 0; fi\n'
         f'if [ "$1" = "daemon" ]; then cat "{status}"; exit 0; fi\n'
+        'if [ "$1 $2 $3" = "auth status --json" ]; then\n'
+        f'  echo x >> "{tmp_path / "auth-status.calls"}"\n'
+        f'  cat "{tmp_path / "auth-status.txt"}"; exit "$(cat "{tmp_path / "auth-status.code"}")"\n'
+        'fi\n'
         'exit 2\n',
     )
+    auth_answer(claude, AUTH_LOGGED_IN)
+    return claude
 
 
 def apart(pid: int) -> str:

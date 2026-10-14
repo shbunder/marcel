@@ -7,9 +7,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import write_script
+from conftest import runner_api, write_script
 
 from marcel_runner import server, usage
+from marcel_runner.login import LOOK_EVERY, LOST_MESSAGE, LoginCheck
 from marcel_runner.usage import UsageProbe, UsageUnreadable, parse_usage
 
 # The /usage text recorded on the NUC with Claude Code 2.1.289 (SP4). The contract test below reads
@@ -45,9 +46,14 @@ def recorded_claude(tmp_path: Path) -> Path:
     )
 
 
+USAGE_READING = runner_api('UsageReading')
+
+
 def assert_contract_shape(body: dict) -> None:
     """`UsageReading` in contracts/runner-api.yaml: required keys, no others, right types."""
-    assert set(body) == READING_KEYS
+    USAGE_READING.validate(body)
+    assert set(body) - {'reason'} == READING_KEYS
+    assert 'reason' not in body or body['stale'] is True
     assert body['source'] in {'cli_usage', 'statusline'}
     assert isinstance(body['stale'], bool)
     assert ISO_Z.match(body['taken_at'])
@@ -378,10 +384,9 @@ def test_logged_out_claude_says_log_in_not_that_the_wording_changed() -> None:
     text = (FIXTURES / 'usage-2.1.299-logged-out.txt').read_text('utf-8')
     with pytest.raises(UsageUnreadable) as e:
         parse_usage(text, TAKEN_299)
-    message = str(e.value)
-    assert 'not using the Claude subscription' in message
-    assert '/login' in message
-    assert 'wording' not in message and 'changed' not in message
+    # The same sentence as Health.login.message, so the owner reads one sentence in both places.
+    assert str(e.value) == LOST_MESSAGE
+    assert e.value.login_lost is True
     assert e.value.detail.startswith('Total cost:')
 
 
@@ -391,7 +396,8 @@ def test_logged_out_on_the_first_read_answers_no_reading_and_says_why(tmp_path: 
     probe.refresh()
     status, body = probe.reading()
     assert status == 503 and body['code'] == 'no_reading'
-    assert 'not using the Claude subscription' in body['detail']
+    assert LOST_MESSAGE in body['detail']
+    assert 'reason' not in body  # no_reading has none: /health `login` tells the hub
 
 
 def test_logged_out_after_a_good_reading_keeps_it_stale_and_says_log_in(tmp_path: Path) -> None:
@@ -408,7 +414,8 @@ def test_logged_out_after_a_good_reading_keeps_it_stale_and_says_log_in(tmp_path
     status, body = probe.reading()
     assert status == 200 and body['stale'] is True
     assert body['five_hour']['used_pct'] == 18 and body['taken_at'] == '2026-10-14T08:00:00Z'
-    assert probe.last_error is not None and 'not using the Claude subscription' in probe.last_error
+    assert body['reason'] == LOST_MESSAGE
+    assert_contract_shape(body)
 
 
 def test_the_usage_lines_win_over_a_cost_line_in_the_same_output() -> None:
@@ -416,3 +423,89 @@ def test_the_usage_lines_win_over_a_cost_line_in_the_same_output() -> None:
     recorded = (FIXTURES / 'usage-2.1.299-text.txt').read_text('utf-8')
     text = recorded + '\nTotal cost:            $0.0000\n'
     assert parse_usage(text, TAKEN_299)['five_hour']['used_pct'] == 18
+
+
+# --- UsageReading.reason and the login (runner-api 0.1.13, S-03.13) ------------------------------
+
+
+def test_a_failed_read_after_a_good_one_says_why_and_the_next_good_read_drops_it(
+    tmp_path: Path,
+) -> None:
+    flag = tmp_path / 'broken'
+    claude = script(
+        tmp_path, f'if [ -e "{flag}" ]; then echo "boom" >&2; exit 1; fi\ncat "{RECORDED}"\n'
+    )
+    clock = Clock()
+    probe = UsageProbe(claude, clock=clock)
+    probe.refresh()
+    flag.touch()
+    clock.now = TAKEN + timedelta(minutes=5)
+    probe.refresh()
+    _, body = probe.reading()
+    assert_contract_shape(body)
+    assert body['stale'] is True
+    assert body['reason'] == f'`{claude} -p /usage` failed with exit code 1.'
+    flag.unlink()
+    probe.refresh()
+    _, body = probe.reading()
+    assert_contract_shape(body)
+    assert body['stale'] is False and 'reason' not in body
+
+
+def test_a_reading_that_is_only_old_has_no_reason(tmp_path: Path) -> None:
+    clock = Clock()
+    probe = UsageProbe(recorded_claude(tmp_path), clock=clock)
+    probe.refresh()
+    clock.now = TAKEN + timedelta(minutes=16)
+    _, body = probe.reading()
+    assert_contract_shape(body)
+    assert body['stale'] is True and 'reason' not in body
+
+
+def test_the_cost_view_tells_the_login_and_the_reason_is_its_message(
+    tmp_path: Path, fake_claude: Path
+) -> None:
+    out = tmp_path / 'out.txt'
+    out.write_text((FIXTURES / 'usage-2.1.299-text.txt').read_text('utf-8'))
+    login_clock = Clock(TAKEN_299)
+    login = LoginCheck(fake_claude, tmp_path / 'state', tmp_path / 'daemon.log', clock=login_clock)
+    usage_claude = write_script(tmp_path / 'usage-claude', f'cat "{out}"\n')
+    probe = UsageProbe(usage_claude, clock=Clock(TAKEN_299), login=login)
+    probe.refresh()
+    assert login()['state'] == 'ok'
+    out.write_text((FIXTURES / 'usage-2.1.299-logged-out.txt').read_text('utf-8'))
+    probe.refresh()
+    login_clock.now += timedelta(seconds=LOOK_EVERY)
+    answer = login()
+    _, body = probe.reading()
+    assert_contract_shape(body)
+    assert answer['state'] == 'lost'
+    assert body['reason'] == answer['message']
+
+
+def test_a_failure_other_than_the_cost_view_does_not_tell_the_login(
+    tmp_path: Path, fake_claude: Path
+) -> None:
+    login = LoginCheck(fake_claude, tmp_path / 'state', tmp_path / 'daemon.log', clock=Clock())
+    probe = UsageProbe(
+        write_script(tmp_path / 'usage-claude', 'exit 3\n'), clock=Clock(), login=login
+    )
+    probe.refresh()
+    assert login()['state'] == 'ok'
+
+
+def test_no_account_detail_reaches_a_usage_answer(tmp_path: Path) -> None:
+    """`claude` printing the account on a failure: the reason never repeats what it said."""
+    account = 'owner@example.com'
+    flag = tmp_path / 'broken'
+    claude = script(
+        tmp_path,
+        f'if [ -e "{flag}" ]; then echo "{account} is not allowed" >&2; exit 1; fi\n'
+        f'cat "{RECORDED}"\n',
+    )
+    probe = UsageProbe(claude, clock=Clock())
+    probe.refresh()
+    flag.touch()
+    probe.refresh()
+    _, body = probe.reading()
+    assert account not in json.dumps(body)
