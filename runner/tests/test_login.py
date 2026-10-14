@@ -401,3 +401,11 @@ def test_main_gives_health_a_login_check_on_the_state_folder_and_daemon_log(
     assert isinstance(login, LoginCheck)
     assert login.state_file == tmp_path / 'state' / 'login.json'
     assert login.daemon_log == Path.home() / '.claude' / 'daemon.log'
+
+
+def test_no_test_writes_into_the_live_runners_state_folder() -> None:
+    """conftest's `own_state_folder`: the gate runs on the NUC, next to the live runner."""
+    from marcel_runner.sessions import state_dir_from_env
+
+    live = Path.home() / '.local' / 'state' / 'marcel' / 'runner'
+    assert state_dir_from_env() != live
