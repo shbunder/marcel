@@ -113,6 +113,40 @@ def test_an_update_marks_the_ended_tasks_and_tells_the_owner_once(
     assert len(notices(hub)) == 1 and len(pushes.sent) == 1
 
 
+def test_a_session_that_finished_on_its_own_is_left_to_its_report(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
+) -> None:
+    done, done_sid = hub.task(TaskState.working)
+    stopped, stopped_sid = hub.task(TaskState.working)
+    runner.sessions_list = [{'id': done_sid, 'state': 'done'},
+                            {'id': stopped_sid, 'state': 'stopped'}]  # fmt: skip
+    runner.version = NEWER
+    check(watcher(hub, runner, pushes))
+    assert state(hub, done).state == TaskState.working, 'its own done report comes next'
+    assert state(hub, stopped).state == TaskState.failed
+
+
+def test_sessions_unreadable_records_nothing_and_tries_again(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
+) -> None:
+    task_id, _ = hub.task(TaskState.working)
+    runner.version = NEWER
+    w = watcher(hub, runner, pushes)
+    real = runner.sessions
+
+    async def away() -> list[dict[str, Any]]:
+        raise RunnerUnavailable('The runner could not list its sessions.')
+
+    runner.sessions = away  # type: ignore[method-assign]
+    check(w)
+    assert notices(hub) == [] and pushes.sent == [] and w.open_change() is None
+    assert state(hub, task_id).state == TaskState.working
+    runner.sessions = real  # type: ignore[method-assign]
+    check(w)
+    assert state(hub, task_id).state == TaskState.failed
+    assert '; 1 session ended.' in notices(hub)[0] and len(pushes.sent) == 1
+
+
 def test_a_hub_restart_does_not_repeat_it_and_a_change_while_down_is_seen(
     hub: ChannelHub, runner: FakeRunner, pushes: Pushes
 ) -> None:

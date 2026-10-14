@@ -10,7 +10,9 @@ The runner's event stream has no event for either (contract request
 
 - **The version moves away from the pin.** Every NUC task still running whose session the runner
   no longer lists as live goes to `failed`, reason "Claude Code was updated to X …". Tasks the
-  runner itself already reported `failed` in the last `ENDED_WINDOW_S` are counted with them. Then
+  runner itself already reported `failed` in the last `ENDED_WINDOW_S` are counted with them (a
+  task that failed for another reason in that window is counted too: the number is an upper bound,
+  until the runner says which sessions the restart ended). Then
   one plain notice in the owner's main conversation, pushed (category `note`), once per version:
   "Claude Code was updated to X; N sessions ended. New work waits until Marcel is back on the
   pinned version Y — run deploy/install-claude.sh."
@@ -53,7 +55,9 @@ ENDED_WINDOW_S = 600.0  # a task the runner reported failed this recently ended 
 STATE_FILE = 'claude-version.json'
 OWNER = 'usr_owner'
 RUNNING = (TaskState.starting, TaskState.working, TaskState.needs_you, TaskState.silent)
-LIVE_SESSION = frozenset({'working', 'blocked'})  # runner-api SessionState
+# runner-api SessionState: a session listed `done` finished on its own (its state report says so);
+# only one that is gone, `failed` or `stopped` ended with the restart.
+ENDED_SESSION = frozenset({'failed', 'stopped'})
 NOTICE = (
     'Claude Code was updated to {installed}; {ended}. New work waits until Marcel is back on '
     'the pinned version {expected} — run deploy/install-claude.sh.'
@@ -140,7 +144,11 @@ class ClaudeUpdates:
             self._save()
 
     async def _away(self, installed: str, expected: str) -> None:
-        marked = await self._mark_ended(installed, expected)
+        try:
+            marked = await self._mark_ended(installed, expected)
+        except RunnerUnavailable:
+            return  # nothing recorded: the next look tries again, with the sessions known
+
         ended = marked | self._recently_failed()
         text = NOTICE.format(installed=installed, ended=ended_words(len(ended)), expected=expected)
         log.warning('%s', text)
@@ -160,12 +168,10 @@ class ClaudeUpdates:
         self._tell(BACK.format(expected=expected), push=False)
 
     async def _mark_ended(self, installed: str, expected: str) -> set[str]:
-        """Running NUC tasks whose session the runner no longer lists as live: failed, with why."""
-        try:
-            sessions = await self.runner.sessions()
-        except RunnerUnavailable:
-            return set()
-        live = {s.get('id') for s in sessions if s.get('state') in LIVE_SESSION}
+        """Running NUC tasks whose session the runner no longer lists, or lists `failed` or
+        `stopped`: failed, with why. Raises `RunnerUnavailable` when the sessions cannot be read."""
+        sessions = await self.runner.sessions()
+        listed = {s.get('id'): s.get('state') for s in sessions}
         with Session(self.engine) as s:
             running = s.exec(
                 select(Task)
@@ -173,7 +179,11 @@ class ClaudeUpdates:
                 .where(col(Task.state).in_(list(RUNNING)))
                 .where(col(Task.session_id).is_not(None))
             ).all()
-            gone = [t.id for t in running if t.session_id not in live]
+            gone = [
+                t.id
+                for t in running
+                if t.session_id not in listed or listed[t.session_id] in ENDED_SESSION
+            ]
         reason = TASK_REASON.format(installed=installed, expected=expected)
         marked = set()
         for task_id in gone:

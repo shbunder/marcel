@@ -108,9 +108,11 @@ restarts onto it, the sessions it ran end, and the runner's pin refuses new work
 `deploy/install-claude.sh` puts the pinned version back. The runner's events do not say so yet
 (`project/contract-requests/claude-auto-update.md`), so the hub reads its `GET /health` every minute:
 
-- **Moved away from the pin:** every NUC task still running whose session the runner no longer lists as
-  live goes to `failed`, with a reason that says Claude Code was updated and to retry once it is back.
-  Tasks the runner reported `failed` in the last 10 minutes are counted with them. Then one notice in the
+- **Moved away from the pin:** every NUC task still running whose session the runner no longer lists,
+  or lists `failed` or `stopped`, goes to `failed`, with a reason that says Claude Code was updated and
+  to retry once it is back (a session listed `done` is left to its own report). Tasks the runner
+  reported `failed` in the last 10 minutes are counted with them, so N is an upper bound. When the
+  runner cannot list its sessions, nothing is recorded and the next look tries again. Then one notice in the
   owner's main conversation, pushed (category `note`), once per version: "Claude Code was updated to X;
   N sessions ended. New work waits until Marcel is back on the pinned version Y — run
   deploy/install-claude.sh."
