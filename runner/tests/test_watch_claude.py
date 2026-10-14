@@ -3,6 +3,7 @@
 `claude` updated the shared binary and the supervisor restarted onto it, ending five sessions
 (project/lessons/runner-built-ins.md). Nothing here runs the real claude."""
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from conftest import write_script
 from jsonschema import Draft202012Validator
 from test_watch import SID, SID2, StubRoster, row
 
+from marcel_runner import health
 from marcel_runner.health import ClaudeProbe, Probe, Settings, last_shutdown
 from marcel_runner.watch import Watcher
 
@@ -93,10 +95,14 @@ def test_a_supervisor_restart_names_the_sessions_it_ended(
     watcher: Watcher, roster: StubRoster, looks: Looks, tmp_path: Path
 ) -> None:
     (tmp_path / '.claude').mkdir()
-    (tmp_path / '.claude' / 'daemon.log').write_text(LOG)
+    log = tmp_path / '.claude' / 'daemon.log'
+    old, new = LOG.split('2026-10-14T03:12:00Z [supervisor]')
+    log.write_text(old)  # an idle shutdown long before
     roster.rows = [row(SID, 'working'), row(SID2, 'blocked')]
     looks.looks = [Probe(PINNED, 100), Probe(NEWER, 200)]
     watcher.poll()
+    with log.open('a') as f:  # the upgrade, written after the first look
+        f.write('2026-10-14T03:12:00Z [supervisor]' + new)
     roster.rows = [row(SID2, 'blocked')]  # SID is gone after the restart
     events = watcher.poll()
     [restarted] = ours(events, 'runner.supervisor_restarted')
@@ -122,6 +128,48 @@ def test_without_the_log_the_restart_has_no_cause(
     [restarted] = ours(watcher.poll(), 'runner.supervisor_restarted')
     assert restarted['supervisor_restart'] == {'session_ids': [SID]}
     assert restarted['message'] == "Claude's supervisor restarted; 1 running session ended."
+
+
+def test_an_old_shutdown_line_never_explains_a_new_restart(
+    watcher: Watcher, looks: Looks, tmp_path: Path
+) -> None:
+    # The supervisor was killed without writing a line: the idle one from before is not the cause.
+    (tmp_path / '.claude').mkdir()
+    (tmp_path / '.claude' / 'daemon.log').write_text(LOG)
+    looks.looks = [Probe(PINNED, 1), Probe(PINNED, 2)]
+    watcher.poll()
+    [restarted] = ours(watcher.poll(), 'runner.supervisor_restarted')
+    assert restarted['supervisor_restart'] == {'session_ids': []}
+
+
+def test_a_session_that_started_and_ended_between_two_looks_counts(
+    watcher: Watcher, roster: StubRoster, looks: Looks
+) -> None:
+    looks.looks = [Probe(PINNED, 1), None, Probe(PINNED, 2)]
+    watcher.poll()  # a look: nothing running
+    roster.rows = [row(SID, 'working')]
+    watcher.poll()  # not a look, but SID is seen running
+    roster.rows = []
+    [restarted] = ours(watcher.poll(), 'runner.supervisor_restarted')
+    assert restarted['supervisor_restart']['session_ids'] == [SID]
+
+
+def test_a_rotated_log_is_read_from_its_tail(tmp_path: Path) -> None:
+    log = tmp_path / 'daemon.log'
+    log.write_text('shutting down (cause=upgrade, live_workers=2)\n')
+    assert last_shutdown(log, since=10_000) == {'cause': 'upgrade', 'live_workers': 2}
+    assert last_shutdown(log, since=log.stat().st_size) == {}
+
+
+def test_a_stuck_claude_holds_a_look_only_briefly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(health, 'PROBE_TIMEOUT', 0.2)
+    claude = write_script(tmp_path / 'claude', 'sleep 5\n')
+    probe = ClaudeProbe(Settings(claude=claude, cap=1, timeout=10.0))
+    started = time.monotonic()
+    assert probe() == Probe('', None)
+    assert time.monotonic() - started < 2.0
 
 
 def test_a_restart_that_ended_nothing(watcher: Watcher, looks: Looks) -> None:

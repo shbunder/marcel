@@ -10,8 +10,10 @@ again.
 Claude Code changing under the runner (S-03.12): at most every `health.PROBE_EVERY` seconds a poll
 also looks at `claude --version` and the supervisor's pid. A version that differs from the last one
 seen gives one `runner.claude_changed` (`claude_change {from, to, expected}`); a pid that differs
-gives one `runner.supervisor_restarted` (`supervisor_restart {session_ids, cause?, live_workers?}`,
-the cause from `~/.claude/daemon.log`). The first look after a start only records; neither event
+gives one `runner.supervisor_restarted` (`supervisor_restart {session_ids, cause?, live_workers?}`:
+every session seen running on a poll since the last look and not running now, so it can also name
+one that ended on its own in that window; the cause from a `~/.claude/daemon.log` line written since
+the last look). The first look after a start only records; neither event
 replaces the `session.gone` of a session that ended.
 
 The feed keeps the last 1000 events. On every connect a client gets, in this order: the events it
@@ -35,7 +37,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from marcel_runner.health import ClaudeProbe, Probe, last_shutdown
+from marcel_runner.health import ClaudeProbe, Probe, last_shutdown, log_size
 from marcel_runner.sessions import STATES, SessionError, project_dir
 
 INTERVAL = 2.0  # seconds between two polls (SP2: a poll costs ≈ 0.12 s)
@@ -247,7 +249,8 @@ class Watcher:
         self.daemon_log = sessions.home / '.claude' / 'daemon.log'
         self._version: str | None = None  # what the last look saw
         self._pid: int | None = None
-        self._live: set[str] = set()  # sessions live at the last look
+        self._live: set[str] = set()  # sessions seen running on any poll since the last look
+        self._log_at = 0  # how far daemon.log reached at the last look
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -293,10 +296,11 @@ class Watcher:
 
     def _look(self, sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """A fresh look at claude and its supervisor, when one is due: the events it makes."""
+        live = {s['id'] for s in sessions if s.get('state') in LIVE}
+        self._live |= live  # a session that starts and ends between two looks still counts
         found = self.probe() if self.probe is not None else None
         if found is None:
             return []
-        live = {s['id'] for s in sessions if s.get('state') in LIVE}
         out = []
         if found.version:
             if self._version is not None and found.version != self._version:
@@ -306,7 +310,8 @@ class Watcher:
             if self._pid is not None and found.pid != self._pid:
                 out.append(self._restarted(sorted(self._live - live)))
             self._pid = found.pid
-        self._live = live
+        self._live = set(live)
+        self._log_at = log_size(self.daemon_log)
         return out
 
     def _claude_changed(self, before: str, now: str) -> dict[str, Any]:
@@ -324,7 +329,10 @@ class Watcher:
         return self.feed.claude_changed(message, change)
 
     def _restarted(self, ended: list[str]) -> dict[str, Any]:
-        restart: dict[str, Any] = {'session_ids': ended, **last_shutdown(self.daemon_log)}
+        restart: dict[str, Any] = {
+            'session_ids': ended,
+            **last_shutdown(self.daemon_log, self._log_at),
+        }
         why = f' ({restart["cause"]})' if 'cause' in restart else ''
         n = len(ended)
         sessions = (

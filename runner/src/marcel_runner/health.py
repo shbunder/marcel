@@ -5,7 +5,7 @@ import re
 import subprocess
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -162,6 +162,7 @@ def collect_health(
 # Claude Code changing under the runner (S-03.12) ------------------------------------------------
 
 PROBE_EVERY = 30.0  # seconds between two looks at the version and the supervisor's pid
+PROBE_TIMEOUT = 3.0  # seconds each look's command may take: it runs inside the 2-second watch poll
 LOG_TAIL = 64 * 1024  # bytes of daemon.log read from its end
 SHUTDOWN = re.compile(r'shutting down \(cause=([^,)\s]+)[^)]*?live_workers=(\d+)')
 SHUTDOWN_CAUSE = re.compile(r'shutting down \(cause=([^,)\s]+)')
@@ -187,7 +188,9 @@ class ClaudeProbe:
         every: float = PROBE_EVERY,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self.settings, self.every, self.clock = settings, every, clock
+        # Its own short timeout: a stuck claude must not hold the session watch for long.
+        self.settings = replace(settings, timeout=min(settings.timeout, PROBE_TIMEOUT))
+        self.every, self.clock = every, clock
         self._last: float | None = None
 
     def __call__(self) -> Probe | None:
@@ -205,12 +208,24 @@ class ClaudeProbe:
         return Probe(version, pid)
 
 
-def last_shutdown(log: Path) -> dict[str, Any]:
+def log_size(log: Path) -> int:
+    """How far `daemon.log` reaches now (0 when it cannot be read)."""
+    try:
+        return log.stat().st_size
+    except OSError:
+        return 0
+
+
+def last_shutdown(log: Path, since: int = 0) -> dict[str, Any]:
     """`cause` and `live_workers` of the supervisor's last `shutting down (cause=…, …)` line in
-    `~/.claude/daemon.log` (project/lessons/runner-built-ins.md); `{}` when it cannot be read."""
+    `~/.claude/daemon.log` (project/lessons/runner-built-ins.md) written after byte `since`, so an
+    old line never explains a new restart; `{}` when there is none or it cannot be read. A log
+    shorter than `since` was rotated: its tail is read."""
     try:
         with log.open('rb') as f:
-            f.seek(max(0, f.seek(0, os.SEEK_END) - LOG_TAIL))
+            end = f.seek(0, os.SEEK_END)
+            start = since if 0 < since <= end else max(0, end - LOG_TAIL)
+            f.seek(max(start, end - LOG_TAIL))
             text = f.read().decode('utf-8', errors='replace')
     except OSError:
         return {}
