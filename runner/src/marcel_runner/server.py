@@ -16,6 +16,7 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from marcel_runner import fork, resume
+from marcel_runner.brains import Brains, brains_from_env
 from marcel_runner.cloud import Cloud
 from marcel_runner.health import Settings, cgroup_of, collect_health, version_problem
 from marcel_runner.sessions import SessionError, Sessions, StateFileError, state_dir_from_env
@@ -97,6 +98,7 @@ class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
         tails: Tails | None = None,
         workspaces: Workspaces | None = None,
         cloud: Cloud | None = None,
+        brains: Brains | None = None,
     ) -> None:
         # bind_socket() has already bound `sock`; skip UnixStreamServer's own bind.
         socketserver.BaseServer.__init__(self, sock.getsockname(), Handler)
@@ -108,6 +110,7 @@ class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer)
         self.tails = tails
         self.workspaces = workspaces
         self.cloud = cloud
+        self.brains = brains
         sock.listen(16)
 
 
@@ -154,6 +157,11 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get('content-length') or 0)
             body = self.rfile.read(length) if length > 0 else b''
             self._send(*self.server.cloud.route(self.command, path, body))
+        elif path == '/brains' and self.server.brains is not None:
+            # One agent's brain folder, made on the host for the hub (S-17.7).
+            length = int(self.headers.get('content-length') or 0)
+            body = self.rfile.read(length) if length > 0 else b''
+            self._send(*self.server.brains.route(self.command, body))
         elif path == '/events' and self.server.watcher is not None:
             if self.command != 'GET':
                 self._error(405, 'method_not_allowed', f'{path} only answers GET.')
@@ -210,6 +218,7 @@ def serve(
     tails: Tails | None = None,
     workspaces: Workspaces | None = None,
     cloud: Cloud | None = None,
+    brains: Brains | None = None,
 ) -> UnixHTTPServer:
     """Check the supervisor, bind the socket and return a server ready for `serve_forever()`."""
     if sessions is not None:
@@ -235,7 +244,7 @@ def serve(
     if sessions is not None:
         sessions.refresh_usage = probe.refresh  # a fresh usage reading before each worker spawn
     sock = bind_socket(path, group)
-    return UnixHTTPServer(sock, health, probe, sessions, watcher, tails, workspaces, cloud)
+    return UnixHTTPServer(sock, health, probe, sessions, watcher, tails, workspaces, cloud, brains)
 
 
 def settings_from_env() -> tuple[Settings, Path, str | None]:
@@ -271,6 +280,7 @@ def main() -> int:
             tails=tails,
             workspaces=workspaces,
             cloud=Cloud(settings.claude, sessions.home, workspaces=workspaces),
+            brains=brains_from_env(settings.claude, sessions.home),
         )
     except (StartupError, StateFileError) as e:
         print(f'marcel-runner: {e}', file=sys.stderr)

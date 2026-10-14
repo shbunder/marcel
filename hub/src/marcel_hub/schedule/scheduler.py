@@ -300,6 +300,8 @@ class Scheduler:
             due = list(
                 s.exec(
                     select(Schedule)
+                    .join(Agent, col(Agent.id) == col(Schedule.agent_id))
+                    .where(col(Agent.archived_at).is_(None))  # an archived agent's work stops
                     .where(col(Schedule.paused).is_(False))
                     .where(col(Schedule.next_run_at).is_not(None))
                     .where(col(Schedule.next_run_at) <= now)

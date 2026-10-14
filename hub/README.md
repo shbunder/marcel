@@ -1195,6 +1195,16 @@ fork), `Direct(target)` (straight to a task, no brain turn) or `Store` (keep it 
 `brain.py` keeps exactly one brain session per agent (S-06.2, B-01). It runs only when `brain_cwd`
 is set and the hub has a runner.
 
+- **A brain per person (S-17.7).** Each live agent's brain runs in its own folder. The owner's first
+  agent (`marcel`, and any agent made before slugs) keeps `brain_cwd`. Every other agent's brain runs in
+  `~/marcel/brains/<slug>`: before starting it, the keeper asks the runner to make that folder ready
+  (`POST /brains`: render `brain/` with the agent's name and the person's name and personality, link
+  its memory to `agents/<slug>/`, install the plugin, trust it; safe to repeat). If the runner refuses
+  or is down, nothing starts and the usual backoff and alert below take over. Every brain still runs
+  on the owner's Claude login and shares the usage guard.
+- **Archived agents** (a removed person, S-17.1) get no brain: the keeper starts none and stops one
+  that still runs. Their schedules do not fire and they get no built-in digests.
+
 - **When it checks.** At start, after every runner event and every runner (re)connect, and every
   2 seconds. It lists the runner's sessions and looks at each agent's brain, the
   `brain_session_id` on the main conversation. Checks run one at a time, so a burst of runner
@@ -1208,7 +1218,7 @@ is set and the hub has a runner.
   know, or a session the runner started less than a minute ago but does not list yet all count as
   "still running".
 - **Backoff and one alert.** A spawn that fails is tried again after 5 s, 15 s, 30 s, 1 min, 2 min,
-  then every 5 min. After 3 failures in a row you get one "Marcel cannot start" push with the
+  then every 5 min. After 3 failures in a row you get one "<agent> cannot start" push (its own per agent) with the
   runner's reason; it clears when a brain starts.
 - **Rollover.** Every night at 04:00 in the owner's time zone (the `tz` setting, `MARCEL_TZ`,
   default `Europe/Brussels`; the time is worked out from the calendar day, so clock changes do not

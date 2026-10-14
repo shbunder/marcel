@@ -13,6 +13,8 @@ Resume, fork and `repo` spawns (worktrees): see [runner/workspaces.md](runner/wo
 
 Cloud sessions on claude.ai/code (`/cloud/sessions`): see [runner/cloud.md](runner/cloud.md).
 
+A brain folder per person (`POST /brains`): see [runner/brains.md](runner/brains.md).
+
 What Claude Code itself does for the runner (and the version pin): see [runner/built-ins.md](runner/built-ins.md).
 
 ## Run it

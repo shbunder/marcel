@@ -15,6 +15,7 @@ from marcel_hub.app import SettingsError, load_settings
 from marcel_hub.auth.tokens import OWNER_USER_ID
 from marcel_hub.conversations import ensure_main_conversation
 from marcel_hub.models import Agent, Conversation, ConversationKind
+from marcel_hub.users.store import OWNER_AGENT_SLUG, slug_for
 
 
 def agent(argv: list[str]) -> int:
@@ -62,9 +63,14 @@ def agent(argv: list[str]) -> int:
                     'second agent starts a second brain. Check the name, or add --another.'
                 )
                 return 1
+            # The owner's first agent is `marcel` (its brain keeps `brain_cwd`); another gets a slug
+            # of its own, and with it its own brain folder and memory (S-17.7).
+            taken = session.exec(select(Agent).where(Agent.slug == OWNER_AGENT_SLUG)).first()
+            slug = slug_for(session, args.name) if other is not None or taken else OWNER_AGENT_SLUG
             made = Agent(
                 owner_user_id=OWNER_USER_ID,
                 name=args.name,
+                slug=slug,
                 animal=args.animal,
                 palette=args.palette,
                 seed=args.seed or args.name,

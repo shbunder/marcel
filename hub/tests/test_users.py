@@ -321,7 +321,7 @@ def test_setup_reuses_the_agent_that_agent_create_made(
 ) -> None:
     run(['agent', 'create', '--name', 'Marcel'], capsys)
     [made] = rows(env)[1]
-    assert made.slug is None  # made after migration 0010, so it has no slug
+    assert made.slug == 'marcel'  # agent create names the owner's first agent `marcel` (S-17.7)
     assert 'already here' in run(['setup'], capsys)
     [after] = rows(env)[1]
     assert after.id == made.id

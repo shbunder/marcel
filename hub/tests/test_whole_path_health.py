@@ -225,3 +225,25 @@ def test_an_ok_runner_shows_its_versions(hub: ChannelHub, runner: FakeRunnerHeal
     status, body = connected_check(hub)
     assert status == 200
     assert body['runner']['claude_version_expected'] == '2.1.296'
+
+
+def test_an_archived_agent_is_not_counted(hub: ChannelHub) -> None:
+    """A removed person's agent is archived and has no brain (S-17.7): health must not call it
+    down. Drop the archived filter in `_brains` and this goes red."""
+    from datetime import UTC, datetime
+
+    from sqlmodel import Session
+
+    from marcel_hub.models import Agent
+
+    sid = hub.brain()
+    with Session(hub.engine) as s:
+        s.add(Agent(owner_user_id='usr_emma', name='Pip', animal='rabbit', palette='natural',
+                    seed='Pip', slug='pip', archived_at=datetime.now(UTC)))  # fmt: skip
+        s.commit()
+    with hub.connect() as channel:
+        channel.hello(sid)
+        channel.until_pong()
+        status, body = check(hub)
+    assert status == 200, body
+    assert [b['agent_id'] for b in body['brains']] == [hub.agent_id]

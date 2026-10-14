@@ -32,7 +32,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from marcel_hub.auth.errors import ApiError
 from marcel_hub.brain_api import _hub_secret
@@ -109,7 +109,8 @@ def _brains(request: Request) -> list[dict[str, Any]]:
     now = time.monotonic()
     out = []
     with Session(request.app.state.engine) as s:
-        for agent in s.exec(select(Agent)).all():
+        # An archived agent has no brain (S-17.7), so it is not checked.
+        for agent in s.exec(select(Agent).where(col(Agent.archived_at).is_(None))).all():
             conv = ensure_main_conversation(s, agent)
             sid = conv.brain_session_id
             brain: dict[str, Any] = {'agent_id': agent.id, 'state': 'down'}

@@ -44,6 +44,8 @@ DEFAULT_SOCKET = Path('/run/marcel/runner.sock')
 REQUEST_TIMEOUT = 15.0
 # Spawns wait up to 30 s for the channel to register (runner-api.yaml), plus a clone.
 SPAWN_TIMEOUT = 120.0
+# A first brain folder: render, plugin install (up to 120 s) and the trust dialog (up to 40 s).
+PREPARE_TIMEOUT = 300.0
 BASE_DELAY = 0.5
 MAX_DELAY = 30.0
 
@@ -185,6 +187,24 @@ class RunnerClient:
         res = await self._call('POST', '/sessions', json=body, timeout=SPAWN_TIMEOUT)
         if res.status_code == 201:
             return res.json()['session_id']
+        raise StartFailed(_message(res))
+
+    async def prepare_brain(
+        self, *, agent_slug: str, name: str, person_name: str, personality: str | None
+    ) -> str:
+        """Have the runner make (or refresh) the agent's brain folder on the host (render, memory
+        links to `agents/<slug>/`, plugin, trust; runner-api `prepareBrain`, S-17.7); returns the
+        folder to start the brain in. A runner that cannot use `claude` (503) is unavailable; any
+        other refusal is `StartFailed` with the runner's reason."""
+        persona: dict[str, str] = {'person_name': person_name}
+        if personality:
+            persona['personality'] = personality
+        body = {'agent_slug': agent_slug, 'name': name, 'persona': persona}
+        res = await self._call('POST', '/brains', json=body, timeout=PREPARE_TIMEOUT)
+        if res.status_code == 200:
+            return res.json()['cwd']
+        if res.status_code == 503:
+            raise RunnerUnavailable(_message(res))
         raise StartFailed(_message(res))
 
     # Side threads (S-06.3: `side.SideThreads`) ---------------------------------------------

@@ -172,7 +172,7 @@ install_workspaces() {
         --var "AGENT_NAME=$(env_value MARCEL_AGENT_NAME | grep . || echo Marcel)" \
         --var "OWNER_NAME=$(env_value MARCEL_OWNER_NAME)" \
         --var "MARKETPLACE_DIR=$MARCEL_HOME/plugins" \
-        --var "MEMORY_DIR=$MARCEL_HOME/data/memory"
+        --var "MEMORY_DIR=$MARCEL_HOME/data/memory/agents/marcel"
     plugin_into "$MARCEL_HOME/brain" project
     trust "$MARCEL_HOME/brain"
 

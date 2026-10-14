@@ -66,7 +66,7 @@ def test_hard_rules(rule: str) -> None:
 
 
 def test_the_voice() -> None:
-    for words in ('giraffe', 'Lead with the outcome', 'plain words', 'phone'):
+    for words in ('{{ANIMAL}}', '{{PERSONALITY}}', 'Lead with the outcome', 'plain words', 'phone'):
         assert words in PERSONA
 
 
