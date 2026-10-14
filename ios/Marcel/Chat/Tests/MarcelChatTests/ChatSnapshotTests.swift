@@ -56,6 +56,31 @@ final class ChatSnapshotTests: XCTestCase {
             named: "Chat-composer-extras", variants: twoModes, padding: 0)
     }
 
+    /// The time lines as in wireframe Q1: "Today 08:12" above the first message of the window, then only the clock
+    /// ("08:31") where the next group starts more than 15 minutes later. Centred, small and muted.
+    func testTimeLinesBetweenGroups() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Brussels")!
+        func at(_ hour: Int, _ minute: Int) -> Date {
+            calendar.date(from: DateComponents(year: 2026, month: 10, day: 13, hour: hour, minute: minute))!
+        }
+        Snapshot.assert(
+            ChatStill(header: ChatHeaderState(avatar: .working(1), running: 1), items: [
+                .time(TimeLine(id: "time-1", date: at(8, 12))),
+                .user(UserLine(id: "u1", text: "What's on Thursday?")),
+                .marcel(MarcelLine(id: "m1", markdown: "Dentist at **9:30**, then nothing until school pickup at 15:20.")),
+                .user(UserLine(id: "u2", text: "Compare the heat-pump offers in my Downloads")),
+                .quest(QuestLine(id: "q1", taskId: "t1", title: "Compare heat-pump offers", state: .working,
+                                 project: "House", tone: .teal, detail: nil, location: .nuc)),
+                .time(TimeLine(id: "time-2", date: at(8, 31))),
+                .marcel(MarcelLine(id: "m2", markdown: "Daikin is cheapest over 10 years.")),
+            ])
+            .environment(\.chatNow, at(8, 40))
+            .environment(\.timeZone, calendar.timeZone)
+            .environment(\.locale, Locale(identifier: "en_GB")),
+            named: "Chat-time-lines", variants: twoModes, padding: 0)
+    }
+
     func testCollapsedHeaderOffline() {
         Snapshot.assert(
             ChatStill(header: ChatHeaderState(offline: "Offline · showing what's saved"), items: [
