@@ -1,21 +1,23 @@
 """Tell the owner what the host's scripts did (S-11.2).
 
-A host script that the hub cannot run itself writes its outcome as one JSON object to a file in the state folder
-(`~/marcel/state`, `/state` in the container), whole (temp file, then rename). The hub looks at start and every 15 s,
-posts one system message in the owner's main conversation and, when the outcome needs the owner, one push; then it
-renames the file to `<name>.told`, so each outcome is told once. `RESULTS` lists the files and how each is told.
+A host script that the hub cannot run itself writes its outcome as one JSON object to a file in the
+state folder (`~/marcel/state`, `/state` in the container), whole (temp file, then rename). The hub
+looks at start and every 15 s, posts one system message in the owner's main conversation and, when
+the outcome needs the owner, one push; then it renames the file to `<name>.told`, so each outcome is
+told once. `RESULTS` lists the files and how each is told.
 
-`redeploy.result`: `deploy/redeploy.sh` (run by `marcel-redeploy.path` when the hub writes the redeploy flag, S-11.1)
-deploys an approved self-change, watches Marcel's health for 120 s and reverts it when it does not come up. A
-redeploy restarts the hub, so its first look tells the outcome.
+`redeploy.result`: `deploy/redeploy.sh` (run by `marcel-redeploy.path` when the hub writes the
+redeploy flag, S-11.1) deploys an approved self-change, watches Marcel's health for 120 s and
+reverts it when it does not come up. A redeploy restarts the hub, so its first look tells the
+outcome.
 """
 
 import asyncio
 import contextlib
 import json
 import logging
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.engine import Engine
@@ -33,14 +35,19 @@ TICK_S = 15.0
 RESULT = 'redeploy.result'
 OUTCOMES = ('deployed', 'version_drift', 'rolled_back', 'rollback_failed', 'refused')
 
-# (title, text, push?) for a result file's object, written for a phone; None when the file is not valid JSON.
+# (title, text, push?) for a result file's object, written for a phone; None when the file is not
+# valid JSON.
 Describe = Callable[[dict[str, Any] | None], tuple[str, str, bool]]
 
 
 def describe(result: dict[str, Any] | None) -> tuple[str, str, bool]:
     """How a redeploy went (`deploy/redeploy.sh`)."""
     if not isinstance(result, dict) or result.get('outcome') not in OUTCOMES:
-        return 'An update may not have gone in', 'A redeploy ended, but its result could not be read.', True
+        return (
+            'An update may not have gone in',
+            'A redeploy ended, but its result could not be read.',
+            True,
+        )
     outcome = result.get('outcome')
     sha = str(result.get('sha') or '')[:7]
     subject = str(result.get('subject') or '').strip()
@@ -109,7 +116,9 @@ class ResultWatch:
             log.warning('%s is not JSON; telling the owner it could not be read.', path)
             result = None
         title, text, push = describe_it(result if isinstance(result, dict) else None)
-        self._say(title, text, push, key=Path(name).stem)  # raises when it cannot post: the next look tries again
+        self._say(
+            title, text, push, key=Path(name).stem
+        )  # raises when it cannot post: the next look tries again
         with contextlib.suppress(OSError):
             path.replace(path.with_name(f'{name}.told'))
         log.info('Told %s: %s', name, title)

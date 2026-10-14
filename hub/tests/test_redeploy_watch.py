@@ -1,5 +1,6 @@
-"""Telling the owner how a redeploy went (S-11.2): the host's `deploy/redeploy.sh` writes `redeploy.result` next to
-the flag; the hub posts it once in the owner's main conversation and pushes all but a plain success."""
+"""Telling the owner how a redeploy went (S-11.2): the host's `deploy/redeploy.sh` writes
+`redeploy.result` next to the flag; the hub posts it once in the owner's main conversation and
+pushes all but a plain success."""
 
 import asyncio
 import json
@@ -39,7 +40,9 @@ def write(state: Path, **fields: Any) -> None:
 @pytest.fixture
 def owner(engine: Engine) -> Engine:
     add_agent(engine, 'agt_b', owner=OWNER_USER_ID)
-    add_agent(engine, 'agt_a_emma', owner='usr_emma')  # sorts first, but someone else's agent is never told
+    add_agent(
+        engine, 'agt_a_emma', owner='usr_emma'
+    )  # sorts first, but someone else's agent is never told
     return engine
 
 
@@ -76,7 +79,9 @@ def test_each_outcome_is_said_once_and_pushed_unless_it_simply_went_in(
     ((conversation, text),) = said(owner)
     assert conversation == main_of(owner, 'agt_b')
     assert words in text
-    assert [(n.collapse_key, user) for n, user in pushes.sent] == ([('redeploy', OWNER_USER_ID)] if pushed else [])
+    assert [(n.collapse_key, user) for n, user in pushes.sent] == (
+        [('redeploy', OWNER_USER_ID)] if pushed else []
+    )
     assert not (tmp_path / RESULT).exists() and (tmp_path / TOLD).exists()
 
     assert watch.check() is False  # told once
@@ -149,13 +154,17 @@ def test_a_failed_push_still_tells_in_the_app(owner: Engine, tmp_path: Path) -> 
     assert len(said(owner)) == 1 and not (tmp_path / RESULT).exists()
 
 
-def test_without_an_agent_the_result_is_logged_and_set_aside(engine: Engine, tmp_path: Path) -> None:
+def test_without_an_agent_the_result_is_logged_and_set_aside(
+    engine: Engine, tmp_path: Path
+) -> None:
     write(tmp_path, outcome='deployed')
     assert ResultWatch(engine, EventLog(engine), tmp_path).check() is True
     assert said(engine) == [] and (tmp_path / TOLD).exists()
 
 
-def test_the_loop_survives_a_failed_look(owner: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_loop_survives_a_failed_look(
+    owner: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     looks: list[int] = []
     watch = ResultWatch(owner, EventLog(owner), tmp_path, tick=0.01)
 
@@ -177,22 +186,30 @@ def test_the_loop_survives_a_failed_look(owner: Engine, tmp_path: Path, monkeypa
 
 
 def test_describe_leads_with_the_outcome() -> None:
-    title, text, push = describe({'outcome': 'rolled_back', 'sha': SHA, 'subject': 'Hub: x', 'reason': ''})
-    assert title == 'An update was rolled back' and text.startswith('*Hub: x* (ccccccc) did not come up healthy')
+    title, text, push = describe(
+        {'outcome': 'rolled_back', 'sha': SHA, 'subject': 'Hub: x', 'reason': ''}
+    )
+    assert title == 'An update was rolled back' and text.startswith(
+        '*Hub: x* (ccccccc) did not come up healthy'
+    )
     assert push
 
 
 def test_the_app_tells_a_result_that_waited_for_its_start(tmp_path: Path) -> None:
-    """The production path: a redeploy restarts the hub, and the hub's first look tells the result."""
+    """The production path: a redeploy restarts the hub; its first look tells the result."""
     state = tmp_path / 'state'
     write(state, outcome='rolled_back', reason='The new version was not healthy within 120 s.')
     app: Any = create_app(
-        Settings(data_dir=tmp_path, db_path=tmp_path / 'm.db', redeploy_flag=state / 'redeploy.flag')
+        Settings(
+            data_dir=tmp_path, db_path=tmp_path / 'm.db', redeploy_flag=state / 'redeploy.flag'
+        )
     )
     pushes = Pushes()
     app.state.result_watch.pusher = pushes
     db.upgrade(app.state.engine)
-    add_agent(app.state.engine, 'agt_b', owner=OWNER_USER_ID)  # the owner's agent, there before the redeploy
+    add_agent(
+        app.state.engine, 'agt_b', owner=OWNER_USER_ID
+    )  # the owner's agent, there before the redeploy
     with TestClient(app):
         for _ in range(100):
             if said(app.state.engine):
