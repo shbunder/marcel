@@ -1,6 +1,8 @@
 ---
 name: merge-story
 description: Lead only — merge a reviewed story PR into main and mark it Done on the build board, then report what became ready. Use when a story is in Review with green checks and a "merge" verdict.
+disable-model-invocation: true
+argument-hint: <story id or PR number>
 ---
 
 Merge: $ARGUMENTS   (a story id or PR number)
