@@ -218,6 +218,17 @@ make -C runner test-live    # spawn to done, tail, stop, the cap, reply in manua
 `MARCEL_LIVE_NODE_BIN` (default `~/marcel/node/bin`) change what they use. They start their own runner
 on a temporary socket with a cap of 1, so the deployed runner and the brain are not touched.
 
+The channel's live check runs against the **deployed** hub and runner (not a runner of its own):
+
+```bash
+cd plugins/marcel/channel && npx vitest run --config tests/live/vitest.config.ts
+```
+
+It needs Docker access to `marcel-hub` (it pairs a device and removes it at the end), the owner's adopt token in
+`~/.marcel/adopt-token` (`marcel-hub adopt-token`, made once; the test never rotates it) and the hub secret. On the phone
+it shows: an adopted quest and a short worker quest (archived at the end), one Write approval card it answers itself,
+and Marcel's brain replaced once (it stops the brain on purpose to check a message waits for the new one).
+
 ## Still open on this NUC
 
 Checks the stories left for the first install. Each is recorded on the build board when done.
