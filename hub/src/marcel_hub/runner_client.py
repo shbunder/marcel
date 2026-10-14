@@ -51,6 +51,7 @@ MAX_DELAY = 30.0
 
 UNREACHABLE = 'runner_unreachable'  # the alert's cause
 TAIL_WARN_AFTER = 300.0  # seconds of 503s on a tail before the hub logs a warning
+WORKFLOW_LINGER = 10.0  # seconds a run's journal tail stays open after its workflow_stop (S-04.16)
 
 # Task states that only a live session holds; these go to `unknown` when the runner is lost.
 LIVE = frozenset({TaskState.starting, TaskState.working, TaskState.needs_you, TaskState.silent})
@@ -380,10 +381,26 @@ TRANSCRIPT_DATA: dict[str, dict[str, tuple[Kind, bool]]] = {
     'error': {'message': ('string', True), 'api_error_status': ('integer', False),
               'usage_limit': ('boolean', False)},
     'raw': {'entry_type': ('string', True), 'entry': ('object', False)},
+    # A workflow's run (runner-api 0.1.12, SP10; S-04.16).
+    'workflow_start': {'tool_use_id': ('string', True), 'run_id': ('string', True),
+                       'task_id': ('string', False), 'name': ('string', True),
+                       'description': ('string', False)},
+    'workflow_stop': {'tool_use_id': ('string', True), 'run_id': ('string', False),
+                      'status': (frozenset({'completed', 'failed', 'stopped', 'unknown'}), True),
+                      'summary': ('string', False)},
+    'workflow_agent_start': {'run_id': ('string', True), 'agent_id': ('string', True),
+                             'label': ('string', True), 'phase': ('string', False)},
+    'workflow_agent_stop': {'run_id': ('string', True), 'agent_id': ('string', True),
+                            'summary': ('string', False)},
 }  # fmt: skip
 TRANSCRIPT_FIELDS = frozenset(
-    {'session_id', 'offset', 'index', 'subagent_id', 'at', 'type', 'data'}
+    {'session_id', 'offset', 'index', 'subagent_id', 'workflow_id', 'at', 'type', 'data'}
 )
+RUN_ID = re.compile(r'^wf_[A-Za-z0-9_-]{1,64}$')  # transcript.schema.json: a workflow's run id
+# What a run's journal gives (runner-api 0.1.12): its agents' starts and stops, and `raw` for a line
+# the runner could not map. Never anything else, and the main transcript never gives the two others.
+JOURNAL_TYPES = frozenset({'workflow_agent_start', 'workflow_agent_stop', 'raw'})
+AGENT_ID = re.compile(r'^[0-9a-f]+$')
 HUNK_FIELDS = ('old_start', 'old_lines', 'new_start', 'new_lines')
 
 
@@ -491,11 +508,28 @@ def check_transcript_event(raw: str, session_id: str) -> dict[str, Any]:
         raise BadEvent(f'unknown transcript event type {event.get("type")!r}')
     if 'subagent_id' in event and not isinstance(event['subagent_id'], str):
         raise BadEvent('a transcript event has a bad subagent_id')
+    if 'workflow_id' in event and not _is_run(event['workflow_id']):
+        raise BadEvent('a transcript event has a bad workflow_id')
     extra = sorted(set(event) - TRANSCRIPT_FIELDS)
     if extra:
         raise BadEvent(f'a transcript event has unknown fields {", ".join(extra)}')
     check_data(event['type'], event.get('data'))
+    data = event['data']
+    if 'run_id' in data and not _is_run(data['run_id']):
+        raise BadEvent(f'a {event["type"]} event has a bad run_id')
+    if event['type'].startswith('workflow_agent_') and not AGENT_ID.match(data['agent_id']):
+        raise BadEvent(f'a {event["type"]} event has a bad agent_id')
     return event
+
+
+def _is_run(value: Any) -> bool:
+    return isinstance(value, str) and RUN_ID.match(value) is not None
+
+
+def tail_key(session_id: str, run: str | None) -> str:
+    """Where a tail's offset is kept: the session id for its transcript, and `<session>?workflow=
+    <run>` for a run's journal (S-04.16), which cannot be a session id."""
+    return session_id if run is None else f'{session_id}?workflow={run}'
 
 
 # Tail positions --------------------------------------------------------------------------------
@@ -778,7 +812,10 @@ class RunnerWatch:
         self.reachable: bool | None = None  # None until the first try
         self.reason = 'The hub has not reached the runner yet.'
         self.last_seq: int | None = None
+        # One tail per file: a session's transcript under its id, a workflow run's journal under
+        # `tail_key(session, run)` (S-04.16); the offsets are kept under the same keys.
         self._tails: dict[str, _Tail] = {}
+        self._closers: set[asyncio.Task[None]] = set()  # journals closing after their run ended
         self._job: asyncio.Task[None] | None = None
         self.listeners: list[SessionListener] = []
         # Called after every runner event and every (re)connect, whatever the session: the brain
@@ -791,7 +828,7 @@ class RunnerWatch:
         self._job = asyncio.create_task(self.run(), name='runner-watch')
 
     async def close(self) -> None:
-        jobs = [t.job for t in self._tails.values()]
+        jobs = [t.job for t in self._tails.values()] + list(self._closers)
         if self._job is not None:
             jobs.append(self._job)
         for job in jobs:
@@ -976,16 +1013,62 @@ class RunnerWatch:
         adopted session (S-05.4) the runner did not start."""
         self._tail(task_id, session_id, follow=True)
 
-    def _tail(self, task_id: str, session_id: str, follow: bool) -> None:
-        """Make sure the session's transcript is read: followed while live, read to the end once
-        it has finished."""
-        current = self._tails.get(session_id)
+    def _tail(self, task_id: str, session_id: str, follow: bool, run: str | None = None) -> None:
+        """Make sure the session's transcript (or, with `run`, that workflow run's journal) is
+        read: followed while live, read to the end once it has finished. A new tail of the main
+        transcript also (re)opens the journal of every run of the task that has started and not
+        stopped, so a hub restart resumes them (S-04.16)."""
+        key = tail_key(session_id, run)
+        current = self._tails.get(key)
         if current is not None and not current.job.done():
             if current.follow == follow:
                 return
             current.job.cancel()  # safe: offsets are saved before any wait
-        job = asyncio.create_task(self._read_tail(task_id, session_id, follow))
-        self._tails[session_id] = _Tail(follow, job)
+        job = asyncio.create_task(self._read_tail(task_id, session_id, follow, run))
+        self._tails[key] = _Tail(follow, job)
+        if run is None:
+            for open_run in self._open_runs(task_id):
+                self._tail(task_id, session_id, follow, open_run)
+
+    def _open_runs(self, task_id: str) -> list[str]:
+        """The workflow runs of a task that have a `workflow_start` and no `workflow_stop`."""
+        started: list[str] = []
+        stopped: set[str] = set()
+        with Session(self.registry.engine) as s:
+            rows = s.exec(
+                select(TaskEvent.type, TaskEvent.data_json)
+                .where(TaskEvent.task_id == task_id)
+                .where(
+                    col(TaskEvent.type).in_(
+                        [TaskEventType.workflow_start, TaskEventType.workflow_stop]
+                    )
+                )
+                .order_by(col(TaskEvent.seq))
+            )
+            for kind, data in rows:
+                run = (data or {}).get('run_id')
+                if not _is_run(run):
+                    continue
+                if kind == TaskEventType.workflow_start and run not in started:
+                    started.append(run)
+                elif kind == TaskEventType.workflow_stop:
+                    stopped.add(run)
+        return [run for run in started if run not in stopped]
+
+    def _close_later(self, session_id: str, run: str) -> None:
+        """Close a run's journal tail `WORKFLOW_LINGER` seconds after its `workflow_stop`, so the
+        journal's last lines arrive first."""
+
+        async def close() -> None:
+            await self.sleep(WORKFLOW_LINGER)
+            tail = self._tails.pop(tail_key(session_id, run), None)
+            if tail is not None:
+                tail.job.cancel()
+                await asyncio.gather(tail.job, return_exceptions=True)
+
+        closer = asyncio.create_task(close())
+        self._closers.add(closer)
+        closer.add_done_callback(self._closers.discard)
 
     async def _stop_tails(self) -> None:
         jobs = [t.job for t in self._tails.values()]
@@ -994,13 +1077,18 @@ class RunnerWatch:
             job.cancel()
         await asyncio.gather(*jobs, return_exceptions=True)
 
-    async def _read_tail(self, task_id: str, session_id: str, follow: bool) -> None:
+    async def _read_tail(
+        self, task_id: str, session_id: str, follow: bool, run: str | None = None
+    ) -> None:
         delay = self.base_delay
         refused_for = 0.0  # seconds of 503s in a row
         warned = False
+        key = tail_key(session_id, run)
         while True:
-            position = self.offsets.get(session_id)
+            position = self.offsets.get(key)
             params = {'offset': position.committed, 'follow': 'true' if follow else 'false'}
+            if run is not None:
+                params['workflow'] = run  # the run's journal (runner-api 0.1.12)
             try:
                 res = await self.client.open_stream(f'/sessions/{session_id}/tail', params=params)
             except StreamRefused as exc:
@@ -1039,7 +1127,7 @@ class RunnerWatch:
             stream = _Stream(resumed_from=position.committed)
             try:
                 async for message in sse(res.aiter_lines()):
-                    await self._on_transcript(task_id, session_id, message.data, stream)
+                    await self._on_transcript(task_id, session_id, message.data, stream, run)
                 if not follow:
                     return
             except httpx.TransportError as exc:
@@ -1087,15 +1175,26 @@ class RunnerWatch:
         return None
 
     async def _on_transcript(
-        self, task_id: str, session_id: str, raw: str, stream: _Stream
+        self, task_id: str, session_id: str, raw: str, stream: _Stream, run: str | None = None
     ) -> None:
         try:
             event = check_transcript_event(raw, session_id)
+            if event.get('workflow_id') != run:  # a journal's events name its run, and only they
+                raise BadEvent(
+                    f'a transcript event for run {event.get("workflow_id")!r} on {run!r}'
+                )
+            if run is not None and event['type'] not in JOURNAL_TYPES:
+                raise BadEvent(f"a {event['type']} event on a run's journal")
+            run_id = event.get('data', {}).get('run_id')
+            if run is not None and run_id is not None and run_id != run:
+                raise BadEvent(f'a step of run {run_id!r} on the journal of {run!r}')
+            if run is None and event['type'] in JOURNAL_TYPES - {'raw'}:
+                raise BadEvent(f'a {event["type"]} event on the main transcript')
         except BadEvent as exc:
             log.warning('Ignored a bad transcript event for task %s: %s.', task_id, exc)
             return
         offset, index = event['offset'], event.get('index', 0)
-        position = self.offsets.get(session_id)
+        position = self.offsets.get(tail_key(session_id, run))
         before = stream.resumed_from if stream.last is None else stream.last
         if stream.started_over(offset):
             log.info(
@@ -1119,6 +1218,11 @@ class RunnerWatch:
         self.offsets.save()
         if repeat is not None:
             return
+        if run is None and event['type'] == 'workflow_start':
+            main = self._tails.get(session_id)
+            self._tail(task_id, session_id, main.follow if main else True, event['data']['run_id'])
+        elif run is None and event['type'] == 'workflow_stop' and 'run_id' in event['data']:
+            self._close_later(session_id, event['data']['run_id'])
         if event['type'] == 'error' and event['data'].get('usage_limit'):
             usage = await self.client.usage()
             await self._report(

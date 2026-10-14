@@ -19,7 +19,7 @@ from typing import Any
 
 import httpx
 
-from marcel_hub.runner_client import RunnerClient, RunnerWatch
+from marcel_hub.runner_client import RunnerClient, RunnerWatch, tail_key
 
 
 def now() -> str:
@@ -104,6 +104,17 @@ class FakeRunnerServer:
                     'data': data,
                 }
             )
+        self._wake()
+
+    def write_journal(
+        self, session_id: str, run: str, *events: tuple[int, int, str, dict[str, Any]]
+    ) -> None:
+        """Append to a workflow run's journal (`tail?workflow=<run>`, S-04.16): each event names
+        the session and carries `workflow_id`."""
+        rows = self.transcripts.setdefault(tail_key(session_id, run), [])
+        for offset, index, kind, data in events:
+            rows.append({'session_id': session_id, 'offset': offset, 'index': index, 'at': now(),
+                         'workflow_id': run, 'type': kind, 'data': data})  # fmt: skip
         self._wake()
 
     def start_over(
@@ -274,10 +285,11 @@ class FakeRunnerServer:
                     )
                 offset = int(request.url.params.get('offset', 0))
                 follow = request.url.params.get('follow', 'true') == 'true'
+                run = request.url.params.get('workflow')
                 return httpx.Response(
                     200,
                     headers={'content-type': 'text/event-stream'},
-                    content=self._tail(sid, offset, follow),
+                    content=self._tail(tail_key(sid, run), offset, follow),
                 )
         return httpx.Response(404, json={'code': 'not_found', 'message': f'No {path}.'})
 

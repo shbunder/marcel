@@ -84,6 +84,10 @@ class TaskEventType(StrEnum):
     permission = 'permission'
     subagent_start = 'subagent_start'
     subagent_stop = 'subagent_stop'
+    workflow_start = 'workflow_start'  # a workflow's run (S-04.16, app-api 0.7.3)
+    workflow_stop = 'workflow_stop'
+    workflow_agent_start = 'workflow_agent_start'
+    workflow_agent_stop = 'workflow_agent_stop'
     error = 'error'
     raw = 'raw'
     state = 'state'

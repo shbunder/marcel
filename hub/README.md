@@ -389,6 +389,18 @@ background watcher follows the runner's streams:
   new. An event that repeats one it already has (same type, time and data, matched in order, one
   for one) is not stored twice; how far that re-read got is saved with the offsets, so a hub
   restart in the middle of it is safe too.
+- **Workflows** (S-04.16, runner-api 0.1.12). A quest that runs a `Workflow` gets its steps in the
+  quest view: the main transcript's `workflow_start` makes the hub open one more tail for that task,
+  `?workflow=<run id>`, the run's journal, whose `workflow_agent_start` / `workflow_agent_stop`
+  (each agent's label, phase and one-line result) are stored as the task's events like the rest. The
+  journal has its own offset (key `<session>?workflow=<run>` in `runner-offsets.json`) and the same
+  resume, backoff and start-over rules; a journal that does not exist yet is waited for by the
+  runner. It is closed 10 s after the run's `workflow_stop` (so its last lines arrive), or read to its
+  end once when the task ends. After a hub restart, the journal of every run the task's stored events
+  show as started and not stopped is opened again with the main transcript. The hub never opens the
+  per-agent transcripts (`&subagent=`): ten agents' tool calls would flood the quest. An agent event
+  on the main transcript, anything but an agent event or `raw` on a journal, or a bad `workflow_id`
+  or run id is logged and dropped.
 - **Runner down.** When the runner does not answer, every NUC task that was live goes to `unknown`,
   and one "something broke" alert is pushed (see Push notifications). The hub
   retries after 0.5 s, then 1, 2, 4 … up to 30 s. When the runner answers again the alert is

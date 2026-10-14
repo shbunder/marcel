@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from marcel_hub import db
-from marcel_hub.models import Agent, Message, Project, User, UserRole
+from marcel_hub.models import Agent, Message, Project, TaskEvent, User, UserRole
 
 NOW = "'2026-10-12 00:00:00.000000'"
 MENTION = {'kind': 'task', 'id': 'tsk_01J9ZQ5', 'title': 'Fix flaky login test'}  # app-api
@@ -146,3 +146,27 @@ def test_downgrade_and_upgrade_again_keep_the_rows(tmp_path: Path) -> None:
         again = s.get(Message, 'msg_3')
         assert again is not None and again.reply_to_message_id is None  # dropped with the column
         assert again.body_json == {'text': 'Yes'}
+
+
+def test_0011_takes_workflow_events_and_its_downgrade_keeps_the_rest(tmp_path: Path) -> None:
+    engine = v1(tmp_path / 'marcel.db')
+    db.upgrade(engine, '0010')
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO task (id, agent_id, project_id, title, location, state, model, origin, "
+            "created_at, updated_at) VALUES ('tsk_1', 'agt_marcel', 'prj_garden', 'T', 'nuc', "
+            f"'working', 'sonnet', 'marcel', {NOW}, {NOW})"))  # fmt: skip
+        conn.execute(text(
+            "INSERT INTO task_event (task_id, seq, type, data_json, at) VALUES ('tsk_1', 1, "
+            f"'text', '{{}}', {NOW})"))  # fmt: skip
+    db.upgrade(engine)
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO task_event (task_id, seq, type, data_json, at) VALUES ('tsk_1', 2, "
+            f"'workflow_agent_start', '{{}}', {NOW})"))  # fmt: skip
+    with Session(engine) as s:
+        assert [e.type.value for e in s.exec(select(TaskEvent))] == ['text', 'workflow_agent_start']
+    db.downgrade(engine, '0010')
+    with engine.connect() as conn:
+        types = conn.execute(text('SELECT type FROM task_event')).scalars().all()
+    assert types == ['text']

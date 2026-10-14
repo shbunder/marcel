@@ -473,7 +473,9 @@ TASK_EVENT = validator('app-api.yaml#/components/schemas/TaskEvent')
 DEF_NAMES = {'text': 'Text', 'thinking': 'Thinking', 'tool_call': 'ToolCall',
              'tool_result': 'ToolResult', 'diff': 'Diff', 'subagent_start': 'SubagentStart',
              'subagent_stop': 'SubagentStop', 'turn_end': 'TurnEnd', 'error': 'Error',
-             'raw': 'Raw'}  # fmt: skip
+             'raw': 'Raw', 'workflow_start': 'WorkflowStart', 'workflow_stop': 'WorkflowStop',
+             'workflow_agent_start': 'WorkflowAgentStart',
+             'workflow_agent_stop': 'WorkflowAgentStop'}  # fmt: skip
 
 
 def _contract_kind(prop: dict[str, Any]) -> Any:
@@ -486,13 +488,10 @@ def _contract_kind(prop: dict[str, Any]) -> Any:
     return prop['type']
 
 
-# Added by S-02.11 (runner-api 0.1.12, SP10) before the hub reads them: a workflow's events and the
-# `workflow_id` of its streams. The hub story that opens workflow tails removes these entries; the
+# Contract types and fields the hub does not read yet. Empty since S-04.16 read a workflow's; the
 # test after this one fails as soon as one is read, so these sets can only shrink.
-PENDING_TRANSCRIPT_TYPES = {
-    'workflow_start', 'workflow_stop', 'workflow_agent_start', 'workflow_agent_stop',
-}  # fmt: skip
-PENDING_TRANSCRIPT_FIELDS = {'workflow_id'}
+PENDING_TRANSCRIPT_TYPES: set[str] = set()
+PENDING_TRANSCRIPT_FIELDS: set[str] = set()
 
 
 def test_the_hubs_transcript_table_matches_the_contract() -> None:
@@ -536,6 +535,11 @@ GOOD_DATA = {
     'turn_end': {'duration_ms': 1, 'message_count': 2, 'pending_background_agents': 0},
     'error': {'message': 'm', 'api_error_status': 429, 'usage_limit': True},
     'raw': {'entry_type': 'x', 'entry': {}},
+    'workflow_start': {'tool_use_id': 't', 'run_id': 'wf_1', 'task_id': 'k', 'name': 'n',
+                       'description': 'd'},
+    'workflow_stop': {'tool_use_id': 't', 'run_id': 'wf_1', 'status': 'completed', 'summary': 's'},
+    'workflow_agent_start': {'run_id': 'wf_1', 'agent_id': 'a1', 'label': 'l', 'phase': 'p'},
+    'workflow_agent_stop': {'run_id': 'wf_1', 'agent_id': 'a1', 'summary': 's'},
 }  # fmt: skip
 
 
@@ -573,6 +577,24 @@ def test_out_of_contract_data_is_refused(kind: str, data: Any, why: str) -> None
     with pytest.raises(BadEvent, match=why):
         check_transcript_event(line(kind, data), 's-1')
     assert not TRANSCRIPT_EVENT.is_valid(json.loads(line(kind, data)))
+
+
+@pytest.mark.parametrize(
+    ('kind', 'data', 'extra', 'why'),
+    [
+        ('workflow_agent_start', {'run_id': 'wf_1', 'agent_id': 'a1', 'label': 'l'},
+         {'workflow_id': '../x'}, 'bad workflow_id'),
+        ('workflow_agent_start', {'run_id': '../x', 'agent_id': 'a1', 'label': 'l'}, {},
+         'bad run_id'),
+        ('workflow_agent_stop', {'run_id': 'wf_1', 'agent_id': 'NOT/HEX'}, {}, 'bad agent_id'),
+        ('workflow_stop', {'tool_use_id': 't', 'status': 'done'}, {}, 'status'),
+        ('workflow_start', {'tool_use_id': 't', 'run_id': 'wf_1', 'name': 'n', 'x': 1}, {},
+         'unknown fields x'),
+    ],
+)  # fmt: skip
+def test_a_bad_workflow_event_is_refused(kind: str, data: Any, extra: Any, why: str) -> None:
+    with pytest.raises(BadEvent, match=why):
+        check_transcript_event(line(kind, data, **extra), 's-1')
 
 
 def test_unknown_or_bad_event_fields_are_refused() -> None:
