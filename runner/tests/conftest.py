@@ -70,6 +70,13 @@ def request(sock: Path, method: str, path: str) -> tuple[int, dict]:
         conn.close()
 
 
+@pytest.fixture(autouse=True)
+def own_state_folder(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch):
+    """Every test gets its own runner state folder. The gate runs on the NUC, next to the live
+    runner: a test that runs `server.main()` once wrote its `login.json` into the live one."""
+    monkeypatch.setenv('MARCEL_RUNNER_STATE', str(tmp_path_factory.mktemp('runner-state')))
+
+
 RUNNER_API = Path(__file__).resolve().parents[2] / 'contracts' / 'runner-api.yaml'
 
 
