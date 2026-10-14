@@ -1,6 +1,7 @@
 // swift-tools-version: 6.0
-// AvatarKit: plays each agent's pixel avatar sprite sheet (B-28, B-44), the bundled giraffe by default. The
-// giraffe's sheet in Sources/AvatarKit/Resources is a copy of shared/avatar/pixel/out/giraffe.{png,json}; refresh it with `make -C ios/AvatarKit sheet`.
+// AvatarKit: plays each agent's pixel avatar sprite sheet (B-28, B-44), Marcel's own by default. The bundled
+// sheet in Sources/AvatarKit/Resources is Marcel's look drawn by the Pixel Zoo (shared/avatar/zoo); refresh it with
+// `make -C ios/AvatarKit sheet`.
 import PackageDescription
 
 let package = Package(
@@ -10,7 +11,9 @@ let package = Package(
     targets: [
         .target(
             name: "AvatarKit",
-            resources: [.copy("Resources/giraffe.png"), .copy("Resources/giraffe.json")]
+            resources: [
+                .copy("Resources/giraffe-rose-professional.png"), .copy("Resources/giraffe-rose-professional.json"),
+            ]
         ),
         .testTarget(name: "AvatarKitTests", dependencies: ["AvatarKit"], exclude: ["__Snapshots__", "Fixtures"]),
     ]

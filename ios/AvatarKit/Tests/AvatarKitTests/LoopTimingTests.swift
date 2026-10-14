@@ -31,9 +31,9 @@ final class LoopTimingTests: XCTestCase {
         XCTAssertEqual(loop.nextBoundary(atOrAfter: 1_250), 1_300, "third pass starts at 1 200")
     }
 
-    func testGiraffeIdleTimingMatchesTheSheet() {
-        // giraffe.json: idle starts [0, 300], [1, 200], [2, 100] … and lasts 6.4 s.
-        let idle = SpriteSheet.giraffe.loop(named: "idle")
+    func testIdleTimingMatchesTheSheet() {
+        // The timing sheet: idle starts [0, 300], [1, 200], [2, 100] … and lasts 6.4 s.
+        let idle = TimingSheet.sheet.loop(named: "idle")
         XCTAssertEqual(idle.duration, 6_400)
         XCTAssertEqual(idle.frame(at: 0), 0)
         XCTAssertEqual(idle.frame(at: 299), 0)
@@ -43,7 +43,7 @@ final class LoopTimingTests: XCTestCase {
     }
 
     func testPlayerPlaysTheLoopFromWhenItStarted() {
-        let player = AvatarPlayer(state: .idle, at: 1_000)
+        let player = AvatarPlayer(sheet: TimingSheet.sheet, state: .idle, at: 1_000)
         XCTAssertEqual(player.frame(at: 1_000), 0)
         XCTAssertEqual(player.frame(at: 1_000.3), 1)
         XCTAssertEqual(player.frame(at: 1_000.55), 2)

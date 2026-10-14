@@ -1,22 +1,21 @@
 import XCTest
 @testable import AvatarKit
 
-/// AvatarKit plays a copy of shared/avatar/pixel/out/giraffe.{png,json}. This fails when the copy drifts from the
-/// source; fix it with `make -C ios/AvatarKit sheet`.
+/// The bundled default is Marcel's Pixel Zoo look at the zoo's native 32 × 32 (giraffe, rose, professional). That the
+/// file equals what the zoo draws is checked by shared/avatar/zoo/tests/test_app_sheet.py; refresh it with
+/// `make -C ios/AvatarKit sheet`.
 final class SheetResourceTests: XCTestCase {
-    static let repoRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        .deletingLastPathComponent().deletingLastPathComponent()
-
-    func testBundledSheetMatchesTheSource() throws {
-        for file in ["giraffe.png", "giraffe.json"] {
-            let source = Self.repoRoot.appendingPathComponent("shared/avatar/pixel/out/\(file)")
-            let parts = file.split(separator: ".")
-            let bundled = try XCTUnwrap(Bundle.module.url(forResource: String(parts[0]), withExtension: String(parts[1])),
-                                        "\(file) is not in AvatarKit's bundle")
-            let want = try Data(contentsOf: source)
-            let have = try Data(contentsOf: bundled)
-            XCTAssertEqual(have, want, "\(file) in AvatarKit differs from shared/avatar/pixel/out; run `make -C ios/AvatarKit sheet`")
+    func testTheBundledSheetIsMarcelsZooLook() throws {
+        let sheet = SpriteSheet.giraffe
+        XCTAssertEqual(sheet.name, "giraffe")
+        XCTAssertEqual(sheet.frameWidth, 32, "the zoo's native size, not the old 48 × 54 giraffe")
+        XCTAssertEqual(sheet.frameHeight, 32)
+        for state in [AvatarState.idle, .thinking, .working(1), .working(2), .working(3), .needsYou, .done] {
+            XCTAssertNotNil(sheet.loops[state.loopName], "a \(state.loopName) loop")
         }
+        let url = try XCTUnwrap(Bundle.module.url(forResource: "giraffe-rose-professional", withExtension: "json"))
+        let info = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+        XCTAssertEqual(info?["palette"] as? String, "rose")
+        XCTAssertNil(Bundle.module.url(forResource: "giraffe", withExtension: "png"), "the old giraffe is gone")
     }
 }

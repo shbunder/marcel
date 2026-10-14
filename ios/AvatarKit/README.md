@@ -1,6 +1,6 @@
 # AvatarKit — each agent's pixel avatar
 
-Plays a sprite sheet (B-28): the bundled giraffe from `shared/avatar/pixel/out/`, or an agent's own sheet from the
+Plays a sprite sheet (B-28): the bundled default, Marcel's own Pixel Zoo look, or an agent's own sheet from the
 Pixel Zoo (B-44): `AvatarView(state:size:sheet:)`.
 
 - **Each agent's own sheet** (`AvatarSheets`, S-19.3). `refresh(agentId:etag:)` asks the hub through the `fetch` the
@@ -19,7 +19,7 @@ Pixel Zoo (B-44): `AvatarView(state:size:sheet:)`.
   to end (the loop's next frame boundary), then the new loop starts on its first frame — never mid-blink.
 - **Sharp pixels.** `AvatarSize` is 24, 32, 44 or 120 pt (a square box). The sprite is drawn at the largest
   whole number of screen pixels per sprite pixel that fits (at least 1), nearest-neighbour. On a 3× screen
-  that is 1× at 24 and 32 pt, 2× at 44 pt, 6× at 120 pt.
+  that is 2× at 24 pt, 3× at 32 pt, 4× at 44 pt and 11× at 120 pt for a 32 × 32 Pixel Zoo frame.
   `AvatarView(state:box:)` takes a box of any size: the chat header shrinks from 120 to 44 pt and the sprite steps
   down whole zooms on the way (S-13.3).
 - **Quiet when unseen.** The `TimelineView` pauses off screen and in the background. With Reduce Motion the
@@ -27,9 +27,12 @@ Pixel Zoo (B-44): `AvatarView(state:size:sheet:)`.
 
 ## The sheet
 
-`Sources/AvatarKit/Resources/giraffe.{png,json}` are copies. After the giraffe changes in
-`shared/avatar/pixel/`, run `make -C ios/AvatarKit sheet` and commit the copies; `SheetResourceTests` fails
-while they differ.
+`Sources/AvatarKit/Resources/giraffe-rose-professional.{png,json}` is Marcel's look (giraffe, rose, professional: the
+hub's `OWNER_LOOK`) as the Pixel Zoo (`shared/avatar/zoo`) draws it, at the zoo's native 32 × 32: the same low-res art
+as the maker page and every agent's own sheet. It is what `SpriteSheet.giraffe` plays until an agent's own sheet
+arrives, and offline. Regenerate it with `make -C ios/AvatarKit sheet` after the zoo changes;
+`shared/avatar/zoo/tests/test_app_sheet.py` fails while the bundled copy differs from what the zoo draws. (It replaced
+the first, 48 × 54 giraffe from `shared/avatar/pixel`, which the app no longer uses.)
 
 ## Tests
 

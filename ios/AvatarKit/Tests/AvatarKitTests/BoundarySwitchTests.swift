@@ -7,7 +7,7 @@ final class BoundarySwitchTests: XCTestCase {
     // thinking starts with frame 25 (300 ms); working2 with 64; done with 0, then 121.
 
     func testSwitchWaitsForTheCurrentFrameToEnd() {
-        var player = AvatarPlayer(state: .idle, at: 0)
+        var player = AvatarPlayer(sheet: TimingSheet.sheet, state: .idle, at: 0)
         player.setState(.thinking, at: 0.350)  // mid frame 1, which ends at 500 ms
         XCTAssertEqual(player.loop(at: 0.350), "idle")
         XCTAssertEqual(player.frame(at: 0.350), 1, "still the current frame")
@@ -19,14 +19,14 @@ final class BoundarySwitchTests: XCTestCase {
     }
 
     func testOnABoundaryTheSwitchIsImmediate() {
-        var player = AvatarPlayer(state: .idle, at: 0)
+        var player = AvatarPlayer(sheet: TimingSheet.sheet, state: .idle, at: 0)
         player.setState(.working(2), at: 0.300)
         XCTAssertNil(player.pending)
         XCTAssertEqual(player.frame(at: 0.300), 64)
     }
 
     func testAnotherChangeBeforeTheBoundaryReplacesTheTarget() {
-        var player = AvatarPlayer(state: .idle, at: 0)
+        var player = AvatarPlayer(sheet: TimingSheet.sheet, state: .idle, at: 0)
         player.setState(.thinking, at: 0.050)
         player.setState(.needsYou, at: 0.100)
         XCTAssertEqual(player.frame(at: 0.299), 0)
@@ -35,7 +35,7 @@ final class BoundarySwitchTests: XCTestCase {
     }
 
     func testChangingBackBeforeTheBoundaryKeepsPlaying() {
-        var player = AvatarPlayer(state: .idle, at: 0)
+        var player = AvatarPlayer(sheet: TimingSheet.sheet, state: .idle, at: 0)
         player.setState(.done, at: 0.050)
         player.setState(.idle, at: 0.100)
         XCTAssertNil(player.pending)
@@ -43,14 +43,14 @@ final class BoundarySwitchTests: XCTestCase {
     }
 
     func testSameLoopDoesNotRestart() {
-        var player = AvatarPlayer(state: .working(3), at: 0)
+        var player = AvatarPlayer(sheet: TimingSheet.sheet, state: .working(3), at: 0)
         player.setState(.working(7), at: 0.250)  // clamps to working3, already playing
-        XCTAssertEqual(player.frame(at: 0.250), SpriteSheet.giraffe.loop(named: "working3").frame(at: 250))
+        XCTAssertEqual(player.frame(at: 0.250), TimingSheet.sheet.loop(named: "working3").frame(at: 250))
         XCTAssertNil(player.pending)
     }
 
     func testSwitchLaterInTheLoopAndSecondPass() {
-        var player = AvatarPlayer(state: .idle, at: 10)
+        var player = AvatarPlayer(sheet: TimingSheet.sheet, state: .idle, at: 10)
         player.setState(.done, at: 10 + 6.4 + 0.320)  // second pass, mid frame 1 (300–500 ms)
         XCTAssertEqual(player.loop(at: 10 + 6.4 + 0.499), "idle")
         XCTAssertEqual(player.frame(at: 10 + 6.4 + 0.5), 0, "done's first frame")
@@ -58,7 +58,7 @@ final class BoundarySwitchTests: XCTestCase {
     }
 
     func testChainedSwitchesEachWaitForTheirOwnBoundary() {
-        var player = AvatarPlayer(state: .idle, at: 0)
+        var player = AvatarPlayer(sheet: TimingSheet.sheet, state: .idle, at: 0)
         player.setState(.thinking, at: 0.100)  // switches at 0.300
         player.setState(.done, at: 0.400)  // thinking frame 25 runs 0.300–0.600
         XCTAssertEqual(player.loop(at: 0.599), "thinking")

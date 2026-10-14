@@ -2,7 +2,7 @@
 public enum AvatarState: Hashable, Sendable {
     case idle
     case thinking
-    /// `n` is the number of working tasks. The giraffe shows one glowing spot per task, at most 3.
+    /// `n` is the number of working tasks. The avatar's laptop shows one light per task, at most 3.
     case working(Int)
     case needsYou
     case done

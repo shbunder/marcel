@@ -54,7 +54,7 @@ public final class SpriteSheet: Sendable {
     }
 
     public let name: String
-    /// One frame, in sprite pixels (48 × 54 for the giraffe).
+    /// One frame, in sprite pixels (32 × 32 for every Pixel Zoo avatar).
     public let frameWidth: Int
     public let frameHeight: Int
     public let loops: [String: SpriteLoop]
@@ -111,9 +111,10 @@ public final class SpriteSheet: Sendable {
         self.frames = frames
     }
 
-    /// Marcel's giraffe, from this package's resources.
+    /// Marcel's own avatar (giraffe, rose, professional), drawn by the Pixel Zoo and bundled: what plays until an
+    /// agent's own sheet arrives, and offline.
     public static let giraffe: SpriteSheet = {
-        do { return try SpriteSheet(named: "giraffe", in: .module) } catch {
+        do { return try SpriteSheet(named: "giraffe-rose-professional", in: .module) } catch {
             fatalError("AvatarKit could not load the giraffe: \(error)")
         }
     }()

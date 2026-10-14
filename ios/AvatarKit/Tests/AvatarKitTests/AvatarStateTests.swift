@@ -38,11 +38,11 @@ final class AvatarStateTests: XCTestCase {
 
     func testSheetLoadsFromThePackageBundle() {
         let sheet = SpriteSheet.giraffe
-        XCTAssertEqual(sheet.frameWidth, 48)
-        XCTAssertEqual(sheet.frameHeight, 54)
-        XCTAssertEqual(sheet.frameCount, 129)
-        XCTAssertEqual(sheet.image(frame: 128).width, 48)
-        XCTAssertEqual(sheet.image(frame: 128).height, 54)
+        XCTAssertEqual(sheet.frameWidth, 32)
+        XCTAssertEqual(sheet.frameHeight, 32)
+        XCTAssertGreaterThan(sheet.frameCount, 0)
+        XCTAssertEqual(sheet.image(frame: sheet.frameCount - 1).width, 32)
+        XCTAssertEqual(sheet.image(frame: sheet.frameCount - 1).height, 32)
     }
 
     func testVoiceOverReadsTheState() {

@@ -43,18 +43,19 @@ final class SnapshotTests: XCTestCase {
             let sprite = rgba(sheet.image(frame: frame))
             for size in AvatarSize.allCases {
                 let image = try render(frame: frame, size: size)
-                let zoom = size.zoom(frameWidth: 48, frameHeight: 54, displayScale: Self.scale)
+                let w = sheet.frameWidth, h = sheet.frameHeight
+                let zoom = size.zoom(frameWidth: w, frameHeight: h, displayScale: Self.scale)
                 let box = Int(size.points * Self.scale)
                 XCTAssertEqual(image.width, box)
-                let ox = (box - 48 * zoom) / 2, oy = (box - 54 * zoom) / 2
+                let ox = (box - w * zoom) / 2, oy = (box - h * zoom) / 2
                 let pixels = rgba(image)
                 var wrong = 0
                 for y in 0..<box {
                     for x in 0..<box {
                         let sx = (x - ox).floorDiv(zoom), sy = (y - oy).floorDiv(zoom)
-                        let inside = (0..<48).contains(sx) && (0..<54).contains(sy)
+                        let inside = (0..<w).contains(sx) && (0..<h).contains(sy)
                         for c in 0..<4 {
-                            let want = inside ? sprite[(sy * 48 + sx) * 4 + c] : 0
+                            let want = inside ? sprite[(sy * w + sx) * 4 + c] : 0
                             if abs(Int(pixels[(y * box + x) * 4 + c]) - Int(want)) > 2 { wrong += 1 }
                         }
                     }
@@ -65,13 +66,15 @@ final class SnapshotTests: XCTestCase {
     }
 
     func testZoomIsAWholeNumberThatFitsTheBox() {
-        // 48 × 54 sprite on a 3× screen: 24 pt = 72 px, 32 pt = 96 px, 44 pt = 132 px, 120 pt = 360 px.
-        XCTAssertEqual(AvatarSize.tiny.zoom(frameWidth: 48, frameHeight: 54, displayScale: 3), 1)
-        XCTAssertEqual(AvatarSize.small.zoom(frameWidth: 48, frameHeight: 54, displayScale: 3), 1)
-        XCTAssertEqual(AvatarSize.medium.zoom(frameWidth: 48, frameHeight: 54, displayScale: 3), 2)
-        XCTAssertEqual(AvatarSize.large.zoom(frameWidth: 48, frameHeight: 54, displayScale: 3), 6)
-        XCTAssertEqual(AvatarSize.large.zoom(frameWidth: 48, frameHeight: 54, displayScale: 2), 4)
-        XCTAssertEqual(AvatarSize.tiny.zoom(frameWidth: 48, frameHeight: 54, displayScale: 2), 1, "never below 1")
+        // A 32 × 32 Pixel Zoo sprite on a 3× screen: 24 pt = 72 px, 32 pt = 96 px, 44 pt = 132 px, 120 pt = 360 px.
+        XCTAssertEqual(AvatarSize.tiny.zoom(frameWidth: 32, frameHeight: 32, displayScale: 3), 2)
+        XCTAssertEqual(AvatarSize.small.zoom(frameWidth: 32, frameHeight: 32, displayScale: 3), 3)
+        XCTAssertEqual(AvatarSize.medium.zoom(frameWidth: 32, frameHeight: 32, displayScale: 3), 4)
+        XCTAssertEqual(AvatarSize.large.zoom(frameWidth: 32, frameHeight: 32, displayScale: 3), 11)
+        XCTAssertEqual(AvatarSize.large.zoom(frameWidth: 32, frameHeight: 32, displayScale: 2), 7)
+        XCTAssertEqual(AvatarSize.tiny.zoom(frameWidth: 32, frameHeight: 32, displayScale: 1), 1, "never below 1")
+        // The old 48 × 54 giraffe on a small box still never drops below one screen pixel per sprite pixel.
+        XCTAssertEqual(AvatarSize.tiny.zoom(frameWidth: 48, frameHeight: 54, displayScale: 2), 1)
     }
 
     func testOnlyAnimatesOnScreenActiveAndWithoutReduceMotion() {
@@ -82,21 +85,23 @@ final class SnapshotTests: XCTestCase {
     }
 
     func testReduceMotionShowsTheFirstFrameOfEachState() {
-        for (state, first) in [(AvatarState.idle, 0), (.thinking, 25), (.working(1), 44), (.working(2), 64),
-                               (.working(5), 86), (.needsYou, 109), (.done, 0)] {
+        let sheet = SpriteSheet.giraffe
+        for state in [AvatarState.idle, .thinking, .working(1), .working(2), .working(5), .needsYou, .done] {
+            let first = sheet.loop(for: state).firstFrame
             let player = AvatarPlayer(state: state, at: 0)
             for t in [0.0, 0.35, 1.7, 5.05] {
                 XCTAssertEqual(AvatarView.frame(player: player, state: state, reduceMotion: true, at: t), first,
                                "Reduce Motion should hold frame \(first) for \(state)")
             }
         }
-        // Without Reduce Motion the giraffe moves: idle is on frame 1 at 0.35 s.
+        // Without Reduce Motion the avatar moves: at 0.35 s idle shows its loop's frame for 350 ms.
         XCTAssertEqual(AvatarView.frame(player: AvatarPlayer(state: .idle, at: 0), state: .idle, reduceMotion: false,
-                                        at: 0.35), 1)
+                                        at: 0.35), sheet.loop(named: "idle").frame(at: 350))
         // With it, a state change shows the new state's first frame at once, not at the next boundary.
         var player = AvatarPlayer(state: .idle, at: 0)
         player.setState(.thinking, at: 0.35)
-        XCTAssertEqual(AvatarView.frame(player: player, state: .thinking, reduceMotion: true, at: 0.35), 25)
+        XCTAssertEqual(AvatarView.frame(player: player, state: .thinking, reduceMotion: true, at: 0.35),
+                       sheet.loop(for: .thinking).firstFrame)
     }
 
     func testAvatarViewDrawsAFrameOfItsStatesLoop() throws {
