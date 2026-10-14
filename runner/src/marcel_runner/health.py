@@ -3,6 +3,7 @@
 import os
 import re
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -156,3 +157,69 @@ def collect_health(
     if reason is not None:
         health['reason'] = reason
     return health
+
+
+# Claude Code changing under the runner (S-03.12) ------------------------------------------------
+
+PROBE_EVERY = 30.0  # seconds between two looks at the version and the supervisor's pid
+LOG_TAIL = 64 * 1024  # bytes of daemon.log read from its end
+SHUTDOWN = re.compile(r'shutting down \(cause=([^,)\s]+)[^)]*?live_workers=(\d+)')
+SHUTDOWN_CAUSE = re.compile(r'shutting down \(cause=([^,)\s]+)')
+
+
+@dataclass(frozen=True)
+class Probe:
+    """What one look found: `claude --version` ('' when it could not be run) and the supervisor's
+    pid (None when none runs or it could not be told)."""
+
+    version: str
+    pid: int | None
+
+
+class ClaudeProbe:
+    """Looks at the installed claude and its supervisor at most once per `every` seconds: the
+    watcher calls it on each 2-second poll, but only a fresh look runs a process."""
+
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        every: float = PROBE_EVERY,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.settings, self.every, self.clock = settings, every, clock
+        self._last: float | None = None
+
+    def __call__(self) -> Probe | None:
+        """A fresh look, or None when the last one is younger than `every`."""
+        now = self.clock()
+        if self._last is not None and now - self._last < self.every:
+            return None
+        self._last = now
+        version, _ = _claude_version(self.settings)
+        try:
+            p = _run(self.settings, 'daemon', 'status')
+            pid = parse_pid(p.stdout) if p.returncode == 0 else None
+        except (OSError, subprocess.TimeoutExpired):
+            pid = None
+        return Probe(version, pid)
+
+
+def last_shutdown(log: Path) -> dict[str, Any]:
+    """`cause` and `live_workers` of the supervisor's last `shutting down (cause=…, …)` line in
+    `~/.claude/daemon.log` (project/lessons/runner-built-ins.md); `{}` when it cannot be read."""
+    try:
+        with log.open('rb') as f:
+            f.seek(max(0, f.seek(0, os.SEEK_END) - LOG_TAIL))
+            text = f.read().decode('utf-8', errors='replace')
+    except OSError:
+        return {}
+    found = [m for m in SHUTDOWN_CAUSE.finditer(text)]
+    if not found:
+        return {}
+    last = found[-1]
+    out: dict[str, Any] = {'cause': last.group(1)}
+    full = SHUTDOWN.match(text, last.start())
+    if full is not None:
+        out['live_workers'] = int(full.group(2))
+    return out

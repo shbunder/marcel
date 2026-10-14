@@ -7,6 +7,13 @@ one `RunnerEvent` per real change: `session.state` when a session appears or any
 not been able to see Claude's sessions three polls in a row; `runner.recovered` says when it can
 again.
 
+Claude Code changing under the runner (S-03.12): at most every `health.PROBE_EVERY` seconds a poll
+also looks at `claude --version` and the supervisor's pid. A version that differs from the last one
+seen gives one `runner.claude_changed` (`claude_change {from, to, expected}`); a pid that differs
+gives one `runner.supervisor_restarted` (`supervisor_restart {session_ids, cause?, live_workers?}`,
+the cause from `~/.claude/daemon.log`). The first look after a start only records; neither event
+replaces the `session.gone` of a session that ended.
+
 The feed keeps the last 1000 events. On every connect a client gets, in this order: the events it
 missed (when its `Last-Event-ID` can be resumed from), then one `session.state` per known session,
 all carrying the newest id (the fresh view), then the live events.
@@ -28,12 +35,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from marcel_runner.health import ClaudeProbe, Probe, last_shutdown
 from marcel_runner.sessions import STATES, SessionError, project_dir
 
 INTERVAL = 2.0  # seconds between two polls (SP2: a poll costs ≈ 0.12 s)
 KEEP = 1000  # events kept for resuming (contracts/runner-api.yaml)
 WARN_AFTER = 3  # failed polls in a row before a runner.warning
 KEEPALIVE = 15.0  # seconds between SSE comments on a quiet stream, to notice a client that left
+LIVE = frozenset({'working', 'blocked'})  # contract SessionState: running, one way or another
 
 
 def _now() -> str:
@@ -95,9 +104,15 @@ class Feed:
     def recovered(self, message: str) -> dict[str, Any]:
         return self._message('runner.recovered', message)
 
-    def _message(self, kind: str, message: str) -> dict[str, Any]:
+    def claude_changed(self, message: str, change: dict[str, str]) -> dict[str, Any]:
+        return self._message('runner.claude_changed', message, claude_change=change)
+
+    def supervisor_restarted(self, message: str, restart: dict[str, Any]) -> dict[str, Any]:
+        return self._message('runner.supervisor_restarted', message, supervisor_restart=restart)
+
+    def _message(self, kind: str, message: str, **fields: Any) -> dict[str, Any]:
         with self._cond:
-            event = self._append(kind, message=message)
+            event = self._append(kind, message=message, **fields)
             self._cond.notify_all()
         return event
 
@@ -216,6 +231,8 @@ class Watcher:
         interval: float = INTERVAL,
         warn_after: int = WARN_AFTER,
         keepalive: float = KEEPALIVE,
+        probe: Callable[[], Probe | None] | None = None,
+        expected: str | None = None,
     ) -> None:
         self.sessions = sessions
         self.feed = feed or Feed()
@@ -224,6 +241,13 @@ class Watcher:
         self.keepalive = keepalive
         self.failures = 0
         self.remote = RemoteUrls()
+        settings = getattr(sessions, 'settings', None)  # the real Sessions; a test roster has none
+        self.probe = probe or (ClaudeProbe(settings) if settings is not None else None)
+        self.expected = expected or (settings.expected if settings is not None else '')
+        self.daemon_log = sessions.home / '.claude' / 'daemon.log'
+        self._version: str | None = None  # what the last look saw
+        self._pid: int | None = None
+        self._live: set[str] = set()  # sessions live at the last look
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -265,7 +289,52 @@ class Watcher:
         elif self.failures:
             _say(f'Claude listed its sessions again after {self.failures} failed tries.')
         self.failures = 0
-        return recovered + self.feed.update(sessions)
+        return recovered + self.feed.update(sessions) + self._look(sessions)
+
+    def _look(self, sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """A fresh look at claude and its supervisor, when one is due: the events it makes."""
+        found = self.probe() if self.probe is not None else None
+        if found is None:
+            return []
+        live = {s['id'] for s in sessions if s.get('state') in LIVE}
+        out = []
+        if found.version:
+            if self._version is not None and found.version != self._version:
+                out.append(self._claude_changed(self._version, found.version))
+            self._version = found.version
+        if found.pid is not None:
+            if self._pid is not None and found.pid != self._pid:
+                out.append(self._restarted(sorted(self._live - live)))
+            self._pid = found.pid
+        self._live = live
+        return out
+
+    def _claude_changed(self, before: str, now: str) -> dict[str, Any]:
+        was, is_ = before.split()[0], now.split()[0]
+        if is_ == self.expected:
+            message = (
+                f'Claude Code changed from {was} back to {is_}, the version Marcel is tested with.'
+            )
+        else:
+            message = (
+                f'Claude Code changed from {was} to {is_}; Marcel is tested with {self.expected}.'
+            )
+        _say(message)
+        change = {'from': before, 'to': now, 'expected': self.expected}
+        return self.feed.claude_changed(message, change)
+
+    def _restarted(self, ended: list[str]) -> dict[str, Any]:
+        restart: dict[str, Any] = {'session_ids': ended, **last_shutdown(self.daemon_log)}
+        why = f' ({restart["cause"]})' if 'cause' in restart else ''
+        n = len(ended)
+        sessions = (
+            'no running session ended'
+            if n == 0
+            else ('1 running session ended' if n == 1 else f'{n} running sessions ended')
+        )
+        message = f"Claude's supervisor restarted{why}; {sessions}."
+        _say(message)
+        return self.feed.supervisor_restarted(message, restart)
 
     def _failed(self, e: Exception) -> list[dict[str, Any]]:
         self.failures += 1

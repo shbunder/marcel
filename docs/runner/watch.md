@@ -25,6 +25,12 @@ the lines added since the last poll, so a long transcript is read once, not ever
 | `session.gone` | A session leaves `agents --json --all`. `session` is the last thing seen. |
 | `runner.warning` | Three polls in a row failed. `message` says why, in plain words. |
 | `runner.recovered` | The first good poll after a `runner.warning`. `message` says so, in plain words. Never sent without a warning before it. |
+| `runner.claude_changed` (0.1.12) | The installed `claude --version` is not the one the last look saw. `claude_change {from, to, expected}` (as `GET /health` words them; `expected` is `runner/claude-version`), and `message`, e.g. "Claude Code changed from 2.1.296 to 2.1.301; Marcel is tested with 2.1.296." Once per change. |
+| `runner.supervisor_restarted` (0.1.12) | Claude's supervisor has another pid than at the last look. `supervisor_restart {session_ids, cause?, live_workers?}`: the sessions running at the last look that are not running now, and `cause` / `live_workers` from the last `shutting down (cause=…, live_workers=…)` line of `~/.claude/daemon.log` (left out when it cannot be read). `message`, e.g. "Claude's supervisor restarted (upgrade); 2 running sessions ended." Each ended session still gets its own `session.gone` or state change. |
+
+The version and the supervisor's pid are looked at on a poll at most every 30 s (`health.ClaudeProbe`,
+`PROBE_EVERY`), so the 2-second poll runs no extra process most of the time. The first look after a runner
+start only records them; a look where claude cannot be run or no supervisor answers changes nothing.
 
 A poll that finds nothing new sends nothing. The runner never sends the same session twice in a
 row unchanged.
