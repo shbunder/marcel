@@ -20,10 +20,15 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from marcel_runner.claude_env import scrubbed_env
 
 # SP4, Claude Code 2.1.289:  Current session: 4% used · resets Oct 4, 2:29pm (UTC)
+# Unchanged in 2.1.296 and 2.1.299, which add a per-model weekly line and a "what's contributing"
+# section.
 USAGE_LINE = re.compile(
     r'^Current (session|week \(all models\)): (\d+)% used · resets (.+) \((\w+)\)$', re.MULTILINE
 )
 WINDOWS = {'session': 'five_hour', 'week (all models)': 'weekly'}
+# Logged out, or its login expired, Claude Code is not on the subscription and /usage prints the
+# pay-as-you-go cost view instead: "Total cost: $0.0000" (2.1.299, 2026-10-14 02:56 on the NUC).
+COST_VIEW = re.compile(r'^Total cost:', re.MULTILINE)
 RESET_FORMATS = ('%Y %b %d, %I:%M%p', '%Y %b %d, %I%p')  # "Oct 4, 2:29pm" and "Oct 9, 2am"
 
 POLL_EVERY = 300.0  # seconds; contracts/runner-api.yaml getUsage
@@ -77,6 +82,13 @@ def parse_usage(text: str, now: datetime) -> dict[str, dict[str, Any]]:
         window = WINDOWS[m.group(1)]
         resets = _reset_time(m.group(3), m.group(4), now)
         found.setdefault(window, {'used_pct': min(int(m.group(2)), 100), 'resets_at': _iso(resets)})
+    if not found and COST_VIEW.search(text):
+        raise UsageUnreadable(
+            'Claude Code is not using the Claude subscription: /usage shows the pay-as-you-go '
+            'cost view, as it does when Claude Code is logged out or its login has expired. Log '
+            'in again on the NUC: run claude, then /login.',
+            _excerpt(text),
+        )
     for label, window in WINDOWS.items():
         if window not in found:
             raise UsageUnreadable(

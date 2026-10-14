@@ -356,3 +356,63 @@ def test_main_starts_the_usage_poll(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(server, 'serve', lambda *a, **kw: Srv())
     assert server.main() == 0
     assert started == [True]
+
+
+# --- Claude Code 2.1.299 (recorded on the NUC, 2026-10-14 ~08:00 UTC) -------------------------
+
+FIXTURES = Path(__file__).parent / 'test_usage_fixtures'
+TAKEN_299 = datetime(2026, 10, 14, 8, 0, tzinfo=UTC)
+
+
+def test_2_1_299_text_parses_to_both_windows() -> None:
+    """2.1.299 adds a per-model weekly line and a "what's contributing" section, both ignored."""
+    windows = parse_usage((FIXTURES / 'usage-2.1.299-text.txt').read_text('utf-8'), TAKEN_299)
+    assert windows == {
+        'five_hour': {'used_pct': 18, 'resets_at': '2026-10-14T09:40:00Z'},
+        'weekly': {'used_pct': 44, 'resets_at': '2026-10-16T02:00:00Z'},
+    }
+
+
+def test_logged_out_claude_says_log_in_not_that_the_wording_changed() -> None:
+    """Logged out, or its login expired (2026-10-14 02:52), /usage prints the cost view."""
+    text = (FIXTURES / 'usage-2.1.299-logged-out.txt').read_text('utf-8')
+    with pytest.raises(UsageUnreadable) as e:
+        parse_usage(text, TAKEN_299)
+    message = str(e.value)
+    assert 'not using the Claude subscription' in message
+    assert '/login' in message
+    assert 'wording' not in message and 'changed' not in message
+    assert e.value.detail.startswith('Total cost:')
+
+
+def test_logged_out_on_the_first_read_answers_no_reading_and_says_why(tmp_path: Path) -> None:
+    claude = script(tmp_path, f'cat "{FIXTURES / "usage-2.1.299-logged-out.txt"}"\n')
+    probe = UsageProbe(claude, clock=Clock(TAKEN_299))
+    probe.refresh()
+    status, body = probe.reading()
+    assert status == 503 and body['code'] == 'no_reading'
+    assert 'not using the Claude subscription' in body['detail']
+
+
+def test_logged_out_after_a_good_reading_keeps_it_stale_and_says_log_in(tmp_path: Path) -> None:
+    """2026-10-14: a good reading at 02:51, then the login refresh failed at 02:52."""
+    out = tmp_path / 'out.txt'
+    out.write_text((FIXTURES / 'usage-2.1.299-text.txt').read_text('utf-8'))
+    claude = script(tmp_path, f'cat "{out}"\n')
+    clock = Clock(TAKEN_299)
+    probe = UsageProbe(claude, clock=clock)
+    probe.refresh()
+    out.write_text((FIXTURES / 'usage-2.1.299-logged-out.txt').read_text('utf-8'))
+    clock.now = TAKEN_299 + timedelta(minutes=5)
+    probe.refresh()
+    status, body = probe.reading()
+    assert status == 200 and body['stale'] is True
+    assert body['five_hour']['used_pct'] == 18 and body['taken_at'] == '2026-10-14T08:00:00Z'
+    assert probe.last_error is not None and 'not using the Claude subscription' in probe.last_error
+
+
+def test_the_usage_lines_win_over_a_cost_line_in_the_same_output() -> None:
+    """The cost view explains only output with no usage line, not a cost line beside one."""
+    recorded = (FIXTURES / 'usage-2.1.299-text.txt').read_text('utf-8')
+    text = recorded + '\nTotal cost:            $0.0000\n'
+    assert parse_usage(text, TAKEN_299)['five_hour']['used_pct'] == 18
