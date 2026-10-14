@@ -80,6 +80,8 @@ owner, once per `since`.
   2026-10-14 the supervisor logged its failure once and nothing more for two hours.
 - When `auth status` says logged in again while `/usage` still shows the cost view, the runner reads
   usage at once, so the old "logged out" usage note is gone before `login` says `ok`.
+- A restarted runner reads the supervisor's current state from the last 64 KB of `daemon.log`. If more than that
+  was written after a failure line, only `auth status` and `/usage` tell it the login is lost.
 - `since` is when the runner first saw the state. It is kept in `login.json` in the runner's state
   folder, so a runner restart during a loss keeps it. An unreadable `login.json` starts afresh.
 - Only `loggedIn` is read from `auth status`: its email, org and ids never reach an answer.

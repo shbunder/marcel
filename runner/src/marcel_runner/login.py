@@ -134,6 +134,7 @@ class LoginCheck:
                 [str(self.claude), 'auth', 'status', '--json'],
                 capture_output=True,
                 text=True,
+                errors='replace',  # bytes that are not UTF-8: not that JSON, so unknown
                 timeout=self.timeout,
                 stdin=subprocess.DEVNULL,
                 env=self.env,

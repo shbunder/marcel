@@ -116,6 +116,14 @@ def test_auth_status_that_cannot_be_read_is_unknown(
     assert answer == {'state': 'unknown', 'since': iso(clock.now), 'message': UNKNOWN_MESSAGE}
 
 
+def test_auth_status_printing_bytes_that_are_not_utf8_is_unknown(
+    fake_claude: Path, tmp_path: Path, log: Path, clock: Clock
+) -> None:
+    (tmp_path / 'auth-status.txt').write_bytes(b'{"loggedIn": \xff}')
+    answer = look(new_check(fake_claude, tmp_path, log, clock), clock)
+    assert answer == {'state': 'unknown', 'since': iso(clock.now), 'message': UNKNOWN_MESSAGE}
+
+
 def test_claude_missing_or_hanging_is_unknown(tmp_path: Path, log: Path, clock: Clock) -> None:
     missing = new_check(tmp_path / 'nope' / 'claude', tmp_path, log, clock)
     assert look(missing, clock)['state'] == 'unknown'
