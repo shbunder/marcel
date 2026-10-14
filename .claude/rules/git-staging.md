@@ -11,6 +11,10 @@
 - Commit format: `[S-NN.M] impl: <what changed>`. Plan and story-definition commits: `plan: <what changed>`
 - After committing, read `git show --stat HEAD`. A successful commit is not proof of its content
 
+## Enforced by
+`.claude/hooks/guard-git-staging.py` blocks the broad forms above before the shell runs them
+(tested in `scripts/tests/test_git_staging_hook.py`).
+
 ## Why
 Broad staging is how a `.env.local`, an APNs `.p8` key, a coverage report or half of another
 story ends up in history. Naming files makes every commit a decision.
