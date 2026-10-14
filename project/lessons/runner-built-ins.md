@@ -34,3 +34,9 @@
   self-restarting`, then `shutting down (cause=upgrade, uptime=…, leases=0, live_workers=5)` and a new
   `─── daemon start ─── version=2.1.299`. `live_workers` is how many sessions it ended; the runner sees the version
   change in `claude --version` (and `/health` turns `ok:false` against `runner/claude-version`).
+- **What an unpinned update cost on 2026-10-14** (the NUC, before managed settings turned updates off machine-wide).
+  02:51 UTC: another `claude` process updated the shared binary to 2.1.299; the supervisor self-restarted
+  (`cause=upgrade, live_workers=5`) and ended Marcel's brain and four other sessions. Until 05:24 (when
+  `make -C deploy install` put 2.1.296 back) the runner refused every start (`422 claude_version`), so the keeper could
+  not start a new brain, and at 05:30 the hub posted "The morning digest was not written: Marcel did not publish it within
+  30 minutes. In short: 3 threads failed; 4 finished." No push reached the owner: none was configured.
