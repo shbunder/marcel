@@ -4,9 +4,13 @@ PY_LANES := brain contracts hub mock-hub runner plugins/marcel/tools shared/avat
 GATED    := $(filter-out mock-hub,$(PY_LANES))
 CHANNEL  := plugins/marcel/channel
 
-.PHONY: check test ios-check board lanes start scripts $(PY_LANES) channel mock-hub-check fake-claude app-icon
+.PHONY: check ci-lanes test ios-check board lanes start scripts $(PY_LANES) channel mock-hub-check fake-claude app-icon
 
 check: scripts $(GATED) mock-hub-check channel app-icon
+
+# The Python-side targets of `check`, one per line. CI makes one job per line (plus `channel`).
+ci-lanes:
+	@printf '%s\n' scripts $(GATED) mock-hub-check app-icon
 
 # The app icon's PNGs are what shared/brand/app-icon/generate.py draws (uv installs Pillow for it).
 app-icon:

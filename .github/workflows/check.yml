@@ -1,6 +1,7 @@
 # Every lane's gate on every PR and every push to main. iOS runs on the Mac (`make ios-check`).
 # Runs every lane, not just the one a PR touches: a hub change can break the plugin tools
-# (project/lessons/cross-lane-gates.md). No Claude, no network beyond package installs.
+# (project/lessons/cross-lane-gates.md). The job list comes from `make ci-lanes`, so a lane added
+# to `make check` is in CI too. No Claude, no network beyond package installs.
 name: check
 
 on:
@@ -16,14 +17,24 @@ permissions:
   contents: read
 
 jobs:
+  lanes:
+    runs-on: ubuntu-latest
+    outputs:
+      list: ${{ steps.list.outputs.list }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: echo "list=$(make -s ci-lanes | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+
   python:
     name: ${{ matrix.lane }}
+    needs: lanes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        lane: [scripts, brain, contracts, hub, mock-hub-check, runner, plugins/marcel/tools, shared/avatar/pixel]
+        lane: ${{ fromJSON(needs.lanes.outputs.list) }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -44,3 +55,11 @@ jobs:
           cache: npm
           cache-dependency-path: plugins/marcel/channel/package-lock.json
       - run: make channel
+
+  # The one status branch protection requires: green only when every lane above is green.
+  check:
+    if: always()
+    needs: [python, channel]
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.python.result }}" = success && test "${{ needs.channel.result }}" = success
