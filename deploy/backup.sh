@@ -24,10 +24,12 @@ why=""
 finish() {
     local rc=$?
     if [ "$rc" -ne 0 ]; then
-        local reason="${why:-the backup stopped while $step (exit $rc).}"
+        local reason="${why:-the backup stopped while $step (exit $rc).}" out="$RESULT"
         mkdir -p "$(dirname "$RESULT")"
+        # A result the hub has not told yet is never replaced: the next goes beside it (S-11.2's rule).
+        [ -e "$out" ] && out="${RESULT%.result}.$(date -u +%s%N).result"
         python3 -c 'import json, sys; print(json.dumps({"outcome": "failed", "reason": sys.argv[1], "at": sys.argv[2]}))' \
-            "$reason" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$RESULT.tmp" && chmod 600 "$RESULT.tmp" && mv "$RESULT.tmp" "$RESULT"
+            "$reason" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$out.tmp" && chmod 600 "$out.tmp" && mv "$out.tmp" "$out"
     fi
     rm -f "$DEST"/*.tmp
     return "$rc"

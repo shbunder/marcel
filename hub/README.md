@@ -625,6 +625,11 @@ read-only, ADR-002).
   to push it (`silent`, `note` or `urgent`). A script never replaces a result the hub has not told:
   a second outcome in the same run goes to `<stem>.<time>.result`, told after the first, in order,
   with its own collapse key.
+- **A failed backup** (S-14.2 follow-up). `deploy/backup.sh` writes `backup.result` only when the
+  nightly backup fails: `{"outcome": "failed", "reason", "at"}`. `watchdog.describe_backup` tells it as
+  "The nightly backup failed: <reason> Look at: journalctl --user -u marcel-backup on the NUC.", pushed
+  as a `note` (collapse key `backup`), once per failure, so at most once a day with the nightly timer.
+  A good night writes nothing. A backup that never ran leaves no file: `make -C deploy health` warns.
 
 ## Project boards
 

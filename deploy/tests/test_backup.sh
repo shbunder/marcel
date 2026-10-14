@@ -98,6 +98,10 @@ fi
 home; rm "$work/h/data/marcel.db"
 if run; then fail 'missing database passed'; else ok 'missing database fails'; fi
 case "$(result reason)" in 'no database at '*) ok 'result: the reason in plain words' ;; *) fail "result: $(result reason)" ;; esac
+run  # fails again before the hub told the first: the first stays, the second goes beside it
+second="$(ls "$work/h/state"/backup.*.result 2>/dev/null | head -n 1)"
+[ -n "$second" ] && [ "$(result reason)" != '' ] && grep -q 'no database at' "$second" \
+    && ok 'an untold result is never replaced' || fail "second result: $(ls "$work/h/state")"
 home; rm -rf "$work/h/data/memory.git"
 if run; then fail 'missing memory repo passed'; else ok 'missing memory repo fails'; fi
 

@@ -233,7 +233,8 @@ Every night at 03:30 UTC `marcel-backup.timer` runs `deploy/backup.sh` (by hand:
 | `hub-secret`, `adopt-token.sha256`, `usage-guard.json`, `digests.json`, … | Every other file in `~/marcel/data`, except `triage.log` |
 
 A failed run also leaves `~/marcel/state/backup.result` (`{"outcome": "failed", "reason", "at"}`), which the hub turns
-into one message and push to the owner ("The nightly backup failed: …"), then renames to `backup.result.told`. A good
+into one message and push to the owner ("The nightly backup failed: …"), then renames to `backup.result.told` (a second
+failure before the hub has told the first goes to `backup.<time>.result`, never over it). A good
 run writes nothing. A backup that never ran at all (the timer off, the NUC down at 03:30) leaves no file: `make -C
 deploy health` warns when the newest backup is over 36 h old.
 
