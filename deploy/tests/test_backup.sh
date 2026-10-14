@@ -68,7 +68,7 @@ for page in range(root + 1, root + 4):
 open(path, 'wb').write(data)
 PY2
 if run; then fail 'corrupt database passed'; else ok 'corrupt database fails'; fi
-[ "$(result outcome)" = failed ] && case "$(result reason)" in *'stopped while copying the database (exit '*) true ;; *) false ;; esac \
+[ "$(result outcome)" = failed ] && case "$(result reason)" in *'failed its integrity check'*) true ;; *) false ;; esac \
     && ok 'result: failed, at which step' || fail "result after a corrupt database: $(cat "$work/h/state/backup.result")"
 [ "$(stat -c %a "$work/h/state/backup.result")" = 600 ] && ok 'result 0600' || fail 'result mode'
 ls "$work/h/state"/*.tmp >/dev/null 2>&1 && fail 'result left a .tmp' || ok 'result written whole'

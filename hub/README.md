@@ -628,7 +628,7 @@ read-only, ADR-002).
 - **A failed backup** (S-14.2 follow-up). `deploy/backup.sh` writes `backup.result` only when the
   nightly backup fails: `{"outcome": "failed", "reason", "at"}`. `watchdog.describe_backup` tells it as
   "The nightly backup failed: <reason> Look at: journalctl --user -u marcel-backup on the NUC.", pushed
-  as a `note` (collapse key `backup`), once per failure, so at most once a day with the nightly timer.
+  as a `note` (collapse key `backup`, or `backup.<time>` for a second one not yet told), once per failure, so at most once a day with the nightly timer.
   A good night writes nothing. A backup that never ran leaves no file: `make -C deploy health` warns.
 
 ## Project boards

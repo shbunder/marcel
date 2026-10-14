@@ -48,7 +48,7 @@ flock -n 9 || die "another backup is running."
 
 # 1. The database, integrity-checked before it replaces the day's earlier copy.
 step="copying the database"
-/usr/bin/python3 - "$DATA/marcel.db" "$DEST/marcel.db.tmp" <<'PY'
+/usr/bin/python3 - "$DATA/marcel.db" "$DEST/marcel.db.tmp" <<'PY' || die "the database could not be copied, or the copy failed its integrity check (the day's earlier copy is kept)."
 import sqlite3, sys
 src = sqlite3.connect(f'file:{sys.argv[1]}?mode=ro', uri=True)
 dst = sqlite3.connect(sys.argv[2])
