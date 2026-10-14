@@ -659,3 +659,58 @@ def test_pending_runner_event_types_are_still_pending() -> None:
     assert _runner_event_types() >= PENDING_RUNNER_EVENT_TYPES
     read = PENDING_RUNNER_EVENT_TYPES & set(RUNNER_EVENT_TYPES)
     assert not read, f'the hub reads {read} now: remove it from PENDING_RUNNER_EVENT_TYPES'
+
+
+# Runner /health and /usage fields against the contract ------------------------------------------
+
+# The fields of runner-api `Health` and `UsageReading` the hub knows: it reads them
+# (`path_health.py`, `claude_updates.py`, `usage.py`), or, for `Health.version`, `cap` and
+# `active_workers`, leaves them alone on purpose.
+RUNNER_FIELDS_KNOWN: dict[str, set[str]] = {
+    'Health': {
+        'ok',
+        'version',
+        'claude_version',
+        'claude_version_expected',
+        'supervisor',
+        'cap',
+        'active_workers',
+        'reason',
+    },
+    'UsageReading': {'five_hour', 'weekly', 'source', 'taken_at', 'stale'},
+}
+# Added by S-02.12 (runner-api 0.1.13) before the hub reads them. S-04.18 moves each to
+# RUNNER_FIELDS_KNOWN when the hub tells the owner; the second test fails as soon as a reader
+# below names one, so this can only shrink.
+PENDING_RUNNER_FIELDS: dict[str, set[str]] = {'Health': {'login'}, 'UsageReading': {'reason'}}
+# Where the hub would read each pending field, and how that read would look there.
+QUOTED = ("'{}'", '"{}"')
+# `reason` is a common word, so only a read off a usage reading counts.
+USAGE_READ = ("reading.get('{}'", "reading['{}']", "usage.get('{}'", "usage['{}']")
+PENDING_READS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
+    'login': [('path_health.py', QUOTED), ('claude_updates.py', QUOTED)],
+    'reason': [('claude_updates.py', USAGE_READ), ('usage.py', USAGE_READ)],
+}
+
+
+def _runner_fields(schema: str) -> set[str]:
+    spec = yaml.safe_load((CONTRACTS / 'runner-api.yaml').read_text())
+    return set(spec['components']['schemas'][schema]['properties'])
+
+
+@pytest.mark.parametrize('schema', sorted(RUNNER_FIELDS_KNOWN))
+def test_every_runner_field_is_known_or_pending(schema: str) -> None:
+    pending = PENDING_RUNNER_FIELDS.get(schema, set())
+    assert _runner_fields(schema) == RUNNER_FIELDS_KNOWN[schema] | pending
+
+
+def test_pending_runner_fields_are_still_pending() -> None:
+    src = Path(__file__).resolve().parent.parent / 'src' / 'marcel_hub'
+    for schema, fields in PENDING_RUNNER_FIELDS.items():
+        assert not fields & RUNNER_FIELDS_KNOWN[schema]
+        for field in fields:
+            for name, reads in PENDING_READS[field]:
+                text = (src / name).read_text()
+                assert not any(r.format(field) in text for r in reads), (
+                    f'{name} reads {schema}.{field} now: remove it from PENDING_RUNNER_FIELDS'
+                )

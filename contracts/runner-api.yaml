@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel runner API
-  version: 0.1.12
+  version: 0.1.13
   description: |
     The runner is the only process that runs `claude` (native on the NUC, a systemd user unit). The
     hub (in Docker) talks to it over HTTP on a unix socket: `/run/user/<uid>/marcel/runner.sock` on
@@ -634,6 +634,45 @@ components:
         reason:
           type: string
           description: Why `ok` is false, in plain words.
+        login:
+          type: object
+          description: |
+            Is Claude Code on this machine still logged in (0.1.13)? Found live on the NUC: after a
+            Claude Code self-update the supervisor could not refresh its login ("headless daemon
+            cannot complete OAuth … no token found") for about two hours; no session started and
+            `/usage` failed, and nothing told the owner. The runner reads it from `claude auth status`
+            and the supervisor's `~/.claude/daemon.log`, and counts a `/usage` that shows the
+            pay-as-you-go cost view (`UsageReading.reason`) as a lost login too. Absent from a runner older than 0.1.13:
+            read that as `unknown`.
+
+            `lost` does not set `ok` to false on its own: a redeploy check reads `ok`, and rolling
+            back a good merge cannot log anyone in. The hub reads `login` and tells the owner.
+          required: [state]
+          additionalProperties: false
+          properties:
+            state:
+              type: string
+              enum: [ok, lost, unknown]
+              description: |
+                `ok`: logged in. `lost`: logged out, or the login cannot be refreshed; sessions and
+                `/usage` fail until someone logs in again. `unknown`: the runner could not tell (the
+                check itself failed).
+            since:
+              type: string
+              format: date-time
+              description: |
+                When the runner first saw this state. With `lost`, the hub tells the owner once per
+                `since`, so a hub restart never tells the same loss twice.
+            message:
+              type: string
+              description: |
+                In plain words, what is wrong and what to do, e.g. "Claude Code on the NUC is logged
+                out. Log in again: on the NUC run `claude auth login`."
+          allOf:
+            - if: { properties: { state: { const: lost } } }
+              then: { required: [since, message] }
+            - if: { properties: { state: { const: unknown } } }
+              then: { required: [message] }
       example:
         ok: true
         version: 0.1.0
@@ -641,6 +680,7 @@ components:
         supervisor: { running: true, own_unit: true }
         cap: 4
         active_workers: 1
+        login: { state: ok, since: '2026-10-14T06:12:00Z' }
 
     Role:
       type: string
@@ -1013,6 +1053,16 @@ components:
         stale:
           type: boolean
           description: True when the last good reading is older than 15 minutes, or the latest attempt to read usage failed.
+        reason:
+          type: string
+          description: |
+            Why the latest attempt to read usage failed, in plain words (0.1.13, asked for by S-03.7):
+            set only then, so only with `stale` true; absent when that attempt worked. When the cause
+            is a lost login (`/usage` shows the pay-as-you-go cost view), it is the same words as
+            `Health.login.message`, and `Health.login.state` is `lost`.
+      allOf:
+        - if: { required: [reason] }
+          then: { properties: { stale: { const: true } } }
       example:
         five_hour: { used_pct: 4, resets_at: '2026-10-04T14:29:00Z' }
         weekly: { used_pct: 66, resets_at: '2026-10-09T01:59:00Z' }

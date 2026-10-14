@@ -28,7 +28,7 @@ def check(registry: Registry, ref: str) -> Draft202012Validator:
 
 
 def test_the_versions_were_bumped() -> None:
-    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.12'
+    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.13'  # 0.1.13 in S-02.12
     assert load_yaml('app-api.yaml')['info']['version'] == '0.7.3'
 
 

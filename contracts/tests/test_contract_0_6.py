@@ -30,7 +30,7 @@ def test_the_versions_were_bumped() -> None:
     # Later contracts bumped these again (test_contract_0_6_1.py, test_contract_0_7.py,
     # test_contract_s02_9.py).
     assert load_yaml('app-api.yaml')['info']['version'] == '0.7.3'  # 0.7.3 in S-02.11
-    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.12'  # 0.1.12 in S-02.11
+    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.13'  # 0.1.13 in S-02.12
     assert load_yaml('session-api.yaml')['info']['version'] == '0.1.7'  # 0.1.7 in S-02.10
     assert load_yaml('brain-api.yaml')['info']['version'] == '0.1.4'  # 0.1.4 in S-02.10
 
