@@ -187,13 +187,16 @@ def test_before_any_reading_the_probe_answers_503_no_reading(tmp_path: Path) -> 
     assert set(body) <= {'code', 'message', 'detail'}
 
 
-def test_first_reading_failing_is_503_with_what_claude_said(tmp_path: Path) -> None:
-    probe = UsageProbe(script(tmp_path, 'echo "login required" >&2; exit 1\n'), clock=Clock())
+def test_first_reading_failing_is_503_with_the_cause_in_words(tmp_path: Path) -> None:
+    """What claude printed goes to the runner's journal only (it can name the account)."""
+    claude = script(tmp_path, 'echo "login required" >&2; exit 1\n')
+    probe = UsageProbe(claude, clock=Clock())
     probe.refresh()
     code, body = probe.reading()
     assert code == 503
     assert body['code'] == 'no_reading'
-    assert 'login required' in body['detail']
+    assert body['detail'] == f'`{claude} -p /usage` failed with exit code 1.'
+    assert 'login required' not in json.dumps(body)
 
 
 def test_source_unavailable_keeps_last_values_and_says_stale(tmp_path: Path) -> None:
@@ -256,7 +259,7 @@ def test_changed_wording_in_live_output_is_stale_not_a_crash(tmp_path: Path) -> 
     ('body', 'expect'),
     [
         ('exit 3\n', 'exit code 3'),
-        ('echo "boom" >&2; exit 1\n', 'boom'),
+        ('echo "boom" >&2; exit 1\n', 'exit code 1'),
     ],
 )
 def test_every_failure_has_a_plain_reason(tmp_path: Path, body: str, expect: str) -> None:
@@ -396,7 +399,7 @@ def test_logged_out_on_the_first_read_answers_no_reading_and_says_why(tmp_path: 
     probe.refresh()
     status, body = probe.reading()
     assert status == 503 and body['code'] == 'no_reading'
-    assert LOST_MESSAGE in body['detail']
+    assert body['detail'] == LOST_MESSAGE
     assert 'reason' not in body  # no_reading has none: /health `login` tells the hub
 
 
@@ -509,3 +512,50 @@ def test_no_account_detail_reaches_a_usage_answer(tmp_path: Path) -> None:
     probe.refresh()
     _, body = probe.reading()
     assert account not in json.dumps(body)
+
+
+ACCOUNT = 'owner@example.com'
+
+
+def test_an_account_in_what_claude_printed_never_reaches_a_503(tmp_path: Path) -> None:
+    claude = script(
+        tmp_path, f'echo "Signed in as {ACCOUNT}" >&2; echo "not allowed" >&2; exit 1\n'
+    )
+    probe = UsageProbe(claude, clock=Clock())
+    probe.refresh()
+    code, body = probe.reading()
+    assert code == 503
+    assert ACCOUNT not in json.dumps(body)
+
+
+def test_what_claude_printed_goes_to_the_journal_at_debug_priority_only(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    claude = script(
+        tmp_path, f'echo "Signed in as {ACCOUNT}" >&2; echo "not allowed" >&2; exit 1\n'
+    )
+    UsageProbe(claude, clock=Clock()).refresh()
+    lines = capsys.readouterr().err.splitlines()
+    assert (
+        lines[0]
+        == f'marcel-runner: could not read usage. `{claude} -p /usage` failed with exit code 1.'
+    )
+    assert lines[1:] == [
+        f'<7>marcel-runner: /usage said: Signed in as {ACCOUNT}',
+        '<7>marcel-runner: /usage said: not allowed',
+    ]
+    assert [line for line in lines if ACCOUNT in line and not line.startswith('<7>')] == []
+
+
+def test_the_same_failure_with_new_output_logs_the_new_output(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    said = tmp_path / 'said.txt'
+    said.write_text('first\n')
+    probe = UsageProbe(script(tmp_path, f'cat "{said}" >&2; exit 1\n'), clock=Clock())
+    probe.refresh()
+    probe.refresh()
+    said.write_text('second\n')
+    probe.refresh()
+    err = capsys.readouterr().err
+    assert err.count('/usage said: first') == 1 and err.count('/usage said: second') == 1

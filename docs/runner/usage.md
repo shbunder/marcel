@@ -28,11 +28,18 @@ A percentage above 100 is reported as 100.
 | A reading from the last 15 minutes, and the latest attempt worked | 200, `stale: false` |
 | The latest attempt failed (claude missing, an error, a timeout, Claude Code logged out, or wording it cannot read) | 200 with the last values, `stale: true` |
 | The last good reading is older than 15 minutes | 200 with the last values, `stale: true` |
-| No reading has worked since the runner started | 503, `code: no_reading`; `detail` says why the last attempt failed |
+| No reading has worked since the runner started | 503, `code: no_reading`; `detail` says why the last attempt failed, in plain words |
 
 When the latest attempt failed, `reason` says why in plain words (runner-api 0.1.13); the next good
-reading drops it. A reading that is only old has no `reason`. `reason` never repeats what `claude`
-printed, which can name the account: that goes to the runner's log only.
+reading drops it. A reading that is only old has no `reason`.
+
+Neither `reason` nor the 503 `detail` repeats what `claude` printed, which can name the account. That goes
+only to the runner's journal, at debug priority, one `/usage said:` line per line it printed (at most six).
+To see it:
+
+```
+journalctl --user -u marcel-runner -p debug..debug
+```
 
 The fields are in `contracts/runner-api.yaml` (`UsageReading`). `source` is always `cli_usage`
 today. The status-line source (`statusline`) is not built yet.
@@ -47,10 +54,11 @@ pay-as-you-go cost view (`Total cost: $0.0000 …`) instead. The runner logs:
 
 ```
 marcel-runner: could not read usage. Claude Code on the NUC is logged out. Log in again: on the NUC run
-`claude auth login`. It said: Total cost: …
+`claude auth login`.
 ```
 
-`reason` is the message without the `It said: …` part, word for word the `/health` `login.message`, and `login.state` turns
+and, at debug priority, `marcel-runner: /usage said: Total cost: …`. `reason` is that message, word for word the
+`/health` `login.message`, and `login.state` turns
 `lost` ([runner.md](../runner.md#login-is-claude-code-still-logged-in)), so the owner reads one sentence in
 both places. Before the first good reading, `/usage` answers 503 `no_reading` with no `reason`: then only
 `/health` `login` says it. Log in again with `claude auth login` on the NUC.
@@ -65,6 +73,7 @@ marcel-runner: could not read usage. Claude Code's /usage output changed: no "Cu
 line was found. Update USAGE_LINE in runner/src/marcel_runner/usage.py and re-record the SP4 fixture.
 ```
 
+What it printed is in the journal at debug priority (`journalctl --user -u marcel-runner -p debug..debug`).
 To fix it: record the new output of `claude -p /usage` into
 `scratch/spikes/SP4-usage/evidence/usage-p-text.txt` (and the fake claude's copy in
 `runner/tests/fake_claude/fixtures/usage/`), then update `USAGE_LINE` until

@@ -200,3 +200,20 @@ def test_logged_out_after_a_good_reading_the_reason_is_gone_before_login_says_ok
         srv.shutdown()
         srv.server_close()
     assert states[0] == 'lost' and states[-1] == 'ok', states
+
+
+def test_get_usage_never_passes_on_an_account_claude_printed(
+    sock_path: Path, fake_claude: Path, tmp_path: Path
+) -> None:
+    account = 'owner@example.com'
+    claude = write_script(tmp_path / 'usage-claude', f'echo "Signed in as {account}" >&2; exit 1\n')
+    probe = UsageProbe(claude)
+    srv = start(sock_path, fake_claude, probe)
+    try:
+        probe.refresh()
+        status, body = request(sock_path, 'GET', '/usage')
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert status == 503 and body['code'] == 'no_reading'
+    assert account not in str(body)
