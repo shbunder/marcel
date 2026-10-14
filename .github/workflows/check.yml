@@ -9,9 +9,10 @@ on:
   push:
     branches: [main]
 
+# A newer push cancels an older PR run. On main each commit is its own group, so every commit gets a
+# full run and none looks red because a later push cancelled it.
 concurrency:
-  group: check-${{ github.ref }}
-  # A newer push cancels an older PR run; on main every commit gets a full run, so none looks red by mistake.
+  group: check-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
