@@ -122,7 +122,9 @@ final class QuestAccessibilityTests: XCTestCase {
             }
             XCTAssertTrue(labels.contains("Quests"))
             XCTAssertTrue(labels.contains("Waiting on you"))
-            XCTAssertTrue(labels.contains("Done, this week, 5 quests"))
+            XCTAssertTrue(labels.contains("Done, last 7 days, 5 quests"))
+            XCTAssertTrue(found.contains { $0.label == "Archived quests" && $0.traits.contains(.button) },
+                          "\(size): the way to the archived quests is a button")
             for label in labels {
                 XCTAssertFalse(label.isEmpty, "\(size): an element has no label")
                 XCTAssertNil(label.first { "▶▼♥◀▸▾·".contains($0) }, "\(size): \"\(label)\" has a symbol")

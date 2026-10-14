@@ -200,13 +200,14 @@ final class MapAccessibilityTests: XCTestCase {
         XCTAssertTrue(found.contains { $0.label == "Open tracker" && $0.traits.contains(.button) })
     }
 
-    /// S-12.14: the five group headings, in order, as VoiceOver headings.
+    /// S-12.14: the five group headings, in order, as VoiceOver headings, each with its count.
     func testTheRoomsGroupHeadingsAreHeadingsInOrder() throws {
         let found = elements(of: RoomStill(room: try RoomGroupTests.everyGroupRoom(), board: .loading,
                                            notes: NotesState.empty))
         let headers = found.filter { $0.traits.contains(.header) }.map(\.label)
-        let groups = headers.filter { RoomGroup.allCases.map(\.title).contains($0) }
-        XCTAssertEqual(groups, ["Needs you", "Working", "Ready for review", "Done", "Ended"], "\(headers)")
+        let groups = headers.filter { $0.hasSuffix(", 1 quest") }
+        XCTAssertEqual(groups, ["Needs you, 1 quest", "Working, 1 quest", "Ready for review, 1 quest", "Done, 1 quest",
+                                "Ended, 1 quest"], "\(headers)")
     }
 
     func testTheRoomReadsInPlainWords() throws {
@@ -226,7 +227,7 @@ final class MapAccessibilityTests: XCTestCase {
             }
             assertPlainWords(labels, size)
             let headers = found.filter { $0.traits.contains(.header) }.map(\.label)
-            XCTAssertTrue(headers.contains("Needs you") && headers.contains("Done") && headers.contains("Items") && headers.contains("Notes"),
+            XCTAssertTrue(headers.contains("Needs you, 1 quest") && headers.contains("Done, 1 quest") && headers.contains("Items") && headers.contains("Notes"),
                           "\(size): section titles are headers: \(headers)")
         }
     }

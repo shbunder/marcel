@@ -37,7 +37,7 @@ final class AvatarLinksTests: XCTestCase {
     /// The header element: the hint, and one custom action per screen, each opening its own.
     func testVoiceOverHearsBothAndEachActionOpensItsScreen() throws {
         var opened: [String] = []
-        let layout = ChatLayout(header: ChatHeaderState(), collapsed: false, problem: nil,
+        let layout = ChatLayout(header: ChatHeaderState(), problem: nil,
                                 avatar: AvatarLinks(notebook: { opened.append("notebook") },
                                                     settings: { opened.append("settings") }),
                                 composer: { EmptyView() }) { Color.clear.frame(height: 100) }

@@ -66,7 +66,7 @@ public struct ChatHeader<Trailing: View>: View {
     private func titles(_ palette: ChatPalette, subtitleSpoken: String?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(.headline)
+                .font(.headline.weight(.bold))
                 .foregroundStyle(palette.ink.color)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
@@ -179,12 +179,21 @@ public struct ChatBadge: View {
     public var body: some View {
         let palette = ChatPalette(scheme)
         PixelText(text, role: .smallLabel)
-            .foregroundStyle(kind.buttonText(in: palette).color)
+            .foregroundStyle(Self.text(kind, in: palette).color)
             .lineLimit(1)
             .fixedSize()
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(kind.label(in: palette).color, in: Capsule())
+            .background(Self.fill(kind, in: palette).color, in: Capsule())
+    }
+
+    /// "Needs you" is the wireframe's bright gold with dark letters; the others are their label colour with light ones.
+    public static func fill(_ kind: ChatCardKind, in palette: ChatPalette) -> PixelColor {
+        kind == .needsYou ? kind.frame(in: palette) : kind.label(in: palette)
+    }
+
+    public static func text(_ kind: ChatCardKind, in palette: ChatPalette) -> PixelColor {
+        kind == .needsYou ? palette.youInk : kind.buttonText(in: palette)
     }
 }
 
@@ -259,14 +268,17 @@ public struct ChatComposerField<Accessory: View>: View {
     public var still: Bool
     public var focused: FocusState<Bool>.Binding?
     public var send: () -> Void
+    /// What VoiceOver calls the send button ("Send", "Send to this quest").
+    public var sendLabel: String
     /// Above the field, on the strip: what goes with the next message.
     public var accessory: Accessory
 
     @Environment(\.colorScheme) private var scheme
 
     public init(text: Binding<String>, placeholder: String, fieldLabel: String, still: Bool = false,
-                focused: FocusState<Bool>.Binding? = nil, send: @escaping () -> Void,
+                focused: FocusState<Bool>.Binding? = nil, sendLabel: String = "Send", send: @escaping () -> Void,
                 @ViewBuilder accessory: () -> Accessory) {
+        self.sendLabel = sendLabel
         _text = text
         self.placeholder = placeholder
         self.fieldLabel = fieldLabel
@@ -309,7 +321,7 @@ public struct ChatComposerField<Accessory: View>: View {
             }
             .buttonStyle(.plain)
             .disabled(!canSend)
-            .accessibilityLabel("Send")
+            .accessibilityLabel(sendLabel)
         }
     }
 
@@ -360,7 +372,7 @@ extension ChatPalette {
             ("muted on header", muted, card),
         ]
         for kind in ChatCardKind.allCases {
-            pairs.append(("\(kind) badge text", kind.buttonText(in: self), kind.label(in: self)))
+            pairs.append(("\(kind) badge text", ChatBadge.text(kind, in: self), ChatBadge.fill(kind, in: self)))
             pairs.append(("\(kind) pill on card", kind.label(in: self), card))
             pairs.append(("\(kind) label on ground", kind.label(in: self), well))
         }
@@ -371,8 +383,8 @@ extension ChatPalette {
 extension ChatComposerField where Accessory == EmptyView {
     /// A composer with nothing above the field.
     public init(text: Binding<String>, placeholder: String, fieldLabel: String, still: Bool = false,
-                focused: FocusState<Bool>.Binding? = nil, send: @escaping () -> Void) {
+                focused: FocusState<Bool>.Binding? = nil, sendLabel: String = "Send", send: @escaping () -> Void) {
         self.init(text: text, placeholder: placeholder, fieldLabel: fieldLabel, still: still, focused: focused,
-                  send: send, accessory: { EmptyView() })
+                  sendLabel: sendLabel, send: send, accessory: { EmptyView() })
     }
 }

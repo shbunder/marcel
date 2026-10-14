@@ -9,7 +9,7 @@ import UIKit
 public struct SettingsAppLinks {
     /// The helper as the chat header draws it (its own sheet, S-19.3).
     public var avatar: AnyView?
-    /// The look picker's hub (`GET /avatar-previews`, `PATCH /agents/{id}`); "Edit look and name" needs it.
+    /// The look picker's hub (`GET /avatar-previews`, `PATCH /agents/{id}`); the look picker under "Edit avatar and name" needs it (the name is edited there without it).
     public var looks: (any LookService)?
     /// Face ID or the passcode to open the app (`AppLock.enabled`, S-17.5).
     public var faceID: Binding<Bool>?
@@ -28,9 +28,9 @@ public struct SettingsAppLinks {
     }
 }
 
-/// Settings (B-40, explainer Q6), opened from the avatar in the chat, in four groups: **Helper** (avatar, name, look),
-/// **You** (notifications, Face ID), **Marcel** (notebook, schedules, usage, system status) and **Account** (People for
-/// the owner, phones, sign out).
+/// Settings (B-40, wireframe Q6), opened from the avatar in the chat: the helper's card on top ("Edit avatar and name
+/// ›"), then **You** (notifications, Face ID), **Marcel** (notebook, system status), **Schedules**, **Plan usage**
+/// and **Account** (People for the owner, phones, sign out), each a white box under its small title.
 public struct SettingsView: View {
     @State private var model: SettingsModel
     private let statusModel: () -> StatusModel
@@ -77,10 +77,9 @@ public struct SettingsView: View {
                 case .status: StatusView(model: statusModel())
                 case .people: PeopleView(model: peopleModel())
                 case .look:
-                    if let looks = links.looks, let agent = model.agent {
-                        LookEditor(model: LookModel(service: looks, agentId: agent.id, name: agent.name,
-                                                    current: agent.drawnLook)) { Task { await model.load() } }
-                    }
+                    LookEditor(settings: model, look: links.looks.flatMap { looks in
+                        model.agent.map { LookModel(service: looks, agentId: $0.id, name: $0.name, current: $0.drawnLook) }
+                    }, saveName: { Task { await model.saveName() } }) { Task { await model.load() } }
                 }
             }
         }
@@ -89,7 +88,6 @@ public struct SettingsView: View {
 
     private var actions: SettingsActions {
         var actions = SettingsActions()
-        actions.saveName = { Task { await model.saveName() } }
         actions.turnOnNotifications = { Task { await model.turnOnNotifications() } }
         actions.copyTopic = { TopicClipboard.copy($0) }
         actions.setPaused = { schedule, paused in Task { await model.setPaused(schedule, paused) } }
@@ -110,20 +108,30 @@ public struct SettingsView: View {
     }
 }
 
-/// "Edit look": the look picker with its own Save, back to Settings once saved.
+/// "Edit avatar and name": the name with its own Save, then the look picker (when the hub has one) with its Save, back
+/// to Settings once the look is saved.
 struct LookEditor: View {
-    var model: LookModel
+    @Bindable var settings: SettingsModel
+    var look: LookModel?
+    var saveName: () -> Void
     var saved: () -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         VStack(spacing: 0) {
-            SettingsHeader(title: "Look", back: { dismiss() })
+            SettingsHeader(title: "Avatar and name", back: { dismiss() })
             ScrollView {
-                LookPicker(model: model) { _ in
-                    saved()
-                    dismiss()
+                VStack(alignment: .leading, spacing: PixelMetrics.steps(5)) {
+                    SettingsCard("Name") {
+                        NameBox(model: settings, save: saveName)
+                    }
+                    if let look {
+                        LookPicker(model: look) { _ in
+                            saved()
+                            dismiss()
+                        }
+                    }
                 }
                 .padding(PixelMetrics.padding)
             }
@@ -135,7 +143,6 @@ struct LookEditor: View {
 
 /// What the buttons in Settings do. Snapshots pass the empty one.
 struct SettingsActions {
-    var saveName: () -> Void = {}
     var turnOnNotifications: () -> Void = {}
     var copyTopic: (String) -> Void = { _ in }
     var setPaused: (Schedule, Bool) -> Void = { _, _ in }
@@ -196,9 +203,11 @@ struct SettingsContent: View {
             if let problem = model.problem {
                 ProblemBanner(text: problem) { model.problem = nil }
             }
-            helperGroup
+            hero
             youGroup
             marcelGroup
+            schedulesGroup
+            usageGroup
             accountGroup
         }
         .confirmationDialog(confirming?.title ?? "", isPresented: Binding(
@@ -219,23 +228,12 @@ struct SettingsContent: View {
 
     // MARK: Groups
 
-    private var helperGroup: some View {
-        SettingsCard("Helper") {
-            if let agent = model.agent {
-                HStack(spacing: PixelMetrics.steps(4)) {
-                    if let avatar = links.avatar {
-                        avatar
-                            .frame(width: 56, height: 56)
-                            .accessibilityHidden(true)
-                    }
-                    SettingsRow(agent.name, detail: agent.drawnLook.map(LookWords.describe) ?? "The giraffe") {
-                        if links.looks != nil {
-                            SettingsButton(title: "Edit look", action: actions.editLook)
-                        }
-                    }
-                }
-            }
-            nameField
+    @ViewBuilder private var hero: some View {
+        if let agent = model.agent {
+            SettingsHero(name: agent.name, look: agent.drawnLook.map(LookWords.describe) ?? "The giraffe",
+                         avatar: links.avatar, edit: actions.editLook)
+        } else {
+            SettingsNote(text: "Loading…")
         }
     }
 
@@ -244,8 +242,8 @@ struct SettingsContent: View {
             notificationsRows
             if let faceID = links.faceID {
                 Toggle(isOn: faceID) {
-                    SettingsRow("Face ID", detail: "Asks for Face ID or the passcode before Marcel opens, and again "
-                                + "after 5 minutes away.")
+                    SettingsRow("Face ID to open", detail: "Asks for Face ID or the passcode before Marcel opens, and "
+                                + "again after 5 minutes away.")
                 }
                 .toggleStyle(SettingsSwitch())
                 .accessibilityHint("Locks Marcel behind Face ID")
@@ -256,59 +254,32 @@ struct SettingsContent: View {
     @ViewBuilder private var marcelGroup: some View {
         SettingsCard("Marcel") {
             if links.openNotebook != nil {
-                SettingsRow("Notebook", detail: "What Marcel remembers about you and your projects") {
-                    SettingsButton(title: "Open", action: actions.openNotebook)
-                }
+                SettingsLinkRow("Notebook (memory)", detail: "What Marcel remembers about you and your projects",
+                                action: actions.openNotebook)
             }
-            SettingsLabel("Schedules")
-            schedulesRows
-            SettingsLabel("Plan usage")
-            usageRows
-            SettingsRow("System status", detail: "The hub, the NUC and the last alert") {
-                SettingsButton(title: "Open", action: actions.openStatus)
-            }
+            SettingsLinkRow("System status", detail: "The hub, the NUC and the last alert", action: actions.openStatus)
         }
+    }
+
+    private var schedulesGroup: some View {
+        SettingsCard("Schedules") { schedulesRows }
+    }
+
+    private var usageGroup: some View {
+        SettingsCard("Plan usage") { usageRows }
     }
 
     @ViewBuilder private var accountGroup: some View {
         SettingsCard("Account") {
             if model.showsPeople {
-                SettingsRow("People", detail: "Add someone to Marcel, or remove them") {
-                    SettingsButton(title: "Open", action: actions.openPeople)
-                }
+                SettingsLinkRow("People", detail: "Add someone to Marcel, or remove them", action: actions.openPeople)
             }
-            SettingsLabel("Phones")
             phonesRows
-            SettingsButton(title: "Sign out of this phone", destructive: true) { confirming = .signOut }
+            SettingsDangerRow(label: "Sign out of this phone") { confirming = .signOut }
         }
     }
 
     // MARK: Rows
-
-    @ViewBuilder private var nameField: some View {
-        SettingsLabel("Name")
-        Group {
-            if still {
-                Text(model.name)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .modifier(FieldBox())
-            } else {
-                TextField("Marcel", text: $model.name)
-                    .textInputAutocapitalization(.words)
-                    .submitLabel(.done)
-                    .onSubmit(actions.saveName)
-                    .modifier(FieldBox())
-                    .accessibilityLabel("Your helper's name")
-            }
-        }
-        if let agent = model.agent {
-            SettingsRow("Thinks with \(agent.modelBrain), works with \(agent.modelWorker)") {
-                SettingsButton(title: "Save", enabled: model.nameToSave != nil, action: actions.saveName)
-            }
-        } else {
-            SettingsNote(text: "Loading…")
-        }
-    }
 
     @ViewBuilder private var notificationsRows: some View {
         Group {
@@ -320,9 +291,11 @@ struct SettingsContent: View {
             case .apns:
                 SettingsRow("Notifications are on", detail: "Through Apple's push service.")
             case .ntfy(let topic, let server):
-                SettingsRow("Notifications are on, through ntfy", detail: "They arrive in the ntfy app.")
-                ForEach(Array(SettingsModel.ntfySteps(topic: topic, server: server).enumerated()), id: \.offset) {
-                    SettingsNote(text: "\($0.offset + 1). \($0.element)")
+                VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
+                    SettingsRow("Notifications are on, through ntfy", detail: "They arrive in the ntfy app.")
+                    ForEach(Array(SettingsModel.ntfySteps(topic: topic, server: server).enumerated()), id: \.offset) {
+                        SettingsNote(text: "\($0.offset + 1). \($0.element)")
+                    }
                 }
                 // The topic is case-sensitive: drawn in the body face, never in the all-capitals label face.
                 HStack(spacing: PixelMetrics.steps(4)) {
@@ -453,17 +426,37 @@ struct SettingsSwitch: ToggleStyle {
     }
 }
 
-/// A small label inside a group ("PHONES", "SCHEDULES").
-struct SettingsLabel: View {
-    var text: String
-    @Environment(\.colorScheme) private var scheme
 
-    init(_ text: String) { self.text = text }
+/// The helper's name: the field, what it thinks and works with, and Save (only once the name changed).
+struct NameBox: View {
+    @Bindable var model: SettingsModel
+    var save: () -> Void
+
+    @Environment(\.settingsStill) private var still
 
     var body: some View {
-        PixelText(text, role: .smallLabel)
-            .foregroundStyle(ChatPalette(scheme).muted.color)
-            .padding(.top, PixelMetrics.steps(2))
-            .accessibilityAddTraits(.isHeader)
+        VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
+            Group {
+                if still {
+                    Text(model.name)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .modifier(FieldBox())
+                } else {
+                    TextField("Marcel", text: $model.name)
+                        .textInputAutocapitalization(.words)
+                        .submitLabel(.done)
+                        .onSubmit(save)
+                        .modifier(FieldBox())
+                        .accessibilityLabel("Your helper's name")
+                }
+            }
+            if let agent = model.agent {
+                SettingsRow("Thinks with \(agent.modelBrain), works with \(agent.modelWorker)") {
+                    SettingsButton(title: "Save", enabled: model.nameToSave != nil, action: save)
+                }
+            } else {
+                SettingsNote(text: "Loading…")
+            }
+        }
     }
 }

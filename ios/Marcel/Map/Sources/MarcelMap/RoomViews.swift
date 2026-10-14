@@ -5,7 +5,7 @@ import MarcelQuests
 import PixelKit
 import SwiftUI
 
-/// The room's top strip (wireframe Q2 v10): "‹" back to the map, the project's name and its goal, on white.
+/// The room's top strip (wireframe Q2): "‹" back to the map, the project's name in bold and its goal, on white.
 struct RoomHeader: View {
     var room: ProjectRoom
     var back: () -> Void
@@ -225,45 +225,8 @@ struct SentLine: View {
     }
 }
 
-/// Lays chips out left to right, wrapping onto the next line.
-struct FlowLayout: Layout {
-    var spacing: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, widest: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > width {
-                x = 0
-                y += line + spacing
-                line = 0
-            }
-            x += size.width + spacing
-            line = max(line, size.height)
-            widest = max(widest, x - spacing)
-        }
-        return CGSize(width: proposal.width ?? widest, height: y + line)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX, y = bounds.minY, line: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > bounds.minX, x + size.width > bounds.maxX {
-                x = bounds.minX
-                y += line + spacing
-                line = 0
-            }
-            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            line = max(line, size.height)
-        }
-    }
-}
-
-/// The room's body under its header: "Open tracker" when the project has one (B-46), the board, the quests by
-/// state, the items and the notes. The screen passes tappable pieces; the snapshot the bare ones.
+/// The room's body under its header (wireframe Q2): "Open tracker" when the project has one (B-46), the board, the
+/// quests in their groups with counts, the items as cards and the notes. The screen passes tappable pieces; the snapshot the bare ones.
 struct RoomContent<Board: View, Quest: View, Item: View>: View {
     var room: ProjectRoom
     var notes: NotesState?
@@ -291,7 +254,8 @@ struct RoomContent<Board: View, Quest: View, Item: View>: View {
             }
             // Claude Code Projects' groups (ADR-011, S-12.14): needs you, working, ready for review, done, ended.
             ForEach(room.sections) { section in
-                RoomSectionTitle(section.group.title)
+                RoomSectionTitle("\(section.group.title) · \(section.rows.count)",
+                                 spoken: "\(section.group.title), \(section.rows.count == 1 ? "1 quest" : "\(section.rows.count) quests")")
                 ForEach(section.rows) { quest($0) }
             }
             RoomSectionTitle("Items")
@@ -300,9 +264,7 @@ struct RoomContent<Board: View, Quest: View, Item: View>: View {
                     .font(.subheadline)
                     .foregroundStyle(palette.muted.color)
             } else {
-                FlowLayout(spacing: 8) {
-                    ForEach(room.items) { item($0) }
-                }
+                ForEach(room.items) { item($0) }
             }
             RoomSectionTitle("Notes")
             NotesView(state: notes)
@@ -311,24 +273,29 @@ struct RoomContent<Board: View, Quest: View, Item: View>: View {
     }
 }
 
-/// An item as a rounded chip on white, at least 44 pt tall.
-struct ItemChip: View {
+/// An item as a white card (wireframe Q2): its title in bold and a pixel meta line ("PULL REQUEST · OPEN").
+struct ItemCard: View {
     var item: RoomItem
-    var tone: ProjectChip.Tone
 
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         let palette = ChatPalette(scheme)
-        Text(item.title)
-            .font(.subheadline)
-            .foregroundStyle(palette.ink.color)
-            .lineLimit(2)
-            .padding(.horizontal, 12)
-            .frame(minHeight: PixelMetrics.minTapTarget)
-            .chatSurface(radius: 22)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(item.spoken)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(item.title)
+                .font(.body.weight(.bold))
+                .foregroundStyle(palette.ink.color)
+                .fixedSize(horizontal: false, vertical: true)
+            PixelText(item.meta, role: .smallLabel)
+                .foregroundStyle(palette.muted.color)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, minHeight: PixelMetrics.minTapTarget, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .chatSurface()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(item.spoken)
     }
 }
 
@@ -350,7 +317,7 @@ struct RoomStill: View {
             RoomContent(room: room, notes: notes, problem: problem, dismiss: {},
                         board: { BoardView(board: room.board, state: board) },
                         quest: { RoomQuest(row: $0, moving: false) },
-                        item: { ItemChip(item: $0, tone: room.tone) })
+                        item: { ItemCard(item: $0) })
             RoomComposer(room: room, draft: .constant(draft), sent: sent, still: true, send: {})
         }
         .background(ChatPalette(scheme).well.color)
@@ -369,7 +336,7 @@ struct RoomComposer: View {
 
     @Environment(\.agentName) private var agentName
 
-    static func placeholder(name: String) -> String { "Tell \(name) about this project…" }
+    static func placeholder(name: String, project: String) -> String { "Message \(name) about \(project)…" }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -378,7 +345,7 @@ struct RoomComposer: View {
                     .padding(.horizontal, MapMetrics.inset.leading)
                     .padding(.vertical, 6)
             }
-            ChatComposerField(text: $draft, placeholder: Self.placeholder(name: agentName),
+            ChatComposerField(text: $draft, placeholder: Self.placeholder(name: agentName, project: room.name),
                               fieldLabel: "Message to \(agentName) about \(room.name)", still: still,
                               focused: focused, send: send)
         }

@@ -29,7 +29,7 @@ final class ChatSnapshotTests: XCTestCase {
             ChatStill(header: ChatHeaderState(), items: [
                 .user(UserLine(id: "u1", text: "Did the second installer reply?", project: "Home energy",
                                tone: .teal)),
-            ], collapsed: true),
+            ]),
             named: "Chat-project-tag", variants: twoModes, padding: 0)
     }
 
@@ -50,7 +50,7 @@ final class ChatSnapshotTests: XCTestCase {
         Snapshot.assert(
             ChatStill(header: ChatHeaderState(), items: [
                 .marcel(MarcelLine(id: "m1", markdown: "The installer can come Friday or Monday.")),
-            ], collapsed: true, draft: "Ask them which one is cheaper", attachment: "Solar quotes",
+            ], draft: "Ask them which one is cheaper", attachment: "Solar quotes",
             mentions: [Mention(kind: .task, id: "t1", title: "Solar quotes"),
                        Mention(kind: .project, id: "p1", title: "Home energy")]),
             named: "Chat-composer-extras", variants: twoModes, padding: 0)
@@ -60,16 +60,18 @@ final class ChatSnapshotTests: XCTestCase {
         Snapshot.assert(
             ChatStill(header: ChatHeaderState(offline: "Offline · showing what's saved"), items: [
                 .user(UserLine(id: "u1", text: "Where's the dentist thing?")),
-            ], collapsed: true),
+            ]),
             named: "Chat-offline", variants: twoModes, padding: 0)
     }
 
     // MARK: Cards (wireframes 1A, 1B, 1C, 3B, 4A, 6A)
 
     private let energy = QuestLine(id: "q1", taskId: "t1", title: "Energy contracts", state: .working,
-                                   project: "Home energy", tone: .teal, detail: "On the NUC")
+                                   project: "Home energy", tone: .teal, detail: "On the NUC",
+                                   location: .nuc)
     private let lunch = QuestLine(id: "q2", taskId: "t2", title: "Sunday lunch", state: .working,
-                                  project: "Family", tone: .rose, detail: "In the cloud")
+                                  project: "Family", tone: .rose, detail: "In the cloud",
+                                  location: .cloud)
 
     private func approval(_ status: ApprovalLine.Status, details: Bool = false) -> FeedItem {
         .approval(ApprovalLine(
@@ -160,7 +162,7 @@ final class ChatSnapshotTests: XCTestCase {
             ChatStill(header: ChatHeaderState(), items: [
                 .user(UserLine(id: "u1", text: "Book the dentist for Tuesday", status: .failed, clientId: "c1")),
                 .user(UserLine(id: "u2", text: "What's the weather Sunday?", status: .sending, clientId: "c2")),
-            ], collapsed: true, draft: "Also check solar"),
+            ], draft: "Also check solar"),
             named: "Chat-composer", variants: twoModes, padding: 0)
     }
 }

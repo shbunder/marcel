@@ -10,8 +10,8 @@ extension EnvironmentValues {
     @Entry public var welcomeStill = false
 }
 
-/// The welcome screen (S-17.5): the avatar, how to get in, the scanner, a paste-a-link fallback, and what to do
-/// without a code. `pair` gets what was scanned or pasted and throws the reason it did not work.
+/// The welcome screen (S-17.5, wireframe Q6): the avatar, "Welcome to Marcel" in bold, how to get in, the scanner in
+/// a dashed rose frame, a paste-a-link fallback, and what to do without a code. `pair` gets what was scanned or pasted and throws the reason it did not work.
 public struct WelcomeView: View {
     var pair: (String) async throws -> Void
     @State private var pasted = ""
@@ -26,32 +26,33 @@ public struct WelcomeView: View {
     }
 
     public var body: some View {
-        let theme = PixelTheme(scheme)
+        let palette = ChatPalette(scheme)
         Scrolling(still: still) {
             VStack(spacing: PixelMetrics.steps(5)) {
                 WelcomeAvatar(still: still)
-                PixelText("Welcome to Marcel", role: .title)
-                    .foregroundStyle(theme.text.color)
-                    .accessibilityAddTraits(.isHeader)
-                Text("Scan the code from the person who runs Marcel at home")
-                    .font(.body)
+                WelcomeTitle(text: "Welcome to Marcel")
+                Text("Scan the code shown on the phone of the person who runs Marcel at home.")
+                    .font(.subheadline)
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(theme.text.color)
+                    .foregroundStyle(palette.muted.color)
+                    .frame(maxWidth: 300)
                 Group {
                     if still {
-                        theme.card.color
+                        palette.card.color
                     } else {
                         QRScannerView { code in submit(code) }
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 280)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.line.color, lineWidth: 1))
+                .frame(width: 220, height: 220)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(ChatCardKind.done.frame(in: palette).color,
+                                  style: StrokeStyle(lineWidth: 2, dash: [6, 4])))
                 .accessibilityLabel("Camera, looking for the code")
                 VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
                     Text("Or paste the link you were sent")
                         .font(.subheadline)
-                        .foregroundStyle(theme.text.color)
+                        .foregroundStyle(palette.muted.color)
                     WelcomeField(placeholder: "marcel://pair?…", text: $pasted, still: still) { submit(pasted) }
                     WelcomeButton(title: working ? "Signing in…" : "Sign in", enabled: !working && !pasted.isEmpty) {
                         submit(pasted)
@@ -60,17 +61,17 @@ public struct WelcomeView: View {
                 if let problem {
                     Text(problem)
                         .font(.subheadline)
-                        .foregroundStyle(theme.accent.color)
+                        .foregroundStyle(ChatCardKind.failed.label(in: palette).color)
                         .multilineTextAlignment(.center)
                 }
                 Text("No code? Ask the owner to add you.")
                     .font(.footnote)
-                    .foregroundStyle(theme.muted.color)
+                    .foregroundStyle(palette.muted.color)
                     .multilineTextAlignment(.center)
             }
             .padding(PixelMetrics.padding)
         }
-        .background(theme.background.color.ignoresSafeArea())
+        .background(palette.well.color.ignoresSafeArea())
     }
 
     private func submit(_ text: String) {
@@ -85,7 +86,8 @@ public struct WelcomeView: View {
     }
 }
 
-/// "Hi Emma! Meet your helper" (S-17.5): the helper's name, the look picker, and "Start chatting".
+/// "Hi Emma! Meet your helper" (S-17.5, wireframe Q6): the greeting in bold, the helper's name, the look picker, and
+/// "Start chatting" as a rose pill.
 public struct OnboardingView: View {
     @Bindable var model: OnboardingModel
     var started: () -> Void
@@ -99,19 +101,19 @@ public struct OnboardingView: View {
     }
 
     public var body: some View {
-        let theme = PixelTheme(scheme)
+        let palette = ChatPalette(scheme)
         Scrolling(still: still) {
             VStack(alignment: .leading, spacing: PixelMetrics.steps(5)) {
-                PixelText(model.greeting, role: .title)
-                    .foregroundStyle(theme.text.color)
-                    .accessibilityAddTraits(.isHeader)
+                WelcomeTitle(text: model.greeting)
                 Text("Your helper does the work for you. Pick how it looks and what it's called; you can change "
                     + "both later in Settings.")
                     .font(.subheadline)
-                    .foregroundStyle(theme.text.color)
+                    .foregroundStyle(palette.muted.color)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
                     PixelText("Name", role: .smallLabel)
-                        .foregroundStyle(theme.accent.color)
+                        .foregroundStyle(palette.muted.color)
                         .accessibilityAddTraits(.isHeader)
                     WelcomeField(placeholder: "Your helper's name", text: $model.helperName, still: still) {}
                         .accessibilityLabel("Your helper's name")
@@ -120,7 +122,7 @@ public struct OnboardingView: View {
                 if let problem = model.problem {
                     Text(problem)
                         .font(.subheadline)
-                        .foregroundStyle(theme.accent.color)
+                        .foregroundStyle(ChatCardKind.failed.label(in: palette).color)
                 }
                 WelcomeButton(title: model.starting ? "Starting…" : "Start chatting", enabled: model.canStart) {
                     Task { if await model.startChatting() { started() } }
@@ -128,7 +130,7 @@ public struct OnboardingView: View {
             }
             .padding(PixelMetrics.padding)
         }
-        .background(theme.background.color.ignoresSafeArea())
+        .background(palette.well.color.ignoresSafeArea())
     }
 }
 
@@ -144,17 +146,15 @@ public struct LockView: View {
     }
 
     public var body: some View {
-        let theme = PixelTheme(scheme)
+        let palette = ChatPalette(scheme)
         VStack(spacing: PixelMetrics.steps(5)) {
             Spacer()
             WelcomeAvatar(still: still)
-            PixelText("Marcel is locked", role: .title)
-                .foregroundStyle(theme.text.color)
-                .accessibilityAddTraits(.isHeader)
+            WelcomeTitle(text: "Marcel is locked")
             if let problem = lock.problem {
                 Text(problem)
                     .font(.subheadline)
-                    .foregroundStyle(theme.accent.color)
+                    .foregroundStyle(ChatCardKind.failed.label(in: palette).color)
             }
             WelcomeButton(title: "Unlock", enabled: true) { Task { await lock.unlock() } }
                 .frame(maxWidth: 240)
@@ -162,7 +162,7 @@ public struct LockView: View {
         }
         .padding(PixelMetrics.padding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(theme.background.color.ignoresSafeArea())
+        .background(palette.well.color.ignoresSafeArea())
         .task { if !still { await lock.unlock() } }
     }
 }
@@ -193,7 +193,23 @@ struct WelcomeAvatar: View {
     }
 }
 
-/// A text field in the pixel look; plain text in snapshots.
+/// A screen's title in bold, centred (wireframe Q6: "Welcome to Marcel").
+struct WelcomeTitle: View {
+    var text: String
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Text(text)
+            .font(.title3.weight(.bold))
+            .foregroundStyle(ChatPalette(scheme).ink.color)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// A text field in the chat look; plain text in snapshots.
 struct WelcomeField: View {
     var placeholder: String
     @Binding var text: String
@@ -203,28 +219,28 @@ struct WelcomeField: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let palette = ChatPalette(scheme)
         Group {
             if still {
                 Text(text.isEmpty ? placeholder : text)
-                    .foregroundStyle((text.isEmpty ? theme.muted : theme.text).color)
+                    .foregroundStyle((text.isEmpty ? palette.muted : palette.ink).color)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 TextField(placeholder, text: $text)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .onSubmit(submit)
-                    .foregroundStyle(theme.text.color)
+                    .foregroundStyle(palette.ink.color)
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 14)
         .frame(minHeight: PixelMetrics.minTapTarget)
-        .background(RoundedRectangle(cornerRadius: 10).fill(theme.card.color))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.line.color, lineWidth: 1))
+        .background(Capsule().fill(palette.card.color))
+        .overlay(Capsule().strokeBorder(palette.line.color, lineWidth: 1))
     }
 }
 
-/// The screen's main button, filled, at least 44 pt tall.
+/// The screen's main button (wireframe Q6): a rose pill with bold white words, at least 44 pt tall.
 struct WelcomeButton: View {
     var title: String
     var enabled: Bool
@@ -233,14 +249,16 @@ struct WelcomeButton: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let palette = ChatPalette(scheme)
         Button(action: action) {
-            PixelText(title, role: .smallLabel)
-                .foregroundStyle(theme.background.color)
-                .frame(maxWidth: .infinity, minHeight: PixelMetrics.minTapTarget)
-                .pixelBox(fill: theme.accent, line: theme.accent, shadow: theme.shadow, border: PixelMetrics.thinBorder,
-                          offset: PixelMetrics.smallShadow)
+            Text(title)
+                .font(.body.weight(.bold))
+                .foregroundStyle(ChatCardKind.done.buttonText(in: palette).color)
+                .padding(.horizontal, 24)
+                .frame(minHeight: PixelMetrics.minTapTarget)
+                .background(ChatCardKind.done.label(in: palette).color, in: Capsule())
                 .opacity(enabled ? 1 : 0.5)
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)

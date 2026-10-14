@@ -82,6 +82,6 @@ struct PrivacyCover: View {
     var body: some View {
         WelcomeAvatar(still: true)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(PixelTheme(scheme).background.color.ignoresSafeArea())
+            .background(ChatPalette(scheme).well.color.ignoresSafeArea())
     }
 }

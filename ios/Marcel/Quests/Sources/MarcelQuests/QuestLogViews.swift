@@ -1,8 +1,7 @@
 import PixelKit
 import SwiftUI
 
-/// The top strip (S-18.4, the chat's language): a plain "Quests" title and the project filter, on white with a thin
-/// line under it.
+/// The top strip (wireframe Q2): "Quests" in bold and the project filter, on white with a thin line under it.
 struct QuestLogHeader<Filter: View>: View {
     var filter: Filter
 
@@ -21,15 +20,15 @@ struct QuestLogHeader<Filter: View>: View {
             : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
         layout {
             Text("Quests")
-                .font(.title3.weight(.bold))
+                .font(.headline.weight(.bold))
                 .foregroundStyle(palette.ink.color)
                 .accessibilityAddTraits(.isHeader)
             if !dynamicType.isAccessibilitySize { Spacer(minLength: 0) }
             filter
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, ChatScreenMetrics.inset)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         .background(palette.card.color)
         .overlay(alignment: .bottom) {
             Rectangle().fill(palette.line.color).frame(height: 1)
@@ -59,93 +58,29 @@ struct FilterLabel: View {
     }
 }
 
-/// The state filter (S-18.4): All · Waiting on you · Ready for review · Working · Done · Archived, as chips that wrap.
-struct StatusChips: View {
-    var selected: QuestStatusFilter
-    var select: (QuestStatusFilter) -> Void
+/// The way to the archived quests, under the log ("Archived quests ›"), and back ("‹ All quests").
+struct ArchiveLink: View {
+    var archived: Bool
+    var toggle: () -> Void
 
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let palette = ChatPalette(scheme)
-        ChipFlow(spacing: 8) {
-            ForEach(QuestStatusFilter.allCases, id: \.self) { status in
-                let on = status == selected
-                Button { select(status) } label: {
-                    Text(status.title)
-                        .font(.subheadline.weight(on ? .semibold : .regular))
-                        .foregroundStyle((on ? palette.card : palette.ink).color)
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 34)
-                        .background {
-                            if on {
-                                Capsule().fill(palette.ink.color)
-                            } else {
-                                Capsule().strokeBorder(palette.line.color, lineWidth: 1)
-                                    .background(palette.card.color, in: Capsule())
-                            }
-                        }
-                        .padding(.vertical, 5)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(on ? .isSelected : [])
-                .accessibilityHint("Shows \(status == .all ? "every quest" : status.title.lowercased() + " quests")")
-            }
+        Button(action: toggle) {
+            Text(archived ? "‹ All quests" : "Archived quests ›")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(ChatPalette(scheme).link.color)
+                .frame(maxWidth: .infinity, minHeight: PixelMetrics.minTapTarget, alignment: .leading)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(archived ? "All quests" : "Archived quests")
+        .accessibilityHint(archived ? "Shows the live quests" : "Shows the quests you archived")
     }
 }
 
-/// Lays its children out left to right, wrapping to the next line when the width runs out.
-struct ChipFlow: Layout {
-    var spacing: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = arrange(width: proposal.width ?? .infinity, subviews: subviews)
-        let height = rows.reduce(0) { $0 + $1.height } + CGFloat(max(0, rows.count - 1)) * spacing
-        let width = rows.map(\.width).max() ?? 0
-        return CGSize(width: proposal.width ?? width, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var y = bounds.minY
-        for row in arrange(width: bounds.width, subviews: subviews) {
-            var x = bounds.minX
-            for index in row.items {
-                let size = subviews[index].sizeThatFits(.unspecified)
-                subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-                x += size.width + spacing
-            }
-            y += row.height + spacing
-        }
-    }
-
-    private struct Row {
-        var items: [Int] = []
-        var width: CGFloat = 0
-        var height: CGFloat = 0
-    }
-
-    private func arrange(width: CGFloat, subviews: Subviews) -> [Row] {
-        var rows: [Row] = []
-        var row = Row()
-        for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
-            if !row.items.isEmpty, row.width + spacing + size.width > width {
-                rows.append(row)
-                row = Row()
-            }
-            row.width += (row.items.isEmpty ? 0 : spacing) + size.width
-            row.height = max(row.height, size.height)
-            row.items.append(index)
-        }
-        if !row.items.isEmpty { rows.append(row) }
-        return rows
-    }
-}
-
-/// A group's title ("Waiting on you"), small and muted like the wireframe's `.sec`. "Done · this week (5)" is a
-/// button that opens and closes the group.
+/// A group's title with its count ("Waiting on you · 1"), small and muted in pixel lettering (wireframe Q2). "Done ·
+/// last 7 days · 6" is a button that opens and closes the group.
 struct SectionTitle: View {
     var section: QuestSection
     var open: Bool
@@ -253,7 +188,6 @@ struct QuestLogStill: View {
         VStack(spacing: 0) {
             QuestLogHeader { FilterLabel(title: board.projectTitle) }
             VStack(alignment: .leading, spacing: QuestLogMetrics.rowSpacing) {
-                StatusChips(selected: board.filter.status, select: { _ in })
                 if let problem { ProblemLine(text: problem, dismiss: {}) }
                 if board.isEmpty { EmptyLog(text: board.emptyText) }
                 ForEach(board.sections) { section in
@@ -265,6 +199,7 @@ struct QuestLogStill: View {
                         ForEach(section.rows) { QuestRowView(row: $0) }
                     }
                 }
+                ArchiveLink(archived: board.filter.archived, toggle: {})
             }
             .padding(QuestLogMetrics.inset)
         }

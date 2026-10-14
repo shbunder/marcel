@@ -14,6 +14,8 @@ public struct ChatScreen: View {
     /// What a tap on the avatar header opens: Marcel's notebook and Settings (it asks which when there are both).
     var avatar: AvatarLinks
 
+    @Environment(\.colorScheme) private var scheme
+
     public init(model: ChatModel, offline: String? = nil, openSettings: (() -> Void)? = nil,
                 openNotebook: (() -> Void)? = nil) {
         self.model = model
@@ -88,10 +90,11 @@ public struct ChatScreen: View {
             } else {
                 ChatLayout(header: ChatHeaderState(tasks: [HubTask](), offline: offline, name: model.agentName,
                                                    live: model.agentState, agentId: model.agentId),
-                           collapsed: false, problem: model.problem,
+                           problem: model.problem,
                            avatar: avatar, composer: { EmptyView() }) {
-                    PixelText(model.problem == nil ? "Opening the conversation…" : "Nothing saved on this phone yet.",
-                              role: .detail)
+                    Text(model.problem == nil ? "Opening the conversation…" : "Nothing saved on this phone yet.")
+                        .font(.footnote)
+                        .foregroundStyle(ChatPalette(scheme).muted.color)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .environment(\.chatAvatars, model.avatars)
@@ -173,10 +176,8 @@ struct LiveFeed: View {
         let items = ChatFeed.items(input, local: model.local)
         let header = ChatHeaderState(tasks: input.tasks.values, offline: offline, name: model.agentName,
                                      live: model.agentState, agentId: model.agentId)
-        // Big giraffe while you sit at the latest messages; small once you scroll back or start typing.
-        let collapsed = distanceFromBottom > 24 || typing
         @Bindable var model = model
-        ChatLayout(header: header, collapsed: collapsed, problem: model.problem, avatar: avatar, composer: {
+        ChatLayout(header: header, problem: model.problem, avatar: avatar, composer: {
             if let trigger = model.mentionTrigger {
                 MentionSuggestions(trigger: trigger, found: model.mentionSuggestions,
                                    unreachable: model.mentionsUnreachable) { model.pick($0) }
@@ -251,7 +252,6 @@ struct LiveFeed: View {
         .environment(\.chatAvatars, model.avatars)
         // `@` and `#` in the draft ask the hub what matches (B-42).
         .onChange(of: model.draft) { Task { await model.draftChanged() } }
-        .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: collapsed)
         // Every helper with a speaker line plays its own avatar, not only the ones whose look just changed.
         .task(id: Set(items.compactMap(\.speaker?.agentId))) {
             await model.loadAvatars(for: Set(items.compactMap(\.speaker?.agentId)))
@@ -357,7 +357,6 @@ struct ChatLayout<Feed: View, ComposerView: View>: View {
     }
 
     var header: ChatHeaderState
-    var collapsed: Bool
     var problem: String?
     /// What a tap on the header opens.
     var avatar: AvatarLinks
@@ -367,10 +366,9 @@ struct ChatLayout<Feed: View, ComposerView: View>: View {
     @State private var choosing = false
     @Environment(\.colorScheme) private var scheme
 
-    init(header: ChatHeaderState, collapsed: Bool, problem: String?, avatar: AvatarLinks = AvatarLinks(),
+    init(header: ChatHeaderState, problem: String?, avatar: AvatarLinks = AvatarLinks(),
          @ViewBuilder composer: () -> ComposerView, @ViewBuilder feed: () -> Feed) {
         self.header = header
-        self.collapsed = collapsed
         self.problem = problem
         self.avatar = avatar
         self.composer = composer()
@@ -378,12 +376,12 @@ struct ChatLayout<Feed: View, ComposerView: View>: View {
     }
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let palette = ChatPalette(scheme)
         let avatar = named
         let links = avatar.actions
         VStack(spacing: 0) {
             if !links.isEmpty {
-                AvatarHeader(state: header, collapsed: collapsed)
+                AvatarHeader(state: header)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         if links.count == 1 { links[0].run() } else { choosing = true }
@@ -402,13 +400,14 @@ struct ChatLayout<Feed: View, ComposerView: View>: View {
                         Button("Cancel", role: .cancel) {}
                     }
             } else {
-                AvatarHeader(state: header, collapsed: collapsed)
+                AvatarHeader(state: header)
             }
             feed
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             if let problem {
-                PixelText(problem, role: .detail)
-                    .foregroundStyle(theme.accent.color)
+                Text(problem)
+                    .font(.footnote)
+                    .foregroundStyle(ChatCardKind.failed.label(in: palette).color)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, FeedMetrics.inset)
                     .padding(.bottom, PixelMetrics.steps(2))
@@ -416,7 +415,8 @@ struct ChatLayout<Feed: View, ComposerView: View>: View {
             }
             composer
         }
-        .background(theme.background.color)
+        // The chat's own ground (wireframe Q1): near-white, the soft ground being the other tabs'.
+        .background(palette.screen.color)
     }
 }
 

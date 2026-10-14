@@ -20,8 +20,8 @@ Pixel Zoo (B-44): `AvatarView(state:size:sheet:)`.
 - **Sharp pixels.** `AvatarSize` is 24, 32, 44 or 120 pt (a square box). The sprite is drawn at the largest
   whole number of screen pixels per sprite pixel that fits (at least 1), nearest-neighbour. On a 3× screen
   that is 2× at 24 pt, 3× at 32 pt, 4× at 44 pt and 11× at 120 pt for a 32 × 32 Pixel Zoo frame.
-  `AvatarView(state:box:)` takes a box of any size: the chat header shrinks from 120 to 44 pt and the sprite steps
-  down whole zooms on the way (S-13.3).
+  `AvatarView(state:box:)` takes a box of any size (the chat header draws it at 44 pt); the sprite still zooms in
+  whole numbers.
 - **Quiet when unseen.** The `TimelineView` pauses off screen and in the background. With Reduce Motion the
   avatar shows each state's first frame and does not move.
 

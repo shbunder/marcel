@@ -33,7 +33,7 @@ struct NotebookCard<Content: View>: View {
         let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(4)) {
             PixelText(title, role: .smallLabel)
-                .foregroundStyle(theme.link.color)
+                .foregroundStyle(theme.muted.color)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
             content
@@ -49,7 +49,7 @@ struct NotebookCard<Content: View>: View {
     }
 }
 
-/// A small rounded button with a pixel label, at least 44 pt tall; a selected one is filled in Marcel's rose.
+/// A small rounded button in the normal font, at least 44 pt tall; a selected one is filled in Marcel's rose.
 struct NotebookButton: View {
     var title: String
     var destructive = false
@@ -62,7 +62,8 @@ struct NotebookButton: View {
     var body: some View {
         let theme = ChatPalette(scheme)
         Button(action: action) {
-            PixelText(title, role: .smallLabel)
+            Text(title)
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle((destructive ? ChatCardKind.failed.label(in: theme)
                     : selected ? ChatCardKind.done.buttonText(in: theme) : theme.ink).color)
                 .padding(.horizontal, 14)
@@ -78,7 +79,7 @@ struct NotebookButton: View {
     }
 }
 
-/// One note in a section: its name, when it changed, and ▶. The whole row opens it.
+/// One note in a section: its name, when it changed, and "›" like the Settings rows. The whole row opens it.
 struct NoteRowView: View {
     var title: String
     var detail: String
@@ -99,7 +100,9 @@ struct NoteRowView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
-                PixelGlyph(.pointer, color: theme.muted, pixel: 2)
+                Text("›")
+                    .font(.subheadline)
+                    .foregroundStyle(theme.muted.color)
                     .accessibilityHidden(true)
             }
             .frame(minHeight: PixelMetrics.minTapTarget)

@@ -55,7 +55,7 @@ README § Chat); the colours are the wireframe's (explainer artifact KtdD3PMLeyZ
   and a tap sends the message without it; a 404 for the conversation itself (`conversation_not_found`) says that.
 - **"+ New" on the map** never overwrites what you typed: `ChatModel.propose` fills an empty composer, and otherwise
   adds the request on a new line after your words (once).
-- **The agent's name is never hard-coded**: the header, the thinking row, the composer ("Talk to <name>…", and
+- **The agent's name is never hard-coded**: the header, the thinking row, the composer ("Message <name>…", and
   its VoiceOver label) and "<name>'s notebook" read it from `GET /me` (`ChatService.mainAgent`), `AgentName.fallback`
   until the hub has said. `ChatScreen` puts it in the environment (`agentName`, from MarcelItems) for everything it
   opens; the app does the same for the other tabs.
@@ -85,10 +85,9 @@ you" badge) instead of the pixel `HeartsHeader`, so it matches the other tabs.
   moves it (`ChatModel.agentState`; `LiveFeed` passes the app's `liveEvents` frames to `ChatModel.receive`). An event
   for another agent is ignored; after a `resync.required` the app asks `GET /me` again. Until the hub has said, and
   while the live stream is down, the header works the state out from the cached tasks (needs you, working(n), idle).
-- **Size**: 120 pt at the latest messages, 44 pt once you scroll back or type (always 44 pt at accessibility text
-  sizes). `AvatarHeader` is `Animatable` in `collapse` (0 → 1), so the strip shrinks smoothly while the sprite steps
-  through whole zooms only (6×, 5×, 4×, 3×, 2× on a 3× phone): every sprite pixel stays a sharp square, never a blurred
-  in-between. With Reduce Motion there is no animation and the giraffe holds its state's first frame (AvatarKit).
+- **Size**: always 44 pt beside the name in bold (wireframe Q1; the owner chose it over the big header that shrank on
+  scroll). AvatarKit draws it at a whole-number zoom, so every sprite pixel stays a sharp square. With Reduce Motion
+  the giraffe holds its state's first frame.
 - **VoiceOver** reads the whole header as one line with the agent's name: "Marcel is thinking. Nothing running.
   1 thing needs you" (`AvatarState.accessibilityDescription(name:)`).
 - **The app icon** is not drawn here any more: it is a white pixel M with a teal bow tie, drawn by
@@ -187,9 +186,8 @@ Code in `Sources/MarcelChat/SideChat/`.
 - `AvatarHeaderStateTests` — S-13.3's "UI test: state changes from the mock hub show up in the header", one layer
   down: `agent.state` frames through a real in-memory cache into `ChatModel.receive`, as `LiveFeed` wires it, and the
   header's state and VoiceOver line read back. Also: another agent's events ignored, offline falls back to the cached
-  tasks, a re-sync asks `GET /me` again, and the collapse stepping through whole zooms.
-  `AvatarHeaderSnapshotTests` draws the header at 3× in light and dark, expanded and collapsed in every state, half-way
-  through the collapse. `AppIconTests` — see above.
+  tasks, a re-sync asks `GET /me` again, and the helper always at 44 pt.
+  `AvatarHeaderSnapshotTests` draws the header at 3× in light and dark in every state. `AppIconTests` — see above.
 - `ChatLookSnapshotTests` (S-18.3) — your message (with the notch), a reply with a heading, a list, a table and code,
   each special message and the thinking row, in light and dark at the default and the largest text size, and the
   whole chat. `ChatLookTests` — the notch's geometry, every chat colour pair at 4.5:1 (your text on every helper

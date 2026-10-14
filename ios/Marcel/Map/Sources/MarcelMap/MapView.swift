@@ -74,7 +74,7 @@ public struct MapView: View {
 
     private func map(_ map: ProjectMap) -> some View {
         VStack(spacing: 0) {
-            MapHeader()
+            MapHeader { newProject(ProjectMap.newProjectRequest) }
             ScrollView {
                 MapContent(map: map, problem: model.problem, dismiss: { model.problem = nil },
                            tile: { tile in
@@ -82,10 +82,6 @@ public struct MapView: View {
                                TileView(tile: tile) { navigation.openRoom(tile.id) }
                                    .contentShape(RoundedRectangle(cornerRadius: ChatScreenMetrics.radius))
                                    .onTapGesture { navigation.openRoom(tile.id) }
-                           },
-                           new: {
-                               Button { newProject(ProjectMap.newProjectRequest) } label: { NewTile() }
-                                   .buttonStyle(.plain)
                            })
             }
             .refreshable { await model.refreshProjects() }
@@ -197,7 +193,7 @@ struct ProjectRoomView: View {
                     },
                     quest: { row in quest(row, room: room) },
                     item: { item in
-                        Button { showing = .item(item) } label: { ItemChip(item: item, tone: room.tone) }
+                        Button { showing = .item(item) } label: { ItemCard(item: item) }
                             .buttonStyle(.plain)
                             .accessibilityHint("Opens the item")
                     })

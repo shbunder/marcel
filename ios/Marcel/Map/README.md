@@ -30,15 +30,15 @@ map opens that room and sets it back to nil.
   updated 11:52", "yesterday", "Thu", "3 Oct"), a gold "1 needs you" badge, and a "Claude Code →" chip when the
   project links a Claude Code Project. Counts are the hub's (`Project.counts`). Opening the tab fetches
   `GET /projects` too, in case the stream has not brought them.
-- **The agent's name** on the map and in the rooms ("or just ask <name>", the composer, the notes and "Sent to …")
+- **The agent's name** on the map and in the rooms ("+ New"'s hint, the composer, the notes and "Sent to …")
   comes from the `agentName` environment value (MarcelItems), never a hard-coded "Marcel".
-- **"+ New"** opens the chat with "Start a new project: " in the composer: Marcel makes projects. It never overwrites
+- **"+ New"**, on the right of the header (wireframe Q2), opens the chat with "Start a new project: " in the composer: Marcel makes projects. It never overwrites
   what you were typing there (the app calls `ChatModel.propose`, which adds it after your words).
 - **A room** has the pinned board (a white card with up to eight entries from `GET /artifacts/{id}/content`,
   fetched once per version), the project's quests in Claude Code Projects' groups (`RoomGroup`, ADR-011: needs you, working, ready
   for review, done, ended; an empty group is left out; a done quest goes by its PRs: open or draft → ready for
-  review, merged or none → done, only closed → ended), its items as
-  chips, and its notes (`memory/projects/<slug>.md`, read-only here). Tapping the board or an item opens
+  review, merged or none → done, only closed → ended; each title with its count, "Working · 2"), its items as
+  white cards (bold title, a pixel line like "PULL REQUEST · OPEN"), and its notes (`memory/projects/<slug>.md`, read-only here). Tapping the board or an item opens
   the artifact viewer (`ArtifactViewer` from MarcelItems, S-12.8); tapping a quest card opens the quest view
   (`QuestView` from MarcelQuest) on top of the room (`MapNavigation`, `MapRoute`).
 - **The composer** sends to the main conversation with `project_id` set (B-32): one conversation, tagged. The hub's

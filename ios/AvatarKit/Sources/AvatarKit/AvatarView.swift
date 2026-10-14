@@ -15,8 +15,7 @@ public enum AvatarSize: CGFloat, CaseIterable, Sendable {
         Self.zoom(box: points, frameWidth: frameWidth, frameHeight: frameHeight, displayScale: displayScale)
     }
 
-    /// The same rule for a box of any size in points (a header that shrinks between 120 and 44 pt steps through
-    /// whole zooms: 6×, 5×, 4×, 3×, 2× on a 3× screen).
+    /// The same rule for a box of any size in points (a 44 pt box is 4× on a 3× screen for a 32 × 32 frame).
     public static func zoom(box points: CGFloat, frameWidth: Int, frameHeight: Int, displayScale: CGFloat) -> Int {
         let box = points * displayScale
         let fit = min(box / CGFloat(frameWidth), box / CGFloat(frameHeight))
@@ -44,8 +43,7 @@ public struct AvatarView: View {
         self.init(state: state, box: size.points, sheet: sheet, name: name)
     }
 
-    /// A box of any size (the chat header shrinks smoothly from 120 to 44 pt); the sprite still zooms in whole
-    /// numbers, so it steps down a size at a time.
+    /// A box of any size (the chat header's is 44 pt); the sprite still zooms in whole numbers.
     public init(state: AvatarState, box: CGFloat, sheet: SpriteSheet = .giraffe, name: String = "Marcel") {
         self.state = state
         self.box = box

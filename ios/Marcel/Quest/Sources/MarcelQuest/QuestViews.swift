@@ -16,58 +16,66 @@ enum QuestMetrics {
     static let textLines = 80
 }
 
-/// The quest's top strip (S-18.4, the chat's language): ‹ back, the quest's name as a plain header, and
-/// "Project · NUC · sonnet" with its state word, on white with a thin line under it.
+/// The quest's top strip (wireframe Q2): ‹ back, the quest's name in bold and "Stop" on the right while it can be
+/// stopped, on white with a thin line under it. Where it runs is the body's first line (`QuestMetaLine`).
 struct QuestHeader: View {
     var title: String
-    var project: String?
-    var tone: ProjectChip.Tone
-    var place: String?
-    var state: StateBadge.Kind?
+    /// Asks to stop the quest; nil once it can't be stopped.
+    var stop: (() -> Void)?
     var back: () -> Void
 
-    @Environment(\.colorScheme) private var scheme
-
     var body: some View {
-        let palette = ChatPalette(scheme)
-        HStack(alignment: .center, spacing: 4) {
-            Button(action: back) {
-                Image(systemName: "chevron.left")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(palette.ink.color)
-                    .frame(width: PixelMetrics.minTapTarget, height: PixelMetrics.minTapTarget)
-                    .contentShape(Rectangle())
+        ChatHeader(title, back: back) {
+            if let stop {
+                StopButton(stop: stop)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(palette.ink.color)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
-                let line = [state.map(\.spokenTitle), project, place].compactMap { $0 }.joined(separator: " · ")
-                if !line.isEmpty {
-                    Text(line)
-                        .font(.subheadline)
-                        .foregroundStyle(palette.muted.color)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel(line.replacingOccurrences(of: " · ", with: ", "))
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.trailing, 16)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(palette.card.color)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(palette.line.color).frame(height: 1)
         }
     }
 }
 
-/// A section's small muted title ("Progress"), or a button that folds the section ("Live detail ▼").
+/// "Stop" in the header: muted words, at least a tap target in size.
+struct StopButton: View {
+    var stop: () -> Void
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Button(action: stop) {
+            Text("Stop")
+                .font(.subheadline)
+                .foregroundStyle(ChatPalette(scheme).muted.color)
+                .frame(minWidth: PixelMetrics.minTapTarget, minHeight: PixelMetrics.minTapTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Stop this quest")
+    }
+}
+
+/// The body's first line, in small pixel capitals (wireframe Q2): "HOME ENERGY · NUC · SONNET", with the state's word
+/// in front once the quest no longer runs ("DONE · HOME ENERGY · …"). A heading for VoiceOver.
+struct QuestMetaLine: View {
+    var text: String
+
+    @Environment(\.colorScheme) private var scheme
+
+    static func text(project: String?, place: String?, state: StateBadge.Kind?) -> String {
+        let running: Set<StateBadge.Kind> = [.starting, .working]
+        let word = state.flatMap { running.contains($0) ? nil : $0.spokenTitle }
+        return [word, project, place].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    var body: some View {
+        PixelText(text, role: .smallLabel)
+            .foregroundStyle(ChatPalette(scheme).muted.color)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel(text.replacingOccurrences(of: " · ", with: ", "))
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// A section's small muted title, or a button that folds the section ("Live detail ▼").
 struct QuestSectionTitle: View {
     var title: String
     var open: Bool = true
@@ -103,7 +111,8 @@ struct QuestSectionTitle: View {
     }
 }
 
-/// The steps checklist: ✓ done, ▶ now, · not started, × where it stopped. Body text, like the chat.
+/// The steps checklist (wireframe Q2): ✓ done in teal, ▶ now in rose and bold, · not started muted, × where it
+/// stopped in red. Body text, like the chat.
 struct StepsList: View {
     var steps: [QuestStep]
 
@@ -119,8 +128,8 @@ struct StepsList: View {
                         .foregroundStyle(color(step.mark, palette).color)
                         .frame(minWidth: 22, alignment: .center)
                     Text(step.text)
-                        .font(.body.weight(step.mark == .current ? .semibold : .regular))
-                        .foregroundStyle((step.mark == .next ? palette.muted : palette.ink).color)
+                        .font(.body.weight(step.mark == .current ? .bold : .regular))
+                        .foregroundStyle(color(step.mark, palette).color)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .accessibilityElement(children: .ignore)
@@ -461,22 +470,18 @@ struct QuestNoteView: View {
     }
 }
 
-/// The quest's actions (wireframe 2A's chips): stop, hand back to Marcel, move to project, open in Claude.
+/// The quest's other actions: hand back to Marcel, move to project, open in Claude ("Stop" is in the header).
 struct QuestToolbar<Move: View>: View {
-    var canStop: Bool
     var busy: Bool
     var claudeURL: URL?
-    var stop: () -> Void
     var handBack: () -> Void
     var move: Move
     var open: (URL) -> Void
 
-    init(canStop: Bool, busy: Bool, claudeURL: URL?, stop: @escaping () -> Void, handBack: @escaping () -> Void,
-         open: @escaping (URL) -> Void, @ViewBuilder move: () -> Move) {
-        self.canStop = canStop
+    init(busy: Bool, claudeURL: URL?, handBack: @escaping () -> Void, open: @escaping (URL) -> Void,
+         @ViewBuilder move: () -> Move) {
         self.busy = busy
         self.claudeURL = claudeURL
-        self.stop = stop
         self.handBack = handBack
         self.open = open
         self.move = move()
@@ -487,10 +492,6 @@ struct QuestToolbar<Move: View>: View {
     var body: some View {
         let theme = PixelTheme(scheme)
         FlowLayout(spacing: PixelMetrics.steps(3)) {
-            if canStop {
-                chip("Stop", tone: ProjectChip.Tone.rose.color(in: theme), action: stop)
-                    .accessibilityLabel("Stop this quest")
-            }
             chip("Hand back to Marcel", tone: ProjectChip.Tone.teal.color(in: theme), action: handBack)
             move
             if let claudeURL {
@@ -529,55 +530,19 @@ struct QuestChip: View {
     }
 }
 
-/// "Talk to this quest…": a pixel box with the text field and a ▶ send button. Only an empty message cannot be sent.
+/// "Talk to this quest…": the chat's composer (a white strip with the rounded field and the round send button). Only
+/// an empty message cannot be sent; it goes to this quest only, not to Marcel.
 struct QuestComposer: View {
     @Binding var text: String
     var send: () -> Void
 
-    @Environment(\.colorScheme) private var scheme
     @Environment(\.questStill) private var still
 
     static let placeholder = "Talk to this quest…"
 
-    private var canSend: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
     var body: some View {
-        let theme = PixelTheme(scheme)
-        HStack(alignment: .center, spacing: PixelMetrics.steps(3)) {
-            if still {
-                Text(text.isEmpty ? Self.placeholder : text)
-                    .font(.body)
-                    .foregroundStyle((text.isEmpty ? theme.muted : theme.text).color)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                TextField(text: $text, axis: .vertical) {
-                    Text(Self.placeholder).foregroundStyle(theme.muted.color)
-                }
-                .lineLimit(1...5)
-                .font(.body)
-                .foregroundStyle(theme.text.color)
-                .tint(theme.accent.color)
-                .accessibilityLabel("Message to this quest")
-                .accessibilityHint("Goes to this quest only, not to Marcel")
-            }
-            Button(action: send) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle((canSend ? ChatCardKind.done.label(in: ChatPalette(scheme)) : theme.muted).color)
-                    .frame(width: PixelMetrics.minTapTarget, height: PixelMetrics.minTapTarget)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-            .accessibilityLabel("Send to this quest")
-        }
-        .padding(.leading, 14)
-        .padding(.vertical, 2)
-        .background(ChatPalette(scheme).card.color, in: RoundedRectangle(cornerRadius: 22))
-        .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(ChatPalette(scheme).line.color, lineWidth: 1))
-        .padding(.horizontal, QuestMetrics.inset.leading)
-        .padding(.top, PixelMetrics.steps(2))
-        .padding(.bottom, PixelMetrics.steps(4))
+        ChatComposerField(text: $text, placeholder: Self.placeholder, fieldLabel: "Message to this quest only",
+                          still: still, sendLabel: "Send to this quest", send: send)
     }
 }
 
@@ -658,17 +623,8 @@ struct FlowLayout: Layout {
     }
 }
 
-/// A project's colour, from its id: the same hash as the Chat and Quests tabs, so a project keeps its colour.
+/// How the quest view words a task: its state badge and where it runs.
 enum QuestTone {
-    static func tone(for projectId: String) -> ProjectChip.Tone {
-        var hash: UInt32 = 2_166_136_261
-        for byte in projectId.utf8 {
-            hash = (hash ^ UInt32(byte)) &* 16_777_619
-        }
-        let tones = ProjectChip.Tone.allCases
-        return tones[Int(hash % UInt32(tones.count))]
-    }
-
     static func badge(_ state: Components.Schemas.TaskState) -> StateBadge.Kind {
         switch state {
         case .queued: .queued

@@ -54,7 +54,7 @@ final class OwnAvatarTests: XCTestCase {
         let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
         let token = cache.observeFrames { model.receive($0) }
         defer { cache.stopObservingFrames(token) }
-        let headerView = AvatarHeader(state: header(model), collapsed: false)
+        let headerView = AvatarHeader(state: header(model))
         let thinking = ThinkingRow(state: .thinking, name: model.agentName ?? "Marcel", agentId: model.agentId)
         let giraffeHeader = try pixels(headerView, avatars: nil)
         let giraffeThinking = try pixels(thinking, avatars: nil)
@@ -87,7 +87,7 @@ final class OwnAvatarTests: XCTestCase {
         await model.avatars.refresh(agentId: "agt_marcel")
         XCTAssertTrue(model.avatars.sheet(for: "agt_marcel") === SpriteSheet.giraffe)
         XCTAssertTrue(model.avatars.sheet(for: model.agentId) === SpriteSheet.giraffe)
-        let view = AvatarHeader(state: ChatHeaderState(avatar: .idle, agentId: "agt_marcel"), collapsed: false)
+        let view = AvatarHeader(state: ChatHeaderState(avatar: .idle, agentId: "agt_marcel"))
         XCTAssertEqual(try pixels(view, avatars: model.avatars), try pixels(view, avatars: nil))
     }
 
@@ -96,8 +96,7 @@ final class OwnAvatarTests: XCTestCase {
         await sheets.refresh(agentId: "agt_pip")
         Snapshot.assert(
             VStack(spacing: 0) {
-                AvatarHeader(state: ChatHeaderState(avatar: .working(1), running: 1, name: "Pip", agentId: "agt_pip"),
-                             collapsed: false)
+                AvatarHeader(state: ChatHeaderState(avatar: .working(1), running: 1, name: "Pip", agentId: "agt_pip"))
                 ThinkingRow(state: .working(1), name: "Pip", agentId: "agt_pip")
                     .padding(16)
             }

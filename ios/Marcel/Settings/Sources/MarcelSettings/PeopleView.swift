@@ -2,9 +2,9 @@ import MarcelKit
 import PixelKit
 import SwiftUI
 
-/// People (B-37), from Settings, for the owner only: everyone with their helper, phones and quests this week; "Add
-/// person" (their name and their helper's), then the code for their first phone as a QR and a link; remove a person
-/// after a confirmation that says what happens.
+/// People (B-37, wireframe Q6), from Settings, for the owner only: a card per person ("Emma · Pip", their phones and
+/// quests this week), the code for a new phone as a QR card under them, and "Add someone" (their name and their
+/// helper's); remove a person after a confirmation that says what happens.
 public struct PeopleView: View {
     @State private var model: PeopleModel
     @Environment(\.dismiss) private var dismiss
@@ -50,32 +50,26 @@ struct PeopleContent: View {
             if let removed = model.removed {
                 ProblemBanner(text: removed) { model.dismissRemoved() }
             }
+            switch model.people {
+            case .loading: SettingsNote(text: "Loading…")
+            case .notAvailableYet: SettingsNote(text: "Not available yet: the hub doesn't do people yet.")
+            case .failed(let words), .unavailable(let words): SettingsNote(text: words, accent: true)
+            case .loaded(let list):
+                ForEach(list, id: \.id) { user in
+                    PersonCard(user: user, newCode: { Task { await model.newCode(for: user) } },
+                               remove: { removing = user })
+                }
+            }
             if let code = model.code {
                 CodeCard(code: code, now: now) { model.closeCode() }
             }
-            SettingsCard("Everyone") {
-                switch model.people {
-                case .loading: SettingsNote(text: "Loading…")
-                case .notAvailableYet: SettingsNote(text: "Not available yet: the hub doesn't do people yet.")
-                case .failed(let words), .unavailable(let words): SettingsNote(text: words, accent: true)
-                case .loaded(let list):
-                    ForEach(list, id: \.id) { user in
-                        SettingsRow(user.role == .owner ? "\(user.name) (owner)" : user.name,
-                                    detail: Self.line(user)) {
-                            if user.role != .owner {
-                                HStack(spacing: PixelMetrics.steps(3)) {
-                                    SettingsButton(title: "New code") { Task { await model.newCode(for: user) } }
-                                    SettingsButton(title: "Remove", destructive: true) { removing = user }
-                                }
-                            }
-                        }
-                    }
+            SettingsCard("Add someone") {
+                VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
+                    SettingsNote(text: "They get their own helper and their own chat. You'll get a code for their "
+                                 + "phone.")
+                    PeopleField(placeholder: "Their name", text: $name, still: still)
+                    PeopleField(placeholder: "Their helper's name", text: $helper, still: still)
                 }
-            }
-            SettingsCard("Add person") {
-                SettingsNote(text: "They get their own helper and their own chat. You'll get a code for their phone.")
-                PeopleField(placeholder: "Their name", text: $name, still: still)
-                PeopleField(placeholder: "Their helper's name", text: $helper, still: still)
                 SettingsButton(title: model.busy ? "Adding…" : "Add person", enabled: !model.busy) {
                     Task {
                         if await model.add(name: name, helperName: helper) {
@@ -96,17 +90,57 @@ struct PeopleContent: View {
         }
     }
 
-    /// "Helper: Pip · 2 phones · 3 quests this week".
+    /// "Owner · 2 phones · 12 quests this week", "1 phone · 3 quests this week".
     static func line(_ user: User) -> String {
         var parts: [String] = []
-        if let agent = user.agent { parts.append("Helper: \(agent.name)") }
+        if user.role == .owner { parts.append("Owner") }
         parts.append(user.deviceCount == 1 ? "1 phone" : "\(user.deviceCount) phones")
         parts.append(user.questsThisWeek == 1 ? "1 quest this week" : "\(user.questsThisWeek) quests this week")
         return parts.joined(separator: " · ")
     }
 }
 
-/// The code for someone's phone: the QR to scan, the link to send, and the time left.
+/// One person (wireframe Q6): "Emma · Pip" in bold (their name and their helper's), their phones and quests this
+/// week, and for anyone but the owner "New code" and "Remove", on a white rounded card.
+struct PersonCard: View {
+    var user: User
+    var newCode: () -> Void
+    var remove: () -> Void
+
+    @Environment(\.colorScheme) private var scheme
+
+    static func title(_ user: User) -> String {
+        [user.name, user.agent?.name].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    var body: some View {
+        let theme = ChatPalette(scheme)
+        VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(Self.title(user))
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(theme.ink.color)
+                Text(PeopleContent.line(user))
+                    .font(.footnote)
+                    .foregroundStyle(theme.muted.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            if user.role != .owner {
+                HStack(spacing: PixelMetrics.steps(3)) {
+                    SettingsButton(title: "New code", action: newCode)
+                    SettingsButton(title: "Remove", destructive: true, action: remove)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .chatSurface()
+    }
+}
+
+/// The code for someone's phone (wireframe Q6): the QR to scan with "SCAN ON EMMA'S PHONE" under it, the code, the
+/// time left, and the link to send, on a white rounded card.
 struct CodeCard: View {
     var code: PeopleModel.Code
     var now: Date
@@ -116,8 +150,7 @@ struct CodeCard: View {
 
     var body: some View {
         let theme = ChatPalette(scheme)
-        SettingsCard("Code for \(code.person)'s phone") {
-            SettingsNote(text: "On \(code.person)'s phone: open Marcel and scan this, or send them the link.")
+        VStack(spacing: PixelMetrics.steps(3)) {
             if let qr = PeopleModel.qr(code.link) {
                 Image(qr, scale: 1, label: Text("QR code for \(code.person)'s phone"))
                     .interpolation(.none)
@@ -125,18 +158,27 @@ struct CodeCard: View {
                     .frame(width: 200, height: 200)
                     .padding(12)
                     .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
-                    .frame(maxWidth: .infinity)
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.line.color, lineWidth: 1))
             }
+            PixelText("Scan on \(code.person)'s phone", role: .smallLabel)
+                .foregroundStyle(theme.muted.color)
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
             Text(code.code)
                 .font(.title2.monospaced().weight(.semibold))
                 .foregroundStyle(theme.ink.color)
-                .frame(maxWidth: .infinity)
                 .accessibilityLabel("Code \(code.code.map(String.init).joined(separator: " "))")
-            SettingsNote(text: PeopleModel.timeLeft(code, now: now))
+            Text("On \(code.person)'s phone, open Marcel and scan this, or send them the link. "
+                 + PeopleModel.timeLeft(code, now: now))
+                .font(.footnote)
+                .foregroundStyle(theme.muted.color)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: PixelMetrics.steps(3)) {
                 if let url = URL(string: code.link) {
                     ShareLink(item: url, message: Text("Your code for Marcel")) {
-                        PixelText("Send link", role: .smallLabel)
+                        Text("Send link")
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(theme.ink.color)
                             .padding(.horizontal, 14)
                             .frame(minHeight: PixelMetrics.minTapTarget)
@@ -147,6 +189,10 @@ struct CodeCard: View {
                 SettingsButton(title: "Done", action: close)
             }
         }
+        .frame(maxWidth: .infinity)
+        .padding(12)
+        .chatSurface()
+        .accessibilityElement(children: .contain)
     }
 }
 

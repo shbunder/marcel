@@ -72,7 +72,8 @@ struct ItemsHeader: View {
     }
 }
 
-/// One item's tile: its name, what it is, when it changed, and the "updated" badge on a living item.
+/// One item's tile (the wireframe's card): its name in bold, what it is and when it changed in small pixel capitals,
+/// and the "updated" badge on a living item.
 struct ItemTileView: View {
     var tile: ItemTile
 
@@ -81,13 +82,13 @@ struct ItemTileView: View {
     var body: some View {
         let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
-            Text(tile.title).font(.body.weight(.semibold))
+            Text(tile.title).font(.body.weight(.bold))
                 .foregroundStyle(theme.ink.color)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(tile.detail).font(.footnote)
+            PixelText(tile.detail, role: .smallLabel)
                 .foregroundStyle(theme.muted.color)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(tile.updated).font(.footnote)
+            PixelText(tile.updated, role: .smallLabel)
                 .foregroundStyle(theme.muted.color)
                 .fixedSize(horizontal: false, vertical: true)
             if let badge = tile.badge {

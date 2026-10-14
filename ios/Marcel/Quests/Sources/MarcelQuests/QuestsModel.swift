@@ -2,7 +2,7 @@ import Foundation
 import MarcelKit
 import Observation
 
-/// The quest log's state besides the cache: the filter, whether "Done · this week" is open, what is being sent, and
+/// The quest log's state besides the cache: the filter, whether "Done · last 7 days" is open, what is being sent, and
 /// the last problem. Stop and archive go to the hub; the answer is written into the cache straight away, so the card
 /// moves at once, and the live stream's `task.updated` confirms it later.
 @MainActor

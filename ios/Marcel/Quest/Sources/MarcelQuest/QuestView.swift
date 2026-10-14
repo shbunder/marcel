@@ -45,16 +45,13 @@ public struct QuestView: View {
         let projects = QuestProjects(rows: projectRows)
         let task = model.task ?? QuestProjects.decode(HubTask.self, taskRows.first?.payload)
         VStack(spacing: 0) {
-            QuestHeader(
-                title: task?.title ?? "Quest",
-                project: task.flatMap { projects.name(of: $0.projectId) },
-                tone: QuestTone.tone(for: task?.projectId ?? ""),
-                place: task.map(QuestTone.place), state: task.map { QuestTone.badge($0.state) },
-                back: { dismiss() })
-            QuestScroll(model: model)
+            QuestHeader(title: task?.title ?? "Quest", stop: model.canStop ? { confirmingStop = true } : nil,
+                        back: { dismiss() })
+            QuestScroll(model: model, meta: QuestMetaLine.text(
+                project: task.flatMap { projects.name(of: $0.projectId) }, place: task.map(QuestTone.place),
+                state: task.map { QuestTone.badge($0.state) }))
             QuestToolbar(
-                canStop: model.canStop, busy: model.busy, claudeURL: model.claudeURL,
-                stop: { confirmingStop = true },
+                busy: model.busy, claudeURL: model.claudeURL,
                 handBack: { handingBack = true },
                 open: { openURL($0) }
             ) {
@@ -114,11 +111,12 @@ public struct QuestView: View {
 /// The scrolling part: problem, steps, and the live detail in a lazy stack, so only the rows on screen are built.
 struct QuestScroll: View {
     let model: QuestViewModel
+    var meta: String
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: QuestMetrics.rowGap) {
-                QuestBody(model: model)
+                QuestBody(model: model, meta: meta)
             }
             .padding(QuestMetrics.inset)
         }
@@ -129,13 +127,15 @@ struct QuestScroll: View {
 /// The rows of the quest, shared by the screen (inside a lazy stack) and the snapshot still (inside a plain one).
 struct QuestBody: View {
     let model: QuestViewModel
+    /// "HOME ENERGY · NUC · SONNET" (`QuestMetaLine`).
+    var meta: String
 
     var body: some View {
         @Bindable var model = model
         if let problem = model.problem {
             QuestProblem(text: problem) { model.problem = nil }
         }
-        QuestSectionTitle(title: "Progress")
+        if !meta.isEmpty { QuestMetaLine(text: meta) }
         if model.steps.isEmpty {
             QuestNote(text: model.loading ? "Reading the quest…" : "No steps reported.")
         } else {
@@ -233,16 +233,15 @@ struct QuestStill: View {
     var body: some View {
         let task = model.task
         VStack(spacing: 0) {
-            QuestHeader(title: title, project: project, tone: QuestTone.tone(for: task?.projectId ?? ""),
-                        place: task.map(QuestTone.place), state: task.map { QuestTone.badge($0.state) }, back: {})
+            QuestHeader(title: title, stop: showsToolbar && model.canStop ? {} : nil, back: {})
             VStack(alignment: .leading, spacing: QuestMetrics.rowGap) {
-                QuestBody(model: model)
+                QuestBody(model: model, meta: QuestMetaLine.text(project: project, place: task.map(QuestTone.place),
+                                                                 state: task.map { QuestTone.badge($0.state) }))
             }
             .padding(QuestMetrics.inset)
             .frame(maxWidth: .infinity, alignment: .leading)
             if showsToolbar {
-                QuestToolbar(canStop: model.canStop, busy: model.busy, claudeURL: model.claudeURL, stop: {},
-                             handBack: {}, open: { _ in }) {
+                QuestToolbar(busy: model.busy, claudeURL: model.claudeURL, handBack: {}, open: { _ in }) {
                     QuestChip(title: "Move to project", ink: ProjectChip.Tone.gold.color(in: PixelTheme(scheme)))
                 }
                 QuestComposerBox(model: model)

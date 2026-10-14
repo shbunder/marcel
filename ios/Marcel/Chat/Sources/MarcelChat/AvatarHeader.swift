@@ -62,57 +62,30 @@ public struct ChatHeaderState: Equatable, Sendable {
     }
 }
 
-/// The avatar header (S-13.3): the giraffe in a 120-pt box while you are at the latest messages, shrinking to 44 pt
-/// once you scroll back or type. In the chat's language (wireframe Q1 v10, the S-18.6 follow-up): a white strip with
-/// a thin line under it, the name in bold, what is running in the muted colour, and a gold badge when something needs
-/// you.
-///
-/// `collapse` runs from 0 (120 pt) to 1 (44 pt) and is animatable, so the strip's height shrinks smoothly while the
-/// sprite inside steps down whole zooms (6×, 5×, 4×, 3×, 2× on a 3× screen): every sprite pixel stays a sharp square
-/// at every moment of the animation, never a blurred in-between. With Reduce Motion there is no animation (the
-/// screen sets none) and the giraffe shows its state's first frame.
-struct AvatarHeader: View, Animatable {
-    static let expanded: CGFloat = AvatarSize.large.points
-    static let collapsed: CGFloat = AvatarSize.medium.points
+/// The avatar header (S-13.3, wireframe Q1): the helper at 44 pt beside its name in bold and what is running in the
+/// muted colour, with a gold badge when something needs you, on a white strip with a thin line under it. The giraffe
+/// animates its state in the app; with Reduce Motion it shows its state's first frame.
+struct AvatarHeader: View {
+    static let box: CGFloat = AvatarSize.medium.points
 
     var state: ChatHeaderState
-    /// 0 is the big giraffe, 1 the small one; anything in between during the animation.
-    var collapse: CGFloat
 
     @Environment(\.chatStillAvatars) private var still
     @Environment(\.dynamicTypeSize) private var dynamicType
     @Environment(\.colorScheme) private var scheme
 
-    init(state: ChatHeaderState, collapse: CGFloat) {
+    init(state: ChatHeaderState) {
         self.state = state
-        self.collapse = collapse
-    }
-
-    init(state: ChatHeaderState, collapsed: Bool) {
-        self.init(state: state, collapse: collapsed ? 1 : 0)
-    }
-
-    nonisolated var animatableData: CGFloat {
-        get { collapse }
-        set { collapse = newValue }
-    }
-
-    /// The avatar's box at `collapse`, in points: 120 at 0, 44 at 1, straight in between.
-    static func box(collapse: CGFloat) -> CGFloat {
-        let t = min(max(collapse, 0), 1)
-        return expanded + (collapsed - expanded) * t
     }
 
     var body: some View {
-        // At accessibility text sizes the big giraffe would squeeze the title; it stays at 44 pt there.
-        let box = dynamicType.isAccessibilitySize ? Self.collapsed : Self.box(collapse: collapse)
         let palette = ChatPalette(scheme)
         HStack(alignment: .center, spacing: 10) {
-            ChatAvatar(state: state.avatar, box: box, still: still, name: state.name, agentId: state.agentId)
+            ChatAvatar(state: state.avatar, box: Self.box, still: still, name: state.name, agentId: state.agentId)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(state.name)
-                    .font(.headline)
+                    .font(.headline.weight(.bold))
                     .foregroundStyle(palette.ink.color)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(state.subtitle)

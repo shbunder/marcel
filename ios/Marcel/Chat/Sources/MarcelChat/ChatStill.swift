@@ -8,7 +8,6 @@ import SwiftUI
 struct ChatStill: View {
     var header: ChatHeaderState
     var items: [FeedItem]
-    var collapsed = false
     var actions = ChatActions()
     var draft = ""
     /// An item going with the next message, above the composer.
@@ -18,7 +17,7 @@ struct ChatStill: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AvatarHeader(state: header, collapsed: collapsed)
+            AvatarHeader(state: header)
             VStack(alignment: .leading, spacing: FeedMetrics.spacing) {
                 FeedStack(items: items, actions: actions)
                 if ThinkingRow.shows(header.avatar) {

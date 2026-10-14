@@ -36,8 +36,11 @@ final class PeopleTests: XCTestCase {
         await people.load()
         let list = people.people.value ?? []
         XCTAssertEqual(list.map(\.name), ["Shaun", "Emma"])
-        XCTAssertEqual(PeopleContent.line(list[1]), "Helper: Pip · 1 phone · 3 quests this week")
-        XCTAssertEqual(PeopleContent.line(list[0]), "Helper: Marcel · 2 phones · 12 quests this week")
+        // Wireframe Q6: "Emma · Pip" in bold, then the phones and quests ("Owner" first for the owner).
+        XCTAssertEqual(PersonCard.title(list[1]), "Emma · Pip")
+        XCTAssertEqual(PeopleContent.line(list[1]), "1 phone · 3 quests this week")
+        XCTAssertEqual(PersonCard.title(list[0]), "Shaun · Marcel")
+        XCTAssertEqual(PeopleContent.line(list[0]), "Owner · 2 phones · 12 quests this week")
     }
 
     func testTheOwnerAddsEmmaAndSeesAQR() async throws {

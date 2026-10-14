@@ -57,6 +57,15 @@ final class SettingsSnapshotTests: XCTestCase {
                         padding: 0)
     }
 
+    /// "Edit avatar and name": the name box over the look picker (wireframe Q6 moved the name here from Settings).
+    func testTheNameOnTheAvatarAndNameScreen() async {
+        let model = await model(FakeHub())
+        Snapshot.assert(SettingsCard("Name") { NameBox(model: model, save: {}) }
+                            .padding(PixelMetrics.padding)
+                            .environment(\.settingsStill, true),
+                        named: "Settings-name", variants: Self.both, padding: 0)
+    }
+
     /// A family member's Settings: no People.
     func testSettingsForAMember() async {
         let hub = FakeHub()

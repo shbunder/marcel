@@ -55,7 +55,7 @@ final class QuestPerformanceTests: XCTestCase {
         let read = Date().timeIntervalSince(started)
 
         // The screen: the lazy list in a real window, laid out once.
-        let host = UIHostingController(rootView: QuestScroll(model: model)
+        let host = UIHostingController(rootView: QuestScroll(model: model, meta: "Home energy · NUC · sonnet")
             .frame(width: 390, height: 844)
             .environment(\.colorScheme, .light))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))

@@ -41,7 +41,7 @@ final class QuestsLiveTests: XCTestCase {
         XCTAssertEqual(board.sections.first?.rows.first?.id, "t_lunch", "the quest that just asked is the first card")
         XCTAssertEqual(board.layout[.waitingOnYou], ["t_lunch", "t_dentist"])
         XCTAssertEqual(board.layout[.working], ["t_energy"])
-        XCTAssertTrue(board.row("t_lunch")?.detail.hasPrefix("Garden or terrace?") ?? false)
+        XCTAssertTrue(board.row("t_lunch")?.detail.hasSuffix("Garden or terrace?") ?? false)
     }
 
     // UI test: filtering by project hides the others.
@@ -195,7 +195,7 @@ final class QuestsLiveTests: XCTestCase {
         try fed.apply("artifact.created", Fx.prJSON("art_pr", task: "t_energy", number: 14))
         let board = try fed.board()
         XCTAssertEqual(board.layout[.readyForReview], ["t_energy"])
-        XCTAssertTrue(board.row("t_energy")?.detail.hasPrefix("PR #14 · checks passed") ?? false)
+        XCTAssertTrue(board.row("t_energy")?.detail.hasSuffix("PR #14 · checks passed") ?? false)
     }
 
     func testARowThatNoLongerDecodesIsSkippedNotFatal() throws {

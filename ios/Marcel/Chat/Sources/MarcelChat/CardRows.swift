@@ -68,17 +68,18 @@ struct QuestRow: View {
                     .font(.body.weight(.bold))
                     .foregroundStyle(palette.ink.color)
                     .fixedSize(horizontal: false, vertical: true)
-                if let detail = line.detail {
+                // Where it runs is on the label line (wireframe Q1: "▶ STARTED · NUC"), so it is not said twice.
+                if let detail = line.detail, detail != line.location.map(ChatFeed.location) {
                     Text(detail)
                         .font(.subheadline)
                         .foregroundStyle(palette.muted.color)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                // The project tag, then the link, on one row from the left (wireframe Q1).
                 HStack(alignment: .center, spacing: 8) {
                     if let project = line.project {
                         ChatTag(project)
                     }
-                    Spacer(minLength: 0)
                     Text(Self.open(line.state))
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(kind.label(in: palette).color)

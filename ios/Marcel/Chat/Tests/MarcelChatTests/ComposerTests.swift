@@ -52,8 +52,8 @@ final class ComposerTests: XCTestCase {
         XCTAssertEqual(Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion(waiting), name: "Marcel"),
                        "Or say something…")
         XCTAssertEqual(Composer.placeholder(questionWaiting: ChatFeed.hasOpenQuestion([]), name: "Marcel"),
-                       "Talk to Marcel…")
-        XCTAssertEqual(Composer.placeholder(questionWaiting: false, name: "Marcella"), "Talk to Marcella…")
+                       "Message Marcel…")
+        XCTAssertEqual(Composer.placeholder(questionWaiting: false, name: "Marcella"), "Message Marcella…")
     }
 
     /// Regression: with a full window (50 rows) a sent message's hub copy does not change the row count. The

@@ -122,7 +122,7 @@ struct SideChatLayout<Feed: View, ComposerView: View>: View {
             }
             composer
         }
-        .background(theme.background.color)
+        .background(ChatPalette(scheme).screen.color)
     }
 }
 

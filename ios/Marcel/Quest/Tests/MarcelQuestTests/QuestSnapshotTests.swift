@@ -204,7 +204,7 @@ final class QuestAccessibilityTests: XCTestCase {
                 .environment(\.questStill, true), dynamicType: size)
             let labels = found.map(\.label)
             for expected in [
-                "Energy contracts", "Progress", "Done: Read the last 12 months of bills",
+                "Energy contracts", "Home energy, NUC, sonnet", "Done: Read the last 12 months of bills",
                 "Doing now: Modelling with and without solar", "Live detail",
                 "Command: python model.py --solar 4.2kWp, done", "Change to energy/model.py: 2 lines added, 1 line removed",
                 "Claude: Modelling the yearly cost with and without the solar panels.",
@@ -220,7 +220,7 @@ final class QuestAccessibilityTests: XCTestCase {
                 XCTAssertNil(shouted, "\(size): \"\(label)\" is in capitals")
             }
             let headers = found.filter { $0.traits.contains(.header) }.map(\.label)
-            XCTAssertTrue(headers.contains("Progress") && headers.contains("Live detail"), "\(size): titles are headers")
+            XCTAssertTrue(headers.contains("Home energy, NUC, sonnet") && headers.contains("Live detail"), "\(size): titles are headers")
             for button in found where button.traits.contains(.button) {
                 XCTAssertGreaterThanOrEqual(button.frame.height, 44, "\(size): \"\(button.label)\" is too small to tap")
             }

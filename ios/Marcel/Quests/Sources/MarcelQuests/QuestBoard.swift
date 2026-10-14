@@ -52,9 +52,10 @@ public struct QuestFilter: Equatable, Hashable, Sendable {
     }
 }
 
-/// The groups of the quest log, top to bottom, in the filter's order. "Waiting on you" is always first (pinned).
+/// The groups of the quest log, top to bottom (wireframe Q2): waiting on you (pinned), working, the queue, ready for
+/// review, done in the last 7 days.
 public enum QuestGroup: String, CaseIterable, Sendable {
-    case waitingOnYou, readyForReview, working, queued, finished, archived
+    case waitingOnYou, working, queued, readyForReview, finished, archived
 
     public var title: String {
         switch self {
@@ -62,7 +63,7 @@ public enum QuestGroup: String, CaseIterable, Sendable {
         case .working: "Working"
         case .queued: "Queued"
         case .readyForReview: "Ready for review"
-        case .finished: "Done · this week"
+        case .finished: "Done · last 7 days"
         case .archived: "Archived"
         }
     }
@@ -83,7 +84,7 @@ public struct QuestRow: Identifiable, Hashable, Sendable {
     public var stateText: String?
     public var project: String?
     public var tone: ProjectChip.Tone
-    /// The card's second line, short: "Pick Tue 9:10 · PR #41 · checks passed · NUC · 2h old · active 5m ago".
+    /// The card's meta line after the project, short: "NUC · Pick Tue 9:10 · PR #41 · checks passed".
     public var detail: String
     /// What VoiceOver says for the whole card, in full words.
     public var spoken: String
@@ -100,9 +101,9 @@ public struct QuestSection: Identifiable, Hashable, Sendable {
     public var rows: [QuestRow]
     public var id: QuestGroup { group }
 
-    /// "Done · this week (5)" carries its count, since its cards start folded away.
+    /// "Waiting on you · 1", "Done · last 7 days · 6": every group carries its count (wireframe Q2).
     public var title: String {
-        group == .finished ? "\(group.title) (\(rows.count))" : group.title
+        "\(group.title) · \(rows.count)"
     }
 }
 
@@ -160,7 +161,7 @@ public struct QuestBoard: Equatable, Sendable {
 
     public var isEmpty: Bool { sections.isEmpty }
 
-    /// "Done · this week" starts folded away in "All"; picked on its own, it is open.
+    /// "Done · last 7 days" starts folded away in "All"; picked on its own, it is open.
     public func startsCollapsed(_ group: QuestGroup) -> Bool {
         group.startsCollapsed && filter.status == .all
     }
@@ -237,11 +238,11 @@ public struct QuestBoard: Equatable, Sendable {
         let active = Age(from: activity(task), to: now)
         let place = task.location == .nuc ? "NUC" : "Cloud"
 
-        var shown = [String]()
+        // The card's meta line after the project (wireframe Q2: "HOUSE · NUC · APPROVE FILE READ"): where it runs,
+        // what it waits on, its PR. The ages are in what VoiceOver reads.
+        var shown = [place]
         if let status { shown.append(status.short) }
         if let prText { shown.append(prText.short) }
-        shown += [place, started.short == "now" ? "new" : "\(started.short) old",
-                  active.short == "now" ? "active now" : "active \(active.short) ago"]
 
         var spoken = [task.title, ready ? "Ready for review" : state.spokenTitle]
         if let project { spoken.append("Project: \(project.name)") }

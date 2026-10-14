@@ -6,6 +6,18 @@ import XCTest
 /// PNGs in `__Snapshots__/`. Changing how a component looks makes these fail until the images are re-recorded.
 @MainActor
 final class ComponentSnapshotTests: XCTestCase {
+    /// A failed or stopped quest says so in words: it shares "Done" and the plain look with a finished one, and a
+    /// frame's colour alone does not tell everyone apart.
+    func testAQuestThatFailedOrStoppedSaysSoOnItsCard() {
+        XCTAssertEqual(QuestCard.meta(project: "Family", detail: "NUC", state: "Failed",
+                                      saysState: QuestCard.saysState(.failed)), "Failed · Family · NUC")
+        XCTAssertEqual(QuestCard.meta(project: "Family", detail: "NUC", state: "Stopped",
+                                      saysState: QuestCard.saysState(.stopped)), "Stopped · Family · NUC")
+        XCTAssertEqual(QuestCard.meta(project: "Family", detail: "NUC", state: "Done",
+                                      saysState: QuestCard.saysState(.done)), "Family · NUC")
+        XCTAssertEqual(QuestCard.meta(project: nil, detail: nil, state: "Done"), "Done")
+    }
+
     func testQuestCard() {
         Snapshot.assert(
             VStack(spacing: 10) {

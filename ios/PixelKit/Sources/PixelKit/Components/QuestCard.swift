@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A thread, shown as a quest: its state, its title, the project it is filed under, a detail line ("step 1 of 4")
-/// and, while it works, a progress bar. VoiceOver reads it as one sentence with the progress as its value.
+/// A thread, shown as a quest (wireframe Q2): its title in bold, one pixel-lettered line with the project and a detail
+/// ("HOUSE · NUC · STEP 1/4"), its state as the frame's colour and, while it works, a progress bar. VoiceOver reads it as one sentence with the progress as its value.
 public struct QuestCard: View {
     public var title: String
     public var state: StateBadge.Kind
@@ -12,7 +12,6 @@ public struct QuestCard: View {
     public var progress: Double?
 
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.dynamicTypeSize) private var dynamicType
 
     public init(
         title: String, state: StateBadge.Kind, stateText: String? = nil, project: String? = nil,
@@ -50,6 +49,19 @@ public struct QuestCard: View {
         }
     }
 
+    /// "Home energy · NUC · step 1 of 4"; "Failed · Family · NUC" when `saysState`; the state's word alone when
+    /// there is no project and no detail.
+    public static func meta(project: String?, detail: String?, state: String, saysState: Bool = false) -> String {
+        let parts = [project, detail].compactMap { $0 }.filter { !$0.isEmpty }
+        if parts.isEmpty { return state }
+        return ((saysState ? [state] : []) + parts).joined(separator: " · ")
+    }
+
+    /// The states whose card names them in words: the ones that share a group and a look with a finished quest.
+    public static func saysState(_ state: StateBadge.Kind) -> Bool {
+        state == .failed || state == .stopped
+    }
+
     public var body: some View {
         let palette = ChatPalette(scheme)
         let frame = Self.frame(state)
@@ -58,22 +70,13 @@ public struct QuestCard: View {
                 .font(.body.weight(.bold))
                 .foregroundStyle(palette.ink.color)
                 .fixedSize(horizontal: false, vertical: true)
-            // With accessibility text sizes the detail goes under the tag instead of beside it.
-            let layout = dynamicType.isAccessibilitySize
-                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
-                : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
-            layout {
-                PixelText(stateText ?? state.title, role: .smallLabel)
-                    .foregroundStyle((frame?.label(in: palette) ?? palette.muted).color)
-                    .fixedSize()
-                if let project { ChatTag(project) }
-                if let detail {
-                    Text(detail)
-                        .font(.subheadline)
-                        .foregroundStyle(palette.muted.color)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            // One pixel-lettered meta line (wireframe Q2): the project, then the detail ("HOUSE · NUC · APPROVE FILE
+            // READ"). The state is the frame's colour and the group above; a quest that failed or was stopped also says
+            // so in words, since "Done" holds those too and a colour alone is not enough.
+            PixelText(Self.meta(project: project, detail: detail, state: stateText ?? state.title,
+                                saysState: Self.saysState(state)), role: .smallLabel)
+                .foregroundStyle(palette.muted.color)
+                .fixedSize(horizontal: false, vertical: true)
             if let progress {
                 ChatProgressBar(value: progress, color: (frame ?? .started).frame(in: palette), track: palette.line)
             }

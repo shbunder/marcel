@@ -22,7 +22,7 @@ public struct LookPicker: View {
     }
 
     public var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(5)) {
             preview(theme)
             LookCard("Animal") {
@@ -54,7 +54,7 @@ public struct LookPicker: View {
             if let problem = model.problem {
                 Text(problem)
                     .font(.subheadline)
-                    .foregroundStyle(theme.accent.color)
+                    .foregroundStyle(LookAccent.color(theme))
             }
             if showsSave {
                 LookButton(title: model.saving ? "Saving…" : "Save", primary: true, enabled: model.canSave) {
@@ -64,24 +64,25 @@ public struct LookPicker: View {
         }
     }
 
-    private func preview(_ theme: PixelTheme) -> some View {
+    private func preview(_ theme: ChatPalette) -> some View {
         HStack(alignment: .center, spacing: PixelMetrics.steps(4)) {
             // The words next to it say the look; VoiceOver reads them once.
             PreviewImage(png: model.previews[model.look], size: 112, words: LookWords.describe(model.look))
                 .accessibilityHidden(true)
                 .task(id: model.look) { await model.loadPreview(model.look) }
-                .pixelBox(fill: theme.dialog, line: theme.line, shadow: theme.shadow,
-                          border: PixelMetrics.thinBorder, offset: PixelMetrics.smallShadow)
+                .padding(8)
+                .chatSurface()
             VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
-                PixelText(model.name, role: .title)
-                    .foregroundStyle(theme.text.color)
+                Text(model.name)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(theme.ink.color)
                 Text(LookWords.describe(model.look))
                     .font(.subheadline)
-                    .foregroundStyle(theme.text.color)
+                    .foregroundStyle(theme.ink.color)
                 if let problem = model.previewProblem, model.previews[model.look] == nil {
                     Text(problem)
                         .font(.footnote)
-                        .foregroundStyle(theme.accent.color)
+                        .foregroundStyle(LookAccent.color(theme))
                 }
                 LookButton(title: "Pick from my name", primary: false, enabled: true) { model.pickFromName() }
                     .accessibilityHint("Picks the look the name \(model.name) gives")
@@ -103,7 +104,7 @@ struct AnimalCell: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         let look = model.trying(animal: animal)
         let selected = model.look.animal == animal
         Button { model.choose(animal: animal) } label: {
@@ -114,12 +115,12 @@ struct AnimalCell: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            .foregroundStyle(theme.text.color)
+            .foregroundStyle(theme.ink.color)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, minHeight: PixelMetrics.minTapTarget)
             .background(RoundedRectangle(cornerRadius: 10).fill(theme.card.color))
             .overlay(RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(selected ? theme.accent.color : theme.line.color, lineWidth: selected ? 3 : 1))
+                .strokeBorder(selected ? LookAccent.color(theme) : theme.line.color, lineWidth: selected ? 3 : 1))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -139,7 +140,7 @@ struct Swatch: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         let fill = LookColors.bubble(KnownLook(animal: animal, color: color, personality: .cozy))
         Button(action: action) {
             Circle()
@@ -149,12 +150,12 @@ struct Swatch: View {
                     if color == .natural {
                         Image(systemName: "sparkles")
                             .font(.caption.weight(.bold))
-                            .foregroundStyle(theme.text.color)
+                            .foregroundStyle(theme.ink.color)
                     }
                 }
                 .frame(width: 32, height: 32)
                 .padding(3)
-                .overlay(Circle().strokeBorder(selected ? theme.accent.color : .clear, lineWidth: 3))
+                .overlay(Circle().strokeBorder(selected ? LookAccent.color(theme) : .clear, lineWidth: 3))
                 .frame(width: PixelMetrics.minTapTarget, height: PixelMetrics.minTapTarget)
                 .contentShape(Rectangle())
         }
@@ -179,15 +180,15 @@ struct LookChoice: View {
     }
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         Button(action: action) {
             Text(title)
                 .font(.subheadline.weight(selected ? .semibold : .regular))
-                .foregroundStyle(theme.text.color)
+                .foregroundStyle(theme.ink.color)
                 .frame(maxWidth: .infinity, minHeight: PixelMetrics.minTapTarget)
                 .background(RoundedRectangle(cornerRadius: 10).fill(theme.card.color))
                 .overlay(RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(selected ? theme.accent.color : theme.line.color, lineWidth: selected ? 3 : 1))
+                    .strokeBorder(selected ? LookAccent.color(theme) : theme.line.color, lineWidth: selected ? 3 : 1))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -208,10 +209,10 @@ struct LookCard<Content: View>: View {
     }
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
             PixelText(title, role: .smallLabel)
-                .foregroundStyle(theme.accent.color)
+                .foregroundStyle(theme.muted.color)
                 .accessibilityAddTraits(.isHeader)
             content
         }
@@ -219,7 +220,7 @@ struct LookCard<Content: View>: View {
     }
 }
 
-/// A pixel button, at least 44 pt tall; the primary one is filled.
+/// A rounded button in the normal font, at least 44 pt tall; the primary one is a filled rose pill.
 struct LookButton: View {
     var title: String
     var primary: Bool
@@ -229,16 +230,17 @@ struct LookButton: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let theme = ChatPalette(scheme)
         Button(action: action) {
-            PixelText(title, role: .smallLabel)
-                .foregroundStyle((primary ? theme.background : theme.text).color)
-                .padding(.horizontal, PixelMetrics.steps(5))
+            Text(title)
+                .font((primary ? Font.body : .subheadline).weight(.bold))
+                .foregroundStyle((primary ? ChatCardKind.done.buttonText(in: theme) : theme.ink).color)
+                .padding(.horizontal, 16)
                 .frame(minHeight: PixelMetrics.minTapTarget)
-                .frame(maxWidth: primary ? .infinity : nil)
-                .pixelBox(fill: primary ? theme.accent : theme.card, line: primary ? theme.accent : theme.line,
-                          shadow: theme.shadow, border: PixelMetrics.thinBorder, offset: PixelMetrics.smallShadow)
+                .background((primary ? ChatCardKind.done.label(in: theme) : theme.card).color, in: Capsule())
+                .overlay(Capsule().strokeBorder(primary ? Color.clear : theme.line.color, lineWidth: 1))
                 .opacity(enabled ? 1 : 0.5)
+                .frame(maxWidth: primary ? .infinity : nil)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
@@ -274,4 +276,9 @@ struct PreviewImage: View {
         guard let source = CGImageSourceCreateWithData(png as CFData, nil) else { return nil }
         return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
+}
+
+/// The picker's selection colour: Marcel's rose, the chat's "done" label colour.
+enum LookAccent {
+    static func color(_ palette: ChatPalette) -> Color { ChatCardKind.done.label(in: palette).color }
 }

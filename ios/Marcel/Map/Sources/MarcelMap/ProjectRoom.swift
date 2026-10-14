@@ -88,7 +88,7 @@ public struct MoveTarget: Identifiable, Hashable, Sendable {
     public var name: String
 }
 
-/// An item in the room: drawn as a chip in the project's colour.
+/// An item in the room: a white card with its title and a pixel meta line ("PULL REQUEST · OPEN", wireframe Q2).
 public struct RoomItem: Identifiable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -102,8 +102,23 @@ public struct RoomItem: Identifiable, Equatable, Sendable {
         self.artifact = artifact
     }
 
+    /// The card's meta line: what it is, then its PR state or its version ("Pull request · open", "Document · v3").
+    public var meta: String {
+        var parts = [kindWord]
+        if let state = artifact.pr?.state {
+            parts.append(state.rawValue)
+        } else if artifact.currentVersion > 1 {
+            parts.append("v\(artifact.currentVersion)")
+        }
+        return parts.joined(separator: " · ")
+    }
+
     public var spoken: String {
-        let what = switch kind {
+        "\(kindWord): \(title)"
+    }
+
+    var kindWord: String {
+        switch kind {
         case .pr: "Pull request"
         case .branch: "Branch"
         case .doc: "Document"
@@ -111,7 +126,6 @@ public struct RoomItem: Identifiable, Equatable, Sendable {
         case .dashboard, .board: "Dashboard"
         case .link: "Link"
         }
-        return "\(what): \(title)"
     }
 }
 

@@ -8,10 +8,13 @@ MarcelKit and PixelKit, so any tab can open it without a dependency cycle; keep 
 
 ## What it shows
 
-- **The look** (S-18.4, the chat's language): a plain header, the soft background, Claude's text as plain formatted
+- **The look** (S-18.4, the chat's language, laid out like the owner's wireframe Q2): a bold header, the soft background, Claude's text as plain formatted
   text (the shared Markdown's chat style), your notes as your bubbles, approvals as the chat's "needs you" card; tool
   rows and diffs are the only boxes.
-- **Header:** ‹ back, the quest's name, and "Working · Home energy · NUC · sonnet".
+- **Header:** ‹ back, the quest's name in bold, and "Stop" on the right while it can be stopped. The other actions
+  (hand back, move to project, open in Claude) sit above the composer, which is the chat's own white strip.
+- **First line:** where it runs, in pixel capitals: "HOME ENERGY · NUC · SONNET", with the state's word in front once
+  it no longer runs ("DONE · …").
 - **Progress first:** the worker's `report(progress)` events as a checklist. Every report but the last is ✓ done;
   the last is ▶ what it is doing now, ✓ once the quest is done, × where it stopped if it failed or was stopped.
   While the quest runs, the latest report's `next` steps (app API 0.5) follow as "· next". Each report replaces that
@@ -21,7 +24,7 @@ MarcelKit and PixelKit, so any tab can open it without a dependency cycle; keep 
   one-line rows that open to show what came back (30 lines, then "…and N more lines"), diffs that open to their lines
   with + and − in the margin and the code in syntax colours (60 lines), approval prompts with Approve / Not now in place,
   and one plain line for state changes, items made, helpers, errors and anything the app can't show.
-- **Toolbar:** Stop (after a confirmation), Hand back to Marcel (with an optional note), Move to project (a menu of
+- **Toolbar:** Stop sits in the header (after a confirmation); above the composer: Hand back to Marcel (with an optional note), Move to project (a menu of
   the live projects), Open in Claude (`cloud_url` for a cloud quest, `remote_url` for a NUC session with Remote
   Control, never the other way round; only an `https://claude.ai/code…` address, as the contract describes them,
   opened by the system, so in Safari or the Claude app).

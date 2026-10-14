@@ -2,10 +2,27 @@ import MarcelItems
 import PixelKit
 import SwiftUI
 
-/// The top strip (wireframe Q2 v10): "Projects" on a white strip with a thin line under it.
+/// The top strip (wireframe Q2): "Projects" in bold and "+ New" on the right, on a white strip with a thin line under
+/// it. Marcel makes projects, so "+ New" opens the chat with the request started; nil in snapshots.
 struct MapHeader: View {
+    var newProject: (() -> Void)?
+
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.agentName) private var agentName
+
     var body: some View {
-        ChatHeader("Projects", spoken: "Map of your projects")
+        ChatHeader("Projects", spoken: "Map of your projects") {
+            Button { newProject?() } label: {
+                Text("+ New")
+                    .font(.subheadline)
+                    .foregroundStyle(ChatPalette(scheme).muted.color)
+                    .frame(minWidth: PixelMetrics.minTapTarget, minHeight: PixelMetrics.minTapTarget)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("New project")
+            .accessibilityHint("Opens the chat to ask \(agentName) for one")
+        }
     }
 }
 
@@ -28,7 +45,7 @@ struct TileView: View {
                     ChatBadge(needsYou)
                 }
                 Text(tile.name)
-                    .font(.body.weight(.semibold))
+                    .font(.body.weight(.bold))
                     .foregroundStyle(palette.ink.color)
                     .fixedSize(horizontal: false, vertical: true)
                 PixelText(tile.detail, role: .smallLabel)
@@ -60,61 +77,21 @@ struct TileView: View {
     }
 }
 
-/// "+ New": a dashed tile. Marcel makes projects, so it opens the chat with the request started.
-struct NewTile: View {
-    @Environment(\.colorScheme) private var scheme
-    @Environment(\.agentName) private var agentName
-
-    var body: some View {
-        let palette = ChatPalette(scheme)
-        VStack(alignment: .leading, spacing: 5) {
-            Text("+ New")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(palette.ink.color)
-            Text("or just ask \(agentName)")
-                .font(.footnote)
-                .foregroundStyle(palette.muted.color)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .frame(minHeight: PixelMetrics.minTapTarget)
-        .padding(ChatScreenMetrics.padding)
-        .chatSurface(.dashed)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("New project")
-        .accessibilityHint("Opens the chat to ask \(agentName) for one")
-    }
-}
-
 /// The tiles in two columns (one at accessibility text sizes), each row as tall as its tallest tile.
-struct TileGrid<Tile: View, New: View>: View {
+struct TileGrid<Tile: View>: View {
     var tiles: [ProjectTile]
     var tile: (ProjectTile) -> Tile
-    var new: New
-
-    init(tiles: [ProjectTile], @ViewBuilder tile: @escaping (ProjectTile) -> Tile, @ViewBuilder new: () -> New) {
-        self.tiles = tiles
-        self.tile = tile
-        self.new = new()
-    }
 
     @Environment(\.dynamicTypeSize) private var dynamicType
 
     var body: some View {
         let columns = dynamicType.isAccessibilitySize ? 1 : 2
-        // The "+ new" tile is the last cell.
-        let cells = tiles.map(Optional.some) + [nil]
-        let rows = stride(from: 0, to: cells.count, by: columns).map { Array(cells[$0..<min($0 + columns, cells.count)]) }
+        let rows = stride(from: 0, to: tiles.count, by: columns).map { Array(tiles[$0..<min($0 + columns, tiles.count)]) }
         Grid(horizontalSpacing: MapMetrics.gap, verticalSpacing: MapMetrics.gap) {
             ForEach(rows.indices, id: \.self) { index in
                 GridRow {
                     ForEach(rows[index].indices, id: \.self) { column in
-                        if let project = rows[index][column] {
-                            tile(project)
-                        } else {
-                            new
-                        }
+                        tile(rows[index][column])
                     }
                     if rows[index].count < columns {
                         Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
@@ -174,25 +151,24 @@ struct MapStill: View {
     var body: some View {
         VStack(spacing: 0) {
             MapHeader()
-            MapContent(map: map, problem: problem, dismiss: {}, tile: { TileView(tile: $0) }, new: { NewTile() })
+            MapContent(map: map, problem: problem, dismiss: {}, tile: { TileView(tile: $0) })
         }
         .background(ChatPalette(scheme).well.color)
     }
 }
 
-/// The map's body: a problem line, the tiles and "+ new". The screen passes buttons; the snapshot the bare tiles.
-struct MapContent<Tile: View, New: View>: View {
+/// The map's body: a problem line and the tiles. The screen passes buttons; the snapshot the bare tiles.
+struct MapContent<Tile: View>: View {
     var map: ProjectMap
     var problem: String?
     var dismiss: () -> Void
     @ViewBuilder var tile: (ProjectTile) -> Tile
-    @ViewBuilder var new: () -> New
 
     var body: some View {
         VStack(alignment: .leading, spacing: MapMetrics.gap) {
             if let problem { ProblemLine(text: problem, dismiss: dismiss) }
             if map.isEmpty { EmptyMap() }
-            TileGrid(tiles: map.tiles, tile: tile, new: new)
+            TileGrid(tiles: map.tiles, tile: tile)
         }
         .padding(MapMetrics.inset)
     }

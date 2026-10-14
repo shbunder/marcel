@@ -1,8 +1,9 @@
 # Settings — settings, people, notifications and links (S-12.10, S-17.6)
 
 Settings (B-18, B-19, B-22, B-40), People (B-37), the system status screen, and where every `marcel://` link and every
-push leads. Drawn in the chat look (ADR-007: white header, rounded white cards on the soft ground, capsule buttons),
-like Map, Items and the notebook. Settings opens from the avatar header in the chat.
+push leads. Drawn in the chat look (ADR-007) and laid out like the owner's wireframe (artifact KtdD3PMLeyZP7QrwqYLrdv
+Q6): a bold header, small pixel group titles above white rounded boxes with a thin line between rows, buttons in the
+normal font, on the soft ground. Settings opens from the avatar header in the chat.
 
 It is a Swift package (`MarcelSettings`) so its tests run in the simulator like the other packages'. It depends on
 MarcelKit, PixelKit and MarcelLook (the look picker); what it needs from the rest of the app comes in
@@ -12,13 +13,16 @@ app (`ios/Marcel/App/RootView.swift`) shows the quest view, the artifact viewer,
 
 ## Settings
 
-Four groups (explainer Q6):
+The helper's card on top, then five groups (wireframe Q6):
 
-- **Helper** — the avatar, the name and look in words, **Edit look** (the S-19.4 picker, with its own Save), and the
-  name field (rename).
-- **You** — notifications, and **Face ID** (on by default; asked before the app opens and after 5 minutes away).
-- **Marcel** — the notebook, schedules, plan usage, and the system status screen.
-- **Account** — **People** (the owner only: `GET /me`'s `role`), **Phones**, and **Sign out of this phone**: forgets the
+- **The helper's card** — the avatar, the name in bold, the look in words and **Edit avatar and name ›**, which opens
+  one screen with the name field (rename, its own Save) and the S-19.4 look picker (its own Save).
+- **You** — notifications, and **Face ID to open** (on by default; asked before the app opens and after 5 minutes
+  away).
+- **Marcel** — **Notebook (memory) ›** and **System status ›**.
+- **Schedules** and **Plan usage** — each in its own box, with its buttons inline (real sub-screens are a later story).
+- **Account** — **People ›** (the owner only: `GET /me`'s `role`), the phones, and **Sign out of this phone** (bold red
+  words): forgets the
   ntfy topic, then runs `AppFlow.signOut` (the hub forgets this phone, then the phone forgets the hub, the sign-in and
   the cache, and shows the welcome screen; offline it still signs out and says the hub wasn't told).
 
@@ -29,7 +33,7 @@ Four groups (explainer Q6):
 | Plan usage | `GET /usage` | The 5-hour and weekly meters, reset times, and the usage guard's own words while it holds work back. A 503 `no_reading` (the runner has not read usage since it started) says "Usage unavailable" as a plain note, not a problem. |
 | Schedules | `GET /schedules`, `PATCH`, `DELETE /schedules/{id}` | Pause / resume any schedule; delete one after a confirmation. Built-in digests can only be paused: they have no Delete button, and if the hub still answers 409 `schedule_builtin` the app says why in plain words, hides Delete and offers "Pause it instead?". 404 `schedule_not_found` means it was already deleted (the row goes); the generic `not_found` means an older hub ("not available yet"). |
 | Phones | `GET /devices`, `DELETE /devices/{id}` | Every paired device; remove another one (after a confirmation). This phone signs out with **Sign out of this phone** instead. |
-| People | `GET /users`, `POST /users`, `POST /users/{id}/pairing-codes`, `DELETE /users/{id}` | The owner only (`PeopleModel`, `PeopleView`). Everyone with their helper, phones and quests this week. **Add person**: their name and their helper's (the hub picks the helper's look from its name), then the code for their first phone as a QR, the code, **Send link**, and the time left ("Expires in 9 min."). **New code** for anyone. **Remove** after a confirmation that says what happens: "Emma's phones are signed out and Emma's helper, Pip, stops. Their chats and notes stay on the hub." — said again once done, and the person is gone from the list. A member asking gets the hub's own words (403 `owner_only`). |
+| People | `GET /users`, `POST /users`, `POST /users/{id}/pairing-codes`, `DELETE /users/{id}` | The owner only (`PeopleModel`, `PeopleView`). A card per person, "Emma · Pip" in bold with their phones and quests this week. **Add someone**: their name and their helper's (the hub picks the helper's look from its name), then the code for their first phone as a QR card under the people ("SCAN ON EMMA'S PHONE"), the code, **Send link**, and the time left ("Expires in 9 min."). **New code** for anyone. **Remove** after a confirmation that says what happens: "Emma's phones are signed out and Emma's helper, Pip, stops. Their chats and notes stay on the hub." — said again once done, and the person is gone from the list. A member asking gets the hub's own words (403 `owner_only`). |
 | System | `GET /health` | Opens the status screen. |
 
 Each section loads and fails on its own. A hub that answers **404, 405 or 501** for a route the contract has (schedules

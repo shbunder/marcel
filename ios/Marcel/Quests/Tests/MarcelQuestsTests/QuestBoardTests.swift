@@ -23,8 +23,8 @@ final class QuestBoardTests: XCTestCase {
         let board = QuestBoard(tasks: tasks, artifacts: [Fx.pr("art_pr", task: "t_review")],
                                projects: Fx.projects, now: Fx.now)
 
-        XCTAssertEqual(board.groups, [.waitingOnYou, .readyForReview, .working, .queued, .finished],
-                       "the filter's order: waiting on you, ready for review, working (and its queue), done")
+        XCTAssertEqual(board.groups, [.waitingOnYou, .working, .queued, .readyForReview, .finished],
+                       "the wireframe's order: waiting on you, working (and its queue), ready for review, done")
         XCTAssertEqual(board.layout[.waitingOnYou], ["t_needs"])
         XCTAssertEqual(Set(board.layout[.working] ?? []), ["t_working", "t_starting", "t_silent", "t_unknown"])
         XCTAssertEqual(board.layout[.queued], ["t_queued"])
@@ -172,7 +172,7 @@ final class QuestBoardTests: XCTestCase {
     }
 
     func testVoiceOverHearsCommasWhereTheScreenShowsDots() {
-        XCTAssertEqual(QuestGroup.finished.spokenTitle, "Done, this week")
+        XCTAssertEqual(QuestGroup.finished.spokenTitle, "Done, last 7 days")
         let board = QuestBoard(tasks: [], projects: Fx.projects,
                                filter: QuestFilter(projectId: "prj_energy", archived: true), now: Fx.now)
         XCTAssertEqual(board.projectTitle, "Home energy")
@@ -256,7 +256,7 @@ final class QuestBoardTests: XCTestCase {
         XCTAssertEqual(row.project, "Marcel dev")
         XCTAssertEqual(row.state, .ready)
         XCTAssertEqual(row.stateText, "PR")
-        XCTAssertEqual(row.detail, "PR #41 · checks passed · Cloud · 3h old · active 12m ago")
+        XCTAssertEqual(row.detail, "Cloud · PR #41 · checks passed", "where, then the PR; the ages are spoken only")
         XCTAssertEqual(row.spoken, "Avatar sprite in app. Ready for review. Project: Marcel dev. "
             + "Pull request 41, checks passed. Runs in the cloud. Started 3 hours ago. Last active 12 minutes ago.")
         XCTAssertTrue(row.canArchive)
@@ -267,7 +267,7 @@ final class QuestBoardTests: XCTestCase {
         let tasks = [Fx.task("t1", "Dentist booking", state: "needs_you", project: "prj_family",
                              extra: ["waiting_for": "Pick Tue 9:10 or Thu 8:30"])]
         let row = try XCTUnwrap(QuestBoard(tasks: tasks, projects: Fx.projects, now: Fx.now).row("t1"))
-        XCTAssertEqual(row.detail, "Pick Tue 9:10 or Thu 8:30 · NUC · 2h old · active 5m ago")
+        XCTAssertEqual(row.detail, "NUC · Pick Tue 9:10 or Thu 8:30")
         XCTAssertTrue(row.spoken.hasPrefix("Dentist booking. Needs your OK. Project: Family. "
             + "Waiting for: Pick Tue 9:10 or Thu 8:30. Runs on the NUC."))
         XCTAssertTrue(row.canStop)
@@ -283,11 +283,11 @@ final class QuestBoardTests: XCTestCase {
             Fx.task("t_failed", "E", state: "failed"),
         ]
         let board = QuestBoard(tasks: tasks, now: Fx.now)
-        XCTAssertTrue(try XCTUnwrap(board.row("t_cap")).detail.hasPrefix("Waits for a free slot · "))
-        XCTAssertTrue(try XCTUnwrap(board.row("t_usage")).detail.hasPrefix("Waits for the usage limit · "))
-        XCTAssertTrue(try XCTUnwrap(board.row("t_silent")).detail.hasPrefix("No news past its expected time · "))
-        XCTAssertTrue(try XCTUnwrap(board.row("t_unknown")).detail.hasPrefix("The NUC can't be reached · "))
-        XCTAssertTrue(try XCTUnwrap(board.row("t_failed")).detail.hasPrefix("NUC · "))
+        XCTAssertEqual(try XCTUnwrap(board.row("t_cap")).detail, "NUC · Waits for a free slot")
+        XCTAssertEqual(try XCTUnwrap(board.row("t_usage")).detail, "NUC · Waits for the usage limit")
+        XCTAssertEqual(try XCTUnwrap(board.row("t_silent")).detail, "NUC · No news past its expected time")
+        XCTAssertEqual(try XCTUnwrap(board.row("t_unknown")).detail, "NUC · The NUC can't be reached")
+        XCTAssertEqual(try XCTUnwrap(board.row("t_failed")).detail, "NUC")
         XCTAssertEqual(board.row("t_silent")?.state, .silent)
     }
 
@@ -324,13 +324,14 @@ final class QuestBoardTests: XCTestCase {
         XCTAssertEqual(age(26 * 3600), Age(short: "1d", spoken: "1 day ago"))
         XCTAssertEqual(age(-30), Age(short: "now", spoken: "just now"), "a clock slightly ahead is not negative")
         let fresh = QuestBoard(tasks: [Fx.task("t", "A", state: "working", created: 10, active: 10)], now: Fx.now)
-        XCTAssertEqual(fresh.row("t")?.detail, "NUC · new · active now")
+        XCTAssertEqual(fresh.row("t")?.detail, "NUC")
+        XCTAssertTrue(fresh.row("t")?.spoken.hasSuffix("Started just now. Last active just now.") ?? false)
     }
 
     func testTheFinishedGroupCarriesItsCountAndStartsFolded() {
         let tasks = [Fx.task("a", "A", state: "done"), Fx.task("b", "B", state: "failed")]
         let section = QuestBoard(tasks: tasks, now: Fx.now).sections[0]
-        XCTAssertEqual(section.title, "Done · this week (2)")
+        XCTAssertEqual(section.title, "Done · last 7 days · 2")
         XCTAssertTrue(section.group.startsCollapsed)
         XCTAssertFalse(QuestGroup.waitingOnYou.startsCollapsed)
     }

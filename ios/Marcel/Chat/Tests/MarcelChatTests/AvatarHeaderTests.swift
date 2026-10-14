@@ -40,7 +40,7 @@ final class AvatarHeaderStateTests: XCTestCase {
         for (frame, avatar, spoken) in steps {
             try cache.apply(frame)
             XCTAssertEqual(header().avatar, avatar)
-            XCTAssertEqual(AvatarHeader(state: header(), collapsed: false).state.accessibilityText, spoken)
+            XCTAssertEqual(AvatarHeader(state: header()).state.accessibilityText, spoken)
         }
 
         // Another agent's state is not this header's.
@@ -82,26 +82,13 @@ final class AvatarHeaderStateTests: XCTestCase {
         XCTAssertEqual(model.agentState, .working(3), "missed agent.state events are read again from GET /me")
     }
 
-    func testTheHeaderShrinksSmoothlyAndTheSpriteInWholeZooms() {
-        XCTAssertEqual(AvatarHeader.box(collapse: 0), 120)
-        XCTAssertEqual(AvatarHeader.box(collapse: 1), 44)
-        XCTAssertEqual(AvatarHeader.box(collapse: 0.5), 82)
-        XCTAssertEqual(AvatarHeader.box(collapse: 2), 44, "clamped")
-        // On a 3× phone the 48 × 54 giraffe steps 6×, 5×, 4×, 3×, 2× as the box shrinks: never a fraction.
-        let zooms = stride(from: 0.0, through: 1.0, by: 0.01).map {
-            AvatarSize.zoom(box: AvatarHeader.box(collapse: $0), frameWidth: 48, frameHeight: 54, displayScale: 3)
-        }
-        XCTAssertEqual(Array(NSOrderedSet(array: zooms)) as? [Int], [6, 5, 4, 3, 2])
-        XCTAssertEqual(zooms, zooms.sorted(by: >), "it only ever gets smaller while collapsing")
-        // The header animates `collapse` (Animatable), so SwiftUI hands it every in-between value.
-        var header = AvatarHeader(state: ChatHeaderState(), collapsed: false)
-        header.animatableData = 0.25
-        XCTAssertEqual(header.collapse, 0.25)
+    func testTheHeaderAlwaysShowsTheHelperAt44Points() {
+        // Wireframe Q1: a small helper beside the name, at every scroll position (no big shrinking header).
+        XCTAssertEqual(AvatarHeader.box, 44)
     }
 }
 
-/// The header in light and dark: expanded (120 pt) and collapsed (44 pt) in every state, one moment half-way through
-/// the collapse, and the 32-pt giraffe beside the agent's dialogue box. Drawn at 3× (a real iPhone) so the snapshots
+/// The header in light and dark in every state, the helper at 44 pt. Drawn at 3× (a real iPhone) so the snapshots
 /// show the pixels the phone shows. Re-record with `make -C ios chat-record` after a deliberate change.
 @MainActor
 final class AvatarHeaderSnapshotTests: XCTestCase {
@@ -117,22 +104,10 @@ final class AvatarHeaderSnapshotTests: XCTestCase {
         ("done", ChatHeaderState(avatar: .done)),
     ]
 
-    func testExpandedInEveryState() {
+    func testEveryState() {
         for (name, header) in Self.states {
-            Snapshot.assert(AvatarHeader(state: header, collapsed: false), named: "Header-expanded-\(name)",
-                            variants: twoModes, padding: 0, scale: 3)
+            Snapshot.assert(AvatarHeader(state: header), named: "Header-\(name)", variants: twoModes, padding: 0,
+                            scale: 3)
         }
-    }
-
-    func testCollapsedInEveryState() {
-        for (name, header) in Self.states {
-            Snapshot.assert(AvatarHeader(state: header, collapsed: true), named: "Header-collapsed-\(name)",
-                            variants: twoModes, padding: 0, scale: 3)
-        }
-    }
-
-    func testHalfWayThroughTheCollapse() {
-        Snapshot.assert(AvatarHeader(state: ChatHeaderState(avatar: .thinking), collapse: 0.5),
-                        named: "Header-halfway-thinking", variants: twoModes, padding: 0, scale: 3)
     }
 }

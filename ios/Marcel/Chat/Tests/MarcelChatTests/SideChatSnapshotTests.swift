@@ -61,7 +61,7 @@ final class SideChatSnapshotTests: XCTestCase {
                 .user(UserLine(id: "u1", text: "What's the weather Sunday?")),
                 .marcel(MarcelLine(id: "m1", markdown: 
                     "18° and dry. Good for the garden lunch option.")),
-            ], collapsed: true, actions: actions),
+            ], actions: actions),
             named: "Chat-replies", variants: [.light, .dark, .largestText], padding: 0)
     }
 }

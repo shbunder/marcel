@@ -46,6 +46,6 @@ extension Composer where Accessory == EmptyView {
 
 extension Composer<EmptyView> {
     static func placeholder(questionWaiting: Bool, name: String) -> String {
-        questionWaiting ? "Or say something…" : "Talk to \(name)…"
+        questionWaiting ? "Or say something…" : "Message \(name)…"
     }
 }
