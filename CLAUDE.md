@@ -56,7 +56,7 @@ make ios-check        # on the Mac only
 
 - **What a story is** — `project/stories/<id>.md`, in git.
 - **Where it is** — the build board, https://claude.ai/artifact/1V2swuomSbb9r1cB23Y2eh, never in git.
-  `/board` for status, `/story` to claim, `/finish-story` for the PR, `/merge-story` (lead), `/adr`.
+  `/board` for status, `/story` to claim, `/finish-story` to land it (ADR-012), `/merge-story` (lead, only for PRs), `/adr`.
   See [board](.claude/rules/board.md).
 
 ## Working on a story
@@ -67,7 +67,8 @@ Follow [plan/04-agent-playbook.md](plan/04-agent-playbook.md) § The implementer
 2. Write the failing tests from the story's "done when" first.
 3. Implement, then run the lane gate.
 4. Update docs in the same commit.
-5. `/finish-story`: `[S-NN.M] impl: …` staged by name, the verifier, the PR.
+5. `/finish-story`: `[S-NN.M] impl: …` staged by name, the verifier, then it lands on main (a PR only when the
+   owner must review, see ADR-012).
 
 The rules in [.claude/rules/](.claude/rules/) apply to every change. A guard hook blocks edits to
 `CLAUDE.md`, `contracts/**` and env files; its message says how to unlock when the edit is yours to make.
