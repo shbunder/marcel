@@ -170,16 +170,35 @@ To move to a new version:
 
 ## Backups
 
-Back up `~/marcel/data` (the database, memory and its git history next to it, `hub-secret`) and
-`deploy/.env.local`. Stop the hub first for a consistent database copy:
+Every night at 03:30 `marcel-backup.timer` runs `deploy/backup.sh` (by hand: `make -C deploy backup`). It writes
+`~/marcel/backups/<date>/`, owner-only, and keeps 14 days:
+
+| File | What |
+|---|---|
+| `marcel.db` | The hub's database, through SQLite's online backup (consistent while the hub runs), integrity-checked |
+| `memory.bundle` | The memory repo (every note and its history) as one git bundle |
+| `hub-secret`, `adopt-token.sha256`, `digests.json`, `runner-offsets.json`, `cloud-tokens.json` | The small files the hub keeps beside them, when present |
+
+Not in it: `deploy/.env.local` (keep your own copy of the secrets), the brain folders (re-rendered by
+`make -C deploy install` and the runner) and worker clones. `MARCEL_BACKUPS` and `MARCEL_BACKUP_DAYS` change where
+and how long.
+
+### Restore
 
 ```bash
-~/marcel/src/deploy/compose.sh stop
-tar -C ~/marcel -czf ~/marcel-data-$(date +%F).tar.gz data
-~/marcel/src/deploy/compose.sh start
+B=~/marcel/backups/<date>
+~/marcel/src/deploy/compose.sh stop                    # the hub only; sessions keep running
+mv ~/marcel/data ~/marcel/data.before-restore          # keep what was there
+mkdir -p ~/marcel/data/memory
+cp -p $B/marcel.db $B/hub-secret $B/*.json ~/marcel/data/
+git --git-dir=$HOME/marcel/data/memory.git init -q
+git --git-dir=$HOME/marcel/data/memory.git fetch -q $B/memory.bundle 'refs/heads/*:refs/heads/*'
+git --git-dir=$HOME/marcel/data/memory.git --work-tree=$HOME/marcel/data/memory checkout -q -f main
+make -C ~/marcel/src/deploy install                    # re-links the brain to its memory, starts the hub
 ```
 
-To restore, put `data/` back before `make -C deploy install`.
+Drilled on 2026-10-14 into a scratch folder with a throwaway hub on another port: `/api/health` ok, `/api/me`
+listed the agent and its conversation with the latest messages, and `/api/memory` read the notes.
 
 ## Triage
 

@@ -1,0 +1,12 @@
+# marcel-v3-unit: installed by deploy/install.sh from deploy/systemd/
+# Nightly at 03:30 (an hour before the brain's 04:00 rollover); a missed run is caught up at boot.
+[Unit]
+Description=Back up Marcel every night
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

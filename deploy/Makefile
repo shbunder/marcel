@@ -5,7 +5,7 @@ MARCEL_HOME ?= $(HOME)/marcel
 export MARCEL_HOME
 TUNNEL ?= marcel
 
-.PHONY: install deploy logs health status tunnel tunnel-rules check
+.PHONY: install deploy logs health status tunnel tunnel-rules check backup
 
 # Everything, from nothing or over an earlier install: node, plugin, brain, units, hub.
 install:
@@ -43,6 +43,10 @@ tunnel:
 	echo "  sudo install -m 644 $(MARCEL_HOME)/cloudflared-marcel.service /etc/systemd/system/cloudflared-marcel.service"; \
 	echo "  sudo systemctl daemon-reload && sudo systemctl restart cloudflared-marcel"
 
+# Back up the database and the memory repo now (marcel-backup.timer does it nightly).
+backup:
+	./backup.sh
+
 # Only /api/* reaches the hub; the channel and everything else get a 404.
 tunnel-rules:
 	@set -e; cfg=$(HOME)/.cloudflared/marcel.yml; \
@@ -54,8 +58,8 @@ tunnel-rules:
 
 # The deploy lane's own gate: the scripts parse, the compose file and the units are valid.
 check:
-	bash -n install.sh install-claude.sh compose.sh health.sh tests/test_health.sh
+	bash -n install.sh install-claude.sh compose.sh health.sh backup.sh tests/test_health.sh
 	bash tests/test_health.sh
 	python3 -c 'import json; json.load(open("managed-settings.json"))'
 	MARCEL_UID=1000 MARCEL_GID=1000 MARCEL_HOME=/tmp/marcel docker compose -f docker-compose.yml config -q
-	systemd-analyze --user verify systemd/*.service systemd/*.path 2>&1 | grep -v 'Command .* is not executable' | { ! grep . ; }
+	systemd-analyze --user verify systemd/*.service systemd/*.path systemd/*.timer 2>&1 | grep -v 'Command .* is not executable' | { ! grep . ; }

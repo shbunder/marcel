@@ -207,6 +207,7 @@ install_units() {
     systemctl --user daemon-reload
     systemctl --user enable --now marcel-claude-daemon.service
     systemctl --user enable marcel-runner.service
+    systemctl --user enable --now marcel-backup.timer  # nightly backups (deploy/backup.sh)
     systemctl --user restart marcel-runner.service
     if [ -x "$DEPLOY/redeploy.sh" ]; then
         systemctl --user enable --now marcel-redeploy.path
