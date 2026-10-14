@@ -612,6 +612,19 @@ read-only, ADR-002).
   commit the card is for), `decision`, `after_merge` (the card was opened after the merge), `outcome` (`redeploy_requested`, `not_redeployed`, `redeploy_failed`, `closed`) and `sha`. Once
   there is an outcome nothing more happens. At start the hub refreshes again every merged or closed
   self-change with no outcome yet, so a restart between the merge and the redeploy loses nothing.
+- **How the redeploy went** (S-11.2). The host's `deploy/redeploy.sh` writes its outcome to
+  `redeploy.result` next to the flag: one JSON object (`outcome` one of `deployed`, `version_drift`,
+  `rolled_back`, `rollback_failed`, `refused`; `reason`, `sha`, `subject`, `previous`, `revert`, `at`).
+  `watchdog.ResultWatch` looks at start (a redeploy restarts the hub) and every 15 s. It posts one
+  system message in the main conversation of the owner's first live agent, and pushes (collapse key
+  `redeploy`) unless the outcome is `deployed`: `rollback_failed` as `broke`/`urgent`, the rest as a
+  `note`. Then it renames the file to `redeploy.result.told`.
+  A file that is not valid JSON is still told ("its result could not be read"). If the message cannot
+  be posted, the file stays and the next look tries again; a failed push still leaves the message.
+  `watchdog.RESULTS` lists the files it watches, each with the function that words it and says how
+  to push it (`silent`, `note` or `urgent`). A script never replaces a result the hub has not told:
+  a second outcome in the same run goes to `<stem>.<time>.result`, told after the first, in order,
+  with its own collapse key.
 
 ## Project boards
 

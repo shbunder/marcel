@@ -51,6 +51,7 @@ from marcel_hub import (
     tasks,
     usage,
     users,
+    watchdog,
     ws,
 )
 from marcel_hub.avatar import routes as avatar_routes
@@ -291,6 +292,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         avatars.start()
         prs.start()  # S-04.12: open PRs found again, then refreshed every 5 minutes
         selfmods.resume()  # S-11.1: merged self-changes whose follow-up a restart cut short
+        results.start()  # S-11.2: a redeploy restarts the hub, so its first look tells the outcome
         digests.ensure_builtins()  # S-09.2: before the scheduler's first look
         digests.start()
         scheduler.start()  # S-09.1: missed fires are reported once, on its first look
@@ -302,6 +304,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if app.state.claude_updates is not None:
             await app.state.claude_updates.stop()
         await clouds.stop_watchdog()
+        await results.stop()
         await sides.stop()
         if keeper_of_brains is not None:
             await keeper_of_brains.stop()
@@ -390,6 +393,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     prs = github.install(app, settings.github_token)
     # S-11.1: self-change PRs get an approval card; an approved, merged one asks for a redeploy.
     selfmods = selfmod.install(app, settings.redeploy_flag, push=pusher, alerts=pusher)
+    # S-11.2: host scripts (redeploy.sh) write their outcome next to the flag; the owner is told.
+    results = watchdog.ResultWatch(
+        engine, app.state.events, settings.redeploy_flag.parent, pusher=pusher
+    )
+    app.state.result_watch = results
     repo = memory.install(app)
     channel.install(app, gateway, registry, watch)  # after artifacts: reports store through it
     # S-07.1: cloud tasks open claude.ai/code sessions; their reports and a deadline watchdog.

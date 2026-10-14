@@ -18,7 +18,7 @@ Everything lives under `~/marcel`:
 |---|---|
 | `src/` | The deployed checkout of `shbunder/marcel` (`main`). Run every `make -C deploy …` from here |
 | `data/` | The hub's `/data`: the database, `hub-secret`, `memory/` (the brain links into it), `marcel.toml`, `avatars/` (drawn avatars; safe to delete) |
-| `state/` | The hub's `/state`: `redeploy.flag` |
+| `state/` | The hub's `/state`: `redeploy.flag` (the hub asks for a redeploy), `redeploy.result` (how it went, until the hub has told the owner; then `redeploy.result.told`; a second outcome in the same run waits in `redeploy.<time>.result`), `redeploy.log` |
 | `run/` | The runner's socket, mounted into the hub at `/run/marcel` |
 | `brain/` | The brain workspace, rendered from `brain/` |
 | `plugins/` | The `marcel-local` marketplace: a built copy of `plugins/marcel/` |
@@ -98,6 +98,20 @@ environment. That covers the environment only: sessions run as the owner and can
 | `MARCEL_APNS_KEY`, `_KEY_ID`, `_TEAM_ID`, `_TOPIC` | no | All four or none (`hub/README.md`). The key's text on one line with `\n`. Never the `.p8` file in the repo or image |
 | `MARCEL_APNS_SANDBOX` | no | `true` only for an app run from Xcode |
 
+To get pushes on the phone (without them the owner sees each notice only in the app, e.g. how a redeploy went),
+add one or both to `deploy/.env.local`:
+
+```bash
+# ntfy
+MARCEL_NTFY_SERVER=https://ntfy.sh
+# APNs: all four from the Apple developer site (Keys); the .p8 file's text on one line, \n for its line breaks
+MARCEL_APNS_KEY=-----BEGIN PRIVATE KEY-----\n<the key's lines>\n-----END PRIVATE KEY-----
+MARCEL_APNS_KEY_ID=<10 characters, as in AuthKey_<id>.p8>
+MARCEL_APNS_TEAM_ID=<the team id, Membership details>
+MARCEL_APNS_TOPIC=<the app's bundle id, e.g. com.<you>.marcel>
+MARCEL_APNS_SANDBOX=false   # true only for an app run from Xcode
+```
+
 After changing it: `make -C deploy deploy` for the hub. For Harry's token, `make -C deploy install`, then
 restart Claude's supervisor when no work is running (`systemctl --user restart marcel-claude-daemon`, which
 stops every session; the hub starts the brain again): sessions get the supervisor's environment.
@@ -116,7 +130,7 @@ make -C deploy deploy    # rebuild and restart the hub only; sessions keep runni
 |---|---|---|
 | 0 | Everything is up: both units, the runner, the hub, and a live brain | Nothing |
 | 1 | Something is down | Read the lines above it, then the troubleshooting table below |
-| 2 | Only Claude Code's version drifted: everything runs, but the installed `claude` is not the pinned one, so the runner starts no new sessions | Run `deploy/install-claude.sh` (or `make -C deploy install`). Nothing needs rolling back: a redeploy watchdog treats 2 as "not a broken deploy" (S-11.2) |
+| 2 | Only Claude Code's version drifted: everything runs, but the installed `claude` is not the pinned one, so the runner starts no new sessions | Run `deploy/install-claude.sh` (or `make -C deploy install`). Nothing needs rolling back: `deploy/redeploy.sh` treats 2 as "not a broken deploy" |
 
 ## Pairing a phone
 
@@ -128,11 +142,48 @@ It prints a QR code and an 8-character code that work once, for 10 minutes. Scan
 
 ## Upgrades
 
-Self-changes the owner approves in the app go through the redeploy flag (`.claude/rules/self-modification.md`).
-`marcel-redeploy.path` is enabled only once `deploy/redeploy.sh` exists (S-11.2). Until then an approved
-self-change is merged but not deployed: upgrade by hand.
+### Self-changes
 
-By hand:
+A self-change the owner approves in the app and merges on GitHub deploys itself (`.claude/rules/self-modification.md`):
+
+1. The hub writes the merge commit to `~/marcel/state/redeploy.flag`.
+2. `marcel-redeploy.path` sees it and starts `marcel-redeploy.service`, which runs `deploy/redeploy.sh`.
+3. The script refuses a flag that is not one full commit id, or a commit that is not on `main` on GitHub. It
+   fast-forwards `~/marcel/src` to it and runs `make -C deploy install`.
+4. It runs the health check from **before** the change (a change cannot judge itself) every 5 s for up to 120 s.
+   Healthy: done. Exit 2 (only Claude Code's version drifted): done, nothing reverted. A failed install, or still not
+   healthy: it reverts the commit (`git revert`, `-m 1` for a merge), pushes the revert to `main`, deploys again and
+   checks again.
+5. It writes the outcome to `~/marcel/state/redeploy.result`. The hub posts it in the owner's main conversation
+   and pushes it unless the change simply went in; "Marcel may be down" is pushed as urgent.
+
+| The owner reads | Means | Do |
+|---|---|---|
+| "Marcel is updated with …" | Deployed and healthy | Nothing |
+| "Marcel is updated … Claude Code is not the version …" | Deployed; only the Claude version drifted | `make -C deploy install` |
+| "An update was rolled back" | A failed install, or not healthy in 120 s; reverted on GitHub and on the NUC | Read `~/marcel/state/redeploy.log`; fix it in a new PR |
+| "… The revert could not be pushed to GitHub, so it is only on the NUC" | As above, but GitHub refused the push | `git -C ~/marcel/src push origin main`. Until then the next self-change is refused ("could not fast-forward") |
+| "Marcel may be down" | The revert failed, Marcel is still unhealthy after it, or the run was stopped halfway (its 30 minutes, or a reboot) | `make -C deploy health`, `~/marcel/state/redeploy.log`, `git -C ~/marcel/src status` |
+| "An update was not deployed" | The flag or the commit was refused; nothing changed | The reason says why. "Could not fetch": upgrade by hand (below) once GitHub answers. "Could not fast-forward": `~/marcel/src` has local changes or commits; look at `git -C ~/marcel/src status` |
+
+The service gets 30 minutes in all (`TimeoutStartSec`); when systemd stops it, the script still writes "stopped
+halfway". One redeploy runs at a time: a flag written while one runs (a second merge) is deployed by that run before it
+ends, and both outcomes are told, in order. A commit the deployed copy already has does nothing. The push uses `~/marcel/src`'s own git login (SSH to
+GitHub). While Marcel is down nobody is told: the hub tells the outcome once it is back, so a hub that never comes
+back says nothing. `make -C deploy health` is the check then.
+
+`make -C deploy install` skips its own health check when `MARCEL_SKIP_HEALTH=1` is set; only `redeploy.sh` sets it.
+`MARCEL_REDEPLOY_WAIT` (seconds, default 120) changes how long health is given. `MARCEL_REDEPLOY_BRANCH`
+(default `main`) is **for drills only**: it points the script at a throwaway branch, so a deliberately broken commit
+never lands on `main`. Set either with `systemctl --user edit marcel-redeploy.service` (`[Service]
+Environment=…`). After a drill, remove it and put the deployed copy back on `main`:
+
+```bash
+rm ~/.config/systemd/user/marcel-redeploy.service.d/drill.conf && systemctl --user daemon-reload
+git -C ~/marcel/src checkout main && git -C ~/marcel/src pull --ff-only && make -C ~/marcel/src/deploy install
+```
+
+### By hand
 
 ```bash
 cd ~/marcel/src && git pull --ff-only
