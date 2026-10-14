@@ -28,6 +28,6 @@ let package = Package(
         ),
         .testTarget(name: "MarcelSettingsTests",
                     dependencies: ["MarcelSettings", .product(name: "AvatarKit", package: "AvatarKit")],
-                    exclude: ["__Snapshots__"]),
+                    exclude: ["__Snapshots__", "Fixtures"]),
     ]
 )

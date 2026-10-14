@@ -219,7 +219,7 @@ struct MainTabs: View {
         switch over {
         case .settings:
             SettingsView(model: settingsModel(), status: { StatusModel(service: settings) },
-                         people: { PeopleModel(service: settings) }, links: settingsLinks, signedOut: signedOut)
+                         people: { PeopleModel(service: settings, looks: looks) }, links: settingsLinks, signedOut: signedOut)
         case .notebook:
             NotebookView(model: NotebookModel(service: notebook, rollovers: rollovers, projectNames: { [connection] in
                 Dictionary((try? connection.cache.projects())?.map { ($0.slug, $0.name) } ?? [],

@@ -33,7 +33,9 @@ enum Fx {
     /// Everyone, as the owner's People screen lists them (`GET /users`).
     nonisolated(unsafe) static let users: [[String: Any]] = [
         ["id": "usr_owner", "name": "Shaun", "role": "owner", "created_at": at(-86_400 * 60),
-         "agent": ["id": "agt_marcel", "name": "Marcel"], "device_count": 2, "quests_this_week": 12],
+         "agent": ["id": "agt_marcel", "name": "Marcel",
+                   "look": ["animal": "giraffe", "color": "rose", "personality": "professional"]],
+         "device_count": 2, "quests_this_week": 12],
         ["id": "usr_emma", "name": "Emma", "role": "member", "created_at": at(-86_400 * 3),
          "agent": ["id": "agt_pip", "name": "Pip", "look": ["animal": "fox", "color": "sky", "personality": "cozy"]],
          "device_count": 1, "quests_this_week": 3],
@@ -178,6 +180,22 @@ final class FakeHub: ClientTransport, @unchecked Sendable {
 }
 
 /// The look picker's hub, unused in these tests.
+/// Helpers drawn by the Pixel Zoo (`Fixtures/<animal>-<color>-<personality>.png`), counting what is asked.
+final class ZooPreviews: LookService, @unchecked Sendable {
+    static let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "Fixtures")
+    var offline = false
+    private(set) var asked: [KnownLook] = []
+
+    func preview(_ look: KnownLook) async throws -> Data {
+        asked.append(look)
+        if offline { throw LookError.unreachable }
+        return try Data(contentsOf: Self.fixtures.appending(
+            path: "\(look.animal.rawValue)-\(look.color.rawValue)-\(look.personality.rawValue).png"))
+    }
+
+    func save(_ look: KnownLook, agentId: String) async throws -> Agent { throw LookError.unreachable }
+}
+
 struct NoLooks: LookService {
     func preview(_ look: KnownLook) async throws -> Data { throw LookError.unreachable }
     func save(_ look: KnownLook, agentId: String) async throws -> Agent { throw LookError.unreachable }

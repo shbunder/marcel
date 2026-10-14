@@ -1,5 +1,6 @@
 import Foundation
 import MarcelKit
+import MarcelLook
 import XCTest
 
 @testable import MarcelSettings
@@ -30,7 +31,8 @@ final class PeopleMockHubTests: XCTestCase {
         XCTAssertTrue(ownerSettings.showsPeople, "the owner sees People")
 
         // Add a person (a new name each run: the mock keeps people while it runs) → a QR and a link.
-        let people = PeopleModel(service: owner)
+        let ownerClient = HubClient.make(serverURL: serverURL, tokenStore: Token("settings-owner"))
+        let people = PeopleModel(service: owner, looks: LiveLookService(client: ownerClient))
         await people.load()
         let name = "Lien \(UUID().uuidString.prefix(4))"
         let added = await people.add(name: name, helperName: "Bo")
@@ -42,6 +44,7 @@ final class PeopleMockHubTests: XCTestCase {
         XCTAssertGreaterThan(code.expiresAt, Date(), "time left")
         let user = try XCTUnwrap(people.people.value?.first { $0.name == name }, "listed")
         XCTAssertEqual(user.agent?.name, "Bo")
+        XCTAssertNotNil(people.avatar(for: user), "their helper drawn from its look (GET /avatar-previews)")
 
         // Their phone pairs with that code: a member, whose Settings has no People.
         let memberToken = Token(nil)

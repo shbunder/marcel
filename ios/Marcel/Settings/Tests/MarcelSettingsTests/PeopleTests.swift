@@ -111,12 +111,44 @@ final class PeopleTests: XCTestCase {
         XCTAssertEqual(people.people, .failed("Only Shaun can manage people. Ask Shaun to do it."))
     }
 
+    // MARK: Each helper's avatar (wireframe Q6)
+
+    /// The owner cannot fetch another person's sheet, so each card draws the helper from its look, once per look.
+    func testEachHelperIsDrawnFromItsLookOnce() async throws {
+        let looks = ZooPreviews()
+        let people = PeopleModel(service: FakeHub().service, looks: looks)
+        await people.load()
+        let list = try XCTUnwrap(people.people.value)
+        XCTAssertNotNil(people.avatar(for: list[0]), "Marcel, from giraffe / rose / professional")
+        XCTAssertNotNil(people.avatar(for: list[1]), "Pip, from fox / sky / cozy")
+        XCTAssertEqual(Set(looks.asked), [KnownLook(animal: .giraffe, color: .rose, personality: .professional),
+                                          KnownLook(animal: .fox, color: .sky, personality: .cozy)])
+        await people.load()
+        XCTAssertEqual(looks.asked.count, 2, "the same look draws the same image: asked once")
+    }
+
+    func testAHelperWithoutALookOrOfflineHasNoAvatarYetAndIsAskedAgain() async throws {
+        let hub = FakeHub()
+        hub["GET /users"] = (200, Fx.json([Fx.users[0].merging(["agent": ["id": "agt_marcel", "name": "Marcel"]]) { $1 },
+                                          Fx.users[1]]))
+        let looks = ZooPreviews()
+        looks.offline = true
+        let people = PeopleModel(service: hub.service, looks: looks)
+        await people.load()
+        let list = try XCTUnwrap(people.people.value)
+        XCTAssertNil(people.avatar(for: list[0]), "no look: nothing to draw")
+        XCTAssertNil(people.avatar(for: list[1]), "offline: not drawn yet")
+        looks.offline = false
+        await people.load()
+        XCTAssertNotNil(people.avatar(for: list[1]), "asked again on the next load")
+    }
+
     // MARK: How it looks
 
     func testPeopleWithACode() async {
         let hub = FakeHub()
         hub["POST /users/usr_emma/pairing-codes"] = (201, Fx.json(Fx.issued(minutesLeft: 9)))
-        let people = PeopleModel(service: hub.service)
+        let people = PeopleModel(service: hub.service, looks: ZooPreviews())
         await people.load()
         await people.newCode(for: people.people.value![1])
         Snapshot.assert(

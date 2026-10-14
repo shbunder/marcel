@@ -1,3 +1,4 @@
+import ImageIO
 import MarcelKit
 import PixelKit
 import SwiftUI
@@ -56,8 +57,8 @@ struct PeopleContent: View {
             case .failed(let words), .unavailable(let words): SettingsNote(text: words, accent: true)
             case .loaded(let list):
                 ForEach(list, id: \.id) { user in
-                    PersonCard(user: user, newCode: { Task { await model.newCode(for: user) } },
-                               remove: { removing = user })
+                    PersonCard(user: user, avatar: model.avatar(for: user),
+                               newCode: { Task { await model.newCode(for: user) } }, remove: { removing = user })
                 }
             }
             if let code = model.code {
@@ -104,6 +105,8 @@ struct PeopleContent: View {
 /// week, and for anyone but the owner "New code" and "Remove", on a white rounded card.
 struct PersonCard: View {
     var user: User
+    /// Their helper, drawn from its look (`PeopleModel.avatar(for:)`); nil while it loads or without a look.
+    var avatar: Data? = nil
     var newCode: () -> Void
     var remove: () -> Void
 
@@ -116,14 +119,18 @@ struct PersonCard: View {
     var body: some View {
         let theme = ChatPalette(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(Self.title(user))
-                    .font(.body.weight(.bold))
-                    .foregroundStyle(theme.ink.color)
-                Text(PeopleContent.line(user))
-                    .font(.footnote)
-                    .foregroundStyle(theme.muted.color)
-                    .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: PixelMetrics.steps(4)) {
+                HelperAvatar(png: avatar, box: 48)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Self.title(user))
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(theme.ink.color)
+                    Text(PeopleContent.line(user))
+                        .font(.footnote)
+                        .foregroundStyle(theme.muted.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .accessibilityElement(children: .combine)
             if user.role != .owner {
@@ -136,6 +143,34 @@ struct PersonCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .chatSurface()
+    }
+}
+
+/// A helper's 32 × 32 avatar in a square box, at the largest whole number of screen pixels per avatar pixel that fits,
+/// with no smoothing: the same low-res Pixel Zoo art as everywhere else. An empty soft square while it loads.
+struct HelperAvatar: View {
+    var png: Data?
+    var box: CGFloat
+
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Group {
+            if let png, let source = CGImageSourceCreateWithData(png as CFData, nil),
+               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+                let zoom = max(1, (box * displayScale / CGFloat(max(image.width, image.height))).rounded(.down))
+                Image(decorative: image, scale: displayScale)
+                    .interpolation(.none)
+                    .antialiased(false)
+                    .resizable()
+                    .frame(width: CGFloat(image.width) * zoom / displayScale,
+                           height: CGFloat(image.height) * zoom / displayScale)
+            } else {
+                RoundedRectangle(cornerRadius: 10).fill(ChatPalette(scheme).well.color)
+            }
+        }
+        .frame(width: box, height: box)
     }
 }
 

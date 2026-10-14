@@ -2,6 +2,7 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import Foundation
 import MarcelKit
+import MarcelLook
 import Observation
 
 /// People (B-37, owner only): everyone with their helper, phones and quests this week; adding a person (a pairing
@@ -25,15 +26,42 @@ public final class PeopleModel {
     public var problem: String?
     public private(set) var busy = false
 
-    @ObservationIgnored let service: any SettingsService
+    /// Each helper drawn from its look (`GET /avatar-previews`), by look: the owner cannot fetch another person's
+    /// sheet (`GET /agents/{id}/avatar` is 404 for agents that are not yours), so People draws the look instead.
+    public private(set) var avatars: [KnownLook: Data] = [:]
 
-    public init(service: any SettingsService) {
+    @ObservationIgnored let service: any SettingsService
+    @ObservationIgnored let looks: (any LookService)?
+    @ObservationIgnored private var asked: Set<KnownLook> = []
+
+    /// - Parameter looks: draws each helper's avatar from its look; without it the cards show none.
+    public init(service: any SettingsService, looks: (any LookService)? = nil) {
         self.service = service
+        self.looks = looks
+    }
+
+    /// `user`'s helper as a 32 × 32 PNG, once it has been drawn.
+    public func avatar(for user: User) -> Data? {
+        user.agent?.look?.known.flatMap { avatars[$0] }
+    }
+
+    /// Draws every listed helper's look once; one that fails is asked again on the next load.
+    func loadAvatars(_ list: [User]) async {
+        guard let looks else { return }
+        for look in Set(list.compactMap { $0.agent?.look?.known }) where asked.insert(look).inserted {
+            if let png = try? await looks.preview(look) {
+                avatars[look] = png
+            } else {
+                asked.remove(look)
+            }
+        }
     }
 
     public func load() async {
         do {
-            people = .loaded(try await service.users())
+            let list = try await service.users()
+            people = .loaded(list)
+            await loadAvatars(list)
         } catch {
             people = .from(error)
         }
