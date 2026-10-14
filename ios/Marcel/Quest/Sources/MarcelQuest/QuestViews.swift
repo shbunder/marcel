@@ -199,6 +199,8 @@ struct DetailRowView: View {
                           fromUser: fromUser)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(spoken): \(capped.text)")
+        case .workflow(let flow):
+            WorkflowRow(flow: flow, expanded: expanded) { actions.toggle(row.id) }
         case .line(let kind, let text):
             let capped = CappedText(text, maxLines: 6)
             Text(capped.text + (capped.moreLine.map { " \($0)" } ?? ""))
@@ -206,6 +208,133 @@ struct DetailRowView: View {
                 .foregroundStyle((kind == .error ? theme.accent : theme.muted).color)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// A workflow (app API 0.7.3): folded to one row with what it does, "7 of 10 done" and how it ended; open, each
+/// agent by its label, grouped by phase, ✓ and what it gave back once done, ▶ while it runs. All of it untrusted
+/// plain text, capped.
+struct WorkflowRow: View {
+    var flow: DetailRow.Workflow
+    var expanded: Bool
+    var toggle: () -> Void
+
+    /// Lines of an agent's summary shown when the row is open; the workflow's own summary gets twice as many.
+    static let summaryLines = 3
+
+    @Environment(\.colorScheme) private var scheme
+
+    /// The mark after the count: "Finished", "Failed", "Stopped"; nothing while it runs.
+    var mark: (text: String, kind: ChatCardKind)? {
+        switch flow.status {
+        case .running: nil
+        case .completed: ("Finished", .started)  // the same colour as a done agent's ✓
+        case .failed: ("Failed", .failed)
+        case .stopped: ("Stopped", .failed)
+        case .unknown: ("Ended", .started)
+        }
+    }
+
+    var body: some View {
+        let palette = ChatPalette(scheme)
+        let title = CappedText(flow.title, maxLines: 2).text
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: toggle) {
+                HStack(alignment: .center, spacing: PixelMetrics.steps(3)) {
+                    PixelGlyph(expanded ? .more : .pointer, color: palette.muted)
+                        .frame(width: 14)  // the same width open or folded: the title never shifts
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        PixelText("Workflow", role: .smallLabel)
+                            .foregroundStyle(ChatCardKind.started.label(in: palette).color)
+                        Text(verbatim: title)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(palette.ink.color)
+                            .lineLimit(expanded ? nil : 2)
+                        HStack(spacing: 6) {
+                            Text(flow.progress)
+                                .font(.footnote)
+                                .foregroundStyle(palette.muted.color)
+                            if let mark {
+                                Text("· \(mark.text)")
+                                    .font(.footnote.weight(.bold))
+                                    .foregroundStyle(mark.kind.label(in: palette).color)
+                            }
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(PixelMetrics.steps(4))
+                .frame(minHeight: PixelMetrics.minTapTarget)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Workflow: \(title), \(flow.progress)\(mark.map { ", \($0.text.lowercased())" } ?? "")")
+            .accessibilityValue(expanded ? "Open" : "Folded")
+            .accessibilityHint(expanded ? "Folds its agents away" : "Shows each agent")
+            if expanded {
+                VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
+                    ForEach(Array(flow.groups.enumerated()), id: \.offset) { _, group in
+                        if let phase = group.phase {
+                            PixelText(CappedText(phase, maxLines: 1).text, role: .smallLabel)
+                                .foregroundStyle(palette.muted.color)
+                                .accessibilityAddTraits(.isHeader)
+                        }
+                        ForEach(group.agents, id: \.id) { agent in
+                            AgentLine(agent: agent, palette: palette)
+                        }
+                    }
+                    if let summary = flow.summary {
+                        let capped = CappedText(summary, maxLines: Self.summaryLines * 2)
+                        Text(verbatim: capped.text + (capped.moreLine.map { "\n\($0)" } ?? ""))
+                            .font(.footnote)
+                            .foregroundStyle(palette.ink.color)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, PixelMetrics.steps(4))
+                .padding(.bottom, PixelMetrics.steps(4))
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .background(palette.card.color, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(
+            (flow.status == .failed ? ChatCardKind.failed.frame(in: palette) : palette.line).color,
+            lineWidth: flow.status == .failed ? 2 : 1))
+    }
+
+    /// One agent: ✓ or ▶, its label, and under it what it gave back once done.
+    struct AgentLine: View {
+        var agent: DetailRow.Workflow.Agent
+        var palette: ChatPalette
+
+        var body: some View {
+            let label = CappedText(agent.label, maxLines: 1).text
+            let summary = agent.summary.map { CappedText($0, maxLines: WorkflowRow.summaryLines) }
+            let tint = agent.done ? ChatCardKind.started.label(in: palette) : ChatCardKind.done.label(in: palette)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(agent.done ? "✓" : "▶")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(tint.color)
+                    .frame(minWidth: 16, alignment: .center)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: label)
+                        .font(.footnote.weight(agent.done ? .regular : .bold))
+                        .foregroundStyle(palette.ink.color)
+                    if let summary {
+                        Text(verbatim: summary.text + (summary.moreLine.map { "\n\($0)" } ?? ""))
+                            .font(.footnote)
+                            .foregroundStyle(palette.muted.color)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(agent.done ? "Done" : "Working"): \(label)\(summary.map { ". \($0.text)" } ?? "")")
         }
     }
 }

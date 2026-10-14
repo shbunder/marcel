@@ -23,7 +23,12 @@ MarcelKit and PixelKit, so any tab can open it without a dependency cycle; keep 
 - **Live detail** (folds away as a whole): Claude's text, Marcel's notes as plain text and yours as bubbles, tool calls as
   one-line rows that open to show what came back (30 lines, then "…and N more lines"), diffs that open to their lines
   with + and − in the margin and the code in syntax colours (60 lines), approval prompts with Approve / Not now in place,
-  and one plain line for state changes, items made, helpers, errors and anything the app can't show.
+  a **workflow** (app API 0.7.3, S-12.15) as one row: what it does (its `description`, else its `name`), "7 of 10
+  done" and Finished / Failed / Stopped from `workflow_stop` (a failed one framed red); opened, each agent by its
+  `label`, grouped by `phase` in the order phases first appear, ✓ with what it gave back (3 lines, then "…and N more
+  lines") once done and ▶ while it runs (the workflow's own summary 6 lines), agents matched to their stop by `agent_id`; events whose start is older than
+  the history the hub kept still fold into one row ("A workflow"). And one plain line for state changes, items made,
+  helpers, errors and anything the app can't show.
 - **Toolbar:** Stop sits in the header (after a confirmation); above the composer: Hand back to Marcel (with an optional note), Move to project (a menu of
   the live projects), Open in Claude (`cloud_url` for a cloud quest, `remote_url` for a NUC session with Remote
   Control, never the other way round; only an `https://claude.ai/code…` address, as the contract describes them,
@@ -61,7 +66,9 @@ Errors are one plain sentence above the steps; tap it to dismiss.
 ## Tests (`make -C ios quest-test`, part of `make ios-check`)
 
 - `QuestDetailTests` — every contract example reads as its kind, malformed data is one line, steps and the latest
-  report's "· next" steps, how rows fold,
+  report's "· next" steps, how rows fold, workflows (ten agent starts and seven stops fold into one row reading "7 of 10
+  done", a failed `workflow_stop` shows the failed mark, phases, history without the start, missing ids, capped
+  summaries),
   approval states, capping, syntax colours, untrusted text stays inert, Open in Claude is https only.
 - `QuestLiveTests` — the story's UI test ("steer and approve") one layer down: the model with a fake hub, fed with
   frames through a real in-memory cache. Also: history and live merged without duplicates or gaps, paging, a

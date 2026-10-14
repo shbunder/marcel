@@ -12,7 +12,8 @@ import XCTest
 final class QuestPerformanceTests: XCTestCase {
     static let count = 5_000
 
-    /// 5,000 events of every kind, the mix a long coding quest has: text, tool calls and answers, diffs, progress.
+    /// 5,000 events of every kind, the mix a long coding quest has: text, tool calls and answers, diffs, progress, and a
+    /// workflow with hundreds of agents.
     static func pages() throws -> [Data] {
         var events: [[String: Any]] = []
         var seq = 0
@@ -29,6 +30,13 @@ final class QuestPerformanceTests: XCTestCase {
                 .joined(separator: "\n")))
             add("diff", Fx.modelDiff)
             if n % 25 == 0 { add("progress", ["text": "Step \(n / 25)"]) }
+            // A big workflow running alongside: 400 agents, each started then stopped (S-12.15).
+            if n <= 400 {
+                add("workflow_agent_start", ["run_id": "wf_big", "agent_id": String(n, radix: 16), "label": "agent \(n)",
+                                             "phase": "Phase \(n % 4)"])
+                add("workflow_agent_stop", ["run_id": "wf_big", "agent_id": String(n, radix: 16),
+                                            "summary": "Agent \(n) is done."])
+            }
         }
         events = Array(events.prefix(count))
         return try stride(from: 0, to: events.count, by: 200).map { start in
@@ -66,8 +74,11 @@ final class QuestPerformanceTests: XCTestCase {
         window.isHidden = true
 
         XCTAssertEqual(model.transcript.events.count, Self.count)
-        let folded = history.filter { $0._type != .toolResult && $0._type != .progress }.count
-        XCTAssertEqual(model.rows.count, folded, "a tool's answer joins its call; progress reports are steps")
+        let workflow: Set<Components.Schemas.TaskEventType> = [.workflowAgentStart, .workflowAgentStop]
+        let folded = history.filter { $0._type != .toolResult && $0._type != .progress && !workflow.contains($0._type) }
+            .count + 1
+        XCTAssertEqual(model.rows.count, folded,
+                       "a tool's answer joins its call; progress reports are steps; a workflow's agents are one row")
         XCTAssertGreaterThan(model.steps.count, 20)
         XCTAssertLessThan(total, 1.0, "5,000 events took \(String(format: "%.2f", total)) s to load and lay out "
             + "(reading and folding: \(String(format: "%.2f", read)) s)")

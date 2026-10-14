@@ -75,6 +75,35 @@ final class QuestSnapshotTests: XCTestCase {
         ], expanded: ["e2"]), named: "Event-tool_call", variants: Self.both)
     }
 
+    /// S-12.15: a workflow opened (agents by phase, ✓ with what each gave back, ▶ while running) and one that failed,
+    /// folded.
+    func testWorkflowOpenAndFailed() {
+        var events: [TaskEvent] = [
+            Fx.event(1, "workflow_start", ["tool_use_id": "t1", "run_id": "wf_1", "name": "compare-offers",
+                                           "description": "Compare the three heat-pump offers"]),
+        ]
+        let agents: [(String, String, String, String?)] = [
+            ("a1", "read:daikin.pdf", "Read", "Daikin: €9.8k, 7-year warranty."),
+            ("a2", "read:vaillant.pdf", "Read", "Vaillant: €8.9k, installs in May."),
+            ("a3", "read:bosch.pdf", "Read", nil),
+            ("a4", "compare", "Compare", nil),
+        ]
+        for (n, agent) in agents.enumerated() {
+            var data: [String: Any] = ["run_id": "wf_1", "agent_id": agent.0, "label": agent.1, "phase": agent.2]
+            events.append(Fx.event(2 + n, "workflow_agent_start", data))
+            if let summary = agent.3 {
+                data = ["run_id": "wf_1", "agent_id": agent.0, "summary": summary]
+                events.append(Fx.event(10 + n, "workflow_agent_stop", data))
+            }
+        }
+        events += [
+            Fx.event(20, "workflow_start", ["tool_use_id": "t2", "run_id": "wf_2", "name": "tidy-notes"]),
+            Fx.event(21, "workflow_agent_start", ["run_id": "wf_2", "agent_id": "b1", "label": "tidy"]),
+            Fx.event(22, "workflow_stop", ["tool_use_id": "t2", "status": "failed"]),
+        ]
+        Snapshot.assert(RowsStill(events: events, expanded: ["wf-wf_1"]), named: "Event-workflow", variants: Self.both)
+    }
+
     func testToolResultOpenFailedAndDenied() {
         Snapshot.assert(RowsStill(events: [
             Fx.event(1, "tool_call", Fx.toolCall("t1", "Bash", "python model.py --solar 4.2kWp")),
@@ -225,6 +254,33 @@ final class QuestAccessibilityTests: XCTestCase {
                 XCTAssertGreaterThanOrEqual(button.frame.height, 44, "\(size): \"\(button.label)\" is too small to tap")
             }
         }
+    }
+
+    /// S-12.15: an open workflow reads in plain words: the row as one button, each agent, the phases as headers.
+    func testAWorkflowReadsInPlainWords() {
+        let events = [
+            Fx.event(1, "workflow_start", ["tool_use_id": "t", "run_id": "wf_1", "name": "compare-offers",
+                                           "description": "Compare the offers"]),
+            Fx.event(2, "workflow_agent_start", ["run_id": "wf_1", "agent_id": "a1", "label": "read:daikin.pdf",
+                                                 "phase": "Read"]),
+            Fx.event(3, "workflow_agent_stop", ["run_id": "wf_1", "agent_id": "a1", "summary": "Daikin is cheapest."]),
+            Fx.event(4, "workflow_agent_start", ["run_id": "wf_1", "agent_id": "a2", "label": "compare", "phase": "Compare"]),
+            Fx.event(5, "workflow_stop", ["tool_use_id": "t", "status": "failed"]),
+        ]
+        let found = elements(of: RowsStill(events: events, expanded: ["wf-wf_1"]).padding(16))
+        let labels = found.map(\.label)
+        for expected in ["Workflow: Compare the offers, 1 of 2 done, failed", "Done: read:daikin.pdf. Daikin is cheapest.",
+                         "Working: compare", "Read", "Compare"] {
+            XCTAssertTrue(labels.contains(expected), "no element reads \"\(expected)\" in \(labels)")
+        }
+        for label in labels {
+            XCTAssertNil(label.first { "▶▼◀▸▾✓×".contains($0) }, "\"\(label)\" has a symbol")
+        }
+        let headers = found.filter { $0.traits.contains(.header) }.map(\.label)
+        XCTAssertTrue(headers.contains("Read") && headers.contains("Compare"), "phases are headers: \(headers)")
+        let row = found.first { $0.label.hasPrefix("Workflow:") }
+        XCTAssertTrue(row?.traits.contains(.button) == true)
+        XCTAssertGreaterThanOrEqual(row?.frame.height ?? 0, 44)
     }
 
     func testVoiceOverReadsALongCommandCutLikeTheScreen() {

@@ -20,6 +20,14 @@ public enum QuestEntry: Equatable, Sendable {
     case permission(approvalId: String, tool: String, summary: String)
     case subagentStart(description: String, subagentType: String?)
     case subagentStop(status: String, summary: String?)
+    /// `workflow_start` (app API 0.7.3): a workflow began; its agents carry its `runId`.
+    case workflowStart(toolUseId: String, runId: String, name: String, description: String?)
+    /// `workflow_stop`: it ended, `completed`, `failed`, `stopped` or `unknown`.
+    case workflowStop(toolUseId: String, runId: String?, status: String, summary: String?)
+    /// `workflow_agent_start`: one of its agents began, under `phase` when it has one.
+    case workflowAgentStart(runId: String, agentId: String, label: String, phase: String?)
+    /// `workflow_agent_stop`: that agent finished, with what it gave back.
+    case workflowAgentStop(runId: String, agentId: String, summary: String?)
     case error(message: String, usageLimit: Bool)
     /// `raw`: a transcript line the runner did not recognise.
     case raw(entryType: String)
@@ -102,16 +110,33 @@ extension QuestEntry {
                                    subagentType: read.string("subagent_type"))
         case .subagentStop:
             entry = .subagentStop(status: read.string("status") ?? "unknown", summary: read.string("summary"))
-        // A workflow and its agents (app API 0.7.3) read as helper lines until the quest view draws them as steps.
+        // A workflow and its agents (app API 0.7.3): folded into one row by `QuestDetail`.
         case .workflowStart:
-            entry = .subagentStart(description: read.string("description") ?? read.string("name") ?? "workflow",
-                                   subagentType: "workflow")
+            if let toolUseId = read.string("tool_use_id"), let runId = read.string("run_id") {
+                entry = .workflowStart(toolUseId: toolUseId, runId: runId, name: read.string("name") ?? "workflow",
+                                       description: read.string("description"))
+            } else {
+                entry = nil
+            }
         case .workflowStop:
-            entry = .subagentStop(status: read.string("status") ?? "unknown", summary: read.string("summary"))
+            entry = read.string("tool_use_id").map {
+                .workflowStop(toolUseId: $0, runId: read.string("run_id"), status: read.string("status") ?? "unknown",
+                              summary: read.string("summary"))
+            }
         case .workflowAgentStart:
-            entry = .subagentStart(description: read.string("label") ?? "agent", subagentType: read.string("phase"))
+            if let runId = read.string("run_id"), let agentId = read.string("agent_id") {
+                entry = .workflowAgentStart(runId: runId, agentId: agentId,
+                                            label: read.string("label") ?? DetailRow.Workflow.Agent.unnamed,
+                                            phase: read.string("phase"))
+            } else {
+                entry = nil
+            }
         case .workflowAgentStop:
-            entry = .subagentStop(status: "completed", summary: read.string("summary"))
+            if let runId = read.string("run_id"), let agentId = read.string("agent_id") {
+                entry = .workflowAgentStop(runId: runId, agentId: agentId, summary: read.string("summary"))
+            } else {
+                entry = nil
+            }
         case .error:
             entry = read.string("message").map { .error(message: $0, usageLimit: read.bool("usage_limit")) }
         case .raw:

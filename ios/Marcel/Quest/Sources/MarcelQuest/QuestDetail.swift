@@ -113,7 +113,60 @@ public struct DetailRow: Identifiable, Equatable, Sendable {
         case approval(approvalId: String, tool: String, summary: String, status: ApprovalStatus)
         /// You → this quest (`user`), or Marcel → this quest.
         case note(fromUser: Bool, text: String, handback: Bool, prompt: Bool)
+        /// A workflow (app API 0.7.3), its agents folded in: one row, "7 of 10 done", open for each agent.
+        case workflow(Workflow)
         case line(LineKind, text: String)
+    }
+
+    /// A workflow as one row: what it does, how far its agents are, and how it ended.
+    public struct Workflow: Equatable, Sendable {
+        public enum Status: Equatable, Sendable {
+            case running, completed, failed, stopped, unknown
+        }
+
+        public struct Agent: Equatable, Sendable {
+            /// What an agent is called when its line gave no label, or its start is older than the kept history.
+            public static let unnamed = "An agent"
+            public var id: String
+            public var label: String
+            public var phase: String?
+            public var done: Bool
+            /// What it gave back, once done. Untrusted: plain text, capped where it is drawn.
+            public var summary: String?
+        }
+
+        /// Its `description`, else its `name`.
+        public var title: String
+        public var agents: [Agent]
+        public var status: Status
+        /// The `workflow_stop` summary.
+        public var summary: String?
+
+        public var doneCount: Int { agents.filter(\.done).count }
+
+        /// "7 of 10 done".
+        public var progress: String { "\(doneCount) of \(agents.count) done" }
+
+        /// The agents in the order they started, grouped by phase (in the order phases first appear); agents
+        /// without a phase are one group with no name.
+        public var groups: [(phase: String?, agents: [Agent])] {
+            var order: [String?] = []
+            var byPhase: [String?: [Agent]] = [:]
+            for agent in agents {
+                if byPhase[agent.phase] == nil { order.append(agent.phase) }
+                byPhase[agent.phase, default: []].append(agent)
+            }
+            return order.map { ($0, byPhase[$0] ?? []) }
+        }
+
+        static func status(_ word: String) -> Status {
+            switch word {
+            case "completed": .completed
+            case "failed": .failed
+            case "stopped": .stopped
+            default: .unknown
+            }
+        }
     }
 
     public enum LineKind: Equatable, Sendable {
@@ -127,7 +180,8 @@ public struct DetailRow: Identifiable, Equatable, Sendable {
         public var truncated: Bool
     }
 
-    /// `e<seq>` of the event the row starts at: stable while events arrive, so a folded or opened row stays so.
+    /// `e<seq>` of the event the row starts at (a workflow: `wf-<run id>`): stable while events arrive and older pages
+    /// load, so a folded or opened row stays so.
     public var id: String
     public var at: Date
     public var kind: Kind
@@ -135,7 +189,7 @@ public struct DetailRow: Identifiable, Equatable, Sendable {
     /// True for rows that open and close (tools and diffs: the raw detail the wireframe folds away).
     public var folds: Bool {
         switch kind {
-        case .tool, .diff: true
+        case .tool, .diff, .workflow: true
         default: false
         }
     }
@@ -151,6 +205,36 @@ public enum QuestDetail {
         var rows: [DetailRow] = []
         rows.reserveCapacity(events.count)
         var toolRow: [String: Int] = [:]
+        var workflowRow: [String: Int] = [:]  // by run id, and by the Workflow call's tool use id ("tool:…")
+        var agentAt: [String: Int] = [:]      // "<run id>/<agent id>" → the agent's place in its row
+        var withoutCall: [Int] = []           // workflow rows made from agents alone: no tool use id known yet
+        /// The workflow row an agent's or a stop's event belongs to; one is made when its start is older than the
+        /// history the hub kept. Its id comes from the run (or the call), not an event, so loading older pages never
+        /// changes it and an open row stays open.
+        func workflow(runId: String?, toolUseId: String?, at: Date) -> Int {
+            if let runId, let index = workflowRow[runId] { return index }
+            if let toolUseId, let index = workflowRow["tool:" + toolUseId] { return index }
+            // A stop that names no run, for a workflow known only from its agents: the latest such row still running.
+            if runId == nil, toolUseId != nil, let index = withoutCall.last(where: { index in
+                if case .workflow(let flow) = rows[index].kind { flow.status == .running } else { false }
+            }) {
+                workflowRow["tool:" + toolUseId!] = index
+                withoutCall.removeAll { $0 == index }
+                return index
+            }
+            let key = runId.map { "wf-\($0)" } ?? "wf-tool-\(toolUseId ?? "?")"
+            rows.append(DetailRow(id: key, at: at, kind: .workflow(.init(title: "A workflow", agents: [],
+                                                                        status: .running))))
+            let index = rows.count - 1
+            if let runId { workflowRow[runId] = index }
+            if let toolUseId { workflowRow["tool:" + toolUseId] = index } else { withoutCall.append(index) }
+            return index
+        }
+        func change(_ index: Int, _ update: (inout DetailRow.Workflow) -> Void) {
+            guard case .workflow(var flow) = rows[index].kind else { return }
+            update(&flow)
+            rows[index].kind = .workflow(flow)
+        }
         for event in events {
             let id = "e\(event.seq)"
             switch event.entry {
@@ -191,6 +275,42 @@ public enum QuestDetail {
                 }
                 let text = summary.map { "\(head): \($0)" } ?? head
                 rows.append(DetailRow(id: id, at: event.at, kind: .line(.helper, text: text)))
+            case .workflowStart(let toolUseId, let runId, let name, let description):
+                let index = workflow(runId: runId, toolUseId: toolUseId, at: event.at)
+                workflowRow[runId] = index
+                workflowRow["tool:" + toolUseId] = index
+                withoutCall.removeAll { $0 == index }
+                let described = description.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+                change(index) { $0.title = described ?? name }
+            case .workflowAgentStart(let runId, let agentId, let label, let phase):
+                let key = runId + "/" + agentId
+                change(workflow(runId: runId, toolUseId: nil, at: event.at)) { flow in
+                    if let at = agentAt[key] {
+                        flow.agents[at].label = label
+                        flow.agents[at].phase = phase
+                    } else {
+                        agentAt[key] = flow.agents.count
+                        flow.agents.append(.init(id: agentId, label: label, phase: phase, done: false, summary: nil))
+                    }
+                }
+            case .workflowAgentStop(let runId, let agentId, let summary):
+                let key = runId + "/" + agentId
+                change(workflow(runId: runId, toolUseId: nil, at: event.at)) { flow in
+                    if let at = agentAt[key] {
+                        flow.agents[at].done = true
+                        flow.agents[at].summary = summary
+                    } else {
+                        // Its start is older than the history the hub kept.
+                        agentAt[key] = flow.agents.count
+                        flow.agents.append(.init(id: agentId, label: DetailRow.Workflow.Agent.unnamed, phase: nil,
+                                                 done: true, summary: summary))
+                    }
+                }
+            case .workflowStop(let toolUseId, let runId, let status, let summary):
+                change(workflow(runId: runId, toolUseId: toolUseId, at: event.at)) { flow in
+                    flow.status = DetailRow.Workflow.status(status)
+                    flow.summary = summary
+                }
             case .error(let message, let usageLimit):
                 let text = usageLimit ? "Out of Claude usage for now. \(message)" : "Something went wrong: \(message)"
                 rows.append(DetailRow(id: id, at: event.at, kind: .line(.error, text: text)))

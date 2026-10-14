@@ -147,21 +147,154 @@ final class QuestDetailTests: XCTestCase {
         ])
     }
 
-    func testAWorkflowAndItsAgentsAreHelperLines() {
-        let events = [
+    // MARK: Workflows (S-12.15, app API 0.7.3)
+
+    /// Ten agents started and seven stopped, matched by `agent_id`: one row, "7 of 10 done".
+    func testTenAgentStartsAndSevenStopsFoldIntoOneRow() throws {
+        var events: [TaskEvent] = [
             Fx.event(1, "workflow_start", ["tool_use_id": "t", "run_id": "wf_1", "name": "summarize-notes",
                                            "description": "Summarise each note"]),
+        ]
+        for n in 0..<10 {
+            events.append(Fx.event(2 + n, "workflow_agent_start", ["run_id": "wf_1", "agent_id": "a\(n)",
+                                                                   "label": "summarize:note\(n).txt"]))
+        }
+        for n in [3, 0, 9, 1, 5, 7, 2] {  // out of order: matched by agent_id, not by position
+            events.append(Fx.event(20 + n, "workflow_agent_stop", ["run_id": "wf_1", "agent_id": "a\(n)",
+                                                                   "summary": "Note \(n) summarised."]))
+        }
+        let rows = QuestDetail.rows(events.map(QuestEvent.init))
+        XCTAssertEqual(rows.count, 1, "the workflow and its agents are one row")
+        guard case .workflow(let flow) = try XCTUnwrap(rows.first).kind else { return XCTFail("a workflow row") }
+        XCTAssertEqual(flow.progress, "7 of 10 done")
+        XCTAssertEqual(flow.title, "Summarise each note")
+        XCTAssertEqual(flow.status, .running)
+        XCTAssertEqual(flow.agents.first { $0.id == "a9" }?.summary, "Note 9 summarised.")
+        XCTAssertEqual(flow.agents.first { $0.id == "a4" }?.done, false, "a4 has no stop yet")
+        XCTAssertTrue(rows[0].folds, "folded until opened")
+    }
+
+    func testAFailedWorkflowStopShowsTheFailedMark() throws {
+        let events = [
+            Fx.event(1, "workflow_start", ["tool_use_id": "t", "run_id": "wf_1", "name": "summarize-notes"]),
             Fx.event(2, "workflow_agent_start", ["run_id": "wf_1", "agent_id": "a1", "label": "summarize:note8.txt",
                                                  "phase": "Summarize"]),
-            Fx.event(3, "workflow_agent_stop", ["run_id": "wf_1", "agent_id": "a1", "summary": "Note 8 is about leaves."]),
-            Fx.event(4, "workflow_stop", ["tool_use_id": "t", "status": "failed"]),
+            Fx.event(3, "workflow_stop", ["tool_use_id": "t", "status": "failed", "summary": "One agent crashed."]),
         ].map(QuestEvent.init)
-        XCTAssertEqual(QuestDetail.rows(events).map(\.kind), [
-            .line(.helper, text: "Helper started: Summarise each note"),
-            .line(.helper, text: "Helper started: summarize:note8.txt"),
-            .line(.helper, text: "Helper finished: Note 8 is about leaves."),
-            .line(.helper, text: "Helper failed"),
-        ])
+        guard case .workflow(let flow) = try XCTUnwrap(QuestDetail.rows(events).first).kind else {
+            return XCTFail("a workflow row")
+        }
+        XCTAssertEqual(flow.status, .failed)
+        XCTAssertEqual(flow.title, "summarize-notes", "no description: its name")
+        XCTAssertEqual(flow.summary, "One agent crashed.")
+        XCTAssertEqual(WorkflowRow(flow: flow, expanded: false, toggle: {}).mark?.text, "Failed")
+        for (status, mark) in [("completed", "Finished"), ("stopped", "Stopped"), ("something", "Ended")] {
+            let ended = QuestDetail.rows([
+                Fx.event(1, "workflow_start", ["tool_use_id": "t", "run_id": "wf_1", "name": "n"]),
+                Fx.event(2, "workflow_stop", ["tool_use_id": "t", "status": status]),
+            ].map(QuestEvent.init))
+            guard case .workflow(let flow) = ended[0].kind else { return XCTFail(status) }
+            XCTAssertEqual(WorkflowRow(flow: flow, expanded: false, toggle: {}).mark?.text, mark, status)
+        }
+    }
+
+    func testAgentsAreGroupedByPhaseInTheOrderTheyStarted() throws {
+        let events = [
+            Fx.event(1, "workflow_start", ["tool_use_id": "t", "run_id": "wf_1", "name": "review"]),
+            Fx.event(2, "workflow_agent_start", ["run_id": "wf_1", "agent_id": "a1", "label": "read", "phase": "Read"]),
+            Fx.event(3, "workflow_agent_start", ["run_id": "wf_1", "agent_id": "a2", "label": "check", "phase": "Check"]),
+            Fx.event(4, "workflow_agent_start", ["run_id": "wf_1", "agent_id": "a3", "label": "read 2", "phase": "Read"]),
+            Fx.event(5, "workflow_agent_start", ["run_id": "wf_1", "agent_id": "a4", "label": "loose"]),
+        ].map(QuestEvent.init)
+        guard case .workflow(let flow) = try XCTUnwrap(QuestDetail.rows(events).first).kind else {
+            return XCTFail("a workflow row")
+        }
+        XCTAssertEqual(flow.groups.map(\.phase), ["Read", "Check", nil])
+        XCTAssertEqual(flow.groups.map { $0.agents.map(\.label) }, [["read", "read 2"], ["check"], ["loose"]])
+    }
+
+    /// History the hub no longer keeps: an agent or a stop whose start is gone still lands in one workflow row.
+    func testEventsWhoseStartIsGoneStillFoldIntoOneRow() throws {
+        let events = [
+            Fx.event(1, "workflow_agent_stop", ["run_id": "wf_9", "agent_id": "b1", "summary": "Done."]),
+            Fx.event(2, "workflow_agent_start", ["run_id": "wf_9", "agent_id": "b2", "label": "second"]),
+            Fx.event(3, "workflow_stop", ["tool_use_id": "t9", "run_id": "wf_9", "status": "completed"]),
+        ].map(QuestEvent.init)
+        let rows = QuestDetail.rows(events)
+        XCTAssertEqual(rows.count, 1)
+        guard case .workflow(let flow) = rows[0].kind else { return XCTFail("a workflow row") }
+        XCTAssertEqual(flow.title, "A workflow")
+        XCTAssertEqual(flow.progress, "1 of 2 done")
+        XCTAssertEqual(flow.status, .completed)
+    }
+
+    /// Review fix: a stop that names no run, for a workflow known only from its agents, joins that row.
+    func testAStopWithoutARunJoinsTheWorkflowItsAgentsAreIn() throws {
+        let events = [
+            Fx.event(1, "workflow_agent_start", ["run_id": "wf_9", "agent_id": "b1", "label": "first"]),
+            Fx.event(2, "workflow_agent_stop", ["run_id": "wf_9", "agent_id": "b1", "summary": "Done."]),
+            Fx.event(3, "workflow_stop", ["tool_use_id": "t9", "status": "completed"]),
+        ].map(QuestEvent.init)
+        let rows = QuestDetail.rows(events)
+        XCTAssertEqual(rows.count, 1, "one workflow, one row")
+        guard case .workflow(let flow) = rows[0].kind else { return XCTFail("a workflow row") }
+        XCTAssertEqual(flow.progress, "1 of 1 done")
+        XCTAssertEqual(flow.status, .completed)
+    }
+
+    func testTwoWorkflowsAtOnceKeepTheirOwnAgents() throws {
+        let events = [
+            Fx.event(1, "workflow_start", ["tool_use_id": "t1", "run_id": "wf_1", "name": "one"]),
+            Fx.event(2, "workflow_start", ["tool_use_id": "t2", "run_id": "wf_2", "name": "two"]),
+            Fx.event(3, "workflow_agent_start", ["run_id": "wf_1", "agent_id": "a1", "label": "1a"]),
+            Fx.event(4, "workflow_agent_start", ["run_id": "wf_2", "agent_id": "a1", "label": "2a"]),
+            Fx.event(5, "workflow_agent_stop", ["run_id": "wf_2", "agent_id": "a1", "summary": "Two's."]),
+            Fx.event(6, "workflow_agent_start", ["run_id": "wf_1", "agent_id": "a2", "label": "1b"]),
+            Fx.event(7, "workflow_stop", ["tool_use_id": "t2", "status": "completed"]),
+        ].map(QuestEvent.init)
+        let flows = QuestDetail.rows(events).compactMap { row -> DetailRow.Workflow? in
+            if case .workflow(let flow) = row.kind { flow } else { nil }
+        }
+        XCTAssertEqual(flows.map(\.title), ["one", "two"])
+        XCTAssertEqual(flows.map(\.progress), ["0 of 2 done", "1 of 1 done"], "the same agent id in two runs is two agents")
+        XCTAssertEqual(flows.map(\.status), [.running, .completed])
+        XCTAssertEqual(flows[1].agents.first?.summary, "Two's.")
+    }
+
+    /// Review fix: the row's id comes from its run, so loading an older page (with the start) keeps it open.
+    func testTheRowIdStaysWhenOlderHistoryLoads() {
+        let recent = [
+            Fx.event(40, "workflow_agent_start", ["run_id": "wf_1", "agent_id": "a1", "label": "x"]),
+        ]
+        let all = [Fx.event(3, "workflow_start", ["tool_use_id": "t", "run_id": "wf_1", "name": "n",
+                                                  "description": "Real title"])] + recent
+        let before = QuestDetail.rows(recent.map(QuestEvent.init)).map(\.id)
+        let after = QuestDetail.rows(all.map(QuestEvent.init)).map(\.id)
+        XCTAssertEqual(before, ["wf-wf_1"])
+        XCTAssertEqual(after, ["wf-wf_1"])
+    }
+
+    func testAnEmptyDescriptionFallsBackToTheName() throws {
+        let rows = QuestDetail.rows([Fx.event(1, "workflow_start", ["tool_use_id": "t", "run_id": "wf_1",
+                                                                     "name": "summarize-notes", "description": "  "])]
+            .map(QuestEvent.init))
+        guard case .workflow(let flow) = try XCTUnwrap(rows.first).kind else { return XCTFail("a workflow row") }
+        XCTAssertEqual(flow.title, "summarize-notes")
+    }
+
+    func testAWorkflowEventWithoutItsIdsIsUnreadableNotACrash() {
+        for type in ["workflow_start", "workflow_stop", "workflow_agent_start", "workflow_agent_stop"] {
+            let entry = QuestEvent(Fx.event(1, type, ["label": "x"])).entry
+            XCTAssertEqual(entry, .unreadable(type: type), type)
+        }
+    }
+
+    /// Untrusted text: an agent's summary (up to 2 KB from the runner) is capped to a few lines.
+    func testALongAgentSummaryIsCapped() {
+        let long = (1...40).map { "line \($0)" }.joined(separator: "\n")
+        let capped = CappedText(long, maxLines: WorkflowRow.summaryLines)
+        XCTAssertEqual(capped.text.split(separator: "\n").count, WorkflowRow.summaryLines)
+        XCTAssertEqual(capped.moreLine, "…and 37 more lines")
     }
 
     // Untrusted text: very long output is cut with "…and N more lines", very long lines with "…".
