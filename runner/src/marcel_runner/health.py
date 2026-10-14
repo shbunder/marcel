@@ -133,8 +133,12 @@ def collect_health(
     settings: Settings,
     active_workers: Callable[[], int],
     cgroup_of: Callable[[int], str] = cgroup_of,
+    login: Callable[[], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """The `Health` object from contracts/runner-api.yaml. Always answers; read `ok`."""
+    """The `Health` object from contracts/runner-api.yaml. Always answers; read `ok`.
+
+    With `login` (a `login.LoginCheck`; only the `/health` route passes it, so a session start
+    never waits for `claude auth status`) it adds `login`, which never changes `ok` or `reason`."""
     claude_version, reason = _claude_version(settings)
     supervisor = {'running': False, 'own_unit': False}
     if reason is None:
@@ -156,6 +160,8 @@ def collect_health(
     }
     if reason is not None:
         health['reason'] = reason
+    if login is not None:
+        health['login'] = login()
     return health
 
 

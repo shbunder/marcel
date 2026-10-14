@@ -13,6 +13,7 @@ ADR-010: if Claude Code does it, Marcel uses it. What the runner takes from Clau
 | Replies without a permission prompt | `--allowedTools mcp__plugin_marcel_marcel__reply …` | `sessions.py` |
 | Steering a running session | the marcel plugin's channel (`--channels plugin:marcel@marcel-local`); the hub talks to it | the plugin |
 | One tested version | `runner/claude-version`; `/health` compares it with `claude --version`; every start answers `422 claude_version` on another one; deploy installs it with Claude Code's installer and sets `DISABLE_AUTOUPDATER=1` | `health.py`, `deploy/` |
+| Know the login still works | `claude auth status --json` (`loggedIn` only), the supervisor's own auth lines in `~/.claude/daemon.log`, and `/usage` falling back to the cost view; `/health` `login` | `login.py` |
 | A trusted folder | the trust dialog, answered on a pseudo-terminal (only that dialog) | `workspaces.py` |
 
 Not used, and why:

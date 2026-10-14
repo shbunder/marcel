@@ -1,0 +1,32 @@
+[2026-10-14T02:51:14.294Z] [supervisor] shutting down (cause=upgrade, uptime=25320s, leases=0, live_workers=5)
+[2026-10-14T02:51:14.386Z] [supervisor] ─── daemon start ─── version=2.1.299 pid=714686 origin=foreground
+[2026-10-14T02:51:14.396Z] [supervisor] auth: scheduling proactive refresh in 52s
+[2026-10-14T02:51:21.917Z] [supervisor] auth: scheduling proactive refresh in 45s
+[2026-10-14T02:51:21.918Z] [supervisor] workers=0
+[2026-10-14T02:51:21.924Z] [bg] bg: control socket bound at /tmp/cc-daemon-1000/6298d98a/control.sock
+[2026-10-14T02:51:21.931Z] [bg] bg adopt: adopted=5 respawned=0 dead=0
+[2026-10-14T02:51:21.947Z] [bg] bg spare spawned host pid=714924
+[2026-10-14T02:51:22.599Z] [supervisor] shutting down (cause=signal, uptime=8s, leases=0, live_workers=5)
+[2026-10-14T02:51:34.095Z] [supervisor] ─── daemon start ─── version=2.1.299 pid=715713 origin=foreground
+[2026-10-14T02:51:34.104Z] [supervisor] auth: scheduling proactive refresh in 32s
+[2026-10-14T02:51:41.627Z] [supervisor] auth: scheduling proactive refresh in 25s
+[2026-10-14T02:51:41.628Z] [supervisor] workers=0
+[2026-10-14T02:51:41.634Z] [bg] bg: control socket bound at /tmp/cc-daemon-1000/6298d98a/control.sock
+[2026-10-14T02:51:42.114Z] [bg] bg adopt: adopted=0 respawned=0 dead=5
+[2026-10-14T02:52:06.575Z] [supervisor] auth: proactive refresh starting
+[2026-10-14T02:52:10.442Z] [supervisor] auth: proactive refresh failed, signalling re-auth required
+[2026-10-14T02:52:10.449Z] [supervisor] auth: headless daemon cannot complete OAuth — run `claude auth login` to refresh
+[2026-10-14T02:52:10.449Z] [supervisor] auth: no token found, will re-check keychain every 30s
+[2026-10-14T05:02:10.546Z] [supervisor] auth: scheduling proactive refresh in 28552s
+[2026-10-14T05:02:10.547Z] [supervisor] auth: token found via keychain re-check
+[2026-10-14T05:24:41.692Z] [supervisor] binary at /home/marcel/.local/bin/claude changed (/home/marcel/.local/share/claude/versions/2.1.299 → /home/marcel/.local/share/claude/versions/2.1.296) — self-restarting for upgrade
+[2026-10-14T05:24:41.695Z] [supervisor] shutting down (cause=upgrade, uptime=9188s, leases=0, live_workers=0)
+[2026-10-14T05:24:42.708Z] [supervisor] ─── daemon start ─── version=2.1.296 pid=947588 origin=foreground
+[2026-10-14T05:24:42.723Z] [supervisor] auth: scheduling proactive refresh in 27200s
+[2026-10-14T05:24:42.724Z] [supervisor] auth: scheduling proactive refresh in 27200s
+[2026-10-14T05:24:42.725Z] [supervisor] workers=0
+[2026-10-14T05:24:42.728Z] [bg] bg: control socket bound at /tmp/cc-daemon-1000/6298d98a/control.sock
+[2026-10-14T05:24:43.257Z] [supervisor] shutting down (cause=signal, uptime=1s, leases=0, live_workers=0)
+[2026-10-14T05:24:48.842Z] [supervisor] ─── daemon start ─── version=2.1.296 pid=948684 origin=foreground
+[2026-10-14T05:24:48.851Z] [supervisor] auth: scheduling proactive refresh in 27194s
+[2026-10-14T05:24:48.853Z] [supervisor] auth: scheduling proactive refresh in 27194s

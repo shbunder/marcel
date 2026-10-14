@@ -18,6 +18,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from marcel_runner.claude_env import scrubbed_env
+from marcel_runner.login import LOST_MESSAGE, LoginCheck
 
 # SP4, Claude Code 2.1.289:  Current session: 4% used · resets Oct 4, 2:29pm (UTC)
 # Unchanged in 2.1.296 and 2.1.299, which add a per-model weekly line and a "what's contributing"
@@ -37,11 +38,14 @@ HERE = 'runner/src/marcel_runner/usage.py'
 
 
 class UsageUnreadable(Exception):
-    """The /usage output could not be read. The message says what, `detail` holds what it said."""
+    """The /usage output could not be read. The message says what in plain words, and never repeats
+    what claude printed (it can name the account): `detail` holds that, for the runner's log.
+    `login_lost`: the cost view, so Claude Code is logged out."""
 
-    def __init__(self, message: str, detail: str = '') -> None:
+    def __init__(self, message: str, detail: str = '', login_lost: bool = False) -> None:
         super().__init__(message)
         self.detail = detail
+        self.login_lost = login_lost
 
 
 def _iso(t: datetime) -> str:
@@ -83,12 +87,8 @@ def parse_usage(text: str, now: datetime) -> dict[str, dict[str, Any]]:
         resets = _reset_time(m.group(3), m.group(4), now)
         found.setdefault(window, {'used_pct': min(int(m.group(2)), 100), 'resets_at': _iso(resets)})
     if not found and COST_VIEW.search(text):
-        raise UsageUnreadable(
-            'Claude Code is not using the Claude subscription: /usage shows the pay-as-you-go '
-            'cost view, as it does when Claude Code is logged out or its login has expired. Log '
-            'in again on the NUC: run claude, then /login.',
-            _excerpt(text),
-        )
+        # The login's own words (Health.login.message), so the owner reads one sentence.
+        raise UsageUnreadable(LOST_MESSAGE, _excerpt(text), login_lost=True)
     for label, window in WINDOWS.items():
         if window not in found:
             raise UsageUnreadable(
@@ -108,13 +108,16 @@ class UsageProbe:
         timeout: float = 30.0,
         env: Mapping[str, str] | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        login: LoginCheck | None = None,
     ) -> None:
         self.claude = claude
+        self.login = login  # told when /usage shows the cost view, and when a reading is good
         self.timeout = timeout
         # TZ=UTC: reset times then always print as a one-word zone, `(UTC)`, which USAGE_LINE reads.
         self.env = {**scrubbed_env(os.environ if env is None else env), 'TZ': 'UTC'}
         self.clock = clock
         self.last_error: str | None = None
+        self.reason: str | None = None  # UsageReading.reason: the plain words, without `detail`
         self._detail = ''
         self._windows: dict[str, dict[str, Any]] | None = None
         self._taken_at: datetime | None = None
@@ -154,7 +157,9 @@ class UsageProbe:
             message = str(e) if not e.detail else f'{e} It said: {e.detail}'
             with self._lock:
                 changed = message != self.last_error
-                self.last_error, self._detail = message, e.detail
+                self.last_error, self.reason, self._detail = message, str(e), e.detail
+            if e.login_lost and self.login is not None:
+                self.login.usage_says(lost=True)
             if changed:
                 print(
                     f'marcel-runner: could not read usage. {message}', file=sys.stderr, flush=True
@@ -162,6 +167,9 @@ class UsageProbe:
             return
         with self._lock:
             self._windows, self._taken_at, self.last_error, self._detail = windows, now, None, ''
+            self.reason = None
+        if self.login is not None:
+            self.login.usage_says(lost=False)
 
     def reading(self) -> tuple[int, dict[str, Any]]:
         """(HTTP status, body): 200 with a `UsageReading`, or 503 `no_reading`."""
@@ -175,12 +183,15 @@ class UsageProbe:
                     body['detail'] = self.last_error
                 return 503, body
             stale = self.last_error is not None or self.clock() - self._taken_at > STALE_AFTER
-            return 200, {
+            reading: dict[str, Any] = {
                 **{k: dict(v) for k, v in self._windows.items()},
                 'source': 'cli_usage',
                 'taken_at': _iso(self._taken_at),
                 'stale': stale,
             }
+            if self.reason is not None:  # only after a failed attempt, so only when stale
+                reading['reason'] = self.reason
+            return 200, reading
 
     def _loop(self, every: float) -> None:
         while not self._stop.is_set():

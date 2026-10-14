@@ -1,18 +1,36 @@
 import os
+import shutil
 import subprocess
+import threading
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from conftest import (
+    AUTH_LOGGED_OUT,
     CLAUDE_VERSION,
     CLAUDE_VERSION_LINE,
     DAEMON_STATUS_NOT_RUNNING,
     apart,
+    auth_answer,
+    request,
+    runner_api,
     write_script,
 )
 
-from marcel_runner import __version__
-from marcel_runner.health import Settings, collect_health, parse_pid
+from marcel_runner import __version__, health
+from marcel_runner.health import Settings, parse_pid
+from marcel_runner.login import LOST_MESSAGE, LoginCheck
+from marcel_runner.server import serve
+
+HEALTH = runner_api('Health')
+
+
+def collect_health(*args, **kwargs) -> dict:
+    """`health.collect_health`, every answer checked against runner-api.yaml `Health`."""
+    answer = health.collect_health(*args, **kwargs)
+    HEALTH.validate(answer)
+    return answer
 
 
 def settings(claude: Path, **kw) -> Settings:
@@ -221,3 +239,78 @@ def test_recorded_not_running_output_gives_no_supervisor(tmp_path: Path) -> None
     assert h['ok'] is False
     assert h['supervisor'] == {'running': False, 'own_unit': False}
     assert 'no background supervisor' in h['reason']
+
+
+# --- the login (runner-api 0.1.13, S-03.13) -------------------------------------------------------
+
+
+def login_check(claude: Path, tmp_path: Path) -> LoginCheck:
+    return LoginCheck(claude, tmp_path / 'state', tmp_path / 'daemon.log')
+
+
+def test_a_lost_login_is_reported_and_never_makes_the_runner_not_ok(
+    fake_claude: Path, tmp_path: Path
+) -> None:
+    """A redeploy check reads `ok`: rolling back a good merge cannot log anyone in."""
+    auth_answer(fake_claude, AUTH_LOGGED_OUT, code=1)
+    h = collect_health(
+        settings(fake_claude), lambda: 0, apart, login=login_check(fake_claude, tmp_path)
+    )
+    assert h['ok'] is True
+    assert 'reason' not in h
+    assert h['login']['state'] == 'lost'
+    assert h['login']['message'] == LOST_MESSAGE
+
+
+def test_a_lost_login_leaves_a_real_problems_reason_as_it_is(tmp_path: Path) -> None:
+    c = write_script(
+        tmp_path / 'claude',
+        f'if [ "$1" = "--version" ]; then echo "{CLAUDE_VERSION_LINE}"; exit 0; fi\n'
+        f'if [ "$1" = "auth" ]; then cat <<"X"\n{AUTH_LOGGED_OUT}X\nexit 1; fi\n'
+        'echo "not running"; exit 1\n',
+    )
+    h = collect_health(settings(c), lambda: 0, apart, login=login_check(c, tmp_path))
+    assert h['ok'] is False
+    assert 'no background supervisor' in h['reason']
+    assert 'logged out' not in h['reason']
+    assert h['login']['state'] == 'lost'
+
+
+def test_without_a_login_check_there_is_no_login_and_no_auth_status_run(
+    fake_claude: Path, tmp_path: Path
+) -> None:
+    """What `sessions.py` calls before each start: a start never waits for `auth status`."""
+    h = collect_health(settings(fake_claude), lambda: 0, apart)
+    assert 'login' not in h
+    assert not (tmp_path / 'auth-status.calls').exists()
+
+
+@pytest.fixture
+def sock_path(tmp_path: Path) -> Iterator[Path]:
+    # unix socket paths are limited to ~100 bytes; pytest's tmp_path can be long
+    d = Path(os.environ.get('TMPDIR', '/tmp')) / f'mh-{os.getpid()}-{tmp_path.name[-8:]}'
+    d.mkdir()
+    yield d / 'runner.sock'
+    shutil.rmtree(d, ignore_errors=True)
+
+
+def test_get_health_carries_the_login(sock_path: Path, fake_claude: Path, tmp_path: Path) -> None:
+    srv = serve(
+        sock_path,
+        settings(fake_claude),
+        cgroup_of=apart,
+        login=login_check(fake_claude, tmp_path),
+    )
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        status, body = request(sock_path, 'GET', '/health')
+        auth_answer(fake_claude, AUTH_LOGGED_OUT, code=1)
+        _, cached = request(sock_path, 'GET', '/health')  # within 30 s: the last look's answer
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert status == 200
+    HEALTH.validate(body)
+    assert body['ok'] is True
+    assert body['login']['state'] == 'ok'
+    assert cached['login'] == body['login']

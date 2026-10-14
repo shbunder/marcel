@@ -30,6 +30,10 @@ A percentage above 100 is reported as 100.
 | The last good reading is older than 15 minutes | 200 with the last values, `stale: true` |
 | No reading has worked since the runner started | 503, `code: no_reading`; `detail` says why the last attempt failed |
 
+When the latest attempt failed, `reason` says why in plain words (runner-api 0.1.13); the next good
+reading drops it. A reading that is only old has no `reason`. `reason` never repeats what `claude`
+printed, which can name the account: that goes to the runner's log only.
+
 The fields are in `contracts/runner-api.yaml` (`UsageReading`). `source` is always `cli_usage`
 today. The status-line source (`statusline`) is not built yet.
 
@@ -42,12 +46,14 @@ Logged out, or when its login has expired, Claude Code is not on the subscriptio
 pay-as-you-go cost view (`Total cost: $0.0000 …`) instead. The runner logs:
 
 ```
-marcel-runner: could not read usage. Claude Code is not using the Claude subscription: /usage shows the
-pay-as-you-go cost view, as it does when Claude Code is logged out or its login has expired. Log in again on
-the NUC: run claude, then /login.
+marcel-runner: could not read usage. Claude Code on the NUC is logged out. Log in again: on the NUC run
+`claude auth login`. It said: Total cost: …
 ```
 
-Check with `claude auth status`. Every new session needs the login too, so log in again before anything else.
+`reason` is the message without the `It said: …` part, word for word the `/health` `login.message`, and `login.state` turns
+`lost` ([runner.md](../runner.md#login-is-claude-code-still-logged-in)), so the owner reads one sentence in
+both places. Before the first good reading, `/usage` answers 503 `no_reading` with no `reason`: then only
+`/health` `login` says it. Log in again with `claude auth login` on the NUC.
 
 ## When Claude Code changes the wording
 

@@ -9,6 +9,7 @@ import socket
 import socketserver
 import stat
 import sys
+import threading
 from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -19,6 +20,7 @@ from marcel_runner import fork, resume
 from marcel_runner.brains import Brains, brains_from_env
 from marcel_runner.cloud import Cloud
 from marcel_runner.health import Settings, cgroup_of, collect_health, version_problem
+from marcel_runner.login import LoginCheck
 from marcel_runner.sessions import SessionError, Sessions, StateFileError, state_dir_from_env
 from marcel_runner.transcript import Tails
 from marcel_runner.usage import UsageProbe
@@ -219,6 +221,7 @@ def serve(
     workspaces: Workspaces | None = None,
     cloud: Cloud | None = None,
     brains: Brains | None = None,
+    login: LoginCheck | None = None,
 ) -> UnixHTTPServer:
     """Check the supervisor, bind the socket and return a server ready for `serve_forever()`."""
     if sessions is not None:
@@ -228,8 +231,15 @@ def serve(
             live = sessions
             cloud.check_version = lambda: live.refuse_version('Nothing was started.')
 
+    probe = usage if usage is not None else UsageProbe(settings.claude)
+    if login is not None:
+        probe.login = login  # the cost view is a lost login too
+        login.refresh_usage = lambda: threading.Thread(
+            target=probe.refresh, name='usage-after-login', daemon=True
+        ).start()
+
     def health() -> dict:
-        return collect_health(settings, active_workers, cgroup_of)
+        return collect_health(settings, active_workers, cgroup_of, login)
 
     first = health()
     # With claude missing the supervisor cannot be checked: start anyway, /health says why.
@@ -240,7 +250,6 @@ def serve(
     wrong = version_problem(first['claude_version'], settings.expected)
     if wrong:  # serve anyway, so the hub and the app can show it; every start answers 422
         print(f'marcel-runner: {wrong} No session will start until then.', file=sys.stderr)
-    probe = usage if usage is not None else UsageProbe(settings.claude)
     if sessions is not None:
         sessions.refresh_usage = probe.refresh  # a fresh usage reading before each worker spawn
     sock = bind_socket(path, group)
@@ -281,6 +290,9 @@ def main() -> int:
             workspaces=workspaces,
             cloud=Cloud(settings.claude, sessions.home, workspaces=workspaces),
             brains=brains_from_env(settings.claude, sessions.home),
+            login=LoginCheck(
+                settings.claude, sessions.state_dir, sessions.home / '.claude' / 'daemon.log'
+            ),
         )
     except (StartupError, StateFileError) as e:
         print(f'marcel-runner: {e}', file=sys.stderr)
