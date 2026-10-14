@@ -352,7 +352,10 @@ async def sse(lines: AsyncIterator[str]) -> AsyncIterator[SSE]:
 
 RUNNER_EVENT_TYPES = frozenset(
     {'session.state', 'session.gone', 'runner.warning', 'runner.recovered'}
+    | {'runner.claude_changed', 'runner.supervisor_restarted'}  # runner-api 0.1.12 (S-04.17)
 )
+# The runner-wide events with a message; the last two carry their own object.
+RUNNER_NOTICES = frozenset(RUNNER_EVENT_TYPES - {'session.state', 'session.gone'})
 WARNING = 'runner_warning'  # the alert cause of a runner warning
 SESSION_STATES = frozenset({'working', 'blocked', 'done', 'failed', 'stopped'})
 # transcript.schema.json `$defs`, field by field: what each event type's `data` may hold. A field
@@ -474,9 +477,13 @@ def check_runner_event(raw: str) -> dict[str, Any]:
     if kind not in RUNNER_EVENT_TYPES:
         raise BadEvent(f'unknown runner event type {kind!r}')
     _check_time(event.get('at'), f'runner event {event["seq"]}')
-    if kind in ('runner.warning', 'runner.recovered'):
+    if kind in RUNNER_NOTICES:
         if not isinstance(event.get('message'), str):
             raise BadEvent(f'a {kind} event has no message')
+        if kind == 'runner.claude_changed':
+            _check_claude_change(event.get('claude_change'))
+        if kind == 'runner.supervisor_restarted':
+            _check_supervisor_restart(event.get('supervisor_restart'))
         return event
     session = event.get('session')
     if not isinstance(session, dict):
@@ -487,6 +494,32 @@ def check_runner_event(raw: str) -> dict[str, Any]:
     if session.get('state') not in SESSION_STATES:
         raise BadEvent(f'{kind} session has unknown state {session.get("state")!r}')
     return event
+
+
+def _check_claude_change(change: Any) -> None:
+    if not isinstance(change, dict):
+        raise BadEvent('a runner.claude_changed event has no claude_change')
+    if set(change) != {'from', 'to', 'expected'}:
+        raise BadEvent('a runner.claude_changed event needs exactly from, to and expected')
+    if not all(isinstance(v, str) for v in change.values()):
+        raise BadEvent('a runner.claude_changed event has a version that is not text')
+
+
+def _check_supervisor_restart(restart: Any) -> None:
+    if not isinstance(restart, dict):
+        raise BadEvent('a runner.supervisor_restarted event has no supervisor_restart')
+    extra = sorted(set(restart) - {'cause', 'live_workers', 'session_ids'})
+    if extra:
+        raise BadEvent(f'a runner.supervisor_restarted event has unknown fields {", ".join(extra)}')
+    ids = restart.get('session_ids')
+    if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+        raise BadEvent('a runner.supervisor_restarted event has no list of session_ids')
+    if 'cause' in restart and not isinstance(restart['cause'], str):
+        raise BadEvent('a runner.supervisor_restarted event has a cause that is not text')
+    if 'live_workers' in restart and not (
+        _is_int(restart['live_workers']) and restart['live_workers'] >= 0
+    ):
+        raise BadEvent('a runner.supervisor_restarted event has a bad live_workers')
 
 
 def check_transcript_event(raw: str, session_id: str) -> dict[str, Any]:
@@ -818,6 +851,8 @@ class RunnerWatch:
         self._closers: set[asyncio.Task[None]] = set()  # journals closing after their run ended
         self._job: asyncio.Task[None] | None = None
         self.listeners: list[SessionListener] = []
+        # Runner-wide events other than warnings (`runner.claude_changed`, …), checked (S-04.17).
+        self.runner_listeners: list[Callable[[dict[str, Any]], Awaitable[None]]] = []
         # Called after every runner event and every (re)connect, whatever the session: the brain
         # keeper (S-06.2) checks its brain then, as brain sessions are not tasks.
         self.pokes: list[Callable[[], None]] = []
@@ -942,6 +977,14 @@ class RunnerWatch:
         if event['type'] == 'runner.recovered':
             log.info('The runner recovered: %s', event['message'])
             self.alerts.resolved(WARNING)
+            return
+        if event['type'] in RUNNER_NOTICES:  # Claude Code changed, or its supervisor restarted
+            log.info('The runner says: %s', event['message'])
+            for handler in self.runner_listeners:
+                try:
+                    await handler(event)
+                except Exception:  # one handler's failure never stops the event stream
+                    log.exception('A handler of %s failed.', event['type'])
             return
         session = event['session']
         task = self._task_for(session['id'])

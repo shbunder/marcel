@@ -273,6 +273,41 @@ def test_a_good_runner_event_passes() -> None:
     assert check_runner_event(json.dumps(GOOD_EVENT)) == GOOD_EVENT
     warning = {'seq': 4, 'type': 'runner.warning', 'at': '2026-10-04T09:05:02Z', 'message': 'Hm.'}
     assert check_runner_event(json.dumps(warning)) == warning
+    for event in (CHANGED, RESTARTED, {**RESTARTED, 'supervisor_restart': {'session_ids': []}}):
+        assert check_runner_event(json.dumps(event)) == event
+
+
+CHANGED = {'seq': 5, 'type': 'runner.claude_changed', 'at': '2026-10-14T03:00:00Z',
+           'message': 'Claude Code changed.',
+           'claude_change': {'from': '2.1.296 (Claude Code)', 'to': '2.1.301 (Claude Code)',
+                             'expected': '2.1.296'}}  # fmt: skip
+RESTARTED = {'seq': 6, 'type': 'runner.supervisor_restarted', 'at': '2026-10-14T03:00:01Z',
+             'message': 'The supervisor restarted.',
+             'supervisor_restart': {'cause': 'upgrade', 'live_workers': 2,
+                                    'session_ids': ['s-1', 's-2']}}  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ('event', 'why'),
+    [
+        ({**CHANGED, 'claude_change': None}, 'no claude_change'),
+        ({**CHANGED, 'claude_change': {'from': 'a', 'to': 'b'}}, 'exactly from, to and expected'),
+        ({**CHANGED, 'claude_change': {'from': 'a', 'to': 2, 'expected': 'c'}}, 'not text'),
+        ({**CHANGED, 'message': None}, 'no message'),
+        ({**RESTARTED, 'supervisor_restart': None}, 'no supervisor_restart'),
+        ({**RESTARTED, 'supervisor_restart': {'session_ids': [], 'pid': 1}}, 'unknown fields pid'),
+        ({**RESTARTED, 'supervisor_restart': {'session_ids': 's-1'}}, 'no list of session_ids'),
+        ({**RESTARTED, 'supervisor_restart': {'session_ids': [3]}}, 'no list of session_ids'),
+        ({**RESTARTED, 'supervisor_restart': {'session_ids': [], 'cause': 1}}, 'cause'),
+        (
+            {**RESTARTED, 'supervisor_restart': {'session_ids': [], 'live_workers': -1}},
+            'live_workers',
+        ),  # fmt: skip
+    ],
+)
+def test_a_bad_claude_event_is_refused(event: dict[str, Any], why: str) -> None:
+    with pytest.raises(BadEvent, match=why):
+        check_runner_event(json.dumps(event))
 
 
 @pytest.mark.parametrize(
@@ -606,10 +641,9 @@ def test_unknown_or_bad_event_fields_are_refused() -> None:
 
 # Runner event types against the contract -------------------------------------------------------
 
-# Added by S-02.11 (runner-api 0.1.12, asked for by claude-auto-update) before the hub reads them.
-# S-04.17 removes them when the hub acts on them; the second test fails as soon as one is read, so
-# this set can only shrink.
-PENDING_RUNNER_EVENT_TYPES = {'runner.claude_changed', 'runner.supervisor_restarted'}
+# A type the contract adds before the hub reads it waits here; the second test fails as soon as one
+# is read, so this set can only shrink. Empty since S-04.17.
+PENDING_RUNNER_EVENT_TYPES: set[str] = set()
 
 
 def _runner_event_types() -> set[str]:

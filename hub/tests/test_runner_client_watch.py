@@ -880,3 +880,35 @@ def test_the_retry_delay_starts_again_after_a_stream_that_gave_events(
     run(scenario())
     assert transcript(registry, task_id) == ['Looking at the disk.', 'df -h']
     assert sleeps.delays == [0.5, 1.0, 0.5]
+
+
+def test_claude_events_reach_their_handlers_and_a_failing_one_stops_nothing(
+    registry: TaskRegistry, fake: FakeRunnerServer, alerts: RecordingAlerts, sleeps: Sleeps
+) -> None:
+    got: list[str] = []
+
+    async def broken(event: dict[str, Any]) -> None:
+        raise RuntimeError('boom')
+
+    async def record(event: dict[str, Any]) -> None:
+        got.append(event['type'])
+
+    async def scenario() -> None:
+        watch = watch_for(fake, registry, alerts, sleeps)
+        watch.runner_listeners += [broken, record]
+        watch.start()
+        await until(lambda: watch.reachable is True)
+        at = '2026-10-14T03:00:00Z'
+        fake.push_raw(json.dumps({
+            'seq': fake.seq + 1, 'type': 'runner.claude_changed', 'at': at, 'message': 'Changed.',
+            'claude_change': {'from': '2.1.296', 'to': '2.1.301',
+                              'expected': '2.1.296'}}))  # fmt: skip
+        fake.push_raw(json.dumps({
+            'seq': fake.seq + 1, 'type': 'runner.supervisor_restarted', 'at': at,
+            'message': 'Restarted.', 'supervisor_restart': {'session_ids': ['s-1']}}))  # fmt: skip
+        await until(lambda: len(got) == 2)
+        await watch.close()
+        assert watch.reachable is True and not alerts.raised
+
+    run(scenario())
+    assert got == ['runner.claude_changed', 'runner.supervisor_restarted']

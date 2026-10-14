@@ -384,6 +384,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if client is not None
         else None
     )
+    if watch is not None and app.state.claude_updates is not None:  # the runner says (S-04.17)
+        watch.runner_listeners.append(app.state.claude_updates.on_runner_event)
     ws.install(app)
     app.include_router(conversations.router)
     app.include_router(mentions.router)  # S-18.2: GET /api/mentions

@@ -1,10 +1,10 @@
-"""Claude Code updated under Marcel (found live on the NUC): the hub marks the tasks whose sessions
-ended, tells the owner once, and shows it in `/internal/health`. The real app, a fake runner."""
+"""Claude Code updated under Marcel (found live on the NUC): on the runner's events (S-04.17) the
+hub marks the tasks whose sessions the restart ended, tells the owner once, pushes "updated away"
+as urgent, and shows the open change in `/internal/health`. The real app, a fake runner."""
 
 import asyncio
 import json
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -14,9 +14,10 @@ from test_channel_fakes import SECRET, ChannelHub, channel_hub
 from test_whole_path_health import FakeRunnerHealth
 
 from marcel_hub import claude_updates
+from marcel_hub.app import Settings, create_app
 from marcel_hub.claude_updates import ClaudeUpdates
-from marcel_hub.models import Message, MessageRole, Task, TaskEvent, TaskEventType, TaskState
-from marcel_hub.runner_client import RunnerUnavailable
+from marcel_hub.models import Message, MessageRole, Task, TaskState
+from marcel_hub.runner_client import RunnerUnavailable, check_runner_event
 
 PINNED, NEWER = '2.1.296', '2.1.301'
 
@@ -39,12 +40,20 @@ class FakeRunner:
 
 class Pushes:
     def __init__(self) -> None:
-        self.sent: list[tuple[str, ...]] = []
+        self.sent: list[tuple[str, ...]] = []  # notes
+        self.urgent: list[tuple[str, ...]] = []  # broke
+        self.cleared: list[str] = []
 
     def note(self, agent_id: str, message_id: str, title: str, body: str, level: str,
              user_id: str | None) -> bool:  # fmt: skip
         self.sent.append((agent_id, body))
         return True
+
+    def broke(self, cause: str, title: str, body: str, task_id: str | None = None) -> None:
+        self.urgent.append((cause, title, body))
+
+    def resolved(self, cause: str) -> None:
+        self.cleared.append(cause)
 
 
 @pytest.fixture
@@ -72,6 +81,27 @@ def check(w: ClaudeUpdates) -> None:
     asyncio.run(w.check())
 
 
+def changed(to: str, seq: int = 1) -> dict[str, Any]:
+    return check_runner_event(json.dumps({
+        'seq': seq, 'type': 'runner.claude_changed', 'at': '2026-10-14T03:00:00Z',
+        'message': 'Claude Code changed.',
+        'claude_change': {'from': '2.1.290', 'to': f'{to} (Claude Code)',
+                          'expected': PINNED}}))  # fmt: skip
+
+
+def restarted(session_ids: list[str], cause: str | None = None) -> dict[str, Any]:
+    restart: dict[str, Any] = {'session_ids': session_ids}
+    if cause is not None:
+        restart['cause'] = cause
+    return check_runner_event(json.dumps({
+        'seq': 2, 'type': 'runner.supervisor_restarted', 'at': '2026-10-14T03:00:01Z',
+        'message': 'The supervisor restarted.', 'supervisor_restart': restart}))  # fmt: skip
+
+
+def on(w: ClaudeUpdates, event: dict[str, Any]) -> None:
+    asyncio.run(w.on_runner_event(event))
+
+
 def notices(hub: ChannelHub) -> list[str]:
     with Session(hub.engine) as s:
         rows = s.exec(select(Message).where(Message.role == MessageRole.system)).all()
@@ -85,119 +115,111 @@ def state(hub: ChannelHub, task_id: str) -> Task:
         return task
 
 
-def test_an_update_marks_the_ended_tasks_and_tells_the_owner_once(
+AWAY = (f'Claude Code was updated to {NEWER}. New work waits until Marcel is back on the pinned '
+        f'version {PINNED} — run deploy/install-claude.sh.')  # fmt: skip
+
+
+def test_a_restart_marks_exactly_its_sessions_and_names_the_cause(
     hub: ChannelHub, runner: FakeRunner, pushes: Pushes
 ) -> None:
-    w = watcher(hub, runner, pushes)
-    check(w)  # on the pin: nothing to say
-    assert notices(hub) == [] and pushes.sent == []
-    ended, _ = hub.task(TaskState.working)
-    asked, _ = hub.task(TaskState.needs_you)
-    alive, alive_sid = hub.task(TaskState.working)
-    finished, _ = hub.task(TaskState.done)
-    runner.sessions_list = [{'id': alive_sid, 'state': 'working'}]
-    runner.version = NEWER
-    check(w)
-    for task_id in (ended, asked):
-        task = state(hub, task_id)
-        assert task.state == TaskState.failed
+    first, first_sid = hub.task(TaskState.working)
+    second, second_sid = hub.task(TaskState.needs_you)
+    third, _ = hub.task(TaskState.working)
+    on(watcher(hub, runner, pushes), restarted([first_sid, second_sid, 'a-brain'], 'upgrade'))
+    for task_id in (first, second):
+        assert state(hub, task_id).state == TaskState.failed
         [moved] = [e for e in hub.task_events(task_id, 'state') if e.data_json['to'] == 'failed']
-        assert moved.data_json['reason'].startswith(f'Claude Code was updated to {NEWER}')
-    assert state(hub, alive).state == TaskState.working, 'a live session is left alone'
-    assert state(hub, finished).state == TaskState.done
-    said = (f'Claude Code was updated to {NEWER}; 2 sessions ended. New work waits until Marcel '
-            f'is back on the pinned version {PINNED} — run deploy/install-claude.sh.')  # fmt: skip
+        assert moved.data_json['reason'].startswith('Claude Code updated itself and restarted')
+    assert state(hub, third).state == TaskState.working, 'a session the restart kept is left alone'
+    said = 'Claude Code updated itself and restarted; 2 quests stopped.'
     assert notices(hub) == [said]
-    assert pushes.sent == [(hub.agent_id, said)]
-    check(w)  # the same version again: said once
-    assert len(notices(hub)) == 1 and len(pushes.sent) == 1
+    assert pushes.sent == [(hub.agent_id, said)] and pushes.urgent == []
 
 
-def test_a_session_that_finished_on_its_own_is_left_to_its_report(
-    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
+@pytest.mark.parametrize(
+    ('cause', 'said'),
+    [
+        (None, "Claude's supervisor restarted; 1 quest stopped."),
+        ('crash', "Claude's supervisor restarted (crash); 1 quest stopped."),
+    ],
+)
+def test_a_restart_without_a_known_cause_says_so_plainly(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes, cause: str | None, said: str
 ) -> None:
-    done, done_sid = hub.task(TaskState.working)
-    stopped, stopped_sid = hub.task(TaskState.working)
-    runner.sessions_list = [{'id': done_sid, 'state': 'done'},
-                            {'id': stopped_sid, 'state': 'stopped'}]  # fmt: skip
-    runner.version = NEWER
-    check(watcher(hub, runner, pushes))
-    assert state(hub, done).state == TaskState.working, 'its own done report comes next'
-    assert state(hub, stopped).state == TaskState.failed
+    task_id, sid = hub.task(TaskState.working)
+    on(watcher(hub, runner, pushes), restarted([sid], cause))
+    assert notices(hub) == [said]
+    [moved] = [e for e in hub.task_events(task_id, 'state') if e.data_json['to'] == 'failed']
+    assert moved.data_json['reason'].startswith("Claude's supervisor restarted")
 
 
-def test_sessions_unreadable_records_nothing_and_tries_again(
+def test_a_restart_that_ended_no_session_says_nothing(
     hub: ChannelHub, runner: FakeRunner, pushes: Pushes
 ) -> None:
     task_id, _ = hub.task(TaskState.working)
-    runner.version = NEWER
-    w = watcher(hub, runner, pushes)
-    real = runner.sessions
-
-    async def away() -> list[dict[str, Any]]:
-        raise RunnerUnavailable('The runner could not list its sessions.')
-
-    runner.sessions = away  # type: ignore[method-assign]
-    check(w)
-    assert notices(hub) == [] and pushes.sent == [] and w.open_change() is None
+    on(watcher(hub, runner, pushes), restarted([], 'upgrade'))
+    assert notices(hub) == [] and pushes.sent == []
     assert state(hub, task_id).state == TaskState.working
-    runner.sessions = real  # type: ignore[method-assign]
-    check(w)
-    assert state(hub, task_id).state == TaskState.failed
-    assert '; 1 session ended.' in notices(hub)[0] and len(pushes.sent) == 1
 
 
-def test_a_hub_restart_does_not_repeat_it_and_a_change_while_down_is_seen(
+def test_a_finished_task_is_not_marked_again(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
+) -> None:
+    task_id, sid = hub.task(TaskState.done)
+    on(watcher(hub, runner, pushes), restarted([sid], 'upgrade'))
+    assert state(hub, task_id).state == TaskState.done
+    assert notices(hub) == ['Claude Code updated itself and restarted; no quest stopped.']
+    assert pushes.sent == [], 'no quest stopped: told in the chat, not pushed'
+
+
+def test_away_and_back_give_one_notice_each_and_away_is_urgent(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
+) -> None:
+    w = watcher(hub, runner, pushes)
+    on(w, changed(NEWER))
+    assert notices(hub) == [AWAY]
+    assert pushes.urgent == [(claude_updates.CAUSE, 'Claude Code was updated', AWAY)]
+    on(w, changed(NEWER, seq=3))  # the same version again: said once
+    assert len(notices(hub)) == 1 and len(pushes.urgent) == 1
+    on(w, changed(PINNED, seq=4))
+    assert notices(hub) == [AWAY, f'Claude Code is back on {PINNED}, the version Marcel is tested '
+                                  'with. New work starts again.']  # fmt: skip
+    assert pushes.sent == [] and len(pushes.urgent) == 1, 'back is not pushed'
+    assert pushes.cleared == [claude_updates.CAUSE] and w.open_change() is None
+    on(w, changed('2.1.302', seq=5))  # a new drift is new
+    assert '2.1.302' in notices(hub)[-1] and len(pushes.urgent) == 2
+
+
+def test_a_restart_during_a_change_counts_its_sessions(
+    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
+) -> None:
+    w = watcher(hub, runner, pushes)
+    _, sid = hub.task(TaskState.working)
+    on(w, changed(NEWER))
+    on(w, restarted([sid], 'upgrade'))
+    change = w.open_change()
+    assert change is not None and change['sessions_ended'] == 1
+
+
+def test_start_up_sees_a_change_made_while_the_hub_was_down_once(
     hub: ChannelHub, runner: FakeRunner, pushes: Pushes
 ) -> None:
     runner.version = NEWER
     check(watcher(hub, runner, pushes))  # first look after a hub start: the change is seen
-    assert len(notices(hub)) == 1
+    assert notices(hub) == [AWAY] and len(pushes.urgent) == 1
     check(watcher(hub, runner, pushes))  # the hub restarted: it remembers
-    assert len(notices(hub)) == 1 and len(pushes.sent) == 1
+    on(watcher(hub, runner, pushes), changed(NEWER))  # and the runner's event agrees
+    assert len(notices(hub)) == 1 and len(pushes.urgent) == 1
     saved = json.loads((hub.tmp_path / claude_updates.STATE_FILE).read_text())
     assert saved['change']['installed'] == NEWER and saved['seen'] == NEWER
 
 
-def test_back_on_the_pin_says_so_without_a_push_and_a_new_drift_is_new(
-    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
-) -> None:
-    w = watcher(hub, runner, pushes)
-    runner.version = NEWER
-    check(w)
-    runner.version = PINNED
-    check(w)
-    assert notices(hub)[-1].startswith(f'Claude Code is back on {PINNED}')
-    assert len(pushes.sent) == 1 and w.open_change() is None
-    runner.version = '2.1.302'
-    check(w)
-    assert '2.1.302' in notices(hub)[-1] and len(pushes.sent) == 2
-
-
-def test_tasks_the_runner_just_failed_are_counted(
-    hub: ChannelHub, runner: FakeRunner, pushes: Pushes
-) -> None:
-    task_id, _ = hub.task(TaskState.failed)
-    with Session(hub.engine) as s:
-        moved = {'from': 'working', 'to': 'failed', 'reason': 'runner'}
-        at = datetime.now(UTC) - timedelta(minutes=2)
-        s.add(TaskEvent(task_id=task_id, seq=1, type=TaskEventType.state, at=at, data_json=moved))
-        s.commit()
-    runner.version = NEWER
-    check(watcher(hub, runner, pushes))
-    assert '; 1 session ended.' in notices(hub)[0]
-
-
-def test_a_runner_away_or_quiet_says_nothing(
+def test_start_up_with_the_runner_away_says_nothing(
     hub: ChannelHub, runner: FakeRunner, pushes: Pushes
 ) -> None:
     runner.down = True
     check(watcher(hub, runner, pushes))
-    runner.down = False
-    runner.version = NEWER
-    w = watcher(hub, runner, pushes)
-    check(w)
-    assert '; no running session ended.' in notices(hub)[0]
+    assert notices(hub) == [] and pushes.urgent == []
 
 
 def test_internal_health_shows_the_open_change(
@@ -208,17 +230,14 @@ def test_internal_health_shows_the_open_change(
     hub.app.state.runner_client = FakeRunnerHealth()
     headers = {'X-Marcel-Secret': SECRET}
     assert 'claude_update' not in hub.client.get('/internal/health', headers=headers).json()
-    runner.version = NEWER
-    check(w)
+    on(w, changed(NEWER))
     body = hub.client.get('/internal/health', headers=headers).json()
     assert body['claude_update']['installed'] == NEWER
     assert body['claude_update']['expected'] == PINNED
     assert body['claude_update']['sessions_ended'] == 0
 
 
-def test_the_loop_checks_and_stops(hub: ChannelHub, runner: FakeRunner, pushes: Pushes,
-                                   monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
-    monkeypatch.setattr(claude_updates, 'POLL_S', 0.01)
+def test_start_looks_once_and_stops(hub: ChannelHub, runner: FakeRunner, pushes: Pushes) -> None:
     runner.version = NEWER
     w = watcher(hub, runner, pushes)
 
@@ -232,6 +251,13 @@ def test_the_loop_checks_and_stops(hub: ChannelHub, runner: FakeRunner, pushes: 
 
     asyncio.run(run())
     assert len(notices(hub)) == 1
+
+
+def test_the_app_hands_the_runners_events_to_it(tmp_path: Path) -> None:
+    app = create_app(Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db',
+                              runner_sock=tmp_path / 'runner.sock'))  # fmt: skip
+    updates = app.state.claude_updates
+    assert updates.on_runner_event in app.state.runner_watch.runner_listeners
 
 
 def test_version_of() -> None:

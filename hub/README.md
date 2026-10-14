@@ -105,21 +105,25 @@ printf 'X-Marcel-Secret: %s\n' "$(cat ~/marcel/data/hub-secret)" | curl -s -H @-
 
 `claude_updates.py`. Another `claude` on the NUC can update the shared binary; Claude's supervisor then
 restarts onto it, the sessions it ran end, and the runner's pin refuses new work until
-`deploy/install-claude.sh` puts the pinned version back. The runner's events do not say so yet
-(`project/contract-requests/claude-auto-update.md`), so the hub reads its `GET /health` every minute:
+`deploy/install-claude.sh` puts the pinned version back. The runner says both on its event stream
+(runner-api 0.1.12); `RunnerWatch` checks them and hands them to `ClaudeUpdates.on_runner_event`
+(S-04.17):
 
-- **Moved away from the pin:** every NUC task still running whose session the runner no longer lists,
-  or lists `failed` or `stopped`, goes to `failed`, with a reason that says Claude Code was updated and
-  to retry once it is back (a session listed `done` is left to its own report). Tasks the runner
-  reported `failed` in the last 10 minutes are counted with them, so N is an upper bound. When the
-  runner cannot list its sessions, nothing is recorded and the next look tries again. Then one notice in the
-  owner's main conversation, pushed (category `note`), once per version: "Claude Code was updated to X;
-  N sessions ended. New work waits until Marcel is back on the pinned version Y — run
+- **`runner.supervisor_restarted`:** the NUC tasks still running whose session is in `session_ids` go to
+  `failed`, with a reason that says why and to retry; no other task is touched. One notice in the owner's
+  main conversation, pushed as a note when a quest stopped, worded from `cause`: `upgrade` → "Claude Code updated itself and
+  restarted; 2 quests stopped."; another cause → "Claude's supervisor restarted (crash); …"; none → the
+  plain "Claude's supervisor restarted; …". Nothing is said when `session_ids` is empty.
+- **`runner.claude_changed`, moved away from the pin:** one notice, once per version, pushed as urgent
+  (category `broke`, cause `claude_updated`) because Marcel cannot start anything until it is fixed:
+  "Claude Code was updated to X. New work waits until Marcel is back on the pinned version Y — run
   deploy/install-claude.sh."
-- **Back on the pin:** one short notice, not pushed.
+- **`runner.claude_changed`, back on the pin:** one short notice, not pushed. A new drift within the
+  hour of the last urgent push is told in the chat but not pushed again (the pusher's one-per-hour limit).
+- At start-up the hub reads `GET /health` once, for a change made while it was down.
 - `GET /internal/health` shows the open change as `claude_update {installed, expected, at,
-  sessions_ended}`. What the hub saw is kept in `<data_dir>/claude-version.json`, so a restart never
-  repeats a notice, and a change while the hub was down is noticed on its first look.
+  sessions_ended}` (`sessions_ended` counts the quests restarts stopped while it is open). What the hub
+  saw is kept in `<data_dir>/claude-version.json`, so a restart never repeats a notice.
 
 ## The owner and their agent: `marcel-hub setup`
 
