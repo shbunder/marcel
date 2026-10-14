@@ -11,7 +11,9 @@ import re
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -77,6 +79,26 @@ def spawned_pids(monkeypatch: pytest.MonkeyPatch) -> list[int]:
 
     monkeypatch.setattr(cloud_mod.subprocess, 'Popen', Recorded)
     return pids
+
+
+def clock_from(monkeypatch: pytest.MonkeyPatch, ready: Callable[[], bool]) -> None:
+    """Give `cloud` a clock that stands still until `ready()`, then runs. A timeout under test then
+    counts from the moment the setup it needs is in place (a script's helper started and written
+    down) instead of from the spawn, which a busy machine may spend just starting Python. `cloud`
+    reads only `time.monotonic`; the rest of the test keeps the real clock."""
+    real = time.monotonic
+    start = real()
+    since: list[float] = []
+
+    def monotonic() -> float:
+        now = real()
+        if not since:
+            if not ready():
+                return start
+            since.append(now)
+        return start + now - since[0]
+
+    monkeypatch.setattr(cloud_mod, 'time', SimpleNamespace(monotonic=monotonic))
 
 
 def open_fds() -> int:
@@ -399,7 +421,9 @@ def test_spawn_reaps_the_child_and_leaks_no_fd(tmp_path: Path) -> None:
     assert all(gone(pid) for pid in pids(tmp_path))
 
 
-def test_spawn_timeout_kills_and_reaps_the_whole_group(tmp_path: Path) -> None:
+def test_spawn_timeout_kills_and_reaps_the_whole_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # The child starts a grandchild that holds the pty open, then both hang.
     claude = script(
         tmp_path,
@@ -409,6 +433,11 @@ def test_spawn_timeout_kills_and_reaps_the_whole_group(tmp_path: Path) -> None:
         'open(pidfile, "a").write(f"{g.pid}\\n")\n'
         'time.sleep(60)\n',
     )
+    spawned = spawned_pids(monkeypatch)
+    pidfile = tmp_path / 'pids'
+    # The 3 s count from when the grandchild is written down (the pidfile's second line, after the
+    # child's own), so there is always a grandchild for the group kill to reach.
+    clock_from(monkeypatch, lambda: pidfile.exists() and len(pidfile.read_text().split()) >= 2)
     cloud = Cloud(claude, tmp_path, spawn_timeout=3)
     before = open_fds()
     started = time.monotonic()
@@ -422,7 +451,8 @@ def test_spawn_timeout_kills_and_reaps_the_whole_group(tmp_path: Path) -> None:
         'Claude said: Connecting to claude.ai…'
     )
     assert open_fds() == before
-    child, grandchild = pids(tmp_path)
+    (child,) = spawned
+    _, grandchild = pids(tmp_path)
     assert gone(child)  # killed and reaped by the runner
     deadline = time.monotonic() + 5  # the grandchild is init's to reap once killed
     while not gone(grandchild) and time.monotonic() < deadline:
