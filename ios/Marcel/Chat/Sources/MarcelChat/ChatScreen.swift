@@ -89,7 +89,8 @@ public struct ChatScreen: View {
                          actions: actions, avatar: avatar)
             } else {
                 ChatLayout(header: ChatHeaderState(tasks: [HubTask](), offline: offline, name: model.agentName,
-                                                   live: model.agentState, agentId: model.agentId),
+                                                   live: model.action, agentId: model.agentId,
+                                     mood: model.mood, personality: model.personality),
                            problem: model.problem,
                            avatar: avatar, composer: { EmptyView() }) {
                     Text(model.problem == nil ? "Opening the conversation…" : "Nothing saved on this phone yet.")
@@ -132,6 +133,7 @@ struct LiveFeed: View {
     @State private var scrolledTo: String?
     @FocusState private var typing: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     init(model: ChatModel, conversationId: String, limit: Int, offline: String?, actions: ChatActions,
          avatar: AvatarLinks = AvatarLinks()) {
@@ -175,7 +177,8 @@ struct LiveFeed: View {
                                      projects: projects, agents: agents, agentId: model.agentId)
         let items = ChatFeed.items(input, local: model.local)
         let header = ChatHeaderState(tasks: input.tasks.values, offline: offline, name: model.agentName,
-                                     live: model.agentState, agentId: model.agentId)
+                                     live: model.action, agentId: model.agentId,
+                                     mood: model.mood, personality: model.personality)
         @Bindable var model = model
         ChatLayout(header: header, problem: model.problem, avatar: avatar, composer: {
             if let trigger = model.mentionTrigger {
@@ -203,9 +206,6 @@ struct LiveFeed: View {
                                 }
                         }
                         FeedStack(items: items, actions: threaded(input, name: header.name))
-                        if ThinkingRow.shows(header.avatar) {
-                            ThinkingRow(state: header.avatar, name: header.name, agentId: header.agentId)
-                        }
                     }
                     .padding(FeedMetrics.inset)
                     .scrollTargetLayout()
@@ -246,6 +246,8 @@ struct LiveFeed: View {
                 }
             }
         }
+        // Opened or back in front: the helper says hello (when it is free).
+        .onChange(of: scenePhase, initial: true) { _, phase in if phase == .active { model.greet() } }
         .environment(\.agentName, header.name)
         .environment(\.chatBubbleColor, model.bubbleColor)
         .environment(\.chatHighlight, model.highlighted)
@@ -380,30 +382,18 @@ struct ChatLayout<Feed: View, ComposerView: View>: View {
         let avatar = named
         let links = avatar.actions
         VStack(spacing: 0) {
-            if !links.isEmpty {
-                AvatarHeader(state: header)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if links.count == 1 { links[0].run() } else { choosing = true }
-                    }
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityHint(avatar.hint)
-                    .accessibilityActions {
-                        ForEach(Array(links.enumerated()), id: \.offset) { _, link in
-                            Button(link.name, action: link.run)
-                        }
-                    }
-                    .confirmationDialog("Open", isPresented: $choosing) {
-                        ForEach(Array(links.enumerated()), id: \.offset) { _, link in
-                            Button(link.name, action: link.run)
-                        }
-                        Button("Cancel", role: .cancel) {}
-                    }
-            } else {
-                AvatarHeader(state: header)
-            }
+            // The header floats over the feed: the first message starts below it (`contentMargins`).
             feed
+                .contentMargins(.top, AvatarHeader.height, for: .scrollContent)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                // Messages blur and fade as they scroll under the header; the tiling behind stays whole.
+                .mask { UnderHeader.soft.mask }
+                .coordinateSpace(.named(UnderHeader.space))
+                .overlay(alignment: .top) { headerView(links: links, hint: avatar.hint) }
+                .clipped()
+                // The logo's bow tiling, outlines only and faint, behind the messages and on up under the status bar
+                // (nothing fades it out; the outlines are too faint to hurt the clock).
+                .background { BowTiling.chat.ignoresSafeArea(edges: .top) }
             if let problem {
                 Text(problem)
                     .font(.footnote)
@@ -417,6 +407,33 @@ struct ChatLayout<Feed: View, ComposerView: View>: View {
         }
         // The chat's own ground (wireframe Q1): near-white, the soft ground being the other tabs'.
         .background(palette.screen.color)
+    }
+
+    /// The header, opening what a tap on it opens (one link at once, several through a choice).
+    @ViewBuilder
+    private func headerView(links: [(name: String, run: () -> Void)], hint: String) -> some View {
+        if links.isEmpty {
+            AvatarHeader(state: header)
+        } else {
+            AvatarHeader(state: header)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if links.count == 1 { links[0].run() } else { choosing = true }
+                }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint(hint)
+                .accessibilityActions {
+                    ForEach(Array(links.enumerated()), id: \.offset) { _, link in
+                        Button(link.name, action: link.run)
+                    }
+                }
+                .confirmationDialog("Open", isPresented: $choosing) {
+                    ForEach(Array(links.enumerated()), id: \.offset) { _, link in
+                        Button(link.name, action: link.run)
+                    }
+                    Button("Cancel", role: .cancel) {}
+                }
+        }
     }
 }
 

@@ -37,10 +37,17 @@ uv run python -m zoo preview --animal frog --mood laughing               # one m
 | Loop | Mood |
 |---|---|
 | `idle` | the personality's resting face (a grumpy agent waits grumpily) |
-| `thinking` | `thinking`: eyes aside, a thought bubble filling with dots |
+| `thinking` | `thinking`: eyes aside, brows up (no thought dots: the app's speech bubble says it) |
 | `working1`…`working3` | `working`: at the laptop, typing, 1–3 lamps lit on the lid (one per session) |
 | `needs_you` | `surprised`: wide eyes and a bouncing "!" |
 | `done` | `happy` |
+| `reading` | `focused` (the chat header while Marcel reads or searches) |
+| `error` | `worried` |
+| `mood_<name>` | every other mood, 24 loops (not `working`): the app picks from them for what happens |
+
+The extra loops are allowed by the contract; an app without them plays the state loops. With every mood a sheet is
+about 19 KB (PNG and JSON) and takes about 0.4 s to draw. Marks beside the head ("!", "?", hearts, "zzz", sweat)
+sit on the left of the head, so the app's speech bubble on the right never covers them.
 
 ## Where it comes from
 

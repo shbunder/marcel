@@ -10,7 +10,7 @@ import XCTest
 
 /// S-19.3 (B-44): the app plays each agent's own avatar. The UI test is one layer down, like S-13.3's: an
 /// `agent.updated` frame goes through a real in-memory cache into `ChatModel.receive`, as `LiveFeed` wires it, and the
-/// header and the thinking row are drawn before and after.
+/// header is drawn before and after.
 @MainActor
 final class OwnAvatarTests: XCTestCase {
     /// The Pixel Zoo fox AvatarKit's tests use (`ios/AvatarKit/Tests/AvatarKitTests/Fixtures`).
@@ -47,7 +47,7 @@ final class OwnAvatarTests: XCTestCase {
         ChatHeaderState(avatar: state, name: model.agentName, agentId: model.agentId)
     }
 
-    func testANewLookFromTheHubChangesTheHeaderAndTheThinkingRow() async throws {
+    func testANewLookFromTheHubChangesTheHeader() async throws {
         let hub = FakeService()
         let model = ChatModel(service: hub)
         await model.start()
@@ -55,9 +55,7 @@ final class OwnAvatarTests: XCTestCase {
         let token = cache.observeFrames { model.receive($0) }
         defer { cache.stopObservingFrames(token) }
         let headerView = AvatarHeader(state: header(model))
-        let thinking = ThinkingRow(state: .thinking, name: model.agentName ?? "Marcel", agentId: model.agentId)
         let giraffeHeader = try pixels(headerView, avatars: nil)
-        let giraffeThinking = try pixels(thinking, avatars: nil)
         XCTAssertEqual(try pixels(headerView, avatars: model.avatars), giraffeHeader, "no sheet yet: the giraffe")
 
         hub.avatarDownload = try Self.fox()
@@ -68,7 +66,6 @@ final class OwnAvatarTests: XCTestCase {
         }
         XCTAssertEqual(model.avatars.sheet(for: "agt_marcel").name, "fox", "agent.updated fetched the new sheet")
         XCTAssertNotEqual(try pixels(headerView, avatars: model.avatars), giraffeHeader, "the header plays the fox")
-        XCTAssertNotEqual(try pixels(thinking, avatars: model.avatars), giraffeThinking, "so does the thinking row")
 
         // The same ETag again (a rename, say) fetches nothing.
         let asks = hub.avatarAsks.count
@@ -91,14 +88,12 @@ final class OwnAvatarTests: XCTestCase {
         XCTAssertEqual(try pixels(view, avatars: model.avatars), try pixels(view, avatars: nil))
     }
 
-    func testTheHeaderAndThinkingRowWithTheirOwnAvatar() async throws {
+    func testTheHeaderWithItsOwnAvatar() async throws {
         let sheets = AvatarSheets(directory: nil) { _, _ in try Self.fox() }
         await sheets.refresh(agentId: "agt_pip")
         Snapshot.assert(
             VStack(spacing: 0) {
                 AvatarHeader(state: ChatHeaderState(avatar: .working(1), running: 1, name: "Pip", agentId: "agt_pip"))
-                ThinkingRow(state: .working(1), name: "Pip", agentId: "agt_pip")
-                    .padding(16)
             }
             .environment(\.chatAvatars, sheets),
             named: "Own-avatar", variants: [.light, .dark], padding: 0)

@@ -22,8 +22,10 @@ README § Chat); the colours are the wireframe's (explainer artifact KtdD3PMLeyZ
   tinted; Approve / Not now / Details), done (rose, with the item's preview; it replaces the "YOU GOT" banner), failed
   (red, with the failed milestone's text). A quest's card follows its task and changes colour with it.
 - **Time lines** ("Today 08:12") above the first message and between groups more than 15 minutes apart (`TimeLine`).
-- **The thinking row** (`ThinkingRow.swift`): the small avatar and "Marcel is working…" at the end of the chat while
-  the agent thinks or works; still under Reduce Motion.
+- **No thinking row:** the header's speech bubble says what Marcel is doing (ADR-007's 2026-10-14 amendment).
+- **The bow tiling** (PixelKit's `BowTiling.chat`, outlines only) runs behind the messages and up under the status bar.
+  Messages blur and fade as they scroll under the header (`UnderHeader.soft`: blur 3 pt, about a third left at the
+  very top; with Reduce Transparency they only fade); the tiling is never faded.
 - **Long-press** (or the VoiceOver action) on any stored row, cards included, is "Reply in thread". The side chat's
   quoted message is a `ChatQuote`.
 
@@ -55,7 +57,7 @@ README § Chat); the colours are the wireframe's (explainer artifact KtdD3PMLeyZ
   and a tap sends the message without it; a 404 for the conversation itself (`conversation_not_found`) says that.
 - **"+ New" on the map** never overwrites what you typed: `ChatModel.propose` fills an empty composer, and otherwise
   adds the request on a new line after your words (once).
-- **The agent's name is never hard-coded**: the header, the thinking row, the composer ("Message <name>…", and
+- **The agent's name is never hard-coded**: the header, the composer ("Message <name>…", and
   its VoiceOver label) and "<name>'s notebook" read it from `GET /me` (`ChatService.mainAgent`), `AgentName.fallback`
   until the hub has said. `ChatScreen` puts it in the environment (`agentName`, from MarcelItems) for everything it
   opens; the app does the same for the other tabs.
@@ -77,19 +79,35 @@ README § Chat); the colours are the wireframe's (explainer artifact KtdD3PMLeyZ
 ## The avatar header (S-13.3, B-28)
 
 Code in `Sources/MarcelChat/AvatarHeader.swift` (the story names `Marcel/Chat/AvatarHeader.swift`; Chat is a package,
-so it sits in the package's sources). Drawn with AvatarKit's sheet and loops; nothing is redrawn here. Since the S-18.6
-follow-up it is the chat's white strip (thin line under it, the name in bold, what is running muted, a gold "needs
-you" badge) instead of the pixel `HeartsHeader`, so it matches the other tabs.
+so it sits in the package's sources). Drawn with AvatarKit's sheet and loops; nothing is redrawn here. Since the
+owner's 2026-10-14 pick (ADR-007 amendment; their reference was Dot's chat) it floats over the feed with no
+background of its own: the feed's first message starts below it (`contentMargins`, `AvatarHeader.height`).
 
-- **What the giraffe shows** is the hub's word: `GET /me` gives the agent's state, then every `agent.state` event
-  moves it (`ChatModel.agentState`; `LiveFeed` passes the app's `liveEvents` frames to `ChatModel.receive`). An event
-  for another agent is ignored; after a `resync.required` the app asks `GET /me` again. Until the hub has said, and
-  while the live stream is down, the header works the state out from the cached tasks (needs you, working(n), idle).
-- **Size**: always 44 pt beside the name in bold (wireframe Q1; the owner chose it over the big header that shrank on
-  scroll). AvatarKit draws it at a whole-number zoom, so every sprite pixel stays a sharp square. With Reduce Motion
-  the giraffe holds its state's first frame.
-- **VoiceOver** reads the whole header as one line with the agent's name: "Marcel is thinking. Nothing running.
-  1 thing needs you" (`AvatarState.accessibilityDescription(name:)`).
+- **Layout:** the helper big and centred at 96 pt (an exact 9× of a 32-pixel frame on a 3× screen), its name under it
+  on a small white pill, and what it is doing in a pixel speech bubble beside its head (`PixelBubble`, stepped
+  corners like a Game Boy dialogue box); no bubble while it is free. A round gold count at the top left says how many
+  things need you. The zoo draws the helper's own marks ("!", "?", hearts) on the left of its head, away from the
+  bubble.
+- **What it is doing** (`MarcelAction`, `ChatModel.action`): the hub's `agent.state` (`GET /me`, then every event;
+  `LiveFeed` passes the app's `liveEvents` frames to `ChatModel.receive`), refined by the last `tool_call`
+  (Read, Grep, Glob, LS, WebSearch, WebFetch → reading; Edit, Write, MultiEdit, NotebookEdit → writing) and a
+  `task.event` `error` or a failed quest (a problem, for 5 s). Precedence: waiting for you, a problem, reading /
+  writing / working, thinking, done, idle. `PoseGate` holds each pose at least 2 s. An event for another agent is
+  ignored; after a `resync.required` the app asks `GET /me` again. Until the hub has said, and while the live stream
+  is down, the header works the state out from the cached tasks (needs you, working(n), idle).
+- **Moods** (`MoodBook`, the owner's table; `ChatModel.mood`): needs you, done and a problem hold a mood picked from
+  their set (surprised / shocked / idea; happy / laughing / proud / excited; embarrassed / grumpy / confused / sad /
+  worried, angry only for a grumpy helper). One pass plays over the pose for 3+ quests (dizzy), your message
+  (focused), a thank-you (love / kiss / happy), a quest done after 10+ minutes (calm / proud / love), a stopped quest
+  (sad / embarrassed; crying / sad after 10+ minutes), a denied approval and the app coming to the front (happy /
+  excited / love). While free, `IdleMoods` plays a calm mood every 20–60 s and sleepy after 10 quiet minutes (5 for a
+  cozy helper); never in the background or in snapshots. The personality (from the agent's look) counts its
+  favourite moods three times. A mood plays the sheet's `mood_<name>` loop; a sheet without it (one made before moods)
+  plays the state's loop, and `reading` / `error` fall back to the laptop / needs-you loops (`AvatarHeader.pose`).
+- **Motion:** AvatarKit draws at a whole-number zoom, so every sprite pixel stays a sharp square. With Reduce Motion
+  only the state poses show (no moods), each as its first frame, switching without animation.
+- **VoiceOver** reads the whole header as one line with the agent's name: "Marcel, working on: reading and searching.
+  1 quest running. 1 thing needs you" (`MarcelAction.spoken(name:)`).
 - **The app icon** is not drawn here any more: it is the tiling bow (white centre bow, teal knot, on rose), drawn by
   `shared/brand/app-icon/generate.py` (see its README). The PNGs are in `../App/AppIcon/`, named the way iOS looks
   them up (`AppIcon60x60@3x.png`), and listed in `Config/Marcel-Info.plist` (`CFBundleIconFiles`). They are loose
@@ -136,7 +154,7 @@ Code in `Sources/MarcelChat/SideChat/`.
 
 ## Each helper's own avatar (S-19.3, B-44)
 
-- **The header and the thinking row** play the agent's own sheet: `ChatModel.avatars` (AvatarKit's `AvatarSheets`)
+- **The header** plays the agent's own sheet: `ChatModel.avatars` (AvatarKit's `AvatarSheets`)
   fetches it after `GET /me` and again on an `agent.updated` with a new `avatar_etag`, keeps it in
   `Library/Caches/avatars`, and falls back to the bundled giraffe offline or before it arrives. The agent's id is
   remembered (`rememberAgent`), so an offline start plays its kept sheet at once. The JSON and the PNG must carry the
@@ -186,10 +204,14 @@ Code in `Sources/MarcelChat/SideChat/`.
 - `AvatarHeaderStateTests` — S-13.3's "UI test: state changes from the mock hub show up in the header", one layer
   down: `agent.state` frames through a real in-memory cache into `ChatModel.receive`, as `LiveFeed` wires it, and the
   header's state and VoiceOver line read back. Also: another agent's events ignored, offline falls back to the cached
-  tasks, a re-sync asks `GET /me` again, and the helper always at 44 pt.
-  `AvatarHeaderSnapshotTests` draws the header at 3× in light and dark in every state. `AppIconTests` — see above.
+  tasks, a re-sync asks `GET /me` again, the helper at 96 pt, the last tool's reading / writing, the 2 s hold (and
+  that it wakes by itself), a problem's 5 s and the precedence. `AvatarHeaderSnapshotTests` draws the header at 3× in
+  light and dark in every pose. `IdleMoodsTests` — the 20–60 s gaps, a seeded pick, sleepy (sooner when cozy), a sheet
+  without mood loops staying idle. `MoodBookTests` — every set uses real moods and together all 25, the problem set,
+  personality weighting, the thank-you words, held moods, dizzy for one pass, a stopped quest.
+  `BowTilingDesignTests` writes design renders (not checked) to `ios/.build/bow-tiling/`. `AppIconTests` — see above.
 - `ChatLookSnapshotTests` (S-18.3) — your message (with the notch), a reply with a heading, a list, a table and code,
-  each special message and the thinking row, in light and dark at the default and the largest text size, and the
+  each special message, in light and dark at the default and the largest text size, and the
   whole chat. `ChatLookTests` — the notch's geometry, every chat colour pair at 4.5:1 (your text on every helper
   colour too), card colours per task state. `LongPressTests` is the story's UI test one layer down: the chat in a
   real window, the "Reply in thread" action found on a reply and on a card in the accessibility tree, and run.
@@ -200,7 +222,7 @@ Code in `Sources/MarcelChat/SideChat/`.
   "Quote-and-mentions" snapshot in light and dark. `ReplyQuoteTapTests` is "tap jumps" one layer down: the line in a
   real window is a button, and pressing it jumps to the message it answers.
 - `OwnAvatarTests` (S-19.3) — an `agent.updated` with a new look through a real cache into `ChatModel.receive` changes
-  the header's and the thinking row's pixels; the same ETag fetches nothing; an offline start draws the giraffe;
+  the header's pixels; the same ETag fetches nothing; an offline start draws the giraffe;
   speaker lines only where the helper changes, none with one helper; speakers' sheets fetched once; the remembered
   agent's kept sheet offline; the live call through a stub hub (JSON then PNG, 304, a look changing mid-fetch, 401);
   snapshots "Own-avatar" and "Speakers".

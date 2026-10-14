@@ -53,4 +53,28 @@ Why:
   `ChatMarkdown` is retired (S-18.3).
 - `PixelKit`'s `DialogBox`, `ChoicePrompt` and `ItemGetBanner` are replaced (S-18.3, S-18.4, S-18.6). The pixel fonts
   stay for labels.
-- The per-message chat avatar is gone; AvatarKit plays in the header and in the thinking row (S-19.3).
+- The per-message chat avatar is gone; AvatarKit plays in the header (S-19.3; the thinking row went in the 2026-10-14
+  amendment).
+
+## Amendment (2026-10-14) — the header shows what Marcel is doing
+
+Decided by the owner on 2026-10-14, after three header variants and three blur strengths (their reference: Dot's
+chat, a big centred avatar with a name pill). It replaces wireframe Q1's 44 pt header strip and the thinking row.
+
+- **The header:** the helper big and centred (96 pt, an exact 9× of the 32-pixel sprite on a 3× screen), its name
+  under it on a small white pill, and what it is doing in a pixel speech bubble beside its head ("Thinking…",
+  "Reading…", "Waiting for you"). No bubble while it is free. A round gold count at the top left says how many things
+  need you.
+- **The pose follows what Marcel does,** refined from `agent.state` by the last tool call and recent problems
+  (`MarcelAction`), each pose held at least 2 s. VoiceOver reads "Marcel, working on: reading and searching".
+- **Moods for what happens** (`MoodBook`, the owner's table): a picked mood for needs you, done and a problem; one
+  pass of a mood for 3+ quests, your message, a thank-you, a long quest ending, a stopped quest, a denied approval
+  and the app opening; calm moods now and then while free, and sleepy after ten quiet minutes. The personality
+  weights the pick. With Reduce Motion only the state poses show. Every mood is a loop in the sheet (about 19 KB per
+  helper); a sheet without them plays the state loops.
+- **The "Marcel is working…" row is gone:** the bubble says it.
+- **The header has no background:** the bow tiling (outlines only) runs whole behind it and up under the status
+  bar. Messages blur and fade as they scroll under the helper (the owner picked "soft": blur 3 pt, about a third left
+  at the very top). With Reduce Transparency they only fade.
+- **Zoo art:** the thinking pose lost its thought dots, and every mark beside the head ("!", "?", hearts, "zzz")
+  moved to the left, away from the bubble.

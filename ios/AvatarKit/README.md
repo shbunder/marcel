@@ -14,13 +14,15 @@ Pixel Zoo (B-44): `AvatarView(state:size:sheet:)`.
   `AvatarView(…, name:)` uses it.
 - **States → loops.** `AvatarState` mirrors the hub's `AgentState` (`AvatarState(kind:activeTasks:)`):
   `idle`, `thinking`, `working(n)` → `working1`…`working3` (n clamps to 1…3), `needs_you`, `done`.
+  Beyond the contract's kinds: `reading` and `error` (the chat header's reading and problem poses) and `mood(name)`,
+  which plays any loop by name (`mood_wink`, `mood_sleepy`). A loop the sheet lacks plays `idle`.
   An unknown kind shows `idle`.
 - **Timing.** `AvatarPlayer` picks the frame for a moment in time. A state change waits for the current frame
   to end (the loop's next frame boundary), then the new loop starts on its first frame — never mid-blink.
 - **Sharp pixels.** `AvatarSize` is 24, 32, 44 or 120 pt (a square box). The sprite is drawn at the largest
   whole number of screen pixels per sprite pixel that fits (at least 1), nearest-neighbour. On a 3× screen
   that is 2× at 24 pt, 3× at 32 pt, 4× at 44 pt and 11× at 120 pt for a 32 × 32 Pixel Zoo frame.
-  `AvatarView(state:box:)` takes a box of any size (the chat header draws it at 44 pt); the sprite still zooms in
+  `AvatarView(state:box:)` takes a box of any size (the chat header draws it at 96 pt, 9×); the sprite still zooms in
   whole numbers.
 - **Quiet when unseen.** The `TimelineView` pauses off screen and in the background. With Reduce Motion the
   avatar shows each state's first frame and does not move.

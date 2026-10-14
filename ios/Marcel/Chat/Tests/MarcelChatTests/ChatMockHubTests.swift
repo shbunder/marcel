@@ -156,7 +156,9 @@ final class ChatMockHubTests: XCTestCase {
         let seen = Seen()
         let token = cache.observeFrames { frame in
             model.receive(frame)
-            let shown = ChatHeaderState(tasks: [HubTask](), name: model.agentName, live: model.agentState).avatar
+            // The hub's raw states, in order: the header's two-second hold is AvatarHeaderStateTests' business.
+            let raw = model.agentState.map { MarcelAction(agent: $0) }
+            let shown = ChatHeaderState(tasks: [HubTask](), name: model.agentName, live: raw).avatar
             if seen.states.last != shown { seen.states.append(shown) }
         }
         defer { cache.stopObservingFrames(token) }
@@ -178,8 +180,8 @@ final class ChatMockHubTests: XCTestCase {
         try await waitUntil("the header to go back to idle", seconds: 40) { seen.states.last == .idle && seen.states.contains(.done) }
         // Frames before the run (the send coming back) leave the giraffe idle; from the run on, every state shows.
         XCTAssertEqual(Array(seen.states.drop { $0 == .idle }), [.thinking, .working(1), .needsYou, .working(1), .done, .idle])
-        let header = ChatHeaderState(tasks: [HubTask](), name: model.agentName, live: model.agentState)
-        XCTAssertEqual(header.accessibilityText, "\(model.agentName ?? "Marcel") is free. Nothing running")
+        let header = ChatHeaderState(tasks: [HubTask](), name: model.agentName, live: model.action)
+        XCTAssertEqual(header.accessibilityText, "\(model.agentName ?? "Marcel"), free. Nothing running")
     }
 
     /// S-18.5's UI tests, one layer down: an older answer shows the "re:" line and the latest does not; the line points

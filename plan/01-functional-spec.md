@@ -137,10 +137,15 @@ and keeps me posted — with a living pixel-art giraffe at the top of the screen
   | State | Animation |
   |---|---|
   | idle | breathing, blinking, an ear flick, a glance |
-  | thinking | thought dots, eyes up |
+  | thinking | eyes up (no thought dots since 2026-10-14) |
   | working(n) | at the laptop, typing; **n spots glow, one per active thread (max 3 shown)** |
   | needs-you | looks at you, a "!" above the head, hearts pulse |
   | done | a nod and a small sparkle |
+
+  Since 2026-10-14 (ADR-007 amendment) the chat header plays a Pixel Zoo helper big and centred, says what it is
+  doing in a speech bubble (thinking, reading, writing, working, waiting for you, done, a problem), and picks moods
+  for what happens from the owner's table (`ios/Marcel/Chat/README.md`); the thinking pose has no thought dots, and
+  the "!" sits on the left of the head, away from the bubble.
 
 - **B-29 Made for you.** The sprite comes out of a script (`build.py`): parts, colour ramps and choreography are
   data, so other animals and palettes are new recipes, not new code. v1 ships the giraffe in the Marcel rose palette.

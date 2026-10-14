@@ -10,6 +10,8 @@ final class AvatarStateTests: XCTestCase {
         XCTAssertEqual(AvatarState.working(3).loopName, "working3")
         XCTAssertEqual(AvatarState.needsYou.loopName, "needs_you")
         XCTAssertEqual(AvatarState.done.loopName, "done")
+        XCTAssertEqual(AvatarState.reading.loopName, "reading")
+        XCTAssertEqual(AvatarState.error.loopName, "error")
     }
 
     func testWorkingClampsToOneThroughThree() {
@@ -30,10 +32,25 @@ final class AvatarStateTests: XCTestCase {
     }
 
     func testEveryLoopExistsInTheSheet() {
-        let states: [AvatarState] = [.idle, .thinking, .working(1), .working(2), .working(3), .needsYou, .done]
+        let states: [AvatarState] = [.idle, .thinking, .working(1), .working(2), .working(3), .needsYou, .done,
+                                     .reading, .error]
         for state in states {
             XCTAssertNotNil(SpriteSheet.giraffe.loops[state.loopName], "the sheet has no \(state.loopName) loop")
         }
+    }
+
+    func testASheetWithoutTheExtraLoopsPlaysIdleForThem() throws {
+        // An agent's sheet built before `reading` and `error` existed (the fox fixture has only the contract's loops).
+        let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "Fixtures")
+        let fox = try SpriteSheet(json: try Data(contentsOf: fixtures.appending(path: "fox-tangerine-cheerful.json")),
+                                  png: try Data(contentsOf: fixtures.appending(path: "fox-tangerine-cheerful.png")))
+        let idle = fox.loop(for: .idle)
+        for state in [AvatarState.reading, .error] {
+            XCTAssertNil(fox.loops[state.loopName])
+            XCTAssertEqual(fox.loop(for: state).steps, idle.steps, "\(state.loopName) falls back to idle")
+        }
+        XCTAssertNotEqual(SpriteSheet.giraffe.loop(for: .reading).steps, SpriteSheet.giraffe.loop(for: .idle).steps,
+                          "the giraffe has its own reading loop")
     }
 
     func testSheetLoadsFromThePackageBundle() {
@@ -49,5 +66,7 @@ final class AvatarStateTests: XCTestCase {
         XCTAssertEqual(AvatarState.working(2).accessibilityDescription, "Marcel is working on 2 tasks")
         XCTAssertEqual(AvatarState.needsYou.accessibilityDescription, "Marcel needs you")
         XCTAssertEqual(AvatarState.thinking.accessibilityDescription(name: "Gigi"), "Gigi is thinking")
+        XCTAssertEqual(AvatarState.reading.accessibilityDescription, "Marcel is reading")
+        XCTAssertEqual(AvatarState.error.accessibilityDescription, "Marcel ran into a problem")
     }
 }

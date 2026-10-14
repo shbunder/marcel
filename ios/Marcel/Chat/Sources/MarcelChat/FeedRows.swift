@@ -32,6 +32,7 @@ struct FeedStack: View {
     var body: some View {
         ForEach(items) { item in
             ThreadedRow(item: item, actions: actions, first: item.id == items.first?.id)
+                .modifier(UnderHeaderRow())
                 .id(item.id)
         }
     }

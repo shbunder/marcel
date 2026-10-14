@@ -368,7 +368,8 @@
     wink:        { label: "Wink",        eyes: "open", eyesR: "closed", mouth: "tongue" },
     proud:       { label: "Proud",       eyes: "calm", mouth: "smirk", brows: "raised" },
     calm:        { label: "Calm",        eyes: "calm", mouth: "smile", blush: true },
-    thinking:    { label: "Thinking",    eyes: "look", mouth: "flat", brows: "worried", fx: "dots" },
+    // No thought dots: the app's speech bubble says what Marcel thinks about.
+    thinking:    { label: "Thinking",    eyes: "look", mouth: "flat", brows: "worried" },
     idea:        { label: "Idea",        eyes: "wide", mouth: "open", fx: "bulb" },
     focused:     { label: "Focused",     eyes: "half", mouth: "flat", brows: "flat" },
     working:     { label: "Working",     eyes: "small", mouth: "smile", prop: "laptop" },
@@ -632,13 +633,16 @@
       if (fx.tears) {
         const drop = f % 4;
         for (const ex of [lx, rx + 1]) stamp(G, ["t", "t", "T"].slice(0, 1 + Math.min(drop, 2)), ex, ly + 2 + hy + drop);
-      } else if (fx.at === "side") {
-        floatStamp(G, fx.rows, face.cheekR[0] + 2, face.eyeR[1] - 5 + hy + (fx.dy || 0));
       } else if (fx.at === "crown") {
         floatStamp(G, fx.rows, face.top[0] - 6, face.top[1] - 2 + hy);
       } else {
+        // Marks beside the head sit on the left: the app's speech bubble is on the right. The spot is the
+        // right-hand one mirrored; the mark itself is not flipped, so a "?" still reads.
         const w = Math.max(...fx.rows.map((r) => r.length));
-        floatStamp(G, fx.rows, Math.min(N - 1 - w, face.fx[0] - Math.floor(w / 2)), face.fx[1] + 1 + (fx.dy || 0));
+        const [x, y] = fx.at === "side"
+          ? [face.cheekR[0] + 2, face.eyeR[1] - 5 + hy + (fx.dy || 0)]
+          : [Math.min(N - 1 - w, face.fx[0] - Math.floor(w / 2)), face.fx[1] + 1 + (fx.dy || 0)];
+        floatStamp(G, fx.rows, N - x - w, y);
       }
     }
     return { grid: G, palette: pal };

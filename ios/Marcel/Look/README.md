@@ -13,7 +13,7 @@ show it; `saved` gets the hub's answer.
 - **Pick from my name.** `LookFromName.pick` is the Pixel Zoo's `from_name` (FNV-1a over UTF-16, JavaScript's trim,
   lower case), so the phone picks exactly the look the hub gives a helper made without one. A helper with no look
   starts from it.
-- **Save.** `PATCH /agents/{id}` with `look`. The hub sends `agent.updated`; the chat's header and thinking row fetch
+- **Save.** `PATCH /agents/{id}` with `look`. The hub sends `agent.updated`; the chat's header fetches
   the new sheet (S-19.3) and your bubbles take its colour. A refusal shows the hub's sentence and keeps the choice.
 - **Colours.** `LookColors` (the Zoo's palette, and each animal's own colour) lives here; the chat's bubbles use it.
 

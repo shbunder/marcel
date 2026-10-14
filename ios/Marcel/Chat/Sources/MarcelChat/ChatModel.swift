@@ -40,6 +40,15 @@ public final class ChatModel {
     /// What the header's giraffe shows, as the hub last said it (`GET /me`, then every `agent.state` event). Nil
     /// until the hub has said; the header then works it out from the cached tasks.
     public private(set) var agentState: AvatarState?
+    /// What the header shows the agent doing (`MarcelAction`): `agentState` refined by the last tool call and a
+    /// recent problem, each pose held at least `PoseGate.hold`. Nil until the hub has said.
+    public private(set) var action: MarcelAction?
+    /// The mood loop the header plays over `action`'s pose (`MoodBook`): a one-pass flourish (a quest done after a
+    /// long run, your message arriving) or the mood picked for a held state (needs you, done, a problem). Nil plays
+    /// the pose's own loop.
+    public private(set) var mood: String?
+    /// The helper's personality, from its look; it weights the mood picks.
+    public private(set) var personality: LookPersonality?
     /// Your bubbles' colour: the agent's look colour (`GET /me`); nil for Marcel's rose.
     public private(set) var bubbleColor: PixelColor?
     /// The agent this chat is with; `agent.state` events for another agent are not for this header.
@@ -57,13 +66,24 @@ public final class ChatModel {
     public let sideChats = SideChats()
 
     @ObservationIgnored private var refreshing = false
+    @ObservationIgnored private var lastTool: MarcelAction.ToolKind?
+    @ObservationIgnored private var failedAt: TimeInterval?
+    @ObservationIgnored private var poses = PoseGate()
+    @ObservationIgnored private var poseTimer: Task<Void, Never>?
+    /// Seconds on a steady clock; tests move it by hand.
+    @ObservationIgnored var clock: () -> TimeInterval = { Date.timeIntervalSinceReferenceDate }
+    /// Where the mood picks come from; tests seed it.
+    @ObservationIgnored var random = SeededRandom(state: UInt64(Date().timeIntervalSince1970 * 1000))
+    @ObservationIgnored private var held: (action: MarcelAction, loop: String?)?
+    @ObservationIgnored private var flourish: (loop: String, until: TimeInterval)?
+    @ObservationIgnored private var taskStates: [String: Components.Schemas.TaskState] = [:]
     /// Every side chat opened while the app runs, by the message it is on.
     @ObservationIgnored private var sideChatModels: [String: SideChatModel] = [:]
     @ObservationIgnored private var lastAsked: Set<String> = []
     @ObservationIgnored private var previewsAsked: Set<String> = []
 
     @ObservationIgnored let service: any ChatService
-    /// Each agent's own avatar sheet (B-44): the header, the thinking row and speaker lines play it.
+    /// Each agent's own avatar sheet (B-44): the header and speaker lines play it.
     @ObservationIgnored public let avatars: AvatarSheets
     @ObservationIgnored private let remember: (String) -> Void
     @ObservationIgnored private let rememberAgent: (String) -> Void
@@ -106,7 +126,11 @@ public final class ChatModel {
             agentName = agent.name
             agentId = agent.id ?? agentId
             bubbleColor = agent.look.map(LookColors.bubble)
-            if let state = agent.state { agentState = state }
+            personality = agent.look?.personality ?? personality
+            if let state = agent.state {
+                agentState = state
+                updateAction()
+            }
             if let id = agent.id {
                 rememberAgent(id)
                 Task { await avatars.refresh(agentId: id) }
@@ -128,16 +152,102 @@ public final class ChatModel {
         switch frame.event {
         case .agentState(let id, let state):
             guard agentId == nil || agentId == id else { return }
+            let before = agentState
             agentState = AvatarState(state)
+            if case .working = agentState {} else { lastTool = nil }
+            if case .working(let n) = agentState, n >= 3 {
+                if case .working(let m) = before, m >= 3 {} else { play(.manyQuests) }
+            }
+            updateAction()
+        case .taskUpdated(let task):
+            taskChanged(task)
+        case .approvalResolved(let approval):
+            if approval.state == .denied { play(.denied) }
+        case .taskEvent(let event):
+            switch event._type {
+            case .toolCall:
+                lastTool = ((event.data.value["tool"] ?? nil) as? String).flatMap(MarcelAction.ToolKind.init(tool:))
+                updateAction()
+            case .error:
+                failedAt = clock()
+                updateAction()
+            default:
+                break
+            }
         case .agentUpdated(let agent, let etag):
             // Your helper's new look (the look picker, S-19.4): your bubbles take its colour at once.
-            if agent.id == agentId { bubbleColor = agent.drawnLook.map(LookColors.bubble) }
+            if agent.id == agentId {
+                bubbleColor = agent.drawnLook.map(LookColors.bubble)
+                personality = agent.drawnLook?.personality ?? personality
+            }
             // A new look: fetch that agent's sheet again (any helper's: speaker lines play theirs too).
             Task { await avatars.refresh(agentId: agent.id, etag: etag) }
         case .resyncRequired:
             Task { await start() }
         default:
             break
+        }
+    }
+
+    /// Works out what the header should show now and asks the gate for it; wakes again when a held pose or a
+    /// problem's few seconds run out.
+    func updateAction() {
+        guard let agentState else { return }
+        let now = clock()
+        let problemLeft = failedAt.map { $0 + MarcelAction.errorFor - now }.flatMap { $0 > 0 ? $0 : nil }
+        let wait = poses.want(MarcelAction(agent: agentState, tool: lastTool, failed: problemLeft != nil), at: now)
+        action = poses.shown
+        if let shown = action, held?.action != shown {
+            // Picked once per pose; the header plays it only if the sheet it draws has that loop.
+            held = (shown, MoodBook.holding(shown).map { pickLoop($0) })
+        }
+        if let current = flourish, current.until <= now { flourish = nil }
+        mood = flourish?.loop ?? held?.loop
+        poseTimer?.cancel()
+        guard let next = [wait, problemLeft, flourish.map { $0.until - now }].compactMap({ $0 }).min() else { return }
+        poseTimer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(next))
+            guard !Task.isCancelled else { return }
+            self?.updateAction()
+        }
+    }
+
+    /// The loop of a mood picked for `situation`.
+    private func pickLoop(_ situation: MoodBook.Situation) -> String {
+        MoodBook.loop(MoodBook.pick(situation, personality: personality, random: &random))
+    }
+
+    /// Plays one pass of a mood for `situation` over the current pose (the pose comes back after it).
+    func play(_ situation: MoodBook.Situation) {
+        let loop = pickLoop(situation)
+        // A sheet without the loop (one made before moods) has nothing to play for it.
+        guard let pass = avatars.sheet(for: agentId).loops[loop] else { return }
+        let seconds = TimeInterval(pass.duration) / 1000
+        flourish = (loop, clock() + max(seconds, PoseGate.hold))
+        updateAction()
+    }
+
+    /// The app came to the front: a greeting, if the agent is free.
+    public func greet() {
+        guard action == nil || action == .idle else { return }
+        play(.greeting)
+    }
+
+    /// A quest changed: its end shows on the avatar (relief after a long one, sadness when stopped, a problem when
+    /// it failed). Only a change this model saw happen: the first update of a quest (a replay or catch-up after a
+    /// launch, a quest that ended long ago) is just noted.
+    private func taskChanged(_ task: HubTask) {
+        let before = taskStates[task.id]
+        taskStates[task.id] = task.state
+        guard let before, before != task.state else { return }
+        let long = task.updatedAt.timeIntervalSince(task.createdAt) >= MoodBook.long
+        switch task.state {
+        case .done where long: play(.longDone)
+        case .stopped: play(long ? .longStopped : .stopped)
+        case .failed:
+            failedAt = clock()
+            updateAction()
+        default: break
         }
     }
 
@@ -155,6 +265,7 @@ public final class ChatModel {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         draft = ""
+        play(MoodBook.isThanks(text) ? .thanks : .listening)
         let clientId = UUID().uuidString.lowercased()
         local.pending.append(PendingMessage(clientId: clientId, text: text, failed: false, attachment: attachment,
                                             mentions: mentions))

@@ -623,7 +623,8 @@ MOODS: dict[str, dict[str, Any]] = {
     'wink': _m('Wink', 'open', 'tongue', eyesR='closed'),
     'proud': _m('Proud', 'calm', 'smirk', brows='raised'),
     'calm': _m('Calm', 'calm', 'smile', blush=True),
-    'thinking': _m('Thinking', 'look', 'flat', brows='worried', fx='dots'),
+    # No thought dots: the app's speech bubble says what Marcel thinks about.
+    'thinking': _m('Thinking', 'look', 'flat', brows='worried'),
     'idea': _m('Idea', 'wide', 'open', fx='bulb'),
     'focused': _m('Focused', 'half', 'flat', brows='flat'),
     'working': _m('Working', 'small', 'smile', prop='laptop'),
@@ -991,13 +992,17 @@ def frame(look: dict[str, Any], mood: str | None = None, f: int = 0) -> dict[str
             drop = f % 4
             for ex in (lx, rx + 1):
                 stamp(g, ['t', 't', 'T'][: 1 + min(drop, 2)], ex, ly + 2 + hy + drop)
-        elif fx.get('at') == 'side':
-            float_stamp(g, fx['rows'], face['cheekR'][0] + 2, face['eyeR'][1] - 5 + hy + fx.get('dy', 0))
         elif fx.get('at') == 'crown':
             float_stamp(g, fx['rows'], face['top'][0] - 6, face['top'][1] - 2 + hy)
         else:
+            # Marks beside the head sit on the left: the app's speech bubble is on the right. The spot is the
+            # right-hand one mirrored; the mark itself is not flipped, so a '?' still reads.
             w = max(len(r) for r in fx['rows'])
-            float_stamp(g, fx['rows'], min(N - 1 - w, face['fx'][0] - w // 2), face['fx'][1] + 1 + fx.get('dy', 0))
+            if fx.get('at') == 'side':
+                x, y = face['cheekR'][0] + 2, face['eyeR'][1] - 5 + hy + fx.get('dy', 0)
+            else:
+                x, y = min(N - 1 - w, face['fx'][0] - w // 2), face['fx'][1] + 1 + fx.get('dy', 0)
+            float_stamp(g, fx['rows'], N - x - w, y)
     return {'grid': g, 'palette': pal}
 
 

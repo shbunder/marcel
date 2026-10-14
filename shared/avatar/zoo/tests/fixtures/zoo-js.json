@@ -168,12 +168,12 @@
    },
    "frame": 10,
    "grid": [
-    ".........................ooo....",
-    ".........oooo......oooo.ootoo...",
-    "........ollldo....ollldoottto...",
-    "....oo.olccoodo..olooccdotTto...",
-    "...ohholcoocccdoolcccoocdotoo...",
-    "..ohyyhoccowccooooccowccdooo....",
+    "....ooo.........................",
+    "...ootoo.oooo......oooo.........",
+    "...otttoollldo....ollldo........",
+    "...otTtolccoodo..olooccdo.......",
+    "...ohtolcoocccdoolcccoocdo......",
+    "..ohyyhoccowccooooccowccdo......",
     "..ohyyhoccooccllllccooccooo.....",
     "...ohhobbboobbbbbbbboobbbldo....",
     "...ooobbbbbbbbbbbbbbbbbbbbbdo...",
@@ -233,7 +233,7 @@
     "a": "#335a5e",
     "A": "#22363c"
    },
-   "rgba_sha256": "3efa091991bc0a207583ce86790136079b5609ab78242e40e443961de8724790"
+   "rgba_sha256": "b6983deda5b7b54ba3bd17fba043ce22c4f92b0b6b498a74f61280d42afc7f1c"
   },
   {
    "look": {
@@ -255,10 +255,10 @@
     ".....oliiiooooooooooooiiido.....",
     ".....olboolllalalallldoobdo.....",
     ".....odollbbbabababbbbldodo.....",
-    "......olbbbbbbbabbbbbbbbdtoo....",
-    "......olbbbbbbbbbbbbbbbbttto....",
-    ".....olbbbbbbbbbbbbbbbbbtTto....",
-    ".....olbbbbbbbbbbbbbbbbbbtoo....",
+    "....ootlbbbbbbbabbbbbbbbdo......",
+    "....otttbbbbbbbbbbbbbbbbdo......",
+    "....otTtbbbbbbbbbbbbbbbbbdo.....",
+    "....ootbbbbbbbbbbbbbbbbbbdo.....",
     ".....olbbbkwkkkkkkkwkkbbbdo.....",
     ".....olbbbkkkkbbbbkkkkbbbdo.....",
     ".....olbbbokkobbbbokkobbbdo.....",
@@ -311,7 +311,7 @@
     "a": "#8c5db8",
     "A": "#7d4999"
    },
-   "rgba_sha256": "8c8b21d80064023b1b5bc1d06ae8b2c8b332ffa7b68845e87b4a0c446567a121"
+   "rgba_sha256": "bb9d6deaf720c64b5bb19095bcd6acf7e9ef346da721a5c0261b54ef1c09e77c"
   },
   {
    "look": {
@@ -324,12 +324,12 @@
    },
    "frame": 4,
    "grid": [
-    ".....o..................ooooooo.",
-    "....odo.................ohhohho.",
-    "....oldo................ohhhhho.",
-    "....olodo..............olohhhoo.",
-    "....olocdo............olcodhoo..",
-    "....oloccdo..........olccodoo...",
+    ".ooooooo..................o.....",
+    ".ohhohho.................odo....",
+    ".ohhhhho................oldo....",
+    ".oohhhodo..............olodo....",
+    "..oohlocdo............olcodo....",
+    "...ooloccdo..........olccodo....",
     "....olocccoooooooooooocccodo....",
     "....olbboollllllllllldoobbdo....",
     "....oddollbbbbbbbbbbbbldoddo....",
@@ -389,7 +389,7 @@
     "a": "#913c2e",
     "A": "#672525"
    },
-   "rgba_sha256": "d75d4c53b6221c96a10b22754014638c98da357302ff25f0ddb90093bf1aaec2"
+   "rgba_sha256": "2c331c1f79680efed6c37615101970b47425620c75a74aff307fe892fbc6c1c0"
   },
   {
    "look": {
@@ -481,11 +481,11 @@
    "frame": 14,
    "grid": [
     "................................",
-    ".........................ooooo..",
-    "........................oohohoo.",
-    ".......oo..............oohhohho.",
-    "......oaAo............oaAohohoo.",
-    ".....ooaaoo..........oaaaAoooo..",
+    "..ooooo.........................",
+    ".oohohoo........................",
+    ".ohhohhoo..............oo.......",
+    ".oohohoaAo............oaAo......",
+    "..oooooaaoo..........oaaaAo.....",
     "....oeeooeeoooooooooooaaaaAo....",
     "....oeeEEeeollllllllldooaaAo....",
     "....oeeooeeobbbbbbbbbbldoAo.....",
@@ -545,7 +545,7 @@
     "a": "#3a3340",
     "A": "#1f1c24"
    },
-   "rgba_sha256": "5f4ae1a8ff72850be900040f7c3dc4681d3bc2972e010bb3bd5617f6620b34e4"
+   "rgba_sha256": "a3d9e1019e3474585d743616fc869cdda2084717b26a59620752bed01736b9bd"
   },
   {
    "look": {
@@ -559,11 +559,11 @@
    "frame": 3,
    "grid": [
     ".......olbbbdo....olbbbdo.......",
-    ".......olbibdo....olbibdoooooo..",
-    ".......olbibdo....olbibdoohoho..",
-    ".......olbibdo....olbibdoohhho..",
-    ".......olbibdo....olbibdooohoo..",
-    ".......olboooooooooooobdo.ooo...",
+    "..oooooolbibdo....olbibdo.......",
+    "..ohohoolbibdo....olbibdo.......",
+    "..ohhhoolbibdo....olbibdo.......",
+    "..oohooolbibdo....olbibdo.......",
+    "...ooo.olboooooooooooobdo.......",
     ".......ooollllllllllldooo.......",
     ".......ollbbbbbbbbbbbbldo.......",
     "......olbbbbbbbbbbbbbbbbdo......",
@@ -623,7 +623,7 @@
     "a": "#4d6b41",
     "A": "#3a4a2f"
    },
-   "rgba_sha256": "cf4898a9b2184ac1f0a0118ecaf46bc14d473e38c55803733a91cd69b9598e33"
+   "rgba_sha256": "c7e7843bbaf078833028799848ac2a905a3aa084af62b9806e6d4f1b8d8507a9"
   },
   {
    "look": {
@@ -714,13 +714,13 @@
    },
    "frame": 13,
    "grid": [
-    ".........................oooo...",
-    "........................ooyyoo..",
-    "........................oyooyo..",
-    ".....oo.................oooyoo..",
-    "....oldoo..............ooldoo...",
-    "....olbldo............ollbdyo...",
-    "....odbbbdoooooooooooolbbbdoo...",
+    "...oooo.........................",
+    "..ooyyoo........................",
+    "..oyooyo........................",
+    "..oooyoo.................oo.....",
+    "....oldoo..............ooldo....",
+    "....oybldo............ollbdo....",
+    "....odbbbdoooooooooooolbbbdo....",
     ".....odbbbdollllllllodbbbdo.....",
     "......odddobbbbbbbbbbodddo......",
     "......oooobbbobbbbobbboooo......",
@@ -779,7 +779,7 @@
     "a": "#6e31c4",
     "A": "#662c96"
    },
-   "rgba_sha256": "fe365d6f973110965557076ebd2038edf38edbb2c11025013669c78a55349e29"
+   "rgba_sha256": "fb92ef75bfd6b111a4074398365e5533dde8c233a6aeaa2168efe0ecd154367a"
   },
   {
    "look": {
@@ -948,13 +948,13 @@
    },
    "frame": 12,
    "grid": [
-    "..........................ooooo.",
-    ".............o.oo.o......ooyyyoo",
-    ".........ooooYoyYoYoooo..oyyyyyo",
-    ".......oobbboyyyyyYobbboooyyyyyo",
-    "......obbboobbyhhybboobbbooyyyoo",
-    "......obbowwobYYYYbowwobboooooo.",
-    "......obbowooboooobowoobboooooo.",
+    ".ooooo..........................",
+    "ooyyyoo......o.oo.o.............",
+    "oyyyyyo..ooooYoyYoYoooo.........",
+    "oyyyyyooobbboyyyyyYobbboo.......",
+    "ooyyyoobbboobbyhhybboobbbo......",
+    ".oooooobbowwobYYYYbowwobbo......",
+    ".oooooobbowooboooobowoobbo......",
     ".....oobbboobbllllbboobbboo.....",
     "....ollbbbbbbbbbbbbbbbbbbldo....",
     "....olbbbbbbbbbbbbbbbbbbbbdo....",
@@ -1013,7 +1013,7 @@
     "a": "#3e5d3a",
     "A": "#283c32"
    },
-   "rgba_sha256": "9580641847ff8e409911f0e13367399a13fed4d6c205fdb326ae18348109a25f"
+   "rgba_sha256": "0546a88baa4e4b7c8b9e51b030eaf1f854fb9c035eeef6fff18d2633e324cb71"
   },
   {
    "look": {
@@ -1104,12 +1104,12 @@
    },
    "frame": 6,
    "grid": [
-    ".........................oyyo...",
-    "......o..................oyyo...",
-    ".....odo................odyyo...",
-    ".....oldo..............oldooo...",
-    ".....olido............olidyyo...",
-    ".....oliido..........oliidooo...",
+    "...oyyo.........................",
+    "...oyyo..................o......",
+    "...oyydo................odo.....",
+    "...oooldo..............oldo.....",
+    "...oyylido............olido.....",
+    "...oooliido..........oliido.....",
     ".....oliiiooooooooooooiiido.....",
     ".....olboolllalalallldoobdo.....",
     ".....odollbbbabababbbbldodo.....",
@@ -1169,7 +1169,7 @@
     "a": "#6f4a60",
     "A": "#4f374f"
    },
-   "rgba_sha256": "c25c62d3e0348ff1da302b9e85581d9ec3ab79a303866c686e6bec0da31c9870"
+   "rgba_sha256": "b632d91c299c507cccdf2e9f9d53d98036e808b0270783e953d0fcb1b06c79c1"
   },
   {
    "look": {
@@ -1260,13 +1260,13 @@
    },
    "frame": 0,
    "grid": [
-    ".........................oooo...",
-    ".........................oyyo...",
-    ".......oo..............oooyyo...",
-    "......oldo............oldoyyo...",
-    ".....olbbdo..........olbbdooo...",
-    "....olbccboooooooooooobccbyyo...",
-    "....odbcoollllllllllldoocbdoo...",
+    "...oooo.........................",
+    "...oyyo.........................",
+    "...oyyooo..............oo.......",
+    "...oyyoldo............oldo......",
+    "...ooolbbdo..........olbbdo.....",
+    "...oyybccboooooooooooobccbdo....",
+    "...oodbcoollllllllllldoocbdo....",
     ".....odollbbbbbbbbbbbbldodo.....",
     "......olbbbbbbbbbbbbbbbbdo......",
     "......olbbbbbbbbbbbbbbbbdo......",
@@ -1325,7 +1325,7 @@
     "a": "#61423a",
     "A": "#402a28"
    },
-   "rgba_sha256": "fa84c73cdc41aa95b248a8bccbd075403530aaa5c811bd4c7fd64b4797fe3366"
+   "rgba_sha256": "aad5a03ecb5134f93e55666af9a016aa97b1f424e8aaaf12aa7e2f1c99e80a1a"
   },
   {
    "look": {
@@ -1339,12 +1339,12 @@
    "frame": 5,
    "grid": [
     "................................",
-    ".......................ooooo....",
-    ".............o..o..o...oyyyo....",
-    ".......oo...oYooYooYo..oooyo....",
-    "......oaAo..oyYoYoyYo.oaAyoo....",
-    ".....oaaaAo.oyyyyyyYooaayyyo....",
-    "....oaaaaaoooyhyyyhYooaaaaAo....",
+    ".ooooo..........................",
+    ".oyyyo.......o..o..o............",
+    ".oooyo.oo...oYooYooYo..oo.......",
+    ".ooyoooaAo..oyYoYoyYo.oaAo......",
+    ".oyyyoaaaAo.oyyyyyyYooaaaAo.....",
+    ".ooooaaaaaoooyhyyyhYooaaaaAo....",
     "....oAaaoolloYYYYYYYodooaaAo....",
     ".....oAollbbbooooooobbldoAo.....",
     "......olbbbbbbbbbbbbbbbbdo......",
@@ -1403,7 +1403,7 @@
     "a": "#3a3340",
     "A": "#1f1c24"
    },
-   "rgba_sha256": "46ca8da22ec92f1a26fba12302f17a15cf859a82c0476bd2167aa6ba259dcaa5"
+   "rgba_sha256": "cb6f3601f7574dd750008f705503ee9489008b81e6b3d782b8b941f01f00d1aa"
   },
   {
    "look": {
@@ -1494,12 +1494,12 @@
    },
    "frame": 15,
    "grid": [
-    "......................ooooooooo.",
-    ".....................oowwwwwwwoo",
-    ".....................owwowowowwo",
-    ".....................oowwwwwwwoo",
-    ".....................owwooooooo.",
-    ".....................oooo.......",
+    "................................",
+    "................................",
+    "................................",
+    "................................",
+    "................................",
+    "................................",
     "..........oooooooooooo..........",
     "....ooo.oollllllllllldoo.ooo....",
     "...oaaAollbbbbbbbbbbbbldoaaAo...",
@@ -1559,7 +1559,7 @@
     "a": "#6e31c4",
     "A": "#662c96"
    },
-   "rgba_sha256": "cbe2843cd39dda59b4696a8877c0373c57492a47e6d741775c3d0849568adfe1"
+   "rgba_sha256": "8f9099801311463720453775e1df6e98b615994604c597fc0089d0f575221448"
   },
   {
    "look": {
@@ -1650,12 +1650,12 @@
    },
    "frame": 9,
    "grid": [
-    ".....ooo................oooooo..",
-    "...oolldoo............oollyyyo..",
-    "..ollbbbldo..........ollbbylyo..",
-    ".olbbiioobdo........olbbiiybydo.",
-    ".olbiiohhodo........olbiiyyiydo.",
-    ".olbiohyyhoooooooooooobiiyyibdo.",
+    "...ooooo................ooo.....",
+    "...oyyydoo............oolldoo...",
+    "..olybybldo..........ollbbbldo..",
+    ".olbyiyoobdo........olbbiiibbdo.",
+    ".olyyiyhhodo........olbiiiiibdo.",
+    ".olyyohyyhoooooooooooobiiiiibdo.",
     ".olbiohyyholllllllllldooiiiibdo.",
     ".odbbiohhobbbbbbbbbbbbldoiibbdo.",
     "..oddbooobbbbbbbbbbbbbbbdobddo..",
@@ -1715,7 +1715,7 @@
     "a": "#34313b",
     "A": "#1c1a1f"
    },
-   "rgba_sha256": "e44843ddce489cb91f6a4b5cfdd78669dfc2868711dee3c3abc197aa9ac8e023"
+   "rgba_sha256": "9287a8cff42115e0e8f1096bd3fb6df33047ebd691040ce8f624ae17d27b19d9"
   },
   {
    "look": {
@@ -1728,11 +1728,11 @@
    },
    "frame": 14,
    "grid": [
-    "...........oo......oo...ooo.ooo.",
-    "..........oaao....oaao..oyo.oyo.",
-    "..........oaooooooooao..ooo.ooo.",
-    "..........oollllllldoo..oyo.oyo.",
-    ".........ollbbbbbaabldo.ooo.ooo.",
+    ".ooo.ooo...oo......oo...........",
+    ".oyo.oyo..oaao....oaao..........",
+    ".ooo.ooo..oaooooooooao..........",
+    ".oyo.oyo..oollllllldoo..........",
+    ".ooo.ooo.ollbbbbbaabldo.........",
     ".....oooolbbbbbbbaabbbdoooo.....",
     "....obbbolboooobboooobdobbbo....",
     "...obiiiolaoyyooooyyobdoiiibo...",
@@ -1793,7 +1793,7 @@
     "a": "#9f4a2f",
     "A": "#742f27"
    },
-   "rgba_sha256": "7fb99b7fb427e5d69947a8522c05f914d2c6bd16428423c8b15d2ca1796c0e78"
+   "rgba_sha256": "f9b7aed1e5fa2da52bdb537f20aac17d22c9c09ddc2e519578a5f8f418ac0a83"
   },
   {
    "look": {
@@ -2127,10 +2127,10 @@
     "....olbccboooooooooooobccbdo....",
     "....odbcoollllllllllldoocbdo....",
     ".....odollbbbbbbbbbbbbldodo.....",
-    "......olbbbbbbbbbbbbbbbbdtoo....",
-    "......olbbbbbbbbbbbbbbbbttto....",
-    ".....olbbbbboobbbboobbbbtTto....",
-    ".....olbbboobbbbbbbboobbbtoo....",
+    "....ootlbbbbbbbbbbbbbbbbdo......",
+    "....otttbbbbbbbbbbbbbbbbdo......",
+    "....otTtbbbboobbbboobbbbbdo.....",
+    "....ootbbboobbbbbbbboobbbdo.....",
     ".....olbbbkwkkkkkkkwkkbbbdo.....",
     ".....olbbbkkkkbbbbkkkkbbbdo.....",
     ".....olbbbbkkboooobkkbbbbdo.....",
@@ -2183,7 +2183,7 @@
     "a": "#ce393f",
     "A": "#a43044"
    },
-   "rgba_sha256": "bdbdbdac3f8a49e3a9de899adfc36f757e7ef59525cc41167d6feabaf272b8a9"
+   "rgba_sha256": "9a866b03e2a371b98e94538b4df9b86355c4ba68b012c7e7d698f6d1b750de2c"
   },
   {
    "look": {
@@ -2204,10 +2204,10 @@
     ".....oaaaAo..........oaaaAo.....",
     "....oaaaaaooooooooooooaaaaAo....",
     "....oAaaoollllllllllldooaaAo....",
-    ".....oAollbbbbbbbbbbbbldotoo....",
-    "......olbbbbbbbbbbbbbbbbttto....",
-    "......olbbbbbbbbbbbbbbbbtTto....",
-    ".....olbbbbbbbbbbbbbbbbbbtoo....",
+    "....ootollbbbbbbbbbbbbldoAo.....",
+    "....otttbbbbbbbbbbbbbbbbdo......",
+    "....otTtbbbbbbbbbbbbbbbbdo......",
+    "....ootbbbbbbbbbbbbbbbbbbdo.....",
     ".....olbbbaaabbbbbbaaabbbdo.....",
     ".....olbbakwkkkkkkkwkkabbdo.....",
     ".....olbbakkkkbbbbkkkkabbdo.....",
@@ -2261,7 +2261,7 @@
     "a": "#3a3340",
     "A": "#1f1c24"
    },
-   "rgba_sha256": "ad16ae79c39e9fd035f8577d9c2fd2d44e6a505c1d3ba5d68e10ce31f17ca409"
+   "rgba_sha256": "a935cf867cf74d34703105df271593266b8ee61ef5566924ddf86aab08149d21"
   },
   {
    "look": {
@@ -2274,12 +2274,12 @@
    },
    "frame": 1,
    "grid": [
-    ".......olbbbdo....olbbbdooooooo.",
-    ".......olbibdo....olbibdohhohho.",
-    ".......olbibdo....olbibdohhhhho.",
-    ".......oobibdo....olbibdoohhhoo.",
-    "......ohhoibdo....olbibdooohoo..",
-    ".....ohyyhoooooooooooobdo.ooo...",
+    ".ooooooolbbbdo....olbbbdo.......",
+    ".ohhohholbibdo....olbibdo.......",
+    ".ohhhhholbibdo....olbibdo.......",
+    ".oohhhooobibdo....olbibdo.......",
+    "..oohoohhoibdo....olbibdo.......",
+    "...ooohyyhoooooooooooobdo.......",
     ".....ohyyholllllllllldooo.......",
     "......ohhobbbbbbbbbbbbldo.......",
     "......ooobbbbbbbbbbbbbbbdo......",
@@ -2339,7 +2339,7 @@
     "a": "#6e31c4",
     "A": "#662c96"
    },
-   "rgba_sha256": "f08e9b6e0431793fd98ab9b3e53de7b2ae6dd609e6795fc3c95d210b30db46d7"
+   "rgba_sha256": "5897fe7d663ed20f477a9134cc5629476419438087803c70d82fe9a277265c1d"
   },
   {
    "look": {
@@ -2431,11 +2431,11 @@
    "frame": 11,
    "grid": [
     "................................",
-    ".........................ooooo..",
-    ".....oo.................oohohoo.",
-    "....oldoo..............oohhohho.",
-    "....olbldo............ollbhohoo.",
-    "....odbbbdoooooooooooolbbbdooo..",
+    "..ooooo.........................",
+    ".oohohoo.................oo.....",
+    ".ohhohhoo..............ooldo....",
+    ".oohohbldo............ollbdo....",
+    "..ooodbbbdoooooooooooolbbbdo....",
     ".....odbbbdollllllllodbbbdo.....",
     "......odddobbbbbbbbbbodddo......",
     "......oooobbbbbbbbbbbboooo......",
@@ -2495,7 +2495,7 @@
     "a": "#616270",
     "A": "#4a4a54"
    },
-   "rgba_sha256": "92f634ae5259e08fcc1f3150fd73241fc983276a32e010298f4a62e45f313309"
+   "rgba_sha256": "5c2d851806d5c16aab18ec1d4e9080876f69622d4bb1597f81980fe9dac578db"
   },
   {
    "look": {
@@ -2508,11 +2508,11 @@
    },
    "frame": 0,
    "grid": [
-    ".....ooo................ooooooo.",
-    "...oolldoo............oolhhohho.",
-    "..ollbbbldo..........ollbhhhhho.",
-    ".olbbiiibbdo........olbbiihhhdo.",
-    ".olbiiiiibdo........olbiiiihbdo.",
+    ".ooooooo................ooo.....",
+    ".ohhohhdoo............oolldoo...",
+    ".ohhhhhbldo..........ollbbbldo..",
+    ".olhhhiibbdo........olbbiiibbdo.",
+    ".olbhiiiibdo........olbiiiiibdo.",
     ".olbiiiiiboooooooooooobiiiiibdo.",
     ".olbiiiioollllllllllldooiiiibdo.",
     ".odbbiiollbbbbbbbbbbbbldoiibbdo.",
@@ -2573,7 +2573,7 @@
     "a": "#857b8f",
     "A": "#6d6374"
    },
-   "rgba_sha256": "d8d6f8df5b09c5de5ec214d41e79fe17b7a1fcf2f13a7345b31e455a5922837e"
+   "rgba_sha256": "734ecb8fc22b5db73dd054e6df4b3e0d3a15da2ec52b092741ea213268e27e7b"
   },
   {
    "look": {
@@ -2664,12 +2664,12 @@
    },
    "frame": 10,
    "grid": [
-    ".........................ooyyoo.",
-    ".........oooo......oooo..oyooyo.",
-    ".......ooboooo....ooooboooooyoo.",
-    "......obbbbbbbo..obbbbbbbo.ooo..",
-    "......obbaaaabo..obaaaabbo.oyo..",
-    "......obbbowbboooobbbbbbbo.ooo..",
+    ".ooyyoo.........................",
+    ".oyooyo..oooo......oooo.........",
+    ".oooyooooboooo....ooooboo.......",
+    "...oooobbbbbbbo..obbbbbbbo......",
+    "...oyoobbaaaabo..obaaaabbo......",
+    "...oooobbbowbboooobbbbbbbo......",
     ".....oobbboobbllllbboobbboo.....",
     "....ollbbboobbbbbbbboobbbldo....",
     "....olbbbbbbbbbbbbbbbbbbbbdo....",
@@ -2729,7 +2729,7 @@
     "a": "#335a5e",
     "A": "#22363c"
    },
-   "rgba_sha256": "8436052535b124179d52bbd369e87d2f78dbfd319bebe877d155951f38ab565d"
+   "rgba_sha256": "d20b7377417370a4f144f9d511f37aa94ae495567229555a878c24c2316a7cb9"
   },
   {
    "look": {
@@ -2898,13 +2898,13 @@
    },
    "frame": 9,
    "grid": [
-    "....odo..................odooo..",
-    "....oldo................olyyyoo.",
-    "....olodo..............olyyyyyo.",
-    "....olocdo............olcyyyyyo.",
-    "....oloccdo..........olccoyyyoo.",
-    "....olocccoooooooooooocccooooo..",
-    "....olbboollllllllllldoobbdooo..",
+    "..ooodo..................odo....",
+    ".ooyyydo................oldo....",
+    ".oyyyyydo..............olodo....",
+    ".oyyyyycdo............olcodo....",
+    ".ooyyyoccdo..........olccodo....",
+    "..ooooocccoooooooooooocccodo....",
+    "..ooolbboollllllllllldoobbdo....",
     "....oddollbbbbbbbbbbbbldoddo....",
     ".....oolbbbbbbbbbbbbbbbbdoo.....",
     "......olbbbbbbbbbbbbbbbbdo......",
@@ -2963,7 +2963,7 @@
     "a": "#34313b",
     "A": "#1c1a1f"
    },
-   "rgba_sha256": "2b73c583dca37f8f72dbafa24e323eaff70c9a63962b1d6fdb3447dd8ce9e782"
+   "rgba_sha256": "df843451908fb91515bb671577422300e4e0d18be669cd602cdebe82e57446f8"
   },
   {
    "look": {
@@ -3054,12 +3054,12 @@
    },
    "frame": 3,
    "grid": [
-    "..............oooo.......oyyo...",
-    ".......oo....ovvvVo....oooyyo...",
-    "......oaAo..ovvvvvVo..oaAoyyo...",
-    ".....oaaaAoovvvvvvvVooaaaAooo...",
-    "....oaaaaaovvvvvvvvvVooaaayyo...",
-    "....oAaaoooVVVVVVVVVVVVoaaAoo...",
+    "...oyyo.......oooo..............",
+    "...oyyooo....ovvvVo....oo.......",
+    "...oyyoaAo..ovvvvvVo..oaAo......",
+    "...oooaaaAoovvvvvvvVooaaaAo.....",
+    "...oyyaaaaovvvvvvvvvVooaaaAo....",
+    "...ooAaaoooVVVVVVVVVVVVoaaAo....",
     ".....oAollboooooooooooodoAo.....",
     "......olbbbbbbbbbbbbbbbbdo......",
     "......olbbbbbbbbbbbbbbbbdo......",
@@ -3119,7 +3119,7 @@
     "a": "#3a3340",
     "A": "#1f1c24"
    },
-   "rgba_sha256": "114d80c95a430353f71cf8240370a9e83ec26d59a8bdffa6e8e94b860333955c"
+   "rgba_sha256": "b963034c1a1054c1dcb3a70c9db20924ee4c6a6f168fa1003673fc2dded37393"
   },
   {
    "look": {
@@ -3210,13 +3210,13 @@
    },
    "frame": 13,
    "grid": [
-    ".........................oooo...",
-    ".........................oyyo...",
-    ".........................oyyo...",
-    ".........................oyyo...",
-    ".........................oooo...",
-    ".........................oyyo...",
-    "..........oooooooooooo...oooo...",
+    "...oooo.........................",
+    "...oyyo.........................",
+    "...oyyo.........................",
+    "...oyyo.........................",
+    "...oooo.........................",
+    "...oyyo.........................",
+    "...oooo...oooooooooooo..........",
     "....ooo.oollllllllllldoo.ooo....",
     "...oaaAollbbbbbbbbbbbbldoaaAo...",
     "..oaaaaAobbbbbbbbbbbbbboaaaaAo..",
@@ -3275,7 +3275,7 @@
     "a": "#594039",
     "A": "#392726"
    },
-   "rgba_sha256": "29f42e9a43d1c39d53cd08b983e2619a9a535d70f83050243bff92f614b29a54"
+   "rgba_sha256": "983d14d1922e8bf3d3bbd1a7fc4c86953533aa71a446a4c90a39212fdf66cb7a"
   },
   {
    "look": {
@@ -3288,15 +3288,15 @@
    },
    "frame": 2,
    "grid": [
-    "..........................ooooo.",
-    "..........................oyyyo.",
-    ".....oo..................ooooyo.",
-    "....oldoo..............ooldoyoo.",
-    "....olbldo............ollbdyyyo.",
-    "....odbbbdoooooooooooolbyydoooo.",
-    ".....odbbbdollllllllodbbbyo.....",
-    "......odddobbbbbbbbbboddyyo.....",
-    "......oooobbbbbbbbbbbbooooo.....",
+    "....ooooo.......................",
+    "....oyyyo.......................",
+    "....oooyo................oo.....",
+    "....olyoo..............ooldo....",
+    ".ooooyyydo............ollbdo....",
+    ".oyyodbbbdoooooooooooolbbbdo....",
+    ".ooyoodbbbdollllllllodbbbdo.....",
+    ".oyyo.odddobbbbbbbbbbodddo......",
+    ".oooo.oooobbbbbbbbbbbboooo......",
     "......olbbbbbbbbbbbbbbbbdo......",
     ".....olbbboooobbbboooobbbdo.....",
     ".....olbbbobboooooobbobbbdo.....",
@@ -3353,7 +3353,7 @@
     "a": "#bfb1c5",
     "A": "#aa95ae"
    },
-   "rgba_sha256": "f098cc984e7abea3b545d5fc3b7e9e727842bf24d4c0185590e9963b45b5e5bd"
+   "rgba_sha256": "f7e144980a1f0668246a59fac53fab74c2a450386658810ee966ec3f4eafe5ed"
   },
   {
    "look": {
@@ -3671,11 +3671,11 @@
    "frame": 3,
    "grid": [
     "................................",
-    ".........................ooooo..",
-    ".......oo..............ooohohoo.",
-    "......oaAo............oaAhhohho.",
-    ".....oaaaAo..........oaaaAhohoo.",
-    "....oaaaaaooooooooooooaaaaAooo..",
+    "..ooooo.........................",
+    ".oohohooo..............oo.......",
+    ".ohhohhaAo............oaAo......",
+    ".oohohaaaAo..........oaaaAo.....",
+    "..oooaaaaaooooooooooooaaaaAo....",
     "....oAaaoollllllllllldooaaAo....",
     ".....oAollbbbbbbbbbbbbldoAo.....",
     "......olbbbbbbbbbbbbbbbbdo......",
@@ -3735,7 +3735,7 @@
     "a": "#3a3340",
     "A": "#1f1c24"
    },
-   "rgba_sha256": "da165d94242f44370b85a47da9833d794dec4cca53182fd2f63be47cef74a631"
+   "rgba_sha256": "fdbf8b7063ba2113d80231d4702092937817e7d2bbed9e355969b321ac052270"
   },
   {
    "look": {

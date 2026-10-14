@@ -43,7 +43,7 @@ public struct AvatarView: View {
         self.init(state: state, box: size.points, sheet: sheet, name: name)
     }
 
-    /// A box of any size (the chat header's is 44 pt); the sprite still zooms in whole numbers.
+    /// A box of any size (the chat header's is 96 pt); the sprite still zooms in whole numbers.
     public init(state: AvatarState, box: CGFloat, sheet: SpriteSheet = .giraffe, name: String = "Marcel") {
         self.state = state
         self.box = box

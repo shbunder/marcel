@@ -22,7 +22,15 @@ LOOPS: dict[str, dict[str, Any]] = {
     'working3': {'mood': 'working', 'sessions': 3},
     'needs_you': {'mood': 'surprised'},
     'done': {'mood': 'happy'},
+    # Extra loops the header plays for what Marcel is doing (the schema allows them; an app without them plays idle).
+    'reading': {'mood': 'focused'},
+    'error': {'mood': 'worried'},
 }
+
+
+# Every other mood as a loop `mood_<name>` (not `working`: that is working1..3). The app picks from them for what
+# happens (a quest done, a problem, a quiet spell); a sheet without them plays the state loops instead.
+MOOD_LOOPS: dict[str, dict[str, Any]] = {f'mood_{m}': {'mood': m} for m in MOODS if m != 'working'}
 
 
 def check_look(look: dict[str, Any]) -> dict[str, Any]:
@@ -69,7 +77,7 @@ def sheet(look: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
     frames: list[bytes] = []
     index: dict[bytes, int] = {}
     loops: dict[str, list[list[int]]] = {}
-    for name, extra in LOOPS.items():
+    for name, extra in {**LOOPS, **MOOD_LOOPS}.items():
         steps: list[list[int]] = []
         for f in range(FRAMES_PER_LOOP):
             pixels = to_rgba(frame({**look, **extra}, f=f))

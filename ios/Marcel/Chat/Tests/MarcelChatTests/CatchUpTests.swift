@@ -97,7 +97,7 @@ final class CatchUpTests: XCTestCase {
         XCTAssertEqual(model.agentName, "Marcella")
         let header = ChatHeaderState(tasks: [], name: model.agentName)
         XCTAssertEqual(header.name, "Marcella")
-        XCTAssertTrue(header.accessibilityText.hasPrefix("Marcella is free. "), header.accessibilityText)
+        XCTAssertTrue(header.accessibilityText.hasPrefix("Marcella, free. "), header.accessibilityText)
 
         // Renamed in Settings: the app passes the new name on (`SettingsModel.nameChanged`).
         model.agentName = "Gigi"

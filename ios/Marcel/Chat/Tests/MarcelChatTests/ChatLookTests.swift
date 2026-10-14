@@ -85,11 +85,7 @@ final class ChatLookSnapshotTests: XCTestCase {
         Snapshot.assert(QuestRow(line: failed, actions: ChatActions()), named: "Look-card-failed", variants: all)
     }
 
-    func testThinkingRow() {
-        Snapshot.assert(ThinkingRow(state: .working(2), name: "Marcel"), named: "Look-thinking", variants: all)
-    }
-
-    /// The whole chat, as the wireframe's Q1: a time line, your bubbles, a reply, the four cards and the thinking row.
+    /// The whole chat, as the wireframe's Q1: a time line, your bubbles, a reply and the four cards.
     func testTheChatAsAWhole() {
         let now = Date(timeIntervalSince1970: 1_791_900_000)
         Snapshot.assert(
@@ -152,14 +148,6 @@ final class ChatLookTests: XCTestCase {
         XCTAssertEqual(QuestRow.kind(.failed), .failed)
         XCTAssertEqual(QuestRow.label(.working), "Started")
         XCTAssertEqual(QuestRow.open(.failed), "See why ›")
-    }
-
-    func testTheThinkingRowShowsOnlyWhileBusy() {
-        XCTAssertTrue(ThinkingRow.shows(.thinking))
-        XCTAssertTrue(ThinkingRow.shows(.working(1)))
-        XCTAssertFalse(ThinkingRow.shows(.idle))
-        XCTAssertFalse(ThinkingRow.shows(.needsYou))
-        XCTAssertFalse(ThinkingRow.shows(.done))
     }
 }
 

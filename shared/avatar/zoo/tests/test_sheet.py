@@ -8,8 +8,10 @@ from jsonschema import Draft202012Validator
 from zoo import COLORS, LOOPS, PERSONALITIES, SPECIES, check_look, from_name, preview, sheet, slug
 from zoo import png as pngmod
 from zoo.__main__ import main
+from zoo.sheet import MOOD_LOOPS
 
 B28 = ['idle', 'thinking', 'working1', 'working2', 'working3', 'needs_you', 'done']
+EXTRA = ['reading', 'error']
 
 
 def _validate(schema: dict, meta: dict) -> list[str]:
@@ -23,7 +25,8 @@ def test_every_sheet_validates(schema, species):
     for i, personality in enumerate(PERSONALITIES):
         image, meta = sheet({'species': species, 'personality': personality, 'color': colors[i % len(colors)]})
         assert _validate(schema, meta) == [], (species, personality)
-        assert sorted(meta['loops']) == sorted(B28) == sorted(LOOPS)
+        assert sorted(B28 + EXTRA) == sorted(LOOPS)
+        assert sorted(meta['loops']) == sorted(B28 + EXTRA + list(MOOD_LOOPS))
         width, height, _ = pngmod.decode(image)
         rows = -(-meta['frame_count'] // meta['columns'])
         assert (width, height) == (meta['columns'] * 32, rows * 32)
@@ -139,3 +142,10 @@ def test_cli_writes_to_out_by_default(tmp_path, monkeypatch):
         'cat-natural-professional.json',
         'cat-natural-professional.png',
     ]
+
+
+def test_every_mood_but_working_is_a_loop():
+    from zoo.core import MOODS
+
+    assert sorted(MOOD_LOOPS) == sorted(f'mood_{m}' for m in MOODS if m != 'working')
+    assert len(MOOD_LOOPS) == 24

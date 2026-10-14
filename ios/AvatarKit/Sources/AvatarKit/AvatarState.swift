@@ -6,6 +6,13 @@ public enum AvatarState: Hashable, Sendable {
     case working(Int)
     case needsYou
     case done
+    /// Not a contract kind: the chat header shows it while Marcel reads or searches (its `reading` loop).
+    case reading
+    /// Not a contract kind: the chat header shows it for a few seconds after something went wrong (`error` loop).
+    case error
+    /// Not a contract kind: an idle mood the header plays now and then while the agent is free (`idle_wink`,
+    /// `sleepy`, …), by its loop's name.
+    case mood(String)
 
     /// Builds the state from the contract's fields: `kind` (`idle | thinking | working | needs_you | done`) and
     /// `active_tasks`. A kind this version does not know shows `idle`, so a newer hub never breaks the avatar.
@@ -20,7 +27,8 @@ public enum AvatarState: Hashable, Sendable {
     }
 
     /// The loop in the sprite sheet (`contracts/avatar-sheet.schema.json`) that plays this state.
-    /// `working(n)` clamps n to 1…3: the sheet has `working1`, `working2` and `working3`.
+    /// `working(n)` clamps n to 1…3: the sheet has `working1`, `working2` and `working3`. `reading` and `error` are
+    /// extra loops; a sheet without them plays idle.
     public var loopName: String {
         switch self {
         case .idle: "idle"
@@ -28,6 +36,9 @@ public enum AvatarState: Hashable, Sendable {
         case .working(let n): "working\(min(max(n, 1), 3))"
         case .needsYou: "needs_you"
         case .done: "done"
+        case .reading: "reading"
+        case .error: "error"
+        case .mood(let loop): loop
         }
     }
 
@@ -37,11 +48,13 @@ public enum AvatarState: Hashable, Sendable {
     /// What VoiceOver reads for the avatar, with the agent's own name: "Marcel is thinking".
     public func accessibilityDescription(name: String) -> String {
         switch self {
-        case .idle: "\(name) is free"
+        case .idle, .mood: "\(name) is free"
         case .thinking: "\(name) is thinking"
         case .working(let n): n == 1 ? "\(name) is working on 1 task" : "\(name) is working on \(max(n, 0)) tasks"
         case .needsYou: "\(name) needs you"
         case .done: "\(name) is done"
+        case .reading: "\(name) is reading"
+        case .error: "\(name) ran into a problem"
         }
     }
 }

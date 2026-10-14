@@ -69,9 +69,16 @@ public struct WelcomeView: View {
                     .foregroundStyle(palette.muted.color)
                     .multilineTextAlignment(.center)
             }
-            .padding(PixelMetrics.padding)
+            .padding(20)
+            // The code and how to get in on a plain, high-contrast card over the bow tiling.
+            .background(palette.card.color, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(palette.line.color, lineWidth: 1))
+            .frame(maxWidth: 360)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 40)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(palette.well.color.ignoresSafeArea())
+        .background { BowTiling.start.ignoresSafeArea() }
     }
 
     private func submit(_ text: String) {
