@@ -210,8 +210,11 @@ def test_a_failed_rollover_spawn_ends_the_reading_window(hub: ChannelHub, fake: 
     wait(lambda: not keeper._state(hub.agent_id).starting)
     fake.fail_spawns = 1
     assert keeper.roll_over(hub.agent_id)
-    wait(lambda: keeper._state(hub.agent_id).failures >= 1)
-    assert not keeper._state(hub.agent_id).rolling
+    state = keeper._state(hub.agent_id)
+    # One wait for the whole outcome: the failure is counted inside the spawn (with an alert
+    # lookup in the database) and the window closes after it, so checking `rolling` the moment
+    # `failures` moves can catch the gap between the two on a busy machine.
+    wait(lambda: state.failures >= 1 and not state.rolling)
     assert current(hub) == old
 
 

@@ -63,6 +63,22 @@ def pids(tmp_path: Path) -> list[int]:
     return [int(p) for p in (tmp_path / 'pids').read_text().split()]
 
 
+def spawned_pids(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """The pid of every process `cloud` starts, taken from the parent the moment it exists. A
+    script's own pidfile line comes later: a test whose timeout is short may kill the script before
+    Python has even run that line (a busy machine), so a pidfile can be missing for a good run."""
+    pids: list[int] = []
+    real = cloud_mod.subprocess.Popen
+
+    class Recorded(real):  # type: ignore[misc, valid-type]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            pids.append(self.pid)
+
+    monkeypatch.setattr(cloud_mod.subprocess, 'Popen', Recorded)
+    return pids
+
+
 def open_fds() -> int:
     return len(os.listdir('/dev/fd'))
 
@@ -341,16 +357,17 @@ def test_send_reports_a_cli_failure_with_what_it_said(tmp_path: Path) -> None:
     assert 'Error: not logged in' in e.value.message
 
 
-def test_send_times_out_with_a_plain_error(tmp_path: Path) -> None:
+def test_send_times_out_with_a_plain_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     claude = script(tmp_path, 'print("half", flush=True)\ntime.sleep(30)\n')
+    spawned = spawned_pids(monkeypatch)
     started = time.monotonic()
     with pytest.raises(SessionError) as e:
         Cloud(claude, tmp_path, send_timeout=0.5).send(RECORDED_ID, b'{"text": "hi"}')
     assert time.monotonic() - started < 10
     assert (e.value.status, e.value.code) == (503, 'claude_timeout')
     assert e.value.message.startswith('Claude did not pass the message on within 0.5 s.')
-    (pid,) = pids(tmp_path)
-    assert gone(pid)
+    (pid,) = spawned
+    assert gone(pid), 'the hung claude is killed and reaped, even when it was still starting up'
 
 
 def test_a_missing_claude_is_a_plain_error(tmp_path: Path) -> None:
