@@ -25,6 +25,7 @@ ITEMS_TESTS := $(BUILD)/items-sim/$(ARCH)-apple-ios-simulator/debug/MarcelItemsP
 QUEST_TESTS := $(BUILD)/quest-sim/$(ARCH)-apple-ios-simulator/debug/MarcelQuestPackageTests.xctest
 SETTINGS_TESTS := $(BUILD)/settings-sim/$(ARCH)-apple-ios-simulator/debug/MarcelSettingsPackageTests.xctest
 NOTEBOOK_TESTS := $(BUILD)/notebook-sim/$(ARCH)-apple-ios-simulator/debug/MarcelNotebookPackageTests.xctest
+LOOK_TESTS := $(BUILD)/look-sim/$(ARCH)-apple-ios-simulator/debug/MarcelLookPackageTests.xctest
 RUNNER  := $(BUILD)/runner/SimTestRunner
 SIM     ?= $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun simctl list devices available -j | python3 scripts/pick-simulator.py $(SDK_VER))
 MOCK_HUB ?= http://127.0.0.1:7499/api
@@ -38,9 +39,9 @@ PAIR_LINK := marcel://pair?hub=http%3A%2F%2F127.0.0.1%3A7499%2Fapi&code=K7Q2M9
   chat-test chat-bundle chat-record chat-integration quests-test quests-bundle quests-record quests-integration \
   map-test map-bundle map-record map-integration items-test items-bundle items-record items-integration quest-test \
   quest-bundle quest-record settings-test settings-bundle settings-record notebook-test notebook-bundle notebook-record \
-  generate boot run run-mock stop clean
+  look-test look-bundle look-record generate boot run run-mock stop clean
 
-check: app test pixelkit-test chat-test quests-test map-test items-test quest-test settings-test notebook-test
+check: app test pixelkit-test chat-test quests-test map-test items-test quest-test settings-test notebook-test look-test
 
 # The app and its packages, for the simulator.
 app:
@@ -251,6 +252,22 @@ notebook-test: notebook-bundle $(RUNNER) boot
 notebook-record: notebook-bundle $(RUNNER) boot
 	-SIMCTL_CHILD_MARCELNOTEBOOK_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(NOTEBOOK_TESTS) NotebookSnapshotTests
 	xcrun simctl spawn $(SIM) $(RUNNER) $(NOTEBOOK_TESTS)
+
+# The look picker (Marcel/Look, the MarcelLook package): "Pick from my name" against the Pixel Zoo's own picks,
+# choosing and saving against a fake hub, previews, and snapshots compared with
+# Marcel/Look/Tests/MarcelLookTests/__Snapshots__.
+look-bundle:
+	swift build --quiet --package-path Marcel/Look --scratch-path $(BUILD)/look-sim --build-tests \
+	  --triple $(TRIPLE) --sdk $(SDK) -Xswiftc -F -Xswiftc $(PLAT)/Library/Frameworks \
+	  -Xlinker -F -Xlinker $(PLAT)/Library/Frameworks
+
+look-test: look-bundle $(RUNNER) boot
+	xcrun simctl spawn $(SIM) $(RUNNER) $(LOOK_TESTS)
+
+# Re-record the look picker's snapshots after a deliberate change (the recording run fails by design), then check.
+look-record: look-bundle $(RUNNER) boot
+	-SIMCTL_CHILD_MARCELLOOK_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(LOOK_TESTS) LookTests
+	xcrun simctl spawn $(SIM) $(RUNNER) $(LOOK_TESTS)
 
 # Regenerate MarcelKit/Sources/MarcelAPI from contracts/app-api.yaml after the contract changes.
 generate:

@@ -1,6 +1,7 @@
 import AvatarKit
 import HTTPTypes
 import MarcelKit
+import MarcelLook
 import OpenAPIRuntime
 import SwiftUI
 import XCTest
@@ -23,10 +24,11 @@ final class OwnAvatarTests: XCTestCase {
                                      png: try Data(contentsOf: fixtures.appending(path: "\(name).png")), etag: etag)
     }
 
-    static func agentUpdated(_ id: String, name: String, animal: String, etag: String?, frame: Int) -> EventFrame {
+    static func agentUpdated(_ id: String, name: String, animal: String, etag: String?, frame: Int,
+                             color: String = "tangerine") -> EventFrame {
         var data: [String: Any] = [
             "agent": [
-                "id": id, "name": name, "look": ["animal": animal, "color": "tangerine", "personality": "cheerful"],
+                "id": id, "name": name, "look": ["animal": animal, "color": color, "personality": "cheerful"],
                 "animal": animal, "main_conversation_id": "cnv_\(id)", "state": ["kind": "idle"],
                 "model_brain": "opus", "model_worker": "sonnet",
             ] as [String: Any],
@@ -206,6 +208,18 @@ final class OwnAvatarTests: XCTestCase {
         } catch let error as ChatError {
             XCTAssertEqual(error.message, ChatError.unpaired.message)
         }
+    }
+
+    func testYourBubblesTakeANewLooksColourAtOnce() async throws {
+        let model = ChatModel(service: FakeService())
+        await model.start()
+        model.receive(Self.agentUpdated("agt_marcel", name: "Marcel", animal: "fox", etag: nil, frame: 1, color: "teal"))
+        XCTAssertEqual(model.bubbleColor,
+                       LookColors.bubble(KnownLook(animal: .fox, color: .teal, personality: .cheerful)))
+        model.receive(Self.agentUpdated("agt_emma", name: "Emma", animal: "frog", etag: nil, frame: 2, color: "lime"))
+        XCTAssertEqual(model.bubbleColor,
+                       LookColors.bubble(KnownLook(animal: .fox, color: .teal, personality: .cheerful)),
+                       "another helper's look leaves your bubbles alone")
     }
 
     // MARK: Several helpers in one chat

@@ -44,10 +44,28 @@ def request_body(path: str, method: str) -> Any:
     return schema['example']
 
 
+def required_query(path: str, method: str) -> dict[str, Any]:
+    """Each required query parameter at its schema's example (`/avatar-previews` needs a look)."""
+    query: dict[str, Any] = {}
+    for param in contract.load_api()['paths'][path][method].get('parameters', []):
+        if param.get('in') != 'query' or not param.get('required'):
+            continue
+        schema = param['schema']
+        if '$ref' in schema:
+            schema = contract.load_api()['components']['schemas'][
+                contract.schema_name(schema['$ref'])
+            ]
+        query[param['name']] = schema.get('example', (schema.get('enum') or [''])[0])
+    return query
+
+
 def call(client: TestClient, method: str, path: str, **kwargs: Any):
     body = request_body(path, method)
     if body is not None:
         kwargs.setdefault('json', body)
+    query = required_query(path, method)
+    if query:
+        kwargs.setdefault('params', query)
     return client.request(method.upper(), url(path), **kwargs)
 
 

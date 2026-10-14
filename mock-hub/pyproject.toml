@@ -3,7 +3,16 @@ name = "marcel-mock-hub"
 version = "0.1.0"
 description = "A stand-in for the Marcel hub that serves the app API contract with scripted data, so the iOS app can be built without the real hub."
 requires-python = ">=3.12"
-dependencies = ["fastapi>=0.115", "uvicorn>=0.30", "websockets>=13", "pyyaml>=6"]
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "websockets>=13",
+  "pyyaml>=6",
+  "marcel-avatar-zoo",  # shared/avatar/zoo: real drawings for the avatar sheet and the look picker's previews
+]
+
+[tool.uv.sources]
+marcel-avatar-zoo = { path = "../shared/avatar/zoo" }
 
 [dependency-groups]
 dev = [

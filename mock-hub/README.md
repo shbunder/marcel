@@ -91,9 +91,13 @@ examples.
   helper gets the `User` example's. **Removing** one signs their phones out at once (401) and removes
   their helper; the owner cannot be removed (409 `cannot_remove_owner`).
 - **A look change** (`PATCH /api/agents/{id}` with `look`, `name` or `onboarded`) is remembered and sends
-  `agent.updated`, with `avatar_etag` `"lk-<animal>-<color>-<personality>"`. `GET
-  /api/agents/{id}/avatar` answers the contract's example sheet with that ETag. `onboarded_at` is set
+  `agent.updated`, with `avatar_etag` `"lk-<animal>-<color>-<personality>"`. `onboarded_at` is set
   once.
+- **Avatars are drawn by the Pixel Zoo** (`shared/avatar/zoo`), as the real hub draws them. `GET
+  /api/agents/{id}/avatar` answers the look's sheet: its JSON, or its PNG for `Accept: image/png`, both
+  with the ETag; `If-None-Match` with it answers 304. An agent without a look gets the rose giraffe's
+  sheet and no ETag. `GET /api/avatar-previews` draws one 32 × 32 PNG of any look for the look picker;
+  an unknown animal, colour, personality or mood is a 400.
 - **Quoted replies (B-41).** Every milestone, approval card and item message of a run carries
   `reply_to_message_id`: the message that started it. Say something else while a run waits, and its
   `done` milestone answers an older message than your latest: the app shows a quote.

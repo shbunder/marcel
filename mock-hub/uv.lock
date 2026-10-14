@@ -323,11 +323,28 @@ wheels = [
 ]
 
 [[package]]
+name = "marcel-avatar-zoo"
+version = "0.1.0"
+source = { directory = "../shared/avatar/zoo" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "jsonschema", specifier = ">=4.23" },
+    { name = "pyright", specifier = ">=1.1.380" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "pytest-cov", specifier = ">=5" },
+    { name = "ruff", specifier = ">=0.6" },
+]
+
+[[package]]
 name = "marcel-mock-hub"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "marcel-avatar-zoo" },
     { name = "pyyaml" },
     { name = "uvicorn" },
     { name = "websockets" },
@@ -348,6 +365,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "marcel-avatar-zoo", directory = "../shared/avatar/zoo" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "uvicorn", specifier = ">=0.30" },
     { name = "websockets", specifier = ">=13" },

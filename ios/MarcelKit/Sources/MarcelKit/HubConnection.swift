@@ -44,7 +44,7 @@ public final class HubConnection {
     /// Production wiring: the token in the Keychain, the hub's address in UserDefaults.
     public static func live(
         cache: MarcelCache,
-        transport: any ClientTransport = URLSessionTransport(),
+        transport: any ClientTransport = HubClient.transport,
         defaults: UserDefaults = .standard
     ) -> HubConnection {
         let tokenStore = KeychainTokenStore()

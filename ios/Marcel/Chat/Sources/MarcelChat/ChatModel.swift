@@ -2,6 +2,7 @@ import AvatarKit
 import Foundation
 import MarcelItems
 import MarcelKit
+import MarcelLook
 import Observation
 import PixelKit
 
@@ -129,6 +130,8 @@ public final class ChatModel {
             guard agentId == nil || agentId == id else { return }
             agentState = AvatarState(state)
         case .agentUpdated(let agent, let etag):
+            // Your helper's new look (the look picker, S-19.4): your bubbles take its colour at once.
+            if agent.id == agentId { bubbleColor = agent.drawnLook.map(LookColors.bubble) }
             // A new look: fetch that agent's sheet again (any helper's: speaker lines play theirs too).
             Task { await avatars.refresh(agentId: agent.id, etag: etag) }
         case .resyncRequired:

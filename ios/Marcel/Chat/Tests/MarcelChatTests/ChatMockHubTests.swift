@@ -1,6 +1,7 @@
 import AvatarKit
 import Foundation
 import MarcelKit
+import MarcelLook
 import XCTest
 
 @testable import MarcelChat
@@ -269,5 +270,45 @@ final class ChatMockHubTests: XCTestCase {
         for approval in try await service.approvals() where approval.state == .open {
             _ = try await service.answer(approvalId: approval.id, approve: false)
         }
+    }
+
+    /// S-19.4's UI test, one layer down: pick fox, teal, cool in the look picker → Save → the header plays the fox (the
+    /// hub's `agent.updated` reaches `ChatModel`, which fetches the new sheet) and your bubbles turn teal.
+    func testPickingALookOnTheMockHubShowsInTheHeader() async throws {
+        guard let hub = ProcessInfo.processInfo.environment["MARCEL_MOCK_HUB"], let serverURL = URL(string: hub) else {
+            throw XCTSkip("Set MARCEL_MOCK_HUB (make -C ios chat-integration) to run against the mock hub.")
+        }
+        let tokens = FixedToken()
+        let cache = MarcelCache(container: try MarcelCache.makeContainer(inMemory: true))
+        let stream = EventStream(connector: URLSessionEventSocketConnector(serverURL: serverURL, tokenStore: tokens),
+                                 sink: cache)
+        let streaming = Task { await stream.run() }
+        defer { streaming.cancel() }
+        let client = HubClient.make(serverURL: serverURL, tokenStore: tokens)
+        let model = ChatModel(service: LiveChatService(client: client))
+        await model.start()
+        let token = cache.observeFrames { model.receive($0) }
+        defer { cache.stopObservingFrames(token) }
+        try await waitUntil("the stream to go live") { stream.status == .live }
+        let agentId = try XCTUnwrap(model.agentId)
+
+        // Start from a panda, so the fox is a change whatever an earlier run left.
+        let picker = LookModel(service: LiveLookService(client: client), agentId: agentId,
+                               name: model.agentName ?? "Marcel", current: nil)
+        picker.choose(animal: .panda)
+        _ = await picker.save()
+        try await waitUntil("the panda in the header") { model.avatars.sheet(for: agentId).name == "panda" }
+
+        picker.choose(animal: .fox)
+        picker.choose(color: .teal)
+        picker.choose(personality: .cool)
+        await picker.loadPreview(picker.look)
+        XCTAssertNotNil(picker.previews[picker.look], "the hub drew the live preview")
+        let saved = await picker.save()
+        XCTAssertNil(picker.problem)
+        XCTAssertEqual(saved?.drawnLook, KnownLook(animal: .fox, color: .teal, personality: .cool))
+        try await waitUntil("the fox in the header") { model.avatars.sheet(for: agentId).name == "fox" }
+        XCTAssertEqual(model.bubbleColor, LookColors.bubble(KnownLook(animal: .fox, color: .teal, personality: .cool)),
+                       "your bubbles take the new colour")
     }
 }

@@ -56,7 +56,7 @@ public struct PairingService: Sendable {
     public init(
         tokenStore: any TokenStore,
         hubStore: any PairedHubStore,
-        transport: any ClientTransport = URLSessionTransport()
+        transport: any ClientTransport = HubClient.transport
     ) {
         self.tokenStore = tokenStore
         self.hubStore = hubStore

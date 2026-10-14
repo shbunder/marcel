@@ -128,7 +128,7 @@ public struct LiveSettingsService: SettingsService {
     /// when either is missing. Read at the moment it is needed, so it also works when iOS starts the app in the
     /// background for a notification action, before any screen exists.
     public static func paired(hubStore: any PairedHubStore, tokenStore: any TokenStore,
-                              transport: any ClientTransport = URLSessionTransport()) -> (LiveSettingsService, PairedHub)? {
+                              transport: any ClientTransport = HubClient.transport) -> (LiveSettingsService, PairedHub)? {
         guard let hub = hubStore.load(), (try? tokenStore.token()) != nil else { return nil }
         return (LiveSettingsService(client: HubClient.make(serverURL: hub.serverURL, tokenStore: tokenStore,
                                                            transport: transport)), hub)

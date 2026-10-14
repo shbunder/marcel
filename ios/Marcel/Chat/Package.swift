@@ -16,6 +16,8 @@ let package = Package(
         .package(path: "../Items"),
         // A tapped quest card opens the quest view.
         .package(path: "../Quest"),
+        // Your bubbles take the look's colour (LookColors); the mock-hub test saves a look through the picker.
+        .package(path: "../Look"),
     ],
     targets: [
         .target(
@@ -26,6 +28,7 @@ let package = Package(
                 .product(name: "AvatarKit", package: "AvatarKit"),
                 .product(name: "MarcelItems", package: "Items"),
                 .product(name: "MarcelQuest", package: "Quest"),
+                .product(name: "MarcelLook", package: "Look"),
             ]
         ),
         .testTarget(name: "MarcelChatTests", dependencies: ["MarcelChat"], exclude: ["__Snapshots__"]),

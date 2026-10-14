@@ -10,9 +10,11 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
+import zoo
 from fastapi import APIRouter, FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from jsonschema import ValidationError
+from zoo import png
 
 from . import contract
 from .hub import MAIN_CONVERSATION, Hub, Refused
@@ -101,16 +103,52 @@ async def update_agent(hub: Hub, request: Request) -> Response:
     return JSONResponse(hub.people.update_agent(agent_id, body))
 
 
+# An agent without a look plays the bundled giraffe; its sheet is drawn from this look.
+DEFAULT_LOOK = {'animal': 'giraffe', 'color': 'rose', 'personality': 'professional'}
+
+
+def zoo_look(look: dict[str, Any]) -> dict[str, Any]:
+    return {'species': look['animal'], 'color': look['color'], 'personality': look['personality']}
+
+
 async def get_agent_avatar(hub: Hub, request: Request) -> Response:
-    """The contract's example sheet for every look; the ETag follows the look."""
+    """The Pixel Zoo's sheet for the agent's look, as the real hub draws it: the JSON by default,
+    the PNG for `Accept: image/png`. Both carry the ETag, which follows the look; `If-None-Match`
+    with it answers 304."""
     agent_id = own_agent(request)
     if agent_id is None:
         return not_found('agent')
-    pointer = contract.response_pointer('/agents/{agent_id}/avatar', 'get', 200)
-    assert pointer is not None
-    sheet = example_for(pointer)
-    etag = avatar_etag(hub.people.agent(agent_id))
-    return JSONResponse(sheet, headers={'ETag': etag} if etag else None)
+    agent = hub.people.agent(agent_id)
+    etag = avatar_etag(agent)
+    headers = {'ETag': etag} if etag else None
+    if etag and request.headers.get('if-none-match') == etag:
+        return Response(status_code=304, headers=headers)
+    image, meta = zoo.sheet(zoo_look(agent.get('look') or DEFAULT_LOOK))
+    if 'image/png' in request.headers.get('accept', ''):
+        return Response(image, media_type='image/png', headers=headers)
+    return JSONResponse(meta, headers=headers)
+
+
+async def get_avatar_preview(hub: Hub, request: Request) -> Response:
+    """One 32 x 32 PNG of any look, for the look picker. The contract's lists only: anything else
+    is a 400."""
+    query = request.query_params
+    choices = {
+        'animal': zoo.SPECIES,
+        'color': ('natural', *zoo.COLORS),
+        'personality': zoo.PERSONALITIES,
+    }
+    look: dict[str, str] = {}
+    for name, known in choices.items():
+        value = query.get(name)
+        if value not in known:
+            return error(400, 'bad_request', f'Pick a known {name}.')
+        look[name] = value
+    mood = query.get('mood')
+    if mood is not None and mood not in zoo.MOODS:
+        return error(400, 'bad_request', 'Pick a known mood.')
+    pixels = zoo.to_rgba(zoo.frame(zoo_look(look), mood))
+    return Response(png.encode(zoo.N, zoo.N, pixels), media_type='image/png')
 
 
 def own_conversation(hub: Hub, request: Request) -> str | None:
@@ -354,6 +392,7 @@ HANDLERS: dict[str, Handler] = {
     'getAgent': get_agent,
     'updateAgent': update_agent,
     'getAgentAvatar': get_agent_avatar,
+    'getAvatarPreview': get_avatar_preview,
     'listUsers': list_users,
     'addUser': add_user,
     'removeUser': remove_user,

@@ -13,7 +13,8 @@ The chat reads like the Claude app; pixel art is the accent. The pieces are Pixe
 README § Chat); the colours are the wireframe's (explainer artifact KtdD3PMLeyZP7QrwqYLrdv, Q1 v10).
 
 - **Your messages** are rounded bubbles on the right with the notch (bottom-right corner 4 pt, the others 16 pt), dark
-  text on your helper's colour (`ChatModel.bubbleColor` from the agent's look, `LookColors`; rose for Marcel),
+  text on your helper's colour (`ChatModel.bubbleColor` from the agent's look, MarcelLook's `LookColors`,
+  again on every `agent.updated` of your helper; rose for Marcel),
   lightened when needed so the text reaches 4.5:1.
 - **Marcel's replies** are plain formatted text across the full width (`MarcelReply`: PixelKit's `MarkdownView` in its
   chat style). No bubble, no avatar per message. Links are tappable in the text, only http(s). `ChatMarkdown` is gone.
@@ -212,4 +213,5 @@ Code in `Sources/MarcelChat/SideChat/`.
   working(1), needs you, working(1) after the approval, done, idle.
   `testQuotedRepliesAndMentionsOnTheMockHub` is S-18.5's UI test one layer down: the first card has no "re:" line;
   after a second message and the approval, the quest's later messages quote the first one; `@fi` → the quest as a
-  chip → the hub stores the message with it.
+  chip → the hub stores the message with it. `testPickingALookOnTheMockHubShowsInTheHeader` is S-19.4's: pick fox,
+  teal, cool in the look picker (MarcelLook) → Save → the header plays the fox and your bubbles turn teal.

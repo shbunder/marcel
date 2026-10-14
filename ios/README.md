@@ -13,11 +13,12 @@ ios/
                         and Quests tabs, its own package: see Marcel/Quest/README.md), Settings/ (settings, the
                         status screen, and where marcel:// links and pushes lead, its own package: see
                         Marcel/Settings/README.md), Notebook/ (Marcel's notebook: memory notes and rollovers,
-                        its own package: see Marcel/Notebook/README.md)
+                        its own package: see Marcel/Notebook/README.md), Look/ (the look picker, used by
+                        onboarding and Settings, its own package: see Marcel/Look/README.md)
   Config/               the app's Info.plist additions (local-network HTTP for the mock hub)
   MarcelKit/            Swift package: API client, pairing, Keychain, WebSocket stream, SwiftData cache
   PixelKit/             Swift package: the pixel-classic design system (tokens, fonts, components; see its README)
-  AvatarKit/            Swift package: the giraffe sprite player (see AvatarKit/README.md)
+  AvatarKit/            Swift package: each agent's sprite player (see AvatarKit/README.md)
   Tools/APIGenerator/   pins swift-openapi-generator for `make -C ios generate`
   Tools/SimTestRunner/  runs the tests inside the simulator with Keychain access
   scripts/              generate-api.sh, strip_conditionals.py, pick-simulator.py, preview-simulator.py
@@ -48,6 +49,8 @@ make -C ios settings-test   # settings, the status screen, every marcel:// link 
 make -C ios settings-record # re-record the Settings snapshots after a deliberate change
 make -C ios notebook-test   # Marcel's notebook: sections, edit/save/conflict, drafts, untrusted paths, rollovers, snapshots
 make -C ios notebook-record # re-record the notebook's snapshots after a deliberate change
+make -C ios look-test       # the look picker: pick from my name, choose and save, previews, snapshots
+make -C ios look-record     # re-record the look picker's snapshots after a deliberate change
 make -C ios integration     # one test against the mock hub; start it first with `make mock-hub`
 make -C ios generate        # regenerate the API client after contracts/app-api.yaml changes
 SIM=<udid> make -C ios test # pick the simulator yourself (default: an iPhone on the newest iOS runtime)
@@ -80,7 +83,7 @@ though the iOS 18 and 26.x simulators work. `xcodebuild test` and `-destination`
 
 1. **App:** `xcodebuild -target Marcel -sdk iphonesimulator` with `SWIFT_ENABLE_EXPLICIT_MODULES=NO`
    (target builds otherwise fail to order the package modules: "unable to resolve module dependency").
-2. **Tests:** SwiftPM builds `MarcelKitTests`, `AvatarKitTests`, `PixelKitTests`, `MarcelChatTests`, `MarcelQuestsTests`, `MarcelMapTests`, `MarcelItemsTests`, `MarcelQuestTests`, `MarcelSettingsTests` and `MarcelNotebookTests` for the simulator (`--triple arm64-apple-ios18.0-simulator`).
+2. **Tests:** SwiftPM builds `MarcelKitTests`, `AvatarKitTests`, `PixelKitTests`, `MarcelChatTests`, `MarcelQuestsTests`, `MarcelMapTests`, `MarcelItemsTests`, `MarcelQuestTests`, `MarcelSettingsTests`, `MarcelNotebookTests` and `MarcelLookTests` for the simulator (`--triple arm64-apple-ios18.0-simulator`).
 3. **Run:** `simctl spawn` runs the bundle in a booted simulator through `Tools/SimTestRunner`. Apple's own
    `xctest` agent has no Keychain entitlement (every Keychain call fails with -34018), and the simulator
    refuses one added to a code signature, so the runner carries it the way simulator apps do: in a
