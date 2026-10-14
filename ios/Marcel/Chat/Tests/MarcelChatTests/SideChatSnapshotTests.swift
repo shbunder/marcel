@@ -46,7 +46,7 @@ final class SideChatSnapshotTests: XCTestCase {
                 look: look, items: [
                     .user(UserLine(id: "p1", text: "Use 4 kWp, the roof is small", status: .failed, clientId: "c1")),
                 ]),
-            named: "SideChat-task-stopped", variants: twoModes, padding: 0)
+            named: "SideChat-task-stopped", variants: [.light, .dark, .largestText], padding: 0)
     }
 
     func testRepliesUnderAMessage() {
@@ -62,6 +62,6 @@ final class SideChatSnapshotTests: XCTestCase {
                 .marcel(MarcelLine(id: "m1", markdown: 
                     "18° and dry. Good for the garden lunch option.")),
             ], collapsed: true, actions: actions),
-            named: "Chat-replies", variants: twoModes, padding: 0)
+            named: "Chat-replies", variants: [.light, .dark, .largestText], padding: 0)
     }
 }

@@ -87,6 +87,7 @@ struct SideChatLayout<Feed: View, ComposerView: View>: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             if look.stopped {
                 SideChatNotice(startOver: actions.startOver)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, FeedMetrics.inset)
                     .padding(.bottom, PixelMetrics.steps(2))
             }
@@ -100,16 +101,19 @@ struct SideChatLayout<Feed: View, ComposerView: View>: View {
                 .accessibilityHint(look.canSendToMain ? "Asks first, and shows what will be sent"
                                                       : "No answer in this side chat yet")
                 if look.sentToMain {
-                    PixelText("Sent to the main chat.", role: .detail)
-                        .foregroundStyle(theme.muted.color)
+                    Text("Sent to the main chat.")
+                        .font(.footnote)
+                        .foregroundStyle(ChatPalette(scheme).muted.color)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, FeedMetrics.inset)
             .padding(.top, PixelMetrics.steps(2))
             if let problem = look.problem {
-                PixelText(problem, role: .detail)
-                    .foregroundStyle(theme.accent.color)
+                Text(problem)
+                    .font(.footnote)
+                    .foregroundStyle(ChatCardKind.failed.label(in: ChatPalette(scheme)).color)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, FeedMetrics.inset)
@@ -122,7 +126,9 @@ struct SideChatLayout<Feed: View, ComposerView: View>: View {
     }
 }
 
-/// "Side chat" and what it sees, with "Open quest" for a task's thread and a close button.
+/// "Side chat" and what it sees, with "Open quest" for a task's thread and a close button: a white strip with a thin
+/// line under it, like the chat's header (ChatHeader's language; its own layout so the buttons wrap under the title at
+/// the largest text sizes).
 struct SideChatTop: View {
     var look: SideChatLook
     var actions: SideChatActions
@@ -132,20 +138,24 @@ struct SideChatTop: View {
 
     var body: some View {
         let theme = PixelTheme(scheme)
+        let palette = ChatPalette(scheme)
         let layout = dynamicType.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: PixelMetrics.steps(2)))
             : AnyLayout(HStackLayout(spacing: PixelMetrics.steps(3)))
         layout {
-            VStack(alignment: .leading, spacing: PixelMetrics.steps(1)) {
-                PixelText("Side chat", role: .label)
-                    .foregroundStyle(theme.text.color)
-                PixelText(look.detail, role: .detail)
-                    .foregroundStyle(theme.muted.color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Side chat")
+                    .font(.headline)
+                    .foregroundStyle(palette.ink.color)
+                Text(look.detail)
+                    .font(.footnote)
+                    .foregroundStyle(palette.muted.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 0)
+            // Only beside the title: stacked (largest text sizes), a spacer would open a gap above the buttons.
+            if !dynamicType.isAccessibilitySize { Spacer(minLength: 0) }
             HStack(spacing: PixelMetrics.steps(3)) {
                 if let taskId = look.taskId {
                     Button { actions.openQuest(taskId) } label: {
@@ -155,8 +165,9 @@ struct SideChatTop: View {
                     .accessibilityHint("Opens the quest this side chat talks to")
                 }
                 Button(action: actions.close) {
-                    PixelText("X", role: .label)
-                        .foregroundStyle(theme.muted.color)
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(palette.muted.color)
                         .frame(width: PixelMetrics.minTapTarget, height: PixelMetrics.minTapTarget)
                         .contentShape(Rectangle())
                 }
@@ -164,18 +175,17 @@ struct SideChatTop: View {
                 .accessibilityLabel("Close the side chat")
             }
         }
-        .padding(.leading, FeedMetrics.inset)
-        .padding(.trailing, PixelMetrics.steps(2))
-        .padding(.vertical, PixelMetrics.steps(2))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.bar.color)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.line.color).frame(height: PixelMetrics.thinBorder)
-        }
+        .padding(.leading, ChatScreenMetrics.inset)
+        .padding(.trailing, 4)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(palette.card.color)
+        .overlay(alignment: .bottom) { Rectangle().fill(palette.line.color).frame(height: 1) }
     }
 }
 
-/// "This task has stopped; start a new one?" with the button that does it.
+/// "This task has stopped; start a new one?" with the button that does it, on a white rounded card.
 struct SideChatNotice: View {
     var startOver: () -> Void
 
@@ -184,8 +194,9 @@ struct SideChatNotice: View {
     var body: some View {
         let theme = PixelTheme(scheme)
         VStack(alignment: .leading, spacing: PixelMetrics.steps(2)) {
-            PixelText(SideChatLook.stoppedText, role: .body)
-                .foregroundStyle(theme.text.color)
+            Text(SideChatLook.stoppedText)
+                .font(.subheadline)
+                .foregroundStyle(ChatPalette(scheme).ink.color)
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: startOver) {
                 SideChatChip(title: "Start a new one", ink: ProjectChip.Tone.rose.color(in: theme))
@@ -194,8 +205,8 @@ struct SideChatNotice: View {
             .accessibilityHint("Closes the side chat and puts what you wrote in the main chat")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(PixelMetrics.steps(4))
-        .pixelBox(fill: theme.dialog, line: theme.line, shadow: nil, border: PixelMetrics.thinBorder, offset: 0)
+        .padding(12)
+        .chatSurface()
     }
 }
 
@@ -214,13 +225,14 @@ struct SideChatChip: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 6)
             .frame(minHeight: PixelMetrics.minTapTarget)
-            .background(ChatPalette(scheme).card.color, in: Capsule())
-            .overlay(Capsule().strokeBorder(ink.color, lineWidth: 1.5))
-            .contentShape(Capsule())
+            // Half the tap target: a pill on one line, a rounded box (not a lens) when the words wrap.
+            .background(ChatPalette(scheme).card.color, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(ink.color, lineWidth: 1.5))
+            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 }
 
-/// "n replies" under a message in the main chat: opens its side chat.
+/// "n replies" under a message in the main chat, in the chat's link colour with a small arrow: opens its side chat.
 struct RepliesButton: View {
     var summary: ThreadSummary
     var open: () -> Void
@@ -228,13 +240,12 @@ struct RepliesButton: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
         Button(action: open) {
-            HStack(spacing: PixelMetrics.steps(2)) {
-                PixelText(summary.label, role: .smallLabel)
-                PixelGlyph(.pointer, color: theme.accent)
+            HStack(spacing: 4) {
+                Text(summary.label).font(.footnote.weight(.semibold))
+                Image(systemName: "chevron.right").font(.caption2.weight(.bold)).accessibilityHidden(true)
             }
-            .foregroundStyle(theme.accent.color)
+            .foregroundStyle(ChatPalette(scheme).link.color)
             .frame(minHeight: PixelMetrics.minTapTarget)
             .contentShape(Rectangle())
         }
