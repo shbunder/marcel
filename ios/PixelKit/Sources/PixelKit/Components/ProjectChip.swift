@@ -32,14 +32,17 @@ public struct ProjectChip: View {
 
     public var accessibilityText: String { "Project: \(name)" }
 
+    /// The chat's language: the name on white in a rounded frame of the project's colour.
     public var body: some View {
         let ink = tone.color(in: PixelTheme(scheme)).color
-        PixelText(name, role: .smallLabel)
+        Text(name)
+            .font(.caption.weight(.semibold))
             .lineLimit(1)
             .foregroundStyle(ink)
-            .padding(.horizontal, PixelMetrics.steps(4))
-            .padding(.vertical, PixelMetrics.steps(2) + 1)
-            .overlay(Rectangle().strokeBorder(ink, lineWidth: PixelMetrics.thinBorder))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(ChatPalette(scheme).card.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(ink, lineWidth: 1))
             .fixedSize()
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilityText)

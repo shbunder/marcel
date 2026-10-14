@@ -439,17 +439,18 @@ struct JumpToLatest: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = PixelTheme(scheme)
+        let palette = ChatPalette(scheme)
         Button(action: action) {
-            HStack(spacing: PixelMetrics.steps(3)) {
-                PixelText("Latest", role: .smallLabel)
-                PixelGlyph(.more, color: theme.text)
+            HStack(spacing: 6) {
+                Text("Latest").font(.subheadline.weight(.semibold))
+                Image(systemName: "chevron.down").font(.caption.weight(.bold))
             }
-            .foregroundStyle(theme.text.color)
-            .padding(.horizontal, PixelMetrics.steps(5))
+            .foregroundStyle(palette.ink.color)
+            .padding(.horizontal, 14)
             .frame(minHeight: PixelMetrics.minTapTarget)
-            .pixelBox(fill: theme.dialog, line: theme.line, shadow: theme.shadow, border: PixelMetrics.thinBorder,
-                      offset: PixelMetrics.smallShadow)
+            .background(palette.card.color, in: Capsule())
+            .overlay(Capsule().strokeBorder(palette.line.color, lineWidth: 1))
+            .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Jump to the latest message")

@@ -199,20 +199,24 @@ struct SideChatNotice: View {
     }
 }
 
-/// An outlined label, at least a tap target tall (the quest view's chips).
+/// An outlined rounded label in the chat's language, at least a tap target tall (the quest view's chips).
 struct SideChatChip: View {
     var title: String
     var ink: PixelColor
 
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
-        PixelText(title, role: .smallLabel)
+        Text(title)
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(ink.color)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, PixelMetrics.steps(4))
-            .padding(.vertical, PixelMetrics.steps(2) + 1)
-            .overlay(Rectangle().strokeBorder(ink.color, lineWidth: PixelMetrics.thinBorder))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
             .frame(minHeight: PixelMetrics.minTapTarget)
-            .contentShape(Rectangle())
+            .background(ChatPalette(scheme).card.color, in: Capsule())
+            .overlay(Capsule().strokeBorder(ink.color, lineWidth: 1.5))
+            .contentShape(Capsule())
     }
 }
 
