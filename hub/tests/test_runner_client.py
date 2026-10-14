@@ -10,12 +10,14 @@ from typing import Any
 
 import httpx
 import pytest
+import yaml
 from jsonschema import Draft202012Validator
 from test_runner_client_fakes import FakeRunnerServer
 from test_tasks_fakes import CONTRACTS, run, validator
 
 from marcel_hub.models import Task, TaskLocation, TaskOrigin, TaskState
 from marcel_hub.runner_client import (
+    RUNNER_EVENT_TYPES,
     TRANSCRIPT_DATA,
     TRANSCRIPT_FIELDS,
     BadEvent,
@@ -578,3 +580,26 @@ def test_unknown_or_bad_event_fields_are_refused() -> None:
         check_transcript_event(line('thinking', {'duration_ms': 1}, secret=1), 's-1')
     with pytest.raises(BadEvent, match='subagent_id'):
         check_transcript_event(line('thinking', {'duration_ms': 1}, subagent_id=3), 's-1')
+
+
+# Runner event types against the contract -------------------------------------------------------
+
+# Added by S-02.11 (runner-api 0.1.12, asked for by claude-auto-update) before the hub reads them.
+# S-04.17 removes them when the hub acts on them; the second test fails as soon as one is read, so
+# this set can only shrink.
+PENDING_RUNNER_EVENT_TYPES = {'runner.claude_changed', 'runner.supervisor_restarted'}
+
+
+def _runner_event_types() -> set[str]:
+    spec = yaml.safe_load((CONTRACTS / 'runner-api.yaml').read_text())
+    return set(spec['components']['schemas']['RunnerEvent']['properties']['type']['enum'])
+
+
+def test_the_hubs_runner_event_types_match_the_contract() -> None:
+    assert set(RUNNER_EVENT_TYPES) == _runner_event_types() - PENDING_RUNNER_EVENT_TYPES
+
+
+def test_pending_runner_event_types_are_still_pending() -> None:
+    assert _runner_event_types() >= PENDING_RUNNER_EVENT_TYPES
+    read = PENDING_RUNNER_EVENT_TYPES & set(RUNNER_EVENT_TYPES)
+    assert not read, f'the hub reads {read} now: remove it from PENDING_RUNNER_EVENT_TYPES'
