@@ -11,3 +11,7 @@ Claude subscription. That is what Anthropic permits for individual use, and it i
 
 ## Where judgement is needed
 Ask the brain: it is a `claude` session. Hub code decides only what can be written as a rule.
+
+## Enforced by
+`scripts/tests/test_no_model_calls.py` (in `make check` and CI): no SDK import, dependency or API host in
+Marcel's code, and no real-looking key anywhere in git.
