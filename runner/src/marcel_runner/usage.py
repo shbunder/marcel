@@ -32,6 +32,9 @@ WINDOWS = {'session': 'five_hour', 'week (all models)': 'weekly'}
 COST_VIEW = re.compile(r'^Total cost:', re.MULTILINE)
 RESET_FORMATS = ('%Y %b %d, %I:%M%p', '%Y %b %d, %I%p')  # "Oct 4, 2:29pm" and "Oct 9, 2am"
 
+# journald stores a stderr line that starts with <7> at debug priority (SyslogLevelPrefix, on by
+# default): `journalctl --user -u marcel-runner -p debug..debug` shows only those lines.
+DEBUG = '<7>'
 POLL_EVERY = 300.0  # seconds; contracts/runner-api.yaml getUsage
 STALE_AFTER = timedelta(minutes=15)
 HERE = 'runner/src/marcel_runner/usage.py'
@@ -39,8 +42,8 @@ HERE = 'runner/src/marcel_runner/usage.py'
 
 class UsageUnreadable(Exception):
     """The /usage output could not be read. The message says what in plain words, and never repeats
-    what claude printed (it can name the account): `detail` holds that, for the runner's log.
-    `login_lost`: the cost view, so Claude Code is logged out."""
+    what claude printed (it can name the account): `detail` holds that, and goes only to the
+    runner's journal, at debug priority. `login_lost`: the cost view, so it is logged out."""
 
     def __init__(self, message: str, detail: str = '', login_lost: bool = False) -> None:
         super().__init__(message)
@@ -62,7 +65,8 @@ def _reset_time(when: str, tz: str, now: datetime) -> datetime:
         zone = ZoneInfo(tz)
     except (ZoneInfoNotFoundError, ValueError):
         raise UsageUnreadable(
-            f'Claude Code gave usage reset times in "{tz}", a time zone the runner does not know.'
+            'Claude Code gave usage reset times in a time zone the runner does not know.',
+            f'time zone: {tz}',
         ) from None
     for fmt in RESET_FORMATS:
         try:
@@ -74,8 +78,9 @@ def _reset_time(when: str, tz: str, now: datetime) -> datetime:
             continue
         return min(candidates, key=lambda c: abs(c - now))
     raise UsageUnreadable(
-        f'Claude Code gave a usage reset time the runner cannot read: "{when}". '
-        f'Update RESET_FORMATS in {HERE}.'
+        'Claude Code gave a usage reset time the runner cannot read. '
+        f'Update RESET_FORMATS in {HERE}.',
+        f'reset time: {when}',
     )
 
 
@@ -116,8 +121,8 @@ class UsageProbe:
         # TZ=UTC: reset times then always print as a one-word zone, `(UTC)`, which USAGE_LINE reads.
         self.env = {**scrubbed_env(os.environ if env is None else env), 'TZ': 'UTC'}
         self.clock = clock
+        # Why the latest read failed, in plain words: UsageReading.reason, and the 503 `detail`.
         self.last_error: str | None = None
-        self.reason: str | None = None  # UsageReading.reason: the plain words, without `detail`
         self._detail = ''
         self._windows: dict[str, dict[str, Any]] | None = None
         self._taken_at: datetime | None = None
@@ -154,20 +159,24 @@ class UsageProbe:
         try:
             windows = self._read(now)
         except UsageUnreadable as e:
-            message = str(e) if not e.detail else f'{e} It said: {e.detail}'
             with self._lock:
-                changed = message != self.last_error
-                self.last_error, self.reason, self._detail = message, str(e), e.detail
+                changed = (str(e), e.detail) != (self.last_error, self._detail)
+                self.last_error, self._detail = str(e), e.detail
             if e.login_lost and self.login is not None:
                 self.login.usage_says(lost=True)
             if changed:
-                print(
-                    f'marcel-runner: could not read usage. {message}', file=sys.stderr, flush=True
-                )
+                print(f'marcel-runner: could not read usage. {e}', file=sys.stderr, flush=True)
+                if e.detail:  # what claude printed can name the account: debug priority only
+                    said = _excerpt(e.detail).splitlines()
+                    print(
+                        *(f'{DEBUG}marcel-runner: /usage said: {line}' for line in said),
+                        sep='\n',
+                        file=sys.stderr,
+                        flush=True,
+                    )
             return
         with self._lock:
             self._windows, self._taken_at, self.last_error, self._detail = windows, now, None, ''
-            self.reason = None
         if self.login is not None:
             self.login.usage_says(lost=False)
 
@@ -189,8 +198,8 @@ class UsageProbe:
                 'taken_at': _iso(self._taken_at),
                 'stale': stale,
             }
-            if self.reason is not None:  # only after a failed attempt, so only when stale
-                reading['reason'] = self.reason
+            if self.last_error is not None:  # only after a failed attempt, so only when stale
+                reading['reason'] = self.last_error
             return 200, reading
 
     def _loop(self, every: float) -> None:
