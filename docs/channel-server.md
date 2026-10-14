@@ -61,4 +61,4 @@ Claude Code registers the channel about 60 ms after `notifications/initialized` 
 that can be dropped and still acked, so it would be lost without a trace. The server holds every hub frame, unacked,
 for 500 ms after `initialized`, then delivers in `seq` order.
 
-The live check (S-05.2) must show that a frame queued at hello reaches the session after a spawn and after a respawn.
+The live check (S-05.2, `tests/live/`) shows a frame queued before hello reaching the session after a spawn (a worker messaged while still starting) and after a respawn (the brain replaced while a message waited).

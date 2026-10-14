@@ -8,8 +8,11 @@
 // MARCEL_LIVE_RUNNER (default ~/marcel/run/runner.sock), the owner's adopt token in
 // ~/.marcel/adopt-token (`marcel-hub adopt-token`), Docker (it pairs a device with
 // `docker exec marcel-hub marcel-hub pair` and removes it at the end), and the trusted scratch
-// folder with the plugin (MARCEL_LIVE_CWD, default ~/marcel/workspaces/scratch). Every session it
-// starts runs `haiku` and is stopped at the end.
+// folder with the plugin (MARCEL_LIVE_CWD, default ~/marcel/workspaces/scratch), and the hub secret
+// (MARCEL_LIVE_SECRET, default ~/marcel/data/hub-secret). Every session it starts runs `haiku` and is
+// stopped at the end. What the owner sees: a device paired and removed, an adopted quest and a short
+// worker quest (archived at the end), one Write approval card, and the brain replaced once (the
+// respawn case stops it on purpose; the hub starts a new one with its context).
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
@@ -48,9 +51,34 @@ function runner(method: string, path: string, body?: Json): Promise<{ status: nu
   });
 }
 
+const SECRET_FILE = process.env.MARCEL_LIVE_SECRET ?? join(homedir(), 'marcel', 'data', 'hub-secret');
+
+/** The brain session the runner lists now (role `brain`). */
+async function brainId(): Promise<string | undefined> {
+  const { json } = await runner('GET', '/sessions?all=false');
+  const rows = (json as unknown as any[]) ?? [];
+  return rows.find((r) => r.role === 'brain' && r.status)?.id;
+}
+
+/** The brain API, as the brain's own tools call it (hub secret and the brain's session id). */
+async function brainApi(method: string, path: string, body?: Json): Promise<{ status: number; json: any }> {
+  const res = await fetch(`${HUB}/brain${path}`, {
+    method,
+    headers: {
+      'x-marcel-secret': readFileSync(SECRET_FILE, 'utf8').trim(),
+      'x-marcel-session': (await brainId()) ?? '',
+      ...(body ? { 'content-type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  return { status: res.status, json: text ? JSON.parse(text) : {} };
+}
+
 let deviceToken = '';
 let deviceId = '';
-const started: string[] = [];
+const started: string[] = []; // sessions this test started
+const tasks: string[] = []; // tasks this test made, archived at the end
 
 async function api(method: string, path: string, body?: Json, token = deviceToken): Promise<{ status: number; json: any }> {
   const res = await fetch(`${HUB}${path}`, {
@@ -105,16 +133,30 @@ beforeAll(async () => {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ code, device_name: `S-05.2 live test ${STAMP}` }),
   });
+  expect(paired.status, 'POST /api/pair').toBe(201);
   const device = (await paired.json()) as { token: string; device_id: string };
   deviceToken = device.token;
   deviceId = device.device_id;
 }, 60_000);
 
 afterAll(async () => {
-  for (const sid of started) await runner('POST', `/sessions/${sid}/stop`).catch(() => undefined);
+  const problems: string[] = [];
+  // An approval this test left open is denied, never left for the owner's phone.
+  const open = await api('GET', '/api/approvals').catch(() => ({ json: [] as any[] }));
+  for (const a of (Array.isArray(open.json) ? open.json : []) as any[]) {
+    if (tasks.includes(a.task_id) && a.state === 'open') {
+      await api('POST', `/api/approvals/${a.id}`, { decision: 'deny', note: 'The live test ended.' });
+    }
+  }
+  for (const sid of started) {
+    const stop = await runner('POST', `/sessions/${sid}/stop`).catch((e: Error) => ({ status: 0, json: { message: e.message } }));
+    if (stop.status !== 200) problems.push(`session ${sid} was not stopped: ${stop.status} ${JSON.stringify(stop.json)}`);
+  }
+  for (const t of tasks) await api('POST', `/api/tasks/${t}/archive`).catch(() => undefined);
   if (deviceId) await api('DELETE', `/api/devices/${deviceId}`).catch(() => undefined);
   rmSync(join(CWD, `live-approval-${STAMP}.txt`), { force: true });
-}, 120_000);
+  if (problems.length) throw new Error(problems.join('\n'));
+}, 180_000);
 
 describe('the marcel channel with a real background session', () => {
   let sessionId = '';
@@ -131,11 +173,11 @@ describe('the marcel channel with a real background session', () => {
       prompt: 'Answer READY, then wait for messages.',
     });
     expect(res.status, JSON.stringify(res.json)).toBe(201);
-    // The runner answers only once the debug log says `Channel notifications registered` for
-    // plugin:marcel:marcel, the MCP server plugin.json declares inline (S-05.1 review).
-    expect(res.json.channel_registered).toBe(true);
     sessionId = res.json.session_id as string;
     started.push(sessionId);
+    // The runner answers only once the debug log says `Channel notifications registered`; the
+    // only channel is the marcel server, which plugin.json declares inline (S-05.1 review).
+    expect(res.json.channel_registered).toBe(true);
   }, 240_000);
 
   it('is adopted, and a message sent through the hub reaches it and its answer comes back', async () => {
@@ -151,6 +193,7 @@ describe('the marcel channel with a real background session', () => {
     expect(adopt.status, JSON.stringify(adopted)).toBe(201);
     expect(adopted.tracked).toBe('live');
     taskId = adopted.task_id;
+    tasks.push(taskId);
 
     const word = `PINEAPPLE${STAMP}`;
     const sent = await api('POST', `/api/tasks/${taskId}/messages`, {
@@ -183,8 +226,51 @@ describe('the marcel channel with a real background session', () => {
     await waitFor('the answer after the write', () => answered(taskId, `WRITTEN${STAMP}`));
   }, 300_000);
 
-  // Not here: a message "queued while the session was stopped". Stopping an adopted session ends its
-  // task (`stopped`), and a stopped task refuses messages (409 `task_finished`), so whether one gets in
-  // first is a race (it passed 6 of 7 runs). The channel's reconnect is covered by its own tests and by
-  // the hub restart on the NUC (S-14.1 log).
+  it('delivers a message sent while a new worker is still starting, once its channel says hello', async () => {
+    // The hub stores a steer for a task whose session has not said hello yet and sends it at the
+    // hello; the channel server holds frames until Claude Code is ready for them (the settle delay
+    // after notifications/initialized, SP1). Started through the brain API, as tasks_spawn does.
+    const word = `EARLY${STAMP}`;
+    const made = await brainApi('POST', '/tasks', {
+      title: `Channel live early message ${STAMP}`,
+      location: 'nuc',
+      model: 'haiku',
+      prompt: 'Wait for a message on the channel and do what it says. Do not report until you have it.',
+    });
+    expect(made.status, JSON.stringify(made.json)).toBe(201);
+    const early = made.json.id as string;
+    tasks.push(early);
+    const sent = await api('POST', `/api/tasks/${early}/messages`, { text: `Please answer with exactly the text "${word}".` });
+    expect(sent.status).toBe(202);
+    await waitFor('the early message, answered', () => answered(early, word));
+    // The hub names a worker's session after its task; stop it with the rest at the end.
+    const { json: rows } = await runner('GET', '/sessions?all=false');
+    const worker = ((rows as unknown as any[]) ?? []).find((r) => String(r.name).startsWith(early));
+    if (worker) started.push(worker.id);
+  }, 300_000);
+
+  it('gets a message sent while the brain was down to the brain that replaces it', async () => {
+    // A brain that ends is replaced at once (the hub's keeper); a message sent meanwhile waits in
+    // the hub and reaches the new brain at its hello.
+    const old = await brainId();
+    expect(old, 'a running brain').toBeTruthy();
+    const { json: me } = await api('GET', '/api/me');
+    const conversation = me.agents[0].main_conversation_id as string;
+    expect((await runner('POST', `/sessions/${old}/stop`)).status).toBe(200);
+    const word = `RESPAWN${STAMP}`;
+    const sent = await api('POST', `/api/conversations/${conversation}/messages`, {
+      text: `A live test: please answer with exactly the text "${word}" and nothing else.`,
+    });
+    expect(sent.status).toBe(201);
+    const reply = await waitFor('the new brain\'s answer', async () => {
+      const { json } = await api('GET', `/api/conversations/${conversation}/messages`);
+      const items: any[] = json.items ?? json;
+      return items.find((m) => m.role === 'agent' && String(m.text).includes(word));
+    }, 300);
+    expect(reply).toBeTruthy();
+    expect(await brainId()).not.toBe(old);
+  }, 420_000);
+
+  // Not here: a prompt answered in the terminal (`claude attach`) and not shown again as a card
+  // after a reconnect. It needs a person at the terminal (S-05.1 review; follow-up for the lead).
 });
