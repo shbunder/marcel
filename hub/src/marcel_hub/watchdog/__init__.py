@@ -98,14 +98,19 @@ class ResultWatch:
         self._task: asyncio.Task[None] | None = None
 
     def check(self) -> bool:
-        """Tell the owner about every new result. True when one was told."""
+        """Tell the owner about every new result, oldest first. True when one was told."""
         told = False
         for name, describe_it in self.results.items():
-            told = self._check(name, describe_it) or told
+            # A script never replaces a result the hub has not told: a second one in the same run
+            # goes to `<stem>.<time>.result`, told after the first, in time order.
+            stem = name.removesuffix('.result')
+            later = sorted(self.state_dir.glob(f'{stem}.*.result'))
+            for path in [self.state_dir / name, *later]:
+                told = self._check(path, describe_it) or told
         return told
 
-    def _check(self, name: str, describe_it: Describe) -> bool:
-        path = self.state_dir / name
+    def _check(self, path: Path, describe_it: Describe) -> bool:
+        name = path.name
         try:
             raw = path.read_text('utf-8')
         except FileNotFoundError:
@@ -119,9 +124,8 @@ class ResultWatch:
             log.warning('%s is not JSON; telling the owner it could not be read.', path)
             result = None
         title, text, push = describe_it(result if isinstance(result, dict) else None)
-        self._say(
-            title, text, push, key=Path(name).stem
-        )  # raises when it cannot post: the next look tries again
+        # Raises when it cannot post: the file stays and the next look tries again.
+        self._say(title, text, push, key=name.removesuffix('.result'))
         with contextlib.suppress(OSError):
             path.replace(path.with_name(f'{name}.told'))
         log.info('Told %s: %s', name, title)

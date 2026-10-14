@@ -38,8 +38,8 @@ cat >"$work/seed/deploy/health.sh" <<'STUB'
 #!/usr/bin/env bash
 src="$FAKE_SRC"
 [ -n "${FAKE_DIRTY:-}" ] && echo dirty >"$src/app.txt"  # a local edit that stops a revert
-[ -n "${FAKE_HEALTH:-}" ] && exit "$FAKE_HEALTH"
 [ -e "$src/BROKEN" ] && exit 1
+[ -n "${FAKE_HEALTH:-}" ] && exit "$FAKE_HEALTH"
 exit 0
 STUB
 chmod +x "$work/seed/deploy/redeploy.sh" "$work/seed/deploy/health.sh"
@@ -56,10 +56,14 @@ commit() {  # commit <message> <file> <content>: a commit on GitHub's main; prin
 redeploy() {  # redeploy <flag content> [env…]: write the flag the way the hub does, run the script
     local flag="$1"; shift
     printf '%s' "$flag" >"$STATE/redeploy.flag"
-    rm -f "$STATE/redeploy.result" "$work/makes" "$work/makes.next" "$work/makes.failed"
+    rm -f "$STATE"/redeploy*.result "$work/makes" "$work/makes.next" "$work/makes.failed"
     env "$@" bash "$work/src/deploy/redeploy.sh"
 }
 field() { python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get(sys.argv[2], ""))' "$STATE/redeploy.result" "$1" 2>/dev/null; }
+newest() {  # a field of the run's last result: redeploy.<time>.result sort after the first, by time
+    local f; f="$(ls "$STATE"/redeploy.*.result 2>/dev/null | sort | tail -n 1)"
+    python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get(sys.argv[2], ""))' "${f:-$STATE/redeploy.result}" "$1" 2>/dev/null
+}
 head_of() { git -C "$1" rev-parse "${2:-HEAD}"; }
 makes() { [ -f "$work/makes" ] && grep -c install "$work/makes" || echo 0; }
 
@@ -120,6 +124,13 @@ rm "$work/origin.git/hooks/pre-receive"
 git -C "$work/src" push -q origin HEAD:main  # the owner pushes it by hand, as the message says
 "${seed[@]}" pull -q origin main 2>/dev/null
 
+# A broken change, then only Claude Code's version drifted: rolled back, and the drift said.
+echo yes >"$work/seed/BROKEN"; "${seed[@]}" add BROKEN; "${seed[@]}" commit -q -m 'Break it, then drift'; "${seed[@]}" push -q origin main
+redeploy "$("${seed[@]}" rev-parse HEAD)" FAKE_HEALTH=2
+[ "$(field outcome)" = rolled_back ] && [[ "$(field reason)" == *'Claude Code is not the version'* ]] \
+    && ok 'drift after the rollback is said as drift' || fail "drift after rollback: $(field outcome) $(field reason)"
+"${seed[@]}" pull -q origin main 2>/dev/null
+
 # A Claude Code version drift is not this change: no rollback.
 drift="$(commit 'Runner: tidy' app.txt v3)"
 redeploy "$drift" FAKE_HEALTH=2
@@ -167,8 +178,23 @@ second="$(commit 'Second of two' app.txt v8)"
 "${seed[@]}" reset -q --hard "$first"  # the flag names the first; the second is already on GitHub
 redeploy "$first" FAKE_NEXT_FLAG="$second"
 "${seed[@]}" reset -q --hard "$second"
-[ "$(head_of "$work/src")" = "$second" ] && [ "$(field sha)" = "$second" ] && [ "$(makes)" = 2 ] \
-    && ok 'a flag written mid-run is deployed before the run ends' || fail "second merge: $(field sha) $(makes)"
+[ "$(head_of "$work/src")" = "$second" ] && [ "$(field sha)" = "$first" ] && [ "$(newest sha)" = "$second" ] \
+    && [ "$(newest outcome)" = deployed ] && [ "$(makes)" = 2 ] \
+    && ok 'a flag written mid-run is deployed before the run ends; both are told' || fail "second merge: $(newest sha) $(makes)"
+
+# A second merge on a broken one whose revert GitHub refused: the rollback is still told, then the refusal.
+broke="$(commit 'Break it, and a merge on top' BROKEN yes)"
+next="$(commit 'Next merge' app.txt v7b)"
+"${seed[@]}" reset -q --hard "$broke"
+printf '#!/bin/sh\nexit 1\n' >"$work/origin.git/hooks/pre-receive"; chmod +x "$work/origin.git/hooks/pre-receive"
+redeploy "$broke" FAKE_NEXT_FLAG="$next" 2>/dev/null
+rm "$work/origin.git/hooks/pre-receive"
+"${seed[@]}" reset -q --hard "$next"
+[ "$(field outcome)" = rolled_back ] && [[ "$(field reason)" == *'only on the NUC'* ]] && [ "$(newest outcome)" = refused ] \
+    && ok 'an untold rollback is never replaced by a later result' || fail "overwrite: $(field outcome) then $(newest outcome)"
+# Clean up as the owner would: revert the broken one on GitHub, put the deployed copy on GitHub's main.
+"${seed[@]}" revert --no-edit "$broke" >/dev/null && "${seed[@]}" push -q origin main
+git -C "$work/src" fetch -q origin && git -C "$work/src" reset -q --hard origin/main
 
 # A failed install is not a success: rolled back, and said why.
 fails="$(commit 'Hub: does not build' app.txt v9)"
@@ -197,6 +223,17 @@ redeploy "$rewrite"
     && ok 'a run that rewrites its own script finishes on the one it started with' \
     || fail "rewrite: $(field outcome) $(tail -3 "$STATE/redeploy.log")"
 
+# The deployed copy cannot switch branches (a stale git lock): refused, nothing changed.
+"${seed[@]}" checkout -q -b drill/z && "${seed[@]}" commit -q --allow-empty -m 'Drill z' && "${seed[@]}" push -q origin drill/z
+z="$("${seed[@]}" rev-parse HEAD)"; "${seed[@]}" checkout -q main
+before="$(head_of "$work/src")"
+touch "$work/src/.git/index.lock"
+redeploy "$z" MARCEL_REDEPLOY_BRANCH=drill/z
+rm "$work/src/.git/index.lock"
+[ "$(field outcome)" = refused ] && [[ "$(field reason)" == *'could not switch to drill/z'* ]] \
+    && [ "$(head_of "$work/src")" = "$before" ] && [ "$(git -C "$work/src" branch --show-current)" = main ] \
+    && ok 'a copy that cannot switch branches: refused' || fail "checkout: $(field outcome) $(field reason)"
+
 # GitHub cannot be reached: refused, nothing changed.
 before="$(head_of "$work/src")"
 git -C "$work/src" remote set-url origin "$work/gone.git"
@@ -220,7 +257,7 @@ FAKE_SLOW=1 setsid bash "$work/src/deploy/redeploy.sh" &
 pid=$!
 for _ in $(seq 50); do grep -q install "$work/makes" 2>/dev/null && break; sleep 0.1; done
 kill -TERM -- "-$pid"; wait "$pid"
-[ "$(field outcome)" = rollback_failed ] && [[ "$(field reason)" == *'ran out of time'* ]] \
+[ "$(field outcome)" = rollback_failed ] && [[ "$(field reason)" == *'stopped halfway'* ]] \
     && ok 'a run stopped by systemd says so' || fail "timeout: $(field outcome) $(field reason)"
 
 if [ "$failures" -ne 0 ]; then

@@ -101,6 +101,24 @@ def test_a_new_result_after_one_was_told_is_told_too(owner: Engine, tmp_path: Pa
     assert len(said(owner)) == 2
 
 
+def test_a_second_result_of_the_same_run_is_told_after_the_first(
+    owner: Engine, tmp_path: Path
+) -> None:
+    write(tmp_path, outcome='rolled_back', reason='The revert could not be pushed to GitHub.')
+    (tmp_path / 'redeploy.1760425000000000000.result').write_text(
+        json.dumps({'outcome': 'refused', 'reason': 'The deployed copy could not fast-forward.'})
+    )
+    pushes = Pushes()
+    assert ResultWatch(owner, EventLog(owner), tmp_path, pusher=pushes).check() is True
+    texts = [text for _, text in said(owner)]
+    assert 'reverted it' in texts[0] and 'could not fast-forward' in texts[1] and len(texts) == 2
+    assert [n.collapse_key for n, _ in pushes.sent] == ['redeploy', 'redeploy.1760425000000000000']
+    assert sorted(p.name for p in tmp_path.glob('redeploy*')) == [
+        'redeploy.1760425000000000000.result.told',
+        'redeploy.result.told',
+    ]
+
+
 def test_an_unreadable_result_is_still_said(owner: Engine, tmp_path: Path) -> None:
     (tmp_path / RESULT).write_text('{"outcome": "deployed", "sha": ')  # cut short
     pushes = Pushes()

@@ -33,9 +33,12 @@ flock -n 9 || { echo "A redeploy is already running; it reads the flag again bef
 exec >>"$LOG" 2>&1
 echo "== $(date -u +%FT%TZ) redeploy"
 
-# The result the hub reads: one JSON object, written whole (temp file, then rename).
+# The result the hub reads: one JSON object, written whole (temp file, then rename). One the hub has not told yet
+# is never replaced: a second outcome in the same run goes to redeploy.<time>.result, which the hub tells after it.
 result() {  # outcome, reason, [sha], [previous], [revert]
-    /usr/bin/python3 - "$RESULT" "$@" <<'PY'
+    local out="$RESULT"
+    [ -e "$out" ] && out="$STATE/redeploy.$(date -u +%s%N).result"
+    /usr/bin/python3 - "$out" "$@" <<'PY'
 import json, os, subprocess, sys, datetime
 path, outcome, reason, sha, previous, revert = (sys.argv[1:] + ['', '', '', ''])[:6]
 def subject(ref):
@@ -63,7 +66,7 @@ HEALTH="$STATE/redeploy.health.sh"  # the health check from before the change
 sha=""
 previous=""
 # systemd stops the run after TimeoutStartSec: say so instead of leaving no result.
-trap 'result rollback_failed "The redeploy of ${sha:0:7} ran out of time and was stopped halfway. Check the NUC: make -C deploy health, and ~/marcel/state/redeploy.log." "$sha" "$previous"; exit 1' TERM
+trap 'result rollback_failed "The redeploy of ${sha:0:7} was stopped halfway (its 30 minutes ran out, or the NUC stopped or restarted it). Check the NUC: make -C deploy health, and ~/marcel/state/redeploy.log." "$sha" "$previous"; exit 1' TERM
 
 # install's own health check is skipped: watch() does the waiting, with the health check from before the change.
 deploy() { MARCEL_SKIP_HEALTH=1 make -C "$SRC/deploy" install; }
@@ -151,8 +154,18 @@ one() {  # deploy the commit the flag names
     pushed="The revert is on GitHub."
     "${GIT[@]}" push -q origin "HEAD:$BRANCH" \
         || pushed="The revert could not be pushed to GitHub, so it is only on the NUC: git -C ~/marcel/src push origin $BRANCH."
-    if deploy && watch; then
+    if deploy; then
+        watch
+        rc=$?
+    else
+        rc=1
+    fi
+    if [ "$rc" -eq 0 ]; then
         result rolled_back "${why}Marcel is up again. $pushed" "$sha" "$previous" "$revert"
+        return 0
+    fi
+    if [ "$rc" -eq 2 ]; then
+        result rolled_back "${why}Marcel runs again, but Claude Code is not the version Marcel is tested with: run make -C deploy install. $pushed" "$sha" "$previous" "$revert"
         return 0
     fi
     result rollback_failed "${why}Marcel is still not healthy after reverting it. $pushed Check the NUC: make -C deploy health." "$sha" "$previous" "$revert"

@@ -622,7 +622,9 @@ read-only, ADR-002).
   A file that is not valid JSON is still told ("its result could not be read"). If the message cannot
   be posted, the file stays and the next look tries again; a failed push still leaves the message.
   `watchdog.RESULTS` lists the files it watches, each with the function that words it and says how
-  to push it (`silent`, `note` or `urgent`).
+  to push it (`silent`, `note` or `urgent`). A script never replaces a result the hub has not told:
+  a second outcome in the same run goes to `<stem>.<time>.result`, told after the first, in order,
+  with its own collapse key.
 
 ## Project boards
 

@@ -18,7 +18,7 @@ Everything lives under `~/marcel`:
 |---|---|
 | `src/` | The deployed checkout of `shbunder/marcel` (`main`). Run every `make -C deploy …` from here |
 | `data/` | The hub's `/data`: the database, `hub-secret`, `memory/` (the brain links into it), `marcel.toml`, `avatars/` (drawn avatars; safe to delete) |
-| `state/` | The hub's `/state`: `redeploy.flag` (the hub asks for a redeploy), `redeploy.result` (how it went, until the hub has told the owner; then `redeploy.result.told`), `redeploy.log` |
+| `state/` | The hub's `/state`: `redeploy.flag` (the hub asks for a redeploy), `redeploy.result` (how it went, until the hub has told the owner; then `redeploy.result.told`; a second outcome in the same run waits in `redeploy.<time>.result`), `redeploy.log` |
 | `run/` | The runner's socket, mounted into the hub at `/run/marcel` |
 | `brain/` | The brain workspace, rendered from `brain/` |
 | `plugins/` | The `marcel-local` marketplace: a built copy of `plugins/marcel/` |
@@ -163,12 +163,12 @@ A self-change the owner approves in the app and merges on GitHub deploys itself 
 | "Marcel is updated … Claude Code is not the version …" | Deployed; only the Claude version drifted | `make -C deploy install` |
 | "An update was rolled back" | A failed install, or not healthy in 120 s; reverted on GitHub and on the NUC | Read `~/marcel/state/redeploy.log`; fix it in a new PR |
 | "… The revert could not be pushed to GitHub, so it is only on the NUC" | As above, but GitHub refused the push | `git -C ~/marcel/src push origin main`. Until then the next self-change is refused ("could not fast-forward") |
-| "Marcel may be down" | The revert failed, Marcel is still unhealthy after it, or the run hit its 30 minutes | `make -C deploy health`, `~/marcel/state/redeploy.log`, `git -C ~/marcel/src status` |
+| "Marcel may be down" | The revert failed, Marcel is still unhealthy after it, or the run was stopped halfway (its 30 minutes, or a reboot) | `make -C deploy health`, `~/marcel/state/redeploy.log`, `git -C ~/marcel/src status` |
 | "An update was not deployed" | The flag or the commit was refused; nothing changed | The reason says why. "Could not fetch": upgrade by hand (below) once GitHub answers. "Could not fast-forward": `~/marcel/src` has local changes or commits; look at `git -C ~/marcel/src status` |
 
-The service gets 30 minutes in all (`TimeoutStartSec`); when systemd stops it, the script still writes "ran out of
-time". One redeploy runs at a time: a flag written while one runs (a second merge) is deployed by that run before it
-ends. A commit the deployed copy already has does nothing. The push uses `~/marcel/src`'s own git login (SSH to
+The service gets 30 minutes in all (`TimeoutStartSec`); when systemd stops it, the script still writes "stopped
+halfway". One redeploy runs at a time: a flag written while one runs (a second merge) is deployed by that run before it
+ends, and both outcomes are told, in order. A commit the deployed copy already has does nothing. The push uses `~/marcel/src`'s own git login (SSH to
 GitHub). While Marcel is down nobody is told: the hub tells the outcome once it is back, so a hub that never comes
 back says nothing. `make -C deploy health` is the check then.
 
