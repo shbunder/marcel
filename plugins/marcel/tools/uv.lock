@@ -478,6 +478,22 @@ wheels = [
 ]
 
 [[package]]
+name = "marcel-avatar-zoo"
+version = "0.1.0"
+source = { directory = "../../../shared/avatar/zoo" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "jsonschema", specifier = ">=4.23" },
+    { name = "pyright", specifier = ">=1.1.380" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "pytest-cov", specifier = ">=5" },
+    { name = "ruff", specifier = ">=0.6" },
+]
+
+[[package]]
 name = "marcel-hub"
 version = "0.1.0"
 source = { editable = "../../../hub" }
@@ -487,6 +503,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx", extra = ["http2"] },
     { name = "jsonschema" },
+    { name = "marcel-avatar-zoo" },
     { name = "segno" },
     { name = "sqlmodel" },
     { name = "uvicorn" },
@@ -500,6 +517,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.27" },
     { name = "jsonschema", specifier = ">=4.23" },
+    { name = "marcel-avatar-zoo", directory = "../../../shared/avatar/zoo" },
     { name = "segno", specifier = ">=1.6" },
     { name = "sqlmodel", specifier = ">=0.0.22" },
     { name = "uvicorn", specifier = ">=0.30" },
