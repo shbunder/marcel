@@ -142,6 +142,10 @@ async def whole_path(request: Request) -> JSONResponse:
     brains = _brains(request)
     ok = hub == 'ok' and runner['state'] == 'ok' and all(b['state'] == 'ok' for b in brains)
     body: dict[str, Any] = {'ok': ok, 'hub': hub, 'runner': runner, 'brains': brains}
+    updates = getattr(request.app.state, 'claude_updates', None)
+    change = updates.open_change() if updates is not None else None
+    if change is not None:  # Claude Code was updated under Marcel and is not back on the pin yet
+        body['claude_update'] = change
     if not brains:  # a fresh install: nothing to answer yet, so not a failure (install.sh)
         body['note'] = 'No agent yet: create one (docs/operating.md, Install).'
     return JSONResponse(body, status_code=200 if ok else 503)

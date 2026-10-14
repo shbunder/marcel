@@ -101,6 +101,24 @@ printf 'X-Marcel-Secret: %s\n' "$(cat ~/marcel/data/hub-secret)" | curl -s -H @-
 # {"ok":true,"hub":"ok","runner":{"state":"ok","latency_ms":4},"brains":[{"agent_id":"agt_…","state":"ok","last_seen_s":7}]}
 ```
 
+## When Claude Code changes under Marcel
+
+`claude_updates.py`. Another `claude` on the NUC can update the shared binary; Claude's supervisor then
+restarts onto it, the sessions it ran end, and the runner's pin refuses new work until
+`deploy/install-claude.sh` puts the pinned version back. The runner's events do not say so yet
+(`project/contract-requests/claude-auto-update.md`), so the hub reads its `GET /health` every minute:
+
+- **Moved away from the pin:** every NUC task still running whose session the runner no longer lists as
+  live goes to `failed`, with a reason that says Claude Code was updated and to retry once it is back.
+  Tasks the runner reported `failed` in the last 10 minutes are counted with them. Then one notice in the
+  owner's main conversation, pushed (category `note`), once per version: "Claude Code was updated to X;
+  N sessions ended. New work waits until Marcel is back on the pinned version Y — run
+  deploy/install-claude.sh."
+- **Back on the pin:** one short notice, not pushed.
+- `GET /internal/health` shows the open change as `claude_update {installed, expected, at,
+  sessions_ended}`. What the hub saw is kept in `<data_dir>/claude-version.json`, so a restart never
+  repeats a notice, and a change while the hub was down is noticed on its first look.
+
 ## The owner and their agent: `marcel-hub setup`
 
 ```bash

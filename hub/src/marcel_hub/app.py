@@ -32,6 +32,7 @@ from marcel_hub import (
     brain,
     brain_api,
     channel,
+    claude_updates,
     cloud,
     conversations,
     db,
@@ -282,6 +283,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if watch is not None:
             watch.start()
             guard.start()  # S-10.1: reads plan usage from the runner
+        if app.state.claude_updates is not None:
+            app.state.claude_updates.start()  # Claude Code updated under Marcel: tell the owner
         keeper.mark_all()  # every board is rebuilt once at start (S-04.11)
         keeper.start()
         avatars.prime()  # states that changed while the hub was down (S-04.8)
@@ -296,6 +299,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         sides.start()  # S-06.3: does nothing until the hub has a runner
         clouds.start_watchdog()  # S-07.1: overdue cloud tasks go silent
         yield
+        if app.state.claude_updates is not None:
+            await app.state.claude_updates.stop()
         await clouds.stop_watchdog()
         await sides.stop()
         if keeper_of_brains is not None:
@@ -368,6 +373,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.runner_watch = watch
     app.state.runner_client = client  # the whole-path health check asks it (`path_health.py`)
+    # Claude Code updated outside Marcel's units: mark the ended tasks, tell the owner once.
+    app.state.claude_updates = (
+        claude_updates.ClaudeUpdates(
+            engine, client, registry, app.state.events, pusher, settings.data_dir
+        )
+        if client is not None
+        else None
+    )
     ws.install(app)
     app.include_router(conversations.router)
     app.include_router(mentions.router)  # S-18.2: GET /api/mentions
