@@ -65,7 +65,8 @@ def _reset_time(when: str, tz: str, now: datetime) -> datetime:
         zone = ZoneInfo(tz)
     except (ZoneInfoNotFoundError, ValueError):
         raise UsageUnreadable(
-            f'Claude Code gave usage reset times in "{tz}", a time zone the runner does not know.'
+            'Claude Code gave usage reset times in a time zone the runner does not know.',
+            f'time zone: {tz}',
         ) from None
     for fmt in RESET_FORMATS:
         try:
@@ -77,8 +78,9 @@ def _reset_time(when: str, tz: str, now: datetime) -> datetime:
             continue
         return min(candidates, key=lambda c: abs(c - now))
     raise UsageUnreadable(
-        f'Claude Code gave a usage reset time the runner cannot read: "{when}". '
-        f'Update RESET_FORMATS in {HERE}.'
+        'Claude Code gave a usage reset time the runner cannot read. '
+        f'Update RESET_FORMATS in {HERE}.',
+        f'reset time: {when}',
     )
 
 

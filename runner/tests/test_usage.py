@@ -113,14 +113,18 @@ def test_empty_output_is_unreadable_not_a_crash() -> None:
 
 def test_unknown_reset_time_format_is_unreadable() -> None:
     text = 'Current session: 4% used · resets tomorrow (UTC)\n' + RECORDED.read_text('utf-8')
-    with pytest.raises(UsageUnreadable, match='tomorrow'):
+    with pytest.raises(UsageUnreadable, match='RESET_FORMATS') as e:
         parse_usage(text, TAKEN)
+    assert 'tomorrow' not in str(e.value)  # what claude printed: the journal only
+    assert e.value.detail == 'reset time: tomorrow'
 
 
 def test_unknown_timezone_is_unreadable() -> None:
     text = RECORDED.read_text('utf-8').replace('2:29pm (UTC)', '2:29pm (Nowhere)')
-    with pytest.raises(UsageUnreadable, match='Nowhere'):
+    with pytest.raises(UsageUnreadable, match='time zone the runner does not know') as e:
         parse_usage(text, TAKEN)
+    assert 'Nowhere' not in str(e.value)
+    assert e.value.detail == 'time zone: Nowhere'
 
 
 # --- reset times ------------------------------------------------------------------------------
