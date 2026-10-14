@@ -73,6 +73,17 @@ def test_the_brain_routes_are_exactly_the_brain_api(served: set[tuple[str, str]]
     assert under(served, '/brain/') == contract - set(PENDING_BRAIN_OPERATIONS)
 
 
+def test_read_before_hello_is_the_brain_apis_list() -> None:
+    """brain-api.yaml 0.1.4 names the routes a rollover's new brain may read before its hello."""
+    from marcel_hub.brain_api import READ_BEFORE_HELLO
+
+    doc = yaml.safe_load((CONTRACTS / 'brain-api.yaml').read_text())
+    header = ' '.join(doc['info']['description'].split())
+    paragraph = header[header.index('**Read before hello**') :].split('**')[2]
+    listed = {'/brain' + path for path in re.findall(r'`GET (/[^`]+)`', paragraph)}
+    assert listed == READ_BEFORE_HELLO
+
+
 def test_every_session_api_operation_is_served_or_pending(served: set[tuple[str, str]]) -> None:
     contract = contract_routes('session-api.yaml', '/api')
     assert set(PENDING_SESSION_OPERATIONS) <= contract, 'a pending operation is not in the contract'

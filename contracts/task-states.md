@@ -39,7 +39,7 @@ done`); the hub never has to invent a state in between.
 | working, silent | needs_you | A permission request, or the runner reports `blocked` | channel, runner |
 | needs_you | working | The approval is answered (app or terminal), or a steer message arrives | app, terminal, channel |
 | starting, working, needs_you, silent | done | The worker reports `done`, or the runner reports `done` (a short task can finish between two polls) | channel, runner |
-| working, needs_you, silent | failed | The worker reports `failed`, or the runner reports `failed`, or the session ended without a report (plugin `SessionEnd` hook, `reason: ended_without_report`) | channel, runner, session-end hook |
+| working, needs_you, silent | failed | The worker reports `failed`, or the runner reports `failed`, or the session ended without a report (plugin `SessionEnd` hook; the reason starts `ended_without_report`; a `silent` task fails this way too, though its `report_owed` was false) | channel, runner, session-end hook |
 | starting, working, needs_you, silent, unknown | stopped | Stopped | app or brain (`tasks_stop`) |
 | starting, working | silent | No activity past `expected_by`, including a session that never got past starting | hub watchdog |
 | silent | working | Activity resumes | runner, channel |
@@ -55,6 +55,10 @@ done`); the hub never has to invent a state in between.
 - **The runner and the channel** report what the session is doing. The hub maps their reports
   onto the table above.
 - **The hub's watchdog** is the only source of `silent`; the hub alone sets `unknown` and `queued`.
+
+**A session that ends after its task did.** When the `SessionEnd` hook reports a session whose task is already
+`done`, `failed` or `stopped` (or any state outside `working, needs_you, silent`), the state does not change and the
+end reason is only written to the hub's log: no task event (session-api.yaml `sessionEnded`).
 
 Every transition writes a `state` task event (`StateEventData`: `from`, `to`, `reason`) and sends
 `task.updated`. Archiving (`POST /tasks/{id}/archive`, B-17) is not a state: it sets `archived_at`

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — session API
-  version: 0.1.6
+  version: 0.1.7
   description: |
     The two hub endpoints that Claude Code sessions call themselves, over HTTPS through the tunnel.
     They sit under the same `/api` server as the app API but use their own tokens, never a device
@@ -45,10 +45,14 @@ paths:
 
         `report_owed` is true only for a worker whose task is `working` or `needs_you` with no
         `done` or `failed` report since its last prompt; for a brain, side or adopted session it is
-        always false. On `session_end` from such a worker the hub moves the task to `failed` with
-        reason `ended_without_report` (task-states.md) and tells the brain; when the task already
-        ended, the hub only records the end reason. The hooks never block on the answer: a hub
-        that does not answer means "nothing owed".
+        always false. On `session_end` from such a worker, or from a worker whose task is `silent`
+        (`report_owed` is false for it, but its session ending is the sign it waited for), the hub
+        moves the task to `failed` with a reason that starts `ended_without_report` and names the
+        hook's end reason (task-states.md), and tells the brain like any failed task. When the task
+        already ended (the worker reported, or the runner's poll got there first), or the session
+        is a brain, side or adopted one, the end reason is only written to the hub's log: no task
+        event and nothing in the app (0.1.7). The hooks never block on the answer: a hub that does
+        not answer means "nothing owed".
       security:
         - secret: []
           session: []

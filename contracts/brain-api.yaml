@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — brain API
-  version: 0.1.3
+  version: 0.1.4
   description: |
     The routes Marcel's brain tools call (`plugins/marcel/tools`, the `tools` MCP server of the
     marcel plugin). Each tool call is one HTTP call to the hub on the NUC; the hub side is
@@ -17,10 +17,23 @@ info:
       the secret is accepted nowhere under `/api`.
     - `X-Marcel-Session`: the caller's `CLAUDE_CODE_SESSION_ID`. It must be a conversation's
       `brain_session_id`: the brain of the main conversation or a side thread forked from it.
+      Or, for `GET` requests only, the new brain of a rollover that has not said hello yet (the
+      session the hub waits for, or the one the runner lists under the agent's brain name while
+      that rollover's spawn has not returned, and that is not being retired). It reads as its
+      agent's main conversation; any other method or route answers 401 `unknown_session`. The
+      conversation stays the old brain's until the hello hands it over (0.1.4).
 
     The checks run in this order: tunnel header (404 `not_found`), hub secret missing or shorter
-    than the channel's minimum on the hub (503 `no_secret`), wrong secret (401 `bad_secret`),
-    unknown session (401 `unknown_session`), a worker or adopted session (403 `not_brain`).
+    than the channel's minimum on the hub (503 `no_secret`), wrong secret (401 `bad_secret`), a
+    rollover's new brain that has not said hello may only read (a `GET` on a route listed below is
+    let in, anything else answers 401 `unknown_session`), unknown session (401 `unknown_session`),
+    a worker or adopted session (403 `not_brain`).
+
+    **Read before hello** (0.1.4). The routes a rollover's new brain may call before its hello:
+    `GET /tasks`, `GET /tasks/{task_id}`, `GET /projects`, `GET /memory`, `GET /schedules`,
+    `GET /summary`, `GET /usage`. Its `SessionStart` hook asks for the open threads and the day's
+    summary before the channel hands it the conversation. A new `GET` route is not on this list
+    until someone checks it has no side effects.
 
     **Its own agent only.** Every task, project and schedule is looked up within the caller's
     agent; another agent's answers 404, exactly like something that does not exist. A project is
@@ -591,7 +604,7 @@ components:
         application/json:
           schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
     Unauthorized:
-      description: The secret does not match (`bad_secret`), or the session is no conversation's brain (`unknown_session`).
+      description: The secret does not match (`bad_secret`), or the session is no conversation's brain (`unknown_session`); a rollover's new brain before its hello also gets `unknown_session` for anything but a read-before-hello `GET`.
       content:
         application/json:
           schema: { $ref: 'app-api.yaml#/components/schemas/Error' }

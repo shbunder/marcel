@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — app API
-  version: 0.7.1
+  version: 0.7.2
   description: |
     The API the iPhone app uses to talk to the hub on the NUC. **Every path, including `/health`,
     `/pair` and `/ws`, sits under the server URL** (`https://marcel-bot.com/api/...`); the tunnel
@@ -2000,6 +2000,13 @@ components:
           description: |
             Present for `artifact`. On a user `text` message, the item the owner attached
             (`NewMessage.artifact_id`).
+        agent_id:
+          type: string
+          description: |
+            On an `agent` message, the agent that wrote it, so the app can credit a reply that
+            belongs to no quest to the right helper when there are several. Absent on `user` and
+            `system` messages. A client that gets an `agent` message without it credits the
+            conversation's agent. New in 0.7.2.
         task_id: { type: string }
         project_id:
           type: string
@@ -2376,7 +2383,10 @@ components:
           description: The Claude Code tool asking, e.g. `Bash`, `Write`, or `self_change` for a self-modification PR (B-24).
         artifact_id:
           type: string
-          description: For `self_change`, the PR artifact that approving will merge.
+          description: |
+            For `self_change`, the PR artifact this card is about. Approving is the owner's
+            go-ahead; the owner merges the PR on GitHub (the hub never merges, ADR-005), and only a
+            PR both approved here and merged is redeployed (0.7.2).
         summary:
           type: string
           description: What it wants to do, in one line.

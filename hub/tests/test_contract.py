@@ -69,7 +69,8 @@ DERIVED = {
 # soon as an entry is stored, so this list can only shrink.
 # S-04.11 stored the last of them. Contract 0.7 (S-02.7) added more; S-04.15 stored them all (the
 # ones kept under another name are in DERIVED). Empty, until a contract adds a field again.
-PENDING: dict[str, set[str]] = {}
+# Contract 0.7.2 (S-02.10, from S-19.3): the agent that wrote a message, until the hub stores it.
+PENDING: dict[str, set[str]] = {'Message': {'agent_id'}}
 PENDING_ENUM_VALUES: dict[str, set[str]] = {}
 MODELS = {
     'Agent': models.Agent,
