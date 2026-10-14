@@ -85,6 +85,21 @@ def test_same_look_same_etag_and_304(hub: ChannelHub) -> None:
     assert avatar(hub, **{'if-none-match': '"stale"'}).status_code == 200
 
 
+def test_every_answer_varies_on_accept(hub: ChannelHub) -> None:
+    # JSON and PNG share one URL and one ETag: a cache must key them by Accept, 304 included.
+    json_body, image = avatar(hub), avatar(hub, accept='image/png')
+    not_modified = avatar(hub, accept='image/png', **{'if-none-match': json_body.headers['etag']})
+    assert not_modified.status_code == 304
+    for res in (json_body, image, not_modified):
+        assert res.headers['vary'] == 'Accept'
+        assert res.headers['etag'] == json_body.headers['etag']
+
+
+def test_an_encoded_stranger_never_matches(hub: ChannelHub) -> None:
+    assert avatar(hub, **{'if-none-match': '%22lk-fox%22'}).status_code == 200
+    assert avatar(hub, **{'if-none-match': '%2A'}).status_code == 304, '%2A is *'
+
+
 def test_a_new_look_is_a_new_sheet_and_event(hub: ChannelHub) -> None:
     before = avatar(hub)
     res = hub.client.patch(f'/api/agents/{hub.agent_id}', json={'look': FOX})
@@ -160,10 +175,14 @@ def test_the_fingerprint_changes_with_any_drawing_source(tmp_path: Path) -> None
     assert store.drawing_fingerprint(tmp_path) != first
 
 
-@pytest.mark.parametrize('form', ['*', 'W/{tag}', '"other", {tag}'])
+@pytest.mark.parametrize(
+    'form', ['*', 'W/{tag}', '"other", {tag}', '{encoded}', 'W/{encoded}', '"other", {encoded}']
+)
 def test_if_none_match_in_its_other_forms(hub: ChannelHub, form: str) -> None:
     tag = avatar(hub).headers['etag']
-    assert avatar(hub, **{'if-none-match': form.format(tag=tag)}).status_code == 304
+    encoded = tag.replace('"', '%22')  # an iOS client once sent it percent-encoded
+    sent = form.format(tag=tag, encoded=encoded)
+    assert avatar(hub, **{'if-none-match': sent}).status_code == 304
 
 
 def test_a_folder_that_cannot_be_written_only_costs_the_cache(tmp_path: Path) -> None:

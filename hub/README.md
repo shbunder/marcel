@@ -663,7 +663,9 @@ build fails if it cannot draw a sheet).
   drawn once per look (a sheet takes about 0.1 s). The key also hashes the zoo's source files, so a
   changed drawing gets new keys and ETags by itself. Deleting the folder is safe: sheets are drawn
   again. A folder that cannot be written only loses the cache: each request draws afresh.
-- `If-None-Match` also takes `*` and the weak form `W/"…"`.
+- `If-None-Match` also takes `*`, the weak form `W/"…"`, and a percent-encoded tag (`%22…%22`, as an
+  iOS client once sent it; an encoded `*` counts as `*`). Every answer, 304 included, carries `Vary: Accept`: JSON and PNG share one
+  URL and one ETag, so a cache must keep them apart.
 
 ## The avatar's state
 

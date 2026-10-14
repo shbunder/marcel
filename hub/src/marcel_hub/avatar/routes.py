@@ -14,6 +14,7 @@ once clients learn to fall back on a look they do not know).
 import json
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, FastAPI, Query, Request, Response
 
@@ -43,8 +44,10 @@ def install(app: FastAPI, data_dir: Path) -> AvatarStore:
 
 
 def _matches(if_none_match: str, tag: str) -> bool:
-    """`If-None-Match` names this ETag: `*`, the tag itself, or its weak form `W/"…"`."""
-    given = [t.strip() for t in if_none_match.split(',') if t.strip()]
+    """`If-None-Match` names this ETag: `*`, the tag itself, or its weak form `W/"…"`. A tag sent
+    percent-encoded (`%22…%22`: an iOS client once did) is decoded first. Our tags are a hex key in
+    quotes, so decoding cannot make a different tag match; an encoded `*` (`%2A`) counts as `*`."""
+    given = [unquote(t.strip()) for t in if_none_match.split(',') if t.strip()]
     return '*' in given or tag in [t.removeprefix('W/') for t in given]
 
 
