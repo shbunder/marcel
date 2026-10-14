@@ -144,8 +144,8 @@ Code in `Sources/MarcelChat/SideChat/`.
   same ETag; a look that changes between the two is asked for again. Views read the sheets from `\.chatAvatars`;
   `ChatAvatar` takes the `agentId`.
 - **Several helpers in one chat** (ADR-007): when more than one helper speaks in the window, a reply starts with a
-  speaker line (`SpeakerLine`: a 16-pt avatar and the name) where the speaker changes. Who said it: the agent of the
-  message's quest, else the agent whose conversation this is (a message has no agent of its own in the app API).
+  speaker line (`SpeakerLine`: a 16-pt avatar and the name) where the speaker changes. Who said it: the message's own
+  `agent_id` (app API 0.7.2), else the agent of its quest, else the agent whose conversation this is.
   With one helper no speaker line ever shows. Names come from the cached agents; every helper with a speaker line on
   screen gets its sheet fetched (`ChatModel.loadAvatars`), not only one whose look just changed.
 - The app icon is not touched (`shared/brand/app-icon/`).

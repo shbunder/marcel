@@ -253,6 +253,21 @@ final class OwnAvatarTests: XCTestCase {
         XCTAssertEqual(speakers["u1"] ?? nil, nil, "your messages never get one")
     }
 
+    func testAReplyThatNamesItsHelperIsCreditedToIt() throws {
+        let fed = try FedCache()
+        try fed.cache.apply(Self.agentUpdated("agt_marcel", name: "Marcel", animal: "giraffe", etag: nil, frame: 900))
+        try fed.cache.apply(Self.agentUpdated("agt_emma", name: "Emma", animal: "fox", etag: nil, frame: 901))
+        try fed.send("message.created", Fx.message("u1", at: 1, role: "user", text: "Who's free on Friday?"))
+        try fed.send("message.created", Fx.message("r1", at: 2, text: "I am."))
+        try fed.send("message.created", Fx.message("r2", at: 3, text: "Me too, after school.",
+                                                   extra: ["agent_id": "agt_emma"]))
+        let input = try FeedInput.read(from: fed.cache.container.mainContext, conversationId: Fx.conversation,
+                                       limit: 50, agentId: "agt_marcel")
+        let speakers = Dictionary(uniqueKeysWithValues: ChatFeed.items(input).map { ($0.id, $0.speaker?.name) })
+        XCTAssertEqual(speakers["r1"] ?? nil, "Marcel", "no agent_id: the chat's own helper")
+        XCTAssertEqual(speakers["r2"] ?? nil, "Emma", "a reply in no quest, credited by its agent_id")
+    }
+
     func testWithOneHelperNoSpeakerLineEverShows() throws {
         XCTAssertTrue(try feed(emmaSpeaks: false).allSatisfy { $0.speaker == nil })
     }

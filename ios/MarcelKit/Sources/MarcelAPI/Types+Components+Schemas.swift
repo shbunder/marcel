@@ -1786,6 +1786,14 @@ extension Components {
             ///
             /// - Remark: Generated from `#/components/schemas/Message/artifact_id`.
             public var artifactId: Swift.String?
+            /// On an `agent` message, the agent that wrote it, so the app can credit a reply that
+            /// belongs to no quest to the right helper when there are several. Absent on `user` and
+            /// `system` messages. A client that gets an `agent` message without it credits the
+            /// conversation's agent. New in 0.7.2.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/Message/agent_id`.
+            public var agentId: Swift.String?
             /// - Remark: Generated from `#/components/schemas/Message/task_id`.
             public var taskId: Swift.String?
             /// The project a user message was sent from (B-32), or the project of an `artifact` message.
@@ -1864,6 +1872,7 @@ extension Components {
             ///   - approvalId: Present for `approval`. Fetch or watch the approval for its state.
             ///   - quotedMessageId: Present for `quote`.
             ///   - artifactId: Present for `artifact`. On a user `text` message, the item the owner attached
+            ///   - agentId: On an `agent` message, the agent that wrote it, so the app can credit a reply that
             ///   - taskId:
             ///   - projectId: The project a user message was sent from (B-32), or the project of an `artifact` message.
             ///   - clientId:
@@ -1881,6 +1890,7 @@ extension Components {
                 approvalId: Swift.String? = nil,
                 quotedMessageId: Swift.String? = nil,
                 artifactId: Swift.String? = nil,
+                agentId: Swift.String? = nil,
                 taskId: Swift.String? = nil,
                 projectId: Swift.String? = nil,
                 clientId: Swift.String? = nil,
@@ -1898,6 +1908,7 @@ extension Components {
                 self.approvalId = approvalId
                 self.quotedMessageId = quotedMessageId
                 self.artifactId = artifactId
+                self.agentId = agentId
                 self.taskId = taskId
                 self.projectId = projectId
                 self.clientId = clientId
@@ -1916,6 +1927,7 @@ extension Components {
                 case approvalId = "approval_id"
                 case quotedMessageId = "quoted_message_id"
                 case artifactId = "artifact_id"
+                case agentId = "agent_id"
                 case taskId = "task_id"
                 case projectId = "project_id"
                 case clientId = "client_id"
@@ -1962,6 +1974,10 @@ extension Components {
                     Swift.String.self,
                     forKey: .artifactId
                 )
+                self.agentId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .agentId
+                )
                 self.taskId = try container.decodeIfPresent(
                     Swift.String.self,
                     forKey: .taskId
@@ -2000,6 +2016,7 @@ extension Components {
                     "approval_id",
                     "quoted_message_id",
                     "artifact_id",
+                    "agent_id",
                     "task_id",
                     "project_id",
                     "client_id",
@@ -2863,7 +2880,10 @@ extension Components {
             ///
             /// - Remark: Generated from `#/components/schemas/Approval/tool`.
             public var tool: Swift.String
-            /// For `self_change`, the PR artifact that approving will merge.
+            /// For `self_change`, the PR artifact this card is about. Approving is the owner's
+            /// go-ahead; the owner merges the PR on GitHub (the hub never merges, ADR-005), and only a
+            /// PR both approved here and merged is redeployed (0.7.2).
+            ///
             ///
             /// - Remark: Generated from `#/components/schemas/Approval/artifact_id`.
             public var artifactId: Swift.String?
@@ -2894,7 +2914,7 @@ extension Components {
             ///   - id:
             ///   - taskId:
             ///   - tool: The Claude Code tool asking, e.g. `Bash`, `Write`, or `self_change` for a self-modification PR (B-24).
-            ///   - artifactId: For `self_change`, the PR artifact that approving will merge.
+            ///   - artifactId: For `self_change`, the PR artifact this card is about. Approving is the owner's
             ///   - summary: What it wants to do, in one line.
             ///   - detail: The full command or diff stats, for the expanded card.
             ///   - state:

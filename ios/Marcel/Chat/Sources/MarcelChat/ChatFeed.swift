@@ -432,8 +432,10 @@ public enum ChatFeed {
 
     // MARK: Speakers (B-44)
 
-    /// The helper who said `message`: its quest's agent, or else the agent whose conversation this is.
+    /// The helper who said `message`: the one it names (`agent_id`, app API 0.7.2), else its quest's agent, else the
+    /// agent whose conversation this is.
     static func speaker(of message: Message, input: FeedInput) -> String? {
+        if let agentId = message.agentId { return agentId }
         let taskId = message.taskId ?? message.milestone?.taskId
         return taskId.flatMap { input.tasks[$0]?.agentId } ?? input.agentId
     }
