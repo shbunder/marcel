@@ -60,12 +60,13 @@
       g: "#2fb39a", G: "#1c7d6c",                                      // teal accessories (bow tie)
       v: "#9a7bff", V: "#6a4fd1",                                      // violet accessories (cap, scarf)
       q: "#4f7f7c", Q: "#355a58", x: "#c8f3ea",                        // laptop lid, its shade, screen light
+      e: "#2fb39a", E: "#3f6b6a",                                      // the signature bow every avatar wears, its knot
       k: "#2b2433",                                                    // sunglasses
       S: "rgba(60,30,60,0.16)",                                        // ground shadow
     };
     // an accessory must stand out from the fur: green and teal animals get a rose bow tie, violet ones a teal cap
     const near = (a, b, r) => !grey && s > 0.25 && Math.abs(((a - b + 540) % 360) - 180) < r;
-    if (near(h, 150, 55)) { pal.g = "#f0607e"; pal.G = "#b83a5c"; }
+    if (near(h, 150, 55)) { pal.g = "#f0607e"; pal.G = "#b83a5c"; pal.e = "#f0607e"; pal.E = "#b83a5c"; }
     if (near(h, 260, 45) || near(h, 300, 30)) { pal.v = "#2fb39a"; pal.V = "#1c7d6c"; }
     if (accentHex) {
       const [ah, as, al] = hexToHsl(accentHex);
@@ -389,6 +390,11 @@
   // Marcel's agent states map onto moods (B-28).
   const STATES = { idle: "neutral", thinking: "thinking", working: "working", needs_you: "surprised", done: "happy" };
 
+  // ------------------------------------------------------------------ the signature bow
+  // Every avatar wears a bow (Marcel's signature): a bow tie at the neck, like Marcel's (behind the laptop while
+  // working, as a real one would be); a hair bow on the head when a scarf already wraps the neck.
+  const BOW = { rows: ["ee..ee", "eeEEee", "ee..ee"], dx: -3 };
+
   // ------------------------------------------------------------------ accessories and personalities
   const ACCESSORIES = {
     none:    { label: "None" },
@@ -551,9 +557,19 @@
     for (const p of sp.parts()) drawPart(G, p, dyOf(p.group));
 
     const _acc = ACCESSORIES[opts.accessory || per.accessory] || ACCESSORIES.none;
-    if (acc.at === "neck") {
+    if (acc.at === "neck" && acc !== ACCESSORIES.bowtie) {  // the bow tie is the signature bow, below
       const [nx, ny] = face.neck;
       drawPart(G, L(nx + acc.dx, ny + acc.dy, acc.rows), opts.species === "giraffe" ? hop : hy);
+    }
+
+    // the signature bow: at the neck (the laptop, drawn next, sits in front of it), or on the head when a scarf has
+    // the neck
+    if (acc.at === "neck" && acc !== ACCESSORIES.bowtie) {
+      const [bx, by] = face.flower;
+      drawPart(G, H(bx - Math.floor(BOW.rows[0].length / 2), by - 1, BOW.rows), hy);
+    } else {
+      const [nx, ny] = face.neck;
+      drawPart(G, L(nx + BOW.dx, ny, BOW.rows), opts.species === "giraffe" ? hop : hy);
     }
 
     if (mood.prop === "laptop") drawLaptop(G, sp, f, hop, Math.max(1, Math.min(3, opts.sessions || 1)));

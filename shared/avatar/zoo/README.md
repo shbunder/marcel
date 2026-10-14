@@ -7,7 +7,8 @@ is a **look** — animal × colour × personality — shown in a **mood**. The s
 |---|---|
 | Animals | giraffe, crocodile, frog, cat, fox, bear, panda, rabbit, dog, pig, mouse |
 | Colours | `natural` (the animal's own), 16 names (`rose`, `teal`, `ink`, …) or any `#rrggbb` |
-| Personalities | professional (bow tie), cheerful (flower), curious (glasses), cozy (scarf), bold (crown), cool (sunglasses), sporty (cap), shy, grumpy — each sets an accessory, a resting face and how much it bobs |
+| Personalities | professional, cheerful (flower), curious (glasses), cozy (scarf), bold (crown), cool (sunglasses), sporty (cap), shy, grumpy — each sets an accessory, a resting face and how much it bobs |
+| Signature bow | every avatar wears Marcel's bow — teal at the neck (rose on green or teal animals), in the hair when a scarf is on the neck, behind the laptop while working |
 | Moods | 25, from `neutral` and `happy` to `crying`, `dizzy` and `working` (at the laptop) |
 
 ## Use it

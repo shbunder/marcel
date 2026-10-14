@@ -30,11 +30,11 @@
     "...........oodCCCCdoo...........",
     "............oooooooo............",
     "............oabbbbdo............",
-    "............oabbaado............",
-    "...........oolbbaadoo...........",
-    ".........ooloabbbbdodoo.........",
-    "........olooolbbbbdooodo........",
-    ".......olobboddddddobbodo.......",
+    "............ooobaooo............",
+    "...........ooeeooeeoo...........",
+    ".........ooloeeEEeeodoo.........",
+    "........oloooeeooeeooodo........",
+    ".......olobboooddooobbodo.......",
     ".......olobbboooooobbbodo.......",
     ".......olobabbobbobbbbodo.......",
     ".......olobbbbobbobabbodo.......",
@@ -70,12 +70,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#c05484",
     "A": "#a04178"
    },
-   "rgba_sha256": "9b35570a12b7402afaa94df326dc55201227ea79b55076ac9b0bdc6455e2f6ab"
+   "rgba_sha256": "fcac5be022b64db666747766c206e9c15beeb5d9be5f8f3aec664ae2ec247196"
   },
   {
    "look": {
@@ -108,11 +110,11 @@
     "......obbbbboooooooowbbbdo......",
     "......odbbbbwbwbwbwbbbbbdo......",
     ".......oddbbbbbbbbbbbbddoo......",
-    ".......oooddddddddddddooodo.....",
-    "......obbobbbbbbbbbbbbobbodo....",
-    ".....obbbbobbbcccCbbbobbbboo....",
-    ".....obbbbobcCCCCCCCbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......ooodddooddoodddooodo.....",
+    "......obbobboeeooeeobbobbodo....",
+    ".....obbbboboeeEEeeobobbbboo....",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     "......obbooooCCCCCCoooobbo......",
     ".......oollldoccccollldoo.......",
     ".......olbbbbdoCColbbbbdo.......",
@@ -146,12 +148,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#a56935",
     "A": "#7b462c"
    },
-   "rgba_sha256": "f1df77e40f5cb6d191ef5c3e63792269da0267b1ed5c34e22b5a1ec1f99860cc"
+   "rgba_sha256": "04e91d6f3fd0c37a821f1fcc1b523a9f8cfeb97914d89f30074640f0707bd2a6"
   },
   {
    "look": {
@@ -182,11 +186,11 @@
     "...olbbbbbbboboobbobbbbbbbbdo...",
     "...odbbbbbbbbbbbbbbbbbbbbbbdo...",
     "....oddbbbbbbbbbbbbbbbbbbddo....",
-    ".....ooddddddddddddddddddoo.....",
-    ".......oooooooooooooooooo.......",
-    "......obbobbbbbbbbbbbbobbo......",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".....ooddddddooddooddddddoo.....",
+    ".......ooooooeeooeeoooooo.......",
+    "......obbobboeeEEeeobbobbo......",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -222,12 +226,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#f0607e",
+    "E": "#b83a5c",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#335a5e",
     "A": "#22363c"
    },
-   "rgba_sha256": "59737ad4fca4324fa6c050e138d49870569cfae2ca60a14e6c9c0813265d2fcd"
+   "rgba_sha256": "3efa091991bc0a207583ce86790136079b5609ab78242e40e443961de8724790"
   },
   {
    "look": {
@@ -260,11 +266,11 @@
     ".....odbbbbbbbobobbbbbbbbdoldo..",
     "...oooolbbbbbobobobbbbbbdooooo..",
     "......odbbbbbbbbbbbbbbbbdoldo...",
-    ".......oddbbbbbbbbbbbbddoobdo...",
-    "......obooddddddddddddoobodo....",
-    ".....obbbboooooooooooobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbboobboobbbddoobdo...",
+    "......obooddoeeooeeoddoobodo....",
+    ".....obbbboooeeEEeeooobbbbo.....",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
     ".......olbbbbdoCColbbbbdo.......",
@@ -298,12 +304,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#8c5db8",
     "A": "#7d4999"
    },
-   "rgba_sha256": "736196335a78188470132e616857637e9d67d519d882fa12e077a85a3250d879"
+   "rgba_sha256": "8c8b21d80064023b1b5bc1d06ae8b2c8b332ffa7b68845e87b4a0c446567a121"
   },
   {
    "look": {
@@ -336,11 +344,11 @@
     ".....oCccccccCobbocccccccCobbdo.",
     "......oCcccccccoocccccccCodbbdo.",
     "......odCCccccccccccccCCdoolbdo.",
-    ".......oddCCCCCCCCCCCCddo.oddo..",
-    "......obooddddddddddddoobo.oo...",
-    ".....obbbboooooooooooobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddCCCooCCooCCCddo.oddo..",
+    "......obooddoeeooeeoddoobo.oo...",
+    ".....obbbboooeeEEeeooobbbbo.....",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
     ".......olbbbbdoCColbbbbdo.......",
@@ -374,12 +382,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#913c2e",
     "A": "#672525"
    },
-   "rgba_sha256": "d2b9dcffb6fbfdb6ebc1df59dbb9adeddb2c85af24e82b41ac1107438b5c5dab"
+   "rgba_sha256": "d75d4c53b6221c96a10b22754014638c98da357302ff25f0ddb90093bf1aaec2"
   },
   {
    "look": {
@@ -411,11 +421,11 @@
     ".....odbbbbbcccccccCbbbbbdo.....",
     "......olbbbbcccooccCbbbbdo......",
     "......odbbbbCCccccCCbbbbdo......",
-    ".......oddbbbbCCCCbbbbddo.......",
-    ".......oooddddddddddddooo.......",
-    "......obboooooooooooooobbo......",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbbooCCoobbbddo.......",
+    ".......oooddoeeooeeoddooo.......",
+    "......obbooooeeEEeeoooobbo......",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -450,12 +460,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#34313b",
     "A": "#1c1a1f"
    },
-   "rgba_sha256": "35814ccac9d0e867bfcb0954f1a80225f4429133aed969edca4e65cc18b76ae6"
+   "rgba_sha256": "8fd47d8eedc715c770d2038ef811f30ca1c6e96d47c6a4f3ab0b17fc649dd920"
   },
   {
    "look": {
@@ -473,11 +485,11 @@
     "........................oohohoo.",
     ".......oo..............oohhohho.",
     "......oaAo............oaAohohoo.",
-    ".....oaaaAo..........oaaaAoooo..",
-    "....oaaaaaooooooooooooaaaaAo....",
-    "....oAaaoollllllllllldooaaAo....",
-    ".....oAollbbbbbbbbbbbbldoAo.....",
-    "......olbbbbbbbbbbbbbbbbdo......",
+    ".....ooaaoo..........oaaaAoooo..",
+    "....oeeooeeoooooooooooaaaaAo....",
+    "....oeeEEeeollllllllldooaaAo....",
+    "....oeeooeeobbbbbbbbbbldoAo.....",
+    ".....oolboobbbbbbbbbbbbbdo......",
     "......olbbbbbbbbbbbbbbbbdo......",
     ".....olbbbwwbbbbbbbbwwbbbdo.....",
     ".....olbbbaawwbbbbwwaabbbdo.....",
@@ -526,12 +538,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#3a3340",
     "A": "#1f1c24"
    },
-   "rgba_sha256": "ee1f361813063490acc85c9268bd211ff4505b81bce2128b0b2328c88ebf56db"
+   "rgba_sha256": "5f4ae1a8ff72850be900040f7c3dc4681d3bc2972e010bb3bd5617f6620b34e4"
   },
   {
    "look": {
@@ -563,11 +577,11 @@
     ".....odbbbbbbbbobbbbbbbbbdo.....",
     "......olbbbbbbbbobbbbbbbdo......",
     "......odbbbbbbbobbbbbbbbdo......",
-    ".......oddbbbbbbbbbbbbddo.......",
-    ".......oooddddddddddddooo.......",
-    "......obboooooooooooooobbo......",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbboobboobbbddo.......",
+    ".......oooddoeeooeeoddooo.......",
+    "......obbooooeeEEeeoooobbo......",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -602,12 +616,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#f0607e",
+    "E": "#b83a5c",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#4d6b41",
     "A": "#3a4a2f"
    },
-   "rgba_sha256": "a72ba587a240ba02b93cbeb02fbc07e8366d4b363bb55301a8c94fbdf6c8d89f"
+   "rgba_sha256": "cf4898a9b2184ac1f0a0118ecaf46bc14d473e38c55803733a91cd69b9598e33"
   },
   {
    "look": {
@@ -639,11 +655,11 @@
     "....oAobbbbbcccccccCbbbbboAo....",
     ".....oolbbbbcccccocCbbbbdoo.....",
     "......odbbbbCCooocCCbbbbdoo.....",
-    ".......oddbbbbCCCCbbbbddobo.....",
-    ".......oooddddddddddddoooo......",
-    "......obboooooooooooooobbo......",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbbooCCoobbbddobo.....",
+    ".......oooddoeeooeeoddoooo......",
+    "......obbooooeeEEeeoooobbo......",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -678,12 +694,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#8a5a3a",
     "A": "#66352b"
    },
-   "rgba_sha256": "0e0fa1ae4417e6ccdfc200f0ffb5b7a1583aafc776092d02499a09c766de192e"
+   "rgba_sha256": "821a8204ce5710d86a9505d975f1b1b3c4ce4c75dd8c2fe9bc64d151d1ef9a6c"
   },
   {
    "look": {
@@ -717,9 +735,9 @@
     "......olbbbbollllllobbbbdo......",
     "......odbbbbboooooobbbbbdo......",
     ".......oddbbboooboobbbddo.......",
-    "......obooddoggooggoddoobo......",
-    ".....obbbboooggGGggooobbbbo.....",
-    ".....obbbboboggooggobobbbbo.....",
+    "......obooddoeeooeeoddoobo......",
+    ".....obbbboooeeEEeeooobbbbo.....",
+    ".....obbbboboeeooeeobobbbbo.....",
     ".....obbbbobcooccooCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -754,12 +772,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#6e31c4",
     "A": "#662c96"
    },
-   "rgba_sha256": "09b05cbb903bac34b87134163c3098432c21f94626505078524681d93caa4c77"
+   "rgba_sha256": "fe365d6f973110965557076ebd2038edf38edbb2c11025013669c78a55349e29"
   },
   {
    "look": {
@@ -791,11 +811,11 @@
     ".....odbbbbbbbobobbbbbbbbdo.....",
     "...oooolbbbbbobobobbbbbbdoooo...",
     "......odbbbbbbbbbbbbbbbbdo......",
-    ".......oddbbbbbbbbbbbbddo.......",
-    ".......oooddddddddddddooo.......",
-    "......obboooooooooooooobbo.o....",
-    ".....obbbbobbbcccCbbbobbbbobo...",
-    ".....obbbbobcccccccCbobbbboo....",
+    ".......oddbbboobboobbbddo.......",
+    ".......oooddoeeooeeoddooo.......",
+    "......obbooooeeEEeeoooobbo.o....",
+    ".....obbbboboeeooeeobobbbbobo...",
+    ".....obbbbobcooccooCbobbbboo....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -830,12 +850,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#bfb1c5",
     "A": "#aa95ae"
    },
-   "rgba_sha256": "13f398155b5daf6f4af0a9220cf6ea09f96666914d5e41b43a1018cb72c2feae"
+   "rgba_sha256": "670c63f358b562be915b4f2e81cf8c1851b4780d5f6953068b560323e4ea2839"
   },
   {
    "look": {
@@ -866,11 +888,11 @@
     "..........odCCcoocCCdo..........",
     "...........oodCCCCdoo...........",
     "............oooooooo............",
-    "............oabbbbdo............",
-    "...........ooabbaadoo...........",
-    ".........oololbbaadodoo.........",
-    "........oloooabbbbdooodo........",
-    ".......olobboddddddobbodo.......",
+    "............ooobbooo............",
+    "...........ooeeooeeoo...........",
+    ".........ooloeeEEeeodoo.........",
+    "........oloooeeooeeooodo........",
+    ".......olobboooddooobbodo.......",
     ".......olobbboooooobbbodo.......",
     ".......olobbbbobbobbbbodo.......",
     ".......olobabbobbobbbbodo.......",
@@ -906,12 +928,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#ce393f",
     "A": "#a43044"
    },
-   "rgba_sha256": "d9ed231848e35b5c28c51a719e94757a0f60761cc341d5aeb11d57fb00f05f3f"
+   "rgba_sha256": "bf240611d869baa01f5ff49bb0eb9897251c48d6efebd3869ad8e727ee4362bb"
   },
   {
    "look": {
@@ -944,11 +968,11 @@
     "......obbbbowrwrwrwrobbbdo......",
     "......odbbbboooooooowbbbdo......",
     ".......oddbbbbbbbbbbbbddoo......",
-    ".......oooddddddddddddooodo.....",
-    "......obbobbbbbbbbbbbbobbodo....",
-    ".....obbbbobbbcccCbbbobbbboo....",
-    ".....obbbbobcCCCCCCCbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......ooodddooddoodddooodo.....",
+    "......obbobboeeooeeobbobbodo....",
+    ".....obbbboboeeEEeeobobbbboo....",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     "......obbooooCCCCCCoooobbo......",
     ".......oollldoccccollldoo.......",
     ".......olbbbbdoCColbbbbdo.......",
@@ -982,12 +1006,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#f0607e",
+    "E": "#b83a5c",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#3e5d3a",
     "A": "#283c32"
    },
-   "rgba_sha256": "5e43ab2c69f51c772d929631fe5ff35ffce991cac988c1fc01497d92c1d5df5c"
+   "rgba_sha256": "9580641847ff8e409911f0e13367399a13fed4d6c205fdb326ae18348109a25f"
   },
   {
    "look": {
@@ -1019,11 +1045,11 @@
     "...olbbbbbbbborrrrobbbbbbbbdo...",
     "...odbbbbbbbbboooobbbbbbbbbdo...",
     "....oddbbbbbbbbbbbbbbbbbbddo....",
-    ".....ooddddddddddddddddddoo.....",
-    ".......oooooooooooooooooo.......",
-    "......obbobbbbbbbbbbbbobbo......",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".....ooddddddooddooddddddoo.....",
+    ".......ooooooeeooeeoooooo.......",
+    "......obbobboeeEEeeobbobbo......",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -1058,12 +1084,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#f0607e",
+    "E": "#b83a5c",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#3f72b7",
     "A": "#364f8d"
    },
-   "rgba_sha256": "70327c95875dcc40412908649d03402cee66ce40f96579e268f0b81182a9aa78"
+   "rgba_sha256": "1ed39cf2dcc389d61446708aabb98c9001256521b3b6b447013a72b221f5902d"
   },
   {
    "look": {
@@ -1096,11 +1124,11 @@
     ".....odbbbbbbbboobbbbbbbbdoldo..",
     "...oooolbbbbbborrobbbbbbdooooo..",
     "......odbbbbbborrobbbbbbdoldo...",
-    ".......oddbbbbboobbbbbddoobdo...",
-    "......obooddddddddddddoobodo....",
-    ".....obbbboooooooooooobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbboooooobbbddoobdo...",
+    "......obooddoeeooeeoddoobodo....",
+    ".....obbbboooeeEEeeooobbbbo.....",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
     ".......olbbbbdoCColbbbbdo.......",
@@ -1134,12 +1162,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#6f4a60",
     "A": "#4f374f"
    },
-   "rgba_sha256": "5a1957c7e7d8414e8f949f79ba0afa5dd572b7bab61ccd1e995933da299adf61"
+   "rgba_sha256": "c25c62d3e0348ff1da302b9e85581d9ec3ab79a303866c686e6bec0da31c9870"
   },
   {
    "look": {
@@ -1171,11 +1201,11 @@
     ".....oCccccccCobbocccccccCobbdo.",
     "......oCcccccccoocccccccCobbbdo.",
     "......odCCcccccRRcccccCCdodbbdo.",
-    ".......oddCCCCCCCCCCCCddo.olbdo.",
-    ".......oooddddddddddddooo.oddo..",
-    "......obboooooooooooooobbo.oo...",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddCCCooCCooCCCddo.olbdo.",
+    ".......oooddoeeooeeoddooo.oddo..",
+    "......obbooooeeEEeeoooobbo.oo...",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -1210,12 +1240,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#616270",
     "A": "#4a4a54"
    },
-   "rgba_sha256": "f3002f14198cd3090d5a6bc3029d50c1a740482d8f4223bf072e4e1eebbb6bda"
+   "rgba_sha256": "c8889d6fe08cf820dbf8152f45065409d8eca994db3ef51cade8d4e567af4522"
   },
   {
    "look": {
@@ -1247,11 +1279,11 @@
     ".....odbbbbbcccccccCbbbbbdo.....",
     "......olbbbbcccooccCbbbbdo......",
     "......odbbbbCCorroCCbbbbdo......",
-    ".......oddbbbborrobbbbddo.......",
-    ".......ooodddddoodddddooo.......",
-    "......obboooooooooooooobbo......",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbboorroobbbddo.......",
+    ".......oooddoeeooeeoddooo.......",
+    "......obbooooeeEEeeoooobbo......",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -1286,12 +1318,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#61423a",
     "A": "#402a28"
    },
-   "rgba_sha256": "f9f461335707d37542b776996e03f21ec9c06aec5d3bf44e20258fd0834c89cd"
+   "rgba_sha256": "fa84c73cdc41aa95b248a8bccbd075403530aaa5c811bd4c7fd64b4797fe3366"
   },
   {
    "look": {
@@ -1324,11 +1358,11 @@
     ".....odbbbbbbbboobbbbbbbbdo.....",
     "......olbbbbbbboobbbbbbbdo......",
     "......odbbbbbbboobbbbbbbdo......",
-    ".......oddbbbbbbbbbbbbddo.......",
-    "......oaooddddddddddddooao......",
-    ".....oaaaaooooooooooooaaaao.....",
-    ".....oaaaaobcccccccCboaaaao.....",
-    ".....oaaaaobcccccccCboaaaao.....",
+    ".......oddbbboobboobbbddo.......",
+    "......oaooddoeeooeeoddooao......",
+    ".....oaaaaoooeeEEeeoooaaaao.....",
+    ".....oaaaaoboeeooeeoboaaaao.....",
+    ".....oaaaaobcooccooCboaaaao.....",
     "......oaaooooccccccooooaao......",
     ".......ooaaaAoccccoaaaAoo.......",
     ".......oaaaaaAoCCoaaaaaAo.......",
@@ -1362,12 +1396,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#3a3340",
     "A": "#1f1c24"
    },
-   "rgba_sha256": "0a9326b8e339d10796164aee426da0a398743a492b388ba90c934e6f70b55525"
+   "rgba_sha256": "46ca8da22ec92f1a26fba12302f17a15cf859a82c0476bd2167aa6ba259dcaa5"
   },
   {
    "look": {
@@ -1399,11 +1435,11 @@
     ".....odbbbbbbboooobbbbbbbdo.....",
     "......olbbbbbborrobbbbbbdo......",
     "......odbbbbbbboobbbbbbbdo......",
-    ".......oddbbbbbbbbbbbbddo.......",
-    ".......oooddddddddddddooo.......",
-    "......obboooooooooooooobbo......",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbboobboobbbddo.......",
+    ".......oooddoeeooeeoddooo.......",
+    "......obbooooeeEEeeoooobbo......",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -1438,12 +1474,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#f0607e",
+    "E": "#b83a5c",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#335a5e",
     "A": "#22363c"
    },
-   "rgba_sha256": "783c3e7f1d1e3d73930bd81aaa33ab0661a4846fda508b8af2a63bb6db937676"
+   "rgba_sha256": "fbe74b550f1d922b3dd936bd4c7aa414c4e6258fe5ac44e96105609c0014a9c5"
   },
   {
    "look": {
@@ -1476,11 +1514,11 @@
     "....oAobbbbbcccccccCbbbbboAo....",
     ".....oolbbbbcccooccCbbbbdoo.....",
     "......odbbbbCCccccCCbbbbdoo.....",
-    ".......oddbbbbCCCCbbbbddoo......",
-    "......obooddddddddddddoobo......",
-    ".....obbbboooooooooooobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbbooCCoobbbddoo......",
+    "......obooddoeeooeeoddoobo......",
+    ".....obbbboooeeEEeeooobbbbo.....",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
     ".......olbbbbdoCColbbbbdo.......",
@@ -1514,12 +1552,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#6e31c4",
     "A": "#662c96"
    },
-   "rgba_sha256": "27ec055f2764da3d4ab8df9a1e740025433004d853d9b1b6776c5ca04a9cadad"
+   "rgba_sha256": "cbe2843cd39dda59b4696a8877c0373c57492a47e6d741775c3d0849568adfe1"
   },
   {
    "look": {
@@ -1552,11 +1592,11 @@
     ".....odbbbbolldlldllobbbbdo.....",
     "......olbbbbollllllobbbbdo......",
     "......odbbbbboooooobbbbbdo......",
-    ".......oddbbbbobbobbbbddo.......",
-    "......obooddddddddddddoobo......",
-    ".....obbbboooooooooooobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbboobboobbbddo.......",
+    "......obooddoeeooeeoddoobo......",
+    ".....obbbboooeeEEeeooobbbbo.....",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
     ".......olbbbbdoCColbbbbdo.......",
@@ -1590,12 +1630,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#d16b9c",
     "A": "#bf4a92"
    },
-   "rgba_sha256": "1d95bd8276754b4dc1682367fe5804672de3d7cedbde6546ddb7989c4e99def4"
+   "rgba_sha256": "a961c2b0b0f66e86b2fce62ec21ae6991571c802f5df2efcd0c30ec27238d4ec"
   },
   {
    "look": {
@@ -1627,11 +1669,11 @@
     ".....odbbbbbbbboobbbbbbbbdo.....",
     "...oooolbbbbbborrobbbbbbdoooo...",
     "......odbbbbbbboobbbbbbbdo......",
-    ".......oddbbbbbbbbbbbbddo.......",
-    ".......oooddddddddddddooo.......",
-    "......obboooooooooooooobbo.o....",
-    ".....obbbbobbbcccCbbbobbbbobo...",
-    ".....obbbbobcccccccCbobbbboo....",
+    ".......oddbbboobboobbbddo.......",
+    ".......oooddoeeooeeoddooo.......",
+    "......obbooooeeEEeeoooobbo.o....",
+    ".....obbbboboeeooeeobobbbbobo...",
+    ".....obbbbobcooccooCbobbbboo....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -1666,12 +1708,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#34313b",
     "A": "#1c1a1f"
    },
-   "rgba_sha256": "83afb0831ff1dfc6cae365efeb86331b85aa13cfd045682039feafafef4fb14b"
+   "rgba_sha256": "e44843ddce489cb91f6a4b5cfdd78669dfc2868711dee3c3abc197aa9ac8e023"
   },
   {
    "look": {
@@ -1702,11 +1746,11 @@
     "..........odCCccccCCdo..........",
     "...........oodCCCCdoo...........",
     "............oooooooo............",
-    "............oabbbbdo............",
-    "...........ooabbaadoo...........",
-    ".........oololbbaadodoo.........",
-    "........oloooabbbbdooodo........",
-    ".......olobboddddddobbodo.......",
+    "............ooobbooo............",
+    "...........ooeeooeeoo...........",
+    ".........ooloeeEEeeodoo.........",
+    "........oloooeeooeeooodo........",
+    ".......olobboooddooobbodo.......",
     ".......olobbboooooobbbodo.......",
     ".......olobbbbobbobbbbodo.......",
     ".......olobabbobbobbbbodo.......",
@@ -1742,12 +1786,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#9f4a2f",
     "A": "#742f27"
    },
-   "rgba_sha256": "304df89cb1f0a78e803da986b4c08b00923026a93a6de9223dfe46aad0c1c739"
+   "rgba_sha256": "7fb99b7fb427e5d69947a8522c05f914d2c6bd16428423c8b15d2ca1796c0e78"
   },
   {
    "look": {
@@ -1779,7 +1825,7 @@
     "......obbbbboooooooowbbbdo......",
     "......odbbbbwbwbwbwbbbbbdo......",
     ".......oddooobbbbbbbbbddo.......",
-    "........oobbbodddddooooo.o......",
+    "........oobbbooddooooooo.o......",
     ".......ooobbboooooobbbooodo.....",
     "......oboqoooqqqqqobbboobodo....",
     ".....obboqqqqqqqqqqoooQobboo....",
@@ -1818,12 +1864,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#f0607e",
+    "E": "#b83a5c",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#4d6b41",
     "A": "#3a4a2f"
    },
-   "rgba_sha256": "ed7b21f82cfb45b37b53b53fbc01e16fc9b1cd755dd38df115d6def5728ad7dc"
+   "rgba_sha256": "9fe40fe8d6a98f9b05d6bcc42dc21e14f578af6064a1e7795b407b2e885b1194"
   },
   {
    "look": {
@@ -1855,11 +1903,11 @@
     "...olbbbbbbbbobbbbobbbbbbbbdo...",
     "...odbbbbbbbbbbbbbbbbbbbbbbdo...",
     "....oddbbbbbbbbbbbbbbbbbbddo....",
-    ".....ooddddddddddddddddddoo.....",
-    ".......oooooooooooooooooo.......",
-    "......obbobbbbbbbbbbbbobbo......",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".....ooddddddooddooddddddoo.....",
+    ".......ooooooeeooeeoooooo.......",
+    "......obbobboeeEEeeobbobbo......",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -1894,12 +1942,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#6c7e3c",
     "A": "#53592e"
    },
-   "rgba_sha256": "e5f1ab4b228c2664bc36394aa497f98f912f4ea4def29624fbc38b4a5037b409"
+   "rgba_sha256": "736cd80099af3534ff2a6c83368bece810c093ec802253301cf03ce083e41d2b"
   },
   {
    "look": {
@@ -1931,11 +1981,11 @@
     ".....odbbbbbbbobbobbbbbbbdooo...",
     "...oooolbbbbbbboobbbbbbbdooooo..",
     "......odbbbbbbbbbbbbbbbbdoobdo..",
-    ".......oddbbbbbbbbbbbbddooldo...",
-    ".......oooddddddddddddoooobdo...",
-    "......obboooooooooooooobbodo....",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbboobboobbbddooldo...",
+    ".......oooddoeeooeeoddoooobdo...",
+    "......obbooooeeEEeeoooobbodo....",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -1970,12 +2020,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#594039",
     "A": "#392726"
    },
-   "rgba_sha256": "686560b1aed06014bf3629f8b0705667d3f0715328b3998741cfe4df66b7a917"
+   "rgba_sha256": "f759575e8be85a6ff8c3f691abac8f9dcaf0334ac7ac1c68a654b0b46d66586e"
   },
   {
    "look": {
@@ -2007,11 +2059,11 @@
     ".....oCccccccCobbocccccccCobbdo.",
     "......oCcccccccoocccccccCobbbdo.",
     "......odCCccccccccccccCCdodbbdo.",
-    ".......oddCCCCCCCCCCCCddo.olbdo.",
-    ".......oooddddddddddddooo.oddo..",
-    "......obboooooooooooooobbo.oo...",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddCCCooCCooCCCddo.olbdo.",
+    ".......oooddoeeooeeoddooo.oddo..",
+    "......obbooooeeEEeeoooobbo.oo...",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -2046,12 +2098,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#bfb1c5",
     "A": "#aa95ae"
    },
-   "rgba_sha256": "5f6c59d7f4c6f953816dc03ece784a72c1a8a59cdcff713a5e7526655baaa55a"
+   "rgba_sha256": "5a8d9def37d09466df75854cd236454d66649a11c249842d9598355b2eaba088"
   },
   {
    "look": {
@@ -2084,11 +2138,11 @@
     ".....odbbbbbcccccccCbbbbbdo.....",
     "......olbbbbccococcCbbbbdo......",
     "......odbbbbCococoCCbbbbdo......",
-    ".......oddbbbbCCCCbbbbddo.......",
-    "......obooddddddddddddoobo......",
-    ".....obbbboooooooooooobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbbooCCoobbbddo.......",
+    "......obooddoeeooeeoddoobo......",
+    ".....obbbboooeeEEeeooobbbbo.....",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
     ".......olbbbbdoCColbbbbdo.......",
@@ -2122,12 +2176,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#ce393f",
     "A": "#a43044"
    },
-   "rgba_sha256": "b497291331b0888cd2048528e9a405879433820edd73c5806285f7b91e072adc"
+   "rgba_sha256": "bdbdbdac3f8a49e3a9de899adfc36f757e7ef59525cc41167d6feabaf272b8a9"
   },
   {
    "look": {
@@ -2160,11 +2216,11 @@
     ".....odbbbbbbbboobbbbbbbbdo.....",
     "......olbbbbbbobobbbbbbbdo......",
     "......odbbbbbobobobbbbbbdo......",
-    ".......oddbbbbbbbbbbbbddo.......",
-    "......oaooddddddddddddooao......",
-    ".....oaaaaooooooooooooaaaao.....",
-    ".....oaaaaobcccccccCboaaaao.....",
-    ".....oaaaaobcccccccCboaaaao.....",
+    ".......oddbbboobboobbbddo.......",
+    "......oaooddoeeooeeoddooao......",
+    ".....oaaaaoooeeEEeeoooaaaao.....",
+    ".....oaaaaoboeeooeeoboaaaao.....",
+    ".....oaaaaobcooccooCboaaaao.....",
     "......oaaooooccccccooooaao......",
     ".......ooaaaAoccccoaaaAoo.......",
     ".......oaaaaaAoCCoaaaaaAo.......",
@@ -2198,12 +2254,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#3a3340",
     "A": "#1f1c24"
    },
-   "rgba_sha256": "25c29a245701e9b27f68500f08192a5c02b868f88e0c832bf8fafad61a137795"
+   "rgba_sha256": "ad16ae79c39e9fd035f8577d9c2fd2d44e6a505c1d3ba5d68e10ce31f17ca409"
   },
   {
    "look": {
@@ -2235,11 +2293,11 @@
     ".....odbbbbbbbobbobbbbbbbdo.....",
     "......olbbbbbbboobbbbbbbdo......",
     "......odbbbbbbbbbbbbbbbbdo......",
-    ".......oddbbbbbbbbbbbbddo.......",
-    ".......oooddddddddddddooo.......",
-    "......obboooooooooooooobbo......",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbboobboobbbddo.......",
+    ".......oooddoeeooeeoddooo.......",
+    "......obbooooeeEEeeoooobbo......",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -2274,12 +2332,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#6e31c4",
     "A": "#662c96"
    },
-   "rgba_sha256": "0df86ba8ea0773b1963023f53be38d46b16456b770f912720dd292b97c3e5b1c"
+   "rgba_sha256": "f08e9b6e0431793fd98ab9b3e53de7b2ae6dd609e6795fc3c95d210b30db46d7"
   },
   {
    "look": {
@@ -2297,11 +2357,11 @@
     "................................",
     "................................",
     "................................",
-    "................................",
-    "..........oooooooooooo..........",
-    "....ooo.oollllllllllldoo.ooo....",
-    "...oaaAollbbbbbbbbbbbbldoaaAo...",
-    "..oaaaaAobbbbbbbbbbbbbboaaaaAo..",
+    ".....oo..oo.....................",
+    "....oeeooeeooooooooooo..........",
+    "....oeeEEeeollllllllldoo.ooo....",
+    "...ooeeooeeobbbbbbbbbbldoaaAo...",
+    "..oaaooAooobbbbbbbbbbbboaaaaAo..",
     "..oaaaaAobbbbbbbbbbaaaaoaaaaAo..",
     "..oaaaaAobbbbbbbbbaaaaaoaaaaAo..",
     "..oaaaaAoboooobbbbooooaoaaaaAo..",
@@ -2350,12 +2410,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#6f4a60",
     "A": "#4f374f"
    },
-   "rgba_sha256": "4b8c57927e50cbfaa978e1ac9df729b33fbba23e25112991e0c1708545d03d81"
+   "rgba_sha256": "5cd9ac957acecf5f1abae25688a64484f336fa224755ef61a4650b0f41fe50fb"
   },
   {
    "look": {
@@ -2388,10 +2450,10 @@
     "......olbbbbollllllobbbbdo......",
     "......odbbbbboooooobbbbbdo......",
     ".......oddbbbowwwwobbbddo.......",
-    ".......ooodddoooooodddooo.......",
-    "......obboooooooooooooobbo......",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oooddooooooooddooo.......",
+    "......obbooooeeEEeeoooobbo......",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -2426,12 +2488,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#616270",
     "A": "#4a4a54"
    },
-   "rgba_sha256": "99d33f43c35eb68548d2e389cb1aeccfa14b343f661000a6c1da7ccb56d68358"
+   "rgba_sha256": "92f634ae5259e08fcc1f3150fd73241fc983276a32e010298f4a62e45f313309"
   },
   {
    "look": {
@@ -2463,11 +2527,11 @@
     ".....odbbbbbbbbobbbbbbbbbdo.....",
     "...oooolbbbbbbbbobbbbbbbdoooo...",
     "......odbbbbbbbobbbbbbbbdo......",
-    ".......oddbbbbbbbbbbbbddo.......",
-    ".......oooddddddddddddooo.......",
-    "......obboooooooooooooobbo.o....",
-    ".....obbbbobbbcccCbbbobbbbobo...",
-    ".....obbbbobcccccccCbobbbboo....",
+    ".......oddbbboobboobbbddo.......",
+    ".......oooddoeeooeeoddooo.......",
+    "......obbooooeeEEeeoooobbo.o....",
+    ".....obbbboboeeooeeobobbbbobo...",
+    ".....obbbbobcooccooCbobbbboo....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -2502,12 +2566,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#857b8f",
     "A": "#6d6374"
    },
-   "rgba_sha256": "77130efb6e0786d0d1832e3bb1e753f85aa5338765470362c1382365fd1f7516"
+   "rgba_sha256": "d8d6f8df5b09c5de5ec214d41e79fe17b7a1fcf2f13a7345b31e455a5922837e"
   },
   {
    "look": {
@@ -2539,9 +2605,9 @@
     "...........oodCCCCdoo...........",
     "............oooooooo............",
     "............ooobbooo............",
-    "...........ooggooggoo...........",
-    ".........oologgGGggodoo.........",
-    "........oloooggooggooodo........",
+    "...........ooeeooeeoo...........",
+    ".........ooloeeEEeeodoo.........",
+    "........oloooeeooeeooodo........",
     ".......olobboooddooobbodo.......",
     ".......olobbboooooobbbodo.......",
     ".......olobbbbobbobbbbodo.......",
@@ -2578,12 +2644,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#a56935",
     "A": "#7b462c"
    },
-   "rgba_sha256": "e5a7ef813bbfc16dac4958d5467d080f0a2717d3ddc0b48bcd49cb4b7475c17c"
+   "rgba_sha256": "6581b1307589ebc596235308519ec1e87c10e463f12e1d02f9129e9f1e33a72d"
   },
   {
    "look": {
@@ -2615,11 +2683,11 @@
     "......obbboboowowowbobbbdo......",
     "......odbbwbwbbbbbbbwbbbdo......",
     ".......oddbbbbbbbbbbbbddo.......",
-    "........ooddddddddddddoo.o......",
-    ".......ooollbbbbbbbbldooodo.....",
-    "......obbobbbbbbbbbbbbobbodo....",
-    ".....obbbbobbCCCCCCbbobbbboo....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    "........oodddooddoodddoo.o......",
+    ".......ooolloeeooeeoldooodo.....",
+    "......obbobboeeEEeeobbobbodo....",
+    ".....obbbboboeeooeeobobbbboo....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcCCCCCCCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -2654,12 +2722,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#f0607e",
+    "E": "#b83a5c",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#335a5e",
     "A": "#22363c"
    },
-   "rgba_sha256": "0e467b15e9ecbaf7a2917155557815af54fe062c405568fe276cc08da88bb7e1"
+   "rgba_sha256": "8436052535b124179d52bbd369e87d2f78dbfd319bebe877d155951f38ab565d"
   },
   {
    "look": {
@@ -2692,11 +2762,11 @@
     "...olbbbbbbboboobbobbbbbbbbdo...",
     "...odbbbbbbbbbbbbbbbbbbbbbbdo...",
     "....oddbbbbbbbbbbbbbbbbbbddo....",
-    ".....ooddddddddddddddddddoo.....",
-    "......oooooooooooooooooooo......",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".....ooddddddooddooddddddoo.....",
+    "......oooooooeeooeeooooooo......",
+    ".....obbbboboeeEEeeobobbbbo.....",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
     ".......olbbbbdoCColbbbbdo.......",
@@ -2730,12 +2800,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#8c5db8",
     "A": "#7d4999"
    },
-   "rgba_sha256": "1928b6ef5a73bb0317531a3db67243c9217ec7de2f36ab8b3a348cdc01a9db7b"
+   "rgba_sha256": "a501abce06ba72fd1e6c21537dbe7aef30922a514766af7cd6c21e8dd6fea5a4"
   },
   {
    "look": {
@@ -2768,11 +2840,11 @@
     ".....odbbbbbboooooobbbbbbdoldo..",
     "...oooolbbbbborrrrobbbbbdooooo..",
     "......odbbbbbboRRobbbbbbdoldo...",
-    ".......oddbbbbboobbbbbddoobdo...",
-    "......obooddddddddddddoobodo....",
-    ".....obbbboooooooooooobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbboooooobbbddoobdo...",
+    "......obooddoeeooeeoddoobodo....",
+    ".....obbbboooeeEEeeooobbbbo.....",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
     ".......olbbbbdoCColbbbbdo.......",
@@ -2806,12 +2878,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#ae5838",
     "A": "#843b2f"
    },
-   "rgba_sha256": "645dc71b0faee5231b2844cbf95ca41d6d558788e6de945df94bf0ad96136ebf"
+   "rgba_sha256": "540b1d81e07164660a5eb6aeb71f0c9e8269cca32bec202e09e3b9188b10090d"
   },
   {
    "look": {
@@ -2843,11 +2917,11 @@
     ".....oCccccccCboobcccccccCobbdo.",
     "......oCccccccorroccccccCobbbdo.",
     "......odCCcccccoocccccCCdodbbdo.",
-    ".......oddCCCCCCCCCCCCddo.olbdo.",
-    ".......oooddddddddddddooo.oddo..",
-    "......obboooooooooooooobbo.oo...",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddCCCooCCooCCCddo.olbdo.",
+    ".......oooddoeeooeeoddooo.oddo..",
+    "......obbooooeeEEeeoooobbo.oo...",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -2882,12 +2956,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#34313b",
     "A": "#1c1a1f"
    },
-   "rgba_sha256": "942b50c44ff238a514fdd369ac0b8db025cf259222328608359d42001e21b61c"
+   "rgba_sha256": "2b73c583dca37f8f72dbafa24e323eaff70c9a63962b1d6fdb3447dd8ce9e782"
   },
   {
    "look": {
@@ -2920,11 +2996,11 @@
     ".....odbbbbtcccccccCtbbbbdo.....",
     "......olbbbtcccooccCtbbbdo......",
     "......odbbbTCCorroCCTbbbdo......",
-    ".......oddbbbborrobbbbddo.......",
-    "......oboodddddoodddddoobo......",
-    ".....obbbboooooooooooobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbboorroobbbddo.......",
+    "......obooddoeeooeeoddoobo......",
+    ".....obbbboooeeEEeeooobbbbo.....",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
     ".......olbbbbdoCColbbbbdo.......",
@@ -2958,12 +3034,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#9f4a2f",
     "A": "#742f27"
    },
-   "rgba_sha256": "e4b59474ef71dc7a067021f10e7fc4179098237d87eb951f9fde467c4cec523e"
+   "rgba_sha256": "8958ae852261166e7f167ec8348822fa1a7453673cb0739db546a7c3ad37471c"
   },
   {
    "look": {
@@ -2994,11 +3072,11 @@
     ".....odbbbbbbbboobbbbbbbbdo.....",
     "......olbbbbbbboobbbbbbbdo......",
     "......odbbbbbborrobbbbbbdo......",
-    ".......oddbbbborrobbbbddo.......",
-    ".......ooodddddoodddddooo.......",
-    "......oaaooooooooooooooaao......",
-    ".....oaaaaobbbcccCbbboaaaao.....",
-    ".....oaaaaobcccccccCboaaaao.....",
+    ".......oddbbboorroobbbddo.......",
+    ".......oooddoeeooeeoddooo.......",
+    "......oaaooooeeEEeeooooaao......",
+    ".....oaaaaoboeeooeeoboaaaao.....",
+    ".....oaaaaobcooccooCboaaaao.....",
     ".....oaaaaobcccccccCboaaaao.....",
     "......oaaooooccccccooooaao......",
     ".......ooaaaAoccccoaaaAoo.......",
@@ -3034,12 +3112,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#3a3340",
     "A": "#1f1c24"
    },
-   "rgba_sha256": "b696bf5679c1eae65071cba4efcdc391dba96066cbb43166dbee0cc41e6fe58b"
+   "rgba_sha256": "114d80c95a430353f71cf8240370a9e83ec26d59a8bdffa6e8e94b860333955c"
   },
   {
    "look": {
@@ -3071,11 +3151,11 @@
     ".....odbbbbbbbobbobbbbbbbdo.....",
     "......olbbbbbbboobbbbbbbdo......",
     "......odbbbbbbbRRbbbbbbbdo......",
-    ".......oddbbbbbbbbbbbbddo.......",
-    ".......oooddddddddddddooo.......",
-    "......obboooooooooooooobbo......",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbboobboobbbddo.......",
+    ".......oooddoeeooeeoddooo.......",
+    "......obbooooeeEEeeoooobbo......",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -3110,12 +3190,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#c1a9c7",
     "A": "#af8cb1"
    },
-   "rgba_sha256": "48b1070318643ce5e8daa185addbe5bd52f2a5fa6f9669323cdca0324f3feb06"
+   "rgba_sha256": "62fee0bef08b6eb490035d55c9d842ebfb8069dceead795fd9aea07b1af53c60"
   },
   {
    "look": {
@@ -3148,11 +3230,11 @@
     "....oAobbbbbcccccccCbbbbboAo....",
     ".....oolbbbbcccooccCbbbbdoo.....",
     "......odbbbbCCorroCCbbbbdoo.....",
-    ".......oddbbbborrobbbbddoo......",
-    "......oboodddddoodddddoobo......",
-    ".....obbbboooooooooooobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbboorroobbbddoo......",
+    "......obooddoeeooeeoddoobo......",
+    ".....obbbboooeeEEeeooobbbbo.....",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
     ".......olbbbbdoCColbbbbdo.......",
@@ -3186,12 +3268,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#594039",
     "A": "#392726"
    },
-   "rgba_sha256": "e7caef5822d68b1fb78c264d8b7c7e181e058bb1584e16d6b84b73f689185036"
+   "rgba_sha256": "29f42e9a43d1c39d53cd08b983e2619a9a535d70f83050243bff92f614b29a54"
   },
   {
    "look": {
@@ -3223,11 +3307,11 @@
     ".....odbbbbolldlldllobbbbdo.....",
     "......olbbbbollllllobbbbdo......",
     "......odbbbbboooooobbbbbdo......",
-    ".......oddbbbbboobbbbbddo.......",
-    ".......oooddddddddddddooo.......",
-    "......obboooooooooooooobbo......",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".......oddbbboooooobbbddo.......",
+    ".......oooddoeeooeeoddooo.......",
+    "......obbooooeeEEeeoooobbo......",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -3262,12 +3346,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#bfb1c5",
     "A": "#aa95ae"
    },
-   "rgba_sha256": "2c7f1fbd60041d834aafc8821627e6b9b62a6cc915c4b3f2e306942fb93ba60b"
+   "rgba_sha256": "f098cc984e7abea3b545d5fc3b7e9e727842bf24d4c0185590e9963b45b5e5bd"
   },
   {
    "look": {
@@ -3299,11 +3385,11 @@
     ".....odbbbbbbboooobbbbbbbdo.....",
     "...oooolbbbbbborrobbbbbbdoooo...",
     "......odbbbbbbboobbbbbbbdo......",
-    ".......oddbbbbbbbbbbbbddo.......",
-    ".......oooddddddddddddooo.......",
-    "......obboooooooooooooobbo.o....",
-    ".....obbbbobbbcccCbbbobbbbobo...",
-    ".....obbbbobcccccccCbobbbboo....",
+    ".......oddbbboobboobbbddo.......",
+    ".......oooddoeeooeeoddooo.......",
+    "......obbooooeeEEeeoooobbo.o....",
+    ".....obbbboboeeooeeobobbbbobo...",
+    ".....obbbbobcooccooCbobbbboo....",
     ".....obbbbobcccccccCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -3338,12 +3424,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#ce393f",
     "A": "#a43044"
    },
-   "rgba_sha256": "134c968b1d492d19c6b6f7e8c0261a4ba65bd09d83cfcbd92aba429ead792bdb"
+   "rgba_sha256": "00075c3135879058fa8bebb5925f948201ee2fb37f0688b045392d706d7399b0"
   },
   {
    "look": {
@@ -3374,11 +3462,11 @@
     "...olbbbbbbbborrrrobbbbbbbbdo...",
     "...odbbbbbbbbboooobbbbbbbbbdo...",
     "....oddbbbbbbbbbbbbbbbbbbddo....",
-    ".....ooddddddddddddddddddoo.....",
-    "......oooooooooooooooooooo......",
-    ".....obbbbobbbcccCbbbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    ".....ooddddddooddooddddddoo.....",
+    "......oooooooeeooeeooooooo......",
+    ".....obbbboboeeEEeeobobbbbo.....",
+    ".....obbbboboeeooeeobobbbbo.....",
+    ".....obbbbobcooccooCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
     ".......olbbbbdoCColbbbbdo.......",
@@ -3412,12 +3500,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#6c7e3c",
     "A": "#53592e"
    },
-   "rgba_sha256": "663692dbc358c288dd9074e79f6551cfdcf879f94cf2232fd1599f6e3dcef3ab"
+   "rgba_sha256": "178590b2af514ca4e74ade96dbdd9403ebec6baa2e9dca0c8959e50ddc82255a"
   },
   {
    "look": {
@@ -3447,11 +3537,11 @@
     "......obbbbboooooooowbbbdo......",
     "......odbbbbwbwbwbwbbbbbdo......",
     ".......oddbbbbbbbbbbbbddo.......",
-    "........ooddddddddddddoo.o......",
-    ".......ooollbbbbbbbbldooodo.....",
-    "......obbobbbbbbbbbbbbobbodo....",
-    ".....obbbbobbCCCCCCbbobbbboo....",
-    ".....obbbbobcccccccCbobbbbo.....",
+    "........oodddooddoodddoo.o......",
+    ".......ooolloeeooeeoldooodo.....",
+    "......obbobboeeEEeeobbobbodo....",
+    ".....obbbboboeeooeeobobbbboo....",
+    ".....obbbbobcooccooCbobbbbo.....",
     ".....obbbbobcCCCCCCCbobbbbo.....",
     "......obbooooccccccoooobbo......",
     ".......oollldoccccollldoo.......",
@@ -3486,12 +3576,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#f0607e",
+    "E": "#b83a5c",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#3e5d3a",
     "A": "#283c32"
    },
-   "rgba_sha256": "8bd850e679d0290ede09134044296262944fcbeba7c043978a48793a53caa227"
+   "rgba_sha256": "e25093a12721d419851dcd93f39cb845fcfb2c62f2af394baac93c7d9f27fa10"
   },
   {
    "look": {
@@ -3519,11 +3611,11 @@
     "...........oodCCCCdoo...........",
     "............oooooooo............",
     "............oabbbbdo............",
-    "............oabbaado............",
-    "...........oolbbaadoo...........",
-    ".........ooloabbbbdodoo.........",
-    "........olooolbbbbdooodo........",
-    ".......olobboddddddobbodo.......",
+    "............ooobaooo............",
+    "...........ooeeooeeoo...........",
+    ".........ooloeeEEeeodoo.........",
+    "........oloooeeooeeooodo........",
+    ".......olobboooddooobbodo.......",
     ".......olobbboooooobbbodo.......",
     ".......olobabbobbobbbbodo.......",
     ".......olobbbbobbobabbodo.......",
@@ -3560,12 +3652,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#c05484",
     "A": "#a04178"
    },
-   "rgba_sha256": "abfa1afc94495bb440b1f5d628542d3931775f576e48936aa38df5627ae7e5a5"
+   "rgba_sha256": "9e8fdd15691376b870a653e51ca7bba217aceed83ecf75fe5b7f1fdf5a9ab62a"
   },
   {
    "look": {
@@ -3596,10 +3690,10 @@
     "......olbbbbboooooobbbbbdo......",
     "......odbbbbbowwwwobbbbbdo......",
     ".......oddbbboooooobbbddo.......",
-    ".......oooddddddddddddooo.......",
-    "......oaaooooooooooooooaao......",
-    ".....oaaaaobbbcccCbbboaaaao.....",
-    ".....oaaaaobcccccccCboaaaao.....",
+    ".......oooddoeeooeeoddooo.......",
+    "......oaaooooeeEEeeooooaao......",
+    ".....oaaaaoboeeooeeoboaaaao.....",
+    ".....oaaaaobcooccooCboaaaao.....",
     ".....oaaaaobcccccccCboaaaao.....",
     "......oaaooooccccccooooaao......",
     ".......ooaaaAoccccoaaaAoo.......",
@@ -3634,12 +3728,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#3a3340",
     "A": "#1f1c24"
    },
-   "rgba_sha256": "3d4d232d418ae83eecbc26eae450355d4568d6d5f5f5d48524de81f0a5fad01a"
+   "rgba_sha256": "da165d94242f44370b85a47da9833d794dec4cca53182fd2f63be47cef74a631"
   },
   {
    "look": {
@@ -3709,6 +3805,8 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#f0607e",
+    "E": "#b83a5c",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#335a5e",
@@ -3743,11 +3841,11 @@
     "..........odCCccccCCdo..........",
     "...........oodCCCCdoo...........",
     "............oooooooo............",
-    "............oabbbbdo............",
-    "...........ooabbaadoo...........",
-    ".........oololbbaadodoo.........",
-    "........oloooabbbbdooodo........",
-    ".......olobboddddddobbodo.......",
+    "............ooobbooo............",
+    "...........ooeeooeeoo...........",
+    ".........ooloeeEEeeodoo.........",
+    "........oloooeeooeeooodo........",
+    ".......olobboooddooobbodo.......",
     ".......olobbboooooobbbodo.......",
     ".......olobbbbobbobbbbodo.......",
     ".......olobabbobbobbbbodo.......",
@@ -3783,12 +3881,14 @@
     "q": "#4f7f7c",
     "Q": "#355a58",
     "x": "#c8f3ea",
+    "e": "#2fb39a",
+    "E": "#3f6b6a",
     "k": "#2b2433",
     "S": "rgba(60,30,60,0.16)",
     "a": "#c05484",
     "A": "#a04178"
    },
-   "rgba_sha256": "f1d109879eea86357acf926de64c64525edfd5285381f9f065624a0e3f904551"
+   "rgba_sha256": "33d26d3296a75d6a7f5549367a5a5eaedded3ee98ef94b6d77dd37b4d7961ce8"
   }
  ],
  "names": [

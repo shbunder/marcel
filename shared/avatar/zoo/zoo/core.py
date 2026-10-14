@@ -121,6 +121,8 @@ def palette(base: str, accent_hex: str | None) -> dict[str, str]:
         'q': '#4f7f7c',  # laptop lid, its shade, screen light
         'Q': '#355a58',
         'x': '#c8f3ea',
+        'e': '#2fb39a',  # the signature bow every avatar wears, and its knot (Marcel's teal)
+        'E': '#3f6b6a',
         'k': '#2b2433',  # sunglasses
         'S': 'rgba(60,30,60,0.16)',  # ground shadow
     }
@@ -131,6 +133,7 @@ def palette(base: str, accent_hex: str | None) -> dict[str, str]:
 
     if near(h, 150, 55):
         pal['g'], pal['G'] = '#f0607e', '#b83a5c'
+        pal['e'], pal['E'] = '#f0607e', '#b83a5c'
     if near(h, 260, 45) or near(h, 300, 30):
         pal['v'], pal['V'] = '#2fb39a', '#1c7d6c'
     if accent_hex:
@@ -642,6 +645,12 @@ MOODS: dict[str, dict[str, Any]] = {
 # Marcel's agent states map onto moods (B-28).
 STATES = {'idle': 'neutral', 'thinking': 'thinking', 'working': 'working', 'needs_you': 'surprised', 'done': 'happy'}
 
+# ------------------------------------------------------------------ the signature bow
+# Every avatar wears a bow (Marcel's signature): a bow tie at the neck, like Marcel's (behind the laptop while working,
+# as a real one would be); a hair bow on the head when a scarf already wraps the neck.
+
+BOW = {'rows': ['ee..ee', 'eeEEee', 'ee..ee'], 'dx': -3}
+
 # ------------------------------------------------------------------ accessories and personalities
 _CAP = ['...vvvv...', '..vvvvvv..', '.vvvvvvvv.', 'vvvvvvvvvv', 'VVVVVVVVVVvv']
 ACCESSORIES: dict[str, dict[str, Any]] = {
@@ -888,9 +897,18 @@ def frame(look: dict[str, Any], mood: str | None = None, f: int = 0) -> dict[str
     for p in sp['parts']():
         draw_part(g, p, dy_of(p['group']))
 
-    if acc.get('at') == 'neck':
+    if acc.get('at') == 'neck' and acc is not ACCESSORIES['bowtie']:  # the bow tie is the signature bow, below
         nx, ny = face['neck']
         draw_part(g, L(nx + acc['dx'], ny + acc['dy'], acc['rows']), hop if look.get('species') == 'giraffe' else hy)
+
+    # the signature bow: at the neck (the laptop, drawn next, sits in front of it), or on the head when a scarf has
+    # the neck
+    if acc.get('at') == 'neck' and acc is not ACCESSORIES['bowtie']:
+        bx, by = face['flower']
+        draw_part(g, H(bx - len(BOW['rows'][0]) // 2, by - 1, BOW['rows']), hy)
+    else:
+        nx, ny = face['neck']
+        draw_part(g, L(nx + BOW['dx'], ny, BOW['rows']), hop if look.get('species') == 'giraffe' else hy)
 
     if face_mood.get('prop') == 'laptop':
         draw_laptop(g, sp, f, hop, _sessions(look.get('sessions')))
