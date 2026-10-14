@@ -733,7 +733,7 @@ class Locator:
 
     def unsafe(self) -> bool:
         """The file exists but resolves outside the session's folder."""
-        found = transcript_path(self.home, self.session_id, self.cwd, self.subagent, self.workflow)
+        found = self._find()  # the same paced search as a waiting tail, never one per request
         return found is not None and not inside_session(found, self._name, self.session_id)
 
 

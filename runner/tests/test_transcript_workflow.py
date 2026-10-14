@@ -248,6 +248,9 @@ def test_a_symlink_made_after_the_tail_opened_is_never_read(rig: Rig, tmp_path: 
     (session_dir(rig) / 'subagents' / 'workflows' / 'wf_late_link').symlink_to(outside)
     locate = transcript.Locator(rig.home, REC, CWD, None, 'wf_late_link')
     assert locate() is None and locate.unsafe()
+    tail.s.settimeout(1.0)  # the open stream sends nothing from the outside file
+    with pytest.raises(TimeoutError):
+        tail.next()
     tail.close()
 
 
