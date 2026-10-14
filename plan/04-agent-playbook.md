@@ -85,6 +85,9 @@ Size guide:
    - hub, runner, plugin-py: `make -C <lane> check` (ruff, pyright, pytest, coverage ≥ 90 %);
    - plugin-ts: `npm run check`;
    - iOS: `make ios-check` (= `make -C ios check`; see `ios/README.md` for how it runs the tests on the simulator).
+
+   GitHub runs every lane but iOS on each PR and each push to `main` (`.github/workflows/check.yml`, about
+   5 minutes). A red `check` on `main` is fixed before anything else lands.
 5. Update the docs the story names, in the same commit.
 6. `/finish-story` — gate, `story-verifier`, commit `[S-NN.M] impl: <what>` staged by name (never
    `git add .` or `-A`), PR, card → Review. Fix what the verifier finds.
