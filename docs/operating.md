@@ -282,6 +282,7 @@ live path (stopping the units, `make install`) was not drilled.
 | `hub /internal/health`: brain "No brain session yet" | `docker exec marcel-hub marcel-hub agent list`; `make -C deploy logs` | No agent yet: `marcel-hub setup` (see Install). `MARCEL_BRAIN_CWD` unset, or the brain workspace is not trusted: run `make -C deploy install` |
 | `hub /internal/health`: brain "not connected" or "sent nothing for over 45 s" | `curl -s --unix-socket ~/marcel/run/runner.sock http://runner/sessions`; `make -C deploy logs` | The brain's `claude` process died or hangs. The hub starts a new one when the runner shows it gone; a hung one: ask for a fresh start from the app (Settings) |
 | "Marcel is unreachable. A deploy wrote a different secret." | `~/marcel/data/hub-secret` vs `~/.claude/plugins/data/marcel-marcel-local/hub-secret` | Run `make -C deploy install`, which copies it again, then `claude respawn --all`: after a wrong secret the channel never retries |
+| Runner log: "could not read usage. Claude Code is not using the Claude subscription" | `claude auth status`; `journalctl --user -u marcel-runner -n 50` | Claude Code is logged out or its login expired, so `/usage` shows the cost view and the usage guard has no reading. On the NUC: `claude`, then `/login` |
 | Nothing starts after a reboot | `loginctl show-user $USER -p Linger` | Linger is off: `sudo loginctl enable-linger $USER` |
 | Port 7420 already in use | `ss -ltnp | grep 7420` | Old Marcel's `marcel.service`: `sudo systemctl disable --now marcel.service` |
 
