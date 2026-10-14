@@ -2,13 +2,19 @@
 # requires-python = ">=3.12"
 # dependencies = ["pillow==12.3.0"]
 # ///
-"""Draws Marcel's app icon: a white pixel-art M on rose, wearing a soft teal bow tie (design 5b).
+"""Draws Marcel's app icon: a puffy bow that tiles the plane, on rose; the centre bow white with a
+teal knot (design 12, the owner's pick, ADR-008).
 
-The M is the app's own lettering: Silkscreen's M (5 x 5 font pixels, the face PixelKit uses
-for labels and headings), each font pixel a 120-px square, centred. The bow is a smooth vector shape
-drawn at 4x and scaled down, on purpose: the two styles are mixed. Writes the 1024 px icons
-(default and dark) to out/, every size the iOS app lists to ios/Marcel/App/AppIcon/, and
-out/checksums.txt, which AppIconTests reads.
+The bow is one closed shape of four cubic Beziers (two arcs above, two below, straight sides) that
+tiles: each row is shifted half a bow, so a bow's waist fits its neighbour's wings. The tiling is
+scaled 1.6x and its rows tilted 14 degrees, three rose shades with a darker seam; the centre bow is
+white with a teal knot, the bow every Pixel Zoo avatar will wear. Every curve is sampled at 4x and
+scaled down, so the edges stay smooth with Pillow alone. Writes the 1024 px icons (default and dark)
+to out/, every size the iOS app lists to ios/Marcel/App/AppIcon/, and out/checksums.txt, which
+AppIconTests reads.
+
+The source of truth is the approved SVG, kept next to this script (design-12-tiling-x1.6.svg); this
+script draws the same thing.
 
     uv run shared/brand/app-icon/generate.py           # redraw everything
     uv run shared/brand/app-icon/generate.py --check   # fail if a committed file is stale
@@ -20,71 +26,50 @@ import math
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 HERE = Path(__file__).resolve().parent
 OUT = HERE / 'out'
 REPO = HERE.parents[2]
 IOS_ICONS = REPO / 'ios' / 'Marcel' / 'App' / 'AppIcon'
 S = 1024
+SS = 4  # drawn at 4x, then scaled down
 
-# Palette: PixelKit rose, the pixel giraffe's plum and pinks, the vector avatar's bow teal.
+# The bow, in its own units (270 x 200): start point, then cubic segments (c1, c2, end) or a line.
+BOW_START = (0.0, 0.0)
+BOW_SEGMENTS = [
+    ((57.16, 3.73), (77.84, 72.27), (135.0, 76.0)),
+    ((192.16, 72.27), (212.84, 3.73), (270.0, 0.0)),
+    ((270.0, 200.0),),
+    ((212.84, 196.27), (192.16, 127.73), (135.0, 124.0)),
+    ((77.84, 127.73), (57.16, 196.27), (0.0, 200.0)),
+]
+BOW_W, BOW_H = 270.0, 200.0
+STEP_X, STEP_Y = 270.0, 124.0  # the next bow in a row; the next row, shifted half a bow
+KNOT_X, KNOT_W = 116.0, 38.0  # the knot: a strip across the waist, inside the bow
+SCALE = 1.5 * 1.6  # px per bow unit at 1024 px: design 12 at 1.6x
+TILT = 14.0  # degrees, clockwise
+SEAM = 14.0  # px at 1024
+
 THEMES = {
-    'default': dict(bg='#d87990', m='#ffffff', bow='#3f6b6a', fold='#2a4b4a', shine='#5a8a88'),
-    'dark': dict(bg='#3f1838', m='#f08aa0', bow='#5f9a98', fold='#3f6b6a', shine='#7fb5b2'),
+    # PixelKit rose, three shades of it for the tiles; the vector avatar's bow teal for the knot.
+    'default': dict(
+        bg='#d87990',
+        tiles=('#e693a6', '#d87990', '#df869c'),
+        seam='#b9566f',
+        bow='#ffffff',
+        knot='#3f6b6a',
+    ),
+    # The giraffe's plum, three shades of it; the bow in the app's dark-mode rose, a lighter teal.
+    'dark': dict(
+        bg='#3f1838',
+        tiles=('#4d1f45', '#3f1838', '#461b3e'),
+        seam='#2a0f26',
+        bow='#f08aa0',
+        knot='#5f9a98',
+    ),
 }
 
-# The M, cell by cell, as Silkscreen draws it at its native 8-px size (ios/PixelKit/.../Fonts/
-# Silkscreen-Regular.ttf, SIL Open Font License 1.1, Silkscreen-OFL.txt next to it). Redrawn here
-# rather than rasterised at run time, so the icon does not depend on a font renderer.
-M_ROWS = [
-    'X...X',
-    'XX.XX',
-    'X.X.X',
-    'X...X',
-    'X...X',
-]
-CELL = 120
-W, H = len(M_ROWS[0]), len(M_ROWS)
-
-# The bow (design 5b): puffy wings, 15 % larger than the first draft, tilted 10 degrees,
-# low on the left leg.
-# BOW_ROW: the bow's centre, in M cells from the top of the letter.
-BOW_LENGTH, BOW_HEIGHT, BOW_TILT, BOW_ROW = 120 * 1.15, 150 * 1.15, -10, 3.4
-PUFFY = [
-    (0.10, -0.10),
-    (0.30, -0.42),
-    (0.62, -0.58),
-    (0.92, -0.48),
-    (1.05, -0.10),
-    (1.00, 0.30),
-    (0.78, 0.52),
-    (0.45, 0.48),
-    (0.18, 0.20),
-]
-# The left wing is the right one mirrored with small wobbles, so it looks drawn by hand.
-WOBBLE_LEFT = [
-    (0, 0),
-    (0.02, -0.03),
-    (-0.03, 0.02),
-    (0.02, 0.03),
-    (-0.04, 0.0),
-    (0.0, 0.04),
-    (0.03, -0.02),
-    (0, 0.02),
-    (0, 0),
-]
-SHINE = [(0.30, -0.30), (0.55, -0.42), (0.78, -0.36), (0.62, -0.24), (0.40, -0.18)]
-KNOT = [
-    (-0.15, -0.20),
-    (0.0, -0.25),
-    (0.15, -0.19),
-    (0.18, 0.02),
-    (0.14, 0.21),
-    (0.0, 0.25),
-    (-0.15, 0.20),
-    (-0.18, 0.0),
-]
 
 # Every file the app lists (Config/Marcel-Info.plist), named the way iOS looks them up.
 IOS_FILES = {f'AppIcon{p}x{p}@{s}x.png': p * s for p in (20, 29, 40, 60) for s in (2, 3)} | {
@@ -92,77 +77,75 @@ IOS_FILES = {f'AppIcon{p}x{p}@{s}x.png': p * s for p in (20, 29, 40, 60) for s i
 }
 
 
-def m_cells():
-    return {(x, y) for y, row in enumerate(M_ROWS) for x, ch in enumerate(row) if ch == 'X'}
-
-
-def spline(pts, n, closed=True):
-    """Catmull-Rom spline through pts."""
-    pts = pts if closed else [pts[0], *pts, pts[-1]]
-    k = len(pts)
-    spans = range(k) if closed else range(1, k - 2)
-    out = []
-    for i in spans:
-        p0, p1, p2, p3 = pts[i - 1], pts[i], pts[(i + 1) % k], pts[(i + 2) % k]
-        for j in range(n + (0 if closed else 1)):
-            t = j / n
-            out.append(
+def bow_outline(samples=48):
+    """The bow's outline in bow units, each Bezier sampled `samples` times."""
+    pts = [BOW_START]
+    for seg in BOW_SEGMENTS:
+        p0 = pts[-1]
+        if len(seg) == 1:
+            pts.append(seg[0])
+            continue
+        c1, c2, p3 = seg
+        for n in range(1, samples + 1):
+            t = n / samples
+            u = 1 - t
+            pts.append(
                 tuple(
-                    0.5
-                    * (
-                        2 * p1[a]
-                        + (p2[a] - p0[a]) * t
-                        + (2 * p0[a] - 5 * p1[a] + 4 * p2[a] - p3[a]) * t * t
-                        + (3 * p1[a] - p0[a] - 3 * p2[a] + p3[a]) * t**3
-                    )
+                    u**3 * p0[a] + 3 * u * u * t * c1[a] + 3 * u * t * t * c2[a] + t**3 * p3[a]
                     for a in (0, 1)
                 )
             )
-    return out
+    return pts  # ends at the bottom-left corner; the left side closes back to the start
 
 
-def draw_bow(d, ss, cx, cy, theme):
-    a = math.radians(BOW_TILT)
+def placer(ss):
+    """Bow units -> canvas pixels: centred bow at the icon's centre, scaled, tilted clockwise."""
+    a = math.radians(TILT)
     ca, sa = math.cos(a), math.sin(a)
-    L, Hb = BOW_LENGTH, BOW_HEIGHT
+    k = SCALE * ss
+    c = S * ss / 2
 
-    def p(x, y):
-        return ((cx + x * ca - y * sa) * ss, (cy + x * sa + y * ca) * ss)
+    def place(x, y, dx=0.0, dy=0.0):
+        u, v = (x + dx - BOW_W / 2) * k, (y + dy - BOW_H / 2) * k
+        return (c + u * ca - v * sa, c + u * sa + v * ca)
 
-    for sign, wobble in ((-1, WOBBLE_LEFT), (1, [(0, 0)] * len(PUFFY))):
-        wing = [
-            ((px + wx) * L * sign, (py + wy) * Hb)
-            for (px, py), (wx, wy) in zip(PUFFY, wobble, strict=True)
-        ]
-        d.polygon([p(x, y) for x, y in spline(wing, 24)], fill=theme['bow'])
-        d.polygon([p(x * L * sign, y * Hb) for x, y in spline(SHINE, 10)], fill=theme['shine'])
-        for fy in (-0.16, 0.14):  # the pinch: two fold lines from the knot into the wing
-            fold = spline([(0.16, fy * 0.4), (0.36, fy * 1.1), (0.55, fy * 1.6)], 12, closed=False)
-            d.line(
-                [p(x * L * sign, y * Hb) for x, y in fold],
-                fill=theme['fold'],
-                width=int(0.045 * Hb * ss),
-                joint='curve',
-            )
-    d.polygon([p(x * L, y * Hb) for x, y in spline(KNOT, 12)], fill=theme['fold'])
+    return place
+
+
+def tiles():
+    """Offsets of every bow that can reach the icon, in paint order (the SVG's), and its shade."""
+    n = int(9 / 1.6) + 3
+    for j in range(-n, n + 1):
+        for i in range(-n, n + 1):
+            if (i, j) != (0, 0):
+                yield i * STEP_X + j * STEP_X / 2, -j * STEP_Y, (i - j) % 3
+
+
+def draw_bow(d, place, outline, fill, seam, width, dx=0.0, dy=0.0):
+    """A bow's fill, then its seam on top (an SVG stroke: centred on the edge, round joins)."""
+    pts = [place(x, y, dx, dy) for x, y in outline]
+    d.polygon(pts, fill=fill)
+    d.line([*pts, pts[0], pts[1]], fill=seam, width=width, joint='curve')
 
 
 def render(theme_name):
     theme = THEMES[theme_name]
-    img = Image.new('RGB', (S, S), theme['bg'])
-    ox, oy = (S - W * CELL) // 2, (S - H * CELL) // 2  # the M exactly centred; the bow may overhang
+    big = S * SS
+    img = Image.new('RGB', (big, big), theme['bg'])
     d = ImageDraw.Draw(img)
-    for x, y in m_cells():
-        d.rectangle(
-            [ox + x * CELL, oy + y * CELL, ox + (x + 1) * CELL - 1, oy + (y + 1) * CELL - 1],
-            fill=theme['m'],
-        )
-    ss = 4
-    layer = Image.new('RGBA', (S * ss, S * ss), (0, 0, 0, 0))
-    draw_bow(ImageDraw.Draw(layer), ss, ox + CELL / 2, oy + BOW_ROW * CELL, theme)
-    layer = layer.resize((S, S), Image.Resampling.LANCZOS)
-    img.paste(layer, (0, 0), layer)
-    return img
+    place, outline = placer(SS), bow_outline()
+    width = round(SEAM * SS)
+    for dx, dy, shade in tiles():
+        draw_bow(d, place, outline, theme['tiles'][shade], theme['seam'], width, dx, dy)
+    draw_bow(d, place, outline, theme['bow'], theme['seam'], width)
+    # The knot: a strip across the waist, clipped to the bow's inside (it covers the seam there).
+    inside = Image.new('L', (big, big), 0)
+    ImageDraw.Draw(inside).polygon([place(x, y) for x, y in outline], fill=255)
+    strip = Image.new('L', (big, big), 0)
+    corners = [(KNOT_X, 0), (KNOT_X + KNOT_W, 0), (KNOT_X + KNOT_W, BOW_H), (KNOT_X, BOW_H)]
+    ImageDraw.Draw(strip).polygon([place(x, y) for x, y in corners], fill=255)
+    img.paste(theme['knot'], (0, 0), ImageChops.multiply(inside, strip))
+    return img.resize((S, S), Image.Resampling.LANCZOS)
 
 
 def png(img):

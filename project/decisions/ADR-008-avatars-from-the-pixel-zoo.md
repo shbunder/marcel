@@ -32,6 +32,12 @@ offline fallback and the app icon.
 white on rose, wearing Marcel's soft teal bow tie, approved by the owner on 2026-10-13 and drawn by
 `shared/brand/app-icon/generate.py`. The bundled giraffe stays the offline fallback.
 
+*Amended 2026-10-14 (owner):* the M goes. The owner found a lettermark too typical for an app icon. The icon is now
+design 12: a puffy bow that tiles, scaled 1.6× with its rows tilted 14°, three shades of rose with a darker seam, the
+centre bow white with a teal knot (dark: plum tiling, rose bow, lighter teal knot). The bow is Marcel's signature:
+every Pixel Zoo avatar will wear one, and the home screen will show the same tiling, so the icon and the app speak
+with one mark. The approved SVG is kept in `shared/brand/app-icon/` and `generate.py` draws it.
+
 ## Consequences
 
 - `avatar-sheet.schema.json` allows 32×32 frames. The Python port must match `zoo.js` pixel for pixel on committed fixtures.

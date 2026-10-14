@@ -4,7 +4,7 @@ import Foundation
 import ImageIO
 import XCTest
 
-/// The app icon is a white pixel M on rose wearing a soft teal bow tie. It is drawn by
+/// The app icon is a puffy bow that tiles, on rose, the centre bow white with a teal knot (ADR-008). It is drawn by
 /// `shared/brand/app-icon/generate.py` (a dev script that needs Pillow; `uv run` installs it), not by the app.
 ///
 /// The script writes the PNGs to `ios/Marcel/App/AppIcon/`, named the way iOS looks them up (`AppIcon60x60@3x.png`),

@@ -90,7 +90,7 @@ you" badge) instead of the pixel `HeartsHeader`, so it matches the other tabs.
   the giraffe holds its state's first frame.
 - **VoiceOver** reads the whole header as one line with the agent's name: "Marcel is thinking. Nothing running.
   1 thing needs you" (`AvatarState.accessibilityDescription(name:)`).
-- **The app icon** is not drawn here any more: it is a white pixel M with a teal bow tie, drawn by
+- **The app icon** is not drawn here any more: it is the tiling bow (white centre bow, teal knot, on rose), drawn by
   `shared/brand/app-icon/generate.py` (see its README). The PNGs are in `../App/AppIcon/`, named the way iOS looks
   them up (`AppIcon60x60@3x.png`), and listed in `Config/Marcel-Info.plist` (`CFBundleIconFiles`). They are loose
   files, not an asset catalog: actool cannot compile a catalog on a Mac without the iOS platform component.
