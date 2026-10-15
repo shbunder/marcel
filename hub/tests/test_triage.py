@@ -113,7 +113,10 @@ def test_the_status_row_is_counted_on_its_own_and_ordinary_messages_are_not() ->
         "Hey, how's it going?", 'ok so any news?', 'Just a quick status update?',
     ):  # fmt: skip
         assert rule(said) == 'status_question', said
-    for said in ('Quickly book the dentist.', 'Check the oven timer.', 'Hey, book the dentist.'):
+    for said in (
+        'Quickly book the dentist.', 'Check the oven timer.', 'Hey, book the dentist.',
+        'Quick check the oven', 'Quick update the shopping list with milk', 'statuses please',
+    ):  # fmt: skip
         assert rule(said) == 'main_message', said
     for said in ('Book the dentist.', 'statuses of my PRs and then merge the green ones please.'):
         assert rule(said) == 'main_message', said

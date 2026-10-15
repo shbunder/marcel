@@ -126,7 +126,9 @@ STATUS = re.compile(
     r'^\s*(?:(?:hey|hi|so|ok(?:ay)?)\b\W*)*'
     r"(?:status|any (?:news|updates?)|how(?:'s| is| are) (?:it|things|that|everything)"
     r"(?: going)?|what(?:'s| is) the status|where are we|(?:is it|are you) done|done yet"
-    r'|(?:a |just a )?quick (?:check|status|update)(?:-in)?)\b',
+    # "quick check" only as a question about how things stand, never "quick check the oven".
+    r'|(?:a |just a )?quick (?:check|status|update)(?: (?:check|update))?(?:-in)?'
+    r'(?=\s*(?:[:?,!.-]|$)|\s+(?:on|in)\b))\b',
     re.IGNORECASE,
 )
 STATUS_MAX = 60

@@ -789,6 +789,27 @@ def test_the_deadline_counts_from_when_the_brain_gets_the_digest(
     assert 'Marcel did not publish it within 30 minutes' in line.body_json['text']
 
 
+def test_a_brain_back_between_checks_still_gets_its_full_thirty_minutes(
+    engine: Engine, waiting_digests: Digests, sched: Scheduler, frames: ChannelOutbox,
+    clock: Clock,
+) -> None:  # fmt: skip
+    seed(engine)
+    waiting_digests.ensure_builtins()
+    due(engine, 'evening', 'usage')
+    run(sched.tick())
+    for _ in range(55 * 2):  # the hub looks every 30 seconds while the brain is away
+        clock.go(seconds=30)
+        waiting_digests.check()
+    brain_receives_everything(engine, frames)  # back at minute 55
+    clock.go(minutes=5)
+    waiting_digests.check()  # minute 60: only 5 minutes since it got it
+    assert messages(engine) == []
+    clock.go(minutes=26)
+    waiting_digests.check()  # minute 86: past its 30 minutes
+    (line,) = messages(engine)
+    assert 'Marcel did not publish it within 30 minutes' in line.body_json['text']
+
+
 def test_after_three_hours_away_the_hub_says_so_once(
     engine: Engine, waiting_digests: Digests, sched: Scheduler, clock: Clock, pushes: Pushes
 ) -> None:

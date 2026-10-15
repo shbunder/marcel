@@ -749,18 +749,22 @@ class Digests:
                     kept.append(p)
                 else:
                     changed = True
-            elif now >= datetime.fromisoformat(p.deadline_at):
-                undelivered = bool(p.digest_id) and self.waiting(p.agent_id, p.digest_id)
-                if undelivered and now - datetime.fromisoformat(p.fired_at) < WAIT_FOR_BRAIN:
-                    # The brain never got it (down or restarting): Marcel gets its full time
-                    # once it is back, rather than a "not written" line it could not help.
-                    p.deadline_at = iso(now + DEADLINE)
-                else:
-                    self._fallback(p, unreachable=undelivered)
-                    p.late = True
-                kept.append(p)
-                changed = True
             else:
+                away = bool(p.digest_id) and self.waiting(p.agent_id, p.digest_id)
+                fired = datetime.fromisoformat(p.fired_at)
+                if away and now - fired < WAIT_FOR_BRAIN:
+                    # The brain has not got it yet (down or restarting): its 30 minutes start
+                    # when it does, so keep the deadline that far ahead while it waits.
+                    later = iso(now + DEADLINE)
+                    if later != p.deadline_at:
+                        p.deadline_at = later
+                        changed = True
+                    kept.append(p)
+                    continue
+                if now >= datetime.fromisoformat(p.deadline_at):
+                    self._fallback(p, unreachable=away)
+                    p.late = True
+                    changed = True
                 kept.append(p)
         if changed:
             self.pending = kept
