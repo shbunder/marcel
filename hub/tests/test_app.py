@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -222,3 +223,41 @@ def test_marcel_hub_refuses_to_start_on_broken_settings(
     monkeypatch.setattr('uvicorn.run', lambda *a, **kw: pytest.fail('should not serve'))
     with pytest.raises(SystemExit, match=r'did not start.*marcel\.toml'):
         main()
+
+
+@pytest.mark.parametrize(
+    ('value', 'expected'),
+    [
+        (None, None),
+        ('', None),
+        ('https://mac.tail1234.ts.net', 'https://mac.tail1234.ts.net'),
+        ('https://marcel-bot.com/', 'https://marcel-bot.com'),
+    ],
+)
+def test_public_url_is_this_hubs_own_https_address(
+    tmp_path: Path, value: str | None, expected: str | None
+) -> None:
+    env = {'MARCEL_CONFIG': str(tmp_path / 'none.toml')}
+    if value is not None:
+        env['MARCEL_PUBLIC_URL'] = value
+    assert load_settings(env).public_url == expected
+
+
+@pytest.mark.parametrize(
+    ('value', 'words'),
+    [('http://mac.local', 'https address'), ('https://mac.example.org/api', 'without /api')],
+)
+def test_a_public_url_that_cannot_work_stops_the_hub(
+    tmp_path: Path, value: str, words: str
+) -> None:
+    env = {'MARCEL_CONFIG': str(tmp_path / 'none.toml'), 'MARCEL_PUBLIC_URL': value}
+    with pytest.raises(SettingsError, match=words):
+        load_settings(env)
+
+
+def test_without_a_public_url_the_hub_starts_and_says_so_once(
+    settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.WARNING), TestClient(create_app(settings)):
+        pass
+    assert caplog.text.count('No public address yet: run `marcel connect`.') == 1

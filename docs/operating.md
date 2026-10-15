@@ -97,6 +97,7 @@ environment. That covers the environment only: sessions run as the owner and can
 | `MARCEL_NTFY_SERVER` | no | e.g. `https://ntfy.sh`. Unset: no ntfy pushes |
 | `MARCEL_APNS_KEY`, `_KEY_ID`, `_TEAM_ID`, `_TOPIC` | no | All four or none (`hub/README.md`). The key's text on one line with `\n`. Never the `.p8` file in the repo or image |
 | `MARCEL_APNS_SANDBOX` | no | `true` only for an app run from Xcode |
+| `MARCEL_PUBLIC_URL` | set in `deploy/docker-compose.yml` | This install's own https address, without `/api`: `https://marcel-bot.com` on the NUC. Pairing links use `<public_url>/api`, and cloud quests report to `<public_url>/api/session/report`. Unset, the hub starts and logs "No public address yet: run `marcel connect`", `pair` refuses with that sentence, and no cloud quest starts. Not a secret; on a new install `marcel connect` sets it (S-22.8) |
 
 To get pushes on the phone (without them the owner sees each notice only in the app, e.g. how a redeploy went),
 add one or both to `deploy/.env.local`:

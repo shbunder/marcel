@@ -71,7 +71,12 @@ from marcel_hub.tasks.states import FINISHED, IllegalTransition
 
 log = logging.getLogger(__name__)
 
-REPORT_URL = 'https://marcel-bot.com/api/session/report'
+# Where cloud workers report: `<public_url>/api/session/report` (S-22.2). Without `public_url`
+# there is none, so no cloud quest starts.
+REPORT_PATH = '/api/session/report'
+NO_REPORT_URL = (
+    'No public address yet, so a cloud quest could not report back: run `marcel connect`.'
+)
 TOKEN_PREFIX = 'mrt_'
 TOKEN_TTL = timedelta(hours=48)
 # A cloud task spawned without `expected_by` is expected back this long after it was created.
@@ -138,7 +143,10 @@ at most 1000 characters, at most 10 per task. It goes in the project's notes, no
 Never stop without `done` or `failed`.
 
 Marcel answers 202 when it took a report. A 400 says what to change: fix the body and send it \
-again. On 429 wait a minute and try again. On 404 the token no longer works: stop reporting.
+again. On 429 wait a minute and try again. On 404 the token no longer works: stop reporting. \
+With no answer at all, or a 5xx, Marcel's computer may be asleep: keep working, and try that \
+report again after 1, 2, 4, 8 ... minutes, for up to an hour. After an hour without getting \
+through, stop trying and say in your final message that Marcel could not be reached.
 
 Write every text for the owner's phone: the outcome first, short plain sentences, no logs.
 
@@ -186,7 +194,7 @@ def deadline(task: Task) -> datetime:
     return _aware(task.created_at) + DEFAULT_EXPECTED
 
 
-def worker_prompt(task: Task, text: str, token: str, report_url: str = REPORT_URL) -> str:
+def worker_prompt(task: Task, text: str, token: str, report_url: str) -> str:
     """The cloud worker's whole prompt: the protocol, then `text` fenced off as data."""
     repo = task.repo or 'none'
     if task.repo:
@@ -210,7 +218,7 @@ def worker_prompt(task: Task, text: str, token: str, report_url: str = REPORT_UR
     )
 
 
-def follow_up_prompt(task: Task, text: str, token: str, report_url: str = REPORT_URL) -> str:
+def follow_up_prompt(task: Task, text: str, token: str, report_url: str) -> str:
     marker, body = _fenced(text)
     return FOLLOW_UP.substitute(
         task_id=task.id, report_url=report_url, token=token, marker=marker, text=body
@@ -394,7 +402,7 @@ class CloudTasks:
     gateway: Gateway
     client: CloudClient | None
     tokens: TokenStore
-    report_url: str = REPORT_URL
+    report_url: str | None = None
 
     def __post_init__(self) -> None:
         self._loop: asyncio.Task[None] | None = None
@@ -405,10 +413,14 @@ class CloudTasks:
         """Open the cloud session for `task` (the registry's `Runner.start` for cloud tasks)."""
         if self.client is None:
             raise RunnerUnavailable(NO_RUNNER)
+        if self.report_url is None:
+            raise StartFailed(NO_REPORT_URL)
         token = self.tokens.mint(task.id)
         repo = {'url': f'https://github.com/{task.repo}'} if task.repo else None
         try:
-            spawned = await self.client.cloud_spawn(worker_prompt(task, prompt, token), repo)
+            spawned = await self.client.cloud_spawn(
+                worker_prompt(task, prompt, token, self.report_url), repo
+            )
         except CloudRefused as exc:
             self.tokens.revoke(task.id)
             raise StartFailed(_not_started(exc)) from None
@@ -453,10 +465,14 @@ class CloudTasks:
     async def send(self, task_id: str, text: str) -> None:
         """Send a follow-up with a new report token. A failure is shown in the task's thread."""
         task = self.registry.get(task_id)
-        if self.client is None or task.session_id is None:
-            await self._send_failed(
-                task_id, NO_RUNNER if self.client is None else 'it has no session'
-            )
+        if self.client is None or task.session_id is None or self.report_url is None:
+            if self.client is None:
+                why = NO_RUNNER
+            elif task.session_id is None:
+                why = 'it has no session'
+            else:
+                why = NO_REPORT_URL
+            await self._send_failed(task_id, why)
             return
         token = self.tokens.mint(task_id)
         self._touch(task_id)  # the quiet window starts again from the follow-up
@@ -629,9 +645,13 @@ def install(
     gateway: Gateway,
     client: CloudClient | None,
     data_dir: Path,
+    public_url: str | None = None,
 ) -> CloudTasks:
     """Route cloud tasks through `CloudTasks` and put it on `app.state.cloud` (for S-07.2)."""
-    cloud = CloudTasks(registry, gateway, client, TokenStore(data_dir / 'cloud-tokens.json'))
+    report_url = f'{public_url}{REPORT_PATH}' if public_url else None
+    cloud = CloudTasks(
+        registry, gateway, client, TokenStore(data_dir / 'cloud-tokens.json'), report_url
+    )
     registry.runner = CloudRouter(registry.runner, cloud)
     registry.outbox = CloudOutbox(registry.outbox, cloud)
     app.state.cloud = cloud

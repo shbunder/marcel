@@ -9,9 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from marcel_hub.auth.deps import DbSession, require_owner
 from marcel_hub.auth.errors import ApiError
 from marcel_hub.auth.tokens import (
-    DEFAULT_HUB,
+    NO_PUBLIC_URL,
     PAIRING_CODE_TTL,
     create_pairing_code,
+    hub_api,
     pairing_url,
 )
 from marcel_hub.models import utcnow
@@ -101,12 +102,15 @@ async def remove_user(user_id: str, request: Request, session: DbSession) -> Res
 
 
 @router.post('/users/{user_id}/pairing-codes', status_code=201)
-def new_pairing_code(user_id: str, session: DbSession) -> dict[str, str]:
+def new_pairing_code(user_id: str, session: DbSession, request: Request) -> dict[str, str]:
+    public_url = request.app.state.settings.public_url
+    if not public_url:
+        raise ApiError(409, 'no_public_url', NO_PUBLIC_URL)
     user = store.get_user(session, user_id)
     now = utcnow()
     code = create_pairing_code(session, user_id=user.id, now=now)
     return {
         'code': code,
-        'link': pairing_url(DEFAULT_HUB, code),
+        'link': pairing_url(hub_api(public_url), code),
         'expires_at': (now + PAIRING_CODE_TTL).isoformat(),
     }

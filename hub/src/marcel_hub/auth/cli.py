@@ -9,9 +9,10 @@ from sqlmodel import Session
 from marcel_hub import db
 from marcel_hub.app import SettingsError, load_settings
 from marcel_hub.auth.tokens import (
-    DEFAULT_HUB,
+    NO_PUBLIC_URL,
     PAIRING_CODE_TTL,
     create_pairing_code,
+    hub_api,
     pairing_url,
 )
 
@@ -21,13 +22,16 @@ def pair(argv: list[str]) -> int:
         prog='marcel-hub pair', description='Show a QR code that pairs a phone with this hub.'
     )
     parser.add_argument(
-        '--hub', default=DEFAULT_HUB, help=f'the URL the phone uses (default {DEFAULT_HUB})'
+        '--hub', default=None, help='the URL the phone uses (default <public_url>/api)'
     )
     args = parser.parse_args(argv)
     try:
         settings = load_settings()
     except SettingsError as exc:
         raise SystemExit(f'No pairing code was made. {exc}') from exc
+    hub = args.hub or (hub_api(settings.public_url) if settings.public_url else None)
+    if hub is None:
+        raise SystemExit(f'No pairing code was made. {NO_PUBLIC_URL}')
 
     engine = db.make_engine(settings.db_path)
     try:
@@ -37,7 +41,7 @@ def pair(argv: list[str]) -> int:
     finally:
         engine.dispose()
 
-    url = pairing_url(args.hub, code)
+    url = pairing_url(hub, code)
     qr = io.StringIO()
     segno.make(url, error='m').terminal(out=qr, compact=True)
     minutes = int(PAIRING_CODE_TTL.total_seconds() // 60)
