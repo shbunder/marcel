@@ -93,8 +93,9 @@ into `~/.local/bin`, no admin). The hub runs from `~/marcel/src/hub` with `uv ru
 Python with no dependencies.
 
 Not merged into one process: the runner is exactly the helper a second computer needs (question 6), and a hub
-restart must never touch running sessions. Trade-off: three background services instead of two (Claude's
-supervisor, runner, hub), all handled by `marcel`.
+restart must never touch running sessions. Trade-off: three background processes instead of two (Claude's
+supervisor, runner, hub); `marcel` runs the runner and the hub, and on a Mac Claude starts its supervisor on demand
+(question 5).
 
 ### 4. Background services on macOS and Linux
 
@@ -117,14 +118,18 @@ sessions carry on and the app catches up from where it stopped (the event stream
 Mac awake while a quest runs" holds `caffeinate -i` (no admin) only while a quest works; a closed lid on battery still
 sleeps. Cloud quests retry their report for up to an hour so a sleeping Mac loses nothing.
 
-### 5. Claude Code version pin without the system-wide file
+### 5. Claude Code version: follow the user's on a Mac (amended after SP11)
 
-- **Auto-update off for Marcel only:** `DISABLE_AUTOUPDATER=1` in each Marcel service's environment (documented,
-  [setup](https://code.claude.com/docs/en/setup)). The user's own `claude` keeps updating itself.
-- **A private copy of the pinned version:** `marcel install` installs the pinned version with Claude's own installer
-  and copies that binary to `~/marcel/claude/<version>/claude`. Marcel's services run that copy, so the user updating
-  their own Claude Code no longer changes Marcel's (the installer keeps only two old versions, so pointing at its folder
-  is not safe). SP11 checks a copied binary runs background sessions.
+- **No pin on a Mac.** The plan was a private copy of the pinned binary with auto-update off for Marcel only. SP11
+  showed it cannot hold: one Claude supervisor per login, every background session on its version, and the user's
+  own newer `claude` takes it over and moves Marcel's sessions onto its version (RESULT.md step 4). So Marcel runs the
+  user's own `claude`; the runner records the supervisor's version and the hub tells the owner when it changes ("Claude
+  Code on your Mac updated to 2.1.300. Marcel carries on with it."). A version change is a warning, never a refusal
+  (S-22.6, S-02.13 item 11).
+- **No `claude-daemon` service on a Mac.** Claude Code has turned its supervisor's service install off and runs it on
+  demand; the runner's first `claude --bg` starts it, and it is shared with the user's own sessions. Marcel never
+  stops it (S-22.3, S-22.4).
+- **The NUC keeps its pin** and its system-wide managed settings until S-22.24, and its `marcel-claude-daemon` unit.
 - The managed-settings file shrinks to the channel allowlist only, as a drop-in
   (`managed-settings.d/50-marcel.json`); it no longer turns updates off for the user's own sessions.
 
@@ -134,7 +139,8 @@ Second computers are the user's **own** (a desktop next to the laptop), not othe
 
 - In the app: Settings › Computers › Add shows a join code. On the other computer, after installing Claude Code and
   logging in: `curl …/get.sh | bash -s join <code>`.
-- That installs only the helper: Claude's supervisor, the runner and a **link** — one outbound WebSocket to the hub's
+- That installs only the helper: the runner and a **link** (plus Claude's supervisor: a service on Linux, on demand
+  on a Mac) — one outbound WebSocket to the hub's
   public address. The hub sends runner requests down it; sessions on that computer reach their hub through a local
   stand-in on `127.0.0.1:7420` that forwards over the same link. No open ports, no tunnel on the second computer.
 - Where a quest runs: the computer the user names; else the project's computer (where its repo lives); else the hub's

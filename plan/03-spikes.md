@@ -151,6 +151,6 @@ runs at a steady 60 fps.
 
 | Spike | Runs on | Question | Blocks |
 |---|---|---|---|
-| [SP11](../project/stories/SP11.md) | Mac | Do the channel allowlist drop-in, `claude daemon run` under a LaunchAgent, the Keychain login, a private copy of the pinned binary, and sleep and wake all work on a Mac? | S-22.3, S-22.4, S-22.6, S-22.18 |
+| [SP11](../project/stories/SP11.md) | Mac | Do the channel allowlist drop-in, Claude's on-demand supervisor next to a LaunchAgent runner, the Keychain login, a private copy of the pinned binary (failed: Marcel follows the user's version instead, ADR-013 q5 amended), and sleep and wake all work on a Mac? | S-22.3, S-22.4, S-22.6, S-22.18 |
 | [SP12](../project/stories/SP12.md) | Mac + NUC | Does Tailscale Funnel work from a user-space `tailscaled` with no admin, for `/api` only, WebSockets and cloud reports, after sleep and a Wi-Fi change? | S-22.8 |
 | [SP13](../project/stories/SP13.md) | NUC | Can buddies' brains message each other with `SendMessage` while workers cannot, and can a hook tell the hub? | S-02.16, S-22.13 |

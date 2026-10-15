@@ -29,10 +29,10 @@ Full research and option tables: [plan/05-install-anywhere.md](../../plan/05-ins
 |---|---|---|---|
 | 1 | Phone ↔ computer | **Tailscale Funnel**, `tailscaled` run as the user in user-space mode, only `/api/*` published. Named Cloudflare tunnel stays as `marcel connect cloudflare` (advanced; the NUC keeps it) | Each person needs a free Tailscale account and one sign-in click; the hub is on the public internet, guarded by device tokens as today |
 | 2 | Push | **One push relay the owner runs** (a Cloudflare Worker with the APNs key); the hub seals each notification for the phone, so the relay sees only a handle, an APNs token and sealed bytes. ntfy stays as the no-relay fallback | The owner keeps one free-tier Worker running for everyone; if it is down, pushes stop, nothing else |
-| 3 | Packaging | **Hub and runner as two native processes**, Python from `uv`, one `marcel` command; no Docker | Three services instead of two, but the runner doubles as the second-computer helper and a hub restart never stops sessions |
+| 3 | Packaging | **Hub and runner as two native processes**, Python from `uv`, one `marcel` command; no Docker | Three background processes instead of two (Claude's supervisor, the runner, the hub; on a Mac the supervisor starts on demand), but the runner doubles as the second-computer helper and a hub restart never stops sessions |
 | 4 | Services | **LaunchAgents on macOS, `systemd --user` on Linux**, from one service table in `marcel`. Redeploy keeps the flag file, the pre-change health check and the rollback; it becomes portable and restarts through `marcel` | A Mac runs Marcel only while its user is logged in; Linux without linger needs one sudo line, printed only when the no-sudo attempt fails |
-| 5 | Claude Code pin | **A private copy of the pinned binary** in `~/marcel/claude/<version>/`, `DISABLE_AUTOUPDATER=1` in Marcel's services. The channel allowlist goes in a managed-settings **drop-in** (`managed-settings.d/50-marcel.json`): the one admin password prompt | One password prompt stays (the allowlist is admin-only in Claude Code); the user's own `claude` updates freely |
-| 6 | More computers | **`marcel join <code>`** installs the helper (supervisor, runner, an outbound **link** to the hub); the hub picks: named computer → project's computer → hub's computer → an online one with room | One more contract (the link) and a local stand-in for the hub on the second computer |
+| 5 | Claude Code pin | **On a Mac, no pin** (amended after SP11, below): Marcel runs the user's own `claude`, the runner records the supervisor's version and the hub tells the owner when it changes; a version change is a warning, not a refusal. The NUC keeps its pin. The channel allowlist goes in a managed-settings **drop-in** (`managed-settings.d/50-marcel.json`): the one admin password prompt | One password prompt stays (the allowlist is admin-only in Claude Code); Marcel's sessions move to each new version the user installs, untested by Marcel until they run |
+| 6 | More computers | **`marcel join <code>`** installs the helper (the runner, an outbound **link** to the hub, and Claude's supervisor: a service on Linux, on demand on a Mac); the hub picks: named computer → project's computer → hub's computer → an online one with room | One more contract (the link) and a local stand-in for the hub on the second computer |
 | 7 | Migration | **`marcel migrate`** on the NUC: backup, stop the container, native hub on the same `~/marcel/data`, same tunnel, health check, container back if unhealthy | Docker files stay in the tree until the migration has run |
 
 Rejected, one line each:
@@ -45,6 +45,20 @@ Rejected, one line each:
 - Merging hub and runner: the second computer would carry the whole hub.
 - Development-channels flag in a terminal session to avoid the password: takes the brain out of Claude's supervisor
   (no `claude agents`, no respawn) and is documented "for testing" (ADR-001 option B stays the fallback).
+
+*Amended 2026-10-15 (lead, after SP11):* question 5 was a private copy of the pinned binary in
+`~/marcel/claude/<version>/` with `DISABLE_AUTOUPDATER=1`. SP11 (`scratch/spikes/SP11-mac-services/RESULT.md` step 4)
+showed it cannot hold: a Mac login has one Claude supervisor, every background session runs on the supervisor's
+version, and the user's own newer `claude` (a session they start, or their automatic update) takes the supervisor
+over and moves Marcel's sessions onto its version within seconds. Nothing is lost (the sessions are adopted and
+resumed), but the pin is gone. So on a Mac Marcel follows the user's Claude Code: the runner runs with
+`MARCEL_CLAUDE_PIN=off` (S-22.6), the 422 `claude_version` refusal of S-03.10 becomes a warning there, and
+`runner.claude_changed` comes without `expected` (S-02.13). Rejected: a separate `CLAUDE_CONFIG_DIR` for Marcel (its
+own supervisor, but untested, likely a second sign-in, and Marcel's sessions would vanish from the user's `claude
+agents`). Also from SP11: Claude Code has turned its supervisor's service install off and runs it on demand, so a Mac
+runs **no `claude-daemon` LaunchAgent**; the runner's first `claude --bg` starts the supervisor. Marcel's own
+LaunchAgents are the runner, the hub, the backup, the redeploy watcher and the tunnel. The NUC is unchanged: pinned,
+with its system-wide managed settings, and its `marcel-claude-daemon` unit.
 
 ## One person, many buddies
 
