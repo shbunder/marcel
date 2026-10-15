@@ -844,7 +844,9 @@ while the owner has no agent, and never overwrites a file: a non-empty clash is 
     `https://claude.ai/code/artifact/<id>` (`frames.TRACKER_URL`); anything else is refused
     `bad_report`, "a tracker is a claude.ai artifact link" (the channel server says the same first);
   - **only the kickoff quest**: the task must be its project's kickoff (`Task.kickoff`, set by the
-    brain with `tasks_spawn` `kickoff: true`, which needs `project`; migration 0013). Any other
+    brain with `tasks_spawn` `kickoff: true`, which needs `project`; migration 0013). A project
+    has one live kickoff: a second `kickoff: true` is refused 400 while the first is queued,
+    working, waiting or done, and allowed again once it failed or was stopped. Any other
     quest's tracker report is refused `not_kickoff`, "Only the project's kickoff quest sets its
     tracker.", before anything is kept, with one log line naming the task
     (`ProjectStore.tracker_refusal`).

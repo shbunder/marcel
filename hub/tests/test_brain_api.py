@@ -226,6 +226,26 @@ def test_a_kickoff_quest_needs_its_project_and_is_marked(brain: Brain) -> None:
     assert marked[kickoff['id']] is True and marked[plain['id']] is False
 
 
+def test_a_project_has_one_live_kickoff_quest(brain: Brain) -> None:
+    """A second kickoff could replace the tracker the first one set: refused while the first is
+    queued, working, waiting or done; possible again once it failed or was stopped."""
+    brain.post('/projects', {'name': 'Garden planner'})
+    first = spawn(brain, project='garden-planner', kickoff=True).json()
+    again = spawn(brain, project='garden-planner', kickoff=True)
+    assert again.status_code == 400
+    assert again.json()['message'].startswith('"Garden planner" already has its kickoff quest')
+    assert spawn(brain, project='garden-planner').status_code == 201  # a plain quest is fine
+    brain.post('/projects', {'name': 'Site'})
+    assert spawn(brain, project='site', kickoff=True).status_code == 201  # another project's own
+    with Session(brain.hub.engine) as s:
+        task = s.get(Task, first['id'])
+        assert task is not None
+        task.state = TaskState.failed
+        s.add(task)
+        s.commit()
+    assert spawn(brain, project='garden-planner', kickoff=True).status_code == 201  # a retry
+
+
 def test_spawn_into_an_unknown_or_archived_project_is_refused(brain: Brain) -> None:
     res = spawn(brain, project='nowhere')
     assert res.status_code == 404 and 'projects_list' in res.json()['message']

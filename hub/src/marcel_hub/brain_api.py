@@ -59,7 +59,7 @@ from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import AfterValidator, AnyUrl, BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import event, func
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 from starlette.concurrency import run_in_threadpool
 
 from marcel_hub.artifacts import ArtifactRefused, ArtifactStore
@@ -496,6 +496,21 @@ async def spawn_task(request: Request, brain: BrainDep) -> Any:
     project = _live_project(request, brain, body.project)
     if isinstance(project, JSONResponse):
         return project
+    if body.kickoff:  # one kickoff per project: the only quest that may set its tracker (S-20.3)
+        with Session(request.app.state.engine) as s:
+            earlier = s.exec(
+                select(Task).where(
+                    Task.project_id == project.id,
+                    col(Task.kickoff).is_(True),
+                    col(Task.state).not_in([TaskState.failed, TaskState.stopped]),
+                )
+            ).first()
+        if earlier is not None:
+            return bad_request(
+                f'"{project.name}" already has its kickoff quest ("{earlier.title}", '
+                f'{earlier.state.value}). Start this one without "kickoff"; a new kickoff is only '
+                'possible after that one failed or was stopped.'
+            )
     with Session(request.app.state.engine) as s:
         agent = s.get(Agent, brain.agent_id)
         asked = s.get(Message, body.message_id) if body.message_id is not None else None
