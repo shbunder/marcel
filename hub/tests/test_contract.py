@@ -69,9 +69,9 @@ DERIVED = {
 # soon as an entry is stored, so this list can only shrink.
 # S-04.11 stored the last of them. Contract 0.7 (S-02.7) added more; S-04.15 stored them all (the
 # ones kept under another name are in DERIVED).
-# Contract 0.7.2 (S-02.10, asked for by S-19.3) added `Message.agent_id`: the hub does not yet
-# store which agent wrote a message or send it; the hub story that does removes this entry.
-PENDING: dict[str, set[str]] = {'Message': {'agent_id'}}
+# Contract 0.7.2 (S-02.10, asked for by S-19.3) added `Message.agent_id`, stored since (0012).
+# Empty until a contract adds a field.
+PENDING: dict[str, set[str]] = {}
 # Contract 0.7.3's workflow event types are stored since S-04.16. Empty until a contract adds
 # a value.
 PENDING_ENUM_VALUES: dict[str, set[str]] = {}

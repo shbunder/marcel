@@ -22,6 +22,7 @@ from marcel_hub.auth import tokens
 from marcel_hub.models import (
     Agent,
     AppEvent,
+    Conversation,
     Device,
     Message,
     MessageKind,
@@ -538,3 +539,49 @@ def test_send_to_main_without_a_main_conversation_is_not_found(
     )
     assert res.status_code == 404
     assert res.json()['code'] == 'conversation_not_found'
+
+
+# ---- who wrote it (app-api 0.7.2) -----------------------------------------------------------
+
+
+def test_every_agent_message_names_its_agent_and_a_users_does_not(
+    client: TestClient, phone: Phone, agent: tuple[str, str]
+) -> None:
+    agent_id, main = agent
+    mine = send(client, phone, main, 'What is for dinner?')
+    assert 'agent_id' not in mine
+    engine = client.app.state.engine  # type: ignore[attr-defined]
+    with Session(engine) as s:
+        conv = s.get(Conversation, main)
+        assert conv is not None
+        for kind, body in (
+            (MessageKind.text, {'text': 'Pasta.'}),
+            (
+                MessageKind.milestone,
+                {
+                    'milestone': {
+                        'task_id': 'tsk_1',
+                        'task_title': 'Shop',
+                        'event': 'started',
+                        'location': 'nuc',
+                    }
+                },
+            ),
+        ):
+            conversations.post_message(
+                s, client.app.state.events, conv,  # type: ignore[attr-defined]
+                role=MessageRole.agent, kind=kind, body=body,
+                task_id='tsk_1' if kind == MessageKind.milestone else None,
+            )  # fmt: skip
+        conversations.post_message(
+            s, client.app.state.events, conv,  # type: ignore[attr-defined]
+            role=MessageRole.system, kind=MessageKind.text, body={'text': 'Brain restarted.'},
+        )  # fmt: skip
+    listed = client.get(f'/api/conversations/{main}/messages', headers=phone.headers).json()
+    by_role = {(m['role'], m.get('agent_id')) for m in listed['items']}
+    assert by_role == {('user', None), ('agent', agent_id), ('system', None)}
+    for m in listed['items']:
+        validate('Message', m)
+    created = [e for e in events(client) if e.type == 'message.created']
+    agents = [e.data_json.get('agent_id') for e in created if e.data_json['role'] == 'agent']
+    assert agents == [agent_id, agent_id]  # the live event carries it too

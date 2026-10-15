@@ -91,6 +91,8 @@ def message_json(msg: Message, thread: dict[str, Any] | None = None) -> dict[str
         body['client_id'] = msg.client_id
     if msg.reply_to_message_id is not None:
         body['reply_to_message_id'] = msg.reply_to_message_id
+    if msg.agent_id is not None:
+        body['agent_id'] = msg.agent_id
     if thread is not None:
         body['thread'] = thread
     body['created_at'] = msg.created_at.isoformat()
@@ -217,6 +219,9 @@ def post_message(
             artifact_id=artifact_id,
             reply_to_message_id=reply_to_message_id,
             mentions_json=mentions or [],
+            # Who wrote it, for the app to credit (app-api 0.7.2): brain replies, side forks,
+            # milestones, approval cards, items and digests are all posted by an agent here.
+            agent_id=conv.agent_id if role == MessageRole.agent else None,
         )
         session.add(msg)
         session.flush()

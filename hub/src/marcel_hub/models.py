@@ -252,6 +252,8 @@ class Message(SQLModel, table=True):
     client_id: str | None = Field(default=None, index=True)
     # B-41: the message this one answers ("reply to" in the app).
     reply_to_message_id: str | None = Field(default=None, foreign_key='message.id')
+    # On an `agent` message, the agent that wrote it: its conversation's (app-api 0.7.2).
+    agent_id: str | None = None
     # B-42: the contract's `mentions`, as a JSON list; empty when there are none.
     mentions_json: list[Any] = Field(
         default_factory=list, sa_column=Column(JSON, nullable=False, server_default='[]')

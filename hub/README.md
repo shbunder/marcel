@@ -310,6 +310,12 @@ anyone else gets a 404 `conversation_not_found`.
 Other code posts messages (Marcel's answers, milestones) with `conversations.post_message(...)`,
 which also sends the `message.created` event.
 
+**Who wrote it (app-api 0.7.2, migration 0012).** Every `agent` message carries `agent_id`, its
+conversation's agent (`conversations.post_message` sets it, so brain replies, side forks,
+milestones, approval cards, items and digests all have it; older messages were filled in by 0012),
+so the app can credit a reply that belongs to no quest to the right helper. `user` and `system`
+messages have none.
+
 **What a message answers (B-41, S-18.1).** `reply_to_message_id` names the owner's message an
 agent message answers, so the app can quote it when it is not their latest:
 - the brain's `reply` keeps its `in_reply_to` when that is a user message in the same conversation;

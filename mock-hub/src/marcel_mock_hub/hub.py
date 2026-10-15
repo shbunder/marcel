@@ -308,6 +308,9 @@ class Hub:
         return resolved
 
     def add_message(self, message: dict[str, Any]) -> dict[str, Any]:
+        conv = self.conversations.get(message.get('conversation_id', ''))
+        if message.get('role') == 'agent' and 'agent_id' not in message and conv is not None:
+            message['agent_id'] = conv['agent_id']  # who wrote it (app-api 0.7.2), as the hub
         self.messages.append(message)
         self.emit('message.created', message)
         return message

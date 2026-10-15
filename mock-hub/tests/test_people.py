@@ -201,6 +201,8 @@ def test_a_result_quotes_the_message_that_started_it(client: TestClient):
     ]
     assert [m['kind'] for m in answers] == ['milestone', 'approval', 'artifact', 'milestone']
     assert {m['reply_to_message_id'] for m in answers} == {asked['id']}
+    assert {m['agent_id'] for m in answers} == {'agt_marcel'}  # who wrote it (app-api 0.7.2)
+    assert 'agent_id' not in asked  # the person's own message names no agent
     assert later['id'] not in {m['reply_to_message_id'] for m in answers}
     done = answers[-1]
     assert done['milestone']['event'] == 'done'

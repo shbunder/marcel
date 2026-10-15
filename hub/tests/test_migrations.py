@@ -170,3 +170,15 @@ def test_0011_takes_workflow_events_and_its_downgrade_keeps_the_rest(tmp_path: P
     with engine.connect() as conn:
         types = conn.execute(text('SELECT type FROM task_event')).scalars().all()
     assert types == ['text']
+
+
+def test_0012_credits_every_agent_message_to_its_conversations_agent(tmp_path: Path) -> None:
+    engine = v1(tmp_path / 'marcel.db')  # msg_1 from the owner, msg_2 from the agent
+    db.upgrade(engine)
+    with Session(engine) as s:
+        written = {m.id: m.agent_id for m in s.exec(select(Message))}
+    assert written == {'msg_1': None, 'msg_2': 'agt_marcel'}
+    db.downgrade(engine, '0011')
+    assert 'agent_id' not in columns(engine, 'message')
+    db.upgrade(engine)
+    assert 'agent_id' in columns(engine, 'message')
