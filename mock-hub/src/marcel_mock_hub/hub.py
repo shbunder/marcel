@@ -11,7 +11,7 @@ from typing import Any
 
 from . import boards, contract
 from .base import Refused, now
-from .people import People
+from .buddies import Buddies
 
 MAIN_CONVERSATION = 'cnv_main_marcel'
 AGENT_ID = 'agt_marcel'
@@ -42,9 +42,8 @@ class Hub:
     def __init__(self, step_delay: float = 1.0) -> None:
         self.step_delay = step_delay
         self.events: list[dict[str, Any]] = []
-        # Each listener with the agent whose events it gets (None: every event, for tools).
-        self.subscribers: dict[asyncio.Queue[dict[str, Any]], str | None] = {}
-        self.event_agents: list[str | None] = []  # whose each event is; None: everyone's
+        # Every phone gets every event: one person sees every buddy (ADR-013).
+        self.subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
         self.agent_state: dict[str, Any] = {'kind': 'idle'}
         self.agent_record: dict[str, Any] = contract.example('Agent')  # the owner's Marcel
         self.messages: list[dict[str, Any]] = []
@@ -61,9 +60,7 @@ class Hub:
         self.runs: set[asyncio.Task[None]] = set()
         self.counter = 0
         self._seed()
-        self.people = People(
-            self, self.agent_record, self.conversations[MAIN_CONVERSATION]['created_at']
-        )
+        self.buddies = Buddies(self)
 
     # ---- seed: the contract's examples, plus what they point at -------------------------
 
@@ -164,62 +161,33 @@ class Hub:
             'at': now(),
             'data': copy.deepcopy(data),
         }
-        owner = self.event_agent(type_, data)
         self.events.append(event)
-        self.event_agents.append(owner)
-        for queue, agent_id in self.subscribers.items():
-            if self._for(owner, agent_id):
-                queue.put_nowait(event)
+        for queue in self.subscribers:
+            queue.put_nowait(event)
         return event
-
-    def event_agent(self, type_: str, data: dict[str, Any]) -> str | None:
-        """The agent an event belongs to, so only that person's phones get it. None only for
-        usage, which everyone shares (there is one Claude login). Anything else with no clear
-        owner goes to the owner's phones, never to everyone."""
-        if type_ == 'usage.updated':
-            return None
-        if type_ == 'agent.updated':
-            return data['agent']['id']
-        if type_ == 'message.created':
-            return self.conversations[data['conversation_id']]['agent_id']
-        if type_ == 'artifact.created':
-            return self.project_agent(data.get('project_id'))
-        if type_ == 'artifact.updated':
-            return self.project_agent(data['artifact'].get('project_id'))
-        if 'agent_id' in data:  # tasks, projects, conversations, agent.state, brain.rollover
-            return data['agent_id']
-        if 'task_id' in data:  # task.event, task.moved, approvals
-            return self.task_agent(data['task_id']) or self.agent_record['id']
-        return self.agent_record['id']
 
     def task_agent(self, task_id: str) -> str | None:
         task = self.tasks.get(task_id)
         return task['agent_id'] if task else None
 
-    @staticmethod
-    def _for(owner: str | None, agent_id: str | None) -> bool:
-        return owner is None or agent_id is None or owner == agent_id
-
     def subscribe(
-        self, since: int | None, agent_id: str | None = None
+        self, since: int | None
     ) -> tuple[asyncio.Queue[dict[str, Any]], list[dict[str, Any]]]:
-        """Register a listener for one agent's events and return the frames to send first. No
-        await in between, so no event can fall in the gap between the replay and the live feed.
-        Ids stay global: a phone sees gaps where another person's events were."""
+        """Register a listener and return the frames to send first. No await in between, so no
+        event can fall in the gap between the replay and the live feed."""
         last = len(self.events)
         if since is not None and since > last:
             head = [self._control('resync.required', {'last_event_id': last})]
             replay: list[dict[str, Any]] = []
         else:
-            later = range(since, last) if since is not None else range(0)
-            replay = [self.events[i] for i in later if self._for(self.event_agents[i], agent_id)]
+            replay = self.events[since:last] if since is not None else []
             head = [self._control('hello', {'last_event_id': last, 'replayed': len(replay)})]
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-        self.subscribers[queue] = agent_id
+        self.subscribers.add(queue)
         return queue, [*head, *replay]
 
     def unsubscribe(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
-        self.subscribers.pop(queue, None)
+        self.subscribers.discard(queue)
 
     @staticmethod
     def _control(type_: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -240,22 +208,34 @@ class Hub:
         agent['state'] = copy.deepcopy(self.agent_state)
         return agent
 
-    # ---- what belongs to whom (each person sees only their own agent's things) ----------
+    def add_main_conversation(self, agent: dict[str, Any], since: str) -> None:
+        self.conversations[agent['main_conversation_id']] = {
+            'id': agent['main_conversation_id'],
+            'agent_id': agent['id'],
+            'kind': 'main',
+            'title': agent['name'],
+            'created_at': since,
+        }
+
+    # ---- what belongs to which buddy -----------------------------------------------------
 
     def project_agent(self, project_id: str | None) -> str | None:
         project = self.projects.get(project_id or '')
         return project['agent_id'] if project else None
 
-    def owned(self, kind: str, agent_id: str) -> list[dict[str, Any]]:
-        """An agent's tasks, projects or artifacts (an artifact belongs to its project's agent)."""
+    def owned(self, kind: str, agent_id: str | None = None) -> list[dict[str, Any]]:
+        """A buddy's tasks, projects or artifacts (an artifact belongs to its project's buddy);
+        every buddy's when `agent_id` is None."""
         if kind == 'task':
-            return [t for t in self.tasks.values() if t['agent_id'] == agent_id]
+            items = list(self.tasks.values())
+            return [t for t in items if agent_id in (None, t['agent_id'])]
         if kind == 'project':
-            return [p for p in self.projects.values() if p['agent_id'] == agent_id]
+            items = list(self.projects.values())
+            return [p for p in items if agent_id in (None, p['agent_id'])]
         return [
             a
             for a in self.artifacts.values()
-            if self.project_agent(a.get('project_id')) == agent_id
+            if agent_id in (None, self.project_agent(a.get('project_id')))
         ]
 
     # ---- mentions (B-42) -------------------------------------------------------------------
@@ -264,14 +244,14 @@ class Hub:
     def _title(kind: str, item: dict[str, Any]) -> str:
         return item['name'] if kind == 'project' else item['title']
 
-    def search_mentions(self, agent_id: str, q: str, kind: str | None) -> list[dict[str, Any]]:
-        """The agent's quests, projects and items whose title holds `q` (any case), newest
+    def search_mentions(self, q: str, kind: str | None) -> list[dict[str, Any]]:
+        """Every buddy's quests, projects and items whose title holds `q` (any case), newest
         first, at most 20. Boards are left out: they are a project's, not an item to mention."""
         found = []
         for k in ('task', 'project', 'artifact'):
             if kind not in (None, k):
                 continue
-            for item in self.owned(k, agent_id):
+            for item in self.owned(k):
                 if k == 'artifact' and item['kind'] == 'board':
                     continue
                 title = self._title(k, item)
@@ -282,21 +262,19 @@ class Hub:
         found.sort(key=lambda pair: pair[0], reverse=True)
         return [mention for _, mention in found[:MENTION_LIMIT]]
 
-    def resolve_mentions(
-        self, agent_id: str, mentions: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        """Each mention must be the caller's own, or nothing is stored. Titles are the hub's."""
+    def resolve_mentions(self, mentions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Each mention must exist (any buddy's), or nothing is stored. Titles are the hub's."""
         resolved = []
         for mention in mentions:
             item = next(
-                (i for i in self.owned(mention['kind'], agent_id) if i['id'] == mention['id']),
+                (i for i in self.owned(mention['kind']) if i['id'] == mention['id']),
                 None,
             )
             if item is None:
                 raise Refused(
                     404,
                     'mention_not_found',
-                    f'There is no {mention["kind"]} of yours with the id {mention["id"]}.',
+                    f'There is no {mention["kind"]} with the id {mention["id"]}.',
                 )
             resolved.append(
                 {
@@ -328,7 +306,7 @@ class Hub:
         agent_id = self.conversations[conversation_id]['agent_id']
         if project_id is not None and self.project_agent(project_id) != agent_id:
             raise Refused(400, 'bad_request', 'There is no project with that id.')
-        resolved = self.resolve_mentions(agent_id, mentions or [])
+        resolved = self.resolve_mentions(mentions or [])
         if project_id is None:
             project_id = next((m['id'] for m in resolved if m['kind'] == 'project'), None)
         message: dict[str, Any] = {
@@ -505,12 +483,16 @@ class Hub:
             if p['archived'] == archived and agent_id in (None, p['agent_id'])
         ]
         found.sort(key=lambda p: p['updated_at'], reverse=True)
-        found.sort(key=lambda p: p['id'] == INBOX)
+        found.sort(key=lambda p: p['slug'] == 'inbox')
         return found
 
-    def create_project(self, body: dict[str, Any]) -> dict[str, Any]:
+    def create_project(self, body: dict[str, Any], quiet: bool = False) -> dict[str, Any]:
+        """A project and its board. Slugs are unique per buddy. `quiet` seeds without events."""
         slug = body.get('slug') or slugify(body['name'])
-        if any(p['slug'] == slug and not p['archived'] for p in self.projects.values()):
+        if any(
+            p['slug'] == slug and not p['archived'] and p['agent_id'] == body['agent_id']
+            for p in self.projects.values()
+        ):
             raise Refused(409, 'slug_taken', f'A project called "{slug}" already exists.')
         stamp = now()
         project = {
@@ -526,8 +508,9 @@ class Hub:
         self.projects[project['id']] = project
         board = self._new_board(project)
         self._store(board, HUB_AUTHOR, 'The board was created with the project.')
-        self.emit('artifact.created', board)
-        self.emit('project.created', project)
+        if not quiet:
+            self.emit('artifact.created', board)
+            self.emit('project.created', project)
         return project
 
     def update_project(self, project: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
@@ -536,7 +519,7 @@ class Hub:
         return project
 
     def archive_project(self, project: dict[str, Any]) -> dict[str, Any]:
-        if project['id'] == INBOX:
+        if project['slug'] == 'inbox':
             raise Refused(409, 'conflict', 'The inbox is always there; it cannot be archived.')
         live = [
             t

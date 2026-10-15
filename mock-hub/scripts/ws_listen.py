@@ -42,6 +42,7 @@ def describe(frame: dict) -> str:
             f'{data["agent"]["name"]} is a {data["agent"]["animal"]} now, '
             f'avatar {data.get("avatar_etag", "unchanged")}'
         ),
+        'device.updated': lambda: f'{data["name"]} shows {data["agent_id"]}',
         'hello': lambda: f'last_event_id={data["last_event_id"]} replayed={data["replayed"]}',
     }.get(frame['type'], lambda: '')()
     return f'{frame["id"]:>3}  {frame["type"]:<18} {detail}'

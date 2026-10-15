@@ -84,7 +84,8 @@ def test_every_project_has_a_valid_board(client: TestClient):
 
 
 def test_every_task_and_artifact_belongs_to_a_known_project(client: TestClient):
-    known = {p['id'] for p in projects(client)}
+    buddies = [a['id'] for a in client.get('/api/me').json()['agents']]
+    known = {p['id'] for b in buddies for p in projects(client, agent_id=b)}
     tasks = client.get('/api/tasks').json()['items']
     artifacts = client.get('/api/artifacts').json()['items']
     assert tasks and artifacts
@@ -297,7 +298,7 @@ def test_list_filters(client: TestClient):
     energy = client.get('/api/artifacts', params={'project_id': ENERGY}).json()['items']
     assert {a['id'] for a in energy} == {DOC, 'art_01JA0A2'}
     boards = client.get('/api/artifacts', params={'kind': 'board'}).json()['items']
-    assert len(boards) == 3
+    assert len(boards) == 4  # Marcel's three projects and Pip's Inbox
     assert all(a['kind'] == 'board' for a in boards)
     by_task = client.get('/api/artifacts', params={'task_id': 'tsk_01J9ZQ5'}).json()['items']
     assert [a['id'] for a in by_task] == ['art_01J9ZT1']
