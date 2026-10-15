@@ -97,7 +97,8 @@ def answering(hub: ChannelHub) -> str | None:
 def test_brain_cwd_is_a_setting(tmp_path: Path) -> None:
     env = {'MARCEL_CONFIG': str(tmp_path / 'none.toml'), 'MARCEL_BRAIN_CWD': CWD}
     assert load_settings(env).brain_cwd == CWD
-    assert load_settings({'MARCEL_CONFIG': str(tmp_path / 'none.toml')}).brain_cwd is None
+    unset = {'MARCEL_CONFIG': str(tmp_path / 'none.toml'), 'MARCEL_HOME': str(tmp_path)}
+    assert load_settings(unset).brain_cwd == str(tmp_path / 'brain')  # S-22.1: under MARCEL_HOME
     app = create_app(Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db'))
     assert app.state.brain is None  # no workspace: no keeper
 

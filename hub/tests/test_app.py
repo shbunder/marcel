@@ -74,8 +74,67 @@ def test_health_is_only_under_api(settings: Settings) -> None:
 
 
 def test_settings_default_without_a_file(tmp_path: Path) -> None:
-    s = load_settings({'MARCEL_CONFIG': str(tmp_path / 'none.toml')})
-    assert (s.data_dir, s.db_path, s.port) == (Path('/data'), Path('/data/marcel.db'), 7420)
+    s = load_settings({'MARCEL_CONFIG': str(tmp_path / 'none.toml'), 'MARCEL_HOME': '/m'})
+    assert (s.data_dir, s.db_path, s.port) == (Path('/m/data'), Path('/m/data/marcel.db'), 7420)
+
+
+def test_every_default_path_is_under_marcel_home(tmp_path: Path) -> None:
+    home = tmp_path / 'x'
+    s = load_settings({'MARCEL_HOME': str(home)})
+    paths = [s.data_dir, s.db_path, s.redeploy_flag, s.runner_sock]
+    paths += [Path(p) for p in (s.brain_cwd, s.worker_cwd) if p is not None]
+    assert paths == [
+        home / 'data',
+        home / 'data' / 'marcel.db',
+        home / 'state' / 'redeploy.flag',
+        home / 'run' / 'runner.sock',
+        home / 'brain',
+        home / 'workspaces' / 'scratch',
+    ]
+    assert s.host == '127.0.0.1', 'only the tunnel reaches the hub from outside'
+
+
+def test_marcel_home_is_dot_marcel_in_the_home_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv('HOME', str(tmp_path))
+    s = load_settings({})  # no MARCEL_HOME: the owner's decision, 2026-10-15
+    assert s.data_dir == tmp_path / '.marcel' / 'data'
+    assert s.runner_sock == tmp_path / '.marcel' / 'run' / 'runner.sock'
+
+
+def test_the_config_file_is_read_from_marcel_home(tmp_path: Path) -> None:
+    (tmp_path / 'data').mkdir()
+    (tmp_path / 'data' / 'marcel.toml').write_text('owner_name = "Ann"\nport = 7500\n')
+    s = load_settings({'MARCEL_HOME': str(tmp_path)})
+    assert (s.owner_name, s.port) == ('Ann', 7500)
+
+
+def test_an_explicit_setting_still_wins_over_marcel_home(tmp_path: Path) -> None:
+    data = tmp_path / 'elsewhere'
+    data.mkdir()
+    (data / 'marcel.toml').write_text('owner_name = "Bo"\n')
+    s = load_settings({'MARCEL_HOME': str(tmp_path / 'x'), 'MARCEL_DATA_DIR': str(data),
+                       'MARCEL_HOST': '0.0.0.0', 'MARCEL_BRAIN_CWD': '/b'})  # fmt: skip
+    assert (s.data_dir, s.db_path) == (data, data / 'marcel.db')
+    assert s.owner_name == 'Bo', 'the config file follows MARCEL_DATA_DIR'
+    assert (s.host, s.brain_cwd) == ('0.0.0.0', '/b')
+
+
+def test_the_docker_hub_never_falls_back_to_marcel_home(tmp_path: Path) -> None:
+    """deploy/docker-compose.yml sets every path; HOME is /tmp in the container."""
+    import yaml
+
+    compose = Path(__file__).resolve().parents[2] / 'deploy' / 'docker-compose.yml'
+    env = dict(yaml.safe_load(compose.read_text())['services']['hub']['environment'])
+    env = {k: str(v).replace('${MARCEL_HOME}', '/home/o/marcel') for k, v in env.items()}
+    (tmp_path / 'marcel.toml').write_text('')
+    env['MARCEL_CONFIG'] = str(tmp_path / 'marcel.toml')  # /data/marcel.toml in the container
+    s = load_settings(env)
+    assert s.host == '0.0.0.0'
+    paths = [s.data_dir, s.db_path, s.redeploy_flag, s.runner_sock, s.brain_cwd, s.worker_cwd]
+    assert not any(str(p).startswith('/tmp') for p in paths), paths
+    assert env['HOME'] == '/tmp'
 
 
 def test_settings_read_the_file(tmp_path: Path) -> None:

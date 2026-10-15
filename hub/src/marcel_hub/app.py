@@ -1,8 +1,12 @@
 """The hub's FastAPI app factory and its settings.
 
-Settings come from a TOML file (`/data/marcel.toml`, or `MARCEL_CONFIG`) and then from the
-environment, which wins. A missing file is fine: defaults apply. A broken file stops the hub at
-start with a message that names the file.
+Settings come from a TOML file (`$MARCEL_HOME/data/marcel.toml`, or `MARCEL_CONFIG`) and then
+from the environment, which wins. A missing file is fine: defaults apply. A broken file stops the
+hub at start with a message that names the file.
+
+Every default path is under `MARCEL_HOME` (`~/.marcel` when unset), so the hub runs as a plain
+process with `uv run marcel-hub` (S-22.1, ADR-013). The Docker hub on the NUC sets each path with
+`MARCEL_*` in `deploy/docker-compose.yml` (its `HOME` is `/tmp`), until S-22.25 retires it.
 """
 
 import functools
@@ -55,10 +59,15 @@ from marcel_hub import (
     ws,
 )
 from marcel_hub.avatar import routes as avatar_routes
-from marcel_hub.runner_client import DEFAULT_SOCKET, OffsetStore, RunnerClient, RunnerWatch
+from marcel_hub.runner_client import (
+    OffsetStore,
+    RunnerClient,
+    RunnerWatch,
+    marcel_home,
+)
 from marcel_hub.schedule.cron import zone
 
-DEFAULT_CONFIG_PATH = Path('/data/marcel.toml')
+DEFAULT_HOME = marcel_home()
 
 log = logging.getLogger(__name__)
 
@@ -69,9 +78,10 @@ class SettingsError(Exception):
 
 @dataclass(frozen=True)
 class Settings:
-    data_dir: Path = Path('/data')
-    db_path: Path = Path('/data/marcel.db')
-    host: str = '0.0.0.0'
+    data_dir: Path = DEFAULT_HOME / 'data'
+    db_path: Path = DEFAULT_HOME / 'data' / 'marcel.db'
+    # Loopback: only the tunnel reaches the hub from outside. The Docker hub sets 0.0.0.0.
+    host: str = '127.0.0.1'
     port: int = 7420
     owner_name: str = 'Owner'
     # None: no runner (tests). `load_settings` defaults it to the socket mounted into the hub.
@@ -91,14 +101,15 @@ class Settings:
     github_token: str | None = field(default=None, repr=False)
     # The owner's time zone: the built-in digests fire in it (S-09.2).
     tz: str = 'Europe/Brussels'
-    # S-11.1: the redeploy flag the host's `marcel-redeploy.path` unit watches (`~/marcel/state`
-    # on the NUC, mounted at /state).
-    redeploy_flag: Path = Path('/state/redeploy.flag')
+    # S-11.1: the redeploy flag the host's `marcel-redeploy.path` unit watches.
+    redeploy_flag: Path = DEFAULT_HOME / 'state' / 'redeploy.flag'
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
     env = dict(os.environ) if env is None else env
-    config_path = Path(env.get('MARCEL_CONFIG', DEFAULT_CONFIG_PATH))
+    home = marcel_home(env)
+    default_data = Path(env.get('MARCEL_DATA_DIR') or home / 'data')
+    config_path = Path(env.get('MARCEL_CONFIG') or default_data / 'marcel.toml')
     values: dict[str, Any] = {}
     if config_path.exists():
         try:
@@ -137,16 +148,16 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
     if unknown:
         raise SettingsError(f'Unknown setting(s) {sorted(unknown)} in {config_path} or MARCEL_*.')
     try:
-        data_dir = Path(values.get('data_dir', '/data'))
+        data_dir = Path(values.get('data_dir', home / 'data'))
         return Settings(
             data_dir=data_dir,
             db_path=Path(values.get('db_path', data_dir / 'marcel.db')),
-            host=str(values.get('host', '0.0.0.0')),
+            host=str(values.get('host', '127.0.0.1')),
             port=int(values.get('port', 7420)),
             owner_name=str(values.get('owner_name', 'Owner')),
-            runner_sock=Path(values.get('runner_sock', DEFAULT_SOCKET)),
-            worker_cwd=str(values['worker_cwd']) if values.get('worker_cwd') else None,
-            brain_cwd=str(values['brain_cwd']) if values.get('brain_cwd') else None,
+            runner_sock=Path(values.get('runner_sock', home / 'run' / 'runner.sock')),
+            worker_cwd=str(values.get('worker_cwd') or home / 'workspaces' / 'scratch'),
+            brain_cwd=str(values.get('brain_cwd') or home / 'brain'),
             brain_context_window=_context_window(
                 values.get('brain_context_window', brain.CONTEXT_WINDOW)
             ),
@@ -159,7 +170,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             if values.get('github_token')
             else None,
             tz=_tz(values.get('tz', 'Europe/Brussels')),
-            redeploy_flag=Path(values.get('redeploy_flag', '/state/redeploy.flag')),
+            redeploy_flag=Path(values.get('redeploy_flag', home / 'state' / 'redeploy.flag')),
         )
     except ValueError as exc:
         raise SettingsError(f'The port must be a number: {exc}.') from exc

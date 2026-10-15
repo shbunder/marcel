@@ -89,7 +89,7 @@ ever.
 ### 3. Packaging without Docker
 
 **Hub and runner as two plain processes, one install, one `marcel` command.** Python 3.12 comes from `uv` (installed
-into `~/.local/bin`, no admin). The hub runs from `~/marcel/src/hub` with `uv run`; the runner keeps running on that
+into `~/.local/bin`, no admin). The hub runs from `~/.marcel/src/hub` with `uv run`; the runner keeps running on that
 Python with no dependencies.
 
 Not merged into one process: the runner is exactly the helper a second computer needs (question 6), and a hub
@@ -102,7 +102,7 @@ supervisor, runner, hub); `marcel` runs the runner and the hub, and on a Mac Cla
 | | macOS | Linux |
 |---|---|---|
 | Services | LaunchAgents in `~/Library/LaunchAgents` (no admin) | `systemd --user` units (no admin) |
-| Redeploy trigger | `WatchPaths` on `~/marcel/state/redeploy.flag` | `marcel-redeploy.path` (today) |
+| Redeploy trigger | `WatchPaths` on `~/.marcel/state/redeploy.flag` | `marcel-redeploy.path` (today) |
 | Nightly backup | `StartCalendarInterval` | `marcel-backup.timer` (today) |
 | Runs when | the user is logged in (Mac mini: turn on automatic login) | always, with linger; `marcel install` tries `loginctl enable-linger` without sudo (allowed from a desktop session on most distros) and prints the one sudo line if not |
 | Claude login | the login Keychain, readable by a LaunchAgent in the user's session (SP11 checks) | `~/.claude/.credentials.json` |
@@ -149,7 +149,7 @@ Second computers are the user's **own** (a desktop next to the laptop), not othe
 ### 7. Moving the owner's NUC
 
 `marcel migrate` on the NUC: nightly-style backup first, stop the hub container, start the native hub on the same
-`~/marcel/data` (same database, memory, phones), keep the Cloudflare named tunnel (same address, so phones stay
+`~/.marcel/data` (same database, memory, phones), keep the Cloudflare named tunnel (same address, so phones stay
 paired), health check. If unhealthy within two minutes: stop the native hub and start the container again. Docker
 files are deleted only after the migration has run on the NUC.
 

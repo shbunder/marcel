@@ -23,8 +23,9 @@
 import asyncio
 import json
 import logging
+import os
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,7 +41,16 @@ from marcel_hub.tasks.states import TRANSITIONS, IllegalTransition
 
 log = logging.getLogger(__name__)
 
-DEFAULT_SOCKET = Path('/run/marcel/runner.sock')
+
+def marcel_home(env: Mapping[str, str] | None = None) -> Path:
+    """`MARCEL_HOME`, or `~/.marcel`: the root of every default path (S-22.1, ADR-013)."""
+    env = os.environ if env is None else env
+    home = env.get('MARCEL_HOME')
+    return Path(home).expanduser() if home else Path.home() / '.marcel'
+
+
+# The runner's socket under `$MARCEL_HOME/run`. The Docker hub sets `MARCEL_RUNNER_SOCK` instead.
+DEFAULT_SOCKET = marcel_home() / 'run' / 'runner.sock'
 REQUEST_TIMEOUT = 15.0
 # Spawns wait up to 30 s for the channel to register (runner-api.yaml), plus a clone.
 SPAWN_TIMEOUT = 120.0

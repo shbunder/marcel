@@ -33,7 +33,7 @@ Full research and option tables: [plan/05-install-anywhere.md](../../plan/05-ins
 | 4 | Services | **LaunchAgents on macOS, `systemd --user` on Linux**, from one service table in `marcel`. Redeploy keeps the flag file, the pre-change health check and the rollback; it becomes portable and restarts through `marcel` | A Mac runs Marcel only while its user is logged in; Linux without linger needs one sudo line, printed only when the no-sudo attempt fails |
 | 5 | Claude Code pin | **On a Mac, no pin** (amended after SP11, below): Marcel runs the user's own `claude`, the runner records the supervisor's version and the hub tells the owner when it changes; a version change is a warning, not a refusal. The NUC keeps its pin. The channel allowlist goes in a managed-settings **drop-in** (`managed-settings.d/50-marcel.json`): the one admin password prompt | One password prompt stays (the allowlist is admin-only in Claude Code); Marcel's sessions move to each new version the user installs, untested by Marcel until they run |
 | 6 | More computers | **`marcel join <code>`** installs the helper (the runner, an outbound **link** to the hub, and Claude's supervisor: a service on Linux, on demand on a Mac); the hub picks: named computer → project's computer → hub's computer → an online one with room | One more contract (the link) and a local stand-in for the hub on the second computer |
-| 7 | Migration | **`marcel migrate`** on the NUC: backup, stop the container, native hub on the same `~/marcel/data`, same tunnel, health check, container back if unhealthy | Docker files stay in the tree until the migration has run |
+| 7 | Migration | **`marcel migrate`** on the NUC: backup, stop the container, native hub on the same `~/.marcel/data`, same tunnel, health check, container back if unhealthy | Docker files stay in the tree until the migration has run |
 
 Rejected, one line each:
 
@@ -47,7 +47,7 @@ Rejected, one line each:
   (no `claude agents`, no respawn) and is documented "for testing" (ADR-001 option B stays the fallback).
 
 *Amended 2026-10-15 (lead, after SP11):* question 5 was a private copy of the pinned binary in
-`~/marcel/claude/<version>/` with `DISABLE_AUTOUPDATER=1`. SP11 (`scratch/spikes/SP11-mac-services/RESULT.md` step 4)
+`~/.marcel/claude/<version>/` with `DISABLE_AUTOUPDATER=1`. SP11 (`scratch/spikes/SP11-mac-services/RESULT.md` step 4)
 showed it cannot hold: a Mac login has one Claude supervisor, every background session runs on the supervisor's
 version, and the user's own newer `claude` (a session they start, or their automatic update) takes the supervisor
 over and moves Marcel's sessions onto its version within seconds. Nothing is lost (the sessions are adopted and
@@ -86,6 +86,9 @@ side a reply's `to` is a socket path, not a buddy name. Evidence: `scratch/spike
 
 Trade-off: anyone holding a paired phone can open any buddy, the owner's own included. A per-phone "stay on this
 buddy" lock is an open question for the owner, not built.
+
+**Home folder.** Marcel's home folder is **`~/.marcel`** on every install, the NUC included (owner, 2026-10-15). The
+NUC moves there from `~/marcel` in `marcel migrate` (S-22.24).
 
 ## Consequences
 
