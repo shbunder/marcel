@@ -131,12 +131,14 @@ def test_list_shows_the_agents(env: Path, capsys: pytest.CaptureFixture[str]) ->
     assert 'Juno' in out and 'giraffe/marcel' in out
 
 
-def test_create_says_when_no_brain_will_start(
-    env: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+def test_create_without_a_brain_setting_uses_the_brain_under_marcel_home(
+    env: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """S-22.1: the brain folder defaults to $MARCEL_HOME/brain, so there is always one."""
     monkeypatch.delenv('MARCEL_BRAIN_CWD')
-    assert 'will not start its brain' in run(['create'], capsys)
-    assert agents(env)[0].persona_path is None
+    monkeypatch.setenv('MARCEL_HOME', str(tmp_path / 'home'))
+    assert 'will not start its brain' not in run(['create'], capsys)
+    assert agents(env)[0].persona_path == str(tmp_path / 'home' / 'brain' / 'CLAUDE.md')
 
 
 def test_refuses_on_broken_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

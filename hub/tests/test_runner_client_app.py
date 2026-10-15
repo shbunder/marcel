@@ -17,10 +17,11 @@ from marcel_hub.runner_client import DEFAULT_SOCKET, RunnerClient
 from marcel_hub.tasks.ports import NoRunner
 
 
-def test_settings_point_at_the_mounted_socket_by_default(tmp_path: Path) -> None:
-    s = load_settings({'MARCEL_CONFIG': str(tmp_path / 'none.toml')})
-    assert s.runner_sock == DEFAULT_SOCKET == Path('/run/marcel/runner.sock')
-    assert s.worker_cwd is None
+def test_settings_point_at_the_socket_under_marcel_home_by_default(tmp_path: Path) -> None:
+    s = load_settings({'MARCEL_CONFIG': str(tmp_path / 'none.toml'), 'MARCEL_HOME': '/m'})
+    assert s.runner_sock == Path('/m/run/runner.sock')
+    assert s.worker_cwd == '/m/workspaces/scratch'
+    assert DEFAULT_SOCKET.parts[-2:] == ('run', 'runner.sock')
 
 
 def test_settings_read_the_runner_socket_and_worker_workspace(tmp_path: Path) -> None:

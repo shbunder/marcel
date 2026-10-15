@@ -19,6 +19,10 @@ services:
       - path: .env.local
         required: false
     environment:
+      # The hub's defaults are under MARCEL_HOME for a plain process (S-22.1). In here HOME is /tmp,
+      # so every path is set below and nothing falls back to it.
+      MARCEL_HOST: 0.0.0.0
+      MARCEL_CONFIG: /data/marcel.toml
       MARCEL_DATA_DIR: /data
       MARCEL_RUNNER_SOCK: /run/marcel/runner.sock
       MARCEL_REDEPLOY_FLAG: /state/redeploy.flag

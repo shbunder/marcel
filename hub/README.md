@@ -11,6 +11,20 @@ their boards, the avatar's state, push notifications, the usage guard, the chann
 uv run marcel-hub
 ```
 
+### Run it without Docker
+
+```bash
+cd hub && uv run marcel-hub
+```
+
+The hub is a plain process on macOS or Linux (S-22.1, ADR-013). Every default path is under `MARCEL_HOME`
+(`~/marcel` when unset): the database and `marcel.toml` in `$MARCEL_HOME/data`, the redeploy flag in
+`$MARCEL_HOME/state`, the runner's socket at `$MARCEL_HOME/run/runner.sock`, the brain in `$MARCEL_HOME/brain` and
+scratch workers in `$MARCEL_HOME/workspaces/scratch`. It listens on `127.0.0.1` only; the tunnel is what reaches it
+from outside. Any single path can still be set (table below). The NUC's Docker hub sets every path and
+`MARCEL_HOST: 0.0.0.0` in `deploy/docker-compose.yml`, so nothing there falls back to `MARCEL_HOME` (its `HOME` is
+`/tmp`).
+
 It listens on the `host` and `port` from the settings below. If the settings cannot be read, it
 stops with `Marcel hub did not start.` and the reason.
 
@@ -19,20 +33,20 @@ start and the error is printed in the log.
 
 ## Settings
 
-Read from `/data/marcel.toml`, then from the environment (the environment wins). A missing file is
+Read from `marcel.toml` in `MARCEL_DATA_DIR` (`$MARCEL_HOME/data/marcel.toml` by default; a `data_dir` key inside the file does not move the file), then from the environment (the environment wins). A missing file is
 fine. A file that cannot be parsed, or an unknown key, stops the hub at start with a message that
 names the file.
 
 | Key | Environment | Default |
 |---|---|---|
-| `data_dir` | `MARCEL_DATA_DIR` | `/data` |
+| `data_dir` | `MARCEL_DATA_DIR` | `$MARCEL_HOME/data` |
 | `db_path` | `MARCEL_DB_PATH` | `<data_dir>/marcel.db` |
-| `host` | `MARCEL_HOST` | `0.0.0.0` |
+| `host` | `MARCEL_HOST` | `127.0.0.1` (the Docker hub sets `0.0.0.0` inside its container, which publishes only on the host's loopback) |
 | `port` | `MARCEL_PORT` | `7420` |
 | `owner_name` | `MARCEL_OWNER_NAME` | `Owner` (shown by `GET /api/me`) |
-| `runner_sock` | `MARCEL_RUNNER_SOCK` | `/run/marcel/runner.sock` (the runner's socket, mounted into the container) |
-| `worker_cwd` | `MARCEL_WORKER_CWD` | unset. Where workers without a repository run, e.g. `/home/<you>/marcel/workspaces/scratch` (a path on the NUC). Unset: such tasks fail with a reason |
-| `brain_cwd` | `MARCEL_BRAIN_CWD` | unset: the hub starts no brain. The brain workspace on the NUC, e.g. `/home/<you>/marcel/brain` (`brain/README.md`). Set: the hub keeps one brain running (see "The brain: keep-alive and rollover") |
+| `runner_sock` | `MARCEL_RUNNER_SOCK` | `$MARCEL_HOME/run/runner.sock` (the Docker hub mounts it at `/run/marcel/runner.sock`) |
+| `worker_cwd` | `MARCEL_WORKER_CWD` | `$MARCEL_HOME/workspaces/scratch`. Where workers without a repository run (a path on the computer that runs the runner) |
+| `brain_cwd` | `MARCEL_BRAIN_CWD` | `$MARCEL_HOME/brain`. The brain workspace (`brain/README.md`); the hub keeps one brain running there (see "The brain: keep-alive and rollover") |
 | `brain_rollover_on_context` | `MARCEL_BRAIN_ROLLOVER_ON_CONTEXT` | `false`. Claude Code's own auto-compact keeps the brain's context (S-06.8, ADR-010). `true` turns the S-06.7 rollover by context size back on; anything other than true or false stops the hub at start |
 | `brain_context_window` | `MARCEL_BRAIN_CONTEXT_WINDOW` | `200000`, the Opus context window in tokens. Only with `brain_rollover_on_context`: once a brain turn ends with its context past 70 % of this, the brain rolls over (reason `context_full`). A brain model named with Claude Code's `[1m]` suffix (e.g. `opus[1m]`) uses 1 000 000 instead. Less than 10000, or not a number, stops the hub at start |
 | `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no pushes. The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
@@ -42,10 +56,10 @@ names the file.
 | `apns_topic` | `MARCEL_APNS_TOPIC` | unset. The iOS app's bundle id, e.g. `com.<you>.marcel`. Set all four `apns_*` or none: half of them stops the hub at start, naming what is missing |
 | `apns_sandbox` | `MARCEL_APNS_SANDBOX` | `false`: Apple's production server. `true` for an app built and run from Xcode (development push environment). Check this first when pushes stop: set wrong, Apple answers `BadDeviceToken` for every push, and the hub removes each phone's token until its app opens again |
 | `github_token` | `MARCEL_GITHUB_TOKEN` | unset: PR cards are not refreshed and say the token is missing. A fine-grained, **read-only** GitHub token (Pull requests: read, Checks and Commit statuses: read) on the owner's repos (ADR-002). Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown |
-| `redeploy_flag` | `MARCEL_REDEPLOY_FLAG` | `/state/redeploy.flag`. The file the hub writes the merge commit to when an approved self-change is merged ("Self-changes" below). Compose mounts the host's `~/marcel/state` at `/state`; the host's `marcel-redeploy.path` unit watches the file (S-11.2) |
+| `redeploy_flag` | `MARCEL_REDEPLOY_FLAG` | `$MARCEL_HOME/state/redeploy.flag`. The file the hub writes the merge commit to when an approved self-change is merged ("Self-changes" below). The Docker hub sets `/state/redeploy.flag`, the host's `~/marcel/state` mounted; the host's `marcel-redeploy.path` unit watches the file (S-11.2) |
 | `tz` | `MARCEL_TZ` | `Europe/Brussels`. The owner's time zone (IANA name), and the only one the hub uses: the built-in digests run in it (ones the owner has not edited move when it changes), their facts and the usage guard's pushes show times in it, and the brain's nightly rollover runs at 04:00 in it. The process's own `TZ` is never used. A name that is not a time zone stops the hub at start |
 
-`MARCEL_CONFIG` moves the config file itself (tests use it).
+`MARCEL_CONFIG` moves the config file itself (tests and the Docker hub use it). `MARCEL_HOME` moves the root of every default.
 
 ## Database
 

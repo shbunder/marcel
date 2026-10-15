@@ -516,8 +516,8 @@ def test_no_pulls_says_the_token_is_missing() -> None:
 
 
 def test_the_flag_path_is_a_setting(tmp_path: Path) -> None:
-    env = {'MARCEL_CONFIG': str(tmp_path / 'none.toml')}
-    assert str(load_settings(env).redeploy_flag) == '/state/redeploy.flag'
+    env = {'MARCEL_CONFIG': str(tmp_path / 'none.toml'), 'MARCEL_HOME': str(tmp_path)}
+    assert load_settings(env).redeploy_flag == tmp_path / 'state' / 'redeploy.flag'
     env['MARCEL_REDEPLOY_FLAG'] = str(tmp_path / 'flag')
     assert load_settings(env).redeploy_flag == tmp_path / 'flag'
 
