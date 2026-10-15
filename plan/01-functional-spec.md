@@ -79,6 +79,8 @@ and keeps me posted — with a living pixel-art giraffe at the top of the screen
   - **Weekly review:** a roll-up, plus stale threads to close or archive.
 - **B-18 Push.** Notifications go to the iPhone through APNs when an Apple developer account exists. Until then
   they go through an **ntfy** fallback. The rest of the system must not care which one is used.
+  *Proposed 2026-10-15 (ADR-013):* every install pushes through one small relay the app's maker runs, which sees only
+  sealed bytes; ntfy stays the fallback.
 
 ## Usage guard
 
@@ -127,6 +129,8 @@ and keeps me posted — with a living pixel-art giraffe at the top of the screen
 - **B-26 Thread view.** This is the live transcript described in B-11. It opens from a milestone message, a quest card or a push notification.
 - **B-27 Access.** The app reaches the NUC hub through the Cloudflare tunnel (`marcel-bot.com`) and signs in
   with a device token, paired once with a QR code shown by the hub.
+  *Proposed 2026-10-15 (ADR-013):* each install has its own public address (Tailscale Funnel by default, a named
+  Cloudflare tunnel as the advanced option); the QR code carries it.
 
 ## The avatar
 
@@ -181,6 +185,9 @@ and keeps me posted — with a living pixel-art giraffe at the top of the screen
 
 ## People and sign-in  (added 2026-10-13)
 
+*Proposed 2026-10-15 (ADR-013): one install is one person; B-37 and B-38 give way to buddies (B-49), and pairing
+another phone no longer needs the owner role.*
+
 - **B-37 The owner is the admin.** The owner is set up once on the NUC (`marcel-hub setup`) and is the person whose
   Claude login the NUC uses. Only the owner can add or remove people and pair phones for them.
 - **B-38 One helper per person.** Each family member gets their own helper (their own name and look), with their own
@@ -215,6 +222,20 @@ and keeps me posted — with a living pixel-art giraffe at the top of the screen
   needs and the repo lacks: a `CLAUDE.md` naming the check command, that command, CI and a PR template.
 - **B-46 A tracker per coding project.** A Jira-like board (a claude.ai artifact, readable on the phone and the laptop)
   that quests keep up to date: their card, its status and its PR. It is linked from the project room.
+
+## Install anywhere  (proposed 2026-10-15, ADR-013, F22)
+
+- **B-47 One-line install.** On a Mac or Linux computer with Claude Code logged in, one pasted line installs Marcel:
+  no Docker, no domain, no router change, one password prompt at most. It ends with a QR code the app scans.
+- **B-48 One-command uninstall.** `marcel uninstall` removes every file, service and setting Marcel added, and leaves
+  Claude Code and its login as they were.
+- **B-49 Buddies.** One install belongs to one person, who can have several buddies: each a Pixel Zoo avatar with its
+  own long-running session, chat and memory. Each phone picks the buddy it shows, and switching is one tap.
+- **B-50 Buddies talk.** A buddy can ask another buddy something; both chats show the exchange.
+- **B-51 Laptops sleep.** When the computer is asleep or offline the app says so in one line and catches up when it
+  wakes. Nothing has to stay awake; keeping the Mac awake while a quest runs is an option.
+- **B-52 More computers.** The person can add their own other computers with a join code; Marcel starts quests there
+  and says where each one runs.
 
 ## v1 is done when
 

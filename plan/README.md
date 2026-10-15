@@ -7,10 +7,11 @@ It is built as a shell around the unmodified `claude` CLI, on a Claude Max subsc
 
 | Read | For |
 |---|---|
-| [01-functional-spec.md](01-functional-spec.md) | **What** it must do: behaviours B-01…B-46, the v1 definition of done, and the non-goals. Decided with the owner on 2026-10-03. |
+| [01-functional-spec.md](01-functional-spec.md) | **What** it must do: behaviours B-01…B-52, the v1 definition of done, and the non-goals. Decided with the owner on 2026-10-03. |
 | [02-architecture.md](02-architecture.md) | **How**: hub, runner, plugin, brain and iOS app; the key flows; the token economy; the data model; the repo layout |
 | [03-spikes.md](03-spikes.md) | Phase 0: seven risky unknowns to settle before fan-out |
 | [04-agent-playbook.md](04-agent-playbook.md) | How the Opus lead and the Sonnet implementers work: lanes, waves, the story contract, the gates |
+| [05-install-anywhere.md](05-install-anywhere.md) | F22 (proposed 2026-10-15): one-line install on anyone's own Mac or Linux computer, buddies, the push relay. ADR-013 |
 | [../project/](../project/) | The board: every feature and story (one file each, sized for one Sonnet session) and the spikes |
 
 ## Features at a glance
@@ -39,6 +40,7 @@ It is built as a shell around the unmodified `claude` CLI, on a Claude Max subsc
 | F19 Avatars from the Pixel Zoo | 4 | avatar / hub / ios | cloud + **Mac** |
 | F20 Coding projects start well (kickoff, tracker) | 4 | plugin | cloud + NUC (SP9) |
 | F21 Delegation rules (answer, quest or subagent) | 4 | plugin | cloud + NUC (SP10) |
+| F22 Install anywhere (one line, buddies, relay push) — **proposed**, ADR-013 | 5–7 | deploy / hub / runner / relay / ios | cloud + **Mac** + NUC (SP11–SP13) |
 
 ## Before an agent starts
 

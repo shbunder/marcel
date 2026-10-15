@@ -147,3 +147,10 @@ runs at a steady 60 fps.
 | [SP9](../project/stories/SP9.md) | NUC | Can a background worker publish and update a claude.ai artifact with a database, unattended? | S-20.2 tracker |
 | [SP10](../project/stories/SP10.md) | NUC | What happens on a reboot, a stalled approval, a held message, a workflow's cost, a deleted session with uncommitted work? | Guards for ADR-009 |
 
+## Wave 5 spikes (added 2026-10-15, F22)
+
+| Spike | Runs on | Question | Blocks |
+|---|---|---|---|
+| [SP11](../project/stories/SP11.md) | Mac | Do the channel allowlist drop-in, `claude daemon run` under a LaunchAgent, the Keychain login, a private copy of the pinned binary, and sleep and wake all work on a Mac? | S-22.3, S-22.4, S-22.6, S-22.18 |
+| [SP12](../project/stories/SP12.md) | Mac + NUC | Does Tailscale Funnel work from a user-space `tailscaled` with no admin, for `/api` only, WebSockets and cloud reports, after sleep and a Wi-Fi change? | S-22.8 |
+| [SP13](../project/stories/SP13.md) | NUC | Can buddies' brains message each other with `SendMessage` while workers cannot, and can a hook tell the hub? | S-02.16, S-22.13 |
