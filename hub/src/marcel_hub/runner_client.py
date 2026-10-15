@@ -43,10 +43,10 @@ log = logging.getLogger(__name__)
 
 
 def marcel_home(env: Mapping[str, str] | None = None) -> Path:
-    """`MARCEL_HOME`, or `~/marcel`: the root of every default path (S-22.1, ADR-013)."""
+    """`MARCEL_HOME`, or `~/.marcel`: the root of every default path (S-22.1, ADR-013)."""
     env = os.environ if env is None else env
     home = env.get('MARCEL_HOME')
-    return Path(home).expanduser() if home else Path.home() / 'marcel'
+    return Path(home).expanduser() if home else Path.home() / '.marcel'
 
 
 # The runner's socket under `$MARCEL_HOME/run`. The Docker hub sets `MARCEL_RUNNER_SOCK` instead.

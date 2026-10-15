@@ -94,6 +94,15 @@ def test_every_default_path_is_under_marcel_home(tmp_path: Path) -> None:
     assert s.host == '127.0.0.1', 'only the tunnel reaches the hub from outside'
 
 
+def test_marcel_home_is_dot_marcel_in_the_home_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv('HOME', str(tmp_path))
+    s = load_settings({})  # no MARCEL_HOME: the owner's decision, 2026-10-15
+    assert s.data_dir == tmp_path / '.marcel' / 'data'
+    assert s.runner_sock == tmp_path / '.marcel' / 'run' / 'runner.sock'
+
+
 def test_the_config_file_is_read_from_marcel_home(tmp_path: Path) -> None:
     (tmp_path / 'data').mkdir()
     (tmp_path / 'data' / 'marcel.toml').write_text('owner_name = "Ann"\nport = 7500\n')

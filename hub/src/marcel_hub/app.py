@@ -4,7 +4,7 @@ Settings come from a TOML file (`$MARCEL_HOME/data/marcel.toml`, or `MARCEL_CONF
 from the environment, which wins. A missing file is fine: defaults apply. A broken file stops the
 hub at start with a message that names the file.
 
-Every default path is under `MARCEL_HOME` (`~/marcel` when unset), so the hub runs as a plain
+Every default path is under `MARCEL_HOME` (`~/.marcel` when unset), so the hub runs as a plain
 process with `uv run marcel-hub` (S-22.1, ADR-013). The Docker hub on the NUC sets each path with
 `MARCEL_*` in `deploy/docker-compose.yml` (its `HOME` is `/tmp`), until S-22.25 retires it.
 """

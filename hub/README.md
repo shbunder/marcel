@@ -18,7 +18,7 @@ cd hub && uv run marcel-hub
 ```
 
 The hub is a plain process on macOS or Linux (S-22.1, ADR-013). Every default path is under `MARCEL_HOME`
-(`~/marcel` when unset): the database and `marcel.toml` in `$MARCEL_HOME/data`, the redeploy flag in
+(`~/.marcel` when unset, on every install; the NUC moves there in S-22.24): the database and `marcel.toml` in `$MARCEL_HOME/data`, the redeploy flag in
 `$MARCEL_HOME/state`, the runner's socket at `$MARCEL_HOME/run/runner.sock`, the brain in `$MARCEL_HOME/brain` and
 scratch workers in `$MARCEL_HOME/workspaces/scratch`. It listens on `127.0.0.1` only; the tunnel is what reaches it
 from outside. Any single path can still be set (table below). The NUC's Docker hub sets every path and
