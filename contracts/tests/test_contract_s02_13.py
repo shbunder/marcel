@@ -80,6 +80,7 @@ def test_the_versions_were_bumped() -> None:
     assert load_yaml('app-api.yaml')['info']['version'] == '0.8.0'
     assert load_yaml('brain-api.yaml')['info']['version'] == '0.1.5'
     assert load_yaml('push-relay.yaml')['info']['version'] == '0.1.0'
+    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.14'
 
 
 # 1. One person -----------------------------------------------------------------------------------
@@ -485,3 +486,42 @@ def test_the_runner_error_detail_fits_usage() -> None:
     detail = load_yaml('runner-api.yaml')['components']['schemas']['Error']['properties']['detail']
     text = flat(detail['description'])
     assert '`no_reading`' in text and 'plain words' in text and 'never leaves the runner' in text
+
+
+# 9. No pin on a Mac (runner-api 0.1.14) ---------------------------------------------------------
+
+CHANGED = {
+    'seq': 1760000000001,
+    'type': 'runner.claude_changed',
+    'at': '2026-10-15T02:00:00Z',
+    'message': 'Claude Code changed from 2.1.296 to 2.1.301.',
+    'claude_change': {'from': '2.1.296', 'to': '2.1.301', 'expected': '2.1.296'},
+}
+
+
+def test_a_claude_change_may_come_without_a_pin(registry: Registry) -> None:
+    event = check('runner-api.yaml', '/components/schemas/RunnerEvent', registry)
+    event.validate(CHANGED)  # a pinned runner sends exactly what it sends today
+    unpinned = {**CHANGED, 'claude_change': {'from': '2.1.296', 'to': '2.1.301'}}
+    event.validate(unpinned)
+    refused(event, {**CHANGED, 'claude_change': {'from': '2.1.296'}})
+    schemas = load_yaml('runner-api.yaml')['components']['schemas']
+    change = schemas['RunnerEvent']['properties']['claude_change']
+    assert change['required'] == ['from', 'to']
+    assert 'no pin' in change['description']
+    expected = flat(schemas['Health']['properties']['claude_version_expected']['description'])
+    assert 'Absent means no pin' in expected and 'never makes `ok` false' in expected
+
+
+def test_every_claude_version_refusal_needs_a_pin() -> None:
+    paths = load_yaml('runner-api.yaml')['paths']
+    texts = [
+        flat(op['responses']['422']['description'])
+        for item in paths.values()
+        for op in item.values()
+        if isinstance(op, dict)
+        and '422' in op.get('responses', {})
+        and '`claude_version`' in op['responses']['422']['description']
+    ]
+    assert len(texts) == 4
+    assert all('only when a pin is set' in text for text in texts)

@@ -28,7 +28,7 @@ def check(registry: Registry, ref: str) -> Draft202012Validator:
 
 
 def test_the_versions_were_bumped() -> None:
-    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.13'  # 0.1.13 in S-02.12
+    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.14'  # 0.1.14 in S-02.13
     assert load_yaml('app-api.yaml')['info']['version'] == '0.8.0'  # 0.8.0 in S-02.13
 
 
@@ -214,7 +214,8 @@ def test_the_two_new_runner_events_are_accepted(registry: Registry) -> None:
     [
         {k: v for k, v in CHANGED.items() if k != 'claude_change'},
         {k: v for k, v in CHANGED.items() if k != 'message'},
-        {**CHANGED, 'claude_change': {'from': '2.1.296', 'to': '2.1.301'}},
+        # Without `expected` it is valid since runner-api 0.1.14 (no pin on a Mac, S-02.13).
+        {**CHANGED, 'claude_change': {'from': '2.1.296', 'expected': '2.1.296'}},
         {k: v for k, v in RESTARTED.items() if k != 'supervisor_restart'},
         {k: v for k, v in RESTARTED.items() if k != 'message'},
         {**RESTARTED, 'supervisor_restart': {'cause': 'upgrade'}},

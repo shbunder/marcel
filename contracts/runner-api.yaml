@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel runner API
-  version: 0.1.13
+  version: 0.1.14
   description: |
     The runner is the only process that runs `claude` (native on the NUC, a systemd user unit). The
     hub (in Docker) talks to it over HTTP on a unix socket: `/run/user/<uid>/marcel/runner.sock` on
@@ -118,9 +118,10 @@ paths:
           description: |
             The session did not start properly. `code` is one of `not_trusted`, `channel_skipped`,
             `channel_timeout`, `exited` (with the session's own `detail`), `no_supervisor`,
-            `clone_failed`, `claude_version` (0.1.10: the installed Claude Code is not the version
-            Marcel is tested with, `runner/claude-version`; nothing was started, and `message` names
-            both versions).
+            `clone_failed`, `claude_version` (0.1.10, only when a pin is set: the installed Claude Code
+            is not the version Marcel is tested with, `runner/claude-version`; nothing was started,
+            and `message` names both versions; 0.1.14: an install that follows the user's Claude Code
+            has no pin and never answers it).
 
             For a `repo` spawn: `clone_failed` covers every workspace step (the clone, the fetch, the
             task worktree, the plugin install and the check that the install left the repo's tracked
@@ -244,7 +245,7 @@ paths:
             options cannot be read, or lack `--setting-sources project,local`, or lack the role's
             `--settings` file (a worker's `role_settings/worker.json`, since 0.1.11), or, with the
             channel on, `--debug-file` or the `reply` tool, and nothing was woken), `channel_skipped`,
-            `channel_timeout`, `claude_version` (as on spawn; nothing was woken).
+            `channel_timeout`, `claude_version` (as on spawn, only when a pin is set; nothing was woken).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -294,7 +295,7 @@ paths:
         '422':
           description: |
             The fork did not start properly (same codes as spawn): `no_supervisor`, `exited`,
-            `channel_skipped`, `channel_timeout`, `claude_version` (as on spawn; nothing was started).
+            `channel_skipped`, `channel_timeout`, `claude_version` (as on spawn, only when a pin is set; nothing was started).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -492,8 +493,8 @@ paths:
         '422':
           description: |
             `cloud_unparsed`: `claude --cloud` exited without printing a session id and URL on
-            `claude.ai`; `message` holds its output. `claude_version` (as on spawn; nothing was
-            started). For a `repo` create also `clone_failed` (the
+            `claude.ai`; `message` holds its output. `claude_version` (as on spawn, only when a pin is set; nothing
+            was started). For a `repo` create also `clone_failed` (the
             clone, the fetch or the checkout of `base`), with git's own words in `detail`.
           content:
             application/json:
@@ -622,7 +623,9 @@ components:
           description: |
             The version Marcel is tested with (`runner/claude-version`), so the hub and the app can
             show "installed 2.1.301, expected 2.1.290". When `claude_version` differs, `ok` is false
-            and every start answers 422 `claude_version`. New in 0.1.10.
+            and every start answers 422 `claude_version`. New in 0.1.10. Absent means no pin (0.1.14:
+            an install that follows the user's Claude Code, ADR-013 question 5): then a different
+            `claude_version` never makes `ok` false and no start answers 422 `claude_version`.
         supervisor:
           type: object
           required: [running, own_unit]
@@ -871,13 +874,13 @@ components:
         message: { type: string, description: 'For `runner.warning`, `runner.recovered`, `runner.claude_changed` and `runner.supervisor_restarted`, in plain words.' }
         claude_change:
           type: object
-          description: For `runner.claude_changed`. The hub tells "updated away from the pin" (`to` is not `expected`) from "back on the pin" (`to` is `expected`).
-          required: [from, to, expected]
+          description: For `runner.claude_changed`. The hub tells "updated away from the pin" (`to` is not `expected`) from "back on the pin" (`to` is `expected`). `expected` is absent on an install that follows the user's Claude Code (no pin, 0.1.14); the change is then only news.
+          required: [from, to]
           additionalProperties: false
           properties:
             from: { type: string, description: "The version the runner saw before, as `Health.claude_version` words it." }
             to: { type: string, description: The version installed now. }
-            expected: { type: string, description: The pinned version (`runner/claude-version`, as `Health.claude_version_expected`). }
+            expected: { type: string, description: 'The pinned version (`runner/claude-version`, as `Health.claude_version_expected`). Absent when there is no pin (0.1.14).' }
         supervisor_restart:
           type: object
           description: For `runner.supervisor_restarted`.
