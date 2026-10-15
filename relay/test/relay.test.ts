@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as entry from '../src/index';
 import worker from '../src/index';
 import { TOKEN_TTL_S } from '../src/apns';
+import { PER_ADDRESS_PER_HOUR, PER_DAY } from '../src/limits';
 import { DAILY_LIMIT } from '../src/store';
 import { SEALED, TOKEN, registered, relay } from './helpers';
 
@@ -38,6 +39,65 @@ describe('register', () => {
   it('refuses a body that is not JSON', async () => {
     const r = await relay();
     expect((await r.call('POST', '/v1/register', undefined, undefined, '{')).status).toBe(400);
+  });
+});
+
+describe('register limits (push-relay 0.1.1)', () => {
+  const reg = { apns_token: TOKEN, sandbox: false };
+  const handles = (r: Awaited<ReturnType<typeof relay>>) =>
+    r.env.DB.prepare('SELECT count(*) AS n FROM handles').first<{ n: number }>().then((row) => row?.n ?? 0);
+
+  it('takes 20 registrations an hour from one address; the 21st is 429 until the next hour', async () => {
+    expect(PER_ADDRESS_PER_HOUR).toBe(20);
+    const r = await relay();
+    r.clock.at = new Date('2026-10-15T09:59:00Z');
+    const before = await handles(r);
+    for (let i = 0; i < 20; i++) expect((await r.call('POST', '/v1/register', reg)).status).toBe(201);
+    const over = await r.call('POST', '/v1/register', reg);
+    expect(over.status).toBe(429);
+    expect(await over.json()).toMatchObject({ code: 'too_many_registrations' });
+    expect(over.headers.get('retry-after')).toBe('60');
+    expect(await handles(r)).toBe(before + 20); // nothing stored for the refused one
+    r.ip = '203.0.113.9'; // another address is not held back
+    expect((await r.call('POST', '/v1/register', reg)).status).toBe(201);
+    r.ip = '203.0.113.8';
+    r.clock.at = new Date('2026-10-15T10:00:00Z');
+    expect((await r.call('POST', '/v1/register', reg)).status).toBe(201);
+  });
+
+  it('takes 2,000 registrations a day in all; then 429 until midnight UTC', async () => {
+    expect(PER_DAY).toBe(2000);
+    const r = await relay();
+    r.clock.at = new Date('2026-10-15T23:00:00Z');
+    await r.env.DB.prepare("INSERT OR REPLACE INTO register_counts (key, period, count) VALUES ('all', '2026-10-15', 1999)").run();
+    expect((await r.call('POST', '/v1/register', reg)).status).toBe(201);
+    r.ip = '203.0.113.10';
+    const over = await r.call('POST', '/v1/register', reg);
+    expect(over.status).toBe(429);
+    expect(over.headers.get('retry-after')).toBe('3600');
+    r.clock.at = new Date('2026-10-16T00:00:01Z');
+    expect((await r.call('POST', '/v1/register', reg)).status).toBe(201);
+  });
+
+  it('never lets a burst from one address pass the hourly cap', async () => {
+    const r = await relay();
+    r.ip = '203.0.113.11';
+    const answers = await Promise.all(Array.from({ length: 30 }, () => r.call('POST', '/v1/register', reg)));
+    expect(answers.filter((a) => a.status === 201)).toHaveLength(20);
+    expect(answers.filter((a) => a.status === 429)).toHaveLength(10);
+  });
+
+  it('keeps only a hash of the address, and forgets past hours', async () => {
+    const r = await relay();
+    r.ip = '203.0.113.12';
+    await r.call('POST', '/v1/register', reg);
+    const rows = await r.env.DB.prepare('SELECT * FROM register_counts').all();
+    expect(JSON.stringify(rows.results)).not.toContain('203.0.113.12');
+    r.clock.advance(3600);
+    r.ip = '203.0.113.13';
+    await r.call('POST', '/v1/register', reg);
+    const left = await r.env.DB.prepare("SELECT period FROM register_counts WHERE key LIKE 'ip:%'").all<{ period: string }>();
+    expect(left.results.map((row) => row.period)).toEqual(['2026-10-15T10']);
   });
 });
 

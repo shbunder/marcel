@@ -9,6 +9,7 @@ import { send, type ApnsKey } from './apns';
 import { newHandle, newSendSecret, sha256Hex } from './crypto';
 import { UNAUTHORIZED, error, json } from './http';
 import { addHandle, countPush, deleteHandle, dropHandle } from './store';
+import { allowRegistration } from './limits';
 import { HANDLE, push, registration } from './validate';
 
 export interface Env extends ApnsKey {
@@ -60,11 +61,18 @@ function bearer(request: Request): string | null {
   return BEARER.exec(request.headers.get('authorization') ?? '')?.[1] ?? null;
 }
 
-async function register(request: Request, env: Env): Promise<Response> {
+async function register(request: Request, env: Env, deps: Deps): Promise<Response> {
   const body = await readBody(request);
   if (body.kind === 'too_large') return error('too_large', 'The request is over 3 KB.');
   const reg = body.kind === 'ok' ? registration(body.value) : null;
   if (!reg) return error('bad_request', 'Send {apns_token, sandbox} as the contract says.');
+  const address = request.headers.get('cf-connecting-ip') ?? 'unknown';
+  const allowed = await allowRegistration(env.DB, address, deps.now());
+  if (allowed.kind === 'over') {
+    const res = error('too_many_registrations', 'Too many phones registered just now. Nothing was stored; try again later.');
+    res.headers.set('retry-after', String(allowed.retryAfterS));
+    return res;
+  }
   const handle = newHandle();
   const sendSecret = newSendSecret();
   await addHandle(env.DB, handle, reg.apns_token, await sha256Hex(sendSecret), reg.sandbox);
@@ -106,7 +114,7 @@ async function forget(request: Request, env: Env, handle: string): Promise<Respo
 
 export async function handle(request: Request, env: Env, deps: Deps): Promise<Response> {
   const { pathname } = new URL(request.url);
-  if (pathname === '/v1/register' && request.method === 'POST') return register(request, env);
+  if (pathname === '/v1/register' && request.method === 'POST') return register(request, env, deps);
   if (pathname === '/v1/push' && request.method === 'POST') return sendPush(request, env, deps);
   const handleMatch = /^\/v1\/handles\/([^/]+)$/.exec(pathname);
   if (handleMatch?.[1] && request.method === 'DELETE') return forget(request, env, handleMatch[1]);

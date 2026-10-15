@@ -19,6 +19,7 @@ Worker that holds the app's APNs key and passes **sealed** notifications on to p
 | The phone's APNs token | The APNs token | The `send_secret` itself: only its SHA-256 is stored |
 | The `sandbox` flag | The flag | Any request body in a log or in storage |
 | How many pushes a phone got today | The count and the day (reset at midnight UTC) | Who the phone belongs to, or which hub sent the push |
+| The client address of a registration | A SHA-256 of the hour and the address, for one hour | The address itself |
 | The sealed bytes, while passing them on | Nothing | — |
 
 Cloudflare's request logs (Workers Logs) are **off** in `wrangler.jsonc`, so Cloudflare keeps no per-request record
@@ -29,6 +30,11 @@ line with anything but fixed words is added.
 When APNs says a phone's token is gone (410), or can never work for this app (400 `BadDeviceToken`, a token from
 the other environment, or `DeviceTokenNotForTopic`), the relay forgets the handle and answers 410 `handle_gone`, so
 the hub asks the phone to register again. Any other APNs failure answers 502 and keeps the handle.
+
+Registrations are capped, since the relay's address is public (push-relay 0.1.1): 20 an hour from one client
+address (`CF-Connecting-IP`), and 2,000 a day for the whole relay. Over either, `POST /v1/register` answers 429
+`too_many_registrations` with `Retry-After` (seconds to the next hour, or to midnight UTC) and stores no handle. The
+relay keeps only a SHA-256 of the hour and the address, and deletes past hours' rows as registrations come in.
 
 Limits: 500 pushes a day per handle (429 after that), 3 KB per request (413). The count moves in the same statement
 that checks the secret, so two pushes at once never both take the last place. If the relay is down, pushes stop and
@@ -102,5 +108,6 @@ the deployed Worker. They go when `@cloudflare/vitest-pool-workers` moves past 0
 
 - `src/index.ts`: the Worker's entry point (the runtime takes only handlers from it).
 - `src/relay.ts`: the three routes. `src/validate.ts`: the request bodies, exactly as the contract says.
-- `src/store.ts`: the one D1 table (`migrations/0001_handles.sql`) and the atomic daily count.
+- `src/store.ts`: the handles table (`migrations/0001_handles.sql`) and the atomic daily count.
+- `src/limits.ts`: the registration caps (`migrations/0002_register_counts.sql`).
 - `src/apns.ts`: the ES256 provider token (kept 50 minutes) and the APNs request.

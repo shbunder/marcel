@@ -7,6 +7,7 @@ export type ErrorCode =
   | 'handle_gone'
   | 'too_large'
   | 'too_many_pushes'
+  | 'too_many_registrations'
   | 'apns_unavailable';
 
 const STATUS: Record<ErrorCode, number> = {
@@ -16,6 +17,7 @@ const STATUS: Record<ErrorCode, number> = {
   handle_gone: 410,
   too_large: 413,
   too_many_pushes: 429,
+  too_many_registrations: 429,
   apns_unavailable: 502,
 };
 

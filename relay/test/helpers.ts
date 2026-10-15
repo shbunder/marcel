@@ -56,6 +56,8 @@ export interface Relay {
   apns: FakeApns;
   clock: Clock;
   publicKey: CryptoKey;
+  /** The client address the next calls come from (`CF-Connecting-IP`). */
+  ip: string;
   call: (method: string, path: string, body?: unknown, secret?: string, raw?: string) => Promise<Response>;
 }
 
@@ -76,13 +78,14 @@ export async function relay(): Promise<Relay> {
   const apns = new FakeApns();
   const clock = new Clock();
   const deps: Deps = { fetch: apns.fetch, now: clock.now };
-  const call = (method: string, path: string, body?: unknown, secret?: string, raw?: string) => {
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
+  const r = { env: relayEnv, apns, clock, publicKey: pair.publicKey, ip: `198.51.100.${Math.floor(Math.random() * 250)}` } as Relay;
+  r.call = (method: string, path: string, body?: unknown, secret?: string, raw?: string) => {
+    const headers: Record<string, string> = { 'content-type': 'application/json', 'cf-connecting-ip': r.ip };
     if (secret) headers.authorization = `Bearer ${secret}`;
     const text = raw ?? (body === undefined ? undefined : JSON.stringify(body));
     return handle(new Request(`${BASE}${path}`, { method, headers, body: text }), relayEnv, deps);
   };
-  return { env: relayEnv, apns, clock, publicKey: pair.publicKey, call };
+  return r;
 }
 
 export async function registered(r: Relay, sandbox = false): Promise<{ handle: string; send_secret: string }> {
