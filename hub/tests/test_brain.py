@@ -4,6 +4,7 @@ Nothing here reaches a real `claude`, a runner or the network: `FakeBrains` answ
 runner calls the keeper makes from memory."""
 
 import asyncio
+import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -63,12 +64,17 @@ class FakeBrains:
         # Like the real runner: the session is listed (and calls the hub) before the spawn
         # request returns, which waits for its channel to register.
         self.list_before_return = False
+        # Set to a cleared `threading.Event` to hold every spawn (after it is listed) until the test
+        # sets it: "while its spawn is still under way" then holds for sure, with no clock in it.
+        self.release: threading.Event | None = None
 
     async def spawn_brain(self, *, name: str, model: str, cwd: str, prompt: str) -> str:
         self.spawned.append({'name': name, 'model': model, 'cwd': cwd, 'prompt': prompt})
         early = self.add(name=name) if self.list_before_return else None
         if self.spawn_delay:
             await asyncio.sleep(self.spawn_delay)
+        while self.release is not None and not self.release.is_set():
+            await asyncio.sleep(0.01)
         if self.fail_spawns:
             self.fail_spawns -= 1
             raise StartFailed('The session did not start: the channel never registered.')

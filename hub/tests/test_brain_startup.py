@@ -7,6 +7,7 @@ asks the runner and accepts the session the runner lists under that agent's brai
 
 Nothing here reaches a real `claude`, a runner or the network."""
 
+import threading
 import time
 import uuid
 from collections.abc import Iterator
@@ -126,14 +127,33 @@ def rolling_over(hub: ChannelHub, fake: FakeBrains) -> tuple[str, str]:
     return old, new
 
 
+@pytest.fixture
+def gated(tmp_path: Path) -> Iterator[tuple[ChannelHub, FakeBrains]]:
+    """A hub whose runner starts the first brain at once and holds later spawns on a gate the test
+    opens. No clock: a busy machine cannot make the first brain late (the 1.5 s spawn of `fake`
+    once ran past `wait`'s 10 s under load), nor end a spawn before the test has read during it."""
+    runner = FakeBrains()
+    runner.list_before_return = True
+    with brain_hub(tmp_path, runner) as hub:
+        yield hub, runner
+
+
 def test_a_rollovers_brain_reads_its_context_before_the_hand_over(
-    hub: ChannelHub, fake: FakeBrains
+    gated: tuple[ChannelHub, FakeBrains],
 ) -> None:
     """Its `SessionStart` hook asks for the open threads before its hello. Delete `incoming` in
     `require_brain` and both reads go 401."""
+    hub, fake = gated
+    wait(lambda: current(hub))  # the first brain, started with no gate
+    fake.release = (
+        threading.Event()
+    )  # from here, the rollover's spawn waits until the test opens it
     old, new = rolling_over(hub, fake)
+    state = keeper_of(hub)._state(hub.agent_id)
+    assert state.rolling and state.pending is None, 'the spawn is held: still under way'
     assert tasks_as(hub, new) == 200, 'while its spawn is still under way'
-    wait(lambda: keeper_of(hub)._state(hub.agent_id).pending is not None)
+    fake.release.set()
+    wait(lambda: state.pending is not None)
     assert tasks_as(hub, new) == 200, 'and while the keeper waits for its hello'
     assert current(hub) == old, 'reading hands it nothing: the old brain keeps the conversation'
 
