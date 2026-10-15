@@ -2,7 +2,7 @@
 
 | File | Between | Story |
 |---|---|---|
-| [app-api.yaml](app-api.yaml) | app ↔ hub (REST, OpenAPI 3.1) | S-02.1; projects and artifact versions S-02.5; people, looks, quoted replies and mentions S-02.7 (0.7.0); one person, buddies on phones, relay push S-02.13 (0.8.0) |
+| [app-api.yaml](app-api.yaml) | app ↔ hub (REST, OpenAPI 3.1) | S-02.1; projects and artifact versions S-02.5; people, looks, quoted replies and mentions S-02.7 (0.7.0); one person, buddies on phones, relay push S-02.13 (0.8.0); memory per buddy (`agent_id` on the memory routes) 0.8.1 |
 | [events.schema.json](events.schema.json) | hub → app (WebSocket `/ws`, JSON Schema 2020-12) | S-02.1, S-02.5; `device.updated` S-02.13 |
 | [push-relay.yaml](push-relay.yaml) | app and hub → the owner's push relay (`relay/`, a Cloudflare Worker) | S-02.13 |
 | [task-states.md](task-states.md) | the task state machine every lane follows | S-02.1 |
@@ -35,6 +35,11 @@ and that the state table matches the API's `TaskState` enum.
 - `Health.os` (`macos | linux`).
 - **Trackers:** `Project.tracker_url` is a claude.ai artifact url only, set only by the project's kickoff
   quest (brain-api 0.1.5 `NewTask.kickoff`; channel `Artifact.role`).
+
+**app-api 0.8.1 (additive): memory per buddy.** `GET /memory` and `GET`/`PUT /memory/files/{path}` take an
+optional `agent_id` query parameter (`MemoryAgentId`); omitted, it is the calling phone's buddy. An id that is no
+buddy is 404 `agent_not_found`; an archived buddy's memory stays readable and refuses a save. Query parameters the
+hub does not read yet are listed in `hub/tests/test_contract_routes.py` `PENDING_QUERY_PARAMETERS`.
 
 While the hub and the mock catch up, operations the hub still serves but 0.8.0 removed are listed in
 `hub/tests/test_contract_routes.py` `RETIRED_OPERATIONS` (S-22.11 removes them).

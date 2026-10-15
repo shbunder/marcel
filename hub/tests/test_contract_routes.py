@@ -35,6 +35,16 @@ RETIRED_OPERATIONS: dict[tuple[str, str], str] = {
 # with its own `servers`, served at the hub's root). Each list can only shrink.
 PENDING_BRAIN_OPERATIONS: dict[tuple[str, str], str] = {}
 PENDING_SESSION_OPERATIONS: dict[tuple[str, str], str] = {}
+# Query parameters app-api.yaml names on a route the hub serves but does not read yet, with the
+# work that reads them. The test below fails as soon as one is read, so this list can only shrink.
+PENDING_QUERY_PARAMETERS: dict[tuple[str, str, str], str] = {
+    # app-api 0.8.1: the Notebook follows the phone's buddy (S-22.12's contract request).
+    ('GET', '/api/memory', 'agent_id'): 'S-22.27',
+    ('GET', '/api/memory/files/{}', 'agent_id'): 'S-22.27',
+    ('PUT', '/api/memory/files/{}', 'agent_id'): 'S-22.27',
+}
+# Query parameters a route reads by hand rather than declaring them, so FastAPI cannot see them.
+READ_BY_HAND: set[tuple[str, str, str]] = {('GET', '/api/ws', 'since')}  # ws.py, query_params
 
 
 def normalise(path: str) -> str:
@@ -50,6 +60,38 @@ def contract_routes(doc: str, prefix: str) -> set[tuple[str, str]]:
         for method in item
         if method in METHODS
     }
+
+
+def contract_query_parameters(doc: str, prefix: str) -> set[tuple[str, str, str]]:
+    """(method, path, name) for every query parameter the document names, `$ref`s resolved."""
+    api = yaml.safe_load((CONTRACTS / doc).read_text())
+    shared = api.get('components', {}).get('parameters', {})
+    found: set[tuple[str, str, str]] = set()
+    for path, item in api['paths'].items():
+        for method, op in item.items():
+            if method not in METHODS:
+                continue
+            for param in op.get('parameters', []) + item.get('parameters', []):
+                if '$ref' in param:
+                    param = shared[param['$ref'].rsplit('/', 1)[1]]
+                if param['in'] == 'query':
+                    found.add((method.upper(), normalise(prefix + path), param['name']))
+    return found
+
+
+@pytest.fixture(scope='module')
+def served_query_parameters(tmp_path_factory: pytest.TempPathFactory) -> set[tuple[str, str, str]]:
+    """(method, path, name) for every query parameter a hub route declares."""
+    data = tmp_path_factory.mktemp('hub-query')
+    app = create_app(Settings(data_dir=data, db_path=data / 'marcel.db'))
+    found: set[tuple[str, str, str]] = set()
+    for route in iter_route_contexts(app.routes):
+        original = route.original_route
+        if isinstance(original, APIWebSocketRoute | APIRoute):
+            methods = route.methods or () if isinstance(original, APIRoute) else ('GET',)
+            names = {q.alias for q in original.dependant.query_params}
+            found |= {(m, normalise(original.path), n) for m in methods for n in names}
+    return found
 
 
 @pytest.fixture(scope='module')
@@ -115,3 +157,20 @@ def test_pending_operations_are_still_pending(served: set[tuple[str, str]]) -> N
 def test_retired_operations_are_still_served(served: set[tuple[str, str]]) -> None:
     gone = set(RETIRED_OPERATIONS) - served
     assert not gone, f'{gone} are no longer served: remove them from RETIRED_OPERATIONS'
+
+
+def test_every_query_parameter_of_a_served_route_is_read_or_pending(
+    served: set[tuple[str, str]], served_query_parameters: set[tuple[str, str, str]]
+) -> None:
+    contract = contract_query_parameters('app-api.yaml', '/api')
+    assert set(PENDING_QUERY_PARAMETERS) <= contract, 'a pending parameter is not in the contract'
+    on_served = {p for p in contract if p[:2] in served}
+    unread = on_served - served_query_parameters - set(PENDING_QUERY_PARAMETERS) - READ_BY_HAND
+    assert unread == set(), f'the hub ignores {unread}: read them, or list them as pending'
+
+
+def test_pending_query_parameters_are_still_pending(
+    served_query_parameters: set[tuple[str, str, str]],
+) -> None:
+    read = set(PENDING_QUERY_PARAMETERS) & served_query_parameters
+    assert not read, f'{read} are read now: remove them from PENDING_QUERY_PARAMETERS'

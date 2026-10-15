@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — app API
-  version: 0.8.0
+  version: 0.8.1
   description: |
     The API the iPhone app uses to talk to the hub on the person's own computer (the NUC for the
     owner's install, ADR-013). **Every path, including `/health`,
@@ -30,6 +30,10 @@ info:
     `UserRole`), `Me.role`, the `owner_only` refusal and the owner-only mark on operations (ADR-013
     retires them). Every field it adds to an existing schema is optional, except `Device.agent_id`,
     which a 0.8.0 hub always sends. The operations it adds are served story by story.
+
+    **0.8.1** (additive): the memory routes (`GET /memory`, `GET` and `PUT /memory/files/{path}`)
+    take an optional `agent_id` query parameter, so the Notebook follows the buddy a phone shows.
+    Without it they use the calling phone's buddy (`Device.agent_id`).
 servers:
   - url: https://marcel-bot.com/api
     description: Production, through the Cloudflare tunnel
@@ -1165,7 +1169,9 @@ paths:
     get:
       tags: [memory]
       operationId: getMemoryTree
-      summary: Every memory file (B-20).
+      summary: Every memory file of one buddy (B-20).
+      parameters:
+        - $ref: '#/components/parameters/MemoryAgentId'
       responses:
         '200':
           description: The tree.
@@ -1173,6 +1179,11 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MemoryTree' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: '`agent_id` is no buddy (code `agent_not_found`). New in 0.8.1.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '503':
           description: The memory store could not run (code `memory_unavailable`). Nothing was changed.
           content:
@@ -1200,6 +1211,8 @@ paths:
       summary: One memory file. The `ETag` header is the body's `etag` in quotes, as HTTP wants.
       description: |
         A file over 1 MB (written straight to disk) is not read: 400 `memory_file_too_big`.
+      parameters:
+        - $ref: '#/components/parameters/MemoryAgentId'
       responses:
         '200':
           description: The file.
@@ -1211,7 +1224,13 @@ paths:
               schema: { $ref: '#/components/schemas/MemoryFile' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '404':
+          description: |
+            No such file (code `memory_file_not_found`), or `agent_id` is no buddy (code
+            `agent_not_found`, new in 0.8.1).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '503':
           description: The memory store could not run (code `memory_unavailable`). Nothing was changed.
           content:
@@ -1237,6 +1256,7 @@ paths:
           in: header
           required: false
           schema: { type: string }
+        - $ref: '#/components/parameters/MemoryAgentId'
       requestBody:
         required: true
         content:
@@ -1256,7 +1276,10 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MemoryFile' }
         '404':
-          description: '`If-Match` names a file that was removed since you read it (code `memory_file_not_found`).'
+          description: |
+            `If-Match` names a file that was removed since you read it (code `memory_file_not_found`),
+            or `agent_id` is no buddy or an archived one (code `agent_not_found`, new in 0.8.1; an
+            archived buddy's memory stays readable but takes no saves). Nothing was saved.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -1378,6 +1401,17 @@ components:
       in: path
       required: true
       schema: { type: string }
+    MemoryAgentId:
+      name: agent_id
+      in: query
+      required: false
+      description: |
+        Whose memory: each buddy has its own (ADR-013). Omitted, it is the calling phone's buddy
+        (`Device.agent_id`), so an app built before 0.8.1 keeps working. An archived buddy's memory
+        stays readable; saving to it answers 404 `agent_not_found`, as does an id that is no buddy.
+        New in 0.8.1.
+      schema: { type: string }
+      example: agt_marcel
     DeviceId:
       name: device_id
       in: path
@@ -1458,7 +1492,7 @@ components:
             `task_not_found`, `task_not_finished`, `task_finished`, `runner_unreachable` (503);
             projects: `slug_taken`, `project_archived`, `project_is_inbox`, `project_busy`,
             `agent_not_found`; agents: `rollover_running`, `last_buddy` (409); artifacts and memory:
-            `artifact_not_found`, `artifact_is_board`, `invalid_memory_path`,
+            `artifact_not_found`, `artifact_is_board`, `invalid_memory_path`, `agent_not_found` (0.8.1),
             `memory_file_not_found`, `memory_file_too_big`, `memory_unavailable` (503); schedules:
             `schedule_not_found` (404), `schedule_builtin` (409); usage: `no_reading` (503); mentions
             (0.7.0): `mention_not_found` (404). 0.8.0 removed `owner_only`, `user_not_found` and

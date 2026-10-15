@@ -29,7 +29,7 @@ def check(registry: Registry, ref: str) -> Draft202012Validator:
 
 def test_the_versions_were_bumped() -> None:
     assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.14'  # 0.1.14 in S-02.13
-    assert load_yaml('app-api.yaml')['info']['version'] == '0.8.0'  # 0.8.0 in S-02.13
+    assert load_yaml('app-api.yaml')['info']['version'] == '0.8.1'  # 0.8.1: memory agent_id
 
 
 # 1. Workflow transcripts -------------------------------------------------------------------------
